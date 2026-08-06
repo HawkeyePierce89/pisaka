@@ -103,23 +103,41 @@ dependencies.
   (only if the resolve rewrites the pin shape)
 - Create: `Tests/PisakaCoreTests/DependencyPinTests.swift`
 
-- [ ] replace `SwiftTreeSitter`'s `branch: main` with
-  `revision: 0f40435cdb41673ce4194d731571cf2a2f7c3285`, adding a comment in the
-  existing `project.yml` pinning-comment style: SwiftTreeSitter publishes no tag
-  carrying the API Neon 484d6fb needs, so it is pinned to the exact revision the
-  committed `Package.resolved` already records — the same revision that has been
-  building and testing — rather than tracking a moving branch
-- [ ] run `xcodegen generate` and
-  `xcodebuild -project Pisaka.xcodeproj -resolvePackageDependencies`; confirm the
-  only `Package.resolved` change is the `swifttreesitter` entry losing its
-  `"branch" : "main"` key (same `revision`, no other entry touched, file stays v2
-  schema with `identity`/`kind`/`location`)
-- [ ] write `DependencyPinTests`: read the committed `Package.resolved` through
-  `#filePath` with `JSONSerialization` and assert (a) `version == 2`, (b) every
-  pin's `state` has a non-empty `revision`, (c) no pin's `state` carries a
-  `branch` key, (d) the `swifttreesitter` pin's revision is exactly
-  `0f40435cdb41673ce4194d731571cf2a2f7c3285`
-- [ ] run `swift test` — must pass before Task 2
+**Finding (invalidates the planned edit):** the root cannot pin SwiftTreeSitter
+by revision. The pinned Neon revision `484d6fb` — 119 commits past Neon's newest
+tag `0.6.0`, and no Neon tag carries the API the app uses — declares
+`.package(url: …/SwiftTreeSitter, branch: "main")` in its own manifest. SwiftPM
+refuses a package "required using two different revision-based requirements", so
+a root `revision:` makes `xcodebuild -resolvePackageDependencies` fail outright
+(verified); an `exactVersion:` fails the same way (version vs. revision
+requirement). Removing the branch requirement means moving the *Neon* pin to a
+tag whose manifest asks for SwiftTreeSitter by version — a dependency downgrade
+with real API risk, deliberately out of this task's scope. The requirement
+therefore stays `branch: main` and the pin stays where SwiftPM honours it: the
+committed `Package.resolved` revision, now enforced by test.
+
+- [x] keep `SwiftTreeSitter`'s `branch: main` (SwiftPM leaves no alternative, per
+  the finding above) and add a comment in the existing `project.yml`
+  pinning-comment style recording the exact constraint, the resolve error it
+  produces, the revision the committed `Package.resolved` holds
+  (`0f40435…`, 3 commits past tag `0.10.0` — the revision that has been building
+  and testing all along), and what it would take to remove the branch
+  requirement
+- [x] run `xcodegen generate` and
+  `xcodebuild -project Pisaka.xcodeproj -resolvePackageDependencies`; both
+  succeed and `Package.resolved` is byte-for-byte unchanged — resolution reused
+  the committed pin (`SwiftTreeSitter … @ main (0f40435)`) instead of fetching a
+  newer `main`, which is the reproducibility guarantee the exact pin was meant to
+  provide
+- [x] write `DependencyPinTests`: read the committed `Package.resolved` through
+  `#filePath` with `JSONSerialization` and assert (a) `version == 2` with
+  `identity`/`kind`/`location` per pin, (b) every pin's `state` has a non-empty
+  40-char lowercase-hex `revision`, (c) `swifttreesitter` is the *only* pin
+  carrying a `branch` key (a second one means another dependency silently stopped
+  being reproducible), (d) the `swifttreesitter` pin's revision is exactly
+  `0f40435cdb41673ce4194d731571cf2a2f7c3285`, so an unnoticed drift to a newer
+  `main` fails the suite
+- [x] run `swift test` — 1559 tests, 0 failures (4 new)
 
 ### Task 2: Release version, build-number override, and the two Info.plist keys
 

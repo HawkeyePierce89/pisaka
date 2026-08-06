@@ -34,6 +34,26 @@ packages:
   Neon:
     url: https://github.com/ChimeHQ/Neon
     revision: 484d6fb9e0c4fb679a1d5f5ddaf2cac2ecf21165
+  # SwiftTreeSitter is the one dependency this file cannot pin by revision, and
+  # the reason is Neon's manifest, not a choice made here: the pinned Neon
+  # revision (484d6fb, 119 commits past its newest tag 0.6.0 — no Neon tag
+  # carries the API the app uses) declares
+  #   .package(url: ".../SwiftTreeSitter", branch: "main")
+  # and SwiftPM refuses to resolve a package that is "required using two
+  # different revision-based requirements" — a root `revision:` here plus Neon's
+  # `branch: main` is exactly that, and `xcodebuild -resolvePackageDependencies`
+  # fails outright. An `exactVersion:` fares no better (version vs. revision
+  # requirement). So the requirement stays `branch: main` and the *pin* lives
+  # where SwiftPM will honour it: the committed Package.resolved records
+  # revision 0f40435cdb41673ce4194d731571cf2a2f7c3285 (3 commits past tag
+  # 0.10.0), the revision that has been building and testing all along, and
+  # resolution reuses it until someone explicitly updates.
+  # `DependencyPinTests` asserts that exact revision and that swifttreesitter is
+  # the *only* branch-based pin in the file, so an unnoticed drift to a newer
+  # main — or a second branch dependency creeping in — fails the suite.
+  # To remove the branch requirement entirely, Neon itself must move to a tag
+  # whose manifest asks for SwiftTreeSitter by version; that is a Neon-pin
+  # change with real API risk, deliberately not bundled into the release prep.
   SwiftTreeSitter:
     url: https://github.com/ChimeHQ/SwiftTreeSitter
     branch: main
