@@ -241,26 +241,40 @@ committed `Package.resolved` revision, now enforced by test.
 - Create: `Resources/Licenses/<identity>.txt` (18 files)
 - Modify: `project.yml`
 
-- [ ] for each of the 15 remote packages, verify
+- [x] for each of the 15 remote packages, verify
   `git -C DerivedData/SourcePackages/checkouts/<pkg> rev-parse HEAD` equals that
   package's `Package.resolved` revision, then copy its `LICENSE`/`COPYING`
   verbatim (bytes unchanged, copyright lines intact) to
   `Resources/Licenses/<identity>.txt`; do the same for the transitive
   `tree-sitter` C runtime, and copy `Vendor/TreeSitterGitignore/LICENSE` and
-  `Vendor/TreeSitterDotenv/LICENSE` for the two vendored grammars
-- [ ] confirm `libgit2.txt` contains both the GPLv2 text and the
+  `Vendor/TreeSitterDotenv/LICENSE` for the two vendored grammars — all 17
+  checkout HEADs match their pins (including the `swift-argument-parser` one that
+  is *not* copied), and every copy is `cmp`-identical to its source: 18 files,
+  four SPDX shapes (BSD-3-Clause for the three ChimeHQ packages, MIT for
+  SwiftTerm + the runtime + all 12 grammars, GPLv2-with-linking-exception for
+  libgit2)
+- [x] confirm `libgit2.txt` contains both the GPLv2 text and the
   `LINKING EXCEPTION` section (it is what permits linking into a closed-source
-  app)
-- [ ] write `Resources/Licenses/licenses.json`: an ordered array of entries
+  app) — 64631 bytes carrying the exception at line 10 and
+  `GNU GENERAL PUBLIC LICENSE / Version 2, June 1991` at line 24
+- [x] write `Resources/Licenses/licenses.json`: an ordered array of entries
   `{ id, name, origin (url or Vendor path), version, revision, spdx, file }`, one
   per shipped dependency, plus a top-level `excluded` array recording
   `swift-argument-parser` with the reason "resolved only for the tree-sitter
-  package's CLI target; not linked into the app"
-- [ ] declare `Resources/Licenses` in `project.yml` as a folder-reference
+  package's CLI target; not linked into the app" — 18 `notices` in `project.yml`
+  dependency order; `version` is `null` for the three entries that have no tag
+  (Neon and SwiftTreeSitter are revision-pinned, vendored gitignore has no
+  upstream release), so Task 5's `LicenseNotice.version` must be optional; the
+  two vendored `revision`s come from their `VENDORED.md` upstream tables
+- [x] declare `Resources/Licenses` in `project.yml` as a folder-reference
   resource so the directory is copied into the bundle as `Licenses/` and adding a
-  future `.txt` needs no project regeneration
-- [ ] run `swift test` — must pass before Task 5 (the manifest's own tests land
-  in Task 5)
+  future `.txt` needs no project regeneration — `type: folder`, one
+  `PBXFileReference` with `lastKnownFileType = folder` in the resources phase; an
+  early macOS build confirms `Pisaka.app/Contents/Resources/Licenses/` holds
+  `licenses.json` plus all 18 `.txt` files, `PrivacyInfo.xcprivacy` still beside
+  it at the top level; Task 8 re-verifies on both destinations
+- [x] run `swift test` — must pass before Task 5 (the manifest's own tests land
+  in Task 5) — 1564 tests, 0 failures
 
 ### Task 5: `LicenseCatalog` in Core, plus coverage tests
 

@@ -149,6 +149,20 @@ targets:
       # `docs/architecture/core-services.md` and asserted by `ReleaseMetadataTests`.
       - path: Resources/PrivacyInfo.xcprivacy
         buildPhase: resources
+      # Third-party license texts, declared as a *folder reference*
+      # (`type: folder`) rather than a group of individual file references: the
+      # directory itself is copied into the bundle verbatim, so it lands as
+      # `Licenses/` (holding `licenses.json` plus one `.txt` per shipped
+      # dependency) and adding or replacing a text needs no `xcodegen generate`
+      # — the build copies whatever the directory currently contains. That is
+      # also why the manifest, not the project file, is the list of record:
+      # `LicenseCoverageTests` asserts `licenses.json` covers exactly the
+      # packages this file links (plus the transitive `tree-sitter` runtime) at
+      # exactly the revisions `Package.resolved` pins, so a new dependency fails
+      # the suite until its license ships. `Acknowledgements` reads it through
+      # `Bundle.main`.
+      - path: Resources/Licenses
+        type: folder
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ws.karmanov.pisaka
