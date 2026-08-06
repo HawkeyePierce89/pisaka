@@ -1,0 +1,70 @@
+# Releasing Pisaka
+
+Everything here is repository-side. Signing, notarization and the App Store
+Connect record are deliberately absent — see [Not here yet](#not-here-yet).
+
+## The two numbers
+
+| Setting | Plist key | Where it lives | Who changes it |
+| --- | --- | --- | --- |
+| `MARKETING_VERSION` | `CFBundleShortVersionString` | `project.yml` (currently `1.0`) | committed, per release |
+| `CURRENT_PROJECT_VERSION` | `CFBundleVersion` | `project.yml` (`1`) | overridden per upload, **not** committed |
+
+### The release version
+
+`MARKETING_VERSION` is the user-visible version — the one that appears in the
+About box and in the store listing. It lives in `project.yml` under the `Pisaka`
+target's `settings.base`, and changing it is an ordinary commit: bump it when
+the release it names is what you intend to ship.
+
+### The build number
+
+App Store Connect rejects an upload whose `CFBundleVersion` it has already seen
+for the same `CFBundleShortVersionString`. Every upload therefore needs a build
+number no previous upload used — including re-uploads of a rejected or
+mis-built archive, which is exactly when bumping a committed value is most
+annoying.
+
+So the build number is **not** bumped in the working tree. `project.yml` keeps
+`CURRENT_PROJECT_VERSION: "1"` as a stable floor, and each upload passes its own
+value on the `xcodebuild` command line. A build setting given as a command-line
+argument overrides the project's value for that invocation only, so the archive
+carries the new number and `git status` stays clean:
+
+```sh
+xcodegen generate
+xcodebuild -project Pisaka.xcodeproj -scheme Pisaka \
+  -destination 'generic/platform=macOS' \
+  -archivePath build/Pisaka-macOS.xcarchive \
+  CURRENT_PROJECT_VERSION=7 \
+  archive
+```
+
+Rules for the value:
+
+- **Monotonic integer.** Use a plain, strictly increasing whole number (`1`,
+  `2`, `3`, …). Never reuse one, never go backwards, and never reset it when
+  `MARKETING_VERSION` moves — a single ever-increasing sequence across all
+  releases is the simplest thing that satisfies both stores.
+- **One per upload, not per release.** Two attempts at the same release are two
+  build numbers.
+- **Both destinations.** macOS and iOS archives of the same release should
+  carry the same build number; pass the same `CURRENT_PROJECT_VERSION=<n>` to
+  each `archive` invocation.
+- **Record it.** The number that actually shipped only exists in App Store
+  Connect and in the release tag's notes — the repository does not track it by
+  design.
+
+## Not here yet
+
+The following are account-side and cannot be committed until an Apple Developer
+Program membership exists:
+
+- `DEVELOPMENT_TEAM` and the signing configuration (the project builds today
+  with `CODE_SIGNING_ALLOWED: NO`).
+- Notarization / stapling for the macOS build, and the distribution-channel and
+  sandbox decisions that precede it.
+- The App Store Connect app records, store metadata and screenshots.
+
+None of the repository-side work above depends on a signing team existing;
+adding these steps is a separate change to this document.

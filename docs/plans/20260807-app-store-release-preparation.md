@@ -147,10 +147,10 @@ committed `Package.resolved` revision, now enforced by test.
 - Create: `docs/RELEASING.md`
 - Create: `Tests/PisakaCoreTests/ReleaseMetadataTests.swift`
 
-- [ ] set `MARKETING_VERSION: "1.0"`; keep `CURRENT_PROJECT_VERSION: "1"`
+- [x] set `MARKETING_VERSION: "1.0"`; keep `CURRENT_PROJECT_VERSION: "1"`
   numeric, with a comment pointing at `docs/RELEASING.md` for the per-upload
   override
-- [ ] add `Resources/Info.plist` as a *partial* plist carrying only
+- [x] add `Resources/Info.plist` as a *partial* plist carrying only
   `LSApplicationCategoryType` = `public.app-category.developer-tools` (string)
   and `ITSAppUsesNonExemptEncryption` = `<false/>` (real Boolean — the app's only
   cryptography is HTTPS/TLS via Apple frameworks and libgit2's Apple TLS backend,
@@ -162,20 +162,26 @@ committed `Package.resolved` revision, now enforced by test.
   the generated or the custom keys, fall back to
   `INFOPLIST_KEY_LSApplicationCategoryType` /
   `INFOPLIST_KEY_ITSAppUsesNonExemptEncryption` build settings and re-verify the
-  value types
-- [ ] write `docs/RELEASING.md`: the release version lives in `project.yml`;
+  value types — *not needed*: an early macOS build confirms the merge, the built
+  `Contents/Info.plist` carrying `LSApplicationCategoryType`, a Boolean
+  `ITSAppUsesNonExemptEncryption = false`, *and* the generated keys
+  (`CFBundleName`, `CFBundleShortVersionString = 1.0`,
+  `LSSupportsOpeningDocumentsInPlace`); Task 8 re-verifies on both destinations
+- [x] write `docs/RELEASING.md`: the release version lives in `project.yml`;
   every App Store Connect upload must carry a build number never seen before, so
   uploads pass `CURRENT_PROJECT_VERSION=<n>` on the `xcodebuild archive` command
   line (a command-line setting override beats the project value and leaves the
   working tree clean); record the monotonic-integer rule, an example command, and
   a note that signing/notarization steps are deliberately absent until the
   developer account exists
-- [ ] extend the `Resources/Info.plist` half into `ReleaseMetadataTests`: read
+- [x] extend the `Resources/Info.plist` half into `ReleaseMetadataTests`: read
   the partial plist through `#filePath` with `PropertyListSerialization` and
   assert the category string equals `public.app-category.developer-tools` and
   that `ITSAppUsesNonExemptEncryption` is present and is a `Bool` equal to
-  `false` (not the string "NO")
-- [ ] run `swift test` — must pass before Task 3
+  `false` (not the string "NO") — the Boolean check goes through
+  `CFBooleanGetTypeID`, since a string `"NO"` also survives `as? Bool` bridging;
+  a third test pins the key set to those two, keeping generatable keys out
+- [x] run `swift test` — 1562 tests, 0 failures (3 new)
 
 ### Task 3: Privacy manifest
 

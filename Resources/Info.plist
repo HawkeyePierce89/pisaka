@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The App Store category. Required by App Store Connect validation for the
+	     macOS upload and used as the store listing's primary category. -->
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.developer-tools</string>
+	<!-- Export-compliance answer, pre-answered so every upload skips the
+	     interactive question. `false` is the standard exemption: the app's only
+	     cryptography is HTTPS/TLS, and all of it comes from Apple's own
+	     frameworks (URL loading, the Security framework Keychain) or libgit2's
+	     Apple TLS backend — no proprietary or non-exempt encryption is
+	     implemented or bundled. Must be a real Boolean, not the string "NO";
+	     `ReleaseMetadataTests` asserts the type. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+</dict>
+</plist>

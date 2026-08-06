@@ -139,8 +139,25 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ws.karmanov.pisaka
         PRODUCT_NAME: Pisaka
+        # `Resources/Info.plist` is a *partial* plist: it carries only the two
+        # keys App Store Connect validation wants and that Xcode has no
+        # `INFOPLIST_KEY_*` equivalent worth using here —
+        # `LSApplicationCategoryType` and a real-Boolean
+        # `ITSAppUsesNonExemptEncryption`. `GENERATE_INFOPLIST_FILE` stays YES,
+        # so Xcode merges its generated per-destination keys (CFBundleName,
+        # CFBundleShortVersionString, the scene/principal-class keys, every
+        # `INFOPLIST_KEY_*` below) *into* this file's contents rather than
+        # replacing them — the built plist is the union. Task 8 of the release
+        # plan verifies that union with `plutil -p` on both destinations.
         GENERATE_INFOPLIST_FILE: YES
-        MARKETING_VERSION: "0.1"
+        INFOPLIST_FILE: Resources/Info.plist
+        # The release version. `CURRENT_PROJECT_VERSION` stays a plain monotonic
+        # integer and is *not* bumped in the working tree per upload: App Store
+        # Connect only requires each upload to carry a build number never seen
+        # before, so uploads override it on the `xcodebuild archive` command line
+        # (`CURRENT_PROJECT_VERSION=<n>`), which beats the project value and
+        # leaves the tree clean. See docs/RELEASING.md.
+        MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.9"
         CODE_SIGN_STYLE: Automatic
