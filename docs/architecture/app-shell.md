@@ -1,0 +1,744 @@
+# Pisaka app (macOS) — PisakaApp orchestration, watcher, autosave & session controllers
+
+Design documentation moved verbatim from the root `CLAUDE.md` (which now holds only a one-line-per-file index). Each entry records a file's contract, invariants and the reasoning behind non-obvious decisions — read the relevant entry before modifying that file, and update it when behavior changes.
+
+  - `PisakaApp.swift` — `@main` App, menu commands and shortcuts
+    (Cmd+N/O, Cmd+Shift+O for "Open Folder…", Cmd+S/W), and the save/close and
+    folder/file-open orchestration that ties the model to the file panels. The
+    Terminal, Git Log, and Local Changes are all VS Code-style *bottom dock
+    panels* sharing one dock: it owns a
+    single `@State private var bottomPanel: BottomPanel? = nil` (`nil` = no panel,
+    passed as a binding to `ContentView`, which draws the always-visible
+    Terminal/Git/Changes bar) and three View-menu commands — "Show/Hide Git Log"
+    (Cmd+Shift+L), "Show/Hide Terminal" (Cmd+Shift+T), and "Show/Hide Local Changes"
+    (**Cmd+Shift+C**, moved off Cmd+Shift+G — the macOS standard for "Find
+    Previous", which the Find menu below claims), their labels reflecting the
+    active state —
+    all routed through one shared `togglePanel(_:)` handler (also wired to the
+    bottom bar via `ContentView`'s `onTogglePanel` so a button and its matching menu
+    command behave identically). `togglePanel(.terminal)` creates the first session
+    (`terminalSessions.newSession(projectRoot: model.projectRoot)`) when none exists
+    yet, then applies the pure `BottomPanel.toggled(bottomPanel, selecting:)` to flip
+    the shown panel. It also exposes the Run File feature: a `CommandMenu("Run")`
+    with a "Run File" item bound to ⌘R (`.keyboardShortcut("r", modifiers:
+    .command)`) — enabled only when the selected tab has a `url` whose name passes
+    `RunCommand.canRun`, running that url — and a `runFile(url:)` handler (also wired
+    to `ProjectTreeView`'s file-row "Run" item via the `onRun` callback threaded
+    through `ContentView`). `runFile(url:)` resolves the command with
+    `RunCommand.command(forFileName:absolutePath:)` — on `nil` (unrunnable type) it
+    beeps (`PlatformFeedback.warning()`) and shows `presentCantRun()`
+    (`PlatformAlert.presentMessage` "Can't run files of this type.") — saves the
+    file's open tab first when it is dirty (`model.fileID(forURL:)` +
+    `model.isDirty(for:)` → the existing `save(id:)`) but *only* after refusing
+    via `revertInFlight()` (the save is an uncoordinated disk write that would
+    race an in-flight revert's off-main `git checkout`, so it is gated like the
+    project-tree file ops) and aborting the whole run if that save fails (so it
+    never runs stale on-disk contents that no longer match the editor), computes the working
+    directory via `RunCommand.workingDirectory(projectRoot: model.projectRoot,
+    fileURL:)`, shows the terminal panel (`bottomPanel = .terminal`), and calls
+    `terminalSessions.runFile(url:command:workingDirectory:title: "Run: \(url
+    .lastPathComponent)")`. The Run menu also holds a "Run Test" item bound to ⌘U
+    (`.keyboardShortcut("u", modifiers: .command)`) — enabled only when
+    `canTestSelectedFile` (`TestCommand.isTestFile` on the selected tab's url) —
+    and a `testFile(url:)` handler (wired to `ProjectTreeView`'s file-row
+    "Run Test" item via the `onRunTest` callback threaded through `ContentView`).
+    `testFile(url:)` mirrors `runFile`: it assembles a `ProjectTestEvidence` via a
+    private `projectTestEvidence()` — lists `projectRoot` through `fileService`
+    (empty evidence when no folder is open — the listing already carries the
+    dotfile signals like `.mocharc*`, since only `.git`/`.DS_Store` are hidden, so
+    no separate probing is needed), and reads the one runner-selecting manifest
+    whose *contents* matter (`package.json` — the JS/TS vitest/jest/mocha substring check; every
+    other runner is chosen by an entry's presence, not its contents), with
+    directory-/file-read failures swallowed — resolves the command via
+    `TestCommand.command(forFileName:absolutePath:evidence:)`, on `.runnerUndetected`
+    beeps + alerts "Couldn't detect a test runner for this project.", and on
+    `.command` runs the same tail as `runFile` (`revertInFlight()` gate, save the
+    dirty buffer aborting on failure, `bottomPanel = .terminal`,
+    `terminalSessions.testFile(..., title: "Test: \(url.lastPathComponent)")`).
+    It also exposes the whole search feature. A `CommandMenu("Find")` holds five
+    items — "Find…" (⌘F → `search.open()`), "Replace…" (⌘⌥F →
+    `search.openReplace()`), "Find Next" (⌘G), "Find Previous" (⌘⇧G, the shortcut
+    "Show/Hide Local Changes" vacated for it), all four `.disabled(model.selectedID
+    == nil)` since they act on the open editor, and "Find in Files…" (⌘⇧F →
+    `openProjectSearch()`, `.disabled(model.projectRoot == nil)` because the search
+    *is* a walk of the opened folder). It owns the window-scoped `@StateObject
+    search = EditorSearchState()` (threaded into `ContentView` → `CodeEditorView`;
+    the bar's contents survive a tab switch, which is why it cannot live in the
+    editor's coordinator) and `@StateObject reveal = EditorRevealState()`, plus the
+    `@StateObject projectSearch: ProjectSearchModel` and a `private let
+    projectSearchWindows = ProjectSearchWindowController()` whose `closeAll()` joins
+    the diff/merge controllers in the `willTerminateNotification` observer. The
+    project-search model is the reason `PisakaApp` has an `init()` at all: its two
+    buffer closures are `let`s taken at construction and must close over the *very*
+    `WorkspaceModel` the app publishes (Core deliberately keeps no reference to the
+    workspace), which a property initializer cannot reach — so `init()` builds the
+    workspace, wraps both in `StateObject`, and every other stored property keeps
+    its inline default. `openBuffers` returns every titled open tab's text (dirty
+    or not — what the user sees is what gets searched; a file absent from the
+    snapshot goes down the on-disk branch, and a url-less "Untitled" buffer names
+    no file so it is left out) and `applyBufferText` writes a replacement back through
+    `model.updateText`, so a replaced open file goes through the editor rather than
+    being written under it (autosave then persists it like any other edit). `openFolder()` calls `projectSearch.prepareForSearch(root:)`
+    *synchronously* alongside the Local Changes / Log registrations (there is no
+    "close folder" action, so this is the only call site); no refresh `Task` is
+    spawned, since the window searches only when the user asks.
+    `activateSearchMatch(url:range:)` opens the file through the ordinary
+    `openFile(url:)` path (so an already-open tab is re-selected, not duplicated),
+    resolves the tab id, and records the range with `reveal.reveal(fileID:range:)` —
+    a failed open resolves to no tab, so nothing is revealed.
+    `replaceAllInProject(template:originGeneration:)` brackets
+    `ProjectSearchModel.replaceAll` with
+    the *same* coordination as `applyMerge`/`revertChanges`, because a project-wide
+    Replace All is the third uncoordinated disk writer and touches files the user
+    cannot all see: it refuses outright while `localChanges.isReverting`
+    (`revertInFlight()`), then raises `autosave.suspend()` +
+    `localChanges.beginRevert()` **synchronously before the first `await`**
+    (balanced by `defer`), and afterwards — only when something actually changed —
+    re-queries Local Changes and bumps `treeRevision` (the batch changed file
+    contents on disk and the watcher ignores the app's own writes). It does **not**
+    capture the project pin itself — its own synchronous prefix already runs
+    *inside* the view's `Task`, i.e. after the window the pin exists to close — so
+    `originGeneration` arrives from `ProjectSearchView.confirmReplaceAll` (read
+    from `currentRootGeneration` right after the alert returns) through the
+    two-argument `onReplaceAll: (String, Int) async -> ReplaceSummary?` closure and
+    is passed straight to `projectSearch.replaceAll(template:originGeneration:)`. It
+    owns the embedded terminal's `@StateObject
+    TerminalSessionsModel`; the app-termination path calls
+    `terminalSessions.terminateAll()` so no shell processes leak (tab-close
+    terminates its own session). It also owns a `private let diffWindows =
+    DiffWindowController()` for the separate diff windows and two open-diff handlers
+    threaded into `ContentView` as `onOpenDiff`/`onOpenCommitDiff`:
+    `openLocalChangesDiff(_:)` (title via `DiffWindowTitle.localChanges(path:)`,
+    `load = localChanges.rows(for:)`) and `openCommitDiff(_:in:)` (title via
+    `DiffWindowTitle.commit(path:hash:subject:)`, `load = commitLog.rows(for:in:)`),
+    each building a `DiffWindowContent` and calling `diffWindows.open(title:content:)`.
+    It likewise owns a `private let mergeWindows = MergeWindowController()` for the
+    separate 3-pane merge windows and a `resolveConflict(_:)` handler threaded into
+    `ContentView` as `onResolveConflict`: it resolves the repo root
+    (`localChanges.root ?? model.projectRoot`), builds a fresh `MergeModel` (own
+    `GitCLIService`, sharing the project `FileService`), kicks off
+    `await mergeModel.load(file:root:)`, and calls
+    `mergeWindows.open(title:model:settings:onApply:)` whose `onApply` is the guarded
+    `applyMerge(_:file:root:)` (the controller closes the window only when it returns
+    `true`). `applyMerge` brackets `MergeModel.apply()` with the *same* coordination
+    as the revert path — because apply is a third uncoordinated disk writer (it
+    `write`s the resolved file and `git add`s it off the main thread): it suspends
+    autosave (`autosave.suspend()`) and raises the disk-writer gate
+    (`localChanges.beginRevert()`) *synchronously before the first `await`* (balanced
+    by `defer`) so neither an idle/focus-loss autosave of a dirty tab on this same
+    file nor a project-tree op can race the apply and stage stale conflicted content
+    over the resolution. It snapshots the open tab's buffer (`model.fileID(forURL:
+    root/file.path)`, canonical match, so a tab opened via `projectRoot` resolves)
+    *together with its dirty state* (`model.isDirty(for:)`)
+    before the `await` and, on success, refreshes Local Changes and resyncs the tab —
+    `model.reloadFromDisk(id:)` only when the buffer held no unsaved edits to lose: it
+    was *clean at the snapshot* **and** is provably unchanged since (else
+    `model.reconcileSavedBaseline(id:)` + beep, preserving the edit — whether it
+    pre-dated the apply or was made while it ran — rather than silently reloading over
+    it), and `model.close(id:force: true)`
+    when the resolved file is gone from disk (a modify/delete staged as a deletion).
+    A successful Apply then closes the window itself.
+    The `willTerminateNotification` observer calls `diffWindows.closeAll()` and
+    `mergeWindows.closeAll()` alongside
+    `terminalSessions.terminateAll()` so no diff/merge windows linger past
+    termination. It
+    also holds the shared
+    `CommitLogModel` (real
+    `GitCLIService`); `openFolder()` refreshes it (`CommitLogView.initialLimit`)
+    alongside `LocalChangesModel`, since `CommitLogView` is only in the hierarchy
+    when the Git Log panel is shown so a folder switch made with the panel hidden
+    would otherwise not reach it. It
+    captures the request token synchronously via `commitLog.prepareForRefresh(root:)`
+    (which also resets the previous repo's ref-specific filter/refs on the switch)
+    *before* the `Task`-wrapped `refresh(root:limit:request:)`, so two rapid folder
+    opens settle on the latest even when their unstructured tasks start out of order
+    — the same generation-pinning the Local Changes path uses. It also constructs the
+    shared `BranchSwitcherModel` (real `GitCLIService`) hosted by
+    `BranchSwitcherView` in the bottom bar, refreshing it on `openFolder` and after a
+    successful switch/create. Its `switchBranch`/`createBranch`/`checkoutRemote`
+    handlers wrap `BranchSwitcherModel.switchTo`/`createBranch`/`checkoutRemote` under
+    the *same* gates as the
+    revert/apply-merge paths: synchronously before the `await` — `autosave.suspend()`
+    + `localChanges.beginRevert()` (the project-tree-ops gate), `defer`
+    resume/`endRevert`, and a snapshot of every open-tab buffer; on success the tab
+    resync (`reloadFromDisk` for a clean tab, `reconcileSavedBaseline`+beep for an
+    edited one — a checkout rewrites the worktree), a tree refresh
+    (`bumpTreeRevision`), and generation-pinned Local Changes / Log refreshes. Both
+    the switch and checkout-remote handlers run through the shared
+    `runBranchOperation { () async -> Bool }` orchestration; `checkoutRemote(_:)` is a
+    mirror of `switchBranch` (the same dirty-tree warning — the DWIM checkout part may
+    be blocked just the same — synchronous `currentRefreshGeneration` pinning, then
+    `runBranchOperation { await branchSwitcher.checkoutRemote(ref, originGeneration:) }`),
+    threaded into `ContentView` as `onCheckoutRemote: { checkoutRemote($0) }` alongside
+    `onCreateBranchFromRemote`. Also
+    constructs the shared `LocalChangesModel` (with the real `GitCLIService`) and
+    auto-refreshes it on `markSaved` so a save re-runs `git status` (no
+    filesystem watching). `openFolder()` also refreshes `LocalChangesModel`
+    directly (not only via `LocalChangesView`'s `.onChange(of: projectRoot)`,
+    which never fires while that view is out of the hierarchy in "Project" mode):
+    the model's mid-revert folder-switch guard keys off a folder change being
+    observed, so a missed switch would let an in-flight revert
+    keep mutating the *previous* repository. Because the model's `refresh`/`revert` are now `async`,
+    these calls are `Task`-wrapped — but `openFolder()` first calls
+    `localChanges.prepareForFolderChange(root:)` *synchronously*, in the same
+    main-actor turn that handles the folder open, *before* spawning the
+    `Task`-wrapped refresh: the `Task` body runs a later main-actor turn, so bumping
+    the folder-switch generation only inside it would leave a window where an
+    in-flight revert's continuation resumes first and still mutates the old repo.
+    The synchronous pre-registration closes that window (and the subsequent
+    `refresh` no-ops its own switch-handling for the same root). `openFolder()`
+    also captures the generation `prepareForFolderChange` returns and passes it as
+    `refresh(root:requestGeneration:)`, so a refresh task that two rapid folder
+    opens left running out of order (an older folder's task executing after a
+    newer's) is rejected instead of rewriting the panel back to the superseded
+    repo. The post-save refresh hook (`refreshLocalChanges`) likewise captures
+    `localChanges.currentRequestGeneration` *synchronously* and spawns
+    `Task { await localChanges.refresh(root:requestGeneration:) }`, so a save-driven
+    refresh that ends up running after a folder switch is rejected rather than
+    re-deriving (and reversing) the switch inside `refreshImpl` — the same hazard the
+    folder-open pinning closes. `LocalChangesView.refreshIfPossible` (the
+    `onAppear`/`onChange`/manual-button backstop) pins its generation the same way.
+    `revertChanges(contextFile:)` runs the synchronous `confirmRevert` dialog
+    first, then does its `revert` + tab-resync loop inside a `Task { @MainActor in
+    … }`. It resolves the affected files via `localChanges.filesToRevert(contextFile:)`,
+    confirms via `FilePanels.confirmRevert(fileNames:)` (returning before any
+    mutation on cancel), captures `localChanges.currentRequestGeneration`
+    *synchronously* before the `Task` hop, awaits
+    `localChanges.revert(files, originGeneration:)` (so a folder switch that
+    commits before the deferred task starts makes the revert bail rather than
+    mutate the newly opened repo), then for each reverted
+    URL resolves the open tab via `model.fileID(forURL:)` (canonical match, so the
+    revert's repo-root-relative url still finds a tab opened via `projectRoot`) and
+    keeps it in sync — `model.reloadFromDisk(id:)` when the file still exists on
+    disk, `model.close(id:force: true)` when it was deleted. Because the revert
+    now runs `git` off the main thread, the editor stays interactive while it is
+    in flight, so before the `Task` hop it snapshots every open tab's buffer text
+    (`model.openFiles` → id→text) *synchronously*; the resync skips (and beeps for)
+    any tab whose text changed since that snapshot (`model.text(for:)`), so an edit
+    the user made to an affected file after confirming the revert is preserved
+    rather than silently overwritten by `reloadFromDisk` or discarded by a
+    force-close. A preserved tab also has its saved baseline reconciled
+    (`model.reconcileSavedBaseline(id:)`): if the user *saved* that edit during the
+    in-flight revert the tab would otherwise look clean (`savedText == text`) even
+    though `git` has since changed the file on disk, so closing it would skip the
+    unsaved-changes prompt and silently lose the edit — reconciling against the
+    post-revert disk state makes it dirty. `PisakaApp` also owns an
+    `AutosaveController` (started once from the window content's `.onAppear` with
+    `model` and an `onSaved` closure that calls `refreshLocalChanges()`, reusing
+    its generation-pinning rather than duplicating the git status refresh).
+    `revertChanges` brackets its revert+resync `Task` with the controller:
+    `autosave.suspend()` is called *synchronously* right after the confirm
+    (where `originGeneration`/`preRevertText` are captured, before the `Task`
+    hop), and `autosave.resume()` via `defer` inside the `Task { @MainActor in … }`
+    so it always resumes — including the early-bail paths (origin-generation
+    mismatch, empty `reverted`). This keeps autosave (a second, uncoordinated disk
+    writer) from firing for the full duration of the in-flight git revert and its
+    snapshot-based resync — which it would otherwise race (`git checkout` on the
+    same file) and corrupt. The same synchronous-before-the-hop / `defer`-inside
+    bracket raises and lowers `localChanges.beginRevert()`/`endRevert()` (the
+    `isReverting` gate), blocking the *project-tree* file operations — the other
+    uncoordinated disk writer — for the same duration and the same reason. The suspend is *not* taken around the confirm dialog:
+    an autosave *can* interleave there (the idle debounce is a GCD main-queue timer
+    that fires inside the alert's nested run loop), but it is harmless — `preRevertText`
+    is snapshotted *after* the confirm returns and `git checkout` then supersedes
+    whatever it wrote — so suspending across the alert buys nothing and a cancel must
+    not leave autosave suspended. `closeFile(id:)` *does* bracket its
+    unsaved-changes confirmation with `autosave.suspendForModal()`/`resumeFromModal()`
+    (the modal-only gate, not `suspend()`): the idle debounce fires inside
+    `NSAlert.runModal()`'s nested run loop and would write the file to disk before
+    the user answers, defeating a subsequent "Don't Save" (which then drops only the
+    in-memory tab) — Don't Save force-closes the tab *before* `resumeFromModal()` so
+    the replayed autosave can't resave the discarded buffer. The modal gate leaves
+    the quit-time `flushNow` ungated, so a quit while the alert is open still saves
+    every *other* dirty file.
+    `PisakaApp` also orchestrates the writable project tree, wiring the four
+    `ProjectTreeView` callbacks (threaded via `ContentView`) to disk + model
+    reconciliation: New File (`promptName` → `parseRelativeEntryPath` →
+    `fileService.ensureDirectory(at:)` on the parent chain, skipped entirely for a
+    single component → `fileService.createFile(at:)` → `model.open(url:)` to show
+    it → bump `treeRevision`), New Folder (same, `createDirectory` on the final
+    component, no tab opened), Rename
+    (`promptName` pre-filled with the current name, a no-op when unchanged →
+    validate → capture `model.planRename(from:to:)` *before* the move →
+    `fileService.move(from:to:)` → `model.applyRenamePlan(_:)` → bump), and Delete
+    (`confirmDelete` → capture `model.tabIDs(under:)` *before* the removal →
+    `fileService.removeItem(at:)` → `model.closeFiles(ids:)` → bump). The tab
+    reconciliation is captured before the disk mutation (not after) so a tab
+    opened through a symlink to the affected item — which dangles, and so stops
+    canonicalizing to the target, once the move/removal lands — is still matched.
+    All four operations first bail (beep + an explanatory alert via
+    `revertInFlight()`) when `localChanges.isReverting`: a revert's off-main `git`
+    mutations would otherwise race these synchronous disk writes. The two *create*
+    call sites accept a VS Code-style relative path of any depth
+    (`centrifugo/config.json`): `parseRelativeEntryPath` does all the validation
+    (whole-input and per-component trimming, so no padded name reaches disk; the
+    `.`/`..`/line-break/NUL rules; and the case-insensitive reserved-name refusal),
+    a `nil`
+    result is reported through `reportInvalidName` — whose text now explains the
+    *per-component* rule (a slash separates folders; each part must be non-empty,
+    not `.` or `..`, must not contain a line break, and must not be a
+    reserved name such as `.git`/`.DS_Store` in any
+    casing; NUL is left out of the text as untypeable noise) — and the whole create
+    runs inside one `do/catch`, so any step's
+    failure goes through `reportFileOperationFailure`. A *multi-component* failure
+    still bumps `treeRevision` first (`refreshTreeAfterFailedCreate(componentCount:)`):
+    `ensureDirectory` has `mkdir -p` semantics and does not roll back, so folders it
+    already created are real, and without the bump they would stay invisible until an
+    unrelated tree operation refreshed the cached listings — the tree contradicting
+    disk, and a retry silently "reusing" folders the user cannot see. A
+    single-component create writes nothing on that path, so it is left alone.
+    Missing intermediates are created and existing ones reused, but the *final*
+    entry is never clobbered (`createFile`/`createDirectory` still throw
+    `.alreadyExists`), and a file sitting on the path surfaces
+    `.notADirectory(name:)`. `reportReservedName` is now *rename*-only: rename
+    keeps single-name, exact-match semantics (`isValidFileName` +
+    `FileService.isExcludedEntryName(_:)`) because a path there would mean a move —
+    a separate feature — and the entry would otherwise land on disk yet never
+    appear in the tree (silently retargeting the open tab to an unreachable path).
+    Every path surfaces a failure non-fatally: `reportFileOperationFailure` beeps and
+    shows an `NSAlert(error:)`, `reportInvalidName`/`reportReservedName` beep and
+    explain the rejected name. `reportInvalidName` takes an `isPath` flag because the
+    two call sites have different grammars — the create dialogs get the
+    per-component path rule, while rename gets "a name must not contain a slash"
+    (telling a rejected rename that slashes separate folders would describe a rule
+    the entered name satisfies, leaving the real reason unstated).
+    Each `promptName` call site passes the validator matching its own post-OK
+    guard, so the dialog gates OK on exactly the rule that would otherwise reject
+    the input afterwards: `newFile(in:)`/`newFolder(in:)` pass
+    `{ validateRelativeEntryPath($0)?.message }`, `renameItem(at:)` passes
+    `{ validateSingleEntryName($0)?.message }`, and the two branch dialogs
+    (`newBranch`/`createBranchFromRemote`) pass an explicit `{ _ in nil }` — no
+    live reason, `GitRefName.isValid` stays the only reporter (deliberate minimal
+    scope; see `FilePanels.swift`). The post-OK guards themselves
+    (`parseRelativeEntryPath`, `isValidFileName` + `isExcludedEntryName`,
+    `GitRefName.isValid`) and `reportInvalidName`/`reportReservedName` are **kept
+    exactly as they were**: live validation gates the *dialog*, but these paths are
+    also reachable programmatically (and the branch dialogs have no live
+    validation at all), so the guards remain the defense-in-depth backstop rather
+    than dead code. (`deleteItem` handles a file and a directory tree uniformly via
+    `removeItem`/`tabIDs(under:)`/`closeFiles(ids:)`, so it takes no item-type
+    flag.)
+    `PisakaApp` also owns `private let projectWatcher = ProjectWatcher()` (next to
+    `diffWindows`/`mergeWindows`) and wires it at two call sites: `openFolder()`
+    calls `projectWatcher.start(root: url, onChange: { model.bumpTreeRevision() })`
+    right after `model.openFolder(url:)` — `start` is idempotent, so this doubles as
+    the folder switch (events from the old root stop arriving) — and the
+    `willTerminateNotification` observer calls `projectWatcher.stop()` alongside
+    `terminalSessions.terminateAll()`/`closeAll()`, so no FSEvents stream outlives
+    the app. Nothing about the watcher-driven bump is gated: `bumpTreeRevision()` is
+    idempotent and the re-read it triggers is read-only, so the harmless
+    `.DS_Store`-driven bump and the worktree events of an in-flight revert (a `git`
+    *subprocess*, so `IgnoreSelf` does not suppress them) are inert — the gates
+    (`isReverting`, autosave suspension) exist for *disk writers*, which a re-read is
+    not; the `.git` noise of those same git runs is dropped by the Core filter.
+    Because the watcher ignores self-generated events, `saveAs(id:)` bumps
+    explicitly: after a successful `model.saveAs(url:for:)` it calls
+    `model.bumpTreeRevision()` (next to `refreshLocalChanges()`) — Save As writes a
+    *new* file, i.e. changes tree membership, and is the one in-app write that had no
+    bump before. The bump is unconditional: a destination outside the open folder
+    just re-reads listings that did not change, so gating on containment would add a
+    path check for no benefit. `revertChanges` bumps for the same reason: a revert
+    changes tree membership, and while every other revert branch runs a `git`
+    subprocess (whose events the watcher does deliver), reverting an *untracked* file
+    is `GitCLIService.removeUntracked`'s in-process `unlinkat` — which `IgnoreSelf`
+    drops. It bumps once after the whole batch when `reverted` is non-empty, the
+    redundant bump for the subprocess cases being free (idempotent, read-only). The
+    third self-write that changes tree membership is an ordinary Save/autosave that
+    *recreates* a file deleted out of band: `FileService.write` creates a missing
+    file, so a tab whose file was removed externally (the watcher having already
+    dropped it from the tree) puts it back on disk, and `IgnoreSelf` hides that from
+    the watcher. Both save paths therefore probe *before* the write and bump only
+    when the file was actually missing — `save(id:)` checks the tab's url
+    (`FileManager.fileExists`) and bumps after a successful
+    `model.save(for:)`, while `AutosaveController` collects the missing dirty titled
+    paths (`missingDirtyPaths(in:)`, so a nothing-to-save re-fire costs no syscall)
+    and reports `createdFile` through its `onSaved: (Bool) -> Void` callback, which
+    `PisakaApp` turns into the bump next to `refreshLocalChanges()`. An ordinary
+    overwrite is deliberately *not* bumped: it leaves every listing identical, and
+    that frequent case is exactly the self-noise `IgnoreSelf` exists to drop. The
+    quit-time `flushNow` has no `onSaved` and so no probe — there is no tree left to
+    refresh on the way out.
+    `PisakaApp` also owns the **launch-time session restore**: a `private let
+    sessionStore = SessionStore()` and a `private let sessionController =
+    SessionController()` (plain stored references like the controllers above — the
+    `@main` App is created once), plus `@State private var didRestoreSession`. The
+    former `openFolder()` is **split in two**: the no-argument form now does
+    nothing but show the panel and call `openFolder(url:)`, which holds *all* the
+    folder-change logic (the watcher start and the Local Changes / Git Log / branch
+    switcher / Project Search registrations with their synchronous
+    prepare-then-refresh pinning). The split exists so a *programmatic* open — the
+    restore — goes through exactly the same collaborators as a user-driven one;
+    calling `model.openFolder(url:)` directly would leave every one of them on a
+    project the workspace has already moved past. `restoreLastSession()` runs
+    **once**, from the window content's `.onAppear` (gated by `didRestoreSession`,
+    since `.onAppear` can fire again for a reopened window or a second
+    `WindowGroup` scene and restore is *not* idempotent — a second run would
+    re-select a tab the user has since moved off), before the first interaction: read
+    `sessionStore.load()`; if a `folderPath` was recorded and still names a
+    **directory** (`isExistingDirectory(atPath:)` — checked rather than mere
+    existence, because a path replaced by a *file* since the last launch would point
+    the tree, the watcher and every git model at something that cannot be listed),
+    open it via `openFolder(url:)`; then `model.restoreSession(session)`. Tabs are
+    restored regardless of the folder's fate, and everything is **silent** — a
+    missing file, an unreadable one, a vanished folder all pass without an alert or a
+    beep, since restore is not an operation the user asked to succeed. The writer
+    starts *after* the session is applied (so the intermediate states restore
+    produces are never persisted over what was saved) and writes nothing until the
+    workspace actually changes — see `SessionController`'s `dropFirst()`, without
+    which a lossy restore would be persisted over the recorded session ~1 s after
+    launch with no user action. Finally, the existing
+    `willTerminateNotification` observer calls `autosave.flushNow()` **then**
+    `sessionController.flushNow()`, in that order and from this one place: the
+    session records a dirty *titled* file only by path, so the snapshot is truthful
+    only once those buffers have reached disk (otherwise the next launch reopens the
+    file showing the pre-quit disk state as if it were clean). Doing it here rather
+    than letting each controller register its own observer is what makes the
+    ordering deterministic and visible — two independent observers would run in
+    registration order, which nothing states or enforces — and it is why
+    `AutosaveController.flushNow()` is internal; that controller keeps its own
+    termination observer, and `flushNow()` is idempotent, so being called twice on
+    one quit is harmless.
+    `PisakaApp` also owns the **commit dialog**: a `private let commitDialog =
+    CommitDialogModel(gitService: GitCLIService())` alongside the
+    other git models — a plain stored property (the
+    `diffWindows`/`sessionController` precedent: the `@main` App is created once,
+    so a `let` is a stable instance), deliberately **not** `@StateObject`, for the
+    reason `ContentView` documents on its own non-observing `commitDialog`:
+    nothing in this scene's `body` reads a published property of it, it is only
+    handed to the sheet, which observes it itself, so holding it as `@StateObject`
+    made the App's body a subscriber and every keystroke in the message field
+    invalidated the whole window — re-creating `ContentView` with its
+    non-`Equatable` closure parameters and putting the project tree, the tab list
+    and `CodeEditorView.updateNSView` right back on the typing path that comment
+    claims to keep them off — a `@State private var isCommitDialogPresented`, a
+    `CommandMenu("Git")` holding "Commit…" (**⌘K**, JetBrains' shortcut) disabled
+    on exactly the one condition the `LocalChangesView` header button is — no
+    project root — and deliberately **not** also on `changedFiles` being empty:
+    that list is refreshed only on a folder open, a save and the manual Refresh
+    button, so a change made in the embedded terminal or an external editor would
+    leave ⌘K dead until the user found that button, while the dialog's own load
+    runs a fresh `git status` (after flushing dirty buffers) and reports "No local
+    changes" honestly. It is also what makes a **message-only amend** reachable — a
+    clean tree is exactly when it is wanted, and `CommitGate` already permits an
+    empty selection under Amend. Four handlers are threaded into
+    `ContentView`. `openCommitDialog(preselectingPath:)` first **guards against re-entry**
+    (`isCommitDialogPresented`): a SwiftUI sheet does not disable the main menu, so
+    a second ⌘K would raise a second modal autosave suspension that no `onDismiss`
+    ever balances — the sheet is already up, so none fires — leaving autosave off
+    for the rest of the session, and would reload the dialog, resetting the user's
+    per-line selection mid-composition. Then, in order: it **refuses** while
+    `revertInFlight()` (the commit reads every
+    changed file and then writes a temporary index from them, which a concurrent
+    `git checkout` would make nonsense of); it **flushes dirty buffers**
+    (`autosave.flushNow(reportingSaves: true)`) because the dialog shows what is on
+    *disk*, so an
+    unsaved buffer would otherwise be invisible to it and silently left out of the
+    commit — `reportingSaves: true` because unlike the quit-time flush this one
+    lands **mid-session**, so the writes it makes need the follow-up an ordinary
+    autosave gets (`onSaved` → the Local Changes re-query, plus the `treeRevision`
+    bump for a file this flush *recreated* after an out-of-band deletion); without
+    it the panel kept describing the pre-flush disk state, plainly wrong the moment
+    the user cancelled the dialog and corrected only by some unrelated later
+    refresh — and, since that flush is **best-effort** (`saveAllDirty()` swallows a
+    per-file write failure by design, leaving that buffer dirty), it measures what
+    is still dirty and *titled* afterwards and names those files in an alert, so a
+    file whose write failed is not committed with its stale disk contents
+    unannounced; the dialog still opens, because one unwritable path must not
+    strand a feature the other files are perfectly committable through, and the
+    alert is raised **last** — after the re-entry guard is closed and the
+    suspension is balanced by `onDismiss` — since it runs a nested run loop a
+    second ⌘K could re-enter; and it raises the **modal** autosave gate (`suspendForModal()` rather
+    than `suspend()`, deliberately, so a quit while the sheet is open still flushes
+    every dirty file), whose matching `resumeFromModal()` is the sheet's
+    `onDismiss` — firing on *every* closing path, which is what makes the
+    suspension impossible to strand. The load is pinned to the token
+    `commitDialog.prepareForFolderChange(root:)` returns, captured synchronously
+    before the `Task` hop, and forwarded as
+    `commitDialog.load(root:request:preselectedPath:)`. That last argument is the
+    method's **one** parameter and the *only* difference between the three entry
+    points: ⌘K and the header ✓ button call it with none (every file checked, the
+    `nil` default), while a changed file's own "Commit…" context-menu item passes
+    `file.path` so only that file starts checked (`onCommitFile: { file in
+    openCommitDialog(preselectingPath: file.path) }`). Everything around it — the
+    re-entry guard, `revertInFlight()`, the autosave flush and its unsaved-files
+    alert, the modal suspension, the generation pinning — is shared *verbatim*,
+    which is why the orchestration is **parameterized here rather than duplicated**
+    at the row's call site: a second copy of this sequence is exactly how one of
+    those gates goes missing on one of the paths. What a preselect means, and what
+    a path absent from the fresh `git status` means, are `CommitDialogModel`'s
+    decisions, not this method's. `commitFromDialog(originGeneration:)` takes its pin as a
+    *parameter* rather than reading it: the whole body runs inside the view's
+    `Task`, i.e. after the window the pin exists to close, so a token read here
+    would be compared against itself and could never fire — `CommitDialogView`'s
+    Commit button reads `model.currentRequestGeneration` synchronously in its
+    action and threads it through `onCommit: (Int) async -> Void`, the
+    `ProjectSearchView.confirmReplaceAll`/`onReplaceAll` shape. It also raises the
+    **full writer bracket** every sibling takes — `autosave.suspend()` +
+    `localChanges.beginRevert()` synchronously before the first `await`, and
+    lowered again the instant `commit()` returns, **before any modal**
+    (`runBranchOperation`'s rule: `PlatformAlert.presentMessage` is
+    `NSAlert.runModal()`, a nested run loop, and `AutosaveController.flushNow()`
+    bails while suspended, so a quit while the push-failure alert is on screen
+    would skip the termination flush for every dirty buffer; nothing after the
+    `await` suspends, so there is no exit path in between and a `defer` bought
+    nothing) — because the modal suspension taken at open gates
+    `performAutosave` alone: a commit reads the whole working tree into the
+    temporary index (a file entering as `.addFromWorktree` has its bytes read by
+    git at commit time, and `CommitStaleness` only re-compares *rows*, so a write
+    landing in that window is silently committed) and a formatting `pre-commit`
+    hook then writes it back, while ⌘S / ⌘R / ⌘U stay live over a sheet (SwiftUI
+    does not disable the main menu — the fact the re-entry guard above exists for)
+    and the project-tree operations, the run/test saves **and `save(id:)` itself**
+    key on `localChanges.isReverting` through `revertInFlight()`. That last one is
+    what actually closes ⌘S: the gate is only worth raising if every writer reads
+    it, and a manual save was the one path that did not — landing mid-commit it
+    writes bytes the dialog never displayed and `CommitStaleness`, which compares
+    rows read *before* the write, cannot see. Gating the save also covers the close
+    prompt's "Save" and, retroactively, a ⌘S during a revert / merge apply / branch
+    checkout / Replace All, each of which raises the same flag. `revertInFlight()`'s
+    notice is therefore worded for any git operation rather than for a revert. The dialog **stays
+    open** on everything that did
+    not create a commit (a gate refusal, a stale snapshot, git's failure — the
+    reason, git's stderr verbatim, already published in `errorMessage`) and closes
+    on everything that *did*, **including a failed push**: the commit exists, and
+    leaving a dialog open whose Commit button would make a second one is the
+    mistake this must not invite, so a push failure closes the sheet and says so in
+    its own alert. `refreshAfterCommit()` re-queries Local Changes, the Git Log and
+    the branch widget (all generation-pinned, the last through a new
+    `refreshBranchSwitcher()` mirroring `refreshLog()`) and deliberately does
+    **not** `bumpTreeRevision()` — a commit writes `.git`, not the working tree, so
+    no listing changed; a `pre-commit` hook that rewrites files is the exception,
+    and its edits surface as ordinary local changes through the Local Changes
+    refresh. That hook is also why a commit is the fourth path to run
+    the **open-tab resync**, through the same `openTabSnapshot()` /
+    `resyncOpenTabsAfterCheckout(snapshot:repoRoot:mayRemoveFiles:)` pair as
+    `applyMerge`,
+    `revertChanges` and `switchBranch` (snapshot captured synchronously before the
+    `await`, `repoRoot` from `commitDialog.root` so tabs outside the repository are
+    left alone): a formatting hook — prettier, `eslint --fix`, gofmt — edits the
+    files on disk, and git runs it before reading the index it commits. Without the
+    resync the tab kept the pre-format text with `savedText` matching it
+    (`openCommitDialog` flushed autosave, so every titled tab is clean), so
+    `isDirty` was false and **nothing would ever correct it** — the next keystroke
+    autosaved the whole stale buffer over the file, silently reverting the hook's
+    work and making it look like the user's own edit. It therefore runs on
+    `.failed` **as well as** on the two committed outcomes (with
+    `refreshLocalChanges()` beside it, those rewrites being ordinary local changes
+    now): the commonest way a commit fails *is* a hook that reformats the tree and
+    then refuses, so the tree is already rewritten when git exits non-zero, and the
+    silent revert above does not become acceptable because of the exit code.
+    `.blocked` and `.stale` are the two outcomes that genuinely ran nothing — no
+    index step, no hook — so they are left alone. The commit path passes
+    `mayRemoveFiles: false`, which suppresses the resync's "file gone → force-close
+    the tab" rule: that rule is right for a checkout, which really does delete
+    worktree files, but a commit never does (`.removePath` stages a deletion in the
+    throw-away index and touches nothing on disk), so a missing file was already
+    missing when the dialog opened — closing there would discard, with no prompt, a
+    clean buffer holding the last copy of a file that is no longer on disk. Such a
+    tab is left untouched rather than made dirty, since a dirty titled buffer is
+    what autosave would use to recreate the very file the user deleted.
+    `openFolder(url:)` also
+    registers the switch with `commitDialog`
+    synchronously alongside the other models, with sharper consequences than
+    elsewhere: it **dismisses a sheet that is up** (`reset()` empties everything the
+    sheet displays but cannot lower `isCommitDialogPresented`, so it stayed on
+    screen bound to a deliberately emptied model — no files, a blank author line,
+    the message being composed wiped, no spinner, and "This folder is not a git
+    repository." under a disabled Commit button, with nothing saying why; ⌘⇧O is
+    reachable from a sheet, since SwiftUI does not disable the main menu — the same
+    fact `openCommitDialog`'s re-entry guard exists for — and dismissing also fires
+    `onDismiss`, so the modal autosave suspension is released rather than
+    stranded), clears the previous project's selection and message and bumps the
+    token an in-flight `commit()` is pinned to, so a commit composed for the folder
+    the user just left can never run against the newly opened one.
+  - `ProjectWatcher.swift` — the macOS-only (`#if os(macOS)`, `import CoreServices`)
+    FSEvents subscription that makes an *external* change (a generator run in the
+    embedded terminal, a Finder rename, a console `git checkout`) show up in the
+    project tree without reopening the folder. Thin and untested per the view-layer
+    convention — it is IO only (a C stream, its queue, its lifetime), while the one
+    decision it makes lives in Core as the pure `TreeRefreshFilter` — and it copies
+    `AutosaveController`'s shape: an idempotent `start(root:onChange:)` (a repeated
+    call tears the previous stream down first, so a folder switch simply switches the
+    subscription), a `stop()` safe to call more than once, and `deinit` teardown.
+    Stream flags and why: **directory-level events** (no
+    `kFSEventStreamCreateFlagFileEvents`) because the re-read is per-directory
+    anyway, which keeps `TreeRefreshFilter`'s `.git` rule live (git's writes arrive
+    as directories inside `root/.git`) and its `.DS_Store` rule dormant (a Finder
+    write arrives as the containing directory → one harmless bump);
+    **`kFSEventStreamCreateFlagIgnoreSelf`** because the app's own create / rename /
+    delete already bump synchronously and, more importantly, autosave writes a file
+    every idle burst / tab switch / focus loss — under dir-level events each such
+    write would report the containing directory, i.e. a recurring main-thread re-read
+    of every expanded node for a listing that never changes; what it does *not*
+    suppress is the embedded terminal's shell and every `GitCLIService` invocation
+    (child processes with their own pids), so the headline `npx … new backend` case
+    is unaffected, and the two in-app writes it would have covered by accident (Save
+    As, and reverting an untracked file — an in-process `unlinkat`) get their explicit
+    bumps in `PisakaApp`; **latency `1.0` s with ordinary
+    deferred coalescing** (no `kFSEventStreamCreateFlagNoDefer`) so an `npm i`
+    collapses into a handful of firings; plus `kFSEventStreamCreateFlagUseCFTypes`
+    and `sinceWhen = kFSEventStreamEventIdSinceNow`. `start` **canonicalizes** the
+    root (the private `canonical(_:)`) before handing it to either the stream or the
+    filter — FSEvents reports realpath-spelled paths regardless of how the watched
+    path was spelled, so a folder opened through a symlink or a firmlink (`/tmp` →
+    `/private/tmp`) would otherwise have every delivered path fail
+    `TreeRefreshFilter`'s root-containment rule and the feature would silently never
+    fire; only the watcher resolves, `WorkspaceModel.projectRoot` stays as the user
+    spelled it because the tree's own symlink semantics depend on that. It uses
+    `realpath(3)`, *not* `URL.resolvingSymlinksInPath()` — which resolves ordinary
+    symlinks but deliberately strips a `/private` prefix, mapping `/private/tmp` back
+    to `/tmp`, the reverse of what is needed — nor `URLResourceValues.canonicalPath`,
+    the mirror-image half-measure that resolves the firmlink while keeping the final
+    component literal (so a folder opened *through* a symlink stays unresolved).
+    `realpath` does both and falls back to the url as given when it fails. This is
+    the deliberate *opposite* of Core's `CanonicalPath.canonical(_:)`, which keeps
+    `resolvingSymlinksInPath()` and its `/private` stripping: there both sides of
+    the comparison go through the same transform so consistency is all that is
+    needed, while here only one side is under the app's control (FSEvents supplies
+    the other, already realpath-spelled). Neither should be "fixed" into the other.
+    The stream
+    runs on its own
+    serial `DispatchQueue` (`FSEventStreamSetDispatchQueue`), so neither the callback
+    nor the filter touches the main thread — only the final `onChange()` hops back to
+    the main actor. The C bridging is by the book: the context's `info` is an
+    `Unmanaged.passRetained(self)` balanced in `stop()` (and immediately, via the
+    shared `disarm(info:)`, on a failed `FSEventStreamCreate` *or* a failed
+    `FSEventStreamStart` — both leave the watcher unarmed with `stream` still `nil`,
+    so a later `stop()` cannot stop a never-started stream; the Refresh button remains
+    the fallback, so a failure degrades rather than breaks), and `stop()`
+    runs `FSEventStreamStop` → `Invalidate` → `Release`, then a `queue.sync {}`
+    barrier before the balancing release — `Invalidate` does not wait for a callback
+    already running on the stream queue, and that callback holds only an *unretained*
+    reference, so the drain is what keeps the release from deallocating underneath it
+    (no deadlock: the callback only ever does `DispatchQueue.main.async`).
+    `root`/`onChange` are `NSLock`-guarded (written on the main thread,
+    read on the stream queue — the `SecurityScopedFileService` precedent). iOS is out
+    of scope: FSEvents does not exist there, so the tree still refreshes only on the
+    app's own operations.
+  - `AutosaveController.swift` — the thin view-layer wiring of JetBrains-style
+    autosave to `WorkspaceModel.saveAllDirty()` (all the testable decision logic
+    lives in Core; this is trigger→action wiring only, untested like the rest of
+    the view layer). A `final class` holding the Combine cancellables and
+    notification observers, with a fixed `idleDelay` constant (`2.0` s, no
+    user-facing toggle or configurable delay) and `start(model:onSaved:)` (plus
+    `stop()`/`deinit` teardown; `start` is idempotent so a re-fired `.onAppear`
+    can't stack observers). Four triggers: **idle** —
+    `model.$openFiles.debounce(for: .seconds(idleDelay), …)` → `performAutosave`
+    (a save advances `savedText`, republishing `$openFiles` and re-arming the
+    debounce, but the re-fire is a no-op because `saveAllDirty()` is idempotent,
+    so the loop terminates); **tab-switch** — `model.$selectedID.dropFirst()` →
+    `performAutosave` (also fires on a tab *close*, harmless via idempotence, and
+    revert-driven closes happen while suspended); **focus-loss** —
+    `NSApplication.willResignActiveNotification`, hopping to the main actor before
+    touching the model; **termination** — `NSApplication.willTerminateNotification`
+    → a synchronous `flushNow()` (NOT the debounced path, NOT an async hop), the
+    gap-closer because `willResignActiveNotification` does *not* fire on a direct
+    Cmd+Q of the frontmost app (macOS runs `applicationShouldTerminate` →
+    `applicationWillTerminate` without deactivating), so focus-loss alone would
+    lose the last idle-debounce window of edits; the notification arrives on the
+    main thread as the run loop ends, so a direct synchronous `saveAllDirty()` is
+    the only thing guaranteed to complete before the process exits (it skips
+    `onSaved` — the app is quitting). Suspend gating uses *two* re-entrant counters
+    (not booleans, so overlapping/nested suspensions each balance their own pair).
+    `suspendCount` (`suspend()`/`resume()`) is raised only by an in-flight git
+    revert and gates *both* `performAutosave` and `flushNow` — a quit landing
+    mid-revert is the rare accepted corner where the revert's intentional discard
+    wins. `modalSuspendCount` (`suspendForModal()`/`resumeFromModal()`) is raised
+    only while a close-confirmation modal is open and gates `performAutosave`
+    *only*, deliberately **not** `flushNow`: the idle debounce (a GCD main-queue
+    timer) fires inside the alert's nested run loop and would pre-empt a "Don't
+    Save", so the regular triggers must pause — but there is no revert racing the
+    disk, so a quit while the alert is open must still flush every *other* dirty
+    file; folding it into `suspendCount` would suppress that quit-time save (data
+    loss). `performAutosave` bails while *either* counter is raised
+    (`isRegularSuspended`); `flushNow` checks `suspendCount` alone. A trigger
+    dropped while suspended is recorded (`pendingAutosave`) and replayed once *both*
+    counters return to zero. `performAutosave` calls `onSaved` only when `saveAllDirty()` returned a
+    non-empty list, and beeps at most once (non-modal, latched via
+    `didBeepForFailure`) if a dirty titled file remained after a write failure.
+    `onSaved` is `(_ createdFile: Bool) -> Void`: before the write `performAutosave`
+    collects the dirty *titled* buffers whose file is missing on disk
+    (`missingDirtyPaths(in:)` — only dirty titled buffers are probed, so a
+    nothing-to-save re-fire costs no syscall) and reports whether any saved url was
+    among them, so `PisakaApp` can bump `treeRevision` for an autosave that recreated
+    an externally deleted file (which the watcher's `IgnoreSelf` hides).
+    `flushNow(reportingSaves:)` skips both the callback and the probe **by
+    default**, which is right for its original caller and wrong for its second one:
+    on the quit path there is no tree left to bump and no panel left to refresh,
+    but `openCommitDialog` flushes *mid-session* (the dialog reads disk, so every
+    dirty buffer has to reach it first) and there it writes files exactly as
+    `performAutosave` does — so it passes `reportingSaves: true` and the side
+    effects become mandatory rather than pointless. Without them the Local Changes
+    panel kept describing the pre-flush disk state (visibly wrong the moment the
+    user cancels the dialog) and a buffer whose file had been deleted out of band
+    was put back on disk with no `treeRevision` bump to reveal it. `flushNow` is **internal, not
+    private**: `PisakaApp` calls it directly on `willTerminateNotification`, ahead
+    of `SessionController.flushNow()`, so the two flushes are ordered from one
+    visible place (see there). No behavior change — the controller keeps its own
+    termination observer and `saveAllDirty()` is idempotent, so being called twice
+    on the same quit writes nothing the second time.
+  - `SessionController.swift` — the thin view-layer wiring that writes the editor
+    session (the opened folder, the tabs, the selection, the text of Untitled
+    buffers) to Core's `SessionStore`, so a launch can bring the last session back
+    — including after a crash or a force-quit, since it writes continuously rather
+    than only on exit. macOS-gated (`#if os(macOS)`) and shaped like
+    `AutosaveController`: idempotent `start(model:store:)` (guarded on `model ==
+    nil`, because `.onAppear` can fire again and stacked subscriptions would write
+    per change several times), Combine subscriptions merged over
+    `model.$openFiles`/`$selectedID`/`$projectRoot`, a fixed `writeDelay` (1.0 s,
+    not user-configurable — shorter than autosave's idle delay, since writing a
+    small plist is cheap and a fresher session means less lost to a crash) on a
+    main-queue `debounce`, `stop()`/`deinit` teardown, and a synchronous
+    `flushNow()` for quit. Every decision — what a session records, which buffers
+    are worth storing, where the selection lands — is `EditorSession.snapshot`'s,
+    so this stays trigger→action wiring and is untested like the rest of the view
+    layer. **The subscriptions are a trigger only**: the snapshot is always taken
+    from the *live* model when the debounce fires, never from a value captured in
+    the closure — a `@Published` value is delivered *before* the property is
+    committed (so a captured `openFiles` is the pre-change one) and the other two
+    properties are not part of that delivery at all, so a cached snapshot would be
+    stale in a way the debounce makes permanent until the next change. Each leg is
+    **`dropFirst()`ed** (`AutosaveController`'s rule for `$selectedID`, load-bearing
+    here): a `@Published` publisher replays its *current* value to every new
+    subscriber, so without it merely subscribing fires the trigger and the session
+    is rewritten ~1 s after launch with **no user change at all** — harmless when
+    restore was faithful and destructive when it was not, since restore is
+    deliberately lossy (a folder on an unmounted volume is not opened, a deleted
+    file is not reopened) and that write would persist the truncated session over
+    the recorded one before the user touched anything. Nothing is lost by waiting
+    for a real change: `load()` returning `nil` and an empty stored session both
+    restore nothing. **`flushNow()` honors that same rule** (`hasObservedChange`,
+    raised by the *raw* trigger ahead of the debounce so a change made inside the
+    last write window still flushes): it bypasses the debounce, not the guarantee —
+    `lastWritten` is `nil` until the first write, so an unguarded quit-time flush
+    would persist a lossy restore's empty snapshot over the recorded session on the
+    next Cmd+Q with the user having touched nothing, reintroducing one quit later
+    exactly what the `dropFirst()`s prevent one second after launch. A snapshot **equal to the one last written is not written
+    again** (`lastWritten`) — `$openFiles` republishes on every keystroke, so the
+    steady state of typing in a titled file would otherwise cost a full
+    `PropertyListEncoder` pass plus a `UserDefaults` write on the main thread per
+    idle second, proportional (per limit 2) to an Untitled buffer the user is not
+    even editing. An **empty
+    session is written like any other**, so closing every tab and quitting does not
+    resurrect the session before last. It deliberately registers **no
+    `willTerminateNotification` observer of its own**: the snapshot must be taken
+    *after* autosave's termination flush (a dirty titled file's contents are not
+    persisted here, so the session is truthful only once those buffers reached
+    disk), and resting that on the relative registration order of two independent
+    observers would make it invisible and fragile — hence
+    `AutosaveController.flushNow()` being internal and `PisakaApp` calling both
+    back to back from one place.
+  - `SettingsView.swift` — the Preferences form (⌘,): a thin `@ObservedObject
+    SettingsStore` view (a `Form` with a `Picker` for tab orientation, a `Picker`
+    for theme, and a `Stepper` + numeric "Editor font size: N pt" display bound to
+    `settings.fontSize`, ranged/stepped through the store's constants). Hosted by
+    the `Settings { SettingsView(settings:) }` scene `PisakaApp` declares alongside
+    its `WindowGroup`, which gives the standard Preferences menu item and ⌘,
+    shortcut for free. `PisakaApp` owns the single `@StateObject private var
+    settings = SettingsStore()` and threads it into `ContentView`. All option
+    types, clamping, and persistence live in Core, so this is trigger→binding
+    wiring only (untested like the rest of the view layer). Settings application is
+    spread across the views that read `settings`: the theme via
+    `.preferredColorScheme` on the window content root (`ContentView`), the tab
+    layout in `ContentView`, and the shared editor font size + Cmd+scroll in the
+    code views (`CodeEditorView`/`DiffView`/`MergeView`).

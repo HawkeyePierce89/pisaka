@@ -1,0 +1,453 @@
+# Pisaka app (macOS) — code editor & find/search views
+
+Design documentation moved verbatim from the root `CLAUDE.md` (which now holds only a one-line-per-file index). Each entry records a file's contract, invariants and the reasoning behind non-obvious decisions — read the relevant entry before modifying that file, and update it when behavior changes.
+
+  - `CodeEditorView.swift` — `NSViewRepresentable` wrapping `NSTextView` (built
+    explicitly as TextKit 1 via `NSTextView(usingTextLayoutManager: false)` for
+    Neon compatibility). Derives the active `SyntaxLanguage` from the file name,
+    attaches a Neon `TextViewHighlighter` for the resolved
+    `LanguageConfiguration`, and swaps/rebuilds it on tab (`fileID`) change. The
+    highlighter is detached *before* a wholesale buffer swap so the outgoing
+    grammar can't asynchronously repaint the incoming file (a stale
+    cross-language race), then rebuilt for the new content. The attribute
+    provider maps a tree-sitter capture name → `SyntaxTokenKind(captureName:)`
+    (Core) → `SyntaxTheme` color; the configuration's `languageProvider` resolves
+    injected sub-languages (Markdown's `markdown_inline`, fenced code blocks,
+    embedded HTML/YAML) via `SyntaxLanguageConfiguration`. No detected language →
+    plain text, no highlighter attached. Soft-wrapping is disabled (long lines
+    scroll horizontally) so document space equals logical-line space, which keeps
+    the logical-line-indexed minimap aligned with the document and viewport rect
+    without forcing full TextKit layout. `makeNSView` returns a container holding
+    the editor's `NSScrollView` plus a fixed-width `MinimapView` on the right; the
+    scroll view also gets a `LineNumberRulerView` as its `verticalRulerView`
+    (`hasVerticalRuler`/`rulersVisible = true`) for the line-number gutter, which
+    reserves space inside the scroll view on its left and so does not affect the
+    minimap's side-by-side layout.
+    Editor → minimap: the clip view posts `boundsDidChangeNotification`; the
+    flipped clip-view bounds origin is converted to the geometry's top-down
+    convention and pushed as the minimap's `scrollOffset` (the view derives the
+    content slide itself via `geometry.minimapScrollTop(forScrollOffset:)`).
+    Minimap → editor: the minimap's `onScroll` callback maps the cursor y through
+    `geometry.scrollOffset(forMinimapCenterY:)`, scrolls the
+    clip view (back into AppKit coordinates), and the rect follows via the same
+    bounds notification (closed loop). The minimap's `onScrollToOffset` callback
+    (mouse-wheel path) reports an already-resolved absolute document offset, which
+    the coordinator applies via the same `scrollEditor(to:)`. It owns the fixed
+    `minimapLineHeight`
+    (`= 3`) constant, feeds the `MinimapTokenizer` on edits/`fileID`/language
+    change, and in `refreshGeometry` rebuilds `MinimapGeometry` from current
+    document/viewport/minimap heights plus `contentHeight = lineCount *
+    minimapLineHeight` on resize; observers are removed in `dismantleNSView` to
+    avoid leaks across tab switches.
+    Auto-indent is wired in the `Coordinator` via `PisakaCore.IndentEngine` (all
+    indent math is pure and lives there; this is thin, untested view glue). On
+    Enter, `textView(_:doCommandBySelector:)` intercepts `insertNewline:`, reads
+    `textView.string` + the selected range, computes the `unit`
+    (`inferIndentUnit`) and the edit (`newlineIndentation`), inserts it via
+    `insertText(_:replacementRange:)`, moves the caret to `location +
+    cursorOffset`, and returns `true` to suppress the default. On a closing
+    bracket, `textView(_:shouldChangeTextIn:replacementString:)` detects a single
+    `}`/`)`/`]` on a whitespace-only line prefix and, via `dedentOnClosing`,
+    rewrites the leading-whitespace range and the bracket together in one
+    `insertText(_:replacementRange:)` (one undoable edit), returning `false` to
+    suppress the default insertion (mutating and returning `true` would proceed
+    against a now-stale `affectedCharRange`). All programmatic edits go through
+    `insertText(_:replacementRange:)` so the per-file undo manager records them as
+    ordinary single-step-undoable edits. The one edit that *cannot* go through it
+    is `updateNSView`'s wholesale `textView.string = text` swap, which is why that
+    branch clears the file's undo stack (`textView.undoManager?.removeAllActions()`)
+    whenever the contents were replaced **without** a tab switch — a project-wide
+    Replace All landing in an open tab (`ProjectSearchModel.replaceAll` →
+    `applyBufferText` → `WorkspaceModel.replaceText`), a post-revert
+    `reloadFromDisk`, or a merge apply. Assigning `string` registers no undo action
+    of its own, yet every action already recorded names a range in the *pre-swap*
+    text, so a following ⌘Z would replay an unrelated older edit at coordinates the
+    new contents no longer share: silently corrupting the buffer when the range
+    still fits, and raising an out-of-range exception from the text storage when
+    the new text is shorter. A *tab switch* is deliberately excluded — there the
+    incoming file's own manager is installed alongside its own contents, the very
+    pairing the per-file managers exist to preserve — **unless that file's buffer
+    was replaced while it sat off screen**, which is not a corner case but the
+    ordinary shape of all three replacements above: each reaches *every* matching
+    open tab, not just the displayed one, and a background tab gets no
+    `updateNSView` of its own, so by the time the user selects it the swap is
+    indistinguishable from a plain tab switch and the `!switchedFile` test alone
+    would let the stale stack survive (⌘Z on a Replace All'd background tab then
+    corrupts it, or traps when the replacement shortened the file). The
+    discriminator is Core's per-file `WorkspaceModel.textReplacementRevisions`
+    token, bumped by `replaceText(_:for:)`/`reloadFromDisk(id:)` and **not** by the
+    typing path `updateText(_:for:)`: `ContentView` passes the selected file's
+    value in as `externalTextRevision`, and the coordinator's
+    `noteExternalTextRevision(_:for:)` compares it against what it last saw for
+    that same `fileID` (a first display records without reporting a change — there
+    is no stack to drop yet), so the clear is keyed to the *file* rather than to
+    whichever view happened to be on screen when the replacement landed. Because
+    `insertText` re-invokes
+    `shouldChangeTextIn` synchronously, both interceptors set an
+    `isApplyingProgrammaticEdit` re-entry flag around the programmatic
+    `insertText` and bail (return `true`, letting the edit through) while it is
+    set — otherwise a dedent whose replacement is a no-op (a closing bracket at
+    column 0 under an *unindented* opener yields a zero-length range and empty
+    replacement, so the re-entrant call re-passes the guard) would recurse until
+    the stack overflows.
+    Auto-close brackets/quotes is wired in the same `Coordinator` via
+    `PisakaCore.AutoPairEngine` (again pure-engine + thin view glue). In
+    `textView(_:shouldChangeTextIn:replacementString:)` a single-character
+    `replacementString` is first run through `AutoPairEngine.action(text:
+    selectedRange: affectedCharRange, typed:)` (after the
+    `isApplyingProgrammaticEdit` bail): `.wrap` replaces the selection with
+    `open + selection + close` and selects the wrapped inner range; `.insertPair`
+    inserts `typed + close` and drops the caret between them; `.typeOver` steps
+    the caret one past the existing closer without inserting; `.passthrough` lets
+    the keystroke proceed — except a single closing bracket falls through to the
+    existing `dedentOnClosing` path (so auto-pair `.typeOver` is checked *before*
+    the dedent for a closer, and only `.passthrough` reaches the dedent). Each
+    auto-pair edit goes through one `insertText(_:replacementRange:)` bracketed by
+    the shared `isApplyingProgrammaticEdit` flag (one undo step; the flag, renamed
+    from `isApplyingIndentEdit`, now gates *both* the indent and auto-pair
+    programmatic edits). In `textView(_:doCommandBy:)`, `deleteBackward(_:)` is
+    intercepted: on an empty selection where `AutoPairEngine.shouldDeletePair(
+    text:location:)` is true, the two-character empty pair is deleted in one
+    guarded `insertText("", replacementRange:)` (`return true`); otherwise
+    `return false` for the default delete (the `insertNewline(_:)` interception is
+    unchanged).
+    Duplicate line/selection (Cmd+D) follows the same pure-engine + thin-glue
+    split, via `PisakaCore.DuplicateEngine`. The `EditorTextView` subclass carries
+    an `onDuplicate: ((NSTextView) -> Bool)?` callback (modeled on
+    `onStepFontSize`, wired in `makeNSView` to the coordinator's
+    `duplicateSelection(in:)`, captured **weakly** — see the retain-cycle note
+    below) and overrides `performKeyEquivalent(with:)`, firing
+    only on a *clean* Cmd+D: `charactersIgnoringModifiers?.lowercased() == "d"`
+    **and** `modifierFlags.intersection([.command, .shift, .option, .control]) ==
+    [.command]`, so Cmd+Shift+D and other combinations fall through to `super`
+    rather than being swallowed. It additionally requires the view to be
+    `isEditable` and its window's `firstResponder`, because
+    `performKeyEquivalent` is dispatched down the *whole* window's view tree
+    rather than to the focused view alone — without that check Cmd+D would
+    duplicate into the editor while the user is typing in the embedded terminal or
+    the project tree — **and** requires `!hasMarkedText()`, because a key
+    equivalent is dispatched by `NSWindow` *before* `keyDown:`/the input context
+    (unlike the `doCommandBy:`/`shouldChangeTextIn:` interceptors, which run only
+    after it), so it can fire mid-IME-composition: marked text lives in the text
+    storage, so the duplication would copy the *uncommitted* composition as
+    ordinary text and leave the marked range pointing at a region the insertion
+    moved. All four conditions are load-bearing; dropping any one reintroduces a
+    concrete misfire. `Coordinator.duplicateSelection(in:)` reads the live
+    `textView.string`/`selectedRange()`, calls `DuplicateEngine.duplicate`, applies
+    the result with a single `insertText(edit.text, replacementRange: NSRange(
+    location: edit.insertionLocation, length: 0))` (a zero-length replacement, so
+    the per-file undo manager records the whole duplication as *one* undoable
+    step), then installs `edit.selectedRange`. It is bracketed by the shared
+    `isApplyingProgrammaticEdit` flag for the same mandatory reason as the indent
+    and auto-pair edits: `insertText` re-invokes `shouldChangeTextIn`
+    synchronously and the auto-pair interceptor fires on any single-character
+    replacement, so duplicating a one-character *selection* holding a lone `(`
+    would otherwise fall into auto-pair and insert `()`. The line path can emit a
+    single character too — duplicating an *empty* line inserts just `"\n"` — so
+    the guard covers both paths unconditionally. The closure `makeNSView` installs into
+    `onDuplicate` captures the coordinator **weakly**: the coordinator holds the
+    text view weakly, but Neon's `TextViewHighlighter` — which the coordinator owns
+    strongly — keeps a strong `textView`, so a strong capture would close the cycle
+    coordinator → highlighter → text view → closure → coordinator and leak the
+    editor, its text storage and its per-file undo managers on every teardown.
+    `DiffView`'s read-only panes and
+    `MergeView`'s panes — including its *editable* result pane (`MergePaneTextView`,
+    `isEditable = true`), so "untouched" here means "does not use `EditorTextView`",
+    not "is read-only" — are deliberately untouched.
+    Shared font size: `CodeEditorView` takes a `fontSize: Double` plus an
+    `onStepFontSize: (Double) -> Void` callback (both threaded from
+    `settings`/`settings.stepFontSize(by:)` via `ContentView`); `makeNSView` sets
+    the text view's `font` to `.monospacedSystemFont(ofSize:weight:.regular)` at
+    that size, and `updateNSView` re-applies it when `fontSize` changes (tracked by
+    the coordinator's `appliedFontSize`), then re-derives the gutter (the
+    `LineNumberRulerView` reads `textView.font?.pointSize`, so a redraw +
+    `ruleThickness` recompute) and `refreshGeometry` (so the line-height-dependent
+    minimap geometry and viewport rect stay correct). Cmd+scroll: the editor
+    `NSTextView` subclass overrides `scrollWheel(with:)` and, via a shared
+    `handleCommandScrollFontStep` helper, steps `settings.fontSize` (through
+    `onStepFontSize`, clamped in the store) in the sign of `scrollingDeltaY` when
+    `event.modifierFlags.contains(.command)` — consuming the event (no `super`,
+    no normal scroll) — else falls through to `super`. The handler lives on the
+    editor text view, not `MinimapView`, so it never conflicts with the minimap
+    wheel handler or the diff synced-scroll. `DiffView`/`MergeView` take the same
+    `fontSize` and apply it uniformly across their panes (so rows stay aligned).
+    Bracket highlighting (both mechanics — the caret's matched pair and the
+    rainbow by depth) is wired in the same `Coordinator`, again pure-engine +
+    thin view glue: `makeNSView` installs a `BracketOverlayLayoutManager` on the
+    freshly created `EditorTextView` with `textView.textContainer?
+    .replaceLayoutManager(_:)` — the documented API for exactly this job, which
+    moves the container (and through it the storage and the text view) onto the
+    new manager and preserves the whole storage↔container↔view graph, so **not one
+    other line of `makeNSView` changes** (in particular `allowsNonContiguousLayout`
+    is set through `textView.layoutManager` *after* the swap, so it lands on the
+    new manager — keep that ordering when editing; a debug `assert` pins the
+    install). A hand-built TextKit 1 stack was the fallback and was *not* needed;
+    it would have required the `Coordinator` to hold the `NSTextStorage` strongly,
+    since `NSTextView` does not retain its storage (ownership runs storage →
+    layoutManager → textContainer → textView, the other way). Everything
+    downstream resolves the layout manager dynamically rather than caching it —
+    the gutter reads `textView.layoutManager` per draw and Neon's
+    `LayoutManagerSystemInterface` resolves it at write time — so both find the
+    subclass. The coordinator owns a `BracketHighlightController` and four
+    triggers: the *text storage's* `didProcessEditingNotification` filtered on
+    `.editedCharacters` (the `LineNumberRulerView` precedent — it carries the
+    edited range, covers programmatic edits, and being a notification coexists
+    with Neon owning the storage `delegate`; attribute-only edits are ignored so
+    Neon's styling and the overlays can't drive each other in a loop) →
+    `noteEdit(in:)` + a debounced rescan; `textViewDidChangeSelection(_:)` →
+    `updateSelection` (no rescan — the buffer is unchanged); the existing
+    `clipViewBoundsChanged` *and* `syncableFrameChanged` → `refreshVisible()` (no
+    rescan; the frame path is also what paints the first time, since no layout
+    exists when `makeNSView` seeds the scan); and `updateNSView` → an `immediate`
+    update on a `fileID` change / buffer swap (waiting out the debounce there
+    would leave the previous file's colors on screen). `teardown()` removes the
+    observer and resets the controller (cancelling any pending scan).
+    Unlike Neon's styling, the overlays are **language-independent**: the
+    controller is driven from `makeNSView`/`updateNSView`/the edit observer with no
+    `SyntaxLanguage` involved, so an `Untitled` buffer or an unknown extension still
+    gets rainbow brackets and pair highlighting. That also means the plain-text
+    branch's full-range `setTemporaryAttributes([:], …)` clear (which exists to wipe
+    a previous highlighter's colors) no longer clears *everything* — it routes
+    through the override, so `super` clears and the overlays are re-merged on top,
+    which is the intended outcome. `DiffView`/`MergeView` are deliberately untouched
+    — they keep the plain `NSLayoutManager`.
+    The find bar is wired through the same pure-engine + thin-glue split: the view
+    takes `@ObservedObject search: EditorSearchState` and `reveal:
+    EditorRevealState` (both window-scoped and owned by `PisakaApp`, both defaulted
+    so previews compile), `makeNSView` attaches the coordinator's
+    `EditorSearchController` and registers it as the state's executor,
+    `updateNSView` re-runs the search — *forced* on a tab switch / wholesale buffer
+    swap, since the pattern is unchanged but its matches are not, and otherwise a
+    no-op through the controller's applied-query comparison — and `teardown()`
+    resets the controller and unregisters it. Edits re-run the search through the
+    existing `bracketTextStorageDidProcessEditing` observer (after `noteEdit`, which
+    already cleared the backgrounds), via the controller's `setNeedsRefresh()`.
+    `EditorTextView` gains `onCancelSearch: (() -> Bool)?` and overrides
+    `cancelOperation(_:)` so Esc in the editor closes an open bar (captured
+    **weakly**, like `onDuplicate`, for the same retain-cycle reason), and the
+    auto-pair interceptor additionally checks `searchController.isApplyingEdit`
+    alongside its own `isApplyingProgrammaticEdit` — a replacement whose text is a
+    single `(` would otherwise be auto-closed into `()`. `applyReveal(_:fileID:)`
+    consumes a pending Find in Files activation, deliberately **after** the buffer
+    swap in `updateNSView`: when the activation *opened* the file, that same update
+    is the one installing its contents, so selecting earlier would land the range in
+    the previous tab's text. It is one-shot by `token` (not by value — activating the
+    same match twice is a legitimate second request), ignores a request whose
+    `fileID` is not this tab's, and clamps the range to the live buffer.
+    The gutter's git-blame column is wired through two more inputs — `fileURL:
+    URL?` (what `BlameController` blames; a `nil` untitled buffer disables the
+    context-menu item) and `diskRevision: Int = 0`
+    (`WorkspaceModel.diskRevision(for:)`, whose change means the on-disk content
+    this buffer stands for moved — one of the reload triggers, alongside a tab
+    switch, a buffer replacement and a *path* change; see `BlameController`, whose
+    third documented inaccuracy is the repository changing under an unmoved file),
+    both defaulted so a default-constructed view still compiles and both threaded
+    from `ContentView.editorZone` as `file.url` / `model.diskRevision(for: file.id)`
+    with the existing parameter order untouched. `makeNSView` attaches the
+    coordinator's `BlameController` to the ruler and wires `ruler.onToggleAnnotate`
+    to it through a **weakly** captured coordinator (the `onDuplicate`/
+    `onCancelSearch` retain-cycle rule), then records the displayed file with one
+    `syncBlame` — nothing loads there, since annotate starts off for every tab and
+    is only turned on from the context menu. `updateNSView` calls
+    `beginBufferSwap()` **before** `textView.string = text` on a content
+    replacement — that assignment posts a single full-range edit notification the
+    ruler would otherwise run `BlameShift` over, shifting annotations across a
+    whole-document replacement — and `syncBlame(...)` *after* the swap, so the array
+    is sized against the line count the swap's notification has just rebuilt.
+    `teardown()` calls `reset()`.
+  - `EditorSearchState.swift` — the find/replace bar's observable state (macOS):
+    `isVisible`, `isReplaceExpanded`, `pattern`, `template`, the three toggles
+    (`caseSensitive`/`wholeWord`/`isRegex`), the published-back `matchCount`/
+    `currentIndex`/`errorText`, a monotonic `focusRequest` token, and the commands
+    `open()` (⌘F — shows *and* bumps `focusRequest`, so a repeat press re-focuses
+    and selects rather than doing nothing), `openReplace()` (⌘⌥F), and `close()`
+    (Esc). **Window-scoped and owned by `PisakaApp`, not by the editor**: the bar's
+    contents and toggles survive a tab switch (JetBrains/VS Code behavior), so the
+    state cannot live in `CodeEditorView`'s coordinator, which is rebuilt with the
+    view. It holds no `NSTextView`, no ranges and no engine call — everything
+    *executed* goes through the `EditorSearchActions` protocol
+    (`findNext`/`findPrevious`/`replaceCurrent`/`replaceAll`/`clearHighlight`),
+    whose sole conformer is the controller and which is held **weakly**: the
+    coordinator owns the controller for the lifetime of the text view while the
+    state outlives every tab, so a strong reference would pin a torn-down editor.
+    `unregister` only clears the reference when it is still the registered one, so a
+    torn-down editor cannot unregister the editor that replaced it, and `close()`
+    tells the controller directly rather than waiting for a SwiftUI pass (there may
+    be no editor update scheduled; the controller's own `isVisible` check keeps both
+    paths idempotent). `updateResults` drops unchanged values — the controller
+    re-runs on every keystroke and every editor update, and each `@Published` write
+    invalidates `ContentView` → `updateNSView` → another refresh, so skipping the
+    no-op write is what makes that loop settle after one pass.
+  - `EditorSearchController.swift` — the execution side of the find bar: it runs
+    `TextSearchEngine` against the live buffer, keeps the current match near the
+    caret (`currentIndex(forCaretAt:in:)` from the selection — the *current-match*
+    resolver, deliberately not the `index(nearestTo:in:forward:)` navigation one,
+    whose zero-length exclusion would make Replace edit the match after the
+    selected one; so an edit, a toggle
+    or a widened pattern leaves the user looking at the same place in the file) —
+    including on a **plain caret move**, via `selectionChanged()` wired into the
+    coordinator's `textViewDidChangeSelection` beside
+    `BracketHighlightController.updateSelection`. That one is not cosmetic:
+    `replaceCurrent()` re-runs first and `run(query:)` re-derives `currentIndex`
+    from the live caret, so without it a click elsewhere in the file would leave
+    the `n/m` counter and the orange current-match highlight naming the match the
+    last run chose while Replace edited whichever match the caret had since moved
+    to — an edit landing where the user was not looking. It re-derives from the
+    existing match list with **no re-scan** (a caret move changes nothing the scan
+    depends on), drops an unchanged index, and is skipped while `isApplyingEdit`
+    is set (mid-edit the list is stale and both callers re-run right after),
+    pushes ranges into `BracketOverlayLayoutManager.setSearchRanges(_:current:)` —
+    **the on-screen ones only**, `BracketHighlightController.refreshVisible()`'s
+    rule and for a sharper reason. The *scan* is whole-buffer (the `n/m` counter
+    and ⌘G's wraparound both need every match), but each painted range costs an
+    `addTemporaryAttributes` call, and a one-character query in a megabyte-scale
+    file matches six figures of times: pushing the whole list measured at ~230 ms
+    per repaint for 180 000 matches in a 1.1 MB buffer, paid on *every* keystroke
+    in the bar and again on every caret move that changes the bracket pair (since
+    `setPairRanges` repaints the same backgrounds) — so the un-clipped version
+    failed the "typing in a large file with the bar open stays responsive"
+    criterion outright, and for an ordinary literal query rather than for the
+    heavy regex the no-debounce note below records as the headroom. So
+    `applyHighlight` binary-searches the match array down to the visible character
+    range (matching on "ends after the range start", so a match straddling the top
+    edge is included) and hands over that slice plus the current match, which is
+    passed separately and deliberately *not* clipped — navigation scrolls it into
+    view before repainting, and the layout manager paints a `current` outside the
+    set on top regardless. `refreshVisibleHighlight()` re-pushes on scroll and
+    resize with no re-scan (wired into the coordinator's `clipViewBoundsChanged`
+    /`syncableFrameChanged` beside `bracketHighlight.refreshVisible()`), which is
+    what paints newly revealed matches. It also
+    navigates (`setSelectedRange` + `scrollRangeToVisible`, taking the selection's
+    *end* going forward and its *start* going back so ⌘G steps off the current match
+    in both directions), and applies the two replace commands. `replaceCurrent`
+    re-runs first (results may pre-date an edit, and replacing a stale range would
+    overwrite text the user never matched), then does one
+    `insertText(_:replacementRange:)` under `isApplyingEdit` — one ordinary undo
+    step — and advances; `replaceAll` walks `replacePlan`'s strictly last-to-first
+    edits against an in-memory `NSMutableString` of the *spanned* range and
+    installs the whole batch with **one** `insertText(_:replacementRange:)`
+    (inside a `beginUndoGrouping`/`endUndoGrouping` pair on the *per-file* undo
+    manager, so **one ⌘Z reverses the whole replacement** and the edit can't
+    coalesce into the user's preceding typing). Applying the plan edit-by-edit
+    *through the text view* would instead cost a full TextKit cycle per match — a
+    storage tail memmove, an undo registration, the gutter's `LineStartIndex
+    .updated` suffix shift, `BracketHighlightController.noteEdit`'s token trim —
+    i.e. O(buffer × matches) on the main thread with **nothing capping the match
+    count** (unlike the project search's 10 000), so the same one-character query
+    in a megabyte-scale file that forces the visible-only highlight rule above
+    would hang the app for minutes with no way to cancel. The replaced range is
+    the span from the first replacement to the last rather than the whole
+    document, so a few clustered matches still cost a small edit and only a
+    file-spanning batch relayouts everything; the caret is left just past the
+    first (document-order) replacement, where the per-edit walk left it. Counters
+    are published through `DispatchQueue.main.async` because the common caller is a
+    refresh driven by `updateNSView`, i.e. from within a SwiftUI view update, where
+    a direct `@Published` write draws the "Publishing changes from within view
+    updates" warning and can re-enter the update. `setNeedsRefresh()` coalesces the
+    text-edit trigger onto the next main-loop turn: that notification fires *before*
+    the storage notifies its layout managers, so painting fresh post-edit
+    backgrounds inside it would have them shifted straight off their characters —
+    the mirror image of the pre-edit coordinate problem `clearBackgrounds` documents
+    — and it is explicitly *not* a debounce (no timer, the re-run still lands in the
+    same run-loop iteration, before anything is drawn). **The no-debounce decision
+    is recorded in the type's doc comment as deliberate, not an oversight**: the
+    search re-runs *synchronously* on every field/toggle change and every text edit,
+    unlike `MinimapTokenizer` and `BracketHighlightController` which both debounce,
+    because the work is one `NSString.range(of:options:range:)` pass over a single
+    open file — a memory scan, cheap enough per keystroke that coalescing would buy
+    nothing while costing the bar its immediacy (a counter that lags the field reads
+    as broken). The **known headroom** is a heavy regular expression (catastrophic
+    backtracking, or simply an expensive pattern) over a megabyte-scale file; if it
+    is ever reported the fix is the `MinimapTokenizer` shape — a short debounce plus
+    a monotonic generation token so a superseded run discards itself — and it is
+    deliberately not pre-built, because that debounce would otherwise be paid by
+    every ordinary literal search. Contrast `ProjectSearchView`, which *is*
+    debounced (~300 ms) for the opposite reason: one keystroke there costs a whole
+    directory traversal plus a read of every surviving file.
+  - `SearchBarView.swift` — the bar itself (macOS, thin): the query field, the
+    `Aa`/`ab`/`.*` toggles, a `3/17` counter (blanked on error, and on a *trimmed*
+    empty field — `TextSearchEngine` throws `.emptyPattern` for a whitespace-only
+    pattern too, so no search ran and "No results" would state an answer nothing
+    computed), ▲/▼ prev/next, a
+    button expanding the replace row (replace field + `Replace` / `Replace All`),
+    and red reason text on an `.invalidRegex`. `.onSubmit` → next, `.onExitCommand`
+    → `search.close()`, and a `@FocusState` driven by `focusRequest` with a field-
+    editor select-all so a repeated ⌘F focuses the field with its text selected.
+    That select-all resolves the field editor through **this bar's own window**
+    (captured by a small private `WindowAccessor` `NSViewRepresentable`, since
+    SwiftUI exposes no window on macOS 13) and only while that window is key —
+    *not* through `NSApp.keyWindow`. ⌘F is an app-wide `CommandMenu` item, so it
+    fires with the Find in Files window key too, and that window's shared field
+    editor is an `NSTextView` with `isFieldEditor == true`: a key-window read
+    passes the guard and selects the *project-search* query instead, where the
+    user's next keystroke silently replaces the whole thing. Doing nothing in
+    that case is the right answer — the bar still opens and asks for focus, it
+    just does not reach into a window it does not own. (The `isFieldEditor` check
+    remains, and remains load-bearing for its own separate reason: the deferred
+    block is not ordered after SwiftUI's focus pass, so the responder it finds may
+    still be the code editor's `NSTextView`, where `selectAll` would select the
+    whole document.)
+  - `EditorRevealState.swift` — a one-shot "show me *this* range of *this* tab"
+    request, produced when a Find in Files result row is activated. Window-scoped
+    and owned by `PisakaApp` for the same reason as `EditorSearchState`: activating
+    a match may **open** the file, so the request has to be recorded before the
+    `CodeEditorView` that will honour it exists. `Request` carries `fileID`, `range`
+    and a monotonic `token`; the editor records the token it last applied, so a view
+    update triggered by anything else (a keystroke, a font change) does not
+    re-select the range and yank the caret back.
+  - `ProjectSearchView.swift` — the Find in Files window's contents (⌘⇧F): the
+    query field + `Aa`/`ab`/`.*` toggles + file-mask field + Find/Replace switch
+    (with the replace field), results grouped by file with per-match preview lines
+    (the match highlighted inside the clipped line `MatchPreview` carries), a
+    "results truncated" note at the cap, `.preferredColorScheme` and the shared
+    `SettingsStore` font as in the diff/merge windows. Thin and untested: every
+    decision — which files are walked, what matches, what a replacement expands to,
+    which files a batch skipped — belongs to `ProjectSearchModel`, and activation
+    plus Replace All are handed back to `PisakaApp` through closures (the app owns
+    the open-file path and the disk-writer coordination, neither of which a view may
+    reach into). The `root` is a *closure* read at search time, not a captured
+    value, because the window outlives a folder switch. The search is **debounced by
+    `searchDebounceDelay` (0.3 s)** — the deliberate opposite of the editor bar's
+    no-debounce decision, and required because one keystroke here costs a traversal
+    plus a read of every surviving file — with the pending dispatch owned by a
+    `@StateObject SearchDebounce` so the timer survives the view struct being
+    rebuilt on every keystroke, and the model's generation token superseding
+    whatever the debounce still let through (pinned synchronously before the `Task`
+    hop, the `LocalChangesModel` rule). That delay is also why nothing *acts* on
+    the rows while they are stale: a computed `resultsMatchControls`
+    (`model.query`/`fileMask` — recorded at the *start* of a search, having just
+    cleared `results`, so a run still streaming its rows already reads as current —
+    against the query the controls describe) is false for the whole window between
+    a keystroke and its search reaching the model, and it both disables Replace All
+    and makes Enter dispatch the pending search instead of activating a result.
+    Without it "type and press Enter" opens a hit from the *previous* query, and a
+    Replace All clicked in that window rewrites the project for it — the
+    confirmation names counts, not the pattern, so nothing would give the mistake
+    away. The same predicate decides what the empty-results placeholder is allowed
+    to *say*: "No results" is an **answer**, so it is only shown once the empty
+    list is one this project's own controls produced, and otherwise the
+    placeholder reads "Press Return to search." That covers both states where no
+    search has run — inside the debounce window, and after a folder switch, where
+    `prepareForSearch` cleared the previous project's rows (and, with them, the
+    query that produced them, which is what makes `resultsMatchControls` false
+    here at all rather than leaving the window claiming an answer for a project it
+    never walked). Replace All confirms through an `NSAlert`
+    naming the file/match counts — and, when `model.truncated`, saying so: the
+    batch replaces exactly the captured matches, so at the cap it leaves the rest
+    of the project half-replaced, and the confirmation is the only point where
+    that can still be declined (neither `results` nor `ReplaceSummary` carries a
+    truncation signal, so afterwards a partial batch reads as complete). It then
+    shows the summary and re-searches
+    automatically (`results` describes pre-replacement text by construction).
+  - `ProjectSearchWindowController.swift` — owns the single, non-modal Find in
+    Files window: the `DiffWindowController` shape (a retained `EscClosableWindow`
+    hosting a SwiftUI root through an `NSHostingController`, released on close by a
+    per-window delegate held alongside, since `NSWindow.delegate` is `weak`) with
+    one deliberate difference — there is exactly **one** window. A diff is *about* a
+    file, so several make sense; a project search is about the project, so a repeat
+    ⌘⇧F focuses the existing window rather than stacking duplicates over one shared
+    `ProjectSearchModel` (two windows would fight over its single query and result
+    list). An existing window has its root view *replaced* rather than reused, so a
+    window left open across a folder switch picks the new root up on the next ⌘⇧F.
+    `closeAll()` is wired into the app's `willTerminateNotification` observer
+    alongside the diff/merge controllers.
