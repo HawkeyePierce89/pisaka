@@ -204,3 +204,79 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     for compact width regardless of orientation, else `.horizontalStrip`/
     `.verticalColumn` per `TabOrientation`. Covered by `TabLayoutTests`.
   - `PisakaCore.swift` — package constants/version.
+
+## Release-metadata resources
+
+Files that ship inside the app bundle but have no Swift code behind them, so the
+only thing standing between a typo and an App Store Connect rejection is a test.
+They live under `Resources/` and are verified statically by
+`ReleaseMetadataTests`, which reads them through `#filePath` with Foundation only
+— the `VendoredGrammarQueryTests`/`DependencyPinTests` precedent — so the checks
+run in `swift test` rather than needing an Xcode build.
+
+  - `Resources/Info.plist` — a *partial* Info.plist carrying only the two keys
+    App Store Connect validation wants: `LSApplicationCategoryType` =
+    `public.app-category.developer-tools` and `ITSAppUsesNonExemptEncryption` =
+    Boolean `false`. `GENERATE_INFOPLIST_FILE` stays `YES` and `INFOPLIST_FILE`
+    points here, so Xcode merges its generated per-destination keys and every
+    `INFOPLIST_KEY_*` build setting *into* this file's contents — the built plist
+    is the union, not a replacement. Two failure modes drive the tests: a
+    category typo builds fine and is rejected at validation time, and
+    `ITSAppUsesNonExemptEncryption` written as the *string* `"NO"` (what a
+    stringifying build setting produces) survives `as? Bool` bridging while the
+    export-compliance check ignores it, so every upload keeps asking the question
+    the key exists to pre-answer — hence the assertion goes through
+    `CFBooleanGetTypeID`, on the type and not just the truthiness. A third test
+    pins the key *set* to exactly those two, keeping anything Xcode can generate
+    out of the hand-written file. Release versioning
+    (`MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` and the per-upload
+    command-line build-number override) is documented in `docs/RELEASING.md`.
+  - `Resources/PrivacyInfo.xcprivacy` — the privacy manifest. Declared in
+    `project.yml` as a single-file resource (a plain file reference, not a folder
+    reference, and not via the recursive `Sources/Pisaka` entry), which is what
+    lands it at the top level of the built bundle's resources on both
+    destinations — `Contents/Resources/` on macOS, the `.app` root on iOS — the
+    only place App Store Connect's privacy-report aggregation looks. Contents:
+    `NSPrivacyTracking` = `false`, `NSPrivacyTrackingDomains` and
+    `NSPrivacyCollectedDataTypes` both empty (the app has no telemetry and no
+    network egress other than the user's own git remotes; everything it stores is
+    local), and exactly two `NSPrivacyAccessedAPITypes` entries.
+    `ReleaseMetadataTests` asserts the accessed-API set by *set equality* on
+    category/reason pairs, so an added, dropped or re-coded category fails the
+    suite until the manifest and the audit below are reconciled.
+
+    **Required-reason API audit** (re-run over `Sources/`; a later audit should
+    be a diff against this record, not a rediscovery):
+
+      - `UserDefaults` — **used**, so
+        `NSPrivacyAccessedAPICategoryUserDefaults` / `CA92.1` (access is limited
+        to the app itself; there is no app group). Three call sites, all
+        Foundation-only Core stores with the defaults injected:
+        `SettingsStore` (preferences), `BookmarkStore` (the iOS
+        security-scoped-bookmark recents) and `SessionStore` (the restored editor
+        session), plus the `SessionController` writer in the app layer.
+      - File timestamps (`lstat`/`stat`/`getattrlist`/`creationDate`/
+        `modificationDate`/`attributesOfItem`) — **used**, so
+        `NSPrivacyAccessedAPICategoryFileTimestamp` / **`3B52.1`**: timestamps of
+        files and directories the *user specifically granted access to*, via the
+        macOS open panel or the iOS document picker. Four real call sites, all
+        `lstat`-into-a-`stat` existence/identity probes:
+        `GitCLIService.swift:627` (same-inode comparison),
+        `GitCLIService.swift:787` and `LibGit2Service.swift:914` (does anything,
+        including a dangling symlink, occupy this path), and
+        `GitCLIService.swift:1186` (the file's git mode). The remaining `lstat`
+        hits in `Sources/` are prose in comments. `3B52.1`, **not `DDA9.1`**:
+        `DDA9.1` is for displaying a file timestamp to the user, and this app
+        never does — the dates in the blame column come from git's own
+        `--porcelain` output, parsed by `BlameLine`, never from `stat`.
+      - System boot time (`systemUptime`/`mach_absolute_time`/`sysctl`) — **no
+        hits**, not declared.
+      - Disk space (`statfs`/`volumeAvailableCapacity`/`systemFreeSize`/
+        `volumeTotalCapacity`) — **no hits**, not declared. `FileService`'s
+        `.fileSizeKey` probe (the oversize-file guard) is a *per-file* size, which
+        is not on Apple's disk-space list; `.isDirectoryKey`,
+        `.fileResourceIdentifierKey` and
+        `.volumeSupportsCaseSensitiveNamesKey` are likewise not required-reason
+        APIs.
+      - Active keyboard (`activeInputModes`/`UITextInputMode`) — **no hits**, not
+        declared.

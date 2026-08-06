@@ -135,6 +135,20 @@ targets:
     supportedDestinations: [macOS, iOS]
     sources:
       - path: Sources/Pisaka
+      # The privacy manifest, declared as a single-file resource rather than by
+      # letting the recursive `Sources/Pisaka` entry pick it up — it lives under
+      # `Resources/`, next to the partial Info.plist, and naming the file (not the
+      # directory) keeps `Resources/Info.plist` out of the resources phase, where
+      # it would be copied into the bundle a second time alongside the merged
+      # `Info.plist` Xcode generates from it. A plain file reference (not a folder
+      # reference) is what puts it at the *top level* of the built bundle's
+      # resources on both destinations — `Contents/Resources/PrivacyInfo.xcprivacy`
+      # on macOS, `PrivacyInfo.xcprivacy` at the `.app` root on iOS — which is the
+      # only place App Store Connect's privacy-report aggregation looks. Its
+      # contents and the required-reason audit behind them are documented in
+      # `docs/architecture/core-services.md` and asserted by `ReleaseMetadataTests`.
+      - path: Resources/PrivacyInfo.xcprivacy
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ws.karmanov.pisaka

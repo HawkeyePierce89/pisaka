@@ -22,6 +22,15 @@ import XCTest
 ///    string `"NO"`, which the export-compliance check does not recognise, so
 ///    every upload keeps asking the encryption question the key exists to
 ///    pre-answer. Asserting the *type*, not just the truthiness, is the point.
+///
+/// `Resources/PrivacyInfo.xcprivacy` is checked the same way, and for the same
+/// reason: nothing in the build fails when a required-reason category is wrong,
+/// missing or coded with the wrong reason string — it surfaces as an App Store
+/// Connect rejection or, worse, as a privacy report that misdescribes the app.
+/// The accessed-API assertion is deliberately *set equality* on category/reason
+/// pairs rather than a "contains" check, so a category added without an audit,
+/// dropped after a refactor, or silently re-coded fails here until the manifest
+/// and the audit recorded in `docs/architecture/core-services.md` are reconciled.
 final class ReleaseMetadataTests: XCTestCase {
     /// The category the app ships under. A code editor is a developer tool.
     private static let expectedCategory = "public.app-category.developer-tools"
@@ -65,6 +74,78 @@ final class ReleaseMetadataTests: XCTestCase {
                        """)
     }
 
+    // MARK: - Privacy manifest
+
+    func testPrivacyManifestDeclaresNoTrackingAndNoCollectedData() throws {
+        let manifest = try loadPrivacyManifest()
+
+        let tracking = try XCTUnwrap(manifest["NSPrivacyTracking"] as? NSNumber,
+                                     "PrivacyInfo.xcprivacy has no Boolean NSPrivacyTracking")
+        XCTAssertEqual(CFGetTypeID(tracking), CFBooleanGetTypeID(),
+                       "NSPrivacyTracking must be a Boolean (<false/>), not a string or a number")
+        XCTAssertFalse(tracking.boolValue,
+                       "the app has no advertising or analytics SDK and does no cross-app tracking")
+
+        let domains = try XCTUnwrap(manifest["NSPrivacyTrackingDomains"] as? [Any],
+                                    "PrivacyInfo.xcprivacy has no NSPrivacyTrackingDomains array")
+        XCTAssertTrue(domains.isEmpty,
+                      "NSPrivacyTrackingDomains must stay empty while NSPrivacyTracking is false")
+
+        let collected = try XCTUnwrap(manifest["NSPrivacyCollectedDataTypes"] as? [Any],
+                                      "PrivacyInfo.xcprivacy has no NSPrivacyCollectedDataTypes array")
+        XCTAssertTrue(collected.isEmpty,
+                      """
+                      The app has no telemetry and no network egress beyond the user's own git \
+                      remotes; everything it stores is local. Adding a collected data type means \
+                      that stopped being true.
+                      """)
+    }
+
+    /// Set equality, not containment: the audit behind these two entries is
+    /// recorded in `docs/architecture/core-services.md`, and a category added,
+    /// dropped or re-coded without redoing that audit must fail here.
+    func testPrivacyManifestDeclaresExactlyTheAuditedRequiredReasonAPIs() throws {
+        let manifest = try loadPrivacyManifest()
+        let types = try XCTUnwrap(manifest["NSPrivacyAccessedAPITypes"] as? [[String: Any]],
+                                  "PrivacyInfo.xcprivacy has no NSPrivacyAccessedAPITypes array")
+
+        var declared: Set<Pair> = []
+        for entry in types {
+            let category = try XCTUnwrap(entry["NSPrivacyAccessedAPIType"] as? String,
+                                         "an accessed-API entry has no string NSPrivacyAccessedAPIType")
+            let reasons = try XCTUnwrap(entry["NSPrivacyAccessedAPITypeReasons"] as? [String],
+                                        "\(category) has no NSPrivacyAccessedAPITypeReasons string array")
+            XCTAssertFalse(reasons.isEmpty, "\(category) declares no reason code")
+            for reason in reasons { declared.insert(Pair(category: category, reason: reason)) }
+        }
+
+        XCTAssertEqual(declared, Self.expectedAccessedAPIs, Self.accessedAPIMismatchMessage)
+    }
+
+    /// One declared `(category, reason)` pair, compared as a set element.
+    private struct Pair: Hashable, CustomStringConvertible {
+        let category: String
+        let reason: String
+        var description: String { "\(category)/\(reason)" }
+    }
+
+    /// `UserDefaults` (`SettingsStore`/`BookmarkStore`/`SessionStore`) and the
+    /// `lstat` probes in `GitCLIService`/`LibGit2Service` — nothing else was
+    /// found by the audit.
+    private static let expectedAccessedAPIs: Set<Pair> = [
+        Pair(category: "NSPrivacyAccessedAPICategoryUserDefaults", reason: "CA92.1"),
+        Pair(category: "NSPrivacyAccessedAPICategoryFileTimestamp", reason: "3B52.1"),
+    ]
+
+    private static let accessedAPIMismatchMessage = """
+        The declared required-reason APIs must match the audit in \
+        docs/architecture/core-services.md exactly: UserDefaults/CA92.1 (access limited to the \
+        app itself — no app group) and FileTimestamp/3B52.1 (timestamps of files the user \
+        specifically granted access to via the open panel / document picker). 3B52.1 and not \
+        DDA9.1 because the app never displays a file timestamp — blame dates come from git's \
+        --porcelain output, not from stat.
+        """
+
     // MARK: - Reading the committed resources
 
     /// The repository root, derived from this file's own compile-time path
@@ -81,5 +162,15 @@ final class ReleaseMetadataTests: XCTestCase {
         let object = try PropertyListSerialization.propertyList(from: data, format: nil)
         return try XCTUnwrap(object as? [String: Any],
                              "Resources/Info.plist is not a plist dictionary", file: file, line: line)
+    }
+
+    private func loadPrivacyManifest(file: StaticString = #filePath,
+                                     line: UInt = #line) throws -> [String: Any] {
+        let url = Self.repositoryRoot.appendingPathComponent("Resources/PrivacyInfo.xcprivacy")
+        let data = try Data(contentsOf: url)
+        let object = try PropertyListSerialization.propertyList(from: data, format: nil)
+        return try XCTUnwrap(object as? [String: Any],
+                             "Resources/PrivacyInfo.xcprivacy is not a plist dictionary",
+                             file: file, line: line)
     }
 }

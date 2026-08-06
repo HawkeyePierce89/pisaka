@@ -190,7 +190,7 @@ committed `Package.resolved` revision, now enforced by test.
 - Modify: `project.yml`
 - Modify: `Tests/PisakaCoreTests/ReleaseMetadataTests.swift`
 
-- [ ] re-run the required-reason audit greps over `Sources/` (UserDefaults;
+- [x] re-run the required-reason audit greps over `Sources/` (UserDefaults;
   `lstat`/`stat`/`getattrlist`/`creationDate`/`modificationDate`/`attributesOfItem`;
   `systemUptime`/`mach_absolute_time`/`sysctl`;
   `statfs`/`volumeAvailableCapacity`; `activeInputModes`) and record the result
@@ -200,23 +200,39 @@ committed `Package.resolved` revision, now enforced by test.
   (files and directories the user specifically granted access to via the open
   panel / document picker), *not* `DDA9.1`, because the app never displays file
   timestamps to the user (blame dates come from git's output, not from `stat`)
-- [ ] write `Resources/PrivacyInfo.xcprivacy`: `NSPrivacyTracking` = false,
+  — re-run and unchanged: UserDefaults in `SettingsStore`/`BookmarkStore`/
+  `SessionStore` (+ the `SessionController` writer); file timestamps at exactly
+  four `lstat`-into-`stat` sites (`GitCLIService.swift:627,787,1186`,
+  `LibGit2Service.swift:914`, the rest of the `lstat` hits being comment prose);
+  **no hits at all** for boot time, disk space or active keyboard.
+  `FileService`'s `.fileSizeKey`/`.isDirectoryKey`/`.fileResourceIdentifierKey`
+  and `GitCLIService`'s `.volumeSupportsCaseSensitiveNamesKey` are not
+  required-reason APIs. Recorded as the "Release-metadata resources" section of
+  `docs/architecture/core-services.md`, `3B52.1`-not-`DDA9.1` reasoning included
+- [x] write `Resources/PrivacyInfo.xcprivacy`: `NSPrivacyTracking` = false,
   `NSPrivacyTrackingDomains` = empty, `NSPrivacyCollectedDataTypes` = empty (the
   app has no network telemetry and stores everything locally), and
   `NSPrivacyAccessedAPITypes` with exactly two entries —
   `NSPrivacyAccessedAPICategoryUserDefaults` / `["CA92.1"]` and
   `NSPrivacyAccessedAPICategoryFileTimestamp` / `["3B52.1"]`
-- [ ] declare it as a target resource in `project.yml` so it lands at the top
+- [x] declare it as a target resource in `project.yml` so it lands at the top
   level of the built bundle's resources on both destinations
   (`Contents/Resources/` on macOS, the `.app` root on iOS); keep it out of the
-  recursive `Sources/Pisaka` source entry so it is added exactly once
-- [ ] extend `ReleaseMetadataTests` to read `PrivacyInfo.xcprivacy` through
+  recursive `Sources/Pisaka` source entry so it is added exactly once — declared
+  as a single-file `buildPhase: resources` entry (a plain file reference, not a
+  folder reference), naming the *file* rather than `Resources/`, which also keeps
+  the partial `Info.plist` out of the resources phase where it would be copied a
+  second time beside Xcode's merged one. `xcodegen generate` puts it in the
+  Resources phase exactly once and an early macOS build confirms it lands at
+  `Pisaka.app/Contents/Resources/PrivacyInfo.xcprivacy` with all four keys
+  intact; Task 8 re-verifies on both destinations
+- [x] extend `ReleaseMetadataTests` to read `PrivacyInfo.xcprivacy` through
   `#filePath` and assert tracking is false, both collected-data and
   tracking-domain arrays are empty, and the accessed-API set is exactly the two
   category/reason pairs above — `UserDefaults`/`CA92.1` and
   `FileTimestamp`/`3B52.1`, set equality, so an added, dropped or re-coded
   category fails until the manifest and the audit are reconciled
-- [ ] run `swift test` — must pass before Task 4
+- [x] run `swift test` — 1564 tests, 0 failures (2 new)
 
 ### Task 4: Collect license texts and the manifest resource
 
