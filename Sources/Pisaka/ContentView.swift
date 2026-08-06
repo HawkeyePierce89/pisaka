@@ -1,0 +1,466 @@
+#if os(macOS)
+import SwiftUI
+import PisakaCore
+
+/// View-layer mapping from the SwiftUI-free `ThemePreference` (Core) to a SwiftUI
+/// `ColorScheme?` for `.preferredColorScheme(...)`: `.system → nil` (follow the
+/// system), `.light → .light`, `.dark → .dark`. Kept here so Core stays
+/// SwiftUI-free (the same split as `FileIconColor → Color`).
+extension ThemePreference {
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+}
+
+struct ContentView: View {
+    @ObservedObject var model: WorkspaceModel
+    /// Observable state for the Local Changes panel. Defaults to a real,
+    /// `Process`-backed service so previews/tests can construct the view without
+    /// the app wiring.
+    @ObservedObject var localChanges: LocalChangesModel = LocalChangesModel(gitService: GitCLIService())
+    /// Observable state for the Log view. Defaults to a real, `Process`-backed
+    /// service so previews/tests can construct the view without the app wiring.
+    @ObservedObject var commitLog: CommitLogModel = CommitLogModel(gitService: GitCLIService())
+    /// Observable state for the branch-switcher widget (bottom bar). Defaults to a
+    /// real, `Process`-backed service so previews/tests can construct the view
+    /// without the app wiring.
+    @ObservedObject var branchSwitcher: BranchSwitcherModel = BranchSwitcherModel(gitService: GitCLIService())
+    /// State for the commit dialog (⌘K). Owned by `PisakaApp`, which loads it
+    /// before presenting the sheet; defaults to a real, `Process`-backed service so
+    /// previews/tests can construct the view without the app wiring.
+    ///
+    /// Deliberately **not** `@ObservedObject`: this view never reads it, it only
+    /// hands it to the sheet, which observes it itself. Observing it here would
+    /// re-evaluate the whole window — the project tree, the tab list,
+    /// `CodeEditorView.updateNSView`, the bottom panel — on every keystroke in the
+    /// commit message field, which is bound to the model's `@Published` `message`.
+    /// That is the per-keystroke cost `PathBarView.equatable()` exists to avoid,
+    /// arriving from a new source.
+    var commitDialog: CommitDialogModel = CommitDialogModel(gitService: GitCLIService())
+    /// Owns the embedded terminal's live sessions. Defaults to a fresh model so
+    /// previews/tests can construct the view without the app wiring.
+    @ObservedObject var terminalSessions: TerminalSessionsModel = TerminalSessionsModel()
+    /// Persisted user preferences (tab orientation, theme, shared editor font
+    /// size). Owned by `PisakaApp`; defaults to a fresh store so a
+    /// default-constructed view (previews/tests) still compiles. Downstream tasks
+    /// read each setting from here to apply theme, tab layout, and font size.
+    @ObservedObject var settings: SettingsStore = SettingsStore()
+    /// The find/replace bar's state (⌘F). Window-scoped and owned by `PisakaApp`
+    /// so the pattern and toggles survive a tab switch; observed here because
+    /// `isVisible` decides whether the bar is rendered above the editor. Defaults
+    /// to a fresh state so a default-constructed view (previews/tests) compiles.
+    @ObservedObject var search: EditorSearchState = EditorSearchState()
+    /// Pending "select this range" request from the Find in Files window (⌘⇧F).
+    /// Owned by `PisakaApp` for the same reason as `search` — an activation may
+    /// open the file, so the request is recorded before the editor showing it
+    /// exists — and threaded straight into `CodeEditorView`, which consumes it.
+    /// Defaults to a fresh state so a default-constructed view compiles.
+    @ObservedObject var reveal: EditorRevealState = EditorRevealState()
+    /// Which bottom dock panel is shown (`nil` = none), VS Code-style. Owned by
+    /// `PisakaApp` and bound here; `.constant(nil)` keeps the default-constructed
+    /// view (previews/tests) with no panel shown.
+    var bottomPanel: Binding<BottomPanel?> = .constant(nil)
+    /// Toggle a bottom dock panel (creating the first terminal session if needed).
+    /// Routed through `PisakaApp` so the bottom-bar buttons and the View-menu
+    /// commands share one implementation. Default no-op for previews/tests.
+    var onTogglePanel: (BottomPanel) -> Void = { _ in }
+    /// Invoked when a tab requests to close (button or command). Defaults to a
+    /// no-op so previews/tests can construct the view without the app wiring.
+    var onClose: (UUID) -> Void = { _ in }
+    /// Invoked when a project-tree file row is clicked. Defaults to a no-op so
+    /// previews/tests can construct the view without the app wiring.
+    var onOpenFile: (URL) -> Void = { _ in }
+    /// Invoked when the empty project-tree pane is clicked to open a folder.
+    /// Defaults to a no-op so previews/tests can construct the view without the
+    /// app wiring.
+    var onOpenFolder: () -> Void = {}
+    /// Invoked when a changed-file row requests a revert. Defaults to a no-op so
+    /// previews/tests can construct the view without the app wiring.
+    var onRevert: (ChangedFile) -> Void = { _ in }
+    /// Invoked when a Local Changes row is double-clicked to open its diff in a
+    /// separate window. Defaults to a no-op so previews/tests can construct the
+    /// view without the app wiring.
+    var onOpenDiff: (ChangedFile) -> Void = { _ in }
+    /// Invoked when a commit's file is double-clicked in the Git Log to open its
+    /// diff in a separate window. Defaults to a no-op so previews/tests can
+    /// construct the view without the app wiring.
+    var onOpenCommitDiff: (ChangedFile, Commit) -> Void = { _, _ in }
+    /// Invoked when a conflicted Local Changes file requests resolution (the
+    /// "Resolve" entry / double-click), opening the 3-pane merge window. Defaults
+    /// to a no-op so previews/tests can construct the view without the app wiring.
+    /// (The Local Changes trigger that calls this is wired in Task 6.)
+    var onResolveConflict: (ChangedFile) -> Void = { _ in }
+    /// Branch-switcher callbacks (bottom-bar widget), wired to `PisakaApp`'s gated
+    /// orchestration. Default no-ops so previews/tests can construct the view.
+    var onSwitchBranch: (BranchRef) -> Void = { _ in }
+    var onCreateBranchFromRemote: (BranchRef) -> Void = { _ in }
+    var onCheckoutRemote: (BranchRef) -> Void = { _ in }
+    var onNewBranch: () -> Void = {}
+    /// Project-tree file-operation callbacks, threaded down to `ProjectTreeView`.
+    /// Default no-ops so previews/tests can construct the view without the app
+    /// wiring.
+    var onNewFile: (URL) -> Void = { _ in }
+    var onNewFolder: (URL) -> Void = { _ in }
+    var onRename: (URL) -> Void = { _ in }
+    var onDelete: (URL) -> Void = { _ in }
+    /// Invoked when a project-tree file row requests a run (the "Run" context-menu
+    /// item), wired to `PisakaApp.runFile(url:)`. Default no-op so previews/tests
+    /// can construct the view without the app wiring.
+    var onRun: (URL) -> Void = { _ in }
+    /// Invoked when a project-tree file row requests a test run (the "Run Test"
+    /// context-menu item), wired to `PisakaApp.testFile(url:)`. Default no-op so
+    /// previews/tests can construct the view without the app wiring. Threaded down
+    /// to `ProjectTreeView` in Task 5.
+    var onRunTest: (URL) -> Void = { _ in }
+    /// Whether the commit dialog sheet is up. Owned by `PisakaApp` (which loads the
+    /// model before raising it) and bound here; `.constant(false)` keeps the
+    /// default-constructed view (previews/tests) without a sheet.
+    var isCommitDialogPresented: Binding<Bool> = .constant(false)
+    /// Invoked by the Local Changes header's Commit button — the same handler as
+    /// the ⌘K menu item, so the two behave identically. Default no-op.
+    var onOpenCommitDialog: () -> Void = {}
+    /// Invoked by a Local Changes row's "Commit…" context-menu item, opening the
+    /// commit dialog with only that file preselected. Wired to the *same*
+    /// `PisakaApp.openCommitDialog` orchestration as `onOpenCommitDialog`, with the
+    /// preselect as its only difference. Default no-op.
+    var onCommitFile: (ChangedFile) -> Void = { _ in }
+    /// Run the commit the dialog describes. `PisakaApp` owns the gates and the
+    /// post-success refreshes, and closes the sheet itself. The `Int` is the
+    /// project generation the *view* captured synchronously before its `Task` hop
+    /// (`onReplaceAll`'s shape and reason — read inside the task it would compare
+    /// against itself). Default no-op.
+    var onCommit: (Int) async -> Void = { _ in }
+    /// Called on *every* path that closes the commit sheet (Commit, Cancel, Esc),
+    /// so the modal autosave suspension `PisakaApp` raises when opening it is
+    /// always released. Default no-op.
+    var onCommitDialogDismissed: () -> Void = {}
+
+    /// Height of the bottom dock panel. Held independently of *which* panel is
+    /// shown so it survives panel switches and hide/show, VS Code-style (the old
+    /// recreated `VSplitView` reset it on every change). `@State` only — meeting
+    /// "persist across switch/hide-show"; cross-launch persistence is YAGNI.
+    @State private var panelHeight: CGFloat = 240
+    /// The panel height captured at the start of a divider drag, so the cumulative
+    /// `DragGesture` translation is applied to a fixed base rather than compounding
+    /// against the live `panelHeight` each frame. `nil` when not dragging.
+    @State private var panelDragStartHeight: CGFloat?
+
+    var body: some View {
+        // The editor (or editor-over-panel split) fills the window above an
+        // always-visible bottom bar of Terminal/Git/Changes toggle buttons,
+        // VS Code-style.
+        VStack(spacing: 0) {
+            mainArea
+            Divider()
+            bottomBar
+        }
+        // Empty-gap fix: closing the last terminal tab leaves the panel selection
+        // on `.terminal` with nothing to draw. Collapse the panel so the bar sits
+        // flush at the bottom and a repeat click/⌘⇧T reopens it in one press.
+        .onChange(of: terminalSessions.sessions.isEmpty) { isEmpty in
+            if isEmpty && bottomPanel.wrappedValue == .terminal {
+                bottomPanel.wrappedValue = nil
+            }
+        }
+        // The commit dialog is a sheet on the main window (⌘K, or the Local
+        // Changes header button). `onDismiss` fires on every closing path — the
+        // Commit that succeeded, Cancel, Esc — which is what makes the modal
+        // autosave suspension `PisakaApp` raises on open impossible to strand.
+        .sheet(isPresented: isCommitDialogPresented, onDismiss: onCommitDialogDismissed) {
+            CommitDialogView(
+                model: commitDialog,
+                settings: settings,
+                onCommit: onCommit,
+                onCancel: { isCommitDialogPresented.wrappedValue = false }
+            )
+        }
+        // Apply the theme at the window content root so it propagates to SwiftUI
+        // and the hosted AppKit views. `settings` is observed, so flipping the
+        // preference re-applies live (`.system` maps to `nil`, i.e. follow the
+        // system appearance).
+        .preferredColorScheme(settings.themePreference.colorScheme)
+    }
+
+    /// The editor split, optionally with a bottom dock panel below it. The panel
+    /// sits at a manually managed `panelHeight` (held independently of which panel
+    /// is shown, so it persists across switches and hide/show — unlike the old
+    /// recreated `VSplitView`), separated by a draggable divider. The terminal
+    /// branch is shown only when there is a live session, so an emptied terminal
+    /// never draws a bare tab bar (the empty-gap bug); the Log panel has no such
+    /// precondition.
+    @ViewBuilder
+    private var mainArea: some View {
+        if let panel = visiblePanel {
+            // `GeometryReader` gives the available height so the panel-height drag
+            // can clamp against the window (lower bound 120pt, upper bound half the
+            // area). Existing terminal sessions keep the directory they were
+            // started in — only `newSession` reads `projectRoot` — so a folder
+            // switch never moves a running shell.
+            GeometryReader { geo in
+                VStack(spacing: 0) {
+                    editorSplit
+                        .frame(maxHeight: .infinity)
+                    panelDivider(maxHeight: geo.size.height)
+                    panelContent(panel)
+                        .frame(height: clampedPanelHeight(maxHeight: geo.size.height))
+                }
+            }
+        } else {
+            editorSplit
+        }
+    }
+
+    /// The draggable divider between the editor and the bottom dock panel. Drag up
+    /// to grow the panel, down to shrink it; the cumulative translation is applied
+    /// to the height captured at drag start so it does not compound frame-to-frame.
+    private func panelDivider(maxHeight: CGFloat) -> some View {
+        Rectangle()
+            .fill(Color(NSColor.separatorColor))
+            .frame(height: 5)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                if hovering { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+            }
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        let base = panelDragStartHeight ?? panelHeight
+                        if panelDragStartHeight == nil { panelDragStartHeight = base }
+                        panelHeight = clampedPanelHeight(
+                            proposed: base - value.translation.height,
+                            maxHeight: maxHeight
+                        )
+                    }
+                    .onEnded { _ in panelDragStartHeight = nil }
+            )
+    }
+
+    /// `panelHeight` clamped to `[120, maxHeight / 2]` (lower bound floored so a
+    /// tiny window still yields a usable lower bound).
+    private func clampedPanelHeight(maxHeight: CGFloat) -> CGFloat {
+        clampedPanelHeight(proposed: panelHeight, maxHeight: maxHeight)
+    }
+
+    private func clampedPanelHeight(proposed: CGFloat, maxHeight: CGFloat) -> CGFloat {
+        let upper = max(120, maxHeight / 2)
+        return min(max(proposed, 120), upper)
+    }
+
+    /// The panel to actually render below the editor: the selected `bottomPanel`,
+    /// except `.terminal` collapses to `nil` while there are no live sessions.
+    private var visiblePanel: BottomPanel? {
+        switch bottomPanel.wrappedValue {
+        case .terminal where terminalSessions.sessions.isEmpty:
+            return nil
+        case let panel:
+            return panel
+        }
+    }
+
+    @ViewBuilder
+    private func panelContent(_ panel: BottomPanel) -> some View {
+        switch panel {
+        case .terminal:
+            TerminalPanelView(model: terminalSessions, projectRoot: model.projectRoot)
+        case .log:
+            // No `minWidth: 640`/`minHeight: 400` here — those over-expand the
+            // shorter bottom panel; a modest `minHeight` keeps it usable.
+            CommitLogView(model: commitLog, projectRoot: model.projectRoot, onOpenCommitDiff: onOpenCommitDiff)
+                .frame(minHeight: 160)
+        case .changes:
+            // Local Changes is now a bottom dock panel (beside Terminal/Git),
+            // rendered as the file list only — the diff opens in a separate window
+            // on double-click via `onOpenDiff`.
+            LocalChangesView(
+                model: localChanges,
+                projectRoot: model.projectRoot,
+                onRevert: onRevert,
+                onOpenDiff: onOpenDiff,
+                onResolveConflict: onResolveConflict,
+                onCommit: onOpenCommitDialog,
+                onCommitFile: onCommitFile
+            )
+                .frame(minHeight: 120)
+        }
+    }
+
+    /// The always-visible bottom bar: Terminal/Git/Changes toggle buttons, the
+    /// active one highlighted. Clicking goes through `onTogglePanel` (shared with
+    /// the View
+    /// menu) so a button and its matching command behave identically.
+    private var bottomBar: some View {
+        HStack(spacing: 4) {
+            bottomBarButton(title: "Terminal", systemImage: "terminal", panel: .terminal)
+            bottomBarButton(title: "Git", systemImage: "arrow.triangle.branch", panel: .log)
+            bottomBarButton(title: "Changes", systemImage: "arrow.triangle.pull", panel: .changes)
+            Spacer()
+            // JetBrains-style branch widget on the right of the status bar: shows
+            // the current branch and opens the switch/create popover.
+            BranchSwitcherView(
+                model: branchSwitcher,
+                onSwitch: onSwitchBranch,
+                onCreateFromRemote: onCreateBranchFromRemote,
+                onCheckoutRemote: onCheckoutRemote,
+                onNewBranch: onNewBranch
+            )
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+    }
+
+    private func bottomBarButton(title: String, systemImage: String, panel: BottomPanel) -> some View {
+        let isActive = bottomPanel.wrappedValue == panel
+        return Button {
+            onTogglePanel(panel)
+        } label: {
+            Label(title, systemImage: systemImage)
+                .font(.callout)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(isActive ? Color.accentColor.opacity(0.2) : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isActive ? Color.accentColor : Color.primary)
+    }
+
+    private var editorSplit: some View {
+        HSplitView {
+            // Left zone: the project tree. (Local Changes is now a bottom dock
+            // panel, so the old "Project ⇄ Changes" segmented toggle is gone.)
+            ProjectTreeView(
+                model: model,
+                onOpenFile: onOpenFile,
+                onOpenFolder: onOpenFolder,
+                onNewFile: onNewFile,
+                onNewFolder: onNewFolder,
+                onRename: onRename,
+                onDelete: onDelete,
+                onRun: onRun,
+                onRunTest: onRunTest
+            )
+            .frame(minWidth: 180, idealWidth: 240, maxWidth: 360)
+
+            switch settings.tabOrientation {
+            case .vertical:
+                // Middle zone: vertical tab list, as its own resizable column.
+                TabListView(model: model, orientation: .vertical, onClose: onClose)
+                    .frame(minWidth: 180, idealWidth: 220, maxWidth: 320)
+
+                // Right zone: the editor zone for the selected tab.
+                editorZone
+                    .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
+
+            case .horizontal:
+                // No separate tabs column: a horizontal tab strip is stacked above
+                // the editor zone in the right zone instead.
+                VStack(spacing: 0) {
+                    TabListView(model: model, orientation: .horizontal, onClose: onClose)
+                        .frame(height: 32)
+                    Divider()
+                    editorZone
+                }
+                .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(minWidth: 640, minHeight: 400)
+    }
+
+    /// The text editor for the selected tab, or a placeholder when no file is open.
+    /// (The inline diff pane is gone — diffs open in a separate window on
+    /// double-click.) Shared by both tab orientations.
+    @ViewBuilder
+    private var editorZone: some View {
+        if let file = model.selectedFile {
+            VStack(spacing: 0) {
+                PathBarView(fileURL: file.url, projectRoot: model.projectRoot)
+                    .equatable()
+                Divider()
+                // The find/replace bar sits between the breadcrumb and the editor,
+                // so it covers both tab orientations at once (in `.horizontal` it
+                // simply lands under the tab strip). Rendered only while open —
+                // closing it also drops the match highlight, which the state's
+                // `close()` asks the controller to do directly.
+                if search.isVisible {
+                    SearchBarView(search: search)
+                    Divider()
+                }
+                CodeEditorView(
+                    fileID: file.id,
+                    fileName: file.displayName,
+                    openFileIDs: Set(model.openFiles.map(\.id)),
+                    externalTextRevision: model.textReplacementRevision(for: file.id),
+                    fileURL: file.url,
+                    diskRevision: model.diskRevision(for: file.id),
+                    text: binding(for: file.id),
+                    fontSize: settings.fontSize,
+                    onStepFontSize: { settings.stepFontSize(by: $0) },
+                    search: search,
+                    reveal: reveal
+                )
+            }
+        } else {
+            Text("No file open")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// A binding to a specific file's text that routes writes through the model
+    /// so dirty state is tracked. Reads find the file by `id` each time, so the
+    /// binding stays valid as `openFiles` changes.
+    private func binding(for id: UUID) -> Binding<String> {
+        Binding(
+            get: { model.openFiles.first { $0.id == id }?.text ?? "" },
+            set: { model.updateText($0, for: id) }
+        )
+    }
+}
+
+/// The VS Code-style breadcrumb bar above the editor: the open file's path
+/// relative to the opened project root (`backend › src › dialogs.service.ts`), or
+/// an abbreviated absolute path when it lives outside the root. All the segment
+/// computation is `PisakaCore.DisplayPath` — this is display only, so the view
+/// stays thin and the rule stays unit-tested. `home` is read here (Core takes it
+/// as a parameter, the `TerminalLaunch` precedent).
+///
+/// A fixed row height keeps the editor from jumping as the path changes, and
+/// middle truncation keeps the file name visible in a narrow window. Rendered
+/// inside `ContentView.editorZone`, so both tab orientations get it (in
+/// `.horizontal` it lands just under the tab strip).
+///
+/// It is a separate `Equatable` view — rather than a `@ViewBuilder` on
+/// `ContentView` — because `DisplayPath.components` resolves symlinks
+/// (`CanonicalPath.canonical` → `resolvingSymlinksInPath()`, an `lstat` walk per
+/// path component) while `ContentView.body` re-evaluates on *every* keystroke:
+/// the editor binding routes each edit through `model.updateText`, republishing
+/// `openFiles`. Keying the view on `(fileURL, projectRoot)` alone lets SwiftUI
+/// skip the recompute unless the tab or the project root actually changed, so
+/// that filesystem work stays off the typing path.
+private struct PathBarView: View, Equatable {
+    let fileURL: URL?
+    let projectRoot: URL?
+
+    var body: some View {
+        Text(
+            DisplayPath.components(
+                fileURL: fileURL,
+                projectRoot: projectRoot,
+                home: FileManager.default.homeDirectoryForCurrentUser
+            )
+            .joined(separator: " › ")
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, minHeight: 22, maxHeight: 22, alignment: .leading)
+    }
+}
+
+#endif

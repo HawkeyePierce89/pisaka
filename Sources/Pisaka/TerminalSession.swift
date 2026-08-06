@@ -1,0 +1,130 @@
+#if os(macOS)
+import AppKit
+import SwiftTerm
+import PisakaCore
+
+/// One live shell session in the embedded terminal: a stable identity, a display
+/// title, and the `LocalProcessTerminalView` that hosts the PTY-backed shell.
+///
+/// This is intentionally thin view-layer code (like `CodeEditorView`): the only
+/// pure, testable part — resolving which shell to launch and in which directory —
+/// lives in `PisakaCore.TerminalLaunch`. The session is created with those already
+/// resolved values and immediately starts the shell process.
+final class TerminalSession: Identifiable {
+    /// Stable identity, so the tab bar and the model can refer to a session across
+    /// SwiftUI redraws without recreating its running shell.
+    let id = UUID()
+
+    /// Title shown on the tab. Assigned by `TerminalSessionsModel` at creation; not
+    /// renamed at runtime (YAGNI: no tab rename).
+    let title: String
+
+    /// The AppKit view that renders the terminal and owns the PTY-backed shell.
+    /// Retained for the session's whole lifetime so switching tabs only swaps which
+    /// view is in the hierarchy — it never restarts the shell.
+    let terminalView: LocalProcessTerminalView
+
+    /// Starts a shell process in `workingDirectory`.
+    ///
+    /// SwiftTerm 1.5.0's *view-level* `startProcess` does not take a working
+    /// directory, but the module-internal `LocalProcess.startProcess` does — and we
+    /// already reach that instance through `Mirror` (see `terminate()`), so we pass
+    /// `workingDirectory` straight through it. This avoids mutating the app-wide
+    /// current directory (which would race any concurrent relative-path work and,
+    /// if the `chdir` silently failed, start the shell in the wrong place).
+    ///
+    /// Only if the (exact-version-pinned) reflection ever fails to find the process
+    /// do we fall back to the cwd-swap the view API forces — point the process cwd
+    /// at `workingDirectory` just long enough for the `forkpty` (the child inherits
+    /// it) then restore it, the same approach SwiftTerm's own sample app uses.
+    init(title: String, shell: String, workingDirectory: URL) {
+        self.title = title
+        self.terminalView = LocalProcessTerminalView(frame: .zero)
+
+        // Launch as a login shell: argv[0] prefixed with "-" is the Unix convention
+        // that tells the shell to source the user's login profile.
+        let execName = "-" + (shell as NSString).lastPathComponent
+
+        if let process = Self.localProcess(of: terminalView) {
+            process.startProcess(executable: shell, execName: execName, currentDirectory: workingDirectory.path)
+        } else {
+            let fileManager = FileManager.default
+            let previousDirectory = fileManager.currentDirectoryPath
+            fileManager.changeCurrentDirectoryPath(workingDirectory.path)
+            defer { fileManager.changeCurrentDirectoryPath(previousDirectory) }
+            terminalView.startProcess(executable: shell, execName: execName)
+        }
+    }
+
+    /// Types `command` into the shell as if the user had entered it (a trailing
+    /// newline submits it). The session's login shell and working directory are
+    /// already set at launch, so no `cd` is needed — the resolved run command
+    /// carries the (shell-quoted) file path.
+    func run(command: String) {
+        terminalView.send(txt: command + "\n")
+    }
+
+    /// The colors this session currently carries, or `nil` while it still carries
+    /// SwiftTerm's own defaults.
+    ///
+    /// Keyed by the *resolved colors* (`TerminalTheme.ThemeKey`), not by
+    /// `NSAppearance.Name`: the caret and selection are semantic system colors that
+    /// follow the user's accent color, which changes them while the appearance name
+    /// stays `.aqua`/`.darkAqua` — a name-keyed guard would keep every live session
+    /// on the old accent indefinitely.
+    private var appliedTheme: TerminalTheme.ThemeKey?
+
+    /// Recolors this session for `appearance` (the built-in light/dark palettes in
+    /// `TerminalTheme`), skipping the work when it already carries exactly those
+    /// colors.
+    ///
+    /// The recolor happens on the live `LocalProcessTerminalView`: the shell process,
+    /// its PTY and the whole scrollback are untouched, so a theme change repaints
+    /// what is already on screen rather than restarting anything.
+    ///
+    /// The unchanged-theme guard is not just an optimization. Applying a theme is a
+    /// full *reset* of exactly the state the terminal's own escape sequences write
+    /// to: `installColors` reinstalls the ANSI-16 palette (SwiftTerm's
+    /// `installPalette` assigns `ansiColors = defaultAnsiColors`, discarding every
+    /// OSC 4 entry a program or the user's profile set) and
+    /// `setBackgroundColor`/`setForegroundColor`/`caretColor` overwrite what OSC
+    /// 10/11/12 set. The panel host calls in on every mount and every tab switch —
+    /// and each call recolors *all* sessions — so without the guard an ordinary tab
+    /// switch would silently undo those. A real theme change still resets them:
+    /// there the app theme deliberately wins.
+    ///
+    /// The guard compares the whole resolved `ThemeKey` rather than the appearance
+    /// name, so an accent-color change (which alters the caret and selection without
+    /// altering the name) is a real change and does re-apply.
+    func applyTheme(for appearance: NSAppearance) {
+        let theme = TerminalTheme.key(for: appearance)
+        guard appliedTheme != theme else { return }
+        appliedTheme = theme
+        TerminalTheme.apply(to: terminalView, appearance: appearance)
+    }
+
+    /// Sends `SIGTERM` to the shell so a closed tab / app quit doesn't leak it.
+    ///
+    /// Only signals a *live* child: if the shell already exited its `shellPid` is
+    /// stale (and may have been reused by an unrelated process), and if the launch
+    /// failed `shellPid` is 0 — `kill(0, SIGTERM)` would signal our whole process
+    /// group. SwiftTerm's `LocalProcess.terminate()` does neither check, so we gate
+    /// on the public `running`/`shellPid` before calling it.
+    func terminate() {
+        guard let process = Self.localProcess(of: terminalView) else { return }
+        guard process.running, process.shellPid > 0 else { return }
+        process.terminate()
+    }
+
+    /// Reaches SwiftTerm 1.5.0's view-internal `LocalProcess` through `Mirror`.
+    /// The dependency is pinned to an exact version (see `Package.swift`), so the
+    /// stored-property name (`process`) stays stable.
+    private static func localProcess(of view: LocalProcessTerminalView) -> LocalProcess? {
+        for child in Mirror(reflecting: view).children where child.label == "process" {
+            return child.value as? LocalProcess
+        }
+        return nil
+    }
+}
+
+#endif

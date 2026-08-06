@@ -1,0 +1,1906 @@
+#if os(macOS)
+import SwiftUI
+import PisakaCore
+
+/// Promotes the process to a regular GUI app when launched as a bare SwiftPM
+/// executable (`swift run`). Without this it runs as an accessory process: no
+/// Dock icon and the menu bar stays owned by the launching terminal.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
+    }
+}
+
+@main
+struct PisakaApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @StateObject private var model: WorkspaceModel
+    /// Observable state for the project-wide Find in Files window (⌘⇧F).
+    ///
+    /// Built in `init()` rather than inline because its two open-buffer closures
+    /// need the *same* `WorkspaceModel` instance the rest of the app observes:
+    /// Core deliberately keeps no reference to the workspace, so a file with an
+    /// open tab is searched — and replaced — through these closures instead of on
+    /// disk, which is what lets Replace All keep a dirty tab's unsaved edits.
+    @StateObject private var projectSearch: ProjectSearchModel
+    @StateObject private var localChanges = LocalChangesModel(gitService: GitCLIService())
+    @StateObject private var commitLog = CommitLogModel(gitService: GitCLIService())
+    /// Observable state for the branch-switcher bottom-bar widget. Constructed
+    /// alongside `localChanges`/`commitLog`; refreshed on `openFolder` and after a
+    /// successful switch/create (the model's `switchTo`/`createBranch` refresh
+    /// themselves on success).
+    @StateObject private var branchSwitcher = BranchSwitcherModel(gitService: GitCLIService())
+    /// State for the commit dialog (⌘K / the Local Changes header button).
+    /// Constructed alongside the other git models; loaded synchronously pinned,
+    /// then presented as a sheet on the main window.
+    ///
+    /// A plain stored property, deliberately **not** `@StateObject` — the
+    /// `diffWindows`/`sessionController` precedent (the `@main` App is created
+    /// once, so a `let` is a stable instance) applied for the reason
+    /// `ContentView` documents on its own non-observing `commitDialog`: nothing
+    /// in this scene's `body` reads a published property of it, it is only handed
+    /// to the sheet, which observes it itself. Holding it as `@StateObject` made
+    /// the App's body a subscriber, so every keystroke in the message field —
+    /// which writes `@Published message` — invalidated the whole window and
+    /// re-created `ContentView` with its non-`Equatable` closure parameters,
+    /// putting the project tree, the tab list and `CodeEditorView.updateNSView`
+    /// back on the typing path, which is exactly what that comment claims to
+    /// avoid.
+    private let commitDialog = CommitDialogModel(gitService: GitCLIService())
+    /// Owns the embedded terminal's live sessions. Created once for the app's
+    /// lifetime; shared with the window content and terminated on app quit.
+    @StateObject private var terminalSessions = TerminalSessionsModel()
+    /// Persisted user preferences (tab orientation, theme, shared editor font
+    /// size). Created once for the app's lifetime; hosted by the `Settings` scene
+    /// below (the standard ⌘, Preferences window) and threaded into `ContentView`
+    /// so downstream views can read each setting.
+    @StateObject private var settings = SettingsStore()
+    /// The editor find/replace bar's state (⌘F). Owned here rather than by the
+    /// editor because the bar is *window*-scoped: its pattern, template and
+    /// toggles survive a tab switch, while `CodeEditorView`'s coordinator is
+    /// rebuilt with the view. The Find menu below drives this state; the editor's
+    /// `EditorSearchController` registers itself as its executor on attach.
+    @StateObject private var search = EditorSearchState()
+
+    /// Pending "select this range" request for the editor, produced when a Find in
+    /// Files result is activated. Window-scoped for the same reason as `search`:
+    /// activating a match may *open* the file, so the request is recorded before
+    /// the `CodeEditorView` that will honour it exists.
+    @StateObject private var reveal = EditorRevealState()
+
+    /// Wire the workspace and the project-search model together.
+    ///
+    /// `ProjectSearchModel`'s buffer closures are `let`s taken at construction, and
+    /// they must close over the very `WorkspaceModel` this app publishes — which a
+    /// property initializer cannot reach. Creating the workspace here and wrapping
+    /// both in `StateObject` is the whole reason this `init` exists; every other
+    /// stored property keeps its inline default.
+    init() {
+        let workspace = WorkspaceModel()
+        _model = StateObject(wrappedValue: workspace)
+        _projectSearch = StateObject(
+            wrappedValue: ProjectSearchModel(
+                fileService: FileService(),
+                // An open tab's text — dirty or not — is what the user sees, so it
+                // is what gets searched; a file with no tab goes down the on-disk
+                // branch. Handing over the whole snapshot (rather than answering
+                // one URL at a time) is what keeps the project walk off the main
+                // thread: the model re-keys these by canonical path *off-main*
+                // and matches each candidate with a dictionary hit, instead of
+                // making this closure re-resolve every tab's symlinks per file.
+                // A url-less "Untitled" buffer names no file, so it is left out.
+                openBuffers: { [weak workspace] in
+                    guard let workspace else { return [:] }
+                    var buffers: [URL: String] = [:]
+                    buffers.reserveCapacity(workspace.openFiles.count)
+                    for file in workspace.openFiles {
+                        if let url = file.url { buffers[url] = file.text }
+                    }
+                    return buffers
+                },
+                // …and what gets replaced: the edit lands in the buffer, leaving
+                // the tab dirty and the save the user's call, rather than being
+                // written to disk behind the editor's back.
+                // `replaceText`, not `updateText`: this is an *external* buffer
+                // replacement, and it lands in every matching open tab — including
+                // ones that are not on screen. The token it bumps is what lets the
+                // editor drop that file's stale undo stack when the tab is next
+                // displayed (see `WorkspaceModel.textReplacementRevisions`).
+                applyBufferText: { [weak workspace] url, text in
+                    guard let workspace, let id = workspace.fileID(forURL: url) else { return false }
+                    return workspace.replaceText(text, for: id)
+                }
+            )
+        )
+    }
+
+    /// Which bottom dock panel is shown (`nil` = none), VS Code-style. Owned here
+    /// so the always-visible bottom bar (in `ContentView`) and the View-menu
+    /// commands share one source of truth; toggled via `togglePanel(_:)`.
+    @State private var bottomPanel: BottomPanel? = nil
+
+    /// Whether the commit dialog sheet is up. Raised by `openCommitDialog()` after
+    /// the load has been kicked off, lowered by a successful commit, Cancel or Esc.
+    @State private var isCommitDialogPresented = false
+
+    /// Owns the separate, non-modal diff windows opened on double-click (a Local
+    /// Changes row, or a commit's file in Git Log). A plain stored reference — the
+    /// `@main` App is created once, so this single instance lives for the app's
+    /// lifetime; `closeAll()` is invoked on `willTerminateNotification` so no diff
+    /// windows linger past termination.
+    private let diffWindows = DiffWindowController()
+
+    /// Owns the separate, non-modal 3-pane merge windows opened to resolve a
+    /// conflicted file. A plain stored reference — the `@main` App is created once,
+    /// so this single instance lives for the app's lifetime; `closeAll()` is
+    /// invoked on `willTerminateNotification` so no merge windows linger past
+    /// termination (mirroring `diffWindows`).
+    private let mergeWindows = MergeWindowController()
+
+    /// Owns the single, non-modal Find in Files window (⌘⇧F). A plain stored
+    /// reference like `diffWindows`/`mergeWindows`, and `closeAll()` is invoked
+    /// from the same `willTerminateNotification` observer.
+    private let projectSearchWindows = ProjectSearchWindowController()
+
+    /// Watches the opened project folder with FSEvents so an *external* change (a
+    /// generator run in the embedded terminal, a Finder rename, a console `git
+    /// checkout`) shows up in the project tree on its own. A plain stored reference
+    /// — the `@main` App is created once, so this single instance lives for the
+    /// app's lifetime; `start(root:onChange:)` is called from `openFolder(url:)` —
+    /// the form that holds every folder-change side effect, so the launch-time
+    /// session restore starts the watcher exactly as a user-driven open does (it is
+    /// idempotent, so a folder switch simply switches the subscription) and `stop()`
+    /// on `willTerminateNotification`, mirroring `diffWindows`/`mergeWindows`.
+    ///
+    /// Nothing about the watcher-driven bump is gated: `bumpTreeRevision()` is
+    /// idempotent and the re-read it triggers is read-only, so an extra bump costs a
+    /// `contentsOfDirectory` per expanded node and nothing else. In particular the
+    /// harmless `.DS_Store`-driven bump (dir-level events report the containing
+    /// directory, so `TreeRefreshFilter`'s `.DS_Store` rule never sees it) and the
+    /// worktree events of an in-flight revert (a `git` *subprocess*, so
+    /// `kFSEventStreamCreateFlagIgnoreSelf` does not suppress them) are inert — a
+    /// re-read observes whatever is on disk at that moment and never writes. The
+    /// `.git` noise of those same git operations is dropped by the Core filter. So
+    /// no `isReverting`-style gate belongs here; the gates exist for *disk writers*,
+    /// which this is not.
+    private let projectWatcher = ProjectWatcher()
+
+    /// JetBrains-style autosave wiring (idle / focus-loss / tab-switch / quit).
+    /// A plain stored reference — the `@main` App is created once, so this single
+    /// instance lives for the app's lifetime; it is started from the window
+    /// content's `.onAppear` below.
+    private let autosave = AutosaveController()
+
+    /// Where the last session (the opened folder, the tabs, the selection, the text
+    /// of Untitled buffers) is read from on launch and written back to. A plain
+    /// stored reference like the controllers above — the `@main` App is created
+    /// once, so this single instance lives for the app's lifetime.
+    private let sessionStore = SessionStore()
+
+    /// Writes the session continuously (debounced) so a launch can bring the last
+    /// one back even after a crash or a force-quit. Started from the window
+    /// content's `.onAppear` below, *after* the restored session has been applied,
+    /// so a half-built state cannot overwrite what was saved.
+    private let sessionController = SessionController()
+
+    /// Whether the launch-time session restore has already run. `.onAppear` can
+    /// fire again (a reopened window, a second `WindowGroup` scene) and restore is
+    /// **not** idempotent — a second run would re-select a tab the user has since
+    /// moved off, so it is gated here rather than inside the model.
+    @State private var didRestoreSession = false
+
+    /// Disk access for the project-tree file operations (create / rename /
+    /// delete). A separate, stateless `FileService` instance — the same concrete
+    /// type the model uses by default — so the orchestration here goes through the
+    /// same `FileServicing` surface the Core logic is tested against.
+    private let fileService = FileService()
+
+    var body: some Scene {
+        WindowGroup {
+            ContentView(
+                model: model,
+                localChanges: localChanges,
+                commitLog: commitLog,
+                branchSwitcher: branchSwitcher,
+                commitDialog: commitDialog,
+                terminalSessions: terminalSessions,
+                settings: settings,
+                search: search,
+                reveal: reveal,
+                bottomPanel: $bottomPanel,
+                onTogglePanel: { togglePanel($0) },
+                onClose: { closeFile(id: $0) },
+                onOpenFile: { openFile(url: $0) },
+                onOpenFolder: { openFolder() },
+                onRevert: { revertChanges(contextFile: $0) },
+                onOpenDiff: { openLocalChangesDiff($0) },
+                onOpenCommitDiff: { openCommitDiff($0, in: $1) },
+                onResolveConflict: { resolveConflict($0) },
+                onSwitchBranch: { switchBranch($0) },
+                onCreateBranchFromRemote: { createBranchFromRemote($0) },
+                onCheckoutRemote: { checkoutRemote($0) },
+                onNewBranch: { newBranch() },
+                onNewFile: { newFile(in: $0) },
+                onNewFolder: { newFolder(in: $0) },
+                onRename: { renameItem(at: $0) },
+                onDelete: { deleteItem(at: $0) },
+                onRun: { runFile(url: $0) },
+                onRunTest: { testFile(url: $0) },
+                isCommitDialogPresented: $isCommitDialogPresented,
+                onOpenCommitDialog: { openCommitDialog() },
+                onCommitFile: { file in openCommitDialog(preselectingPath: file.path) },
+                onCommit: { origin in await commitFromDialog(originGeneration: origin) },
+                onCommitDialogDismissed: { autosave.resumeFromModal() }
+            )
+            .onAppear {
+                // Start once. `onSaved` reuses `refreshLocalChanges()` so an
+                // autosave re-runs `git status` through the same generation-pinning
+                // as a manual save, rather than duplicating that logic. Its
+                // `createdFile` flag additionally bumps the tree when an autosave
+                // *recreated* a file that had been deleted out of band — the watcher
+                // ignores our own writes, so nothing else would put it back in the
+                // listing (the same reason `saveAs` bumps explicitly).
+                autosave.start(model: model, onSaved: { createdFile in
+                    refreshLocalChanges()
+                    if createdFile { model.bumpTreeRevision() }
+                })
+
+                // Bring the last session back, once, before the first interaction —
+                // and start the writer only afterwards, so the intermediate states
+                // this produces are never persisted over what was saved.
+                if !didRestoreSession {
+                    didRestoreSession = true
+                    restoreLastSession()
+                }
+
+                // Terminate every shell on app quit so no PTY-backed processes
+                // leak. `willTerminateNotification` arrives on the main thread as
+                // the run loop ends; `terminateAll()` is idempotent, so a re-fired
+                // `.onAppear` registering a second observer is harmless.
+                //
+                // `queue: nil` — the block then runs **synchronously on the posting
+                // thread**, which is the only *documented* delivery guarantee
+                // `NotificationCenter` gives. Everything below has to complete
+                // before the process exits: this notification is the last thing
+                // AppKit posts before it tears the app down, so there is no further
+                // run-loop turn in which a block merely *enqueued* onto a queue
+                // would be picked up. (In practice a `queue: .main` observer is
+                // also delivered synchronously here, because the notification is
+                // posted on the main thread and `NotificationCenter` short-circuits
+                // when the target queue is the current one — but that is an
+                // implementation detail, and the quit-time `flushNow()` pair at the
+                // bottom is exactly the kind of one-shot, data-losing-if-skipped
+                // work that must not rest on one. `AutosaveController` registers its
+                // own termination observer the same way, for the same reason.)
+                NotificationCenter.default.addObserver(
+                    forName: NSApplication.willTerminateNotification,
+                    object: nil,
+                    queue: nil
+                ) { _ in
+                    terminalSessions.terminateAll()
+                    // Close any open separate diff windows so none linger past
+                    // termination, mirroring the terminal-session teardown. AppKit
+                    // posts this notification on the main thread and `queue: nil`
+                    // runs the block right there, so the `@MainActor` `closeAll()`
+                    // runs on the right actor.
+                    MainActor.assumeIsolated {
+                        diffWindows.closeAll()
+                        mergeWindows.closeAll()
+                        projectSearchWindows.closeAll()
+                    }
+                    // Tear the FSEvents subscription down too, so no stream
+                    // outlives the app. `stop()` is idempotent (and a no-op when
+                    // no folder was ever opened), so a re-fired `.onAppear`
+                    // registering a second observer stays harmless.
+                    projectWatcher.stop()
+
+                    // Flush both writers from here, in this order and from this one
+                    // place. Autosave first: the session records a dirty *titled*
+                    // file only by path, never its contents, so the snapshot is
+                    // truthful only once those buffers have reached disk —
+                    // otherwise the next launch reopens the file showing the
+                    // pre-quit disk state as if it were clean. Doing it here rather
+                    // than letting each controller register its own observer is
+                    // what makes the ordering deterministic and visible: two
+                    // independent observers would run in registration order, which
+                    // nothing states or enforces. `AutosaveController` still has its
+                    // own termination observer; `flushNow()` is idempotent
+                    // (`saveAllDirty()` writes nothing on a second run), so being
+                    // called twice on the same quit is harmless.
+                    autosave.flushNow()
+                    sessionController.flushNow()
+                }
+            }
+        }
+        .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("New File") { model.newFile() }
+                    .keyboardShortcut("n", modifiers: .command)
+
+                Button("Open…") { openFile() }
+                    .keyboardShortcut("o", modifiers: .command)
+
+                Button("Open Folder…") { openFolder() }
+                    .keyboardShortcut("o", modifiers: [.command, .shift])
+            }
+
+            CommandGroup(replacing: .saveItem) {
+                Button("Save") { saveSelected() }
+                    .keyboardShortcut("s", modifiers: .command)
+                    .disabled(model.selectedID == nil)
+
+                Button("Close") { closeSelected() }
+                    .keyboardShortcut("w", modifiers: .command)
+                    .disabled(model.selectedID == nil)
+            }
+
+            CommandMenu("View") {
+                // Toggle the Git Log bottom dock panel. Showing it makes
+                // `CommitLogView` appear in the panel, whose `.onAppear` triggers a
+                // refresh. Same handler as the bottom bar's Git button.
+                Button(bottomPanel == .log ? "Hide Git Log" : "Show Git Log") {
+                    togglePanel(.log)
+                }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+
+                // Toggle the bottom terminal panel. Showing it with no sessions yet
+                // creates the first one in the current project folder (or home when
+                // none is open — resolved by `TerminalLaunch`). Same handler as the
+                // bottom bar's Terminal button.
+                Button(bottomPanel == .terminal ? "Hide Terminal" : "Show Terminal") {
+                    togglePanel(.terminal)
+                }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
+
+                // Toggle the Local Changes bottom dock panel. Showing it makes
+                // `LocalChangesView` appear in the panel, whose `.onAppear`
+                // triggers a refresh. Same handler as the bottom bar's Changes
+                // button.
+                //
+                // ⌘⇧C, *not* ⌘⇧G: the latter is the macOS standard for "Find
+                // Previous" and is claimed by the Find menu below.
+                Button(bottomPanel == .changes ? "Hide Local Changes" : "Show Local Changes") {
+                    togglePanel(.changes)
+                }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+            }
+
+            CommandMenu("Find") {
+                // ⌘F opens the bar above the editor, or — when it is already open
+                // — re-focuses the query field and selects its contents, so a
+                // repeated press starts a new search without reaching for the
+                // mouse.
+                Button("Find…") { search.open() }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .disabled(model.selectedID == nil)
+
+                // ⌘⌥F opens the same bar with the replace row expanded.
+                Button("Replace…") { search.openReplace() }
+                    .keyboardShortcut("f", modifiers: [.command, .option])
+                    .disabled(model.selectedID == nil)
+
+                // The two navigation commands work whether or not the bar has
+                // focus; with the bar closed they are inert (the state forwards to
+                // an editor whose controller has nothing applied).
+                Button("Find Next") { search.findNext() }
+                    .keyboardShortcut("g", modifiers: .command)
+                    .disabled(model.selectedID == nil)
+
+                Button("Find Previous") { search.findPrevious() }
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                    .disabled(model.selectedID == nil)
+
+                Divider()
+
+                // ⌘⇧F opens the project-wide search in its own window (or focuses
+                // the one already open). Needs a folder: the search *is* a walk of
+                // the opened project.
+                Button("Find in Files…") { openProjectSearch() }
+                    .keyboardShortcut("f", modifiers: [.command, .shift])
+                    .disabled(model.projectRoot == nil)
+            }
+
+            CommandMenu("Git") {
+                // ⌘K, JetBrains' commit shortcut. Gated on the project alone —
+                // the same condition as the Local Changes header button — and
+                // deliberately *not* additionally on `changedFiles` being
+                // non-empty. That list is refreshed only on a folder open, a save
+                // and the manual Refresh button, so a change made in the embedded
+                // terminal or an external editor would leave ⌘K dead until the
+                // user found that button; the dialog's own load runs a fresh `git
+                // status` (after flushing dirty buffers) and reports "No local
+                // changes" honestly. It is also what makes a **message-only
+                // amend** reachable: a clean tree is exactly when it is wanted,
+                // and `CommitGate` already permits an empty selection under
+                // Amend.
+                Button("Commit…") { openCommitDialog() }
+                    .keyboardShortcut("k", modifiers: .command)
+                    .disabled(model.projectRoot == nil)
+            }
+
+            CommandMenu("Run") {
+                // Run the active tab's file in a dedicated embedded-terminal
+                // session. Enabled only when a tab with a url of a runnable type is
+                // selected (the same `RunCommand.canRun` gate as the project-tree
+                // "Run" context-menu item). Same handler as that context-menu item.
+                Button("Run File") {
+                    if let url = model.selectedFile?.url { runFile(url: url) }
+                }
+                .keyboardShortcut("r", modifiers: .command)
+                .disabled(!canRunSelectedFile)
+
+                // Run the active tab's file as a test in a dedicated
+                // embedded-terminal session. Enabled only when a tab with a url of
+                // a recognized test-file naming convention is selected (the same
+                // `TestCommand.isTestFile` gate as the project-tree "Run Test"
+                // context-menu item). Same handler as that context-menu item.
+                Button("Run Test") {
+                    if let url = model.selectedFile?.url { testFile(url: url) }
+                }
+                .keyboardShortcut("u", modifiers: .command)
+                .disabled(!canTestSelectedFile)
+            }
+        }
+
+        // The standard Preferences scene: macOS gives it the ⌘, menu item and a
+        // dedicated window automatically. Hosts the thin `SettingsView` bound to
+        // the shared `settings` store.
+        Settings {
+            SettingsView(settings: settings)
+        }
+    }
+
+    /// Toggle a bottom dock panel, shared by the bottom-bar buttons (via
+    /// `ContentView.onTogglePanel`) and the View-menu commands so both behave
+    /// identically. Selecting the terminal with no sessions yet creates the first
+    /// one rooted at the current project folder (or home when none is open —
+    /// resolved by `TerminalLaunch`) so the user gets a live shell immediately;
+    /// the pure `BottomPanel.toggled` collapses the panel when it is re-selected.
+    private func togglePanel(_ panel: BottomPanel) {
+        let next = BottomPanel.toggled(bottomPanel, selecting: panel)
+        // Create the first session only when the terminal will actually be shown,
+        // so a re-select that collapses the panel never spawns a hidden shell.
+        if next == .terminal && terminalSessions.sessions.isEmpty {
+            terminalSessions.newSession(projectRoot: model.projectRoot)
+        }
+        bottomPanel = next
+    }
+
+    /// Whether the active tab is a saved file of a runnable type — drives the ⌘R
+    /// "Run File" menu item's enablement. `false` when there is no selection, the
+    /// selected tab has no url (an unsaved "Untitled" buffer), or its extension has
+    /// no known runner.
+    private var canRunSelectedFile: Bool {
+        guard let url = model.selectedFile?.url else { return false }
+        return RunCommand.canRun(fileName: url.lastPathComponent)
+    }
+
+    /// Whether the active tab is a saved file whose name matches its language's
+    /// test-file convention — drives the ⌘U "Run Test" menu item's enablement.
+    /// `false` when there is no selection or the selected tab has no url (an
+    /// unsaved "Untitled" buffer).
+    private var canTestSelectedFile: Bool {
+        guard let url = model.selectedFile?.url else { return false }
+        return TestCommand.isTestFile(fileName: url.lastPathComponent)
+    }
+
+    /// Run the file at `url` in a dedicated embedded-terminal session. Resolves the
+    /// shell command via `RunCommand` (beeping + explaining for an unrunnable
+    /// type), saves the file first if an open tab for it has unsaved edits (so the
+    /// run sees the current contents), shows the terminal panel, and hands off to
+    /// `TerminalSessionsModel.runFile(...)`. Shared by the ⌘R menu command and the
+    /// project-tree "Run" context-menu item.
+    private func runFile(url: URL) {
+        guard let command = RunCommand.command(
+            forFileName: url.lastPathComponent,
+            absolutePath: url.path
+        ) else {
+            PlatformFeedback.warning()
+            presentCantRun()
+            return
+        }
+        // Save the dirty buffer for this file first, so the run reflects the edits
+        // the user sees rather than the stale on-disk contents. Saving is an
+        // uncoordinated disk write, so refuse (with the same "revert in progress"
+        // notice as the project-tree file ops) while a revert's off-main `git`
+        // mutations are in flight — a concurrent write races `git checkout` on the
+        // same file — and abort the run if the save itself fails rather than
+        // running stale on-disk contents that no longer match the editor.
+        if let id = model.fileID(forURL: url), model.isDirty(for: id) {
+            guard !revertInFlight() else { return }
+            guard save(id: id) else { return }
+        }
+        let wd = RunCommand.workingDirectory(projectRoot: model.projectRoot, fileURL: url)
+        // Make the terminal panel visible so the run's output is seen immediately.
+        bottomPanel = .terminal
+        terminalSessions.runFile(
+            url: url,
+            command: command,
+            workingDirectory: wd,
+            title: "Run: \(url.lastPathComponent)"
+        )
+    }
+
+    /// Surface an attempt to run a file whose type has no known runner, the same
+    /// non-fatal informational way as other failures.
+    private func presentCantRun() {
+        PlatformAlert.presentMessage(
+            title: "Can't run this file",
+            message: "Can't run files of this type."
+        )
+    }
+
+    /// The manifests whose *contents* `TestCommand` inspects to pick a runner —
+    /// only `package.json` (the JS/TS vitest/jest/mocha substring check). Read
+    /// verbatim through `fileService` and handed to `ProjectTestEvidence` so the
+    /// resolver stays pure. Every other runner is chosen by an entry's *presence*
+    /// in the root listing, not its contents.
+    private static let testManifestNames = ["package.json"]
+
+    /// Assemble the project's `ProjectTestEvidence` from the opened `projectRoot`:
+    /// the names of its root entries (the listing, which includes dotfiles such as
+    /// mocha's `.mocharc*` variants) plus the raw contents of any manifest in
+    /// `testManifestNames` that exists.
+    /// Empty evidence when no folder is open (every single-runner language still
+    /// resolves; JS/TS then reports `.runnerUndetected`). Directory-read /
+    /// file-read failures are swallowed — absent evidence, not a fatal error.
+    private func projectTestEvidence() -> ProjectTestEvidence {
+        guard let root = model.projectRoot else {
+            return ProjectTestEvidence(rootEntryNames: [], manifests: [:])
+        }
+        let entries = (try? fileService.contentsOfDirectory(at: root)) ?? []
+        let names = Set(entries.map(\.name))
+        var manifests: [String: String] = [:]
+        for name in Self.testManifestNames where names.contains(name) {
+            if let contents = try? fileService.read(url: root.appendingPathComponent(name)) {
+                manifests[name] = contents
+            }
+        }
+        return ProjectTestEvidence(rootEntryNames: names, manifests: manifests)
+    }
+
+    /// Test the file at `url` in a dedicated embedded-terminal session, mirroring
+    /// `runFile(url:)`. Resolves the per-file test command via `TestCommand` from
+    /// the assembled `ProjectTestEvidence` (beeping + explaining when no runner is
+    /// detected — JS/TS with no vitest/jest/mocha signal), saves the file first if
+    /// an open tab for it has unsaved edits (gated behind `revertInFlight()` and
+    /// aborting on a save failure, exactly as `runFile`), shows the terminal panel,
+    /// and hands off to `TerminalSessionsModel.testFile(...)`. Shared by the ⌘U
+    /// menu command and the project-tree "Run Test" context-menu item.
+    private func testFile(url: URL) {
+        let result = TestCommand.command(
+            forFileName: url.lastPathComponent,
+            absolutePath: url.path,
+            evidence: projectTestEvidence()
+        )
+        guard case let .command(command) = result else {
+            PlatformFeedback.warning()
+            PlatformAlert.presentMessage(
+                title: "Can't run tests",
+                message: "Couldn't detect a test runner for this project."
+            )
+            return
+        }
+        // Save the dirty buffer first so the test sees the edits the user sees,
+        // gated the same way as `runFile` — refuse while a revert's off-main `git`
+        // mutations are in flight, and abort on a save failure rather than testing
+        // stale on-disk contents.
+        if let id = model.fileID(forURL: url), model.isDirty(for: id) {
+            guard !revertInFlight() else { return }
+            guard save(id: id) else { return }
+        }
+        let wd = TestCommand.workingDirectory(projectRoot: model.projectRoot, fileURL: url)
+        // Make the terminal panel visible so the test's output is seen immediately.
+        bottomPanel = .terminal
+        terminalSessions.testFile(
+            url: url,
+            command: command,
+            workingDirectory: wd,
+            title: "Test: \(url.lastPathComponent)"
+        )
+    }
+
+    private func openFile() {
+        guard let url = FilePanels.showOpenPanel() else { return }
+        openFile(url: url)
+    }
+
+    /// Open a specific file in a tab, beeping on failure. Shared by the Open…
+    /// command and the project tree's file rows.
+    private func openFile(url: URL) {
+        do {
+            try model.open(url: url)
+        } catch {
+            PlatformFeedback.warning()
+        }
+    }
+
+    /// Ask for a folder and open it. The panel is the *only* thing this form adds:
+    /// everything a folder change entails lives in `openFolder(url:)` below, so a
+    /// programmatic open (the launch-time session restore) registers the switch with
+    /// exactly the same collaborators as a user-driven one.
+    private func openFolder() {
+        guard let url = FilePanels.showOpenFolderPanel() else { return }
+        openFolder(url: url)
+    }
+
+    /// Open `url` as the project folder and register the switch everywhere it has
+    /// to be registered — the FSEvents watcher plus Local Changes, the Git Log, the
+    /// branch switcher and Project Search, each with the synchronous
+    /// prepare-then-refresh pinning documented below.
+    private func openFolder(url: URL) {
+        model.openFolder(url: url)
+        // Watch the newly opened folder so external changes (a generator run in the
+        // embedded terminal, a Finder rename, a console `git checkout`) reach the
+        // tree without reopening it. `start` is idempotent — it tears the previous
+        // stream down first — so this doubles as the folder switch: events from the
+        // old root stop arriving. The callback runs on the main actor and does the
+        // one thing the tree needs, the same bump the app's own file operations use.
+        projectWatcher.start(root: url, onChange: { model.bumpTreeRevision() })
+        // Record the folder switch *synchronously*, in this same main-actor turn,
+        // before launching the async refresh. The model's revert guard keys off a
+        // folder change being observed (via `rootRequestGeneration`) — but bumping
+        // it only inside the `Task`-wrapped `refresh` below would run a later
+        // main-actor turn, leaving a window where an in-flight revert's continuation
+        // can resume first and keep mutating the *previous* repository. The
+        // synchronous call closes that window; the subsequent `refresh` then no-ops
+        // its own switch-handling (same `lastRequestedRoot`), so there is no
+        // double-clear.
+        let requestGeneration = localChanges.prepareForFolderChange(root: url)
+        // Drive the Local Changes refresh from here rather than relying on
+        // `LocalChangesView`'s `.onChange(of: projectRoot)`: that view is only in
+        // the hierarchy in "Changes" mode, so in "Project" mode a folder switch
+        // would never reach the model. Refreshing here makes the switch reliable;
+        // the view's own refresh stays as a (same-root, idempotent) backstop when
+        // toggling back to Changes.
+        //
+        // Pass the request generation captured synchronously above: two rapid
+        // folder opens spawn two refresh tasks, and unstructured tasks are not
+        // guaranteed to start in creation order — so an earlier folder's task can
+        // run last. The generation lets the model reject the superseded refresh
+        // instead of leaving the Changes panel on a different repo than the
+        // workspace.
+        Task { await localChanges.refresh(root: url, requestGeneration: requestGeneration) }
+
+        // Refresh the Log view too, for the same reason: `CommitLogView` is only in
+        // the hierarchy in Log mode, so a folder switch made while in editor mode
+        // would otherwise not reach the model until the user toggled into Log.
+        // Capture the request token synchronously (which also resets the previous
+        // repo's ref-specific filter/refs on this folder switch) before the `Task`
+        // hop, so two rapid folder opens settle on the latest even if their
+        // unstructured tasks start out of order — mirroring the Local Changes path.
+        let logRequest = commitLog.prepareForRefresh(root: url)
+        Task { await commitLog.refresh(root: url, limit: CommitLogView.initialLimit, request: logRequest) }
+
+        // Refresh the branch-switcher widget for the newly opened folder. Capture
+        // the request token synchronously (which also clears the previous repo's
+        // branch list on this folder switch) before the `Task` hop, so two rapid
+        // folder opens settle on the latest even if their unstructured tasks start
+        // out of order — mirroring the Local Changes / Log paths above.
+        let branchRequest = branchSwitcher.prepareForRefresh(root: url)
+        Task { await branchSwitcher.refresh(root: url, request: branchRequest) }
+
+        // Register the folder switch with the project search *synchronously*, in
+        // this same main-actor turn — the `prepareForFolderChange` rule. It bumps
+        // the request generation and drops the previous project's results, so an
+        // in-flight traversal (or a Replace All suspended on its off-main I/O)
+        // finds itself superseded the instant it resumes instead of publishing —
+        // or rewriting — files under a folder the user has left. No refresh is
+        // spawned: the Find in Files window runs a search only when the user asks
+        // for one.
+        projectSearch.prepareForSearch(root: url)
+
+        // Register the switch with the commit dialog *synchronously* too, for the
+        // same reason and with sharper consequences: it clears the previous
+        // project's file selection and message, and it bumps the token an
+        // in-flight `commit()` is pinned to — so a commit composed for the folder
+        // the user just left can never run against the newly opened one. No load
+        // is spawned; the dialog reads the repository when it is opened.
+        //
+        // A sheet that is *up* is dismissed as part of that switch. `reset()` empties
+        // everything it displays but cannot lower `isCommitDialogPresented`, so the
+        // sheet stayed on screen bound to a deliberately emptied model — an empty
+        // file list, a blank author line, the message the user was composing wiped,
+        // no spinner and "This folder is not a git repository." under a disabled
+        // Commit button, with nothing saying why. (⌘⇧O is reachable from a sheet:
+        // SwiftUI does not disable the main menu, which is why `openCommitDialog`
+        // needs its own re-entry guard.) Dismissing also fires `onDismiss`, so the
+        // modal autosave suspension is released rather than stranded.
+        let generationBefore = commitDialog.currentRequestGeneration
+        if commitDialog.prepareForFolderChange(root: url) != generationBefore {
+            isCommitDialogPresented = false
+        }
+    }
+
+    // MARK: - Commit dialog
+
+    /// Open the commit dialog for the current project (⌘K / the Local Changes
+    /// header button / a changed file's "Commit…" context-menu item).
+    ///
+    /// `preselectingPath` is the JetBrains "Commit File" case: with a repo-relative
+    /// path only *that* file is left checked in the freshly loaded list, and it is
+    /// the **only** difference between the row item and ⌘K/the ✓ button. Everything
+    /// around it — the re-entry guard, `revertInFlight()`, the autosave flush and
+    /// its unsaved-files report, the modal suspension, the generation pinning — is
+    /// shared verbatim, which is why the orchestration is parameterized here rather
+    /// than duplicated at the row's call site. `nil` (every existing call site)
+    /// keeps today's behaviour, every file checked. A path absent from the fresh
+    /// `git status` leaves nothing selected — the honest outcome, which `CommitGate`
+    /// reports as `.nothingSelected`.
+    ///
+    /// Three things happen before the sheet is raised, in this order. It **refuses**
+    /// while a revert's off-main `git` mutations are in flight (`revertInFlight()`):
+    /// the commit reads every changed file and then writes a temporary index from
+    /// them, which a concurrent `git checkout` would make nonsense of. It **flushes
+    /// dirty buffers** — the dialog shows what is on *disk*, so an unsaved editor
+    /// buffer would otherwise be invisible to it and silently left out of the
+    /// commit — and, because that flush is best-effort, names whatever it could not
+    /// write rather than letting the commit record those files' stale disk contents
+    /// unannounced. And it raises the **modal** autosave gate, so no idle/focus-loss
+    /// autosave writes a file out from under the dialog's snapshot while it is up;
+    /// `suspendForModal` rather than `suspend` deliberately, so a quit while the
+    /// sheet is open still flushes every dirty file. The matching
+    /// `resumeFromModal()` is the sheet's `onDismiss`, which fires on *every*
+    /// closing path.
+    private func openCommitDialog(preselectingPath: String? = nil) {
+        // A SwiftUI sheet does not disable the main menu, so ⌘K fires again while
+        // the dialog is up. Without this the second call would raise a *second*
+        // modal autosave suspension that no `onDismiss` ever balances (the sheet is
+        // already presented, so none is fired), leaving autosave off for the rest
+        // of the session — and would reload the dialog, resetting the user's
+        // per-line selection to "everything checked" mid-composition.
+        guard !isCommitDialogPresented else { return }
+        guard let root = model.projectRoot else { return }
+        guard !revertInFlight() else { return }
+        // `reportingSaves: true` — unlike the quit-time flush this one lands
+        // mid-session, so the writes it makes need the same follow-up an ordinary
+        // autosave gets: Local Changes re-queried (otherwise the panel keeps
+        // describing the pre-flush disk state, plainly wrong as soon as the user
+        // cancels the dialog) and the tree bumped for a file this flush *recreated*
+        // after an out-of-band deletion.
+        autosave.flushNow(reportingSaves: true)
+        // The flush is **best-effort**: `WorkspaceModel.saveAllDirty()` swallows a
+        // per-file write failure by design (autosave fires unattended and must not
+        // abort the batch or raise a modal on one bad write), leaving that buffer
+        // dirty. The dialog reads *disk*, so such a file is shown — and committed —
+        // with its last successfully saved contents rather than what the editor
+        // displays, which is exactly the silent divergence the flush exists to
+        // prevent. So the remainder is measured here and named to the user. The
+        // dialog still opens: the other files are perfectly committable and one
+        // unwritable path must not strand the whole feature (a file whose write
+        // fails cannot be saved on a retry either).
+        let unsaved = unsavedTitledFileNames()
+        autosave.suspendForModal()
+        // Pin the load to the token captured synchronously here, before the `Task`
+        // hop (the `prepareForFolderChange` rule): a folder switch that lands in
+        // the gap then rejects this load rather than filling the dialog with the
+        // previous project's files.
+        let request = commitDialog.prepareForFolderChange(root: root)
+        isCommitDialogPresented = true
+        Task { await commitDialog.load(root: root, request: request, preselectedPath: preselectingPath) }
+        // Reported last, once the re-entry guard is closed and the suspension is
+        // balanced by the sheet's `onDismiss`: the alert runs a nested run loop, in
+        // which a second ⌘K would otherwise re-enter this method and raise a
+        // suspension nothing releases.
+        if !unsaved.isEmpty { reportUnsavedBeforeCommit(unsaved) }
+    }
+
+    /// The display names of dirty *titled* buffers — the ones a flush was supposed
+    /// to put on disk. An "Untitled" buffer names no file, so it is not part of the
+    /// question: autosave never writes it and the commit dialog never sees it.
+    private func unsavedTitledFileNames() -> [String] {
+        model.openFiles
+            .filter { $0.url != nil && model.isDirty(for: $0.id) }
+            .map(\.displayName)
+    }
+
+    /// Say that the pre-dialog flush left files unsaved, so the commit will record
+    /// what is on disk rather than what is on screen for them.
+    private func reportUnsavedBeforeCommit(_ names: [String]) {
+        PlatformFeedback.warning()
+        PlatformAlert.presentMessage(
+            title: "Unsaved changes are not included",
+            message: "These files could not be saved, so the commit uses the contents "
+                + "already on disk rather than what the editor shows:\n\n"
+                + names.joined(separator: "\n")
+        )
+    }
+
+    /// Run the commit the dialog describes and deal with each outcome.
+    ///
+    /// The dialog stays open on everything that did **not** create a commit — a
+    /// gate refusal, a stale snapshot, git's own failure — with the reason (git's
+    /// stderr verbatim, for a failure) already published in `model.errorMessage`,
+    /// so the user can fix it and retry in place. Every outcome that *did* create
+    /// one closes the sheet, including a failed push: the commit exists, and
+    /// leaving a dialog open whose Commit button would make a *second* one is the
+    /// one mistake this must not invite. A push failure is reported in its own
+    /// alert saying exactly that.
+    ///
+    /// `originGeneration` is captured by the *view*, synchronously in the button's
+    /// action before its `Task` hop, and threaded in here — the
+    /// `ProjectSearchView.confirmReplaceAll` precedent and the same reason: this
+    /// whole body already runs inside that task, i.e. after the window the pin
+    /// exists to close, so reading the token here would compare it against itself
+    /// and could never fire.
+    private func commitFromDialog(originGeneration: Int) async {
+        // A commit can rewrite the working tree: a `pre-commit` hook that formats
+        // (prettier, eslint --fix, gofmt) edits the files on disk, and git runs it
+        // before reading the index it commits. This is the one worktree-mutating
+        // path in the app, so it takes the same snapshot every sibling does
+        // (`applyMerge`, `revertChanges`, `switchBranch`) — synchronously, before the
+        // `await` hop. Without the resync that follows, the tab kept the pre-format
+        // text with `savedText` matching it (`openCommitDialog` flushed autosave, so
+        // every titled tab is clean), which means `isDirty` is false and *nothing*
+        // would ever correct it: the next keystroke autosaves the whole stale buffer
+        // over the file and the hook's work is silently reverted, looking like the
+        // user's own edit.
+        let snapshot = openTabSnapshot()
+        let repoRoot = commitDialog.root
+        // The same writer bracket every sibling takes, raised **synchronously**
+        // before the first `await` and released by `defer`. A commit reads the
+        // whole working tree into the temporary index (a file entering it as
+        // `.addFromWorktree` has its bytes read by git at commit time, so a write
+        // landing in that window is silently committed, and `CommitStaleness` only
+        // re-compares *rows*), and a formatting `pre-commit` hook then writes the
+        // tree back. The modal suspension taken at open is not enough: it gates
+        // `performAutosave` alone, leaving ⌘S / ⌘R / ⌘U live — SwiftUI does not
+        // disable the main menu for a sheet, which is the same fact
+        // `openCommitDialog`'s re-entry guard exists for — and it gates neither the
+        // project-tree operations nor `runFile`/`testFile`, both of which key on
+        // `localChanges.isReverting`.
+        autosave.suspend()
+        localChanges.beginRevert()
+        let outcome = await commitDialog.commit(originGeneration: originGeneration)
+        // Git op done: lower the disk-writer gates *before* any modal, the
+        // `runBranchOperation` rule and for its reason. `PlatformAlert
+        // .presentMessage` is `NSAlert.runModal()`, a nested run loop, and
+        // `AutosaveController.flushNow()` bails while `suspendCount > 0` — so a
+        // quit while the push-failure alert sits on screen would skip the
+        // termination flush for every dirty buffer. Nothing below awaits, so
+        // there is no path out of this function between the two statements and
+        // the former `defer` bought nothing.
+        localChanges.endRevert()
+        autosave.resume()
+        switch outcome {
+        case .committed:
+            isCommitDialogPresented = false
+            resyncOpenTabsAfterCheckout(snapshot: snapshot, repoRoot: repoRoot, mayRemoveFiles: false)
+            refreshAfterCommit()
+        case let .committedPushFailed(reason):
+            isCommitDialogPresented = false
+            resyncOpenTabsAfterCheckout(snapshot: snapshot, repoRoot: repoRoot, mayRemoveFiles: false)
+            refreshAfterCommit()
+            PlatformFeedback.warning()
+            PlatformAlert.presentMessage(
+                title: "Commit created, push failed",
+                message: "The commit was created locally. The push failed:\n\n\(reason)"
+            )
+        case .abandoned:
+            // The project changed under the dialog; nothing ran and its contents
+            // describe a repository that is no longer open.
+            isCommitDialogPresented = false
+        case .failed:
+            // Stay open: git's stderr is on screen and the user can act on it.
+            //
+            // But resync anyway — a `pre-commit` hook that formats the tree and
+            // *then* refuses ("I reformatted these, please review") is the single
+            // commonest way a commit fails, and it has already rewritten the files
+            // on disk by the time git exits non-zero. Every open tab is clean
+            // (`openCommitDialog` flushed autosave), so `isDirty` is false and
+            // nothing else would ever correct it: the first autosave after the
+            // sheet closes writes the pre-hook buffer back over the file and
+            // silently reverts the hook's work, looking like the user's own edit.
+            // That is the same failure the success branch's resync exists to
+            // prevent — it does not become acceptable because git exited non-zero.
+            // Local Changes is refreshed for the same reason: those rewrites are
+            // ordinary local changes now.
+            resyncOpenTabsAfterCheckout(snapshot: snapshot, repoRoot: repoRoot, mayRemoveFiles: false)
+            refreshLocalChanges()
+            PlatformFeedback.warning()
+        case .blocked, .stale:
+            // Nothing ran — no index step, no hook, so the working tree is exactly
+            // as it was. Stay open: the reason is on screen and the user can act
+            // on it.
+            PlatformFeedback.warning()
+        }
+    }
+
+    /// Re-query everything a new commit changes: Local Changes (the committed
+    /// files leave the list), the Git Log (the new commit heads it) and the branch
+    /// widget (its dirty flag, and the branch an unborn HEAD's first commit just
+    /// created).
+    ///
+    /// Deliberately **no** `bumpTreeRevision()`: a commit writes `.git`, not the
+    /// working tree, so no listing changed and re-reading every expanded node
+    /// would be pure waste. (A `pre-commit` hook that rewrites files is the
+    /// exception, and its edits show up as ordinary local changes — which the
+    /// Local Changes refresh below does surface.)
+    private func refreshAfterCommit() {
+        refreshLocalChanges()
+        refreshLog()
+        refreshBranchSwitcher()
+    }
+
+    /// Generation-pinned branch-widget refresh, mirroring `refreshLog()`.
+    private func refreshBranchSwitcher() {
+        guard let root = model.projectRoot else { return }
+        let request = branchSwitcher.prepareForRefresh(root: root)
+        Task { await branchSwitcher.refresh(root: root, request: request) }
+    }
+
+    // MARK: - Session restore
+
+    /// Apply the last persisted session and start writing new ones. Called exactly
+    /// once, from the window content's `.onAppear`, before the first interaction.
+    ///
+    /// The folder is opened through `openFolder(url:)` — the one path that starts
+    /// the FSEvents watcher and registers the change with Local Changes / the Git
+    /// Log / the branch switcher / Project Search — rather than through
+    /// `model.openFolder(url:)` directly, which would leave every one of those on a
+    /// project the workspace has already moved to. A recorded folder that has since
+    /// been deleted (or replaced by a file) is simply not opened; the tabs are
+    /// restored either way, since a tab does not depend on the folder's fate.
+    ///
+    /// Everything here is **silent**: a missing file, an unreadable one, a vanished
+    /// folder all pass without an alert or a beep. Restore is not an operation the
+    /// user asked to succeed, and a launch that starts by explaining what it could
+    /// not bring back is worse than one that quietly brings back the rest.
+    ///
+    /// The writer starts *after* the session is applied, and writes nothing until
+    /// the workspace actually changes: restore is deliberately lossy (a vanished
+    /// folder is not opened, an unreadable file is not reopened), so a write
+    /// triggered by the launch itself would persist that truncated session over the
+    /// recorded one before the user has touched anything — see `SessionController`.
+    private func restoreLastSession() {
+        if let session = sessionStore.load() {
+            if let folderPath = session.folderPath, isExistingDirectory(atPath: folderPath) {
+                openFolder(url: URL(fileURLWithPath: folderPath))
+            }
+            model.restoreSession(session)
+        }
+        sessionController.start(model: model, store: sessionStore)
+    }
+
+    /// Whether `path` still names a directory. `isDirectory` is checked rather than
+    /// mere existence: the recorded path may have been replaced by a *file* since
+    /// the last launch, and opening that as a project root would leave the tree, the
+    /// watcher and every git model pointed at something that cannot be listed.
+    private func isExistingDirectory(atPath path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+        return exists && isDirectory.boolValue
+    }
+
+    // MARK: - Find in Files
+
+    /// Show the project-wide search window (⌘⇧F), or focus the one already open.
+    ///
+    /// The root is passed as a *closure* rather than a value: the window outlives a
+    /// folder switch, so reading `model.projectRoot` at search time is what keeps a
+    /// stale root from walking the previous project.
+    private func openProjectSearch() {
+        let content = ProjectSearchView(
+            model: projectSearch,
+            settings: settings,
+            root: { model.projectRoot },
+            onActivate: { url, range in activateSearchMatch(url: url, range: range) },
+            onReplaceAll: { template, origin in
+                await replaceAllInProject(template: template, originGeneration: origin)
+            }
+        )
+        projectSearchWindows.show(content: content)
+    }
+
+    /// Open the file a search result names and select the match inside it.
+    ///
+    /// The open goes through the ordinary `openFile(url:)` path (so an already-open
+    /// tab is re-selected rather than duplicated), and the range is handed to the
+    /// editor through `reveal` — the tab's `CodeEditorView` may not exist yet, and
+    /// the update that creates it is the one that installs the file's contents.
+    /// A file that failed to open beeps in `openFile` and resolves to no tab, so
+    /// nothing is revealed.
+    private func activateSearchMatch(url: URL, range: NSRange) {
+        openFile(url: url)
+        guard let id = model.fileID(forURL: url) else { return }
+        reveal.reveal(fileID: id, range: range)
+    }
+
+    /// Run a project-wide Replace All under the same disk-writer coordination as
+    /// `applyMerge`/`revertChanges`, returning the summary — or `nil` when the
+    /// batch was refused (a revert is in flight and `revertInFlight()` has already
+    /// explained itself).
+    ///
+    /// Replace All writes files the user cannot all see, so it is the third
+    /// uncoordinated disk writer: autosave is suspended and the tree/revert gate
+    /// raised *synchronously before the first `await`* (balanced by `defer`), so
+    /// neither an idle autosave of a dirty tab nor a project-tree operation can
+    /// interleave with the batch's read-modify-write of the same file. Afterwards
+    /// Local Changes is re-queried and the tree bumped — the batch changed file
+    /// contents on disk, and the watcher deliberately ignores our own writes.
+    ///
+    /// `originGeneration` is the project token the *view* captured synchronously,
+    /// before its own `Task` hop — not something this method could pin, since its
+    /// synchronous prefix already runs inside that task, i.e. after the window the
+    /// pin exists to close.
+    private func replaceAllInProject(
+        template: String,
+        originGeneration: Int
+    ) async -> ReplaceSummary? {
+        guard !revertInFlight() else { return nil }
+        autosave.suspend()
+        localChanges.beginRevert()
+        defer {
+            autosave.resume()
+            localChanges.endRevert()
+        }
+        let summary = await projectSearch.replaceAll(
+            template: template,
+            originGeneration: originGeneration
+        )
+        guard summary.filesChanged > 0 else { return summary }
+        refreshLocalChanges()
+        model.bumpTreeRevision()
+        return summary
+    }
+
+    @discardableResult
+    private func saveSelected() -> Bool {
+        guard let id = model.selectedID else { return false }
+        return save(id: id)
+    }
+
+    /// Save the file identified by `id`, prompting for a location when it has
+    /// none. Returns `true` only when the file ends up saved (not dirty).
+    @discardableResult
+    private func save(id: UUID) -> Bool {
+        // A save is a disk write, so it is refused while one of the app's git
+        // operations is mutating or reading the working tree (`revertInFlight()` —
+        // raised by revert, merge apply, a branch checkout, Replace All and the
+        // commit). ⌘S is reachable throughout every one of them: none blocks the
+        // main menu, and a modal *sheet* does not either, which is exactly why the
+        // commit path raises the gate at all. Landing mid-operation it races `git
+        // checkout` on the same file, or writes bytes into the working tree while
+        // git is reading it into the commit's temporary index — content the dialog
+        // never displayed and `CommitStaleness` (which compares rows read before
+        // the write) cannot see. `runFile`/`testFile` already refuse ahead of their
+        // own save for this reason; checking here covers ⌘S and the close prompt's
+        // "Save" too, and their earlier guard simply returns first.
+        guard !revertInFlight() else { return false }
+        // `FileService.write` creates a missing file, so saving a tab whose file was
+        // deleted out of band (Finder, a console `rm`, a branch checkout) puts it
+        // back on disk — the tree already dropped it via the watcher, and the watcher
+        // will not report our *own* write (`kFSEventStreamCreateFlagIgnoreSelf`), so
+        // the listing would keep contradicting disk until a manual Refresh. Probe
+        // before the write and bump only for such a creating save; an ordinary
+        // overwrite changes no listing and is deliberately left unbumped (that
+        // frequent case is precisely what `IgnoreSelf` keeps quiet).
+        let recreatesFile = model.openFiles.first { $0.id == id }?.url
+            .map { !FileManager.default.fileExists(atPath: $0.path) } ?? false
+        do {
+            if try model.save(for: id) == .needsSaveAs {
+                return saveAs(id: id)
+            }
+            if recreatesFile { model.bumpTreeRevision() }
+            refreshLocalChanges()
+            return true
+        } catch {
+            PlatformFeedback.warning()
+            return false
+        }
+    }
+
+    /// Prompt for a destination and save the file there. Returns `true` on a
+    /// successful write, `false` if the user cancelled or the write failed.
+    @discardableResult
+    private func saveAs(id: UUID) -> Bool {
+        let suggested = model.openFiles.first { $0.id == id }?.displayName ?? "Untitled"
+        guard let url = FilePanels.showSavePanel(suggestedName: suggested) else { return false }
+        do {
+            try model.saveAs(url: url, for: id)
+            // Save As writes a *new* file, which changes tree membership when the
+            // destination is inside the open folder — and the watcher deliberately
+            // ignores self-generated events (`kFSEventStreamCreateFlagIgnoreSelf`),
+            // so it will not cover this write. Bump explicitly, like every other
+            // in-app disk mutation (create / rename / delete). Unconditional: a
+            // destination outside the open folder just re-reads listings that did
+            // not change, so gating on containment would add a path check for no
+            // benefit.
+            model.bumpTreeRevision()
+            refreshLocalChanges()
+            return true
+        } catch {
+            PlatformFeedback.warning()
+            return false
+        }
+    }
+
+    /// Re-query the repository for changed files after a successful save, so the
+    /// Local Changes panel reflects the edit without filesystem watching. No-op
+    /// when no project folder is open.
+    private func refreshLocalChanges() {
+        guard let root = model.projectRoot else { return }
+        // Pin the request generation captured *synchronously* now, before the
+        // `Task` hop. A save-driven refresh of the current folder should reflect
+        // the save — but unstructured tasks are not guaranteed to start in creation
+        // order, so if the opened folder switches before this task runs, the
+        // captured generation no longer matches and the model rejects this stale
+        // refresh. Without the pin it would instead enter `refreshImpl`, see its
+        // old root differ from the new `lastRequestedRoot`, be misread as a folder
+        // switch *back* to the old repo, and reject the new folder's legitimate
+        // refresh — stranding the Changes panel on the previous repository.
+        let requestGeneration = localChanges.currentRequestGeneration
+        Task { await localChanges.refresh(root: root, requestGeneration: requestGeneration) }
+    }
+
+    /// Revert (discard) the local changes for `contextFile` — or, when it is part
+    /// of the checked multi-selection, every checked file. Confirms first (the
+    /// action is destructive and irreversible), reverts via the model, then keeps
+    /// any open tab for a reverted file in sync with disk: reloaded if the file
+    /// still exists, closed if it was deleted — except a buffer the user edited
+    /// while the async revert was in flight, which is preserved (not silently
+    /// overwritten or closed).
+    private func revertChanges(contextFile: ChangedFile) {
+        let files = localChanges.filesToRevert(contextFile: contextFile)
+        guard !files.isEmpty else { return }
+        let names = files.map { ($0.path as NSString).lastPathComponent }
+        // Run the synchronous confirmation dialog before awaiting the async
+        // revert, so the modal sheet is presented inline (not after a hop).
+        guard FilePanels.confirmRevert(fileNames: names) else { return }
+
+        // Pin the project the revert was confirmed against, synchronously, before
+        // the `Task` hop. The task body runs a later main-actor turn, during which
+        // a folder switch could replace the repository — the model reads its
+        // root/generation only when `revert` starts, so without this pin a revert
+        // of repo A's files could execute against a newly opened repo B.
+        let originGeneration = localChanges.currentRequestGeneration
+        // Suspend autosave *synchronously*, before the `Task` hop — autosave is a
+        // second, uncoordinated disk writer (idle/focus-loss/tab-switch), and one
+        // firing mid-revert could write a buffer back to disk that the revert is
+        // concurrently discarding (racing `git checkout`) and corrupt the
+        // snapshot-based resync below. The matching `resume()` is a `defer` inside
+        // the Task so it always balances, including the early-bail paths. Not done
+        // around the confirm dialog: an autosave *can* interleave there (the idle
+        // debounce, a GCD main-queue timer, fires inside the alert's nested run
+        // loop), but it is harmless — `preRevertText` is snapshotted *after* the
+        // confirm returns, and `git checkout` then supersedes whatever it wrote — so
+        // suspending across the alert buys nothing and a cancel must not leave it
+        // suspended.
+        autosave.suspend()
+        // Raise the revert gate *synchronously*, before the `Task` hop, for the
+        // same reason autosave is suspended above: the project tree stays
+        // interactive while the revert runs `git` off the main thread, and a
+        // tree file operation (create / rename / delete) is a second,
+        // uncoordinated disk writer that could race the git mutation — deleting a
+        // file `git checkout` is concurrently restoring, or recreating one the
+        // revert is about to remove. The four tree operations refuse while this is
+        // raised; the matching `endRevert()` is a `defer` inside the Task so it
+        // always balances (including the early-bail paths). Set before the hop so
+        // no tree op can slip into the gap before the task body runs.
+        localChanges.beginRevert()
+        // Snapshot every open tab's buffer text *synchronously*, before the async
+        // revert hops off the main actor. The revert runs `git` off the main
+        // thread, so the editor stays interactive while it is in flight: if the
+        // user edits an affected file after confirming, that edit lives only in
+        // memory and must not be silently overwritten (or the tab closed) by the
+        // post-revert resync below. We reload/close a tab only when its buffer is
+        // unchanged since this snapshot; a buffer the user touched is preserved.
+        let preRevertText = Dictionary(
+            uniqueKeysWithValues: model.openFiles.map { ($0.id, $0.text) }
+        )
+        Task { @MainActor in
+            // Resume autosave and lower the revert gate when the whole revert +
+            // resync finishes, on every path (origin-generation mismatch, empty
+            // `reverted`, or a full run).
+            defer {
+                autosave.resume()
+                localChanges.endRevert()
+            }
+            let reverted = await localChanges.revert(files, originGeneration: originGeneration)
+            // A revert changes tree membership (an added/untracked file is deleted, a
+            // deleted one restored), so refresh the tree. The watcher does not cover
+            // this: reverting an *untracked* file is `GitCLIService.removeUntracked`'s
+            // `unlinkat` — an in-process write, which
+            // `kFSEventStreamCreateFlagIgnoreSelf` drops — unlike every other revert
+            // branch, which runs a `git` subprocess. Idempotent and read-only, so the
+            // redundant bump for the subprocess cases costs nothing.
+            if !reverted.isEmpty {
+                model.bumpTreeRevision()
+            }
+            for url in reverted {
+                guard let id = model.fileID(forURL: url) else { continue }
+                // Reload/close this tab only when its buffer is provably unchanged
+                // since we confirmed the revert: a snapshot exists *and* the text
+                // still matches it. Anything else is preserved (and we beep)
+                // rather than silently reloaded over or closed. Two cases qualify:
+                //  - the buffer changed since the snapshot — the user edited it
+                //    while the revert ran off the main thread (editor stayed live);
+                //  - the tab has *no* snapshot at all — it was opened (or closed and
+                //    reopened, earning a fresh id) for this file *during* the
+                //    in-flight revert, so its contents post-date the snapshot and
+                //    may hold edits we never recorded. Treat it as changed.
+                guard let before = preRevertText[id], before == model.text(for: id) else {
+                    // Preserve the edited buffer rather than reload over it — but
+                    // reconcile its saved baseline with the post-revert disk state.
+                    // If the user *saved* the edit during the in-flight revert,
+                    // `savedText == text` (the tab looks clean) yet `git` has since
+                    // overwritten (or deleted) the file on disk; without this the
+                    // now-stale "clean" tab would close without confirmation and
+                    // silently lose the preserved edit. Reconciling makes it dirty.
+                    model.reconcileSavedBaseline(id: id)
+                    PlatformFeedback.warning()
+                    continue
+                }
+                if FileManager.default.fileExists(atPath: url.path) {
+                    if !model.reloadFromDisk(id: id) {
+                        // The reverted file exists but could not be re-read (unreadable
+                        // or removed in the race between the check and the read). The
+                        // tab now shows stale pre-revert contents that a later save
+                        // would write back over the revert, so close it rather than
+                        // leave that trap open.
+                        model.close(id: id, force: true)
+                        PlatformFeedback.warning()
+                    }
+                } else {
+                    model.close(id: id, force: true)
+                }
+            }
+        }
+    }
+
+    // MARK: - Branch switching
+
+    /// Check out a local branch. Warns first when the working tree is dirty (git
+    /// may refuse to overwrite local changes), then runs the checkout under the same
+    /// gates as the revert/apply-merge paths and resyncs open tabs to the new
+    /// branch's working tree. A blocked checkout surfaces git's message.
+    private func switchBranch(_ branch: BranchRef) {
+        guard confirmBranchSwitchIfDirty() else { return }
+        // Pin the refresh generation synchronously, in this main-actor turn, before
+        // `runBranchOperation`'s `Task` hop — so a folder switch that lands in the gap
+        // makes `switchTo` bail rather than check out against the newly opened repo
+        // (the `revert(_:originGeneration:)` precedent).
+        let origin = branchSwitcher.currentRefreshGeneration
+        runBranchOperation { await self.branchSwitcher.switchTo(branch, originGeneration: origin) }
+    }
+
+    /// Checkout a remote branch (git DWIM): switch to the same-named local if it
+    /// already exists, else create it from the remote ref (no fetch). Mirrors
+    /// `switchBranch` — the same dirty-tree warning (the checkout part may be blocked
+    /// just the same), synchronous generation pinning, and gated orchestration.
+    private func checkoutRemote(_ ref: BranchRef) {
+        guard confirmBranchSwitchIfDirty() else { return }
+        let origin = branchSwitcher.currentRefreshGeneration
+        runBranchOperation { await self.branchSwitcher.checkoutRemote(ref, originGeneration: origin) }
+    }
+
+    /// If the working tree is dirty, warn (a checkout may be blocked) and ask for
+    /// confirmation; returns `true` to proceed (a clean tree proceeds silently).
+    /// Shared by `switchBranch` and `checkoutRemote` — both run the same DWIM/plain
+    /// checkout that git may refuse against uncommitted changes.
+    private func confirmBranchSwitchIfDirty() -> Bool {
+        guard branchSwitcher.isWorkingTreeDirty else { return true }
+        PlatformFeedback.warning()
+        let alert = NSAlert()
+        alert.messageText = "Working tree has uncommitted changes"
+        alert.informativeText =
+            "Switching branches may be blocked if it would overwrite local "
+            + "changes. Continue?"
+        alert.addButton(withTitle: "Switch")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    /// Create-and-switch a new branch from a remote branch: prompt for the name
+    /// (pre-filled with the remote's short name, minus the `<remote>/` prefix), then
+    /// create from that remote ref (which fetches first).
+    private func createBranchFromRemote(_ ref: BranchRef) {
+        guard branchSwitcher.root != nil else { return }
+        let suggested = BranchSwitcherModel.defaultBranchName(forRemote: ref)
+        // No live reason line here — the post-OK `GitRefName.isValid` guard in
+        // `createBranch` stays the only reporter (deliberate minimal scope).
+        guard let rawName = FilePanels.promptName(
+            title: "New Branch",
+            defaultValue: suggested,
+            validator: { _ in nil }
+        ) else {
+            return
+        }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        createBranch(name: name, from: .ref(ref))
+    }
+
+    /// Create-and-switch a new branch from `HEAD` ("New Branch…"): prompt for the
+    /// name, then create.
+    private func newBranch() {
+        guard branchSwitcher.root != nil else { return }
+        // No live reason line here — the post-OK `GitRefName.isValid` guard in
+        // `createBranch` stays the only reporter (deliberate minimal scope).
+        guard let rawName = FilePanels.promptName(
+            title: "New Branch",
+            validator: { _ in nil }
+        ) else { return }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        createBranch(name: name, from: .head)
+    }
+
+    /// Create-and-switch a new branch `name` at `startPoint` under the shared gates.
+    /// On `.fetchUnavailable` (a remote start whose fetch failed — offline, or on
+    /// iOS a missing PAT) it offers "create from the local copy" (retry with
+    /// `fetchRemote: false`) or cancel; an invalid name / hard failure is reported.
+    private func createBranch(
+        name: String,
+        from startPoint: BranchSwitcherModel.StartPoint,
+        fetchRemote: Bool = true
+    ) {
+        autosave.suspend()
+        localChanges.beginRevert()
+        let snapshot = openTabSnapshot()
+        // Capture — synchronously, before the `Task` hop — the refresh generation (so
+        // a folder switch in the gap makes the create bail rather than run against the
+        // new repo) and the repository the create runs against (so the resync touches
+        // only tabs under it). Same rationale as `runBranchOperation`.
+        let origin = branchSwitcher.currentRefreshGeneration
+        let repoRoot = branchSwitcher.root
+        Task { @MainActor in
+            let outcome = await branchSwitcher.createBranch(
+                name: name,
+                from: startPoint,
+                fetchRemote: fetchRemote,
+                originGeneration: origin
+            )
+            // The worktree-mutating git op is done; lower the disk-writer gates before
+            // presenting any modal (the fetch-unavailable prompt, an error), so a quit
+            // during that modal still flushes other dirty files. Holding `suspend()`
+            // across a modal blocks `flushNow` — the reason `closeFile` uses the
+            // modal-only `suspendForModal` gate. The remaining synchronous tail runs no
+            // run loop, so no autosave/tree op can interleave before it completes.
+            autosave.resume()
+            localChanges.endRevert()
+            switch outcome {
+            case .created:
+                finishBranchOperation(snapshot: snapshot, repoRoot: repoRoot)
+            case .invalidName:
+                reportInvalidBranchName(name)
+            case .failed:
+                if let message = branchSwitcher.errorMessage { presentBranchError(message) }
+            case .fetchUnavailable(let error):
+                handleFetchUnavailable(error, name: name, startPoint: startPoint)
+            }
+        }
+    }
+
+    /// Offer to create a branch from the local copy of a remote ref after its fetch
+    /// failed, or cancel. On "Create from Local" it retries the create without a
+    /// fetch (`fetchRemote: false`).
+    private func handleFetchUnavailable(
+        _ error: GitError,
+        name: String,
+        startPoint: BranchSwitcherModel.StartPoint
+    ) {
+        PlatformFeedback.warning()
+        let alert = NSAlert()
+        alert.messageText = "Couldn't fetch from the remote"
+        alert.informativeText =
+            error.localizedDescription
+            + "\n\nCreate the branch from the local copy of the remote ref instead?"
+        alert.addButton(withTitle: "Create from Local")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        createBranch(name: name, from: startPoint, fetchRemote: false)
+    }
+
+    /// Run a gated branch checkout: suspend the other disk writers, snapshot open
+    /// tabs, run `op` off the main actor, and on success resync tabs + refresh the
+    /// tree/Changes/Log. On failure surface git's message. Mirrors the
+    /// revert/apply-merge coordination.
+    private func runBranchOperation(_ op: @escaping () async -> Bool) {
+        autosave.suspend()
+        localChanges.beginRevert()
+        let snapshot = openTabSnapshot()
+        // Capture the repository the checkout runs against so the resync touches only
+        // tabs under it — `WorkspaceModel` keeps tabs across folder switches, so a tab
+        // pointing at an unrelated repo/folder must not be reloaded or closed by this
+        // repo's branch change.
+        let repoRoot = branchSwitcher.root
+        Task { @MainActor in
+            let ok = await op()
+            // Git op done: lower the disk-writer gates before any modal so a quit during
+            // an error alert still flushes other dirty files (see `createBranch`).
+            autosave.resume()
+            localChanges.endRevert()
+            guard ok else {
+                if let message = branchSwitcher.errorMessage { presentBranchError(message) }
+                return
+            }
+            finishBranchOperation(snapshot: snapshot, repoRoot: repoRoot)
+        }
+    }
+
+    /// The post-success tail shared by switch and create: resync open tabs to the
+    /// new working tree, bump `treeRevision`, and refresh Changes and Log.
+    private func finishBranchOperation(
+        snapshot: [UUID: (text: String, wasDirty: Bool)],
+        repoRoot: URL?
+    ) {
+        resyncOpenTabsAfterCheckout(snapshot: snapshot, repoRoot: repoRoot)
+        model.bumpTreeRevision()
+        refreshLocalChanges()
+        refreshLog()
+    }
+
+    /// A snapshot of every open tab's buffer text and dirty state, captured
+    /// synchronously before a branch mutation hops off the main actor — so the
+    /// post-checkout resync can tell a tab it may safely reload (clean and
+    /// unchanged) from one the user has edits in.
+    private func openTabSnapshot() -> [UUID: (text: String, wasDirty: Bool)] {
+        Dictionary(
+            uniqueKeysWithValues: model.openFiles.map {
+                ($0.id, ($0.text, model.isDirty(for: $0.id)))
+            }
+        )
+    }
+
+    /// After a successful checkout/create the working tree may have changed under
+    /// any open tab *within the repository whose branch changed*. Reload each such tab
+    /// that holds no unsaved edits to lose (clean at the snapshot and provably
+    /// unchanged since); preserve — reconcile its saved baseline so a since-saved edit
+    /// still prompts on close, and beep — a tab the user had edits in; close a tab
+    /// whose file no longer exists on the new branch. Tabs outside `repoRoot` are left
+    /// untouched: `WorkspaceModel` keeps tabs across folder switches, so a branch
+    /// change must not reload/close an unrelated tab whose disk state changed out of
+    /// band.
+    ///
+    /// `mayRemoveFiles` is what makes that closing rule honest for callers other
+    /// than a checkout. A checkout really does delete worktree files, so "the file
+    /// is gone" means "this operation removed it" and force-closing the tab is
+    /// right. A **commit** never touches the working tree that way — its
+    /// `.removePath` entries stage a deletion in the throw-away index and nothing
+    /// more — so a missing file was already missing when the dialog opened (a
+    /// `.deleted` row, an `rm` from the embedded terminal). Closing there would
+    /// discard, with no prompt, a clean buffer holding the last copy of a file that
+    /// is no longer on disk. Such a tab is left exactly as it is: not reloaded, not
+    /// closed, and deliberately not made dirty either, since a dirty titled buffer
+    /// is what autosave would use to recreate the very file the user deleted.
+    private func resyncOpenTabsAfterCheckout(
+        snapshot: [UUID: (text: String, wasDirty: Bool)],
+        repoRoot: URL?,
+        mayRemoveFiles: Bool = true
+    ) {
+        let rootPath = repoRoot?.resolvingSymlinksInPath().path
+        var didPreserve = false
+        for file in model.openFiles {
+            guard let url = file.url else { continue }
+            if let rootPath,
+               !ScopedFileAccess.path(url.resolvingSymlinksInPath().path, isWithin: rootPath) {
+                continue
+            }
+            let id = file.id
+            guard let snap = snapshot[id], !snap.wasDirty, snap.text == model.text(for: id) else {
+                model.reconcileSavedBaseline(id: id)
+                didPreserve = true
+                continue
+            }
+            if FileManager.default.fileExists(atPath: url.path) {
+                if !model.reloadFromDisk(id: id) {
+                    model.close(id: id, force: true)
+                    didPreserve = true
+                }
+            } else if mayRemoveFiles {
+                model.close(id: id, force: true)
+            }
+        }
+        if didPreserve { PlatformFeedback.warning() }
+    }
+
+    /// Re-query the Log after a branch change so it reflects the new branch's
+    /// history. Mirrors `refreshLocalChanges`'s generation-pinned refresh.
+    private func refreshLog() {
+        guard let root = model.projectRoot else { return }
+        let logRequest = commitLog.prepareForRefresh(root: root)
+        Task { await commitLog.refresh(root: root, limit: CommitLogView.initialLimit, request: logRequest) }
+    }
+
+    /// Surface a failed branch operation (a blocked checkout, a failed create)
+    /// non-fatally, the same informational way as other failures.
+    private func presentBranchError(_ message: String) {
+        PlatformFeedback.warning()
+        let alert = NSAlert()
+        alert.messageText = "Branch operation failed"
+        alert.informativeText = message
+        alert.runModal()
+    }
+
+    /// Surface a rejected branch name the same non-fatal way as a rejected file name.
+    private func reportInvalidBranchName(_ name: String) {
+        PlatformFeedback.warning()
+        let alert = NSAlert()
+        alert.messageText = "Invalid branch name"
+        alert.informativeText = "\"\(name)\" is not a valid git branch name."
+        alert.runModal()
+    }
+
+    // MARK: - Separate diff windows
+
+    /// Open a Local Changes file's working-copy-vs-`HEAD` diff in a separate,
+    /// non-modal window. The window's `load` closure binds the model and file so
+    /// `DiffWindowContent` stays model-agnostic; the title pairs the path with
+    /// "Local Changes" so several diff windows stay distinguishable.
+    private func openLocalChangesDiff(_ file: ChangedFile) {
+        let content = DiffWindowContent(
+            fileID: file.id,
+            fileName: (file.path as NSString).lastPathComponent,
+            load: { await localChanges.rows(for: file) },
+            settings: settings
+        )
+        diffWindows.open(title: DiffWindowTitle.localChanges(path: file.path), content: content)
+    }
+
+    /// Open a commit's file diff (commit-vs-first-parent) in a separate, non-modal
+    /// window, mirroring `openLocalChangesDiff`. The title pairs the path with the
+    /// commit's short hash and subject.
+    private func openCommitDiff(_ file: ChangedFile, in commit: Commit) {
+        let content = DiffWindowContent(
+            fileID: "\(commit.hash):\(file.path)",
+            fileName: (file.path as NSString).lastPathComponent,
+            load: { await commitLog.rows(for: file, in: commit) },
+            settings: settings
+        )
+        let title = DiffWindowTitle.commit(
+            path: file.path,
+            hash: commit.hash,
+            subject: commit.subject
+        )
+        diffWindows.open(title: title, content: content)
+    }
+
+    /// Open the 3-pane merge editor for a conflicted file in a separate, non-modal
+    /// window. A fresh `MergeModel` (its own `GitCLIService`, sharing the project's
+    /// `FileService`) loads the file's `:1`/`:2`/`:3` index stages off-main and
+    /// builds the merge document; the window's "Apply" runs `MergeModel.apply()`
+    /// (write resolved text + `git add`), then on success refreshes Local Changes —
+    /// reusing the existing generation-pinned `refreshLocalChanges()` — and the
+    /// merge window closes itself. The repo root is the one `LocalChangesModel`
+    /// resolved (repo-root-relative paths), falling back to the opened folder.
+    private func resolveConflict(_ file: ChangedFile) {
+        guard let root = localChanges.root ?? model.projectRoot else {
+            PlatformFeedback.warning()
+            return
+        }
+        let mergeModel = MergeModel(gitService: GitCLIService(), fileService: fileService)
+        Task { @MainActor in await mergeModel.load(file: file, root: root) }
+        mergeWindows.open(
+            title: "Resolve \(file.path)",
+            model: mergeModel,
+            settings: settings,
+            onApply: { await applyMerge(mergeModel, file: file, root: root) }
+        )
+    }
+
+    /// Perform a guarded merge apply: write the resolved text + `git add` (via
+    /// `MergeModel.apply()`), then refresh Local Changes and resync any open tab on
+    /// the resolved file. Returns whether the apply succeeded (the window closes on
+    /// `true`).
+    ///
+    /// Coordinated against the two other uncoordinated disk writers exactly like the
+    /// revert path: autosave is suspended and the disk-writer gate raised
+    /// *synchronously* before the first `await` (so neither an idle/focus-loss
+    /// autosave of a dirty tab on this same file nor a project-tree op can race the
+    /// apply's `write` + `git add` and stage stale conflicted content over the
+    /// resolution), balanced by `defer`. The open tab is snapshotted before the async
+    /// apply and only reloaded over when it was clean at the snapshot and is
+    /// provably unchanged since — otherwise the user's edit (whether made before or
+    /// during the apply) is preserved (and beeped) rather than silently discarded by
+    /// `reloadFromDisk`.
+    private func applyMerge(_ mergeModel: MergeModel, file: ChangedFile, root: URL) async -> Bool {
+        let resolvedURL = root.appendingPathComponent(file.path)
+        // Snapshot the open tab's buffer (canonical match resolves a tab opened via
+        // `projectRoot` against the repo-root-relative path) before any `await`,
+        // recording whether it was already dirty: a tab carrying unsaved edits at
+        // apply time must not be silently reloaded over even if it doesn't change
+        // during the apply.
+        let preApply: (id: UUID, text: String, wasDirty: Bool)? =
+            model.fileID(forURL: resolvedURL).flatMap { id in
+                model.text(for: id).map { (id, $0, model.isDirty(for: id)) }
+            }
+        // Suspend the other disk writers synchronously, before the `await` hop.
+        autosave.suspend()
+        localChanges.beginRevert()
+        defer {
+            autosave.resume()
+            localChanges.endRevert()
+        }
+        let applied = await mergeModel.apply()
+        guard applied else { return false }
+        refreshLocalChanges()
+        guard let id = model.fileID(forURL: resolvedURL) else { return true }
+        // Reload the tab to match the applied resolution only when its buffer holds
+        // no unsaved edits to lose: it was clean at the snapshot *and* is provably
+        // unchanged since. Anything else — the tab was already dirty before apply,
+        // the user edited it while apply ran, or it was opened during the apply with
+        // no snapshot — is preserved (reconcile its saved baseline so a since-saved
+        // edit still prompts on close) rather than silently reloaded over.
+        guard let before = preApply, before.id == id, !before.wasDirty,
+              before.text == model.text(for: id) else {
+            model.reconcileSavedBaseline(id: id)
+            PlatformFeedback.warning()
+            return true
+        }
+        // The resolved file may have been staged as a deletion (modify/delete resolved
+        // to the deleted side), so it can be gone from disk: close the now-stale tab
+        // rather than reload it.
+        if FileManager.default.fileExists(atPath: resolvedURL.path) {
+            if !model.reloadFromDisk(id: id) {
+                model.close(id: id, force: true)
+                PlatformFeedback.warning()
+            }
+        } else {
+            model.close(id: id, force: true)
+        }
+        return true
+    }
+
+    // MARK: - Project tree file operations
+
+    /// Create a new file inside `directory`: prompt for a *relative path* (VS
+    /// Code-style — `centrifugo/config.json`, not just a single name), validate
+    /// it, create any missing intermediate folders, create the file on disk, open
+    /// it in a tab, then bump `treeRevision` so the tree re-reads the directory.
+    ///
+    /// The dialog validates *live* through `validateRelativeEntryPath(_:)`, whose
+    /// `EntryPathIssue.message` is shown under the field and keeps OK disabled
+    /// while the input is invalid — so an invalid path normally cannot be
+    /// confirmed at all. The post-OK `parseRelativeEntryPath(_:)` guard below is
+    /// kept anyway as defense-in-depth (both share one Core rule, and a
+    /// programmatic path could reach here without the dialog); a `nil` result is
+    /// reported through `reportInvalidName`, which explains the per-component
+    /// rule. Existing intermediate folders are reused (`ensureDirectory`,
+    /// `mkdir -p` semantics), but the *final* entry is never clobbered — an
+    /// existing one fails with `.alreadyExists`. Any disk failure (collision, a
+    /// file sitting on the path, missing/unwritable parent, write error) is
+    /// surfaced non-fatally — and because `ensureDirectory` does not roll back,
+    /// a multi-component failure still bumps `treeRevision` so intermediates it
+    /// already created are visible instead of leaving the tree contradicting disk.
+    private func newFile(in directory: URL) {
+        guard !revertInFlight() else { return }
+        guard let rawName = FilePanels.promptName(
+            title: "New File",
+            validator: { validateRelativeEntryPath($0)?.message }
+        ) else { return }
+        guard let components = parseRelativeEntryPath(rawName) else {
+            reportInvalidName(rawName)
+            return
+        }
+        let url = components.reduce(directory) { $0.appendingPathComponent($1) }
+        do {
+            if components.count > 1 {
+                try fileService.ensureDirectory(at: url.deletingLastPathComponent())
+            }
+            try fileService.createFile(at: url)
+            openFile(url: url)
+            model.bumpTreeRevision()
+        } catch {
+            refreshTreeAfterFailedCreate(componentCount: components.count)
+            reportFileOperationFailure(error)
+        }
+    }
+
+    /// Create a new folder inside `directory`, mirroring `newFile(in:)` — the
+    /// prompt likewise accepts a relative path of any depth, missing
+    /// intermediates are created and existing ones reused, and the final
+    /// component is never clobbered. No tab is opened for a directory. A failure
+    /// refreshes the tree for the same no-rollback reason as `newFile(in:)`. The
+    /// dialog likewise validates live through `validateRelativeEntryPath(_:)`,
+    /// with the post-OK parse kept as defense-in-depth.
+    private func newFolder(in directory: URL) {
+        guard !revertInFlight() else { return }
+        guard let rawName = FilePanels.promptName(
+            title: "New Folder",
+            validator: { validateRelativeEntryPath($0)?.message }
+        ) else { return }
+        guard let components = parseRelativeEntryPath(rawName) else {
+            reportInvalidName(rawName)
+            return
+        }
+        let url = components.reduce(directory) { $0.appendingPathComponent($1) }
+        do {
+            if components.count > 1 {
+                try fileService.ensureDirectory(at: url.deletingLastPathComponent())
+            }
+            try fileService.createDirectory(at: url)
+            model.bumpTreeRevision()
+        } catch {
+            refreshTreeAfterFailedCreate(componentCount: components.count)
+            reportFileOperationFailure(error)
+        }
+    }
+
+    /// Refresh the tree after a *failed* multi-component create.
+    ///
+    /// `ensureDirectory` has `mkdir -p` semantics: a chain it partly built before
+    /// a later step failed is left on disk. Without a `treeRevision` bump those
+    /// real folders stay invisible until some unrelated tree operation refreshes
+    /// the cached listings, so the tree would contradict disk (and a retry would
+    /// silently "reuse" folders the user cannot see). A single-component create
+    /// writes nothing on the failure path, so it needs no refresh; the bump is
+    /// only a re-read token, so it is harmless when nothing changed.
+    private func refreshTreeAfterFailedCreate(componentCount: Int) {
+        guard componentCount > 1 else { return }
+        model.bumpTreeRevision()
+    }
+
+    /// Rename the file or folder at `url`: prompt pre-filled with the current
+    /// name, validate, move on disk, retarget any affected open tabs via
+    /// `renamePath(from:to:)`, then bump `treeRevision`. A no-op when the entered
+    /// name is unchanged.
+    ///
+    /// The dialog validates *live* through `validateSingleEntryName(_:)` (the
+    /// single-name grammar — a `/` is rejected as "a name, not a path" — with the
+    /// *exact-match* reserved semantics the post-OK guard uses, so the two can
+    /// never disagree), keeping OK disabled while the input is invalid. The
+    /// `isValidFileName` + `isExcludedEntryName` guards below are kept as
+    /// defense-in-depth over the same Core rule.
+    private func renameItem(at url: URL) {
+        guard !revertInFlight() else { return }
+        let currentName = url.lastPathComponent
+        guard let rawName = FilePanels.promptName(
+            title: "Rename",
+            defaultValue: currentName,
+            validator: { validateSingleEntryName($0)?.message }
+        ) else {
+            return
+        }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name != currentName else { return }
+        guard isValidFileName(name) else { reportInvalidName(rawName, isPath: false); return }
+        guard !FileService.isExcludedEntryName(name) else { reportReservedName(name); return }
+        let destination = url.deletingLastPathComponent().appendingPathComponent(name)
+        // Capture the tab-retarget plan *before* the move, while a tab opened
+        // through a symlink to `url` still canonicalizes to it — once the move
+        // renames the target away that symlink dangles and would no longer match.
+        // Apply the plan only after the move succeeds.
+        let plan = model.planRename(from: url, to: destination)
+        do {
+            try fileService.move(from: url, to: destination)
+            model.applyRenamePlan(plan)
+            model.bumpTreeRevision()
+        } catch {
+            reportFileOperationFailure(error)
+        }
+    }
+
+    /// Delete the file or folder at `url`: confirm first (destructive), remove it
+    /// from disk, close any affected open tabs via `closeFiles(under:)`, then bump
+    /// `treeRevision`. The disk and tab-reconciliation paths handle a file and a
+    /// directory tree uniformly.
+    private func deleteItem(at url: URL) {
+        guard !revertInFlight() else { return }
+        guard FilePanels.confirmDelete(fileNames: [url.lastPathComponent]) else { return }
+        // Capture the affected tab ids *before* the removal, while a tab opened
+        // through a symlink to `url` (or into it) still canonicalizes to it — once
+        // the item is gone that symlink dangles and would no longer match. Close
+        // them only after the removal succeeds.
+        let affectedIDs = model.tabIDs(under: url)
+        do {
+            try fileService.removeItem(at: url)
+            model.closeFiles(ids: affectedIDs)
+            model.bumpTreeRevision()
+        } catch {
+            reportFileOperationFailure(error)
+        }
+    }
+
+    /// Whether one of the app's git operations is currently touching the working
+    /// tree. A project-tree file operation (create / rename / delete), a save, a
+    /// run/test and a Replace All are each a second, uncoordinated disk writer that
+    /// would race the off-main `git` work, so they refuse — beeping and explaining —
+    /// rather than corrupting the working tree. Returns `true` (and reports) when an
+    /// operation must be blocked, `false` when it may proceed.
+    ///
+    /// The flag it reads (`LocalChangesModel.isReverting`) is named for its first
+    /// caller but is raised by every such operation — a revert, a merge apply, a
+    /// branch checkout, a project-wide Replace All and a commit — so the notice is
+    /// worded for all of them rather than claiming a revert is running.
+    private func revertInFlight() -> Bool {
+        guard localChanges.isReverting else { return false }
+        PlatformFeedback.warning()
+        let alert = NSAlert()
+        alert.messageText = "Git operation in progress"
+        alert.informativeText =
+            "A git operation is writing to the working tree. Wait for it to finish "
+            + "before saving, running, or changing files in the project."
+        alert.runModal()
+        return true
+    }
+
+    /// Surface a failed disk operation non-fatally: beep and show the error text
+    /// in an informational alert. Never crashes the view; the caller does not bump
+    /// `treeRevision` on this path.
+    private func reportFileOperationFailure(_ error: Error) {
+        PlatformFeedback.warning()
+        let alert = NSAlert(error: error)
+        alert.runModal()
+    }
+
+    /// Surface a rejected name the same non-fatal way as a disk failure.
+    ///
+    /// The two call sites have different grammars, so the text does too. The
+    /// create dialogs (`isPath: true`) treat a slash as a path separator, so the
+    /// message explains the *per-component* rule. Rename (`isPath: false`) still
+    /// takes a single name and rejects any slash outright — a path there would be
+    /// a move, a separate feature — so it must not be told that slashes separate
+    /// folders.
+    private func reportInvalidName(_ name: String, isPath: Bool = true) {
+        PlatformFeedback.warning()
+        let alert = NSAlert()
+        alert.messageText = "Invalid name"
+        alert.informativeText = isPath
+            ? "\"\(name)\" is not a valid path. A slash separates folders, and each "
+                + "part of the path must be non-empty, must not be \".\" or \"..\", "
+                + "must not contain a line break, and must not be a reserved name "
+                + "such as \".git\" or \".DS_Store\" (in any casing)."
+            : "\"\(name)\" is not a valid name. A name must be non-empty, must not "
+                + "be \".\" or \"..\", must not contain a line break, and must not "
+                + "contain a slash — renaming takes a single name, not a path."
+        alert.runModal()
+    }
+
+    /// Surface a name the project tree never shows (`FileService`'s excluded
+    /// service entries), rejected the same non-fatal way as an invalid name: the
+    /// entry would exist on disk but stay invisible in the tree, so the rename is
+    /// refused instead. Rename-only — a reserved component in a *create* path is
+    /// reported by `reportInvalidName`, which explains the per-component rule
+    /// (and refuses reserved names in any casing).
+    private func reportReservedName(_ name: String) {
+        PlatformFeedback.warning()
+        let alert = NSAlert()
+        alert.messageText = "Reserved name"
+        alert.informativeText =
+            "\"\(name)\" is reserved and is never shown in the project tree, "
+            + "so an entry can't be renamed to it from here."
+        alert.runModal()
+    }
+
+    private func closeSelected() {
+        guard let id = model.selectedID else { return }
+        closeFile(id: id)
+    }
+
+    /// Close the file identified by `id`, confirming first when it has unsaved
+    /// changes. Used by both the tab close button and the Cmd+W menu command.
+    private func closeFile(id: UUID) {
+        guard model.close(id: id) == .needsConfirmation else { return }
+        let name = model.openFiles.first { $0.id == id }?.displayName ?? "Untitled"
+        // Suspend the regular autosave triggers across the close confirmation.
+        // `NSAlert.runModal()` spins a nested event loop, during which the idle
+        // debounce — a GCD main-queue timer, serviced in AppKit's modal run-loop
+        // mode — can fire and autosave the dirty file before the user answers. That
+        // would defeat a subsequent "Don't Save": the discard would only drop the
+        // in-memory tab while the edit had already been written to disk. Suspend
+        // before the prompt and resume only after the close is fully handled (Don't
+        // Save force-closes the tab *before* resume, so the replayed autosave can't
+        // resave the discarded buffer). Use the *modal* gate, not `suspend()`: a quit
+        // landing while this alert is open must still flush every *other* dirty file
+        // (there is no revert racing the disk here), so the termination flush stays
+        // ungated by this suspension.
+        autosave.suspendForModal()
+        defer { autosave.resumeFromModal() }
+        switch FilePanels.confirmClose(fileName: name) {
+        case .save:
+            if save(id: id) {
+                model.close(id: id)
+            }
+        case .dontSave:
+            model.close(id: id, force: true)
+        case .cancel:
+            break
+        }
+    }
+}
+
+#endif

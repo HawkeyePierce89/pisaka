@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  # PRs group by ref so a newer push supersedes the older run. Pushes to master
+  # get a unique group (the run id) instead of sharing one: GitHub cancels older
+  # *pending* runs in a group even when cancel-in-progress is false, so a shared
+  # master group would let rapid pushes A/B/C leave B canceled with no finished
+  # CI result. A per-run group means every mainline commit runs to completion.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: '16.4'
+      - name: Run PisakaCore tests
+        run: swift test
+
+  build-macos:
+    needs: test
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: '16.4'
+      - name: Install XcodeGen 2.45.4
+        run: |
+          curl -fsSL --retry 3 -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.45.4/xcodegen.zip
+          echo "090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef  xcodegen.zip" | shasum -a 256 -c -
+          unzip -q xcodegen.zip
+          sudo xcodegen/install.sh
+          xcodegen --version
+      - name: Cache SwiftPM source packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: SourcePackages
+          key: spm-${{ hashFiles('Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Resolve package dependencies
+        run: xcodebuild -project Pisaka.xcodeproj -resolvePackageDependencies -clonedSourcePackagesDirPath SourcePackages
+      - name: Build (macOS)
+        run: >
+          xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+          -destination 'platform=macOS'
+          -clonedSourcePackagesDirPath SourcePackages
+          -derivedDataPath DerivedData
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
+  build-ios:
+    needs: test
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: '16.4'
+      - name: Install XcodeGen 2.45.4
+        run: |
+          curl -fsSL --retry 3 -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.45.4/xcodegen.zip
+          echo "090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef  xcodegen.zip" | shasum -a 256 -c -
+          unzip -q xcodegen.zip
+          sudo xcodegen/install.sh
+          xcodegen --version
+      - name: Cache SwiftPM source packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: SourcePackages
+          key: spm-${{ hashFiles('Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Resolve package dependencies
+        run: xcodebuild -project Pisaka.xcodeproj -resolvePackageDependencies -clonedSourcePackagesDirPath SourcePackages
+      - name: Build (iOS)
+        run: >
+          xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+          -destination 'generic/platform=iOS'
+          -clonedSourcePackagesDirPath SourcePackages
+          -derivedDataPath DerivedData
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build

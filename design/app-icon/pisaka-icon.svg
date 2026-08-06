@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5B4B8A"/>
+      <stop offset="1" stop-color="#38295A"/>
+    </linearGradient>
+    <clipPath id="squircle">
+      <path d="M512 100 C785 100 924 239 924 512 C924 785 785 924 512 924 C239 924 100 785 100 512 C100 239 239 100 512 100 Z"/>
+    </clipPath>
+    <mask id="nib-cutout">
+      <rect width="1024" height="1024" fill="white"/>
+      <circle cx="512" cy="376" r="35" fill="black"/>
+      <rect x="498" y="376" width="28" height="450" rx="10" fill="black"/>
+    </mask>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <g mask="url(#nib-cutout)">
+    <path d="M512 232 C420 232 342 274 332 350 C324 428 360 535 405 632 C442 722 482 784 512 814 C542 784 582 722 619 632 C664 535 700 428 692 350 C682 274 604 232 512 232 Z" fill="#E6C36A"/>
+    <path d="M420 352 L462 504 M604 352 L562 504" stroke="#AE802D" stroke-opacity=".48" stroke-width="7" stroke-linecap="round"/>
+  </g>
+  <rect x="452" y="842" width="120" height="22" rx="11" fill="#E6C36A"/>
+</svg>

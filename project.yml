@@ -1,0 +1,181 @@
+name: Pisaka
+
+# XcodeGen project for the Pisaka app. One multiplatform application target that
+# builds for both macOS 13 and iOS 17 (the modern Xcode "multiplatform app", a
+# single target with multiple supported destinations). `swift run Pisaka` is gone
+# — build/run through this generated project (`xcodegen generate` then
+# `xcodebuild`/Xcode).
+#
+# Dependency split (see Package.swift for why each is pinned as it is):
+#   - PisakaCore .............. local SwiftPM package (path "."), all platforms
+#   - Neon / SwiftTreeSitter / Rearrange + tree-sitter grammars .. all platforms
+#   - SwiftTerm ............... embedded terminal; used only by macOS-gated code
+#
+# SwiftTerm is intended for macOS only. All terminal source (`TerminalSession`,
+# `TerminalPanelView`, `TerminalSessionsModel`) is wrapped in `#if os(macOS)`, so
+# it is never imported on iOS. A *single* multiplatform Xcode target links an SPM
+# product into every destination (package-product dependencies are all-or-nothing
+# per target — unlike framework build files, they cannot be per-destination
+# filtered through XcodeGen). SwiftTerm itself supports iOS 13+, so it links
+# cleanly into the iOS app as unused dead weight rather than breaking the build;
+# the macOS-only restriction is enforced at the source level via `#if os(macOS)`.
+# Exact version/revision pins mirror the committed Package.resolved.
+
+options:
+  bundleIdPrefix: ws.karmanov.pisaka
+  deploymentTarget:
+    macOS: "13.0"
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+packages:
+  PisakaCore:
+    path: .
+  Neon:
+    url: https://github.com/ChimeHQ/Neon
+    revision: 484d6fb9e0c4fb679a1d5f5ddaf2cac2ecf21165
+  SwiftTreeSitter:
+    url: https://github.com/ChimeHQ/SwiftTreeSitter
+    branch: main
+  Rearrange:
+    url: https://github.com/ChimeHQ/Rearrange
+    exactVersion: "2.1.1"
+  tree-sitter-swift:
+    url: https://github.com/alex-pinkus/tree-sitter-swift
+    exactVersion: "0.7.3-with-generated-files"
+  tree-sitter-json:
+    url: https://github.com/tree-sitter/tree-sitter-json
+    exactVersion: "0.24.8"
+  tree-sitter-javascript:
+    url: https://github.com/tree-sitter/tree-sitter-javascript
+    exactVersion: "0.23.1"
+  tree-sitter-typescript:
+    url: https://github.com/tree-sitter/tree-sitter-typescript
+    exactVersion: "0.23.2"
+  tree-sitter-python:
+    url: https://github.com/tree-sitter/tree-sitter-python
+    exactVersion: "0.23.6"
+  tree-sitter-html:
+    url: https://github.com/tree-sitter/tree-sitter-html
+    exactVersion: "0.23.2"
+  tree-sitter-css:
+    url: https://github.com/tree-sitter/tree-sitter-css
+    exactVersion: "0.23.2"
+  tree-sitter-markdown:
+    url: https://github.com/tree-sitter-grammars/tree-sitter-markdown
+    exactVersion: "0.5.3"
+  tree-sitter-yaml:
+    url: https://github.com/tree-sitter-grammars/tree-sitter-yaml
+    exactVersion: "0.7.0"
+  tree-sitter-dockerfile:
+    url: https://github.com/camdencheek/tree-sitter-dockerfile
+    exactVersion: "0.2.0"
+  # dotenv is vendored for a different reason than gitignore below: upstream
+  # (pnx/tree-sitter-dotenv v1.1.1) *does* ship a SwiftPM manifest, but its
+  # `sources:` omits `src/scanner.c` while the grammar declares an external
+  # scanner — so the package compiles and then fails to link the consuming app
+  # with five undefined `tree_sitter_dotenv_external_scanner_*` symbols. The same
+  # omission is on upstream `main`, so no remote version links. The vendored copy
+  # is byte-identical to the v1.1.1 tag apart from that one-line manifest fix; see
+  # `Vendor/TreeSitterDotenv/VENDORED.md`, which also records how to drop this
+  # directory and restore the remote pin if upstream ever fixes it.
+  TreeSitterDotenv:
+    path: Vendor/TreeSitterDotenv
+  # gitignore is vendored because there is nothing to depend on remotely at all:
+  # upstream (shunsambongi/tree-sitter-gitignore) publishes no SwiftPM
+  # manifest, no `bindings/swift` header and no `queries/highlights.scm` — the
+  # Swift binding and the highlight query
+  # are written in this repo. `Vendor/TreeSitterGitignore/VENDORED.md` records the
+  # upstream SHA, what is copied verbatim vs. authored here, and the per-element
+  # query-verification recipe that must be re-run on every grammar update (both
+  # failure modes of a hand-written query are silent in the app: an unknown node
+  # name fails query compilation and degrades the file to plain text, a mistyped
+  # capture name resolves to `SyntaxTokenKind.plain`, i.e. default-colored text).
+  # A local path dependency adds no entry to Package.resolved.
+  TreeSitterGitignore:
+    path: Vendor/TreeSitterGitignore
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    exactVersion: "1.5.0"
+  # libgit2, built from C source (CommonCrypto/SecureTransport on Apple) by SwiftPM
+  # rather than vended as a binary xcframework. Source compilation means every
+  # destination (macOS, iOS device, iOS simulator) gets a natively-built slice, so
+  # there is no xcframework-slice-coverage problem when the single multiplatform
+  # target links it into every destination. Used only by iOS-gated code
+  # (`LibGit2Service`, the iOS `GitServicing`); on macOS it links as unused dead
+  # weight (macOS uses the `Process`-backed `GitCLIService`), exactly as SwiftTerm
+  # links unused on iOS. Pinned exact, like the grammar packages.
+  libgit2:
+    url: https://github.com/ibrahimcetin/libgit2
+    exactVersion: "1.9.2"
+
+targets:
+  Pisaka:
+    type: application
+    supportedDestinations: [macOS, iOS]
+    sources:
+      - path: Sources/Pisaka
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ws.karmanov.pisaka
+        PRODUCT_NAME: Pisaka
+        GENERATE_INFOPLIST_FILE: YES
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGNING_ALLOWED: NO
+        INFOPLIST_KEY_CFBundleDisplayName: Pisaka
+        # The iOS document picker opens folders/files in place (`asCopy: false`) and
+        # the app persists security-scoped bookmarks to edit/save/run-git against the
+        # picked location, so in-place document access must be granted (without this
+        # the picker only vends copies and the scoped-file-access design fails on
+        # device). No-op on macOS.
+        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
+        ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: NO
+        # The app icon lives in Sources/Pisaka/Assets.xcassets/AppIcon.appiconset —
+        # a single combined set carrying both the iOS (iphone/ipad/ios-marketing)
+        # and macOS (mac) idioms, so one setting covers every destination of the
+        # multiplatform target. The .xcassets under the target's source path is
+        # picked up as a resource automatically by XcodeGen.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+    dependencies:
+      - package: PisakaCore
+        product: PisakaCore
+      - package: Neon
+        product: Neon
+      - package: SwiftTreeSitter
+        product: SwiftTreeSitter
+      - package: Rearrange
+        product: Rearrange
+      - package: tree-sitter-swift
+        product: TreeSitterSwift
+      - package: tree-sitter-json
+        product: TreeSitterJSON
+      - package: tree-sitter-javascript
+        product: TreeSitterJavaScript
+      - package: tree-sitter-typescript
+        product: TreeSitterTypeScript
+      - package: tree-sitter-python
+        product: TreeSitterPython
+      - package: tree-sitter-html
+        product: TreeSitterHTML
+      - package: tree-sitter-css
+        product: TreeSitterCSS
+      - package: tree-sitter-markdown
+        product: TreeSitterMarkdown
+      - package: tree-sitter-yaml
+        product: TreeSitterYAML
+      - package: tree-sitter-dockerfile
+        product: TreeSitterDockerfile
+      - package: TreeSitterDotenv
+        product: TreeSitterDotenv
+      - package: TreeSitterGitignore
+        product: TreeSitterGitignore
+      - package: SwiftTerm
+        product: SwiftTerm
+      - package: libgit2
+        product: libgit2
