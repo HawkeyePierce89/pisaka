@@ -61,6 +61,15 @@ struct SettingsView_iOS: View {
                 }
 
                 gitCredentialsSection
+
+                // The peer of the macOS Preferences "Acknowledgements" tab. A push
+                // rather than a tab: the `Form` is already inside a
+                // `NavigationStack`, and a license text needs a full screen.
+                Section("About") {
+                    NavigationLink("Acknowledgements") {
+                        AcknowledgementsView_iOS()
+                    }
+                }
             }
             .navigationTitle("Preferences")
             .navigationBarTitleDisplayMode(.inline)

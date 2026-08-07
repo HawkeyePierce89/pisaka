@@ -336,24 +336,54 @@ committed `Package.resolved` revision, now enforced by test.
 - Modify: `Sources/Pisaka/SettingsView.swift`
 - Modify: `Sources/Pisaka/iOS/SettingsView_iOS.swift`
 
-- [ ] add `LicenseCatalogLoader` in the non-gated `Platform/` layer: reads
+- [x] add `LicenseCatalogLoader` in the non-gated `Platform/` layer: reads
   `Licenses/licenses.json` and the text files from `Bundle.main` once (lazily
   cached) and hands the bytes to `LicenseCatalog`, exposing the resolved notices
   or a single user-facing failure string — thin glue only, all decisions stay in
-  Core
-- [ ] macOS: turn the `Settings` scene's `SettingsView` into a `TabView` with a
+  Core. Cached as a `private static let cached = Result { try load() }` (a
+  `static let` is lazily initialized exactly once, thread-safely, and is
+  immutable afterwards), surfaced as `documents` (empty on failure) +
+  `failureDescription` (nil on success). It reads *every* `.txt` in the directory
+  rather than the ones the manifest names — the folder reference copies whatever
+  is on disk, so deciding what should be there stays Core's job, and a text that
+  is absent or not valid UTF-8 surfaces as `LicenseCatalogError.missingText`,
+  which names the id and the file, instead of as a bare encoding error. The one
+  failure Core cannot see gets a local `LoaderError.missingManifest`. Both bundle
+  lookups were verified against the built macOS `.app` (folder-reference
+  resources do resolve through `subdirectory:`): the manifest is found via
+  `url(forResource: "licenses.json", withExtension: nil, subdirectory:
+  "Licenses")` and `urls(forResourcesWithExtension: "txt", subdirectory:
+  "Licenses")` returns all 18
+- [x] macOS: turn the `Settings` scene's `SettingsView` into a `TabView` with a
   "General" tab (today's form, keeping its 340pt width) and an
   "Acknowledgements" tab hosting `AcknowledgementsView` — a list of dependencies
   beside a scrollable, selectable, monospaced license text, sized for reading
-  (≈640×420)
-- [ ] iOS: add an "About" section to `SettingsView_iOS` with a `NavigationLink`
+  (≈640×420) — the form moved verbatim into a new `GeneralSettingsView` (its
+  `.frame(width: 340)` untouched) so `SettingsView` is now just the two-tab
+  host; `AcknowledgementsView` is an `HSplitView` (list `minWidth: 180` /
+  `maxWidth: 280` + detail) at exactly 640×420, and since a `TabView` sizes to
+  its widest tab, the Acknowledgements tab drives the window while General keeps
+  its own width. `PisakaApp.swift:454` still constructs `SettingsView(settings:)`
+  unchanged
+- [x] iOS: add an "About" section to `SettingsView_iOS` with a `NavigationLink`
   (the `Form` already sits in a `NavigationStack`) to
   `AcknowledgementsView_iOS` — a `List` of dependencies pushing a detail screen
-  with the full text
-- [ ] both screens show name, SPDX identifier, version/revision and origin per
-  entry, and the full verbatim text; no truncation
-- [ ] no new Core logic is introduced here, so this task adds no tests; re-run
-  `swift test` to confirm nothing regressed before Task 7
+  with the full text — the section goes last, after Git Credentials
+- [x] both screens show name, SPDX identifier, version/revision and origin per
+  entry, and the full verbatim text; no truncation. `version` is `nil` for three
+  entries (Neon and SwiftTreeSitter are revision-pinned, the vendored gitignore
+  grammar has no upstream release), so that row is omitted rather than rendered
+  blank; `revision` is always shown in full — the 40 hex characters are what make
+  the text verifiable. `origin` becomes a `Link` only for the `https://` remotes;
+  the two vendored `Vendor/<name>` paths stay plain text. Both text panes are
+  `.textSelection(.enabled)` monospaced `Text` inside a `ScrollView`, rendered
+  whole. Both screens show `failureDescription` in place of an empty list when
+  the bundle is broken, so "no dependencies" can never be the silent reading
+- [x] no new Core logic is introduced here, so this task adds no tests; re-run
+  `swift test` to confirm nothing regressed before Task 7 — 1586 tests, 0
+  failures (unchanged). `xcodegen generate` (no `Package.resolved` churn) plus
+  both `xcodebuild` gates run early here too, since a view-only task's real risk
+  is compilation: macOS and `generic/platform=iOS` both **BUILD SUCCEEDED**
 
 ### Task 7: Documentation
 
