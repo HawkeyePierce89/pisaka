@@ -69,6 +69,23 @@ Rules for the value:
   Connect and in the release tag's notes — the repository does not track it by
   design.
 
+## Check by hand before the first submission
+
+`swift test` and CI cover everything static — the plists, the privacy manifest,
+the pins, the license manifest. Two things they structurally cannot cover,
+because the view layer is untested by convention:
+
+- **iOS layout at real screen size.** `INFOPLIST_KEY_UILaunchScreen_Generation:
+  YES` is what takes the app out of letterboxed compatibility mode, so the first
+  build carrying it is also the first one to get true screen bounds, real
+  safe-area insets and iPad multitasking. Launch on an iPhone simulator (notched)
+  and an iPad simulator, and exercise Slide Over / Split View on the iPad — a
+  layout regression here would ship unnoticed otherwise.
+- **The Acknowledgements screens.** Open them on both destinations and scroll one
+  long text (libgit2's, 66 KB / 1,323 lines) to its tail. That the pane scrolls
+  rather than clipping is the whole obligation, and nothing in `swift test` sees
+  the rendered view.
+
 ## Not here yet
 
 The following are account-side and cannot be committed until an Apple Developer

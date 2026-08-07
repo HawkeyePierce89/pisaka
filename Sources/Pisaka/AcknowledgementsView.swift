@@ -11,10 +11,13 @@ import PisakaCore
 /// the permission notice *are* the obligation, so shortening them would defeat the
 /// screen.
 struct AcknowledgementsView: View {
-    /// Read once when the view is created (the loader caches across instances, so
-    /// re-opening Preferences costs nothing).
-    private let documents = LicenseCatalogLoader.documents
-    private let failure = LicenseCatalogLoader.failureDescription
+    /// Computed, not stored: `SettingsView`'s `TabView` builds both tab views
+    /// eagerly, so a stored property would read the whole `Licenses/` directory
+    /// off disk whenever Preferences opens — including the General tab. The
+    /// loader caches, so resolving these per body evaluation costs nothing after
+    /// the first.
+    private var documents: [LicenseDocument] { LicenseCatalogLoader.documents }
+    private var failure: String? { LicenseCatalogLoader.failureDescription }
 
     @State private var selection: LicenseDocument.ID?
 

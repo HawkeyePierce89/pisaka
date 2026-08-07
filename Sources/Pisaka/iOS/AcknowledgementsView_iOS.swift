@@ -12,8 +12,13 @@ import PisakaCore
 /// renders the text whole and never truncates or reflows it, the copyright lines
 /// and the permission notice being the obligation itself.
 struct AcknowledgementsView_iOS: View {
-    private let documents = LicenseCatalogLoader.documents
-    private let failure = LicenseCatalogLoader.failureDescription
+    /// Computed, not stored: a `NavigationLink`'s destination is built when the
+    /// *Preferences* form's body runs, so a stored property would read the whole
+    /// `Licenses/` directory off disk on a screen that may never be opened. The
+    /// loader caches, so resolving these per body evaluation costs nothing after
+    /// the first.
+    private var documents: [LicenseDocument] { LicenseCatalogLoader.documents }
+    private var failure: String? { LicenseCatalogLoader.failureDescription }
 
     var body: some View {
         List {
@@ -57,7 +62,14 @@ private struct LicenseTextView_iOS: View {
             header
                 .padding(16)
             Divider()
+            // The pane must take the space the header leaves and scroll inside
+            // it. Without an explicit greedy frame the sizing falls to
+            // `UITextView`'s own `sizeThatFits`, which reports the *content*
+            // height — tens of thousands of points for the 66 KB libgit2 text —
+            // and a `VStack` child laid out taller than the screen has its
+            // scrolling neutralized, i.e. a silently truncated license.
             LicenseTextView(text: document.text)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle(document.notice.name)
         .navigationBarTitleDisplayMode(.inline)

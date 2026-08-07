@@ -814,7 +814,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     being what makes the text verifiable; `origin` becomes a `Link` exactly when
     Core's `LicenseNotice.originURL` is non-nil (the `https://` remotes; the two
     `Vendor/<name>` paths stay plain text) — the rule lives there, not here, so
-    the two platform screens cannot drift apart on it. When the
+    the two platform screens cannot drift apart on it. The loader's
+    `documents`/`failureDescription` are read through *computed* properties, not
+    stored ones: `SettingsView`'s `TabView` builds both tab views eagerly, so a
+    stored property would read the whole `Licenses/` directory off disk on the
+    main thread whenever Preferences opens — General tab included — and the
+    loader's one-shot cache makes the repeated lookup free. When the
     loader fails, the view shows `failureDescription` in place of the list, so "no
     dependencies" can never be the silent reading. No logic (untested like the
     rest of the view layer); the iOS peer is `AcknowledgementsView_iOS` in

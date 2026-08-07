@@ -122,7 +122,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     **whole** (never truncated or reflowed: the copyright lines and the
     permission notice are the obligation). Because that view owns its own
     scrolling (which is what lets TextKit lay out lazily), the detail screen pins
-    the identity header above it rather than putting both in one `ScrollView`;
+    the identity header above it rather than putting both in one `ScrollView`,
+    and gives the pane an explicit `.frame(maxWidth: .infinity, maxHeight:
+    .infinity)`: without a greedy frame the `VStack` falls back to
+    `UITextView.sizeThatFits`, which reports the *content* height (tens of
+    thousands of points for libgit2), and a child laid out taller than the screen
+    has its own scrolling neutralized — the silent truncation the whole pane
+    exists to prevent. The macOS peer needs no such frame, `NSScrollView` having
+    no intrinsic size. The loader's `documents`/`failureDescription` are read
+    through *computed* properties rather than stored ones, because a
+    `NavigationLink`'s destination is built when the Preferences form's body runs
+    — a stored property would read the whole `Licenses/` directory off disk for a
+    screen that may never be opened, and the loader's cache makes the repeated
+    lookup free;
     `version` is omitted when `nil` instead of rendered blank, `revision` is
     always shown in full, `origin` is a `Link` exactly when Core's
     `LicenseNotice.originURL` is non-nil (the `https://` remotes) — the same rule

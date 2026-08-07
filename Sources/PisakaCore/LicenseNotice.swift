@@ -192,7 +192,11 @@ public enum LicenseCatalog {
         do {
             decoded = try JSONDecoder().decode(LicenseManifest.self, from: manifest)
         } catch {
-            throw LicenseCatalogError.malformedManifest(reason: error.localizedDescription)
+            // `String(describing:)`, not `localizedDescription`: a `DecodingError`
+            // localizes to the generic "isn't in the correct format", dropping the
+            // coding path and key name — and naming *which* entry is broken is this
+            // case's whole job, since it only ever fires on a shipping defect.
+            throw LicenseCatalogError.malformedManifest(reason: String(describing: error))
         }
 
         guard !decoded.notices.isEmpty else { throw LicenseCatalogError.emptyManifest }

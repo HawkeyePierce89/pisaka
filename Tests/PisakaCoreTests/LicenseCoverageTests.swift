@@ -299,11 +299,18 @@ final class LicenseCoverageTests: XCTestCase {
         }
 
         // The *whole* directory listing, not just its `.txt`s: the folder
-        // reference copies everything, so a stray `.md`, an editor backup or a
-        // committed `.DS_Store` would ship inside the bundle with nothing to
-        // notice it. Filtering to `.txt` first would wave all of those through.
+        // reference copies everything, so a stray `.md` or an editor backup would
+        // ship inside the bundle with nothing to notice it. Filtering to `.txt`
+        // first would wave all of those through.
+        //
+        // `.DS_Store` is the one exception, and for both reasons at once: it is
+        // gitignored so it never reaches a checkout, and Xcode's resource copy
+        // excludes it by default (`builtin-copy -exclude .DS_Store …`) so it would
+        // not ship even if it did. Asserting on it would only red-fail the suite
+        // for whoever opened `Resources/Licenses` in Finder.
         let directory = Self.repositoryRoot.appendingPathComponent("Resources/Licenses")
         let onDisk = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            .filter { $0 != ".DS_Store" }
         XCTAssertEqual(Set(onDisk), Set(manifest.notices.map(\.file)).union([Self.manifestFileName]), """
             Resources/Licenses must hold exactly licenses.json plus the text every manifest entry \
             names — nothing more. Anything else is either a text left behind after a dependency \
@@ -445,11 +452,23 @@ final class LicenseCoverageTests: XCTestCase {
         let linkedPackages: Set<String>
     }
 
+    /// The app target whose `dependencies:` decide what is linked into the
+    /// shipped binary — and so what has to be acknowledged.
+    private static let appTargetName = "Pisaka"
+
     /// A deliberately tiny, shape-specific reader for the two `project.yml`
     /// lists this suite compares — Core links no YAML parser and must not start.
     /// It is not a YAML implementation: it recognises exactly the two forms the
     /// file uses (a two-space-indented `Name:` key inside `packages:`, and a
-    /// `- package: Name` item after a `dependencies:` line), skipping comments.
+    /// `- package: Name` item under the app target's own `dependencies:` key),
+    /// skipping comments.
+    ///
+    /// The `- package:` scan is scoped to that one target rather than matched
+    /// file-wide, because `linkedPackages` means "what the shipped app links".
+    /// A second target with dependencies of its own — a UI-test bundle, say —
+    /// would otherwise grow the set silently, and `testManifestCoversExactlyThe…`
+    /// would start demanding a license text for something the app never links.
+    ///
     /// Both `testEveryDeclaredPackageIsLinked`'s assertions double as a check
     /// that it is still reading something — if the file's shape changes, the
     /// parser returns an empty or partial set and the suite fails rather than
@@ -459,7 +478,9 @@ final class LicenseCoverageTests: XCTestCase {
 
         var declared: Set<String> = []
         var linked: Set<String> = []
-        var insidePackagesBlock = false
+        var topLevelBlock = ""
+        var currentTarget: String?
+        var insideDependencies = false
 
         for line in source.components(separatedBy: .newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -467,24 +488,42 @@ final class LicenseCoverageTests: XCTestCase {
 
             // A non-indented key ends whatever block was open.
             if !line.hasPrefix(" ") {
-                insidePackagesBlock = (trimmed == "packages:")
+                topLevelBlock = trimmed
+                currentTarget = nil
+                insideDependencies = false
                 continue
             }
 
-            if insidePackagesBlock,
-               line.hasPrefix("  "), !line.hasPrefix("   "),
-               trimmed.hasSuffix(":") {
-                declared.insert(String(trimmed.dropLast()))
+            // A two-space-indented `Name:` key is a package declaration under
+            // `packages:` and a target name under `targets:`.
+            if line.hasPrefix("  "), !line.hasPrefix("   "), trimmed.hasSuffix(":") {
+                let name = String(trimmed.dropLast())
+                if topLevelBlock == "packages:" { declared.insert(name) }
+                if topLevelBlock == "targets:" { currentTarget = name }
+                insideDependencies = false
+                continue
             }
 
-            if trimmed.hasPrefix("- package:") {
+            guard topLevelBlock == "targets:", currentTarget == Self.appTargetName else { continue }
+
+            // A four-space-indented key is a sibling of `dependencies:`, so it
+            // opens the list or closes it; the items themselves sit deeper.
+            if line.hasPrefix("    "), !line.hasPrefix("     ") {
+                insideDependencies = (trimmed == "dependencies:")
+                continue
+            }
+
+            if insideDependencies, trimmed.hasPrefix("- package:") {
                 linked.insert(trimmed.dropFirst("- package:".count)
                     .trimmingCharacters(in: .whitespaces))
             }
         }
 
         XCTAssertFalse(declared.isEmpty, "parsed no packages out of project.yml")
-        XCTAssertFalse(linked.isEmpty, "parsed no target dependencies out of project.yml")
+        XCTAssertFalse(linked.isEmpty, """
+            parsed no dependencies for the \(Self.appTargetName) target out of project.yml — \
+            either the target was renamed (update `appTargetName`) or the file's shape changed
+            """)
         return ProjectDefinition(declaredPackages: declared, linkedPackages: linked)
     }
 }

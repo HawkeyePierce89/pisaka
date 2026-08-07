@@ -115,9 +115,18 @@ final class DependencyPinTests: XCTestCase {
     /// match and the revision is pinned by
     /// `testSwiftTreeSitterIsPinnedToTheExpectedRevision` instead.
     func testEveryProjectRequirementMatchesItsResolvedPin() throws {
-        let pins = Dictionary(
-            uniqueKeysWithValues: try loadResolved().pins.map { ($0.location, $0) }
-        )
+        // Keyed by location, tolerating a duplicate rather than trapping on one:
+        // `Dictionary(uniqueKeysWithValues:)` would abort the whole process on two
+        // pins sharing a location (the same repository resolved under two
+        // identities, or a `.git`-suffix/case variant), and an anomaly in
+        // `Package.resolved` is precisely what this suite exists to *report*.
+        let entries = try loadResolved().pins
+        let pins = Dictionary(entries.map { ($0.location, $0) }, uniquingKeysWith: { first, _ in first })
+        XCTAssertEqual(pins.count, entries.count, """
+            Package.resolved records two pins for the same location. Re-resolve: the duplicate is \
+            either the same repository resolved under two identities or a URL that differs only by \
+            case or a .git suffix, and the checks below would silently validate just one of them.
+            """)
         let packages = try loadDeclaredPackages()
 
         for package in packages {

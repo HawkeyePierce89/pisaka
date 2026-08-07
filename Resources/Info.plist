@@ -2,8 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- The App Store category. Required by App Store Connect validation for the
-	     macOS upload and used as the store listing's primary category. -->
+	<!-- The app's primary App Store category, declared once for both
+	     destinations. It is upload validation that requires it for a *Mac App
+	     Store* submission; the iOS listing takes its category from App Store
+	     Connect, so there this only states the same fact in the bundle. Kept
+	     even though today's macOS channel is Developer ID + notarization rather
+	     than the Mac App Store (see docs/RELEASING.md, "Not here yet"), so
+	     switching channels later does not fail validation on a key nobody
+	     remembered. -->
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.developer-tools</string>
 	<!-- Export-compliance answer, pre-answered so every upload skips the
