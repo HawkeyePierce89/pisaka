@@ -283,16 +283,24 @@ committed `Package.resolved` revision, now enforced by test.
 - Create: `Tests/PisakaCoreTests/LicenseNoticeTests.swift`
 - Create: `Tests/PisakaCoreTests/LicenseCoverageTests.swift`
 
-- [ ] add `LicenseNotice` (a `Codable`, `Identifiable` value type: id, name,
+- [x] add `LicenseNotice` (a `Codable`, `Identifiable` value type: id, name,
   origin, version, revision, spdx, file) and `LicenseCatalog` with a pure
   `decode(manifest:)` plus a `resolve(manifest:texts:)` that pairs each notice
   with its text and throws a typed `LicenseCatalogError` on a missing entry, an
   empty text, a duplicate id, or an empty manifest — Foundation only, no
-  `Bundle`, so the app layer supplies the bytes
-- [ ] write `LicenseNoticeTests` against in-memory fixtures: decoding a
+  `Bundle`, so the app layer supplies the bytes; `version` is optional (three
+  entries have no tag, per Task 4) and the file also carries `LicenseManifest`
+  (notices + the `excluded` array, which decodes as empty when the key is
+  absent), `LicenseExclusion`, and the `LicenseDocument` notice-plus-text pair
+  `resolve` returns. `LicenseCatalogError` is `LocalizedError`, so a broken
+  bundle names what is wrong instead of showing an empty screen
+- [x] write `LicenseNoticeTests` against in-memory fixtures: decoding a
   well-formed manifest, ordering preserved, and each error case (missing text,
-  empty text, duplicate id, malformed JSON, empty manifest)
-- [ ] write `LicenseCoverageTests` — the "cannot be silently missing" guard, in
+  empty text, duplicate id, malformed JSON, empty manifest) — 13 tests, also
+  covering a notice missing a required field (malformed, not a blank column), an
+  omitted `excluded` key, whitespace-only text counting as empty, verbatim text
+  preservation, and every error carrying a non-generic description
+- [x] write `LicenseCoverageTests` — the "cannot be silently missing" guard, in
   the `VendoredGrammarQueryTests` style, reading repository files through
   `#filePath`: parse `project.yml`'s `packages:` block and the `Pisaka` target's
   `dependencies:` list, drop `PisakaCore`, and assert the manifest's id set
@@ -303,8 +311,21 @@ committed `Package.resolved` revision, now enforced by test.
   that identity (lowercased package key), so a text can never be taken from
   upstream HEAD; assert the two vendored entries name a real
   `Vendor/<name>/LICENSE` source; assert `libgit2`'s text contains
-  `LINKING EXCEPTION`
-- [ ] run `swift test` — must pass before Task 6
+  `LINKING EXCEPTION` — 9 tests. The `project.yml` reader is a deliberately tiny,
+  shape-specific line scanner (Core links no YAML parser and must not start); a
+  companion assertion that the declared and linked package sets are equal doubles
+  as proof it is still reading something rather than comparing empty sets.
+  Verified by mutation: adding a `FakePkg` package + dependency to `project.yml`
+  fails `testManifestCoversExactlyTheLinkedDependencies` (reverted). Four checks
+  beyond the plan's list, each closing a hole the listed ones leave: every
+  `Package.resolved` identity must be acknowledged *or* carry a non-empty
+  `excluded` reason; the `.txt` files on disk must be exactly the manifest's set
+  (a text left behind after a dependency drop still ships, the directory being a
+  folder reference); each vendored text must still be byte-identical to its
+  `Vendor/<name>/LICENSE`; and the real manifest must resolve through
+  `LicenseCatalog` itself, so this suite's own reader cannot pass a file the app
+  would fail on
+- [x] run `swift test` — 1586 tests, 0 failures (22 new)
 
 ### Task 6: Acknowledgements UI on both platforms
 
