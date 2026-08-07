@@ -27,6 +27,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `Licenses/licenses.json` + every `.txt` beside it, all decisions in Core's
     `LicenseCatalog`). Documented in full in `app-shell.md`, since nothing in it
     is platform-specific.
+  - `Platform/LicenseTextView.swift` — the scrolling, selectable pane both
+    Acknowledgements screens render a license text in (`UITextView` here,
+    `NSTextView` in an `NSScrollView` on macOS). TextKit rather than
+    `ScrollView { Text(…) }` so the 66 KB libgit2 text lays out lazily instead of
+    whole on the main thread; full entry in `app-shell.md`.
   - `iOS/PisakaApp_iOS.swift` — the iOS `@main` App (the macOS `@main` is gated
     out under one-`@main`-per-platform `#if`).
   - `iOS/RootView_iOS.swift` — adaptive root: `NavigationSplitView` (iPad/regular
@@ -113,9 +118,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     detail screen carrying that entry's identity (name, SPDX, version/revision,
     origin) and the full license text. Two levels rather than the macOS split
     view because that is what a phone has room for; everything else matches the
-    macOS peer, deliberately — the text is a monospaced, `.textSelection(
-    .enabled)` `Text` in a `ScrollView` rendered **whole** (never truncated or
-    reflowed: the copyright lines and the permission notice are the obligation),
+    macOS peer, deliberately — the text is the shared `LicenseTextView`, rendered
+    **whole** (never truncated or reflowed: the copyright lines and the
+    permission notice are the obligation). Because that view owns its own
+    scrolling (which is what lets TextKit lay out lazily), the detail screen pins
+    the identity header above it rather than putting both in one `ScrollView`;
     `version` is omitted when `nil` instead of rendered blank, `revision` is
     always shown in full, `origin` is a `Link` exactly when Core's
     `LicenseNotice.originURL` is non-nil (the `https://` remotes) — the same rule

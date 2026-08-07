@@ -273,6 +273,18 @@ run in `swift test` rather than needing an Xcode build.
       | grep -E '_(stat|lstat|fstat|fstatat|statfs|statvfs|fstatfs|getattrlist|getattrlistat|fgetattrlist|getattrlistbulk|mach_absolute_time|sysctl)$'
     ```
 
+    **Check the right binary, or the audit silently passes.** The path above is a
+    *Debug* build: Xcode's debug-dylib packaging puts the app's code (and the
+    statically linked C of libgit2 and the grammars) in `Pisaka.debug.dylib`,
+    leaving `Pisaka.app/Pisaka` a launch stub whose undefined symbols are none of
+    the above. In a Release or archive build there is no debug dylib and the
+    symbols are in the main executable instead — `Pisaka.app/Pisaka` on iOS,
+    `Pisaka.app/Contents/MacOS/Pisaka` on macOS. Running the grep against the
+    wrong one of that pair returns *nothing*, which reads exactly like "no
+    required-reason APIs are used" — the conclusion this record exists to prevent.
+    Confirm the file you scanned is non-trivial (`nm -u` on it should list
+    hundreds of symbols) before believing an empty match.
+
     A later audit should be a diff against this record, not a rediscovery:
 
       - `UserDefaults` — **used**, so
@@ -417,15 +429,29 @@ Two packages compile third-party C trees of their own into the app under license
 their top-level `LICENSE`/`COPYING` does not carry, and no package-level
 comparison can notice:
 
-  - **libgit2** compiles `deps/xdiff/` (LibXDiff by Davide Libenzi,
-    LGPL-2.1-or-later). Upstream's `COPYING` enumerates every *other* bundled
-    dependency — zlib, PCRE, winhttp, SHA1DC, wildmatch, ntlmclient, llhttp — and
-    omits this one. Its `spdx` therefore reads
-    `LicenseRef-libgit2-GPL-2.0-only-with-linking-exception AND LGPL-2.1-or-later`
-    — the left operand is a `LicenseRef-` because libgit2's GPLv2-with-linking-
-    exception has no SPDX List identifier and `WITH` takes only listed *exception*
-    ids, so `GPL-2.0-only WITH linking-exception` would be an expression no SPDX
-    parser accepts (`testEverySPDXExpressionIsWellFormed` pins that).
+  - **libgit2** compiles five vendored trees — its `Package.swift` `sources:`
+    lists `deps/llhttp`, `deps/pcre`, `deps/xdiff`, `deps/zlib` and
+    `deps/ntlmclient`, and `excludedPaths` drops only CMake/Windows/mbedTLS/
+    OpenSSL files, so all five reach the binary. Upstream's `COPYING` enumerates
+    every one of them *except* `deps/xdiff/` (LibXDiff by Davide Libenzi,
+    LGPL-2.1-or-later), which is the appendix below. Its `spdx` therefore reads
+    `LicenseRef-libgit2-GPL-2.0-only-with-linking-exception AND LGPL-2.1-or-later
+    AND Zlib AND BSD-3-Clause AND MIT`: the LGPL operand is xdiff (and
+    `deps/winhttp`), `Zlib` is `deps/zlib`, `BSD-3-Clause` is `deps/pcre`, and the
+    `MIT` operand covers `deps/llhttp`, `deps/ntlmclient` and the bundled SHA1DC.
+    The expression enumerates what *compiles in*, not just what the top-level
+    license says — the field is documented above as the app's obligation
+    statement, so half-applying that rule (naming xdiff but not the other four)
+    would make it read as complete while understating the obligation. The left
+    operand is a `LicenseRef-` because libgit2's GPLv2-with-linking-exception has
+    no SPDX List identifier and `WITH` takes only listed *exception* ids, so
+    `GPL-2.0-only WITH linking-exception` would be an expression no SPDX parser
+    accepts (`testEverySPDXExpressionIsWellFormed` pins that).
+
+    Known limit: nothing derives this expression from the pinned checkout, so a
+    libgit2 bump that adds or drops a vendored tree needs its `sources:` re-read
+    by hand. `testEverySPDXExpressionIsWellFormed` checks only that every operand
+    is a well-formed, known id.
   - **tree-sitter** compiles `lib/src/unicode/` (ICU-derived headers, reached via
     `lib/src/unicode.h`). Upstream ships the notice as `lib/src/unicode/LICENSE`
     and then `exclude:`s that file from the SwiftPM target, so it never reaches

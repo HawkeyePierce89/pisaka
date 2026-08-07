@@ -70,13 +70,10 @@ struct AcknowledgementsView: View {
             VStack(alignment: .leading, spacing: 0) {
                 header(for: document.notice)
                 Divider()
-                ScrollView {
-                    Text(document.text)
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
-                }
+                // TextKit-backed rather than `ScrollView { Text(…) }`: libgit2's
+                // text is 66 KB and a single `Text` would lay all of it out on the
+                // main thread and risk clipping the tail. See `LicenseTextView`.
+                LicenseTextView(text: document.text)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {

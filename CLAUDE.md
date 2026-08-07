@@ -163,6 +163,7 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 `docs/architecture/app-ios.md` — platform shims & the whole iOS layer:
 - `Platform/PlatformColor.swift` / `PlatformFeedback.swift` / `PlatformAlert.swift` / `PlatformRoute.swift` — per-platform API shims (colors, feedback, alerts, route presentation).
 - `Platform/LicenseCatalogLoader.swift` — bundled-license reader shared by both Acknowledgements screens (one-shot cache; full entry in app-shell).
+- `Platform/LicenseTextView.swift` — TextKit-backed license-text pane shared by both Acknowledgements screens (lazy layout for the 66 KB texts; full entry in app-shell).
 - `iOS/PisakaApp_iOS.swift` / `RootView_iOS.swift` — iOS `@main` + adaptive root/navigation, revert & branch orchestration.
 - `iOS/BranchSwitcherView_iOS.swift` — iOS branch-switcher widget (dirty-checkout routing).
 - `iOS/CodeEditorView_iOS.swift` / `CodeEditorCoordinator_iOS.swift` — `UITextView` editor (Neon, indent/auto-pair, pinch zoom).

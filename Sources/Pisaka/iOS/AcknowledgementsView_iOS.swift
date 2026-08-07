@@ -48,16 +48,16 @@ private struct LicenseTextView_iOS: View {
     let document: LicenseDocument
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                header
-                Divider()
-                Text(document.text)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(16)
+        // The header is pinned above its own scroll region and the license text
+        // scrolls on its own, rather than both sharing one `ScrollView`: the text
+        // view has to own its scrolling for TextKit to lay out lazily, which is
+        // what keeps the 66 KB libgit2 case off the main thread. See
+        // `LicenseTextView`.
+        VStack(alignment: .leading, spacing: 0) {
+            header
+                .padding(16)
+            Divider()
+            LicenseTextView(text: document.text)
         }
         .navigationTitle(document.notice.name)
         .navigationBarTitleDisplayMode(.inline)

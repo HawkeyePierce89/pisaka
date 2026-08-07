@@ -775,13 +775,40 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     a bare encoding error with no dependency attached; (c) the one failure Core
     cannot see (the manifest itself never made it into the bundle) is the local
     `LoaderError.missingManifest`.
+  - `Platform/LicenseTextView.swift` — the read-only, selectable, scrolling pane
+    that renders one verbatim license text, shared by both Acknowledgements
+    screens (non-gated for the same reason as the loader: only the concrete text
+    view differs — `NSTextView` in an `NSScrollView` on macOS, `UITextView` on
+    iOS). **It is TextKit and not `ScrollView { Text(…) }`, and that is the
+    point.** These texts are not label-sized: `libgit2.txt` is 66 KB / 1,323
+    lines and `tree-sitter.txt` is 22 KB, which at caption-monospaced on a phone
+    width wraps to a laid-out height in the tens of thousands of points. A
+    SwiftUI `Text` is one view with one intrinsic size, so it lays the whole
+    string out synchronously on the main thread when the pane appears — a visible
+    hitch on the one screen this feature adds — and content that tall is in the
+    range where the tail can be clipped rather than scrolled to. A silently
+    truncated license is exactly the failure these screens exist to prevent, and
+    the view layer is untested by convention, so nothing would catch it;
+    `NSTextView`/`UITextView` generate glyphs lazily for the visible range, which
+    makes both problems structurally impossible instead of merely unlikely
+    (`allowsNonContiguousLayout` on macOS is what buys the second half). Three
+    details are deliberate: the view is selectable but not editable (copying a
+    license out is legitimate, and unlike a `LazyVStack` of chunked `Text`s a
+    single text view keeps selection continuous across the whole document);
+    `updateNSView`/`updateUIView` guard on the string being unchanged, since
+    selecting another dependency reuses the view and re-setting the same text
+    would drop the reader's selection and scroll position for nothing; and the
+    iOS font is scaled through `UIFontMetrics(forTextStyle: .caption1)`, because
+    `adjustsFontForContentSizeCategory` only tracks metrics-vended fonts and the
+    `.system(.caption, design: .monospaced)` this replaced scaled with Dynamic
+    Type.
   - `AcknowledgementsView.swift` — the Preferences "Acknowledgements" tab: an
     `HSplitView` with the dependency list (name + SPDX, `minWidth: 180` /
     `maxWidth: 280`) beside the selected entry's identity (name, SPDX,
     version/revision, origin) and its full license text, at a fixed 640×420. The
-    text pane is a monospaced `Text` in a `ScrollView` with
-    `.textSelection(.enabled)`, rendered **whole** — never truncated or reflowed,
-    the copyright lines and the permission notice being the obligation itself.
+    text pane is the shared `LicenseTextView` above (TextKit-backed, monospaced,
+    selectable), rendered **whole** — never truncated or reflowed, the copyright
+    lines and the permission notice being the obligation itself.
     `version` is omitted when `nil` (three entries have no upstream tag) rather
     than rendered blank; `revision` is always shown in full, the 40 hex characters
     being what makes the text verifiable; `origin` becomes a `Link` exactly when

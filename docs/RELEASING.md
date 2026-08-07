@@ -76,9 +76,35 @@ Program membership exists:
 
 - `DEVELOPMENT_TEAM` and the signing configuration (the project builds today
   with `CODE_SIGNING_ALLOWED: NO`).
-- Notarization / stapling for the macOS build, and the distribution-channel and
-  sandbox decisions that precede it.
+- Notarization / stapling for the macOS build, and the distribution channel that
+  precedes it. Note that App Sandbox — which the *Mac* App Store requires — is
+  not merely undecided: the macOS build shells out to `git` through `Process`
+  (`GitCLIService`) and opens a PTY for the embedded terminal, neither of which
+  survives sandboxing. So the macOS channel is Developer ID + notarization unless
+  those two features are reworked; the iOS App Store path is unaffected.
 - The App Store Connect app records, store metadata and screenshots.
 
 None of the repository-side work above depends on a signing team existing;
 adding these steps is a separate change to this document.
+
+## Open compliance question: statically linked LGPL
+
+The iOS build links libgit2, whose SwiftPM target compiles `deps/xdiff`
+(LibXDiff, LGPL-2.1-or-later) — see the sub-dependency section of
+`docs/architecture/core-services.md`. The shipped
+`Resources/Licenses/libgit2.txt` carries that notice, which settles the
+*attribution* half.
+
+It does not settle the *relinking* half. LGPL-2.1 §6 is satisfied by a notice
+only when the library is dynamically linked; a static link into a closed-source
+binary additionally requires an offer of the object files (or equivalent) so a
+recipient can relink against a modified LibXDiff. libgit2's own
+GPLv2-with-linking-exception covers libgit2's files and not the LGPL-headered
+xdiff tree, so it does not cover this.
+
+Nothing in the repository can resolve that — it is a decision, and the options
+are: accept the risk deliberately and in writing; publish an
+"object files available on request" offer alongside the store listing; or drop
+`deps/xdiff` from the compiled sources and supply the diff implementation
+another way. **Decide it before the first iOS submission**, and record the
+decision here.

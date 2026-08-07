@@ -114,6 +114,7 @@ final class LicenseCoverageTests: XCTestCase {
         "LGPL-2.1-or-later",
         "MIT",
         "Unicode-DFS-2016",
+        "Zlib",
     ]
 
     /// SPDX *exception* ids (the right operand of `WITH`) this manifest uses —
