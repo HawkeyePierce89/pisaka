@@ -203,4 +203,300 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `presentation(isCompactWidth:orientation:) -> Presentation` returns `.switcher`
     for compact width regardless of orientation, else `.horizontalStrip`/
     `.verticalColumn` per `TabOrientation`. Covered by `TabLayoutTests`.
+  - `LicenseNotice.swift` — the third-party-license domain behind the
+    Acknowledgements screens: `LicenseNotice` (one shipped dependency — `id`,
+    `name`, `origin`, `version`, `revision`, `spdx`, `file`, plus `originURL` —
+    the one behavioral decision on the type: `origin` as something to open, `nil`
+    unless it is `https://`, so neither Acknowledgements screen has to repeat the
+    rule and an `http://`, `file://` or `javascript:` origin out of a malformed
+    manifest never becomes a tap target), `LicenseExclusion`
+    (a `Package.resolved` identity deliberately *not* acknowledged, with the
+    reason), `LicenseManifest` (the decoded `licenses.json`: `notices` +
+    `excluded`), `LicenseDocument` (a notice paired with its verbatim text — what
+    the UI renders), the `LocalizedError`-conforming `LicenseCatalogError`, and
+    the `LicenseCatalog` enum itself with `decode(manifest:)` /
+    `resolve(manifest:texts:)`. See the "Third-party license catalog" section
+    below for the contract, the invariants and the test guarantees.
   - `PisakaCore.swift` — package constants/version.
+
+## Release-metadata resources
+
+Files that ship inside the app bundle but have no Swift code behind them, so the
+only thing standing between a typo and an App Store Connect rejection is a test.
+They live under `Resources/` and are verified statically by
+`ReleaseMetadataTests`, which reads them through `#filePath` with Foundation only
+— the `VendoredGrammarQueryTests`/`DependencyPinTests` precedent — so the checks
+run in `swift test` rather than needing an Xcode build.
+
+  - `Resources/Info.plist` — a *partial* Info.plist carrying only the two keys
+    App Store Connect validation wants: `LSApplicationCategoryType` =
+    `public.app-category.developer-tools` and `ITSAppUsesNonExemptEncryption` =
+    Boolean `false`. `GENERATE_INFOPLIST_FILE` stays `YES` and `INFOPLIST_FILE`
+    points here, so Xcode merges its generated per-destination keys and every
+    `INFOPLIST_KEY_*` build setting *into* this file's contents — the built plist
+    is the union, not a replacement. Two failure modes drive the tests: a
+    category typo builds fine and is rejected at validation time, and
+    `ITSAppUsesNonExemptEncryption` written as the *string* `"NO"` (what a
+    stringifying build setting produces) survives `as? Bool` bridging while the
+    export-compliance check ignores it, so every upload keeps asking the question
+    the key exists to pre-answer — hence the assertion goes through
+    `CFBooleanGetTypeID`, on the type and not just the truthiness. A third test
+    pins the key *set* to exactly those two, keeping anything Xcode can generate
+    out of the hand-written file. Release versioning
+    (`MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` and the per-upload
+    command-line build-number override) is documented in `docs/RELEASING.md`.
+  - `Resources/PrivacyInfo.xcprivacy` — the privacy manifest. Declared in
+    `project.yml` as a single-file resource (a plain file reference, not a folder
+    reference, and not via the recursive `Sources/Pisaka` entry), which is what
+    lands it at the top level of the built bundle's resources on both
+    destinations — `Contents/Resources/` on macOS, the `.app` root on iOS — the
+    only place App Store Connect's privacy-report aggregation looks. Contents:
+    `NSPrivacyTracking` = `false`, `NSPrivacyTrackingDomains` and
+    `NSPrivacyCollectedDataTypes` both empty (the app has no telemetry and no
+    network egress other than the user's own git remotes; everything it stores is
+    local), and exactly three `NSPrivacyAccessedAPITypes` entries.
+    `ReleaseMetadataTests` asserts the accessed-API set by *set equality* on
+    category/reason pairs, so an added, dropped or re-coded category fails the
+    suite until the manifest and the audit below are reconciled.
+
+    **Required-reason API audit.** The unit of audit is the **linked binary**,
+    not `Sources/`: libgit2 and every tree-sitter grammar compile from C source
+    *into* the app, and none of the 18 dependencies ships a
+    `PrivacyInfo.xcprivacy` of its own (`find DerivedData/SourcePackages/checkouts
+    -name '*.xcprivacy'` returns nothing), so their required-reason calls must be
+    declared by this manifest. A `Sources/`-only grep misses them — that is how
+    the boot-time entry below was originally missed. Re-run the audit as a grep
+    over `Sources/` **plus** a symbol check on the built binary:
+
+    ```sh
+    nm -u DerivedData/Build/Products/Debug-iphoneos/Pisaka.app/Pisaka.debug.dylib \
+      | grep -E '_(stat|lstat|fstat|fstatat|statfs|statvfs|fstatfs|getattrlist|getattrlistat|fgetattrlist|getattrlistbulk|mach_absolute_time|sysctl)$'
+    ```
+
+    **Check the right binary, or the audit silently passes.** The path above is a
+    *Debug* build: Xcode's debug-dylib packaging puts the app's code (and the
+    statically linked C of libgit2 and the grammars) in `Pisaka.debug.dylib`,
+    leaving `Pisaka.app/Pisaka` a launch stub whose undefined symbols are none of
+    the above. In a Release or archive build there is no debug dylib and the
+    symbols are in the main executable instead — `Pisaka.app/Pisaka` on iOS,
+    `Pisaka.app/Contents/MacOS/Pisaka` on macOS. Running the grep against the
+    wrong one of that pair returns *nothing*, which reads exactly like "no
+    required-reason APIs are used" — the conclusion this record exists to prevent.
+    Confirm the file you scanned is non-trivial (`nm -u` on it should list
+    hundreds of symbols) before believing an empty match.
+
+    A later audit should be a diff against this record, not a rediscovery:
+
+      - `UserDefaults` — **used**, so
+        `NSPrivacyAccessedAPICategoryUserDefaults` / `CA92.1` (access is limited
+        to the app itself; there is no app group). Three call sites, all
+        Foundation-only Core stores with the defaults injected:
+        `SettingsStore` (preferences), `BookmarkStore` (the iOS
+        security-scoped-bookmark recents) and `SessionStore` (the restored editor
+        session), plus the `SessionController` writer in the app layer.
+      - File timestamps (`lstat`/`stat`/`getattrlist`/`creationDate`/
+        `modificationDate`/`attributesOfItem`) — **used**, so
+        `NSPrivacyAccessedAPICategoryFileTimestamp` / **`3B52.1`**: timestamps of
+        files and directories the *user specifically granted access to*, via the
+        macOS open panel or the iOS document picker. Four real call sites, all
+        `lstat`-into-a-`stat` existence/identity probes:
+        `GitCLIService.swift:627` (same-inode comparison),
+        `GitCLIService.swift:787` and `LibGit2Service.swift:914` (does anything,
+        including a dangling symlink, occupy this path), and
+        `GitCLIService.swift:1186` (the file's git mode). The remaining `lstat`
+        hits in `Sources/` are prose in comments. `3B52.1`, **not `DDA9.1`**:
+        `DDA9.1` is for displaying a file timestamp to the user, and this app
+        never does — the dates in the blame column come from git's own
+        `--porcelain` output, parsed by `BlameLine`, never from `stat`.
+      - System boot time (`systemUptime`/`mach_absolute_time`/`sysctl`) — no
+        hits in `Sources/`, but **used by a linked dependency**, so
+        `NSPrivacyAccessedAPICategorySystemBootTime` / **`35F9.1`**: libgit2's
+        `git_time_monotonic` (`src/util/util.h`, the `__APPLE__` branch) calls
+        `mach_absolute_time()`, reached from `rand.c`, `pack-objects.c` and
+        `transports/smart_protocol.c`, and `_mach_absolute_time` is an undefined
+        symbol of both built binaries. `35F9.1` is the elapsed-time-within-the-app
+        reason, which is exactly what a monotonic clock for progress throttling
+        and seed mixing is; nothing derived from it leaves the device. Not
+        `8FFB.1` (absolute timestamps for UIKit/AVFAudio events) and not `3D61.1`
+        (bug reports) — the app has neither.
+      - Disk space (`statfs`/`volumeAvailableCapacity`/`systemFreeSize`/
+        `volumeTotalCapacity`) — **no hits** in `Sources/` and no matching symbol
+        in either binary, not declared. `FileService`'s
+        `.fileSizeKey` probe (the oversize-file guard) is a *per-file* size, which
+        is not on Apple's disk-space list; `.isDirectoryKey`,
+        `.fileResourceIdentifierKey` and
+        `.volumeSupportsCaseSensitiveNamesKey` are likewise not required-reason
+        APIs.
+      - Active keyboard (`activeInputModes`/`UITextInputMode`) — **no hits** in
+        `Sources/` and no matching symbol in either binary, not declared.
+
+  - `Resources/Licenses/` — `licenses.json` plus one verbatim `<id>.txt` per
+    shipped dependency (18 today). Declared in `project.yml` as a **folder
+    reference** (`type: folder`), so the whole directory is copied into the
+    bundle as `Licenses/` and adding a future text needs no project
+    regeneration. That convenience is exactly why the directory's *contents* are
+    unchecked by the build — nothing in Xcode knows which dependencies those
+    files correspond to — so the list of record is the manifest, and
+    `LicenseCoverageTests` is what keeps it honest (next section).
+
+One release-metadata requirement is not a file at all but a single build
+setting, and it is asserted here for the same reason: **`project.yml`'s
+`INFOPLIST_KEY_UILaunchScreen_Generation: YES`**, which makes Xcode generate the
+empty `UILaunchScreen` dictionary in the iOS plist. Apple has required a launch
+screen of every app built against the iOS 13+ SDK since April 2020; a SwiftUI
+`@main` app ships no storyboard and `GENERATE_INFOPLIST_FILE` does not add the
+key by itself, so without this setting the app builds and runs — letterboxed in
+compatibility mode, with no iPad multitasking — and is rejected only at App Store
+Connect validation. One base setting covers both destinations, so the key also
+lands in the macOS plist, where AppKit never reads it (the same harmless spill as
+`INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace`).
+
+## Third-party license catalog
+
+`LicenseNotice.swift` is the domain half of license compliance: the app must
+acknowledge every third-party dependency it links, with the *verbatim* text
+(copyright lines and permission notice included — those are the obligation), and
+neither the compiler nor App Store validation will say a word if one goes
+missing. The design puts every decision in Core, where `swift test` can reach it.
+
+**The catalog takes bytes, not a `Bundle`.** `LicenseCatalog.resolve(manifest:
+texts:)` receives the manifest `Data` and a `[file name: text]` dictionary; it
+has no idea where either came from. Two reasons: Core is Foundation-only and must
+stay portable and UI-free, and every failure mode becomes reachable from an
+in-memory fixture instead of requiring a deliberately-broken app bundle. The
+reading is the app layer's job (`Platform/LicenseCatalogLoader.swift`, documented
+in `app-shell.md`).
+
+**What `decode`/`resolve` reject**, each because the alternative is a silent
+compliance failure rather than a visible bug:
+
+  - `malformedManifest(reason:)` — not the JSON shape `LicenseManifest`
+    describes. `excluded` is the one optional key (decoded via
+    `decodeIfPresent` → `[]`), so a manifest with nothing to exclude may omit it.
+  - `emptyManifest` — decoded but lists nothing. The app links plenty, so an
+    empty list is a truncated or wrong file, never an app without dependencies.
+  - `duplicateIdentifier(_:)` — two notices share an id, so one would be
+    unreachable in an `Identifiable`/keyed context.
+  - `missingText(id:file:)` — a notice names a text the caller did not supply:
+    the license did not make it into the bundle.
+  - `emptyText(id:file:)` — the text is blank or whitespace-only, which
+    acknowledges nothing.
+
+`LicenseCatalogError` is a `LocalizedError` on purpose: a broken bundle has to
+*say* what is wrong, because "no dependencies" is a plausible-looking empty
+screen. Manifest order is preserved rather than sorted — `licenses.json` lists
+dependencies in `project.yml` order, which keeps the tree-sitter family together;
+a UI that wants alphabetical can sort, but the reverse is not recoverable.
+`version` is optional (`nil` for Neon and SwiftTreeSitter, both revision-pinned
+past their newest tags, and for the vendored gitignore grammar, which has no
+upstream release), so the UI omits the row instead of rendering a blank one;
+`revision` is always present, since the exact commit is what makes a shipped text
+verifiable rather than merely plausible.
+
+**The coverage invariant.** `LicenseCoverageTests` is the guard against the one
+failure this design cannot express in code — a dependency added to `project.yml`
+whose license nobody copied. In the `VendoredGrammarQueryTests` style it reads
+repository files through `#filePath` (Foundation only; Core links no YAML parser
+and must not start, so `project.yml` is read by a deliberately tiny,
+shape-specific line scanner) and asserts:
+
+  - the manifest's id set **equals** the `Pisaka` target's linked package set
+    from `project.yml` (minus `PisakaCore`) plus the documented transitive
+    `tree-sitter` C runtime — *set* equality, so a new dependency fails the suite
+    until its license is added, and a dropped one fails until its entry goes;
+  - the declared `packages:` set equals the linked `dependencies:` set, which
+    doubles as proof the scanner is still reading something rather than comparing
+    two empty sets (verified by mutation: adding a fake package + dependency does
+    fail the suite);
+  - every `Package.resolved` identity is either acknowledged or carries a
+    non-empty `excluded` reason;
+  - each remote entry's `revision` **equals** that identity's `Package.resolved`
+    pin, so a text can never quietly come from upstream HEAD;
+  - the `.txt` files on disk are exactly the manifest's set — the folder
+    reference ships whatever is there, so a text left behind after a dependency
+    is dropped would otherwise keep shipping;
+  - each vendored entry names a real `Vendor/<name>/LICENSE` and is
+    byte-identical to it;
+  - each text names *its own* dependency's copyright holder, against a table
+    (`expectedCopyrightHolders`) asserted by set equality against the manifest's
+    ids. This is the only check that reads a *remote* text's bytes at all: every
+    other assertion here is satisfied by any non-empty file, because the pin a
+    text is compared against belongs to the manifest entry rather than to the
+    file's contents. Copying the wrong `LICENSE` into a slot — an easy slip
+    among sixteen near-identical MIT texts, where a name and a year are the only
+    visible difference — would otherwise ship the wrong attribution with the
+    whole suite green. The three `tree-sitter-html/-javascript/-json` texts are
+    byte-identical upstream and so are indistinguishable from one another by any
+    content check; they carry the same grant from the same holder, so that is
+    not a gap;
+  - `libgit2`'s text contains the `LINKING EXCEPTION` section (what permits
+    linking GPLv2 code into a closed-source app);
+  - the two texts that carry a *sub*-dependency notice still carry it (below);
+  - and the real manifest resolves through `LicenseCatalog` itself, so this
+    suite's own reader cannot pass a file the app would fail on.
+
+**What the id-set check cannot see: sub-dependencies.** Every assertion above is
+*package*-granular — it compares manifest ids against SwiftPM package identities.
+Two packages compile third-party C trees of their own into the app under licenses
+their top-level `LICENSE`/`COPYING` does not carry, and no package-level
+comparison can notice:
+
+  - **libgit2** compiles five vendored trees — its `Package.swift` `sources:`
+    lists `deps/llhttp`, `deps/pcre`, `deps/xdiff`, `deps/zlib` and
+    `deps/ntlmclient`, and nothing in `excludedPaths` removes any of them, so all
+    five reach the binary. What `excludedPaths` *does* drop is the build-system
+    and non-Apple-backend files: CMake/Windows/mbedTLS/OpenSSL, plus — inside the
+    manifest's `#if os(macOS)` branch, which is where SwiftPM evaluates it for
+    every Apple destination — the whole builtin hash layer
+    (`src/util/hash/builtin.{c,h}`, `collisiondetect.{c,h}`, `rfc6234/`,
+    `sha1dc/`) and `deps/ntlmclient/crypt_openssl.{c,h}`, because the app uses
+    CommonCrypto instead. Note that this is the same fact the
+    `ITSAppUsesNonExemptEncryption = false` rationale rests on, and that
+    `deps/winhttp` is not in `sources:` at all: neither the bundled SHA1DC nor
+    winhttp ever compiles into this app, so neither is part of the obligation.
+    Upstream's `COPYING` enumerates every one of the five compiled trees *except*
+    `deps/xdiff/` (LibXDiff by Davide Libenzi, LGPL-2.1-or-later), which is the
+    appendix below. Its `spdx` therefore reads
+    `LicenseRef-libgit2-GPL-2.0-only-with-linking-exception AND LGPL-2.1-or-later
+    AND Zlib AND BSD-3-Clause AND MIT`: the LGPL operand is `deps/xdiff`, `Zlib`
+    is `deps/zlib`, `BSD-3-Clause` is `deps/pcre`, and the `MIT` operand covers
+    `deps/llhttp` and `deps/ntlmclient`.
+    The expression enumerates what *compiles in*, not just what the top-level
+    license says — the field is documented above as the app's obligation
+    statement, so half-applying that rule (naming xdiff but not the other four)
+    would make it read as complete while understating the obligation. The left
+    operand is a `LicenseRef-` because libgit2's GPLv2-with-linking-exception has
+    no SPDX List identifier and `WITH` takes only listed *exception* ids, so
+    `GPL-2.0-only WITH linking-exception` would be an expression no SPDX parser
+    accepts (`testEverySPDXExpressionIsWellFormed` pins that).
+
+    Known limit: nothing derives this expression from the pinned checkout, so a
+    libgit2 bump that adds or drops a vendored tree needs its `sources:` re-read
+    by hand. `testEverySPDXExpressionIsWellFormed` checks only that every operand
+    is a well-formed, known id.
+  - **tree-sitter** compiles `lib/src/unicode/` (ICU-derived headers, reached via
+    `lib/src/unicode.h`). Upstream ships the notice as `lib/src/unicode/LICENSE`
+    and then `exclude:`s that file from the SwiftPM target, so it never reaches
+    the bundle on its own. Its `spdx` reads `MIT AND Unicode-DFS-2016`.
+
+Both are closed by **appending** the missing notice to the shipped `.txt`, the
+way libgit2's own `COPYING` already aggregates its bundled deps — not by adding a
+manifest entry, because a sub-dependency has no SwiftPM identity: no
+`Package.resolved` pin for the provenance tests to check, no `- package:` line
+for the coverage test to match. Each appendix opens with a line saying where
+upstream's verbatim text ends and this repository's addition begins, and
+`testTextsCarryTheirBundledSubDependencyNotices` pins both — otherwise bumping
+the pin and pasting upstream's file over ours would drop them in silence.
+
+The general rule this leaves behind: **a package's own LICENSE is not
+automatically the whole obligation.** When adding a dependency, read its
+manifest's `sources:`/`exclude:` for vendored trees before assuming one text
+covers it.
+
+**The documented exclusion.** `swift-argument-parser` appears in
+`Package.resolved` only because SwiftTerm's `Termcast` executable target depends
+on it; it is not linked into the app, so no license ships for it. That is
+recorded in the manifest's `excluded` array rather than left out, because "no
+text for this one" is indistinguishable from an oversight unless the reason is
+written down — and the coverage test requires *every* resolved identity to be one
+or the other.

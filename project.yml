@@ -34,6 +34,26 @@ packages:
   Neon:
     url: https://github.com/ChimeHQ/Neon
     revision: 484d6fb9e0c4fb679a1d5f5ddaf2cac2ecf21165
+  # SwiftTreeSitter is the one dependency this file cannot pin by revision, and
+  # the reason is Neon's manifest, not a choice made here: the pinned Neon
+  # revision (484d6fb, 119 commits past its newest tag 0.6.0 — no Neon tag
+  # carries the API the app uses) declares
+  #   .package(url: ".../SwiftTreeSitter", branch: "main")
+  # and SwiftPM refuses to resolve a package that is "required using two
+  # different revision-based requirements" — a root `revision:` here plus Neon's
+  # `branch: main` is exactly that, and `xcodebuild -resolvePackageDependencies`
+  # fails outright. An `exactVersion:` fares no better (version vs. revision
+  # requirement). So the requirement stays `branch: main` and the *pin* lives
+  # where SwiftPM will honour it: the committed Package.resolved records
+  # revision 0f40435cdb41673ce4194d731571cf2a2f7c3285 (3 commits past tag
+  # 0.10.0), the revision that has been building and testing all along, and
+  # resolution reuses it until someone explicitly updates.
+  # `DependencyPinTests` asserts that exact revision and that swifttreesitter is
+  # the *only* branch-based pin in the file, so an unnoticed drift to a newer
+  # main — or a second branch dependency creeping in — fails the suite.
+  # To remove the branch requirement entirely, Neon itself must move to a tag
+  # whose manifest asks for SwiftTreeSitter by version; that is a Neon-pin
+  # change with real API risk, deliberately not bundled into the release prep.
   SwiftTreeSitter:
     url: https://github.com/ChimeHQ/SwiftTreeSitter
     branch: main
@@ -115,12 +135,57 @@ targets:
     supportedDestinations: [macOS, iOS]
     sources:
       - path: Sources/Pisaka
+      # The privacy manifest, declared as a single-file resource rather than by
+      # letting the recursive `Sources/Pisaka` entry pick it up — it lives under
+      # `Resources/`, next to the partial Info.plist, and naming the file (not the
+      # directory) keeps `Resources/Info.plist` out of the resources phase, where
+      # it would be copied into the bundle a second time alongside the merged
+      # `Info.plist` Xcode generates from it. A plain file reference (not a folder
+      # reference) is what puts it at the *top level* of the built bundle's
+      # resources on both destinations — `Contents/Resources/PrivacyInfo.xcprivacy`
+      # on macOS, `PrivacyInfo.xcprivacy` at the `.app` root on iOS — which is the
+      # only place App Store Connect's privacy-report aggregation looks. Its
+      # contents and the required-reason audit behind them are documented in
+      # `docs/architecture/core-services.md` and asserted by `ReleaseMetadataTests`.
+      - path: Resources/PrivacyInfo.xcprivacy
+        buildPhase: resources
+      # Third-party license texts, declared as a *folder reference*
+      # (`type: folder`) rather than a group of individual file references: the
+      # directory itself is copied into the bundle verbatim, so it lands as
+      # `Licenses/` (holding `licenses.json` plus one `.txt` per shipped
+      # dependency) and adding or replacing a text needs no `xcodegen generate`
+      # — the build copies whatever the directory currently contains. That is
+      # also why the manifest, not the project file, is the list of record:
+      # `LicenseCoverageTests` asserts `licenses.json` covers exactly the
+      # packages this file links (plus the transitive `tree-sitter` runtime) at
+      # exactly the revisions `Package.resolved` pins, so a new dependency fails
+      # the suite until its license ships. `Acknowledgements` reads it through
+      # `Bundle.main`.
+      - path: Resources/Licenses
+        type: folder
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ws.karmanov.pisaka
         PRODUCT_NAME: Pisaka
+        # `Resources/Info.plist` is a *partial* plist: it carries only the two
+        # keys App Store Connect validation wants and that Xcode has no
+        # `INFOPLIST_KEY_*` equivalent worth using here —
+        # `LSApplicationCategoryType` and a real-Boolean
+        # `ITSAppUsesNonExemptEncryption`. `GENERATE_INFOPLIST_FILE` stays YES,
+        # so Xcode merges its generated per-destination keys (CFBundleName,
+        # CFBundleShortVersionString, the scene/principal-class keys, every
+        # `INFOPLIST_KEY_*` below) *into* this file's contents rather than
+        # replacing them — the built plist is the union. Task 8 of the release
+        # plan verifies that union with `plutil -p` on both destinations.
         GENERATE_INFOPLIST_FILE: YES
-        MARKETING_VERSION: "0.1"
+        INFOPLIST_FILE: Resources/Info.plist
+        # The release version. `CURRENT_PROJECT_VERSION` stays a plain monotonic
+        # integer and is *not* bumped in the working tree per upload: App Store
+        # Connect only requires each upload to carry a build number never seen
+        # before, so uploads override it on the `xcodebuild archive` command line
+        # (`CURRENT_PROJECT_VERSION=<n>`), which beats the project value and
+        # leaves the tree clean. See docs/RELEASING.md.
+        MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.9"
         CODE_SIGN_STYLE: Automatic
@@ -132,6 +197,22 @@ targets:
         # the picker only vends copies and the scoped-file-access design fails on
         # device). No-op on macOS.
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
+        # The iOS launch screen. Apple has required every app built against the
+        # iOS 13+ SDK to declare one since April 2020; an app without it is
+        # rejected by App Store Connect validation and, until then, runs
+        # letterboxed in compatibility mode (no full-screen layout, no iPad
+        # multitasking) — which is exactly what this app looked like, since a
+        # SwiftUI `@main` app has no storyboard and `GENERATE_INFOPLIST_FILE`
+        # does not add the key on its own. `YES` makes Xcode generate an empty
+        # `UILaunchScreen` dictionary, the modern replacement for a launch
+        # storyboard: a blank launch surface in the system background colour,
+        # which is what a code editor that opens onto its own chrome wants. Like
+        # `LSSupportsOpeningDocumentsInPlace` above, the generated key lands in
+        # the macOS plist too (one base setting, both destinations) where it is
+        # simply never read — AppKit has no launch screen. `ReleaseMetadataTests`
+        # asserts this line, because nothing else in the build would notice its
+        # removal.
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
         ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: NO
         # The app icon lives in Sources/Pisaka/Assets.xcassets/AppIcon.appiconset —
         # a single combined set carrying both the iOS (iphone/ipad/ios-marketing)

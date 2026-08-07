@@ -2,12 +2,31 @@
 import SwiftUI
 import PisakaCore
 
-/// The Preferences form (⌘,). A thin view-layer wrapper over `SettingsStore`:
-/// all option types, clamping, and persistence live in Core, so this is just the
-/// SwiftUI controls bound to the store's `@Published` properties. Hosted by the
-/// `Settings` scene in `PisakaApp`, which gives the standard Preferences menu item
-/// and ⌘, shortcut automatically.
+/// The Preferences window (⌘,). Hosted by the `Settings` scene in `PisakaApp`,
+/// which gives the standard Preferences menu item and ⌘, shortcut automatically.
+///
+/// Two tabs, in the usual macOS Preferences shape: the settings form itself and
+/// the third-party Acknowledgements. A `TabView` sizes to its widest tab, so
+/// `GeneralSettingsView` keeps its own 340pt width and `AcknowledgementsView` —
+/// which needs room to read a license — drives the window.
 struct SettingsView: View {
+    @ObservedObject var settings: SettingsStore
+
+    var body: some View {
+        TabView {
+            GeneralSettingsView(settings: settings)
+                .tabItem { Label("General", systemImage: "gearshape") }
+
+            AcknowledgementsView()
+                .tabItem { Label("Acknowledgements", systemImage: "doc.text") }
+        }
+    }
+}
+
+/// The Preferences form. A thin view-layer wrapper over `SettingsStore`: all
+/// option types, clamping, and persistence live in Core, so this is just the
+/// SwiftUI controls bound to the store's `@Published` properties.
+struct GeneralSettingsView: View {
     @ObservedObject var settings: SettingsStore
 
     var body: some View {

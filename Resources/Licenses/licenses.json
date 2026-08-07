@@ -1,0 +1,172 @@
+{
+  "notices" : [
+    {
+      "id" : "Neon",
+      "name" : "Neon",
+      "origin" : "https://github.com/ChimeHQ/Neon",
+      "version" : null,
+      "revision" : "484d6fb9e0c4fb679a1d5f5ddaf2cac2ecf21165",
+      "spdx" : "BSD-3-Clause",
+      "file" : "Neon.txt"
+    },
+    {
+      "id" : "SwiftTreeSitter",
+      "name" : "SwiftTreeSitter",
+      "origin" : "https://github.com/ChimeHQ/SwiftTreeSitter",
+      "version" : null,
+      "revision" : "0f40435cdb41673ce4194d731571cf2a2f7c3285",
+      "spdx" : "BSD-3-Clause",
+      "file" : "SwiftTreeSitter.txt"
+    },
+    {
+      "id" : "Rearrange",
+      "name" : "Rearrange",
+      "origin" : "https://github.com/ChimeHQ/Rearrange",
+      "version" : "2.1.1",
+      "revision" : "4de8be41dba304192e87dc0a11e0aa39e72aa2e8",
+      "spdx" : "BSD-3-Clause",
+      "file" : "Rearrange.txt"
+    },
+    {
+      "id" : "tree-sitter",
+      "name" : "tree-sitter",
+      "origin" : "https://github.com/tree-sitter/tree-sitter",
+      "version" : "0.25.10",
+      "revision" : "da6fe9beb4f7f67beb75914ca8e0d48ae48d6406",
+      "spdx" : "MIT AND Unicode-DFS-2016",
+      "file" : "tree-sitter.txt"
+    },
+    {
+      "id" : "tree-sitter-swift",
+      "name" : "tree-sitter-swift",
+      "origin" : "https://github.com/alex-pinkus/tree-sitter-swift",
+      "version" : "0.7.3-with-generated-files",
+      "revision" : "31d17fe7e818a2048c808b5c6fdc2dc792f4f5b5",
+      "spdx" : "MIT",
+      "file" : "tree-sitter-swift.txt"
+    },
+    {
+      "id" : "tree-sitter-json",
+      "name" : "tree-sitter-json",
+      "origin" : "https://github.com/tree-sitter/tree-sitter-json",
+      "version" : "0.24.8",
+      "revision" : "ee35a6ebefcef0c5c416c0d1ccec7370cfca5a24",
+      "spdx" : "MIT",
+      "file" : "tree-sitter-json.txt"
+    },
+    {
+      "id" : "tree-sitter-javascript",
+      "name" : "tree-sitter-javascript",
+      "origin" : "https://github.com/tree-sitter/tree-sitter-javascript",
+      "version" : "0.23.1",
+      "revision" : "3a837b6f3658ca3618f2022f8707e29739c91364",
+      "spdx" : "MIT",
+      "file" : "tree-sitter-javascript.txt"
+    },
+    {
+      "id" : "tree-sitter-typescript",
+      "name" : "tree-sitter-typescript",
+      "origin" : "https://github.com/tree-sitter/tree-sitter-typescript",
+      "version" : "0.23.2",
+      "revision" : "f975a621f4e7f532fe322e13c4f79495e0a7b2e7",
+      "spdx" : "MIT",
+      "file" : "tree-sitter-typescript.txt"
+    },
+    {
+      "id" : "tree-sitter-python",
+      "name" : "tree-sitter-python",
+      "origin" : "https://github.com/tree-sitter/tree-sitter-python",
+      "version" : "0.23.6",
+      "revision" : "bffb65a8cfe4e46290331dfef0dbf0ef3679de11",
+      "spdx" : "MIT",
+      "file" : "tree-sitter-python.txt"
+    },
+    {
+      "id" : "tree-sitter-html",
+      "name" : "tree-sitter-html",
+      "origin" : "https://github.com/tree-sitter/tree-sitter-html",
+      "version" : "0.23.2",
+      "revision" : "5a5ca8551a179998360b4a4ca2c0f366a35acc03",
+      "spdx" : "MIT",
+      "file" : "tree-sitter-html.txt"
+    },
+    {
+      "id" : "tree-sitter-css",
+      "name" : "tree-sitter-css",
+      "origin" : "https://github.com/tree-sitter/tree-sitter-css",
+      "version" : "0.23.2",
+      "revision" : "c0d581e32d183a536731ed6c3a72758b27e20411",
+      "spdx" : "MIT",
+      "file" : "tree-sitter-css.txt"
+    },
+    {
+      "id" : "tree-sitter-markdown",
+      "name" : "tree-sitter-markdown",
+      "origin" : "https://github.com/tree-sitter-grammars/tree-sitter-markdown",
+      "version" : "0.5.3",
+      "revision" : "f969cd3ae3f9fbd4e43205431d0ae286014c05b5",
+      "spdx" : "MIT",
+      "file" : "tree-sitter-markdown.txt"
+    },
+    {
+      "id" : "tree-sitter-yaml",
+      "name" : "tree-sitter-yaml",
+      "origin" : "https://github.com/tree-sitter-grammars/tree-sitter-yaml",
+      "version" : "0.7.0",
+      "revision" : "b733d3f5f5005890f324333dd57e1f0badec5c87",
+      "spdx" : "MIT",
+      "file" : "tree-sitter-yaml.txt"
+    },
+    {
+      "id" : "tree-sitter-dockerfile",
+      "name" : "tree-sitter-dockerfile",
+      "origin" : "https://github.com/camdencheek/tree-sitter-dockerfile",
+      "version" : "0.2.0",
+      "revision" : "868e44ce378deb68aac902a9db68ff82d2299dd0",
+      "spdx" : "MIT",
+      "file" : "tree-sitter-dockerfile.txt"
+    },
+    {
+      "id" : "TreeSitterDotenv",
+      "name" : "tree-sitter-dotenv (vendored)",
+      "origin" : "Vendor/TreeSitterDotenv",
+      "version" : "1.1.1",
+      "revision" : "8b1dad881974a7c1a7e3cb1f55b3a9b38ddec3ec",
+      "spdx" : "MIT",
+      "file" : "TreeSitterDotenv.txt"
+    },
+    {
+      "id" : "TreeSitterGitignore",
+      "name" : "tree-sitter-gitignore (vendored)",
+      "origin" : "Vendor/TreeSitterGitignore",
+      "version" : null,
+      "revision" : "f4685bf11ac466dd278449bcfe5fd014e94aa504",
+      "spdx" : "MIT",
+      "file" : "TreeSitterGitignore.txt"
+    },
+    {
+      "id" : "SwiftTerm",
+      "name" : "SwiftTerm",
+      "origin" : "https://github.com/migueldeicaza/SwiftTerm",
+      "version" : "1.5.0",
+      "revision" : "a30cc7ecf30aded90cf76d91dd5dee0ccf75cd57",
+      "spdx" : "MIT",
+      "file" : "SwiftTerm.txt"
+    },
+    {
+      "id" : "libgit2",
+      "name" : "libgit2",
+      "origin" : "https://github.com/ibrahimcetin/libgit2",
+      "version" : "1.9.2",
+      "revision" : "52287b0914f300f916b58fec80e13d8dd8f6824f",
+      "spdx" : "LicenseRef-libgit2-GPL-2.0-only-with-linking-exception AND LGPL-2.1-or-later AND Zlib AND BSD-3-Clause AND MIT",
+      "file" : "libgit2.txt"
+    }
+  ],
+  "excluded" : [
+    {
+      "id" : "swift-argument-parser",
+      "reason" : "resolved only for SwiftTerm's Termcast executable target; not linked into the app"
+    }
+  ]
+}

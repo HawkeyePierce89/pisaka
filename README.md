@@ -1,6 +1,6 @@
 # Pisaka
 
-A native code editor (MVP 0.1) for **macOS, iPad, and iPhone**, sharing one
+A native code editor for **macOS, iPad, and iPhone**, sharing one
 Foundation-only domain core (`PisakaCore`) across platforms. On macOS it uses a
 three-column layout: a project file tree on the left, a vertical list of open
 files (tabs) in the middle, and a simple text editor on the right. On iPad it
@@ -47,6 +47,15 @@ swift test            # run the domain-logic test suite (PisakaCore, all platfor
 the fast, dependency-free gate for the domain logic. The macOS app runs
 non-sandboxed so the standard open/save panels work without entitlements; the
 iOS app uses the document picker with security-scoped bookmarks for file access.
+
+## Releasing
+
+The release version (`MARKETING_VERSION` in `project.yml`, currently `1.0`) is
+committed per release. The build number (`CURRENT_PROJECT_VERSION`) deliberately
+is **not**: it stays at `1` in the working tree and each upload overrides it on
+the `xcodebuild archive` command line, so `git status` stays clean across
+re-uploads. Both, plus what is still account-side (signing, notarization, the
+App Store Connect records), are documented in [`docs/RELEASING.md`](docs/RELEASING.md).
 
 ## Continuous Integration
 
@@ -473,7 +482,10 @@ involved.
   it), theme (follow the system, or force light/dark), and a shared editor font
   size used by the editor, diff, and merge views. The font size is also
   adjustable on the fly with Cmd+scroll over any code view. All three settings
-  persist across launches.
+  persist across launches. The Settings window's second tab, **Acknowledgements**,
+  lists every third-party dependency the app ships — name, SPDX identifier,
+  version/revision, and upstream origin — beside its full license text, shown
+  verbatim and selectable.
 
 ## iOS / iPadOS
 
@@ -496,7 +508,8 @@ and iPhone. The feature scope landed so far:
   Cmd+scroll). The editor's line-number gutter and minimap are deferred on iOS
   (the side-by-side diff panes do still draw per-side line numbers).
 - A Preferences sheet bound to the same `SettingsStore` (theme, tab orientation,
-  font size).
+  font size), with an **About → Acknowledgements** screen listing the same
+  third-party dependencies and their full license texts as the macOS tab.
 - Git features backed by **libgit2** in-process (no `git` binary): Local Changes
   (flat / by-folder list, status badges, side-by-side diff, multi-file revert),
   Git Log (commit list with the branch-graph gutter, filter/search, commit-vs-
@@ -517,7 +530,7 @@ and iPhone. The feature scope landed so far:
   exec-based and there is no subprocess on iOS.
 - The embedded terminal is macOS-only (SwiftTerm) and not present on iOS.
 
-## MVP 0.1 Limitations
+## Known Limitations (1.0)
 
 - Find/replace (per-file and project-wide) is macOS-only: iOS has neither the
   search bar nor the Find in Files window. There is no query history, no "replace
@@ -558,3 +571,15 @@ and iPhone. The feature scope landed so far:
   sessions and no setting to turn restore off.
 - A single editor window only (diffs open in separate read-only windows on
   double-click; the bottom-panel height is not persisted across launches).
+
+## License
+
+Pisaka is MIT-licensed — see [`LICENSE`](LICENSE).
+
+The app links third-party dependencies and ships each one's verbatim license
+text in `Resources/Licenses/` (alongside `licenses.json`, the manifest that is
+the list of record). They are shown in-app under **Preferences →
+Acknowledgements** on macOS and **Settings → About → Acknowledgements** on iOS.
+libgit2 is used under GPL-2.0 with its linking exception (its bundled `xdiff`
+code is LGPL-2.1). Adding a dependency means adding its license there too —
+`swift test` fails until you do (`LicenseCoverageTests`).
