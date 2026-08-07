@@ -205,7 +205,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `.verticalColumn` per `TabOrientation`. Covered by `TabLayoutTests`.
   - `LicenseNotice.swift` — the third-party-license domain behind the
     Acknowledgements screens: `LicenseNotice` (one shipped dependency — `id`,
-    `name`, `origin`, `version`, `revision`, `spdx`, `file`), `LicenseExclusion`
+    `name`, `origin`, `version`, `revision`, `spdx`, `file`, plus `originURL` —
+    the one behavioral decision on the type: `origin` as something to open, `nil`
+    unless it is `https://`, so neither Acknowledgements screen has to repeat the
+    rule and an `http://`, `file://` or `javascript:` origin out of a malformed
+    manifest never becomes a tap target), `LicenseExclusion`
     (a `Package.resolved` identity deliberately *not* acknowledged, with the
     reason), `LicenseManifest` (the decoded `licenses.json`: `notices` +
     `excluded`), `LicenseDocument` (a notice paired with its verbatim text — what
@@ -250,13 +254,26 @@ run in `swift test` rather than needing an Xcode build.
     `NSPrivacyTracking` = `false`, `NSPrivacyTrackingDomains` and
     `NSPrivacyCollectedDataTypes` both empty (the app has no telemetry and no
     network egress other than the user's own git remotes; everything it stores is
-    local), and exactly two `NSPrivacyAccessedAPITypes` entries.
+    local), and exactly three `NSPrivacyAccessedAPITypes` entries.
     `ReleaseMetadataTests` asserts the accessed-API set by *set equality* on
     category/reason pairs, so an added, dropped or re-coded category fails the
     suite until the manifest and the audit below are reconciled.
 
-    **Required-reason API audit** (re-run over `Sources/`; a later audit should
-    be a diff against this record, not a rediscovery):
+    **Required-reason API audit.** The unit of audit is the **linked binary**,
+    not `Sources/`: libgit2 and every tree-sitter grammar compile from C source
+    *into* the app, and none of the 18 dependencies ships a
+    `PrivacyInfo.xcprivacy` of its own (`find DerivedData/SourcePackages/checkouts
+    -name '*.xcprivacy'` returns nothing), so their required-reason calls must be
+    declared by this manifest. A `Sources/`-only grep misses them — that is how
+    the boot-time entry below was originally missed. Re-run the audit as a grep
+    over `Sources/` **plus** a symbol check on the built binary:
+
+    ```sh
+    nm -u DerivedData/Build/Products/Debug-iphoneos/Pisaka.app/Pisaka.debug.dylib \
+      | grep -E '_(stat|lstat|fstat|fstatat|statfs|statvfs|fstatfs|getattrlist|getattrlistat|fgetattrlist|getattrlistbulk|mach_absolute_time|sysctl)$'
+    ```
+
+    A later audit should be a diff against this record, not a rediscovery:
 
       - `UserDefaults` — **used**, so
         `NSPrivacyAccessedAPICategoryUserDefaults` / `CA92.1` (access is limited
@@ -279,17 +296,27 @@ run in `swift test` rather than needing an Xcode build.
         `DDA9.1` is for displaying a file timestamp to the user, and this app
         never does — the dates in the blame column come from git's own
         `--porcelain` output, parsed by `BlameLine`, never from `stat`.
-      - System boot time (`systemUptime`/`mach_absolute_time`/`sysctl`) — **no
-        hits**, not declared.
+      - System boot time (`systemUptime`/`mach_absolute_time`/`sysctl`) — no
+        hits in `Sources/`, but **used by a linked dependency**, so
+        `NSPrivacyAccessedAPICategorySystemBootTime` / **`35F9.1`**: libgit2's
+        `git_time_monotonic` (`src/util/util.h`, the `__APPLE__` branch) calls
+        `mach_absolute_time()`, reached from `rand.c`, `pack-objects.c` and
+        `transports/smart_protocol.c`, and `_mach_absolute_time` is an undefined
+        symbol of both built binaries. `35F9.1` is the elapsed-time-within-the-app
+        reason, which is exactly what a monotonic clock for progress throttling
+        and seed mixing is; nothing derived from it leaves the device. Not
+        `8FFB.1` (absolute timestamps for UIKit/AVFAudio events) and not `3D61.1`
+        (bug reports) — the app has neither.
       - Disk space (`statfs`/`volumeAvailableCapacity`/`systemFreeSize`/
-        `volumeTotalCapacity`) — **no hits**, not declared. `FileService`'s
+        `volumeTotalCapacity`) — **no hits** in `Sources/` and no matching symbol
+        in either binary, not declared. `FileService`'s
         `.fileSizeKey` probe (the oversize-file guard) is a *per-file* size, which
         is not on Apple's disk-space list; `.isDirectoryKey`,
         `.fileResourceIdentifierKey` and
         `.volumeSupportsCaseSensitiveNamesKey` are likewise not required-reason
         APIs.
-      - Active keyboard (`activeInputModes`/`UITextInputMode`) — **no hits**, not
-        declared.
+      - Active keyboard (`activeInputModes`/`UITextInputMode`) — **no hits** in
+        `Sources/` and no matching symbol in either binary, not declared.
 
   - `Resources/Licenses/` — `licenses.json` plus one verbatim `<id>.txt` per
     shipped dependency (18 today). Declared in `project.yml` as a **folder

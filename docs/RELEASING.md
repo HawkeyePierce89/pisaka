@@ -17,6 +17,12 @@ About box and in the store listing. It lives in `project.yml` under the `Pisaka`
 target's `settings.base`, and changing it is an ordinary commit: bump it when
 the release it names is what you intend to ship.
 
+It is the *store* version and nothing else. `PisakaCore.version` is an unrelated
+library constant, and the feature scope README and CLAUDE.md still call the MVP
+is a separate axis — the first App Store release ships as `1.0` because a store
+listing numbered `0.1` reads as unfinished, not because the feature set changed.
+`README.md`'s "Known limitations" section is the list of what 1.0 does not do.
+
 ### The build number
 
 App Store Connect rejects an upload whose `CFBundleVersion` it has already seen
@@ -30,6 +36,14 @@ So the build number is **not** bumped in the working tree. `project.yml` keeps
 value on the `xcodebuild` command line. A build setting given as a command-line
 argument overrides the project's value for that invocation only, so the archive
 carries the new number and `git status` stays clean:
+
+The archive this produces is **unsigned** and cannot be uploaded yet:
+`project.yml` carries `CODE_SIGNING_ALLOWED: NO` in the target's
+`settings.base`, because there is no `DEVELOPMENT_TEAM` (see
+[Not here yet](#not-here-yet)). The command below is the build-number mechanism,
+verified end to end; when a signing team exists, that base setting has to move
+to the debug config or be dropped, or signing will stay suppressed no matter
+what the archive is asked for.
 
 ```sh
 xcodegen generate

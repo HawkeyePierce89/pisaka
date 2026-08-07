@@ -56,7 +56,6 @@ struct AcknowledgementsView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 2)
-                .tag(document.id)
             }
         }
         .frame(minWidth: 180, idealWidth: 200, maxWidth: 280)
@@ -110,9 +109,10 @@ struct AcknowledgementsView: View {
 
     /// Remote dependencies get a clickable URL; the two vendored grammars name a
     /// `Vendor/<name>` path in this repository, which is not something to open.
+    /// Which is which is `LicenseNotice.originURL`'s decision, not this view's.
     @ViewBuilder
     private func origin(for notice: LicenseNotice) -> some View {
-        if notice.origin.hasPrefix("https://"), let url = URL(string: notice.origin) {
+        if let url = notice.originURL {
             HStack(spacing: 4) {
                 Text("Origin")
                     .font(.caption)

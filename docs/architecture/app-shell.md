@@ -784,8 +784,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the copyright lines and the permission notice being the obligation itself.
     `version` is omitted when `nil` (three entries have no upstream tag) rather
     than rendered blank; `revision` is always shown in full, the 40 hex characters
-    being what makes the text verifiable; `origin` becomes a `Link` only for the
-    `https://` remotes, the two `Vendor/<name>` paths staying plain text. When the
+    being what makes the text verifiable; `origin` becomes a `Link` exactly when
+    Core's `LicenseNotice.originURL` is non-nil (the `https://` remotes; the two
+    `Vendor/<name>` paths stay plain text) — the rule lives there, not here, so
+    the two platform screens cannot drift apart on it. When the
     loader fails, the view shows `failureDescription` in place of the list, so "no
     dependencies" can never be the silent reading. No logic (untested like the
     rest of the view layer); the iOS peer is `AcknowledgementsView_iOS` in

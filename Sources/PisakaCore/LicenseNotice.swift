@@ -56,6 +56,21 @@ public struct LicenseNotice: Codable, Equatable, Identifiable, Sendable {
         self.spdx = spdx
         self.file = file
     }
+
+    /// `origin` as something to open, or `nil` when it is not.
+    ///
+    /// The decision lives here rather than in the two Acknowledgements screens
+    /// because it is one rule, not a per-platform rendering choice: a remote
+    /// package's origin is the `https://` URL `Package.resolved` records, and a
+    /// vendored one names a `Vendor/<name>` path in this repository, which is not
+    /// a link. `https` specifically — an `http://` origin is a downgrade worth
+    /// noticing rather than quietly making tappable, and `URL(string:)` alone
+    /// would happily accept `file://` or a `javascript:` scheme out of a manifest
+    /// this type cannot assume is well-formed.
+    public var originURL: URL? {
+        guard origin.hasPrefix("https://"), let url = URL(string: origin) else { return nil }
+        return url
+    }
 }
 
 /// A dependency that appears in `Package.resolved` but is deliberately *not*

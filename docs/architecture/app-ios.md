@@ -117,7 +117,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     .enabled)` `Text` in a `ScrollView` rendered **whole** (never truncated or
     reflowed: the copyright lines and the permission notice are the obligation),
     `version` is omitted when `nil` instead of rendered blank, `revision` is
-    always shown in full, `origin` is a `Link` only for the `https://` remotes,
+    always shown in full, `origin` is a `Link` exactly when Core's
+    `LicenseNotice.originURL` is non-nil (the `https://` remotes) — the same rule
+    the macOS screen asks, kept in Core so the two cannot drift —
     and `LicenseCatalogLoader.failureDescription` replaces the list when the
     bundle is broken so "no dependencies" is never the silent reading. Thin view,
     untested; the logic is Core's `LicenseCatalog` (`core-services.md`).

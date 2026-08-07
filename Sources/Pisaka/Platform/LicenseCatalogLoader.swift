@@ -36,7 +36,10 @@ enum LicenseCatalogLoader {
     /// silently acknowledges nothing is a compliance failure, so it has to say so.
     static var failureDescription: String? {
         guard case .failure(let error) = cached else { return nil }
-        return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        // Both error types this can see (`LicenseCatalogError`, `LoaderError`)
+        // conform to `LocalizedError`, and Foundation's bridging already routes
+        // `localizedDescription` through `errorDescription` for those — no cast.
+        return error.localizedDescription
     }
 
     /// The one-shot cache. A `static let` is lazily initialized exactly once and

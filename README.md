@@ -1,6 +1,6 @@
 # Pisaka
 
-A native code editor (MVP 0.1) for **macOS, iPad, and iPhone**, sharing one
+A native code editor for **macOS, iPad, and iPhone**, sharing one
 Foundation-only domain core (`PisakaCore`) across platforms. On macOS it uses a
 three-column layout: a project file tree on the left, a vertical list of open
 files (tabs) in the middle, and a simple text editor on the right. On iPad it
@@ -47,6 +47,15 @@ swift test            # run the domain-logic test suite (PisakaCore, all platfor
 the fast, dependency-free gate for the domain logic. The macOS app runs
 non-sandboxed so the standard open/save panels work without entitlements; the
 iOS app uses the document picker with security-scoped bookmarks for file access.
+
+## Releasing
+
+The release version (`MARKETING_VERSION` in `project.yml`, currently `1.0`) is
+committed per release. The build number (`CURRENT_PROJECT_VERSION`) deliberately
+is **not**: it stays at `1` in the working tree and each upload overrides it on
+the `xcodebuild archive` command line, so `git status` stays clean across
+re-uploads. Both, plus what is still account-side (signing, notarization, the
+App Store Connect records), are documented in [`docs/RELEASING.md`](docs/RELEASING.md).
 
 ## Continuous Integration
 
@@ -521,7 +530,7 @@ and iPhone. The feature scope landed so far:
   exec-based and there is no subprocess on iOS.
 - The embedded terminal is macOS-only (SwiftTerm) and not present on iOS.
 
-## MVP 0.1 Limitations
+## Known Limitations (1.0)
 
 - Find/replace (per-file and project-wide) is macOS-only: iOS has neither the
   search bar nor the Find in Files window. There is no query history, no "replace
@@ -562,3 +571,15 @@ and iPhone. The feature scope landed so far:
   sessions and no setting to turn restore off.
 - A single editor window only (diffs open in separate read-only windows on
   double-click; the bottom-panel height is not persisted across launches).
+
+## License
+
+Pisaka is MIT-licensed — see [`LICENSE`](LICENSE).
+
+The app links third-party dependencies and ships each one's verbatim license
+text in `Resources/Licenses/` (alongside `licenses.json`, the manifest that is
+the list of record). They are shown in-app under **Preferences →
+Acknowledgements** on macOS and **Settings → About → Acknowledgements** on iOS.
+libgit2 is used under GPL-2.0 with its linking exception. Adding a dependency
+means adding its license there too — `swift test` fails until you do
+(`LicenseCoverageTests`).

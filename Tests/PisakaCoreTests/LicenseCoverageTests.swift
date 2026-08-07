@@ -95,6 +95,21 @@ final class LicenseCoverageTests: XCTestCase {
 
     // MARK: - Provenance
 
+    /// The two provenance tests below select on `origin`: one takes the
+    /// `https://` entries, the other the `Vendor/` ones. An entry spelled any
+    /// other way (`http://`, `git@…`, a bare URL) would be picked up by neither
+    /// and so would ship with its `revision` checked against nothing. Partition
+    /// first, so a third shape has to be dealt with rather than skipped.
+    func testEveryEntryHasARemoteOrVendoredOrigin() throws {
+        for notice in try loadManifest().notices {
+            XCTAssertTrue(notice.origin.hasPrefix("https://") || notice.origin.hasPrefix("Vendor/"), """
+                \(notice.id)'s origin “\(notice.origin)” is neither an https:// URL nor a \
+                Vendor/ path, so neither provenance test covers it and its revision is \
+                unverified. Spell a remote origin exactly as Package.resolved's location.
+                """)
+        }
+    }
+
     func testEveryRemoteEntryMatchesItsResolvedPin() throws {
         let pins = try resolvedPins()
 
@@ -108,9 +123,15 @@ final class LicenseCoverageTests: XCTestCase {
                 app builds against \(pin.revision). Re-copy the text from the pinned checkout — a \
                 text taken from upstream HEAD may not be the license the shipped code is under.
                 """)
-            if let version = notice.version {
-                XCTAssertEqual(version, pin.version, "\(notice.id)'s version disagrees with its pin")
-            }
+            // Unconditional, including the nil case: a notice that drops its
+            // `version` also drops the Version row from the Acknowledgements
+            // header, which a `if let` guard would wave through. nil is correct
+            // only where the pin itself is revision- or branch-based.
+            XCTAssertEqual(notice.version, pin.version, """
+                \(notice.id)'s version disagrees with its Package.resolved pin \
+                (\(notice.version ?? "nil") vs \(pin.version ?? "nil")). A revision- or \
+                branch-pinned package has no version to name, so both must be nil together.
+                """)
             XCTAssertEqual(notice.origin, pin.location,
                            "\(notice.id)'s origin disagrees with the resolved location")
         }
@@ -135,6 +156,41 @@ final class LicenseCoverageTests: XCTestCase {
         }
     }
 
+    /// A vendored entry has no `Package.resolved` pin to check its `revision`
+    /// against, so the equivalent record is the upstream SHA in its own
+    /// `VENDORED.md`. Without this, updating a vendored grammar leaves the
+    /// manifest — and the Acknowledgements screen — naming the *old* commit,
+    /// with a green suite: exactly the "verifiable rather than merely plausible"
+    /// property `LicenseNotice.revision` is documented to carry.
+    func testEveryVendoredEntryRecordsTheSHAItsVendoredDocDoes() throws {
+        for notice in try loadManifest().notices where notice.origin.hasPrefix("Vendor/") {
+            let doc = try text(atRepositoryPath: "\(notice.origin)/VENDORED.md")
+            let recorded = try XCTUnwrap(Self.upstreamCommit(inVendoredDoc: doc), """
+                \(notice.origin)/VENDORED.md has no `| Commit | \\`<40-hex>\\` |` row for the \
+                upstream table's SHA — the manifest's revision has nothing to be checked against.
+                """)
+            XCTAssertEqual(notice.revision, recorded, """
+                \(notice.id) is acknowledged at \(notice.revision), but \(notice.origin)/VENDORED.md \
+                records the vendored tree as \(recorded). Update licenses.json (and re-copy the \
+                LICENSE) whenever the vendored grammar moves.
+                """)
+        }
+    }
+
+    /// The `| Commit | `<sha>` |` row of a `VENDORED.md` upstream table.
+    private static func upstreamCommit(inVendoredDoc doc: String) -> String? {
+        for line in doc.components(separatedBy: .newlines) {
+            let fields = line.split(separator: "|", omittingEmptySubsequences: false)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            guard fields.count >= 3, fields[1] == "Commit" else { continue }
+            let sha = fields[2].trimmingCharacters(in: CharacterSet(charactersIn: "`"))
+            guard sha.count == 40,
+                  sha.allSatisfy({ $0.isHexDigit && !$0.isUppercase }) else { continue }
+            return sha
+        }
+        return nil
+    }
+
     // MARK: - The texts themselves
 
     func testEveryEntryShipsANonEmptyTextAndNothingElseDoes() throws {
@@ -146,13 +202,18 @@ final class LicenseCoverageTests: XCTestCase {
                            "\(notice.file) is empty — it acknowledges nothing")
         }
 
+        // The *whole* directory listing, not just its `.txt`s: the folder
+        // reference copies everything, so a stray `.md`, an editor backup or a
+        // committed `.DS_Store` would ship inside the bundle with nothing to
+        // notice it. Filtering to `.txt` first would wave all of those through.
         let directory = Self.repositoryRoot.appendingPathComponent("Resources/Licenses")
         let onDisk = try FileManager.default.contentsOfDirectory(atPath: directory.path)
-            .filter { $0.hasSuffix(".txt") }
-        XCTAssertEqual(Set(onDisk), Set(manifest.notices.map(\.file)), """
-            Resources/Licenses holds a .txt no manifest entry names (a text left behind after a \
-            dependency was dropped), or names one that is not there. The directory ships as a \
-            folder reference, so whatever is in it is what the app carries.
+        XCTAssertEqual(Set(onDisk), Set(manifest.notices.map(\.file)).union([Self.manifestFileName]), """
+            Resources/Licenses must hold exactly licenses.json plus the text every manifest entry \
+            names — nothing more. Anything else is either a text left behind after a dependency \
+            was dropped, an entry naming a file that is not there, or a stray file that would \
+            ship: the directory is a folder reference, so whatever is in it is what the app \
+            carries.
             """)
     }
 
@@ -172,16 +233,23 @@ final class LicenseCoverageTests: XCTestCase {
     /// End to end over the real resources: what `LicenseCatalogLoader` will do at
     /// launch, minus the `Bundle`. A manifest that parses in this suite's own
     /// reader but not through `LicenseCatalog` would ship a blank screen.
+    ///
+    /// The texts are gathered the way the loader gathers them — by *enumerating
+    /// the directory*, not by looking up the names the manifest gives. Building
+    /// the dictionary from the manifest would make `missingText` unreachable and
+    /// the whole check true by construction; enumerating means a notice naming a
+    /// file that is not on disk fails here exactly as it would at launch.
     func testTheRepositoryManifestResolvesThroughTheCatalog() throws {
-        let data = try Data(contentsOf: Self.licensesDirectory.appendingPathComponent("licenses.json"))
-        let manifest = try LicenseCatalog.decode(manifest: data)
+        let data = try Data(contentsOf: Self.licensesDirectory.appendingPathComponent(Self.manifestFileName))
 
         var texts: [String: String] = [:]
-        for notice in manifest.notices {
-            texts[notice.file] = try text(atRepositoryPath: "Resources/Licenses/\(notice.file)")
+        for name in try FileManager.default.contentsOfDirectory(atPath: Self.licensesDirectory.path)
+        where name.hasSuffix(".txt") {
+            texts[name] = try text(atRepositoryPath: "Resources/Licenses/\(name)")
         }
 
         let documents = try LicenseCatalog.resolve(manifest: data, texts: texts)
+        let manifest = try LicenseCatalog.decode(manifest: data)
         XCTAssertEqual(documents.map(\.id), manifest.notices.map(\.id))
         XCTAssertTrue(documents.allSatisfy { !$0.text.isEmpty })
     }
@@ -197,12 +265,15 @@ final class LicenseCoverageTests: XCTestCase {
 
     private static let licensesDirectory = repositoryRoot.appendingPathComponent("Resources/Licenses")
 
+    /// The manifest's file name inside `Resources/Licenses/`.
+    private static let manifestFileName = "licenses.json"
+
     private func text(atRepositoryPath path: String) throws -> String {
         try String(contentsOf: Self.repositoryRoot.appendingPathComponent(path), encoding: .utf8)
     }
 
     private func loadManifest() throws -> LicenseManifest {
-        let url = Self.licensesDirectory.appendingPathComponent("licenses.json")
+        let url = Self.licensesDirectory.appendingPathComponent(Self.manifestFileName)
         return try LicenseCatalog.decode(manifest: try Data(contentsOf: url))
     }
 

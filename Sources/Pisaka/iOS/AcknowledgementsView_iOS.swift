@@ -83,10 +83,11 @@ private struct LicenseTextView_iOS: View {
 
     /// Remote dependencies get a tappable URL; the two vendored grammars name a
     /// `Vendor/<name>` path in this repository, which is not something to open.
+    /// Which is which is `LicenseNotice.originURL`'s decision, not this view's.
     @ViewBuilder
     private var origin: some View {
         let value = document.notice.origin
-        if value.hasPrefix("https://"), let url = URL(string: value) {
+        if let url = document.notice.originURL {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("Origin")
                     .foregroundStyle(.secondary)

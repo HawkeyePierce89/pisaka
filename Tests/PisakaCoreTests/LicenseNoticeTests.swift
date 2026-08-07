@@ -60,7 +60,7 @@ final class LicenseNoticeTests: XCTestCase {
     // MARK: - Refusals
 
     func testRejectsMalformedJSON() {
-        assertThrows(.malformedManifest(reason: ""), matchingCaseOnly: true) {
+        assertThrows(.malformedManifest(reason: "")) {
             _ = try LicenseCatalog.decode(manifest: Data("{ not json".utf8))
         }
     }
@@ -73,7 +73,7 @@ final class LicenseNoticeTests: XCTestCase {
         { "notices": [{ "id": "Neon", "name": "Neon", "file": "Neon.txt" }] }
         """.utf8)
 
-        assertThrows(.malformedManifest(reason: ""), matchingCaseOnly: true) {
+        assertThrows(.malformedManifest(reason: "")) {
             _ = try LicenseCatalog.decode(manifest: json)
         }
     }
@@ -165,11 +165,38 @@ final class LicenseNoticeTests: XCTestCase {
         }
     }
 
+    // MARK: - Origin as a link
+
+    /// Both Acknowledgements screens ask `originURL` whether to render the origin
+    /// as a tappable link, so the rule is unit-tested here rather than repeated
+    /// (and drifting) in two untested view files.
+    func testOriginURLOffersRemoteOriginsAndRefusesEverythingElse() throws {
+        let documents = try LicenseCatalog.resolve(manifest: Self.wellFormed, texts: Self.texts)
+
+        XCTAssertEqual(documents[0].notice.originURL?.absoluteString,
+                       "https://github.com/ChimeHQ/Neon")
+        XCTAssertNil(documents[2].notice.originURL,
+                     "a Vendor/ path names a directory in this repository, not something to open")
+
+        // Anything that is not https is not a link: an http:// origin is a
+        // downgrade worth noticing rather than silently opening, and the other
+        // two are what a malformed manifest could otherwise turn into a tap
+        // target in a shipped app.
+        for origin in ["http://example.com/pkg", "file:///etc/passwd", "javascript:alert(1)", ""] {
+            XCTAssertNil(Self.notice(origin: origin).originURL,
+                         "“\(origin)” must not be offered as a link")
+        }
+    }
+
+    private static func notice(origin: String) -> LicenseNotice {
+        LicenseNotice(id: "x", name: "x", origin: origin, version: nil,
+                      revision: "0", spdx: "MIT", file: "x.txt")
+    }
+
     // MARK: - Helpers
 
     private func assertThrows(
         _ expected: LicenseCatalogError,
-        matchingCaseOnly: Bool = false,
         file: StaticString = #filePath,
         line: UInt = #line,
         _ body: () throws -> Void
@@ -180,7 +207,7 @@ final class LicenseNoticeTests: XCTestCase {
         } catch let error as LicenseCatalogError {
             // `malformedManifest` carries whatever reason JSONDecoder phrased,
             // which is not ours to pin — those cases compare by case alone.
-            if matchingCaseOnly, case .malformedManifest = expected, case .malformedManifest = error {
+            if case .malformedManifest = expected, case .malformedManifest = error {
                 return
             }
             XCTAssertEqual(error, expected, file: file, line: line)

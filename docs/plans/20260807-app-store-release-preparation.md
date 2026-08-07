@@ -493,7 +493,19 @@ committed `Package.resolved` revision, now enforced by test.
 
 ## Post-Completion (manual, outside the agent's scope)
 
-- Visually check the Acknowledgements screen on a running macOS build and an iOS
-  simulator (text is readable, selectable, and not truncated).
-- Re-run the license collection whenever a dependency pin moves —
+Checkboxes so the remaining manual work stays visible — none of these are done.
+
+- [ ] Visually check the Acknowledgements screen on a running macOS build and an
+  iOS simulator (text is readable, selectable, and not truncated). Worth timing
+  the libgit2 row specifically: its text is ~64 KB in a single SwiftUI `Text`
+  with `.textSelection(.enabled)`, which lays out in full on the main thread. If
+  it hitches on an older device, back the detail pane with a
+  `UITextView`/`NSTextView` (TextKit paginates) rather than splitting the text —
+  it must stay verbatim.
+- [ ] Re-run the license collection whenever a dependency pin moves —
   `LicenseCoverageTests` will fail until it is done.
+- [ ] Re-run the required-reason API audit whenever a dependency is added or
+  updated, using the `nm -u` binary check in
+  `docs/architecture/core-services.md` — a `Sources/`-only grep misses statically
+  linked C dependencies, which is how the boot-time declaration was missed the
+  first time.

@@ -129,22 +129,66 @@ final class ReleaseMetadataTests: XCTestCase {
         var description: String { "\(category)/\(reason)" }
     }
 
-    /// `UserDefaults` (`SettingsStore`/`BookmarkStore`/`SessionStore`) and the
-    /// `lstat` probes in `GitCLIService`/`LibGit2Service` — nothing else was
-    /// found by the audit.
+    /// `UserDefaults` (`SettingsStore`/`BookmarkStore`/`SessionStore`), the
+    /// `lstat` probes in `GitCLIService`/`LibGit2Service`, and — from a *linked
+    /// dependency* rather than from `Sources/` — libgit2's `mach_absolute_time`.
+    /// The audit that produced this set, and the binary-symbol check that has to
+    /// back it up, are recorded in `docs/architecture/core-services.md`.
     private static let expectedAccessedAPIs: Set<Pair> = [
         Pair(category: "NSPrivacyAccessedAPICategoryUserDefaults", reason: "CA92.1"),
         Pair(category: "NSPrivacyAccessedAPICategoryFileTimestamp", reason: "3B52.1"),
+        Pair(category: "NSPrivacyAccessedAPICategorySystemBootTime", reason: "35F9.1"),
     ]
 
     private static let accessedAPIMismatchMessage = """
         The declared required-reason APIs must match the audit in \
         docs/architecture/core-services.md exactly: UserDefaults/CA92.1 (access limited to the \
-        app itself — no app group) and FileTimestamp/3B52.1 (timestamps of files the user \
-        specifically granted access to via the open panel / document picker). 3B52.1 and not \
+        app itself — no app group), FileTimestamp/3B52.1 (timestamps of files the user \
+        specifically granted access to via the open panel / document picker) and \
+        SystemBootTime/35F9.1 (libgit2's git_time_monotonic, which calls mach_absolute_time to \
+        measure elapsed time inside the app and never sends it off-device). 3B52.1 and not \
         DDA9.1 because the app never displays a file timestamp — blame dates come from git's \
-        --porcelain output, not from stat.
+        --porcelain output, not from stat. Note that the audit covers the *linked binary*, not \
+        just Sources/: libgit2 and the tree-sitter grammars compile from C source into the app \
+        and ship no privacy manifest of their own, so their required-reason calls have to be \
+        declared here.
         """
+
+    // MARK: - The wiring that puts them in the bundle
+
+    /// Everything above verifies the *contents* of three files. None of it
+    /// notices if they stop shipping: drop `INFOPLIST_FILE`, the
+    /// `PrivacyInfo.xcprivacy` resource entry and the `Resources/Licenses`
+    /// folder reference from `project.yml` and the whole suite stays green,
+    /// while CI's unsigned builds succeed too — a resource that is not copied is
+    /// not a build error. The result would be an app with no App Store category,
+    /// no privacy manifest and an Acknowledgements screen that says the bundle is
+    /// broken. So assert the four lines that do the wiring.
+    func testProjectStillShipsTheReleaseMetadataResources() throws {
+        let project = try text(atRepositoryPath: "project.yml")
+
+        func assertDeclares(_ needle: String, _ what: String) {
+            XCTAssertTrue(project.contains(needle), """
+                project.yml no longer declares \(what) (looked for “\(needle)”). The file is still \
+                in the repository and still passes its content checks, but it would not reach the \
+                app bundle.
+                """)
+        }
+
+        assertDeclares("INFOPLIST_FILE: Resources/Info.plist",
+                       "Resources/Info.plist as the partial Info.plist")
+        assertDeclares("GENERATE_INFOPLIST_FILE: YES",
+                       "generated Info.plist keys (the partial plist is merged into them, not a replacement)")
+        assertDeclares("- path: Resources/PrivacyInfo.xcprivacy",
+                       "PrivacyInfo.xcprivacy as a top-level bundle resource")
+        assertDeclares("- path: Resources/Licenses",
+                       "Resources/Licenses")
+        // A folder reference, not a group: the loader resolves `licenses.json`
+        // and the texts through a `Licenses/` *subdirectory* of the bundle, which
+        // only a `type: folder` entry produces. As a plain group the files would
+        // land flat in Resources/ and every lookup would miss.
+        assertDeclares("type: folder", "Resources/Licenses as a folder reference")
+    }
 
     // MARK: - Reading the committed resources
 
@@ -155,22 +199,26 @@ final class ReleaseMetadataTests: XCTestCase {
         .deletingLastPathComponent()  // Tests
         .deletingLastPathComponent()  // <root>
 
-    private func loadInfoPlist(file: StaticString = #filePath,
-                               line: UInt = #line) throws -> [String: Any] {
-        let url = Self.repositoryRoot.appendingPathComponent("Resources/Info.plist")
-        let data = try Data(contentsOf: url)
+    private func text(atRepositoryPath path: String) throws -> String {
+        try String(contentsOf: Self.repositoryRoot.appendingPathComponent(path), encoding: .utf8)
+    }
+
+    private func loadPlist(atRepositoryPath path: String,
+                           file: StaticString = #filePath,
+                           line: UInt = #line) throws -> [String: Any] {
+        let data = try Data(contentsOf: Self.repositoryRoot.appendingPathComponent(path))
         let object = try PropertyListSerialization.propertyList(from: data, format: nil)
         return try XCTUnwrap(object as? [String: Any],
-                             "Resources/Info.plist is not a plist dictionary", file: file, line: line)
+                             "\(path) is not a plist dictionary", file: file, line: line)
+    }
+
+    private func loadInfoPlist(file: StaticString = #filePath,
+                               line: UInt = #line) throws -> [String: Any] {
+        try loadPlist(atRepositoryPath: "Resources/Info.plist", file: file, line: line)
     }
 
     private func loadPrivacyManifest(file: StaticString = #filePath,
                                      line: UInt = #line) throws -> [String: Any] {
-        let url = Self.repositoryRoot.appendingPathComponent("Resources/PrivacyInfo.xcprivacy")
-        let data = try Data(contentsOf: url)
-        let object = try PropertyListSerialization.propertyList(from: data, format: nil)
-        return try XCTUnwrap(object as? [String: Any],
-                             "Resources/PrivacyInfo.xcprivacy is not a plist dictionary",
-                             file: file, line: line)
+        try loadPlist(atRepositoryPath: "Resources/PrivacyInfo.xcprivacy", file: file, line: line)
     }
 }
