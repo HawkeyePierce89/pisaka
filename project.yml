@@ -197,6 +197,22 @@ targets:
         # the picker only vends copies and the scoped-file-access design fails on
         # device). No-op on macOS.
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
+        # The iOS launch screen. Apple has required every app built against the
+        # iOS 13+ SDK to declare one since April 2020; an app without it is
+        # rejected by App Store Connect validation and, until then, runs
+        # letterboxed in compatibility mode (no full-screen layout, no iPad
+        # multitasking) — which is exactly what this app looked like, since a
+        # SwiftUI `@main` app has no storyboard and `GENERATE_INFOPLIST_FILE`
+        # does not add the key on its own. `YES` makes Xcode generate an empty
+        # `UILaunchScreen` dictionary, the modern replacement for a launch
+        # storyboard: a blank launch surface in the system background colour,
+        # which is what a code editor that opens onto its own chrome wants. Like
+        # `LSSupportsOpeningDocumentsInPlace` above, the generated key lands in
+        # the macOS plist too (one base setting, both destinations) where it is
+        # simply never read — AppKit has no launch screen. `ReleaseMetadataTests`
+        # asserts this line, because nothing else in the build would notice its
+        # removal.
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
         ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: NO
         # The app icon lives in Sources/Pisaka/Assets.xcassets/AppIcon.appiconset —
         # a single combined set carrying both the iOS (iphone/ipad/ios-marketing)

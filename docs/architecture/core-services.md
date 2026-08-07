@@ -327,6 +327,18 @@ run in `swift test` rather than needing an Xcode build.
     files correspond to — so the list of record is the manifest, and
     `LicenseCoverageTests` is what keeps it honest (next section).
 
+One release-metadata requirement is not a file at all but a single build
+setting, and it is asserted here for the same reason: **`project.yml`'s
+`INFOPLIST_KEY_UILaunchScreen_Generation: YES`**, which makes Xcode generate the
+empty `UILaunchScreen` dictionary in the iOS plist. Apple has required a launch
+screen of every app built against the iOS 13+ SDK since April 2020; a SwiftUI
+`@main` app ships no storyboard and `GENERATE_INFOPLIST_FILE` does not add the
+key by itself, so without this setting the app builds and runs — letterboxed in
+compatibility mode, with no iPad multitasking — and is rejected only at App Store
+Connect validation. One base setting covers both destinations, so the key also
+lands in the macOS plist, where AppKit never reads it (the same harmless spill as
+`INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace`).
+
 ## Third-party license catalog
 
 `LicenseNotice.swift` is the domain half of license compliance: the app must

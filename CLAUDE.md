@@ -254,9 +254,11 @@ not the SwiftUI views.
 A second class of suites in the same target verifies **repository files** rather
 than Core code — read through `#filePath` with Foundation only, so they run in
 `swift test` without an Xcode build: `VendoredGrammarQueryTests` (the in-repo
-highlight queries), `DependencyPinTests` (`Package.resolved` schema and pins),
-`ReleaseMetadataTests` (`Resources/Info.plist`, `PrivacyInfo.xcprivacy`, and the
-`project.yml` lines that wire them into the bundle) and `LicenseCoverageTests`
+highlight queries), `DependencyPinTests` (`Package.resolved` schema and pins,
+and that each pin matches the requirement `project.yml` states for it),
+`ReleaseMetadataTests` (`Resources/Info.plist`, `PrivacyInfo.xcprivacy`, the
+`project.yml` lines that wire them into the bundle, and the iOS launch-screen
+setting) and `LicenseCoverageTests`
 (`licenses.json` vs. `project.yml`/`Package.resolved`/`Vendor/`). Follow that
 pattern for anything that ships in the bundle but has no Swift code behind it:
 these files have no compiler and no runtime check, so a static assertion is the
@@ -314,7 +316,13 @@ covering libgit2 linking) in parallel. No signing, secrets, or simulator.
   `Package.resolved` revision — enforced by `DependencyPinTests`, which asserts
   that exact revision, the v2 schema, a 40-hex revision on every pin, and that
   `swifttreesitter` is the *only* branch pin, so drift to a newer `main` or a
-  second branch dependency fails `swift test`.
+  second branch dependency fails `swift test`. The same suite closes the loop
+  between the two files: every remote package's `exactVersion:`/`revision:`/
+  `branch:` requirement here must equal what `Package.resolved` recorded for that
+  location. Without that, editing a pin in `project.yml` and forgetting the
+  regenerated `Package.resolved` leaves every static check — including the
+  license-provenance ones — validating the stale pin while the build resolves the
+  new one.
   The two vendored grammars are the other exception to the pinning rule: they are
   local *path* dependencies pinned by their directory contents (next bullet).
   `PisakaCore` and the test

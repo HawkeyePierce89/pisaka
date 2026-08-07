@@ -204,6 +204,30 @@ final class ReleaseMetadataTests: XCTestCase {
                        "Resources/Licenses as a folder reference")
     }
 
+    /// The launch screen is the one App Store requirement in this area that no
+    /// file in `Resources/` carries: it is a single build setting, and without it
+    /// the generated iOS Info.plist has no `UILaunchScreen` at all. A SwiftUI
+    /// `@main` app ships no storyboard, so nothing else supplies one —
+    /// `GENERATE_INFOPLIST_FILE` alone does not add the key. The build stays
+    /// green either way (a missing launch screen is not a compile error), and
+    /// the failure only shows up as an App Store Connect validation rejection,
+    /// or before that as an app running letterboxed in compatibility mode. So
+    /// assert the setting itself, in the same spirit as the resource wiring
+    /// above.
+    func testProjectGeneratesTheIOSLaunchScreen() throws {
+        let project = try text(atRepositoryPath: "project.yml")
+
+        XCTAssertTrue(project.contains("INFOPLIST_KEY_UILaunchScreen_Generation: YES"), """
+            project.yml no longer asks Xcode to generate the iOS launch screen. Apple has \
+            required a launch screen of every app built against the iOS 13+ SDK since April \
+            2020: App Store Connect validation rejects the upload, and until then the app runs \
+            letterboxed in compatibility mode with no iPad multitasking. Nothing in the build \
+            or in Resources/ would report this — restore \
+            INFOPLIST_KEY_UILaunchScreen_Generation: YES, or add a launch storyboard and this \
+            assertion's replacement.
+            """)
+    }
+
     // MARK: - Reading the committed resources
 
     /// The repository root, derived from this file's own compile-time path

@@ -91,12 +91,85 @@ final class DependencyPinTests: XCTestCase {
                        """)
     }
 
+    /// The pin and the *requirement* must agree.
+    ///
+    /// Everything above reads `Package.resolved` alone, and everything in
+    /// `LicenseCoverageTests` compares the license manifest against that same
+    /// file — so the two documents that decide what ships (`project.yml`'s
+    /// requirements and the resolved pins) are never compared with each other.
+    /// That leaves a green-tests path to shipping the wrong bytes: bump
+    /// `SwiftTerm` to `exactVersion: "1.6.0"` in `project.yml` and commit
+    /// without the regenerated `Package.resolved` — an easy omission, since the
+    /// re-resolve happens as a side effect of a build rather than as an explicit
+    /// step. `swift test` stays green (both suites compare against the stale
+    /// pin, which still agrees with the stale `licenses.json` entry) and CI
+    /// stays green (`xcodebuild` simply resolves 1.6.0 in the runner), while the
+    /// shipped app links a version whose license text and recorded revision come
+    /// from a different commit — the exact failure
+    /// `testEveryRemoteEntryMatchesItsResolvedPin` exists to prevent.
+    ///
+    /// So assert, per remote package, that the requirement `project.yml` states
+    /// is the one `Package.resolved` recorded. `SwiftTreeSitter` is the
+    /// documented exception in both directions: its requirement *is* a branch
+    /// (Neon's manifest, see the type doc), so the branch name is what must
+    /// match and the revision is pinned by
+    /// `testSwiftTreeSitterIsPinnedToTheExpectedRevision` instead.
+    func testEveryProjectRequirementMatchesItsResolvedPin() throws {
+        let pins = Dictionary(
+            uniqueKeysWithValues: try loadResolved().pins.map { ($0.location, $0) }
+        )
+        let packages = try loadDeclaredPackages()
+
+        for package in packages {
+            guard let url = package.url else { continue }  // a Vendor/ path dependency
+            let pin = try XCTUnwrap(pins[url], """
+                project.yml declares \(package.name) at \(url), but Package.resolved records no \
+                pin for that location. Either the URL moved without a re-resolve, or the \
+                dependency was added without committing the regenerated Package.resolved.
+                """)
+
+            switch package.requirement {
+            case .exactVersion(let version):
+                XCTAssertEqual(pin.version, version, """
+                    \(package.name) is required as exactVersion \(version) but Package.resolved \
+                    pins \(pin.version ?? "no version"). Run `xcodebuild \
+                    -resolvePackageDependencies` and commit the regenerated Package.resolved in \
+                    the same commit — until then the build resolves one version while every \
+                    static check in this repository (including the license provenance checks) \
+                    validates the other.
+                    """)
+                XCTAssertNil(pin.branch,
+                             "\(package.name) is required by exact version but pinned to a branch")
+            case .revision(let revision):
+                XCTAssertEqual(pin.revision, revision, """
+                    \(package.name) is required at revision \(revision) but Package.resolved pins \
+                    \(pin.revision ?? "nothing"). Re-resolve and commit Package.resolved alongside \
+                    the project.yml change.
+                    """)
+            case .branch(let branch):
+                XCTAssertEqual(package.name.lowercased(), Self.branchPinnedIdentity, """
+                    \(package.name) is required by branch. Only \(Self.branchPinnedIdentity) may \
+                    be, and only because Neon's own manifest requires it that way.
+                    """)
+                XCTAssertEqual(pin.branch, branch,
+                               "\(package.name) is required on branch \(branch) but pinned to \(pin.branch ?? "no branch")")
+            case .none:
+                XCTFail("""
+                    project.yml declares \(package.name) with a URL but no exactVersion:, \
+                    revision: or branch: requirement, so SwiftPM is free to resolve it to \
+                    anything. Pin it.
+                    """)
+            }
+        }
+    }
+
     // MARK: - Reading the committed resolved file
 
     private struct Pin {
         let identity: String
         let kind: String
         let location: String
+        let version: String?
         let revision: String?
         let branch: String?
     }
@@ -129,9 +202,109 @@ final class DependencyPinTests: XCTestCase {
             return Pin(identity: raw["identity"] as? String ?? "",
                        kind: raw["kind"] as? String ?? "",
                        location: raw["location"] as? String ?? "",
+                       version: state["version"] as? String,
                        revision: state["revision"] as? String,
                        branch: state["branch"] as? String)
         }
         return Resolved(version: version, pins: pins)
+    }
+
+    // MARK: - Reading the requirements out of project.yml
+
+    private struct DeclaredPackage {
+        enum Requirement {
+            case exactVersion(String)
+            case revision(String)
+            case branch(String)
+            case none
+        }
+
+        let name: String
+        /// `nil` for a `path:` (vendored) dependency, which carries no pin.
+        let url: String?
+        let requirement: Requirement
+    }
+
+    /// A deliberately tiny, shape-specific reader for `project.yml`'s `packages:`
+    /// block — Core links no YAML parser and must not start (the same reasoning,
+    /// and the same shape, as `LicenseCoverageTests.loadProjectDefinition`). It
+    /// recognises exactly the two indentation levels the file uses: a two-space
+    /// `Name:` key, then its four-space `url:`/`exactVersion:`/`revision:`/
+    /// `branch:`/`path:` entries. The emptiness check at the end is what makes a
+    /// change in the file's shape fail the suite rather than silently reduce it
+    /// to comparing nothing.
+    private func loadDeclaredPackages(file: StaticString = #filePath,
+                                      line: UInt = #line) throws -> [DeclaredPackage] {
+        let source = try String(
+            contentsOf: Self.repositoryRoot.appendingPathComponent("project.yml"),
+            encoding: .utf8
+        )
+
+        var packages: [DeclaredPackage] = []
+        var insidePackagesBlock = false
+        var name: String?
+        var url: String?
+        var isPath = false
+        var requirement = DeclaredPackage.Requirement.none
+
+        func flush() {
+            guard let name else { return }
+            packages.append(DeclaredPackage(name: name,
+                                            url: isPath ? nil : url,
+                                            requirement: requirement))
+        }
+
+        /// Strips an optional pair of surrounding quotes — versions are written
+        /// `exactVersion: "1.5.0"`, revisions bare.
+        func value(after key: String, in trimmed: String) -> String {
+            var raw = trimmed.dropFirst(key.count).trimmingCharacters(in: .whitespaces)
+            if raw.hasPrefix("\""), raw.hasSuffix("\""), raw.count >= 2 {
+                raw = String(raw.dropFirst().dropLast())
+            }
+            return raw
+        }
+
+        for rawLine in source.components(separatedBy: .newlines) {
+            let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
+
+            // A non-indented key ends whatever block was open.
+            if !rawLine.hasPrefix(" ") {
+                flush()
+                name = nil
+                insidePackagesBlock = (trimmed == "packages:")
+                continue
+            }
+            guard insidePackagesBlock else { continue }
+
+            if rawLine.hasPrefix("  "), !rawLine.hasPrefix("   "), trimmed.hasSuffix(":") {
+                flush()
+                name = String(trimmed.dropLast())
+                url = nil
+                isPath = false
+                requirement = .none
+                continue
+            }
+
+            if trimmed.hasPrefix("url:") {
+                url = value(after: "url:", in: trimmed)
+            } else if trimmed.hasPrefix("path:") {
+                isPath = true
+            } else if trimmed.hasPrefix("exactVersion:") {
+                requirement = .exactVersion(value(after: "exactVersion:", in: trimmed))
+            } else if trimmed.hasPrefix("revision:") {
+                requirement = .revision(value(after: "revision:", in: trimmed))
+            } else if trimmed.hasPrefix("branch:") {
+                requirement = .branch(value(after: "branch:", in: trimmed))
+            }
+        }
+        flush()
+
+        XCTAssertFalse(packages.isEmpty, "parsed no packages out of project.yml",
+                       file: file, line: line)
+        XCTAssertFalse(packages.allSatisfy { $0.url == nil },
+                       "parsed no remote packages out of project.yml — the reader stopped matching its shape",
+                       file: file, line: line)
+        return packages
     }
 }

@@ -36,9 +36,14 @@ enum LicenseCatalogLoader {
     /// silently acknowledges nothing is a compliance failure, so it has to say so.
     static var failureDescription: String? {
         guard case .failure(let error) = cached else { return nil }
-        // Both error types this can see (`LicenseCatalogError`, `LoaderError`)
-        // conform to `LocalizedError`, and Foundation's bridging already routes
-        // `localizedDescription` through `errorDescription` for those — no cast.
+        // The two error types this layer defines or forwards
+        // (`LicenseCatalogError`, `LoaderError`) conform to `LocalizedError`, and
+        // Foundation's bridging already routes `localizedDescription` through
+        // `errorDescription` for those — no cast. The third possibility is a
+        // `CocoaError` from reading the manifest bytes (an unreadable or
+        // truncated file), which carries its own Foundation-localized message; it
+        // names the file rather than the compliance problem, but it still says
+        // what went wrong, which is the requirement here.
         return error.localizedDescription
     }
 
