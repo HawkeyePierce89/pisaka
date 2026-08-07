@@ -41,7 +41,7 @@ final class LicenseNoticeTests: XCTestCase {
         let manifest = try LicenseCatalog.decode(manifest: Self.wellFormed)
         XCTAssertEqual(manifest.excluded, [
             LicenseExclusion(id: "swift-argument-parser",
-                             reason: "resolved only for the tree-sitter package's CLI target; not linked into the app")
+                             reason: "resolved only for SwiftTerm's Termcast executable target; not linked into the app")
         ])
     }
 
@@ -259,7 +259,7 @@ final class LicenseNoticeTests: XCTestCase {
       "excluded": [
         {
           "id": "swift-argument-parser",
-          "reason": "resolved only for the tree-sitter package's CLI target; not linked into the app"
+          "reason": "resolved only for SwiftTerm's Termcast executable target; not linked into the app"
         }
       ]
     }

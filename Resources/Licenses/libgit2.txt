@@ -1289,3 +1289,35 @@ NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
 DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
 OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+----------------------------------------------------------------------
+
+Everything above this line is upstream's COPYING, verbatim. The section below
+is appended by the Pisaka repository: upstream's COPYING enumerates the bundled
+dependencies it compiles (zlib, PCRE, winhttp, SHA1DC, wildmatch, ntlmclient,
+llhttp) but omits deps/xdiff/, which this package's Package.swift does compile
+into the app.
+
+The bundled xdiff code (deps/xdiff/) is LibXDiff by Davide Libenzi, licensed
+under the GNU Lesser General Public License version 2.1 or later — the same
+LGPL text reproduced above for deps/winhttp/. Every file in that directory
+carries this header:
+
+ *  LibXDiff by Davide Libenzi ( File Differential Library )
+ *  Copyright (C) 2003  Davide Libenzi
+ *
+ *  This library is free software; you can redistribute it and/or
+ *  modify it under the terms of the GNU Lesser General Public
+ *  License as published by the Free Software Foundation; either
+ *  version 2.1 of the License, or (at your option) any later version.
+ *
+ *  This library is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ *  Lesser General Public License for more details.
+ *
+ *  You should have received a copy of the GNU Lesser General Public
+ *  License along with this library; if not, see
+ *  <http://www.gnu.org/licenses/>.
+ *
+ *  Davide Libenzi <davidel@xmailserver.org>

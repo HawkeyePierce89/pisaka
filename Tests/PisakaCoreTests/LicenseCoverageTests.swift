@@ -25,11 +25,17 @@ import XCTest
 ///    is the *only* thing in that directory besides the manifest, so a stale
 ///    text left behind after a dependency drop is caught too.
 ///
-/// It also pins the two obligations that are specific rather than structural:
+/// It also pins the obligations that are specific rather than structural:
 /// `libgit2`'s text must contain the `LINKING EXCEPTION` (that section, not the
-/// GPLv2 text around it, is what permits linking into a closed-source app), and
+/// GPLv2 text around it, is what permits linking into a closed-source app);
 /// every identity in `Package.resolved` must be either acknowledged or listed in
-/// the manifest's `excluded` array with a reason.
+/// the manifest's `excluded` array with a reason; and the two texts that carry a
+/// *sub*-dependency notice must keep carrying it.
+///
+/// That last one marks the known granularity limit of everything above: the id
+/// set is compared package by package, and a package that vendors third-party C
+/// into its own target ships licenses no package-level comparison can see. See
+/// `testTextsCarryTheirBundledSubDependencyNotices`.
 final class LicenseCoverageTests: XCTestCase {
     /// Linked by the app but resolved *transitively* rather than declared in
     /// `project.yml`: `SwiftTreeSitter` depends on the `tree-sitter` C runtime
@@ -228,6 +234,44 @@ final class LicenseCoverageTests: XCTestCase {
             """)
         XCTAssertTrue(contents.contains("GNU GENERAL PUBLIC LICENSE"),
                       "libgit2.txt must also carry the GPLv2 text the exception applies to")
+    }
+
+    /// The coverage check above is *package*-granular: it compares manifest ids
+    /// against the packages `project.yml` links. Two of those packages compile
+    /// third-party source trees of their own into the app, under licenses their
+    /// own top-level `LICENSE`/`COPYING` does not carry — so a package's own
+    /// license file is not automatically the whole obligation, and nothing in
+    /// the id-set comparison can see the difference.
+    ///
+    /// Both gaps are closed by *appending* the missing notice to the shipped
+    /// text (the way libgit2's own COPYING already aggregates zlib, PCRE,
+    /// ntlmclient and llhttp) rather than by adding a manifest entry: a
+    /// sub-dependency has no SwiftPM identity, so it has no `Package.resolved`
+    /// pin for the provenance tests to check and no `- package:` line for the
+    /// coverage test to match. This test is what makes the appendices survive a
+    /// re-copy: bumping either pin and pasting upstream's file over ours drops
+    /// them silently, and only an assertion notices.
+    func testTextsCarryTheirBundledSubDependencyNotices() throws {
+        // libgit2's Package.swift compiles deps/xdiff (LibXDiff, LGPL-2.1-or-later),
+        // which upstream's COPYING enumerates for every *other* bundled dep but
+        // not for this one. The LGPL text it needs is already in the file, for
+        // deps/winhttp.
+        let libgit2 = try text(atRepositoryPath: "Resources/Licenses/libgit2.txt")
+        XCTAssertTrue(libgit2.contains("LibXDiff by Davide Libenzi"), """
+            libgit2.txt must carry the LibXDiff (deps/xdiff/) notice appended below upstream's \
+            COPYING — that directory is in the package's `sources:` and so compiles into the app, \
+            but upstream's COPYING never names it. Re-add the appendix after re-copying COPYING.
+            """)
+
+        // tree-sitter compiles lib/src/unicode/ (ICU-derived headers); upstream
+        // ships their notice as lib/src/unicode/LICENSE and then `exclude:`s
+        // that file from the SwiftPM target, so it never reaches the bundle.
+        let treeSitter = try text(atRepositoryPath: "Resources/Licenses/tree-sitter.txt")
+        XCTAssertTrue(treeSitter.contains("COPYRIGHT AND PERMISSION NOTICE (ICU 58 and later)"), """
+            tree-sitter.txt must carry the ICU/Unicode notice for lib/src/unicode/ appended below \
+            upstream's MIT LICENSE. The package's `sources: ["src"]` compiles those headers into \
+            the app while its `exclude:` drops the notice, so nothing else ships it.
+            """)
     }
 
     /// End to end over the real resources: what `LicenseCatalogLoader` will do at

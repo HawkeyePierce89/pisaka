@@ -331,7 +331,14 @@ covering libgit2 linking) in parallel. No signing, secrets, or simulator.
   package resolves but is not linked, an `excluded` entry with the reason.
   `LicenseCoverageTests` compares the manifest's id set against `project.yml`'s
   linked packages and each `revision` against `Package.resolved`, so `swift test`
-  fails until this is done. Rationale in `docs/architecture/core-services.md`.
+  fails until this is done. That comparison is *package*-granular, so **a
+  package's own LICENSE is not automatically the whole obligation**: read its
+  manifest's `sources:`/`exclude:` for third-party trees it vendors and compiles
+  in (libgit2's `deps/xdiff` is LGPL-2.1, tree-sitter's `lib/src/unicode` is
+  ICU-licensed — both are appended to the shipped text below a line marking where
+  upstream's verbatim copy ends, and pinned by
+  `testTextsCarryTheirBundledSubDependencyNotices`). Rationale in
+  `docs/architecture/core-services.md`.
 - **Required-reason APIs are declared for the whole linked binary**, not just
   `Sources/`: libgit2 and the tree-sitter grammars compile from C source into the
   app and ship no privacy manifest of their own. Any new use of a required-reason

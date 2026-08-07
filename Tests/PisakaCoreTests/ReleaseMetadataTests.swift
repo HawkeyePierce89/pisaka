@@ -179,15 +179,29 @@ final class ReleaseMetadataTests: XCTestCase {
                        "Resources/Info.plist as the partial Info.plist")
         assertDeclares("GENERATE_INFOPLIST_FILE: YES",
                        "generated Info.plist keys (the partial plist is merged into them, not a replacement)")
-        assertDeclares("- path: Resources/PrivacyInfo.xcprivacy",
+        // Both resource entries are matched as the *two-line pair* they are,
+        // indentation included, rather than line by line. A bare
+        // `project.contains("type: folder")` would be satisfied by any folder
+        // reference anywhere in the file, so turning Resources/Licenses into a
+        // plain group while some unrelated entry kept a `type: folder` would
+        // leave this test green — and the same for the privacy manifest losing
+        // its `buildPhase: resources` companion, which is what actually copies
+        // it. Anchoring each needle to its own `- path:` line is the difference
+        // between asserting the wiring and asserting that the words appear.
+        assertDeclares("""
+            - path: Resources/PrivacyInfo.xcprivacy
+                    buildPhase: resources
+            """,
                        "PrivacyInfo.xcprivacy as a top-level bundle resource")
-        assertDeclares("- path: Resources/Licenses",
-                       "Resources/Licenses")
         // A folder reference, not a group: the loader resolves `licenses.json`
         // and the texts through a `Licenses/` *subdirectory* of the bundle, which
         // only a `type: folder` entry produces. As a plain group the files would
         // land flat in Resources/ and every lookup would miss.
-        assertDeclares("type: folder", "Resources/Licenses as a folder reference")
+        assertDeclares("""
+            - path: Resources/Licenses
+                    type: folder
+            """,
+                       "Resources/Licenses as a folder reference")
     }
 
     // MARK: - Reading the committed resources

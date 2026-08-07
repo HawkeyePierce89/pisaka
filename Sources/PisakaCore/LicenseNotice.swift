@@ -79,7 +79,7 @@ public struct LicenseNotice: Codable, Equatable, Identifiable, Sendable {
 /// Recorded in the manifest rather than left out of it: "no license text ships
 /// for this" is indistinguishable from an oversight unless the exclusion is
 /// written down. Today the only entry is `swift-argument-parser`, resolved
-/// solely for the `tree-sitter` package's CLI target and never linked into the
+/// solely for SwiftTerm's `Termcast` executable target and never linked into the
 /// app.
 public struct LicenseExclusion: Codable, Equatable, Identifiable, Sendable {
     public let id: String

@@ -395,13 +395,44 @@ shape-specific line scanner) and asserts:
     byte-identical to it;
   - `libgit2`'s text contains the `LINKING EXCEPTION` section (what permits
     linking GPLv2 code into a closed-source app);
+  - the two texts that carry a *sub*-dependency notice still carry it (below);
   - and the real manifest resolves through `LicenseCatalog` itself, so this
     suite's own reader cannot pass a file the app would fail on.
 
+**What the id-set check cannot see: sub-dependencies.** Every assertion above is
+*package*-granular — it compares manifest ids against SwiftPM package identities.
+Two packages compile third-party C trees of their own into the app under licenses
+their top-level `LICENSE`/`COPYING` does not carry, and no package-level
+comparison can notice:
+
+  - **libgit2** compiles `deps/xdiff/` (LibXDiff by Davide Libenzi,
+    LGPL-2.1-or-later). Upstream's `COPYING` enumerates every *other* bundled
+    dependency — zlib, PCRE, winhttp, SHA1DC, wildmatch, ntlmclient, llhttp — and
+    omits this one. Its `spdx` therefore reads
+    `GPL-2.0-only WITH linking-exception AND LGPL-2.1-or-later`.
+  - **tree-sitter** compiles `lib/src/unicode/` (ICU-derived headers, reached via
+    `lib/src/unicode.h`). Upstream ships the notice as `lib/src/unicode/LICENSE`
+    and then `exclude:`s that file from the SwiftPM target, so it never reaches
+    the bundle on its own. Its `spdx` reads `MIT AND Unicode-DFS-2016`.
+
+Both are closed by **appending** the missing notice to the shipped `.txt`, the
+way libgit2's own `COPYING` already aggregates its bundled deps — not by adding a
+manifest entry, because a sub-dependency has no SwiftPM identity: no
+`Package.resolved` pin for the provenance tests to check, no `- package:` line
+for the coverage test to match. Each appendix opens with a line saying where
+upstream's verbatim text ends and this repository's addition begins, and
+`testTextsCarryTheirBundledSubDependencyNotices` pins both — otherwise bumping
+the pin and pasting upstream's file over ours would drop them in silence.
+
+The general rule this leaves behind: **a package's own LICENSE is not
+automatically the whole obligation.** When adding a dependency, read its
+manifest's `sources:`/`exclude:` for vendored trees before assuming one text
+covers it.
+
 **The documented exclusion.** `swift-argument-parser` appears in
-`Package.resolved` only because the `tree-sitter` package's CLI target depends on
-it; it is not linked into the app, so no license ships for it. That is recorded
-in the manifest's `excluded` array rather than left out, because "no text for
-this one" is indistinguishable from an oversight unless the reason is written
-down — and the coverage test requires *every* resolved identity to be one or the
-other.
+`Package.resolved` only because SwiftTerm's `Termcast` executable target depends
+on it; it is not linked into the app, so no license ships for it. That is
+recorded in the manifest's `excluded` array rather than left out, because "no
+text for this one" is indistinguishable from an oversight unless the reason is
+written down — and the coverage test requires *every* resolved identity to be one
+or the other.

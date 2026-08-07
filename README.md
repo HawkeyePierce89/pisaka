@@ -580,6 +580,6 @@ The app links third-party dependencies and ships each one's verbatim license
 text in `Resources/Licenses/` (alongside `licenses.json`, the manifest that is
 the list of record). They are shown in-app under **Preferences →
 Acknowledgements** on macOS and **Settings → About → Acknowledgements** on iOS.
-libgit2 is used under GPL-2.0 with its linking exception. Adding a dependency
-means adding its license there too — `swift test` fails until you do
-(`LicenseCoverageTests`).
+libgit2 is used under GPL-2.0 with its linking exception (its bundled `xdiff`
+code is LGPL-2.1). Adding a dependency means adding its license there too —
+`swift test` fails until you do (`LicenseCoverageTests`).
