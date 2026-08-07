@@ -25,8 +25,11 @@ import XCTest
 ///    is the *only* thing in that directory besides the manifest, so a stale
 ///    text left behind after a dependency drop is caught too.
 ///
-/// It also pins the obligations that are specific rather than structural:
-/// `libgit2`'s text must contain the `LINKING EXCEPTION` (that section, not the
+/// It also pins the obligations that are specific rather than structural: every
+/// `spdx` must be an expression SPDX would actually parse, over ids pinned by
+/// hand (`testEverySPDXExpressionIsWellFormed` — nothing in the build reads that
+/// field, so an invented identifier renders like a real one); `libgit2`'s text
+/// must contain the `LINKING EXCEPTION` (that section, not the
 /// GPLv2 text around it, is what permits linking into a closed-source app);
 /// every identity in `Package.resolved` must be either acknowledged or listed in
 /// the manifest's `excluded` array with a reason; and the two texts that carry a
@@ -97,6 +100,92 @@ final class LicenseCoverageTests: XCTestCase {
             XCTAssertFalse(exclusion.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                            "the \(exclusion.id) exclusion carries no reason")
         }
+    }
+
+    // MARK: - The expressions
+
+    /// Every SPDX License List id this manifest's expressions use. A pinned set
+    /// rather than a syntax rule, for the same reason the vendored-query suite
+    /// pins its capture names: nothing offline can tell a real list id from a
+    /// plausible-looking invention, so a new one fails here until someone has
+    /// checked it against spdx.org/licenses.
+    private static let usedSPDXLicenseIDs: Set<String> = [
+        "BSD-3-Clause",
+        "LGPL-2.1-or-later",
+        "MIT",
+        "Unicode-DFS-2016",
+    ]
+
+    /// SPDX *exception* ids (the right operand of `WITH`) this manifest uses —
+    /// empty, and deliberately so. The one dependency whose licence carries an
+    /// exception, libgit2, has no listed identifier for it, and `WITH` accepts
+    /// nothing else; it is therefore spelled as a `LicenseRef-` operand instead.
+    private static let usedSPDXExceptionIDs: Set<String> = []
+
+    /// `spdx` is documented as an SPDX expression, is shown under every
+    /// dependency's name on both Acknowledgements screens, and is the app's only
+    /// machine-readable statement of what it is obliged to. Nothing in the build
+    /// parses it, so an invented identifier ships and renders exactly like a real
+    /// one — the easy mistake being to write a custom exception as though it were
+    /// on SPDX's exception list (`GPL-2.0-only WITH linking-exception`), which no
+    /// SPDX parser accepts.
+    ///
+    /// Known limit: the grammar checked here is the flat one the manifest uses —
+    /// operands separated by `AND`/`OR`/`WITH`. A parenthesised expression fails
+    /// the operand charset below and needs this check extended rather than the
+    /// parentheses dropped.
+    func testEverySPDXExpressionIsWellFormed() throws {
+        for notice in try loadManifest().notices {
+            let tokens = notice.spdx.split(separator: " ").map(String.init)
+            guard !tokens.isEmpty, tokens.count.isMultiple(of: 2) == false else {
+                XCTFail("""
+                    \(notice.id)'s spdx expression “\(notice.spdx)” is not operand [operator \
+                    operand]… — an SPDX expression is a licence, or licences joined by AND/OR/WITH.
+                    """)
+                continue
+            }
+
+            for (index, token) in tokens.enumerated() {
+                guard index.isMultiple(of: 2) else {
+                    XCTAssertTrue(["AND", "OR", "WITH"].contains(token), """
+                        \(notice.id)'s spdx expression “\(notice.spdx)” has “\(token)” where an \
+                        operator belongs. SPDX operators are the uppercase AND/OR/WITH, and no \
+                        licence id may contain a space.
+                        """)
+                    continue
+                }
+
+                XCTAssertTrue(Self.isSPDXIDString(token), """
+                    “\(token)” in \(notice.id)'s spdx expression is not an SPDX idstring \
+                    (letters, digits, `.`, `-`, a trailing `+`).
+                    """)
+
+                if index > 0, tokens[index - 1] == "WITH" {
+                    XCTAssertTrue(Self.usedSPDXExceptionIDs.contains(token), """
+                        \(notice.id) says “WITH \(token)”, but WITH takes only ids from SPDX's \
+                        *exception* list — a licence's own custom exception is not one. Write the \
+                        whole licence as a `LicenseRef-…` operand instead, or add \(token) here \
+                        once it is confirmed to be on spdx.org/licenses/exceptions-index.html.
+                        """)
+                } else if token.hasPrefix("LicenseRef-") {
+                    XCTAssertFalse(token == "LicenseRef-", "\(notice.id)'s LicenseRef- carries no name")
+                } else {
+                    XCTAssertTrue(Self.usedSPDXLicenseIDs.contains(token), """
+                        “\(token)” in \(notice.id)'s spdx expression is not one of the SPDX ids \
+                        this manifest is known to use. If it is on spdx.org/licenses, add it to \
+                        usedSPDXLicenseIDs; if it is not on the list, spell it `LicenseRef-\(token)`.
+                        """)
+                }
+            }
+        }
+    }
+
+    /// SPDX's `idstring`: letters, digits, `.` and `-`, plus the `+`
+    /// "or-later" suffix a licence id may end with.
+    private static func isSPDXIDString(_ token: String) -> Bool {
+        let body = token.hasSuffix("+") ? String(token.dropLast()) : token
+        return !body.isEmpty
+            && body.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }
     }
 
     // MARK: - Provenance

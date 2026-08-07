@@ -421,7 +421,11 @@ comparison can notice:
     LGPL-2.1-or-later). Upstream's `COPYING` enumerates every *other* bundled
     dependency — zlib, PCRE, winhttp, SHA1DC, wildmatch, ntlmclient, llhttp — and
     omits this one. Its `spdx` therefore reads
-    `GPL-2.0-only WITH linking-exception AND LGPL-2.1-or-later`.
+    `LicenseRef-libgit2-GPL-2.0-only-with-linking-exception AND LGPL-2.1-or-later`
+    — the left operand is a `LicenseRef-` because libgit2's GPLv2-with-linking-
+    exception has no SPDX List identifier and `WITH` takes only listed *exception*
+    ids, so `GPL-2.0-only WITH linking-exception` would be an expression no SPDX
+    parser accepts (`testEverySPDXExpressionIsWellFormed` pins that).
   - **tree-sitter** compiles `lib/src/unicode/` (ICU-derived headers, reached via
     `lib/src/unicode.h`). Upstream ships the notice as `lib/src/unicode/LICENSE`
     and then `exclude:`s that file from the SwiftPM target, so it never reaches

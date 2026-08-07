@@ -243,7 +243,7 @@ final class LicenseNoticeTests: XCTestCase {
           "origin": "https://github.com/ibrahimcetin/libgit2",
           "version": "1.9.2",
           "revision": "52287b0914f300f916b58fec80e13d8dd8f6824f",
-          "spdx": "GPL-2.0-only WITH linking-exception",
+          "spdx": "LicenseRef-libgit2-GPL-2.0-only-with-linking-exception AND LGPL-2.1-or-later",
           "file": "libgit2.txt"
         },
         {

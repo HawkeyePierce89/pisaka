@@ -32,8 +32,16 @@ public struct LicenseNotice: Codable, Equatable, Identifiable, Sendable {
     /// records. This is what makes the text verifiable rather than merely
     /// plausible.
     public let revision: String
-    /// The SPDX identifier (`MIT`, `BSD-3-Clause`,
-    /// `GPL-2.0-only WITH linking-exception`).
+    /// The SPDX license *expression* (`MIT`, `BSD-3-Clause`,
+    /// `MIT AND Unicode-DFS-2016`).
+    ///
+    /// A license the SPDX License List does not carry is written as a
+    /// `LicenseRef-…` operand rather than invented as a list id — libgit2's
+    /// GPLv2-plus-linking-exception has no listed identifier, and `WITH` only
+    /// accepts identifiers from SPDX's *exception* list, so spelling it
+    /// `GPL-2.0-only WITH linking-exception` would put an expression through the
+    /// Acknowledgements screens that no SPDX parser accepts. `LicenseCoverageTests`
+    /// enforces that shape over the real manifest.
     public let spdx: String
     /// The text file's name inside `Resources/Licenses/`, resolved against the
     /// bundle by the app layer.
