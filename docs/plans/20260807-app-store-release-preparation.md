@@ -442,26 +442,54 @@ committed `Package.resolved` revision, now enforced by test.
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] `swift test` — full suite green
-- [ ] `xcodegen generate` succeeds and produces no unexpected `Package.resolved`
-  churn (still v2 schema, no `branch` key anywhere)
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build`
-  succeeds
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build`
-  succeeds
-- [ ] `plutil -p` the built macOS `Pisaka.app/Contents/Info.plist` and the built
+- [x] `swift test` — full suite green: 1586 tests, 0 failures
+- [x] `xcodegen generate` succeeds and produces no unexpected `Package.resolved`
+  churn (still v2 schema, no `branch` key anywhere) — regenerated with a clean
+  `git status` and a byte-identical `Package.resolved` (sha256
+  `76fcb7f5…`); schema is `version: 2` with `identity`/`kind`/`location` per pin.
+  The "no `branch` key anywhere" clause is **stale**, written before Task 1's
+  finding: `swifttreesitter` necessarily keeps `branch: main` (Neon's own
+  manifest requires it by branch, so a root revision/version pin fails
+  resolution outright). It is the only branch pin, and `DependencyPinTests`
+  enforces both that uniqueness and the exact revision
+  `0f40435cdb41673ce4194d731571cf2a2f7c3285`, which is the reproducibility
+  guarantee the clause was reaching for
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build`
+  succeeds — **BUILD SUCCEEDED**
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build`
+  succeeds — **BUILD SUCCEEDED**
+- [x] `plutil -p` the built macOS `Pisaka.app/Contents/Info.plist` and the built
   iOS `Pisaka.app/Info.plist`: both carry `LSApplicationCategoryType =
   public.app-category.developer-tools` and a Boolean
   `ITSAppUsesNonExemptEncryption = false`, *and* still carry the Xcode-generated
   keys (`CFBundleName`, `CFBundleShortVersionString` = `1.0`,
   `LSSupportsOpeningDocumentsInPlace`, the per-destination scene/principal-class
-  keys); if not, apply the Task 2 fallback and re-verify
-- [ ] both built bundles contain `PrivacyInfo.xcprivacy` at the top level of
+  keys); if not, apply the Task 2 fallback and re-verify — the Task 2 fallback is
+  **not needed**. Both plists carry the category string, `CFBundleName = Pisaka`,
+  `CFBundleShortVersionString = 1.0`, `CFBundleVersion = 1` and
+  `LSSupportsOpeningDocumentsInPlace = true`.
+  `ITSAppUsesNonExemptEncryption` is a real Boolean on both, confirmed through
+  `plistlib` (`type(v).__name__ == "bool"`), not the string `"NO"` that `plutil`
+  and `as? Bool` would both render as false. The per-destination generated keys
+  differ as they should — macOS (25 keys) has `LSMinimumSystemVersion` and
+  `CFBundleIconFile`; iOS (28 keys) has `LSRequiresIPhoneOS`, `MinimumOSVersion`,
+  `UIDeviceFamily`, `UIRequiredDeviceCapabilities` and `CFBundleIcons~ipad`.
+  There is no `NSPrincipalClass` or `UIApplicationSceneManifest` on either, which
+  is correct rather than missing: a SwiftUI `@main` app with no storyboard and no
+  AppKit/UIKit delegate has neither key generated for it
+- [x] both built bundles contain `PrivacyInfo.xcprivacy` at the top level of
   their resources and a `Licenses/` directory holding `licenses.json` plus all 18
-  `.txt` files
-- [ ] confirm `CURRENT_PROJECT_VERSION=<n>` on the `xcodebuild` command line
+  `.txt` files — macOS at `Pisaka.app/Contents/Resources/`, iOS at the `.app`
+  root, each with `Licenses/licenses.json` and 18 `.txt` files, matching the 18
+  in `Resources/Licenses/`
+- [x] confirm `CURRENT_PROJECT_VERSION=<n>` on the `xcodebuild` command line
   overrides the project value in the built plist (`CFBundleVersion`), matching
-  what `docs/RELEASING.md` promises
+  what `docs/RELEASING.md` promises — a macOS build with
+  `CURRENT_PROJECT_VERSION=427` produced `CFBundleVersion = 427` while
+  `CFBundleShortVersionString` stayed `1.0` and `git status` stayed clean
+  (`project.yml` still reads `CURRENT_PROJECT_VERSION: "1"`), which is exactly
+  the "override per upload, never commit" contract `docs/RELEASING.md` documents;
+  rebuilt without the override afterwards, restoring `CFBundleVersion = 1`
 
 ## Post-Completion (manual, outside the agent's scope)
 
