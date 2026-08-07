@@ -417,6 +417,18 @@ shape-specific line scanner) and asserts:
     is dropped would otherwise keep shipping;
   - each vendored entry names a real `Vendor/<name>/LICENSE` and is
     byte-identical to it;
+  - each text names *its own* dependency's copyright holder, against a table
+    (`expectedCopyrightHolders`) asserted by set equality against the manifest's
+    ids. This is the only check that reads a *remote* text's bytes at all: every
+    other assertion here is satisfied by any non-empty file, because the pin a
+    text is compared against belongs to the manifest entry rather than to the
+    file's contents. Copying the wrong `LICENSE` into a slot — an easy slip
+    among sixteen near-identical MIT texts, where a name and a year are the only
+    visible difference — would otherwise ship the wrong attribution with the
+    whole suite green. The three `tree-sitter-html/-javascript/-json` texts are
+    byte-identical upstream and so are indistinguishable from one another by any
+    content check; they carry the same grant from the same holder, so that is
+    not a gap;
   - `libgit2`'s text contains the `LINKING EXCEPTION` section (what permits
     linking GPLv2 code into a closed-source app);
   - the two texts that carry a *sub*-dependency notice still carry it (below);
@@ -431,14 +443,24 @@ comparison can notice:
 
   - **libgit2** compiles five vendored trees — its `Package.swift` `sources:`
     lists `deps/llhttp`, `deps/pcre`, `deps/xdiff`, `deps/zlib` and
-    `deps/ntlmclient`, and `excludedPaths` drops only CMake/Windows/mbedTLS/
-    OpenSSL files, so all five reach the binary. Upstream's `COPYING` enumerates
-    every one of them *except* `deps/xdiff/` (LibXDiff by Davide Libenzi,
-    LGPL-2.1-or-later), which is the appendix below. Its `spdx` therefore reads
+    `deps/ntlmclient`, and nothing in `excludedPaths` removes any of them, so all
+    five reach the binary. What `excludedPaths` *does* drop is the build-system
+    and non-Apple-backend files: CMake/Windows/mbedTLS/OpenSSL, plus — inside the
+    manifest's `#if os(macOS)` branch, which is where SwiftPM evaluates it for
+    every Apple destination — the whole builtin hash layer
+    (`src/util/hash/builtin.{c,h}`, `collisiondetect.{c,h}`, `rfc6234/`,
+    `sha1dc/`) and `deps/ntlmclient/crypt_openssl.{c,h}`, because the app uses
+    CommonCrypto instead. Note that this is the same fact the
+    `ITSAppUsesNonExemptEncryption = false` rationale rests on, and that
+    `deps/winhttp` is not in `sources:` at all: neither the bundled SHA1DC nor
+    winhttp ever compiles into this app, so neither is part of the obligation.
+    Upstream's `COPYING` enumerates every one of the five compiled trees *except*
+    `deps/xdiff/` (LibXDiff by Davide Libenzi, LGPL-2.1-or-later), which is the
+    appendix below. Its `spdx` therefore reads
     `LicenseRef-libgit2-GPL-2.0-only-with-linking-exception AND LGPL-2.1-or-later
-    AND Zlib AND BSD-3-Clause AND MIT`: the LGPL operand is xdiff (and
-    `deps/winhttp`), `Zlib` is `deps/zlib`, `BSD-3-Clause` is `deps/pcre`, and the
-    `MIT` operand covers `deps/llhttp`, `deps/ntlmclient` and the bundled SHA1DC.
+    AND Zlib AND BSD-3-Clause AND MIT`: the LGPL operand is `deps/xdiff`, `Zlib`
+    is `deps/zlib`, `BSD-3-Clause` is `deps/pcre`, and the `MIT` operand covers
+    `deps/llhttp` and `deps/ntlmclient`.
     The expression enumerates what *compiles in*, not just what the top-level
     license says — the field is documented above as the app's obligation
     statement, so half-applying that rule (naming xdiff but not the other four)

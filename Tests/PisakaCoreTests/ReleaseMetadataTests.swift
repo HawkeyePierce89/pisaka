@@ -165,10 +165,10 @@ final class ReleaseMetadataTests: XCTestCase {
     /// no privacy manifest and an Acknowledgements screen that says the bundle is
     /// broken. So assert the four lines that do the wiring.
     func testProjectStillShipsTheReleaseMetadataResources() throws {
-        let project = try text(atRepositoryPath: "project.yml")
+        let settings = try activeProjectLines()
 
         func assertDeclares(_ needle: String, _ what: String) {
-            XCTAssertTrue(project.contains(needle), """
+            XCTAssertTrue(settings.contains(consecutively: needle), """
                 project.yml no longer declares \(what) (looked for “\(needle)”). The file is still \
                 in the repository and still passes its content checks, but it would not reach the \
                 app bundle.
@@ -215,9 +215,9 @@ final class ReleaseMetadataTests: XCTestCase {
     /// assert the setting itself, in the same spirit as the resource wiring
     /// above.
     func testProjectGeneratesTheIOSLaunchScreen() throws {
-        let project = try text(atRepositoryPath: "project.yml")
+        let settings = try activeProjectLines()
 
-        XCTAssertTrue(project.contains("INFOPLIST_KEY_UILaunchScreen_Generation: YES"), """
+        XCTAssertTrue(settings.contains(consecutively: "INFOPLIST_KEY_UILaunchScreen_Generation: YES"), """
             project.yml no longer asks Xcode to generate the iOS launch screen. Apple has \
             required a launch screen of every app built against the iOS 13+ SDK since April \
             2020: App Store Connect validation rejects the upload, and until then the app runs \
@@ -226,6 +226,33 @@ final class ReleaseMetadataTests: XCTestCase {
             INFOPLIST_KEY_UILaunchScreen_Generation: YES, or add a launch storyboard and this \
             assertion's replacement.
             """)
+    }
+
+    /// `project.yml`'s *active* settings: every line that is neither blank nor a
+    /// comment, trimmed, in file order.
+    ///
+    /// The two tests above used to match their needles against the raw file with
+    /// `String.contains`, which cannot tell a live setting from a commented-out
+    /// one — `# INFOPLIST_FILE: Resources/Info.plist` contains
+    /// `INFOPLIST_FILE: Resources/Info.plist` as a substring, so disabling any of
+    /// these four settings by prefixing a `#` left both tests green while the
+    /// resource stopped reaching the bundle. That is exactly the failure they
+    /// exist to catch, and it is not a hypothetical shape for this file:
+    /// `project.yml` is heavily commented and its comments already quote these
+    /// setting names verbatim. Stripping comments first is the same thing
+    /// `LicenseCoverageTests.loadProjectDefinition` and
+    /// `DependencyPinTests.loadDeclaredPackages` do to the same file.
+    private func activeProjectLines(file: StaticString = #filePath,
+                                    line: UInt = #line) throws -> [String] {
+        let lines = try text(atRepositoryPath: "project.yml")
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+
+        XCTAssertFalse(lines.isEmpty,
+                       "parsed no settings out of project.yml — the file's shape changed",
+                       file: file, line: line)
+        return lines
     }
 
     // MARK: - Reading the committed resources
@@ -258,5 +285,25 @@ final class ReleaseMetadataTests: XCTestCase {
     private func loadPrivacyManifest(file: StaticString = #filePath,
                                      line: UInt = #line) throws -> [String: Any] {
         try loadPlist(atRepositoryPath: "Resources/PrivacyInfo.xcprivacy", file: file, line: line)
+    }
+}
+
+private extension Array where Element == String {
+    /// Whether `needle`'s lines appear here as a *consecutive* run, each trimmed
+    /// line matched whole.
+    ///
+    /// Whole-line equality is what rules out a commented-out or merely-quoted
+    /// setting; the consecutive run is what keeps the two-line resource entries
+    /// anchored to their own `- path:` line, so a stray `type: folder` elsewhere
+    /// in the file cannot stand in for the one on `Resources/Licenses`.
+    func contains(consecutively needle: String) -> Bool {
+        let wanted = needle.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard !wanted.isEmpty, count >= wanted.count else { return false }
+
+        return indices.dropLast(wanted.count - 1).contains { start in
+            Array(self[start ..< start + wanted.count]) == wanted
+        }
     }
 }

@@ -320,6 +320,72 @@ final class LicenseCoverageTests: XCTestCase {
             """)
     }
 
+    /// The copyright holder each text must name, by manifest id.
+    ///
+    /// Everything else in this suite checks a text's *existence* and its
+    /// entry's *metadata* — the file is present, non-empty, named by the
+    /// manifest, and its `revision` matches `Package.resolved`. None of that
+    /// reads the text, so copying the wrong `LICENSE` into a slot passes every
+    /// one of those assertions: the file is non-empty, present, named, and the
+    /// pin it is compared against belongs to the entry, not to the bytes. With
+    /// sixteen near-identical MIT files added in one pass, a single misfiled
+    /// copy is an easy slip and the only visible difference is a name and a
+    /// year — which is precisely the part that carries the attribution
+    /// obligation. So pin that line.
+    ///
+    /// Three grammar texts (`tree-sitter-html/-javascript/-json`) are genuinely
+    /// byte-identical upstream — same holder, same year — so no content check
+    /// can tell those three apart from one another. That is harmless: they
+    /// carry the same grant from the same holder. Every other pair is
+    /// distinguishable, and this table distinguishes them.
+    private static let expectedCopyrightHolders: [String: String] = [
+        "libgit2": "libgit2 is Copyright (C) the libgit2 contributors",
+        "Neon": "Copyright (c) 2022, Chime",
+        "Rearrange": "Copyright (c) 2019, Chime Systems Inc.",
+        "SwiftTerm": "Copyright (c) 2019-2022 Miguel de Icaza",
+        "SwiftTreeSitter": "Copyright (c) 2021, Chime",
+        "tree-sitter": "Copyright (c) 2018-2024 Max Brunsfeld",
+        "tree-sitter-css": "Copyright (c) 2018 Max Brunsfeld",
+        "tree-sitter-dockerfile": "Copyright (c) 2021 Camden Cheek",
+        "tree-sitter-html": "Copyright (c) 2014 Max Brunsfeld",
+        "tree-sitter-javascript": "Copyright (c) 2014 Max Brunsfeld",
+        "tree-sitter-json": "Copyright (c) 2014 Max Brunsfeld",
+        "tree-sitter-markdown": "Copyright (c) 2021 Matthias Deiml",
+        "tree-sitter-python": "Copyright (c) 2016 Max Brunsfeld",
+        "tree-sitter-swift": "Copyright (c) 2021 alex-pinkus",
+        "tree-sitter-typescript": "Copyright (c) 2017 Max Brunsfeld",
+        "tree-sitter-yaml": "Copyright (c) 2024 tree-sitter-grammars contributors",
+        "TreeSitterDotenv": "Copyright (c) 2024 Henrik Hautakoski",
+        "TreeSitterGitignore": "Copyright (c) 2022 shunsambongi",
+    ]
+
+    /// Every shipped text actually names the dependency it is filed under.
+    ///
+    /// The table is asserted by *set equality* against the manifest's ids for
+    /// the same reason the privacy-manifest and grammar-query checks are: a new
+    /// dependency must not be able to arrive with an unverified text just
+    /// because nobody remembered to extend the table.
+    func testEveryTextNamesItsOwnCopyrightHolder() throws {
+        let manifest = try loadManifest()
+
+        XCTAssertEqual(Set(Self.expectedCopyrightHolders.keys), Set(manifest.notices.map(\.id)), """
+            expectedCopyrightHolders must cover exactly the manifest's entries. A dependency added \
+            without a line here ships a license text that nothing reads; a line left behind names \
+            a dependency that no longer ships.
+            """)
+
+        for notice in manifest.notices {
+            guard let expected = Self.expectedCopyrightHolders[notice.id] else { continue }
+            let contents = try text(atRepositoryPath: "Resources/Licenses/\(notice.file)")
+            XCTAssertTrue(contents.contains(expected), """
+                \(notice.file) does not name \(notice.id)'s copyright holder (looked for \
+                “\(expected)”). Either the wrong LICENSE was copied into this slot — the app would \
+                then ship the wrong attribution for \(notice.id) — or upstream re-licensed and both \
+                this text and the table need updating from the checkout at the pinned revision.
+                """)
+        }
+    }
+
     /// The GPLv2 text alone would forbid what this app does. The exception is
     /// the whole reason libgit2 can be linked here, so a re-copy that grabbed
     /// only `COPYING`'s license body must fail.
@@ -351,8 +417,10 @@ final class LicenseCoverageTests: XCTestCase {
     func testTextsCarryTheirBundledSubDependencyNotices() throws {
         // libgit2's Package.swift compiles deps/xdiff (LibXDiff, LGPL-2.1-or-later),
         // which upstream's COPYING enumerates for every *other* bundled dep but
-        // not for this one. The LGPL text it needs is already in the file, for
-        // deps/winhttp.
+        // not for this one. The LGPL *text* it needs is already in the file:
+        // upstream's COPYING carries it for deps/winhttp, which this app never
+        // compiles (winhttp is not in the target's `sources:`) — so what the
+        // appendix adds is the missing xdiff attribution, not the license body.
         let libgit2 = try text(atRepositoryPath: "Resources/Licenses/libgit2.txt")
         XCTAssertTrue(libgit2.contains("LibXDiff by Davide Libenzi"), """
             libgit2.txt must carry the LibXDiff (deps/xdiff/) notice appended below upstream's \
