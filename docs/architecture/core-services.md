@@ -203,6 +203,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `presentation(isCompactWidth:orientation:) -> Presentation` returns `.switcher`
     for compact width regardless of orientation, else `.horizontalStrip`/
     `.verticalColumn` per `TabOrientation`. Covered by `TabLayoutTests`.
+  - `LicenseNotice.swift` — the third-party-license domain behind the
+    Acknowledgements screens: `LicenseNotice` (one shipped dependency — `id`,
+    `name`, `origin`, `version`, `revision`, `spdx`, `file`), `LicenseExclusion`
+    (a `Package.resolved` identity deliberately *not* acknowledged, with the
+    reason), `LicenseManifest` (the decoded `licenses.json`: `notices` +
+    `excluded`), `LicenseDocument` (a notice paired with its verbatim text — what
+    the UI renders), the `LocalizedError`-conforming `LicenseCatalogError`, and
+    the `LicenseCatalog` enum itself with `decode(manifest:)` /
+    `resolve(manifest:texts:)`. See the "Third-party license catalog" section
+    below for the contract, the invariants and the test guarantees.
   - `PisakaCore.swift` — package constants/version.
 
 ## Release-metadata resources
@@ -280,3 +290,91 @@ run in `swift test` rather than needing an Xcode build.
         APIs.
       - Active keyboard (`activeInputModes`/`UITextInputMode`) — **no hits**, not
         declared.
+
+  - `Resources/Licenses/` — `licenses.json` plus one verbatim `<id>.txt` per
+    shipped dependency (18 today). Declared in `project.yml` as a **folder
+    reference** (`type: folder`), so the whole directory is copied into the
+    bundle as `Licenses/` and adding a future text needs no project
+    regeneration. That convenience is exactly why the directory's *contents* are
+    unchecked by the build — nothing in Xcode knows which dependencies those
+    files correspond to — so the list of record is the manifest, and
+    `LicenseCoverageTests` is what keeps it honest (next section).
+
+## Third-party license catalog
+
+`LicenseNotice.swift` is the domain half of license compliance: the app must
+acknowledge every third-party dependency it links, with the *verbatim* text
+(copyright lines and permission notice included — those are the obligation), and
+neither the compiler nor App Store validation will say a word if one goes
+missing. The design puts every decision in Core, where `swift test` can reach it.
+
+**The catalog takes bytes, not a `Bundle`.** `LicenseCatalog.resolve(manifest:
+texts:)` receives the manifest `Data` and a `[file name: text]` dictionary; it
+has no idea where either came from. Two reasons: Core is Foundation-only and must
+stay portable and UI-free, and every failure mode becomes reachable from an
+in-memory fixture instead of requiring a deliberately-broken app bundle. The
+reading is the app layer's job (`Platform/LicenseCatalogLoader.swift`, documented
+in `app-shell.md`).
+
+**What `decode`/`resolve` reject**, each because the alternative is a silent
+compliance failure rather than a visible bug:
+
+  - `malformedManifest(reason:)` — not the JSON shape `LicenseManifest`
+    describes. `excluded` is the one optional key (decoded via
+    `decodeIfPresent` → `[]`), so a manifest with nothing to exclude may omit it.
+  - `emptyManifest` — decoded but lists nothing. The app links plenty, so an
+    empty list is a truncated or wrong file, never an app without dependencies.
+  - `duplicateIdentifier(_:)` — two notices share an id, so one would be
+    unreachable in an `Identifiable`/keyed context.
+  - `missingText(id:file:)` — a notice names a text the caller did not supply:
+    the license did not make it into the bundle.
+  - `emptyText(id:file:)` — the text is blank or whitespace-only, which
+    acknowledges nothing.
+
+`LicenseCatalogError` is a `LocalizedError` on purpose: a broken bundle has to
+*say* what is wrong, because "no dependencies" is a plausible-looking empty
+screen. Manifest order is preserved rather than sorted — `licenses.json` lists
+dependencies in `project.yml` order, which keeps the tree-sitter family together;
+a UI that wants alphabetical can sort, but the reverse is not recoverable.
+`version` is optional (`nil` for Neon and SwiftTreeSitter, both revision-pinned
+past their newest tags, and for the vendored gitignore grammar, which has no
+upstream release), so the UI omits the row instead of rendering a blank one;
+`revision` is always present, since the exact commit is what makes a shipped text
+verifiable rather than merely plausible.
+
+**The coverage invariant.** `LicenseCoverageTests` is the guard against the one
+failure this design cannot express in code — a dependency added to `project.yml`
+whose license nobody copied. In the `VendoredGrammarQueryTests` style it reads
+repository files through `#filePath` (Foundation only; Core links no YAML parser
+and must not start, so `project.yml` is read by a deliberately tiny,
+shape-specific line scanner) and asserts:
+
+  - the manifest's id set **equals** the `Pisaka` target's linked package set
+    from `project.yml` (minus `PisakaCore`) plus the documented transitive
+    `tree-sitter` C runtime — *set* equality, so a new dependency fails the suite
+    until its license is added, and a dropped one fails until its entry goes;
+  - the declared `packages:` set equals the linked `dependencies:` set, which
+    doubles as proof the scanner is still reading something rather than comparing
+    two empty sets (verified by mutation: adding a fake package + dependency does
+    fail the suite);
+  - every `Package.resolved` identity is either acknowledged or carries a
+    non-empty `excluded` reason;
+  - each remote entry's `revision` **equals** that identity's `Package.resolved`
+    pin, so a text can never quietly come from upstream HEAD;
+  - the `.txt` files on disk are exactly the manifest's set — the folder
+    reference ships whatever is there, so a text left behind after a dependency
+    is dropped would otherwise keep shipping;
+  - each vendored entry names a real `Vendor/<name>/LICENSE` and is
+    byte-identical to it;
+  - `libgit2`'s text contains the `LINKING EXCEPTION` section (what permits
+    linking GPLv2 code into a closed-source app);
+  - and the real manifest resolves through `LicenseCatalog` itself, so this
+    suite's own reader cannot pass a file the app would fail on.
+
+**The documented exclusion.** `swift-argument-parser` appears in
+`Package.resolved` only because the `tree-sitter` package's CLI target depends on
+it; it is not linked into the app, so no license ships for it. That is recorded
+in the manifest's `excluded` array rather than left out, because "no text for
+this one" is indistinguishable from an oversight unless the reason is written
+down — and the coverage test requires *every* resolved identity to be one or the
+other.

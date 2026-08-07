@@ -394,27 +394,51 @@ committed `Package.resolved` revision, now enforced by test.
 - Modify: `README.md`
 - Modify: `project.yml` (comments only, if anything is still unexplained)
 
-- [ ] `CLAUDE.md`: one-line index entries only — `LicenseNotice.swift` under
+- [x] `CLAUDE.md`: one-line index entries only — `LicenseNotice.swift` under
   core-services, `AcknowledgementsView.swift` under app-shell,
   `LicenseCatalogLoader.swift` + `AcknowledgementsView_iOS.swift` under app-ios,
   plus a one-line pointer to `docs/RELEASING.md`; note the release-metadata
   resources (`Resources/`) in the build/project-layout section without growing it
-  into an essay
-- [ ] `docs/architecture/core-services.md`: the full
+  into an essay — six index lines added (the `SettingsView.swift` line reworded
+  for the tab host, the `SettingsView_iOS.swift` one for the About link) plus one
+  `Resources/` bullet in the build/project-layout section carrying the
+  `docs/RELEASING.md` pointer; the file is 27.5k chars, still under the ≈30k
+  target
+- [x] `docs/architecture/core-services.md`: the full
   `LicenseNotice`/`LicenseCatalog` contract, why the catalog takes bytes rather
   than a `Bundle`, the coverage-test invariant (set equality against
   `project.yml`, revision equality against `Package.resolved`), and the
-  documented `swift-argument-parser` exclusion
-- [ ] `docs/architecture/app-shell.md` and `app-ios.md`: the Acknowledgements
+  documented `swift-argument-parser` exclusion — a new "Third-party license
+  catalog" section covering all five error cases and *why* each is a silent
+  compliance failure rather than a visible bug, the preserved manifest order, the
+  optional `version`/always-present `revision` rule, and all nine coverage
+  assertions (including the four beyond the plan's list and the mutation test
+  that proves the `project.yml` scanner is not comparing empty sets); the file
+  entry itself and a `Resources/Licenses/` bullet noting that a folder reference
+  is exactly why the manifest, not the build, is the list of record
+- [x] `docs/architecture/app-shell.md` and `app-ios.md`: the Acknowledgements
   entry points (macOS Preferences tab, iOS About → push) and the loader's
-  one-shot caching
-- [ ] record the privacy-manifest audit (which greps were run, what they found,
+  one-shot caching — `LicenseCatalogLoader` documented in full in `app-shell.md`
+  (nothing in it is platform-specific), with all three load-bearing details: the
+  `static let` cache, reading *every* `.txt` rather than the manifest's, and the
+  local `missingManifest`; `app-ios.md` carries a cross-reference plus the
+  `AcknowledgementsView_iOS` entry. Both view entries record the shared rules —
+  verbatim untruncated text, `version` omitted when `nil`, full `revision`,
+  `Link` only for `https://` origins, `failureDescription` instead of an empty
+  list
+- [x] record the privacy-manifest audit (which greps were run, what they found,
   what is deliberately absent, and the `3B52.1`-not-`DDA9.1` reasoning) in
   `core-services.md` beside the release-metadata notes, so the next audit is a
-  diff rather than a rediscovery
-- [ ] `README.md`: mention the Acknowledgements screen in the user-facing feature
-  list
-- [ ] run `swift test` — must pass before Task 8
+  diff rather than a rediscovery — already landed with Task 3 as the
+  "Required-reason API audit" block inside the "Release-metadata resources"
+  section; re-read and confirmed complete (all five grep categories, the four
+  real call sites, the non-required-reason `URLResourceKey`s, and the
+  `3B52.1`-not-`DDA9.1` reasoning)
+- [x] `README.md`: mention the Acknowledgements screen in the user-facing feature
+  list — in the macOS Preferences bullet (the Settings window's second tab) and
+  in the iOS Preferences bullet (About → Acknowledgements)
+- [x] run `swift test` — 1586 tests, 0 failures (documentation-only task, no new
+  tests)
 
 ### Task 8: Verify acceptance criteria
 

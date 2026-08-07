@@ -473,7 +473,10 @@ involved.
   it), theme (follow the system, or force light/dark), and a shared editor font
   size used by the editor, diff, and merge views. The font size is also
   adjustable on the fly with Cmd+scroll over any code view. All three settings
-  persist across launches.
+  persist across launches. The Settings window's second tab, **Acknowledgements**,
+  lists every third-party dependency the app ships — name, SPDX identifier,
+  version/revision, and upstream origin — beside its full license text, shown
+  verbatim and selectable.
 
 ## iOS / iPadOS
 
@@ -496,7 +499,8 @@ and iPhone. The feature scope landed so far:
   Cmd+scroll). The editor's line-number gutter and minimap are deferred on iOS
   (the side-by-side diff panes do still draw per-side line numbers).
 - A Preferences sheet bound to the same `SettingsStore` (theme, tab orientation,
-  font size).
+  font size), with an **About → Acknowledgements** screen listing the same
+  third-party dependencies and their full license texts as the macOS tab.
 - Git features backed by **libgit2** in-process (no `git` binary): Local Changes
   (flat / by-folder list, status badges, side-by-side diff, multi-file revert),
   Git Log (commit list with the branch-graph gutter, filter/search, commit-vs-

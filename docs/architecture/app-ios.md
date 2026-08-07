@@ -22,6 +22,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `UIAlertController`.
   - `Platform/PlatformRoute.swift` — `RoutePresentation` (separate window on
     macOS; sheet / navigation push on iOS, compact-vs-regular aware).
+  - `Platform/LicenseCatalogLoader.swift` — the bundled-license reader shared by
+    both Acknowledgements screens (one-shot `static let` cache, reads
+    `Licenses/licenses.json` + every `.txt` beside it, all decisions in Core's
+    `LicenseCatalog`). Documented in full in `app-shell.md`, since nothing in it
+    is platform-specific.
   - `iOS/PisakaApp_iOS.swift` — the iOS `@main` App (the macOS `@main` is gated
     out under one-`@main`-per-platform `#if`).
   - `iOS/RootView_iOS.swift` — adaptive root: `NavigationSplitView` (iPad/regular
@@ -99,7 +104,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     sheet bound to `SettingsStore`. `SettingsView_iOS` also carries the Personal
     Access Token section (Part B): enter / save / delete a PAT by remote host via the
     `KeychainCredentialStore`, the destination the branch-create flow directs the
-    user to on a `credentialsRequired` outcome.
+    user to on a `credentialsRequired` outcome. Its last section is "About", a
+    single `NavigationLink` to `AcknowledgementsView_iOS` — a push rather than
+    another sheet, the `Form` already sitting in a `NavigationStack`, and the
+    peer of the macOS Preferences "Acknowledgements" tab.
+  - `iOS/AcknowledgementsView_iOS.swift` — the iOS Acknowledgements screen: a
+    `List` of dependencies (name + SPDX) pushing `LicenseTextView_iOS`, the
+    detail screen carrying that entry's identity (name, SPDX, version/revision,
+    origin) and the full license text. Two levels rather than the macOS split
+    view because that is what a phone has room for; everything else matches the
+    macOS peer, deliberately — the text is a monospaced, `.textSelection(
+    .enabled)` `Text` in a `ScrollView` rendered **whole** (never truncated or
+    reflowed: the copyright lines and the permission notice are the obligation),
+    `version` is omitted when `nil` instead of rendered blank, `revision` is
+    always shown in full, `origin` is a `Link` only for the `https://` remotes,
+    and `LicenseCatalogLoader.failureDescription` replaces the list when the
+    bundle is broken so "no dependencies" is never the silent reading. Thin view,
+    untested; the logic is Core's `LicenseCatalog` (`core-services.md`).
   - `iOS/LibGit2Service.swift` — the iOS `GitServicing` implemented as a **direct
     C binding** against libgit2 (the in-process peer of the macOS
     `GitCLIService`), producing the *same* Core value types the CLI parsers do

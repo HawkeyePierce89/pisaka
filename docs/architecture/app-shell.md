@@ -728,7 +728,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     observers would make it invisible and fragile — hence
     `AutosaveController.flushNow()` being internal and `PisakaApp` calling both
     back to back from one place.
-  - `SettingsView.swift` — the Preferences form (⌘,): a thin `@ObservedObject
+  - `SettingsView.swift` — the Preferences window (⌘,), a two-tab `TabView`:
+    "General" (`GeneralSettingsView`, the form below) and "Acknowledgements"
+    (`AcknowledgementsView`). A `TabView` sizes to its widest tab, which is why
+    the split is worth noting: `GeneralSettingsView` keeps its own `.frame(width:
+    340)` while the Acknowledgements tab — needing room to read a license — is
+    what drives the window. `PisakaApp` still constructs
+    `SettingsView(settings:)` unchanged.
+    `GeneralSettingsView` is the former Preferences form, verbatim: a thin
+    `@ObservedObject
     SettingsStore` view (a `Form` with a `Picker` for tab orientation, a `Picker`
     for theme, and a `Stepper` + numeric "Editor font size: N pt" display bound to
     `settings.fontSize`, ranged/stepped through the store's constants). Hosted by
@@ -742,3 +750,43 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `.preferredColorScheme` on the window content root (`ContentView`), the tab
     layout in `ContentView`, and the shared editor font size + Cmd+scroll in the
     code views (`CodeEditorView`/`DiffView`/`MergeView`).
+  - `Platform/LicenseCatalogLoader.swift` — the non-gated shim both
+    Acknowledgements screens read (documented here rather than in `app-ios.md`
+    because nothing about it is platform-specific: `Resources/Licenses` is a
+    folder reference, so the directory lands as `Licenses/` inside the bundle on
+    both destinations — `Contents/Resources/Licenses/` on macOS, `Licenses/` at
+    the `.app` root on iOS — and `Bundle` resolves it identically from either;
+    both lookups were verified against a built macOS `.app`). It reads
+    `Licenses/licenses.json` and hands its bytes plus a `[file name: text]`
+    dictionary to Core's `LicenseCatalog`, exposing `documents` (the resolved
+    notices in manifest order, `[]` on failure) and `failureDescription` (`nil`
+    on success). Thin glue only — every decision about what a well-formed
+    manifest is stays in Core (`core-services.md`). Three details are
+    load-bearing: (a) the cache is `private static let cached = Result { try
+    load() }`, a `static let` being lazily initialized exactly once,
+    thread-safely, and immutable afterwards — the texts are a few hundred
+    kilobytes (libgit2's GPLv2-plus-exception alone is 64 KB) and never change at
+    run time, so re-reading them on every selection change would be pure waste;
+    (b) it reads *every* `.txt` in the directory rather than the ones the manifest
+    names, because the folder reference copies whatever is on disk and deciding
+    what *should* be there is Core's job — an absent or non-UTF-8 text is
+    therefore left out of the dictionary and surfaces as
+    `LicenseCatalogError.missingText`, which names the id and the file, instead of
+    a bare encoding error with no dependency attached; (c) the one failure Core
+    cannot see (the manifest itself never made it into the bundle) is the local
+    `LoaderError.missingManifest`.
+  - `AcknowledgementsView.swift` — the Preferences "Acknowledgements" tab: an
+    `HSplitView` with the dependency list (name + SPDX, `minWidth: 180` /
+    `maxWidth: 280`) beside the selected entry's identity (name, SPDX,
+    version/revision, origin) and its full license text, at a fixed 640×420. The
+    text pane is a monospaced `Text` in a `ScrollView` with
+    `.textSelection(.enabled)`, rendered **whole** — never truncated or reflowed,
+    the copyright lines and the permission notice being the obligation itself.
+    `version` is omitted when `nil` (three entries have no upstream tag) rather
+    than rendered blank; `revision` is always shown in full, the 40 hex characters
+    being what makes the text verifiable; `origin` becomes a `Link` only for the
+    `https://` remotes, the two `Vendor/<name>` paths staying plain text. When the
+    loader fails, the view shows `failureDescription` in place of the list, so "no
+    dependencies" can never be the silent reading. No logic (untested like the
+    rest of the view layer); the iOS peer is `AcknowledgementsView_iOS` in
+    `app-ios.md`.

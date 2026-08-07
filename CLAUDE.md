@@ -32,6 +32,14 @@ The app target is built through the XcodeGen-generated Xcode project, *not*
   Each builds in isolation (`swift build --package-path Vendor/<name>`); the
   root `Package.swift` does not reference them, so `swift test` stays
   dependency-free.
+- `Resources/` — release metadata bundled into the app on both destinations: the
+  partial `Info.plist` (merged with Xcode's generated keys), the
+  `PrivacyInfo.xcprivacy` manifest, and `Licenses/` (`licenses.json` + one
+  verbatim license text per shipped dependency, copied as a folder reference).
+  All three are verified statically by `swift test` (`ReleaseMetadataTests`,
+  `LicenseCoverageTests`); rationale in `docs/architecture/core-services.md`.
+  Release versioning and the per-upload build-number override are in
+  `docs/RELEASING.md`.
 - `Package.swift` builds *only* the platform-agnostic `PisakaCore` library
   (exposed as a `.library` product so the Xcode project can consume it from the
   local package) and its test target, so `swift test` stays the fast,
@@ -143,6 +151,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `EditorSession.swift` — session persistence (forward-compatible `SessionTab`, snapshot rules, `SessionStore`).
 - `ScopedFileAccess.swift` — iOS security-scope helpers + `BookmarkStore`; `path(_:isWithin:)`.
 - `TabLayout.swift` — iOS tab-presentation decision.
+- `LicenseNotice.swift` — third-party license manifest model + `LicenseCatalog` (decode/resolve, typed failures); the release-metadata resources and the coverage invariant live in the same doc.
 - `PisakaCore.swift` — package constants/version.
 
 ### `Pisaka` (app target, `Sources/Pisaka/`)
@@ -153,13 +162,15 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 
 `docs/architecture/app-ios.md` — platform shims & the whole iOS layer:
 - `Platform/PlatformColor.swift` / `PlatformFeedback.swift` / `PlatformAlert.swift` / `PlatformRoute.swift` — per-platform API shims (colors, feedback, alerts, route presentation).
+- `Platform/LicenseCatalogLoader.swift` — bundled-license reader shared by both Acknowledgements screens (one-shot cache; full entry in app-shell).
 - `iOS/PisakaApp_iOS.swift` / `RootView_iOS.swift` — iOS `@main` + adaptive root/navigation, revert & branch orchestration.
 - `iOS/BranchSwitcherView_iOS.swift` — iOS branch-switcher widget (dirty-checkout routing).
 - `iOS/CodeEditorView_iOS.swift` / `CodeEditorCoordinator_iOS.swift` — `UITextView` editor (Neon, indent/auto-pair, pinch zoom).
 - `iOS/FilePicker_iOS.swift` / `SecurityScopedBookmarks.swift` — document picker + `SecurityScopedFileService` decorator.
 - `iOS/LibGit2Service.swift` — in-process libgit2 `GitServicing` (HTTPS-only fetch, credential callback).
 - `iOS/KeychainCredentialStore.swift` — Keychain-backed PAT store.
-- `iOS/TabStrip_iOS.swift` / `SettingsView_iOS.swift` — tabs strip/switcher; settings + PAT screen.
+- `iOS/TabStrip_iOS.swift` / `SettingsView_iOS.swift` — tabs strip/switcher; settings + PAT screen (About → Acknowledgements).
+- `iOS/AcknowledgementsView_iOS.swift` — iOS Acknowledgements list → full license text.
 - `iOS/LocalChangesView_iOS.swift` / `DiffView_iOS.swift` / `DiffRoute_iOS.swift` — Local Changes + diff screens.
 - `iOS/CommitLogView_iOS.swift` / `CommitGraphView_iOS.swift` / `LogFilterBar_iOS.swift` — Log with graph gutter + filter bar.
 - `iOS/MergeView_iOS.swift` / `MergeRoute_iOS.swift` — adaptive 3-pane conflict resolver.
@@ -169,7 +180,8 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `ProjectWatcher.swift` — FSEvents subscription (realpath'd root, `IgnoreSelf`, dir-level events).
 - `AutosaveController.swift` — idle/tab-switch/focus-loss/termination autosave; two suspension counters.
 - `SessionController.swift` — debounced session writer (`dropFirst`/`lastWritten` rules).
-- `SettingsView.swift` — Preferences form.
+- `SettingsView.swift` — Preferences: the General/Acknowledgements tab host + the settings form.
+- `AcknowledgementsView.swift` — Preferences Acknowledgements tab (dependency list + verbatim license text).
 
 `docs/architecture/app-window.md` — window chrome (macOS):
 - `ContentView.swift` — window layout: splits, bottom dock, path bar, sheet wiring, deliberately non-observed `commitDialog`.
