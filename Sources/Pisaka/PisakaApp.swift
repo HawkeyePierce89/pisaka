@@ -1175,6 +1175,13 @@ struct PisakaApp: App {
             autosave.resume()
             localChanges.endRevert()
         }
+        // The buffers as they stand *before* the batch, so the resync below can
+        // name exactly the tabs it rewrote — `ReplaceSummary` counts files, it does
+        // not list them. Keyed by tab id, not URL: two tabs can legitimately show
+        // the same file (opened once by path, once through a symlink).
+        let textsBeforeBatch = Dictionary(
+            uniqueKeysWithValues: model.openFiles.map { ($0.id, $0.text) }
+        )
         let summary = await projectSearch.replaceAll(
             template: template,
             originGeneration: originGeneration
@@ -1185,6 +1192,18 @@ struct PisakaApp: App {
         // The batch rewrote files the user mostly has no tab for, so their symbols
         // are stale until a stamp-gated refresh re-extracts them.
         notifyIndexOfProjectFileChanges()
+        // …but a file that *does* have a tab was replaced **in the buffer**
+        // (`applyBufferText`), never on disk, and a buffer-sourced entry is exactly
+        // what that refresh declines to re-extract. Only the selected tab repairs
+        // itself, through its live `CodeEditorView`'s content-replaced path; every
+        // other rewritten tab would keep answering Go to Definition and completion
+        // with the pre-replacement identifiers, at the pre-replacement ranges,
+        // until it was selected or closed. Same resync the worktree rewrites do
+        // (revert / checkout / merge apply) — see `reindexReloadedBuffer`.
+        for file in model.openFiles {
+            guard let url = file.url, textsBeforeBatch[file.id] != file.text else { continue }
+            reindexReloadedBuffer(id: file.id, url: url)
+        }
         return summary
     }
 
@@ -2125,9 +2144,10 @@ struct PisakaApp: App {
         symbolIndexController.noteBufferClosed(url: url)
     }
 
-    /// Re-index a still-open tab whose buffer an in-app worktree rewrite (revert,
-    /// branch checkout, merge apply) just replaced with the file's new on-disk
-    /// contents through `reloadFromDisk`.
+    /// Re-index a still-open tab whose buffer an in-app rewrite just replaced —
+    /// with the file's new on-disk contents through `reloadFromDisk` (revert,
+    /// branch checkout, merge apply), or with replaced text written straight into
+    /// the buffer (project-wide Replace All).
     ///
     /// The `notifyIndexOfProjectFileChanges()` refresh these same operations
     /// schedule cannot cover this: the file is still buffer-sourced, and the walk

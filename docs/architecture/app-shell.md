@@ -153,8 +153,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     within itself — and anything else focused beeps rather than acting somewhere the
     user is not typing.
     `reindexReloadedBuffer(id:url:)` is the counterpart of `forgetIndexedBuffer` on
-    the *success* side of the three post-git resyncs: a tab whose buffer
-    `reloadFromDisk` just replaced is still buffer-sourced, so the
+    the *success* side of the three post-git resyncs **and of Replace All**: a tab
+    whose buffer `reloadFromDisk` — or `applyBufferText` — just replaced is still
+    buffer-sourced, so the
     `notifyIndexOfProjectFileChanges()` refresh beside it deliberately declines to
     re-extract or remove it. Only the *selected* tab re-indexes itself, through its
     live `CodeEditorView`'s content-replaced path; without this call a background
@@ -172,7 +173,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `localChanges.beginRevert()` **synchronously before the first `await`**
     (balanced by `defer`), and afterwards — only when something actually changed —
     re-queries Local Changes and bumps `treeRevision` (the batch changed file
-    contents on disk and the watcher ignores the app's own writes). It does **not**
+    contents on disk and the watcher ignores the app's own writes) and calls
+    `notifyIndexOfProjectFileChanges()` for the files no tab owns. The files that
+    *do* have a tab were replaced in the **buffer**, never on disk, so that refresh
+    cannot reach them; they are resynced individually through
+    `reindexReloadedBuffer(id:url:)`, selected by diffing each tab's text against a
+    snapshot taken before the batch (`ReplaceSummary` counts files, it does not name
+    them; the snapshot is keyed by tab id because two tabs can show the same file).
+    It does **not**
     capture the project pin itself — its own synchronous prefix already runs
     *inside* the view's `Task`, i.e. after the window the pin exists to close — so
     `originGeneration` arrives from `ProjectSearchView.confirmReplaceAll` (read
