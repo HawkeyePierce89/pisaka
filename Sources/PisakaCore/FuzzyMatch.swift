@@ -146,12 +146,31 @@ public enum FuzzyMatch {
         // The prefix tiers first: they are the common case, they short-circuit
         // the character-array work below, and their key is a constant.
         if candidate.hasPrefix(query) { return .prefix(tier: Quality.caseSensitivePrefixTier) }
-        if candidate.lowercased().hasPrefix(query.lowercased()) {
+        // `lowercased()` allocates a whole String per side, so it is reached only
+        // once the first characters agree — a necessary condition for the prefix
+        // (the first character of a lowercased string is the lowercased first
+        // character), and one that rejects nearly every candidate for two
+        // character lowercasings instead of two string allocations.
+        if let queried = query.first, let leading = candidate.first,
+           lowercased(leading) == lowercased(queried),
+           candidate.lowercased().hasPrefix(query.lowercased()) {
             return .prefix(tier: Quality.caseInsensitivePrefixTier)
         }
 
+        // **The allocation gate.** Everything below builds four arrays per
+        // candidate, and this function is asked about every harvested buffer
+        // word (up to `defaultBufferWordLimit`), every keyword and — in member
+        // position — every member the index holds, on every completion tick.
+        // Answering "no" is by far the common case, so it must not cost an
+        // allocation: this walk is the *necessary* half of what `positions`
+        // decides (that one additionally demands the first character land on a
+        // boundary, so it can only reject more), done over the two strings in
+        // place. Without it a rejection costs the same as a match — measurably
+        // ~100× the literal-prefix test this matcher replaced, paid on the
+        // ordinary per-keystroke path rather than only after a dot.
+        guard isSubsequence(query, of: candidate) else { return nil }
+
         let characters = Array(candidate)
-        guard query.count <= characters.count else { return nil }
         let lowered = characters.map(lowercased)
         let target = query.map(lowercased)
         let boundaries = boundaryFlags(of: characters)
@@ -208,14 +227,36 @@ public enum FuzzyMatch {
     /// both go through, so the two cannot drift apart at the cap.
     private static func boundaryInitials(of lowered: [Character], boundaries: [Bool]) -> [Character] {
         var initials: [Character] = []
-        var seen = Set<Character>()
         for index in lowered.indices where boundaries[index] {
             let initial = lowered[index]
-            guard seen.insert(initial).inserted else { continue }
+            // A linear scan rather than a `Set`: the list is capped at
+            // `maximumInitials`, so the membership test is over at most eight
+            // characters, and this runs once per symbol on every re-index as
+            // well as once per surviving candidate on every completion tick —
+            // where allocating a hash set to hold eight characters is the cost
+            // that shows up, not the comparisons it saves.
+            guard !initials.contains(initial) else { continue }
             initials.append(initial)
             if initials.count == maximumInitials { break }
         }
         return initials
+    }
+
+    /// Whether `query` is a case-insensitive subsequence of `candidate` — the
+    /// allocation-free necessary condition `quality(of:matching:)` gates its
+    /// array work behind.
+    ///
+    /// Lowercasing is per-character, exactly as the arrays below do it, so this
+    /// walk and `positions(of:in:boundaries:preferringBoundaries:)` cannot
+    /// disagree about which characters are equal.
+    private static func isSubsequence(_ query: String, of candidate: String) -> Bool {
+        var remaining = query.makeIterator()
+        guard var needle = remaining.next().map(lowercased) else { return true }
+        for character in candidate where lowercased(character) == needle {
+            guard let next = remaining.next() else { return true }
+            needle = lowercased(next)
+        }
+        return false
     }
 
     /// One index per query character, or `nil` when the walk cannot place them

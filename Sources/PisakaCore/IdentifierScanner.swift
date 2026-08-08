@@ -178,8 +178,8 @@ public enum IdentifierScanner {
     /// after a bare number — `1.|` and `1.5|` are float literals, caught by the
     /// trim rule (a run of digits is not an identifier), so typing a decimal
     /// point never opens a member list. The same trim rule rejects a member
-    /// prefix that is *itself* all digits (`pair.0|`, `ubuntu20.04|`) — see the
-    /// guard below.
+    /// prefix that does not *begin* where the dot ends (`pair.0|`,
+    /// `ubuntu20.04|`, `ubuntu20.04lts|`) — see the guard below.
     ///
     /// **String and comment context is deliberately not detected.** A dot inside
     /// a string literal or a comment *does* report a member position, exactly as
@@ -205,16 +205,21 @@ public enum IdentifierScanner {
         guard let preceding = scalar(in: text, endingAt: dot.range.location) else { return nil }
 
         let prefixRange = completionPrefixRange(in: text, at: clamped)
-        // A member prefix that is *all digits* is not something the name-based
-        // index can complete, and reporting one would be actively wrong twice
-        // over: the trim rule leaves nothing, so `prefixRange` is the **empty
-        // range after the digits** — which the provider reads as "the dot was
-        // just typed" and answers with every member in the project, and which the
-        // editors insert at, turning `pair.0|` into `pair.0doWork`. Swift tuple
-        // access (`pair.0`, `point.1`) hits this on every keystroke, as does
-        // version-shaped text (`ubuntu20.04`). An *empty* run is the legitimate
-        // bare-dot case and stays.
-        guard start == clamped || prefixRange.length > 0 else { return nil }
+        // **The member prefix must begin right after the dot.** `prefixRange` is
+        // the trimmed identifier inside the run, so the two agree exactly when
+        // the run either is empty (the legitimate bare-dot case, an empty range
+        // at the caret) or starts with something that can begin a name. Anywhere
+        // they disagree, the text after the dot opens with digits — and reporting
+        // a member position there would be wrong at whichever offset the trim
+        // landed on: `pair.0|` and `ubuntu20.04|` trim to *nothing*, leaving the
+        // empty range the provider reads as "the dot was just typed" and answers
+        // with every member in the project while the editors insert at it,
+        // turning `pair.0` into `pair.0doWork`; `ubuntu20.04lts|` trims to `lts`,
+        // three characters into a run that is not a member access at all, and
+        // completing it rewrites the version to `ubuntu20.04doWork`. Swift tuple
+        // access (`pair.0`, `point.1`) hits the first shape on every keystroke,
+        // version-shaped text both.
+        guard prefixRange.location == start else { return nil }
         if preceding.value == ")" || preceding.value == "]" || preceding.value == "}" {
             return MemberContext(receiver: nil, prefixRange: prefixRange)
         }

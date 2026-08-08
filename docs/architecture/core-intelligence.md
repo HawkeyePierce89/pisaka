@@ -98,6 +98,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     keystroke: the pair answers "is this a subsequence at all" exactly, and only
     the *quality* of a pathological name (`abC_bx` against `abc`, where the
     boundary-preferring pass has to back off) depends on which pass succeeded.
+    **Answering "no" must not cost an allocation**, and that is a stated
+    requirement rather than a tuning detail: this function is asked about every
+    harvested buffer word (up to 5 000), every keyword and — in member position —
+    every member the index holds, on every completion tick, and rejection is by
+    far the common answer. So the two-pass walk and the four arrays it needs sit
+    behind two gates that allocate nothing: a first-character comparison before
+    the case-insensitive prefix test's `lowercased()` pair, and
+    `isSubsequence(_:of:)`, an in-place walk of the *necessary* half of what the
+    positional pass decides (that one additionally demands a boundary anchor, so
+    it can only reject more). Without them a rejection cost the same as a match —
+    measured at ~100× the literal-prefix test the matcher replaced, over a
+    5 000-word buffer, paid on the ordinary per-keystroke path and not only after
+    a dot. The capped initials list is likewise deduplicated by a linear scan of
+    at most eight characters rather than by a `Set`, which would allocate a hash
+    table per candidate *and* per symbol on every re-index.
     `matches(_:query:)` is the same call without the key, for the filtering call
     sites that do not rank — `SymbolIndex`'s lookups and the iOS insertion guard.
   - `SymbolIndex.swift` — the project's symbol store: per-file symbol arrays plus
@@ -176,22 +191,43 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     superset that replaced the old prefix lookup rather than a different rule —
     `arr` still finds `ArrayBuffer`, and now `aBu` and `buf` do too — and caps
     *after* ordering, so the cap is deterministic rather than "whichever matches
-    were stored first". An empty name or query yields nothing. `indexedFileCount`
+    were stored first". **The cap fills from the literal-prefix matches first**,
+    which is a truncation rule and not a ranking (the returned array is still in
+    the one documented order, and the provider still ranks it): fuzzy matching
+    widened the matched set by one to two orders of magnitude for a short query
+    while the caller's `limit` — a multiple of what the popup shows, not of the
+    project — did not, so a cut made purely in file-key order would decide *which*
+    matches the ranking ever sees by how paths happen to sort. A `setUp` in
+    `zzTests/` is an exact prefix match for `se` that the pre-fuzzy lookup always
+    offered and that a path-ordered cut would silently drop behind a few hundred
+    unrelated `s…e…` names. The provider cannot repair this afterwards — by the
+    time it sees the result the evicted candidate is simply absent — so it is
+    fixed at the cut, at the cost of one extra partition of a set already in hand.
+    An empty name or query yields nothing. `indexedFileCount`
     counts a walked file that yielded no symbols too: it *is* indexed, just empty.
-    **Member lookup adds no index structure**, deliberately.
-    `members(matching:limit:)` is one ordered pass over the per-file storage
-    (files by key, symbols in extraction order) keeping the `.method`/`.property`/
-    `.constant` symbols that carry a non-empty `containerName`, stopping at
-    `limit`; `members(inContainer:)` is the same filter restricted to one
+    **Member lookup adds no index structure of its own**, deliberately: a
+    *non-empty* member query reads the very same `initialBucket`
+    `symbols(matching:limit:)` does, by the same argument (the matcher anchors the
+    first matched character on a word boundary and every boundary is a bucket key,
+    so that one bucket already holds every member that could match), with only the
+    `.method`/`.property`/`.constant`-with-a-container filter applied on top. That
+    routing is what keeps the member path off a project-wide scan while the user
+    types, which is the case that would otherwise walk every symbol in the project
+    once per keystroke and never reach its cap. The linear pass over the per-file
+    storage (files by key, symbols in extraction order) is left to the **empty**
+    query — the bare typed `.`, which has no first character to look a bucket up
+    by — and is bounded from the other end instead: with no query every member
+    counts, so it stops after seeing `limit` of them, which in a project large
+    enough for the scan to hurt happens almost immediately.
+    `members(inContainer:)` is the same kind filter restricted to one
     container name, case-**sensitively** (a type differing only in case is a
     different type, the `symbols(named:)` reasoning) and **uncapped**, because one
     type's member list is small by construction and truncating it is exactly what
     would make the receiver's own members — the ones the provider ranks first —
     go missing. A by-container bucket was rejected: it would cost memory on every
-    keystroke to speed up the one request that can afford to be linear, since
-    this path runs at most once per typed `.`, behind the editor's completion
-    debounce and off the main actor, while ordinary per-keystroke completion never
-    takes it. **An empty query matches every member** here and nowhere else in
+    keystroke to speed up a pass that compares a container name per symbol without
+    running the matcher at all, and that runs only when the receiver spells a
+    declared type. **An empty query matches every member** here and nowhere else in
     the type — that is the typed-dot case, where the user has committed to a
     member access and typed nothing, so the candidate set is bounded by the kind
     filter rather than by the text and the cap is what keeps it finite; that
@@ -530,14 +566,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (`foo .|`), after `(` or `,`, after another dot (`..|`), at the start of the
     file, and after a bare number — `1.|` is caught by the trim rule (a run of
     digits is not an identifier), so typing a decimal point never opens a member
-    list. The same trim rule rejects a member prefix that is *itself* all digits
-    (`pair.0|`, `ubuntu20.04|`), and that rejection is explicit rather than
-    incidental: the trim leaves nothing, so `prefixRange` would be the empty range
-    **after** the digits — which the provider reads as "the dot was just typed"
-    and answers with every member in the project, and which both editors insert
-    at, turning `pair.0|` into `pair.0doWork`. Swift tuple access hits it on every
-    keystroke, so `memberContext` returns `nil` when a non-empty prefix run trims
-    away entirely. Deleting the dot returns `nil` and the ordinary path resumes.
+    list. The same trim rule rejects a member prefix that does not **begin** where
+    the dot ends, and that rejection is explicit rather than incidental — the
+    guard is `prefixRange.location == start`, i.e. the trimmed identifier and the
+    raw run after the dot start at the same offset. Two shapes fail it, both from
+    digits. A run that is *all* digits (`pair.0|`, `ubuntu20.04|`) trims to
+    nothing, so `prefixRange` would be the empty range **after** the digits —
+    which the provider reads as "the dot was just typed" and answers with every
+    member in the project, and which both editors insert at, turning `pair.0|`
+    into `pair.0doWork`. A run that merely *starts* with digits
+    (`ubuntu20.04lts|`, `v1.0beta|`) trims partway in, so a completion would
+    replace `lts` three characters inside a token that is not a member access at
+    all, rewriting the version to `ubuntu20.04doWork`. Swift tuple access hits the
+    first shape on every keystroke. A leading `_` *is* an identifier start, so
+    `worker._x|` is unaffected. Deleting the dot returns `nil` and the ordinary
+    path resumes.
     **String and comment context is deliberately not detected**: a dot inside a
     string literal or a comment *does* report a member position, exactly as
     identifier completion already offers candidates while typing inside one —
@@ -732,7 +775,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     falls earlier in file-key order and the current file is likelier to sit past
     it. The file-scoped lookup is unfiltered, so its symbols are re-matched rather
     than trusted wholesale — it is the matcher, applied to every source alike,
-    that decides what is a candidate.
+    that decides what is a candidate. The *other* half of that widening — a
+    literal prefix match in some third file evicted by unrelated fuzzy matches
+    from files that sort earlier — cannot be repaired here at all, because by the
+    time this sees the result the evicted candidate is simply absent; it is
+    handled at the cut instead, by `symbols(matching:limit:)` filling the cap from
+    the prefix matches first.
     **Member mode is a branch, not a filter**, taken whenever `request.member` is
     non-`nil`, and it changes three things while reordering nothing. *The prefix
     may be empty*: a typed `.` is the user committing to a member access before
@@ -766,10 +814,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     visible cap the way `candidateLimit(for:)` is, because that one slices a set
     the *query* already narrowed while a bare dot has no query at all — a few
     hundred members is far more than the popup can show and far less than a large
-    project declares, which keeps the one linear pass short enough to run behind
-    the debounce for as long as the caret sits after a dot (`worker.`, `worker.n`
-    and `worker.na` are all member positions, so it is once per completion tick,
-    not once per dot). **The buffer-word fallback requires a non-empty member
+    project declares. That cap is also what bounds the bare-dot lookup's linear
+    pass, which stops as soon as it has seen that many members; every *other*
+    member request — `worker.n`, `worker.na`, i.e. every subsequent completion
+    tick for as long as the caret sits after the dot — carries a query and is
+    answered from the initial bucket instead of by a walk, which is what keeps the
+    per-keystroke cost of member mode comparable to ordinary completion rather
+    than proportional to the size of the project. **The buffer-word fallback requires a non-empty member
     prefix**: words are offered only when the user has typed at least one character
     after the dot *and* no member matched it — the case where the project simply
     has not indexed the receiver's type and a word is better than an empty popup.

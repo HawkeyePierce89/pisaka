@@ -326,6 +326,33 @@ final class SymbolIndexTests: XCTestCase {
         XCTAssertEqual(index.symbols(matching: "run", limit: 2).map(\.name), ["run0", "run1"])
     }
 
+    /// The cut fills from the *literal prefix* matches first.
+    ///
+    /// Fuzzy matching widened the matched set by one to two orders of magnitude
+    /// while the caller's cap did not, so a cut made purely in file-key order
+    /// would decide which matches the ranking ever sees by how paths sort: here
+    /// `setUp` is an exact prefix match for `se` and lives in the last-sorting
+    /// file, behind more fuzzy-only matches than the cap allows. It has to
+    /// survive anyway — the caller cannot rank a candidate it was never handed.
+    func testTheLimitEvictsFuzzyMatchesBeforeLiteralPrefixMatches() {
+        var index = SymbolIndex()
+        let early = "/tmp/pisaka-symbols/aaa.swift"
+        let late = "/tmp/pisaka-symbols/zzz.swift"
+        // Fuzzy-only matches for `se`: an `s` word boundary, an `e` later on.
+        index.replace(
+            fileURL: url(early),
+            symbols: (0..<10).map { symbol("sharedState\($0)", at: $0 * 10, in: early) }
+        )
+        index.replace(fileURL: url(late), symbols: [symbol("setUp", at: 0, in: late)])
+
+        let found = index.symbols(matching: "se", limit: 3).map(\.name)
+        XCTAssertTrue(found.contains("setUp"), "\(found)")
+        XCTAssertEqual(found.count, 3)
+        // The order handed back is still the one documented order, not the
+        // split used to decide the cut.
+        XCTAssertEqual(found, ["sharedState0", "sharedState1", "setUp"])
+    }
+
     /// Ordering is file key, then location, then name — regardless of the order
     /// the files were indexed in.
     func testLookupsAreOrderedByFileKeyThenLocation() {

@@ -190,12 +190,35 @@ public struct SymbolIndex: Equatable, Sendable {
     /// (Member completion's typed dot is the one case where an empty query is
     /// meaningful, and it asks `members(matching:limit:)` instead — where the
     /// candidate set is bounded by the member kinds rather than by the query.)
+    ///
+    /// **A literal prefix match survives the cut ahead of a fuzzy one**, and that
+    /// is a truncation rule rather than a ranking: the returned array is still in
+    /// the one documented order, and the caller still ranks it. It exists because
+    /// fuzzy matching widened the matched set by one to two orders of magnitude
+    /// for a short query while `limit` — which the provider sets to a multiple of
+    /// what the popup shows, not to the size of the project — did not. Cutting
+    /// that set purely by file key would decide *which* matches the ranking ever
+    /// sees by how paths happen to sort: a `setUp` in `zzTests/` is an exact
+    /// prefix match for `se`, and in a project with a few hundred names holding
+    /// an `s`-word followed by an `e` it would fall past the cut and never be
+    /// offered, while it always was before the matcher widened. Splitting the cut
+    /// costs one extra partition of a set already in hand and makes the eviction
+    /// order the one property the caller cannot repair afterwards.
     public func symbols(matching query: String, limit: Int) -> [Symbol] {
         guard !query.isEmpty, limit > 0, let initial = Self.initial(of: query) else { return [] }
-        let matches = (initialBucket[initial] ?? []).filter {
-            FuzzyMatch.matches($0.symbol.name, query: query)
+
+        var prefixMatches: [Entry] = []
+        var fuzzyMatches: [Entry] = []
+        for entry in initialBucket[initial] ?? [] {
+            guard let quality = FuzzyMatch.quality(of: entry.symbol.name, matching: query) else { continue }
+            if quality.isPrefixMatch { prefixMatches.append(entry) } else { fuzzyMatches.append(entry) }
         }
-        return Array(Self.ordered(matches).prefix(limit))
+        guard prefixMatches.count + fuzzyMatches.count > limit else {
+            return Self.ordered(prefixMatches + fuzzyMatches)
+        }
+        let keptPrefixes = Self.sorted(prefixMatches).prefix(limit)
+        let keptFuzzy = Self.sorted(fuzzyMatches).prefix(limit - keptPrefixes.count)
+        return Self.ordered(Array(keptPrefixes) + Array(keptFuzzy))
     }
 
     /// Every *member* — a `.method`, `.property` or `.constant` that names an
@@ -212,21 +235,36 @@ public struct SymbolIndex: Equatable, Sendable {
     /// `.constant` declared at file scope is not reachable through a dot, and
     /// offering it after one would be a worse answer than offering nothing.
     ///
-    /// **No index structure backs this** — it is one ordered pass over the
-    /// per-file storage, stopping at `limit`. It runs once per completion tick
-    /// for as long as the caret sits after a dot (`worker.`, `worker.n`,
-    /// `worker.na` are all member positions), never on the ordinary
-    /// per-keystroke path — so what bounds the cost is the editor's completion
-    /// debounce coalescing a burst of keystrokes into one pass, run off the main
-    /// actor. A by-container bucket would cost memory on *every* keystroke to
-    /// speed up the requests that can afford to be linear.
+    /// **A non-empty query reads the same single bucket `symbols(matching:)`
+    /// does**, for the same reason and by the same argument: the matcher requires
+    /// the first matched character to land on a word boundary, and every boundary
+    /// of every name is a bucket key, so the bucket the query's first character
+    /// names already holds every member that could match. Only the kind filter is
+    /// applied on top.
+    ///
+    /// That routing is what keeps the member path off a project-wide scan. The
+    /// linear pass below is reached only by the **empty** query — the bare typed
+    /// dot — where there is no first character to look a bucket up by. It is
+    /// bounded from the other end instead: with no query every member counts, so
+    /// the walk stops at `limit` after seeing `limit` members, which in a project
+    /// large enough for the scan to be expensive happens almost immediately. A
+    /// *selective* query is the case that would otherwise walk every symbol in
+    /// the project without ever reaching the cap — and it is exactly the case the
+    /// user is in while typing, one completion tick per character.
     public func members(matching query: String, limit: Int) -> [Symbol] {
         guard limit > 0 else { return [] }
+
+        if !query.isEmpty {
+            guard let initial = Self.initial(of: query) else { return [] }
+            let matches = (initialBucket[initial] ?? []).filter {
+                Self.isMember($0.symbol) && FuzzyMatch.matches($0.symbol.name, query: query)
+            }
+            return Array(Self.ordered(matches).prefix(limit))
+        }
 
         var found: [Symbol] = []
         for key in files.keys.sorted() {
             for symbol in files[key] ?? [] where Self.isMember(symbol) {
-                guard query.isEmpty || FuzzyMatch.matches(symbol.name, query: query) else { continue }
                 found.append(symbol)
                 if found.count == limit { return found }
             }
@@ -330,12 +368,20 @@ public struct SymbolIndex: Equatable, Sendable {
     /// name. Deterministic regardless of the order files were indexed in, which
     /// is what keeps a rebuilt index from reshuffling a menu under the user.
     private static func ordered(_ entries: [Entry]) -> [Symbol] {
+        sorted(entries).map(\.symbol)
+    }
+
+    /// The same order, still as entries — what a lookup that has to *select*
+    /// before it projects (the split cut in `symbols(matching:limit:)`) needs, so
+    /// both halves are truncated by the one documented order rather than by
+    /// storage position.
+    private static func sorted(_ entries: [Entry]) -> [Entry] {
         entries.sorted { lhs, rhs in
             if lhs.fileKey != rhs.fileKey { return lhs.fileKey < rhs.fileKey }
             if lhs.symbol.range.location != rhs.symbol.range.location {
                 return lhs.symbol.range.location < rhs.symbol.range.location
             }
             return lhs.symbol.name < rhs.symbol.name
-        }.map(\.symbol)
+        }
     }
 }

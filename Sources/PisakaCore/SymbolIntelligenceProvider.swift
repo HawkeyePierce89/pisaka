@@ -277,6 +277,13 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
         // symbols are re-matched below rather than trusted wholesale — the
         // file-scoped lookup is unfiltered, so it is the matcher, applied to
         // every source alike, that decides what is a candidate.
+        //
+        // The *other* half of that widening — a literal prefix match in some
+        // third file being evicted by unrelated fuzzy matches from files that
+        // sort earlier — cannot be repaired here, because by the time this sees
+        // the result the evicted candidate is simply absent. It is handled at the
+        // cut instead, by `symbols(matching:limit:)` filling the cap from the
+        // prefix matches first; see the truncation rule stated there.
         let symbols = index.symbols(matching: query, limit: candidateLimit(for: limit))
             + (request.fileURL.map { index.symbols(inFile: $0) } ?? [])
         var ranked: [Ranked] = symbols.compactMap { symbol in

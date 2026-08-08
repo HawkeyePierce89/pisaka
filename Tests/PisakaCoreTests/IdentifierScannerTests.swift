@@ -214,26 +214,41 @@ final class IdentifierScannerTests: XCTestCase {
         }
     }
 
-    /// A member prefix that is *all digits* is not a member position at all.
+    /// A member prefix that does not *begin* right after the dot is not a member
+    /// position at all.
     ///
-    /// The trim rule leaves nothing, so `completionPrefixRange` would report the
-    /// empty range **after** the digits — which the provider reads as "the dot was
-    /// just typed" (and answers with every member in the project) and which the
-    /// editors insert at, turning `pair.0|` into `pair.0doWork`. Swift tuple
-    /// access makes this an every-keystroke case, not an exotic one.
-    func testMemberContextIsNilWhenTheMemberPrefixIsAllDigits() {
-        for source in ["pair.0", "point.12", "ubuntu20.04", "items[0].7"] {
+    /// Two shapes, one rule. When the run after the dot is all digits the trim
+    /// leaves nothing, so `completionPrefixRange` reports the empty range **after**
+    /// the digits — which the provider reads as "the dot was just typed" (and
+    /// answers with every member in the project) and which the editors insert at,
+    /// turning `pair.0|` into `pair.0doWork`. When the run merely *starts* with
+    /// digits the trim lands partway into it, and completing there rewrites the
+    /// middle of a token: `ubuntu20.04lts|` would offer members for the receiver
+    /// `ubuntu20` and replace `lts`, yielding `ubuntu20.04doWork`. Swift tuple
+    /// access makes the first shape an every-keystroke case, not an exotic one.
+    func testMemberContextIsNilWhenTheMemberPrefixDoesNotStartAtTheDot() {
+        let sources = [
+            "pair.0", "point.12", "ubuntu20.04", "items[0].7",  // trims to nothing
+            "ubuntu20.04lts", "v1.0beta", "x.0rc",               // trims partway in
+        ]
+        for source in sources {
             XCTAssertNil(
                 IdentifierScanner.memberContext(in: text(source), at: (source as NSString).length),
                 source
             )
         }
         // The empty run is the legitimate bare-dot case and is unaffected, as is a
-        // digit-*containing* prefix that still trims to a name.
+        // prefix that *contains* digits but still begins with a name character.
         XCTAssertNotNil(IdentifierScanner.memberContext(in: text("pair."), at: 5))
         XCTAssertEqual(
             IdentifierScanner.memberContext(in: text("worker.name0"), at: 12)?.prefixRange,
             NSRange(location: 7, length: 5)
+        )
+        // A leading `_` starts an identifier, so it is the run's own first
+        // character and the position stands.
+        XCTAssertEqual(
+            IdentifierScanner.memberContext(in: text("worker._x"), at: 9)?.prefixRange,
+            NSRange(location: 7, length: 2)
         )
     }
 
