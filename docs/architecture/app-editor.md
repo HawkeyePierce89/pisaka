@@ -266,7 +266,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `navigateToDefinition` is re-assigned on **every** update, because it captures
     the scene's state and a stale one would open tabs through a torn-down
     workspace. `makeNSView` binds three new `EditorTextView` closures — a ⌘-click's
-    `onGoToDefinition`, ⌃Space's `onRequestCompletions`, and
+    `onGoToDefinition`, the completion request's `onRequestCompletions`, and
     `onCompletionInsertion` — all with the same **weak** coordinator capture the
     `onDuplicate`/`onCancelSearch` rule requires, and attaches the coordinator's
     `CompletionController` to the text view (nothing is computed there: candidates
@@ -321,7 +321,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     stock completion bindings (⌥⎋, F5) on the same word in the incoming file would
     be served the outgoing file's list — ranked with the wrong file as "current",
     so the declarations actually on screen are missing or demoted. The iOS editor
-    clears its strip on the identical condition. On `EditorTextView` itself: `rangeForUserCompletion` is overridden
+    clears its strip on the identical condition. On `EditorTextView` itself:
+    `keyDown(with:)` claims a *clean* ⌃Space (no ⌘/⇧/⌥, editable, no marked text)
+    and routes it to `completeAtCaret()`. That binding lives here rather than on the
+    Find menu item — the only shortcut in the app that does — because a menu key
+    equivalent is claimed **app-wide** and is offered the keystroke before the key
+    window's first responder, and ⌃Space is the one shortcut the app wants that
+    carries no ⌘: as a menu binding it swallowed ⌃Space out of a focused embedded
+    terminal, which needs it as NUL (readline's and Emacs' `set-mark`), beeping
+    instead once `completeAtCaret()`'s first-responder cast failed — and only once a
+    tab was open, since a disabled item does not claim its equivalent. It bails on
+    marked text for the same reason ⌘D does. `rangeForUserCompletion` is overridden
     to return Core's completion-prefix range (AppKit's stock implementation walks
     back over a broader word class and reporting the whole dotted expression is the
     classic reason a popup offers nothing; a non-empty selection is left to `super`);

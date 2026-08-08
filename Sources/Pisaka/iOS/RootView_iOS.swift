@@ -543,6 +543,8 @@ struct RootView_iOS: View {
                     model.close(id: id, force: true)
                     forgetIndexedBuffer(url)
                     PlatformFeedback.warning()
+                } else {
+                    reindexReloadedBuffer(id: id, url: url)
                 }
             } else {
                 model.close(id: id, force: true)
@@ -630,6 +632,8 @@ struct RootView_iOS: View {
                 model.close(id: id, force: true)
                 forgetIndexedBuffer(resolvedURL)
                 PlatformFeedback.warning()
+            } else {
+                reindexReloadedBuffer(id: id, url: resolvedURL)
             }
         } else {
             model.close(id: id, force: true)
@@ -802,6 +806,8 @@ struct RootView_iOS: View {
                     model.close(id: id, force: true)
                     forgetIndexedBuffer(fileURL)
                     didPreserve = true
+                } else {
+                    reindexReloadedBuffer(id: id, url: fileURL)
                 }
             } else {
                 model.close(id: id, force: true)
@@ -885,6 +891,25 @@ struct RootView_iOS: View {
     private func forgetIndexedBuffer(_ url: URL?) {
         guard let url, model.fileID(forURL: url) == nil else { return }
         symbolIndexController.noteBufferClosed(url: url)
+    }
+
+    /// Re-index a still-open tab whose buffer a worktree rewrite (revert, branch
+    /// checkout, merge apply) just replaced through `reloadFromDisk` — the iOS peer
+    /// of `PisakaApp.reindexReloadedBuffer`, and load-bearing for the same reason.
+    ///
+    /// The `notifyIndexOfProjectFileChanges()` refresh beside it cannot reach these
+    /// files: they are still buffer-sourced, and the walk declines to re-extract or
+    /// remove a file an editor owns. Only the *selected* tab re-indexes itself,
+    /// from its live `CodeEditorView_iOS`; a background tab has no editor behind it
+    /// and would keep answering out of the previous revision until selected or
+    /// closed.
+    private func reindexReloadedBuffer(id: UUID, url: URL) {
+        guard let text = model.text(for: id) else { return }
+        symbolIndexController.noteBufferOpened(
+            url: url,
+            text: text,
+            language: SyntaxLanguage(forFileName: url.lastPathComponent)
+        )
     }
 
     /// Tell the symbol index that the project's files changed on disk — the iOS

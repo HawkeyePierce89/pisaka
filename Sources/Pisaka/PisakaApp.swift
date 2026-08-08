@@ -452,14 +452,19 @@ struct PisakaApp: App {
                     .keyboardShortcut("j", modifiers: [.control, .command])
                     .disabled(model.selectedID == nil)
 
-                // ⌃Space — the explicit "complete this word now" command, in
-                // addition to AppKit's stock ⌥⎋ and F5, which reach the same
-                // delegate. Both are kept: ⌃Space is what a code editor's users
-                // reach for, but macOS ships it bound to "Select the previous
-                // input source", so a user with more than one input source
-                // installed still has two working alternatives.
+                // The explicit "complete this word now" command, in addition to
+                // AppKit's stock ⌥⎋ and F5, which reach the same delegate.
+                //
+                // Carries *no* key equivalent, unlike every other item here, and
+                // that is the point: its ⌃Space lives on `EditorTextView.keyDown`
+                // instead (see the override, which explains why). A menu equivalent
+                // is claimed app-wide and beats the first responder to the
+                // keystroke, and ⌃Space is the one shortcut this app wants that
+                // carries no ⌘ — so binding it here swallowed ⌃Space out of the
+                // focused embedded terminal, which needs it as NUL. The item stays
+                // for discoverability and still works while the editor is focused,
+                // via the same responder hop as ⌃⌘J.
                 Button("Complete") { completeAtCaret() }
-                    .keyboardShortcut(.space, modifiers: .control)
                     .disabled(model.selectedID == nil)
             }
 
@@ -1124,8 +1129,10 @@ struct PisakaApp: App {
 
     // MARK: - Completion
 
-    /// The Find menu's "Complete" (⌃Space): ask the focused editor to offer
-    /// completions for the word at its caret.
+    /// The Find menu's "Complete": ask the focused editor to offer completions for
+    /// the word at its caret. (⌃Space reaches the same request without passing
+    /// through here — `EditorTextView.keyDown` handles it, so the keystroke is not
+    /// taken from the embedded terminal.)
     ///
     /// Routed through the first responder for the same reason as
     /// `goToDefinitionAtCaret()` — the command carries no state, and the responder
@@ -1387,6 +1394,8 @@ struct PisakaApp: App {
                         model.close(id: id, force: true)
                         forgetIndexedBuffer(url)
                         PlatformFeedback.warning()
+                    } else {
+                        reindexReloadedBuffer(id: id, url: url)
                     }
                 } else {
                     model.close(id: id, force: true)
@@ -1637,6 +1646,8 @@ struct PisakaApp: App {
                     model.close(id: id, force: true)
                     forgetIndexedBuffer(url)
                     didPreserve = true
+                } else {
+                    reindexReloadedBuffer(id: id, url: url)
                 }
             } else if mayRemoveFiles {
                 model.close(id: id, force: true)
@@ -1798,6 +1809,8 @@ struct PisakaApp: App {
                 model.close(id: id, force: true)
                 forgetIndexedBuffer(resolvedURL)
                 PlatformFeedback.warning()
+            } else {
+                reindexReloadedBuffer(id: id, url: resolvedURL)
             }
         } else {
             model.close(id: id, force: true)
@@ -2110,6 +2123,33 @@ struct PisakaApp: App {
     private func forgetIndexedBuffer(_ url: URL?) {
         guard let url, model.fileID(forURL: url) == nil else { return }
         symbolIndexController.noteBufferClosed(url: url)
+    }
+
+    /// Re-index a still-open tab whose buffer an in-app worktree rewrite (revert,
+    /// branch checkout, merge apply) just replaced with the file's new on-disk
+    /// contents through `reloadFromDisk`.
+    ///
+    /// The `notifyIndexOfProjectFileChanges()` refresh these same operations
+    /// schedule cannot cover this: the file is still buffer-sourced, and the walk
+    /// deliberately declines to re-extract — or remove — a file an editor owns.
+    /// Only the *selected* tab re-indexes itself, through its live
+    /// `CodeEditorView`'s content-replaced path; a background tab has no editor
+    /// view behind it at all, so without this it would keep answering Go to
+    /// Definition and completion with the *previous* revision's declarations, at
+    /// the previous revision's ranges, until the user happened to select or close
+    /// it.
+    ///
+    /// Immediate rather than debounced, for the same reason a tab switch is: a
+    /// resync touches a bounded set of files, not a burst of keystrokes. The
+    /// selected tab is re-indexed twice (here and from its own editor) and that is
+    /// harmless — the second scheduling supersedes the first under the same key.
+    private func reindexReloadedBuffer(id: UUID, url: URL) {
+        guard let text = model.text(for: id) else { return }
+        symbolIndexController.noteBufferOpened(
+            url: url,
+            text: text,
+            language: SyntaxLanguage(forFileName: url.lastPathComponent)
+        )
     }
 
     /// Tell the symbol index that the project's files changed on disk — the

@@ -139,14 +139,30 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     chain rather than through any window-scoped state, because neither command
     carries state to survive a tab switch: "Go to Definition" at **⌃⌘J** (Xcode's
     binding, and free here — ⌘J and ⌃⌘F are AppKit's "center selection" and full
-    screen) and "Complete" at **⌃Space** (in addition to AppKit's stock ⌥⎋ and F5,
-    which reach the same delegate; ⌃Space is what a code editor's users reach for,
-    but macOS ships it bound to "Select the previous input source", so keeping both
-    leaves a user with several input sources two working alternatives). Both are
+    screen) and "Complete", which alone among the app's menu items carries **no key
+    equivalent at all**. Its ⌃Space lives on `EditorTextView.keyDown` instead: a
+    menu equivalent is claimed app-wide and is offered the keystroke before the key
+    window's first responder, and ⌃Space is the one shortcut this app wants that
+    carries no ⌘ — as a menu binding it swallowed ⌃Space out of a focused embedded
+    terminal, which needs it as NUL (readline/Emacs `set-mark`), and beeped there
+    instead, and did so only once a tab was open, since a disabled item does not
+    claim its equivalent. The item stays for discoverability; ⌃Space, AppKit's stock
+    ⌥⎋ and F5 all reach the same request. Both items are
     gated on a tab being open rather than on a project — a symbol declared in the
     buffer itself is indexed from that buffer, so a lone open file can still jump
     within itself — and anything else focused beeps rather than acting somewhere the
     user is not typing.
+    `reindexReloadedBuffer(id:url:)` is the counterpart of `forgetIndexedBuffer` on
+    the *success* side of the three post-git resyncs: a tab whose buffer
+    `reloadFromDisk` just replaced is still buffer-sourced, so the
+    `notifyIndexOfProjectFileChanges()` refresh beside it deliberately declines to
+    re-extract or remove it. Only the *selected* tab re-indexes itself, through its
+    live `CodeEditorView`'s content-replaced path; without this call a background
+    tab would keep answering Go to Definition and completion out of the previous
+    revision, at the previous revision's ranges, until the user selected or closed
+    it. Immediate rather than debounced (a resync is a bounded set of files, not a
+    burst), and re-indexing the selected tab twice is harmless — the second
+    scheduling supersedes the first under the same key.
     `replaceAllInProject(template:originGeneration:)` brackets
     `ProjectSearchModel.replaceAll` with
     the *same* coordination as `applyMerge`/`revertChanges`, because a project-wide

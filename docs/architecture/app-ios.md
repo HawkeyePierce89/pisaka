@@ -209,7 +209,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `resyncOpenTabsAfterCheckout`, capturing the URL before `close(id:force:)`),
     exactly as their macOS peers do and for the reason stated there: a buffer-sourced
     entry is exempt from both halves of a refresh, so a file a branch switch deleted
-    would go on answering lookups for the rest of the session. Those same three
+    would go on answering lookups for the rest of the session. The *success* side of
+    those same three resyncs — a tab whose buffer `reloadFromDisk` replaced with the
+    rewritten file — routes through `reindexReloadedBuffer(id:url:)`, the iOS peer of
+    `PisakaApp`'s and load-bearing for the same reason: the entry is still
+    buffer-sourced, so the refresh below declines to touch it, and only the
+    *selected* tab re-indexes itself from its live `CodeEditorView_iOS`; a background
+    tab would keep answering out of the previous revision until selected or closed.
+    Those same three
     operations end with `notifyIndexOfProjectFileChanges()`, the iOS peer of
     `PisakaApp`'s: iOS has no file-system watcher, so *nothing* about a working-tree
     rewrite reaches the index by itself, and a branch switch would otherwise leave Go

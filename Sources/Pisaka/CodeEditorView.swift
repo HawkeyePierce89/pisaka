@@ -1574,8 +1574,9 @@ final class EditorTextView: NSTextView {
     /// and `false` after. Set by `CodeEditorView.makeNSView`; `nil` until then.
     var onCompletionInsertion: ((Bool) -> Void)?
 
-    /// Complete from the caret — the Find menu's ⌃Space entry point, which reaches
-    /// this view as the key window's first responder, exactly like ⌃⌘J.
+    /// Complete from the caret — the entry point shared by this view's own ⌃Space
+    /// (`keyDown`) and the Find menu's "Complete", which reaches this view as the
+    /// key window's first responder, exactly like ⌃⌘J.
     ///
     /// The popup is *not* opened here: `complete(_:)` asks the delegate
     /// synchronously, and the delegate can only serve an already-computed
@@ -1716,6 +1717,37 @@ final class EditorTextView: NSTextView {
     override func scrollWheel(with event: NSEvent) {
         if handleCommandScrollFontStep(event, step: onStepFontSize) { return }
         super.scrollWheel(with: event)
+    }
+
+    /// Intercept a *clean* ⌃Space (no Command/Shift/Option) as "complete the word
+    /// at the caret"; every other combination falls through to stock handling.
+    ///
+    /// Deliberately bound here rather than as the Find menu item's key equivalent,
+    /// which is where it started: a menu key equivalent is claimed **app-wide**,
+    /// and the menu is offered the keystroke before the key window's first
+    /// responder ever sees it. ⌃Space is the only Control-only shortcut this app
+    /// binds — every other one carries ⌘, which no terminal wants — and it is a
+    /// keystroke the embedded terminal genuinely needs (NUL; readline's and Emacs'
+    /// `set-mark`). As a menu equivalent it therefore swallowed ⌃Space out of a
+    /// *focused terminal* and beeped instead, `completeAtCaret()`'s first-responder
+    /// cast having failed — and did so only once a tab was open, since a disabled
+    /// item does not claim its equivalent. Scoping the binding to this view keeps
+    /// the terminal whole; the menu item, AppKit's stock ⌥⎋ and F5 all still reach
+    /// the same request.
+    ///
+    /// Bails while an IME composition is in flight for the same reason ⌘D does:
+    /// `rangeForUserCompletion` would measure a partial word across uncommitted
+    /// marked text, and accepting a row would replace the composition.
+    override func keyDown(with event: NSEvent) {
+        if event.charactersIgnoringModifiers == " ",
+           event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.control],
+           isEditable,
+           !hasMarkedText(),
+           onRequestCompletions != nil {
+            completeAtCaret()
+            return
+        }
+        super.keyDown(with: event)
     }
 
     /// Intercept a *clean* Cmd+D (no Shift/Option/Control) to duplicate the line
