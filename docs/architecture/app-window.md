@@ -159,6 +159,71 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     yields two windows. `closeAll()` closes every retained window (the app calls it
     on `willTerminateNotification` so none linger past termination), mirroring
     `TerminalSessionsModel.terminateAll()`.
+  - `SourceViewerWindowController.swift` — owns the separate, non-modal **source
+    viewer** windows a Go to Definition opens when the declaration lives *outside*
+    the opened folder (`core-lsp.md`'s D3): an SDK `.swiftinterface`, a dependency
+    checkout, a generated header. Same shape as `DiffWindowController` — an
+    `NSHostingController` inside an `EscClosableWindow`, retained for its lifetime,
+    released on `windowWillClose` through a per-window delegate held alongside
+    (because `NSWindow.delegate` is `weak`), and `closeAll()` from the app's
+    `willTerminateNotification` observer.
+    **Two deliberate differences from the diff windows.** *It reads the file itself,
+    before creating the window.* `DiffWindowContent` loads asynchronously and shows
+    "Loading…" because its rows come from `git show`; here the whole content is one
+    file read, and doing it up front is what lets an unreadable target — a path the
+    server named that has since moved, a permission the app does not have, a binary
+    or oversize file — be reported as *nothing happened*: `open` returns `false`
+    having created nothing, and `PisakaApp.viewDefinitionOutsideProject` beeps,
+    exactly as a ⌘-click that resolved nothing does. It reads through
+    `FileService.readTextIfNotBinary` under
+    `LSPIntelligenceProvider.maximumTargetFileBytes` — deliberately the same door and
+    the same cap the provider already used to turn the server's `(line, character)`
+    into an offset, so a file the provider refused produced no candidate at all and
+    the viewer can never be asked for something larger. *It reuses a window per file.*
+    Diff windows state outright that they do not dedup, and are right not to — two
+    diffs of one file at different commits are different documents — but a viewer
+    shows a *file*, so ⌘-clicking three `Foundation` symbols must not leave three
+    identical windows; a second jump into a file already open re-reveals through that
+    window's own `EditorRevealState` token and brings it forward. The key is the
+    **symlink-resolved** path, for `CanonicalPath`'s reason: a server answers with the
+    path *it* resolved (`/private/tmp/…` for a folder opened as `/tmp/…`), and two
+    spellings of one file must not become two windows.
+    **Structurally read-only**: nothing here creates a `WorkspaceModel` tab, touches
+    `AutosaveController`, or keeps a writable handle — the content is a `String`
+    copied out of the file once. There is no code path from a viewer window back to
+    disk, which is the actual guarantee D3 is after: a semantic jump into the SDK
+    cannot write outside the project root because there is nothing to write *with*,
+    not because a flag is set correctly.
+  - `SourceViewerContent.swift` — the SwiftUI content of a source viewer window:
+    one file, read-only, syntax-highlighted, scrolled to a range. Modeled on
+    `DiffWindowContent` + `DiffView`'s read-only pane — same `preferredColorScheme`
+    propagation into a separate window, same Neon highlighting through
+    `SyntaxLanguageConfiguration`/`SyntaxTheme`, same Cmd+scroll font step through a
+    small `NSTextView` subclass, same `@ObservedObject` `SettingsStore` so the
+    viewer's font tracks the editor's. Unlike the diff it loads nothing
+    asynchronously.
+    **It is not `CodeEditorView` with `isEditable = false`.** That view brings the
+    binding it writes back through, per-file undo managers, auto-pair and auto-indent
+    interception, the symbol re-index, blame, the minimap and completion — none of
+    which means anything for a file that is not a tab. What is left after removing all
+    of it is `DiffView.makePane` plus the editor's own `LineNumberRulerView` gutter
+    (with `canAnnotate` left false: blaming a file outside the repository would be a
+    `git` error, not an annotation). Read-only but **selectable**, because copying a
+    signature out of an SDK interface is the second thing anyone does after jumping
+    into one. Same TextKit 1 / no-soft-wrap setup as the editor and the diff panes, so
+    a logical line is one visual row and the gutter's numbers line up with the lines
+    the server counted.
+    **`EditorRevealState` is reused rather than reinvented**, which is what makes the
+    reveal correct on the *first* showing too: the controller records the request
+    before the content exists, and the pane consumes it on its first update — the same
+    update that installs the text — which is the exact ordering that state was
+    designed around for a Find in Files activation that has to open the file first.
+    Each window gets its own state and a generated `fileID`, since a viewer shows one
+    file for its whole life. `applyReveal` is the same one-shot, token-guarded,
+    clamped rule as `CodeEditorView.Coordinator.applyReveal`, including the deferral
+    to the next turn so the target range has been laid out (a freshly created window
+    has laid out nothing yet) and the clamp-by-truncating-the-length so an empty range
+    at the very end of the buffer does not scroll to the top.
   - `ProjectTreeView.swift` — the project file tree: when `projectRoot == nil`
     it shows a centered "Click to open a folder" hint whose whole pane is the
     click target (`contentShape(Rectangle())` + `onTapGesture`) and calls an

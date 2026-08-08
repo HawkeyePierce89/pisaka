@@ -116,6 +116,39 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the index has to exist before the user asks, since there is no window to open
     first. Because this is the sole place a folder switch is registered, the
     launch-time session restore builds the index exactly as a user-driven open does.
+    **The LSP layer hangs off exactly those points and nowhere else** (phase 2a; the
+    layer itself is `core-lsp.md`). `init()` builds one `LSPWorkspace` with
+    `LSPProcessTransport.make(for:root:)` as its transport factory — the *only* thing
+    handed over from the app side, the `GitServicing`/`GitCLIService` split one level
+    down — and installs a `RoutingIntelligenceProvider` on the **controller** through
+    `installProvider(_:)` rather than plumbing anything through the views: they read
+    `symbolIndex.provider` already, so composition here changes no view signature and
+    no view can tell which side answered. The router's fallback is literally
+    `symbolIndex.provider`, the same live-reading instance, so a language no server
+    serves takes exactly the path it took before this phase existed
+    (`RoutingIntelligenceProviderTests` pins that by equality). `LSPToolchain.prewarm()`
+    moves the `xcrun` lookup off the main thread at startup; it is an optimisation
+    only. The workspace is a plain stored `let` like the window controllers, and that
+    owning reference is load-bearing: `LSPSession`'s read task holds its session
+    *weakly*, so a workspace nobody references would stop reading. `openFolder(url:)`
+    calls `lspWorkspace.prepareForFolderChange(root:)` **synchronously** beside the
+    index's, for the same reason and with the sharpest consequence of the three — a
+    server is *initialized for one root*, so an answer from the previous project's
+    server would name a file under a folder the user has left — and then awaits
+    `shutdownAll()` in a `Task`, but **only when the root actually changed** (the
+    `commitDialog` idiom), so re-opening the same folder does not throw away a
+    resolved build system. That leaves one narrow window, stated rather than
+    engineered around: a request landing between the synchronous call and the
+    teardown sees the *new* root and may start its server, which the teardown then
+    stops — one wasted launch, one tree-sitter answer, and no restart budget, since a
+    superseded launch is not a failure and a deliberate shutdown leaves no dead
+    session for the next request to count as a crash. `didClose(url:)` sits **inside**
+    `forgetIndexedBuffer(_:)`, under that method's existing "no other tab shows this
+    file" guard rather than a second copy of it, because the index and the server must
+    agree about when a file stops having a buffer; it is fire-and-forget, since a
+    server that cannot be told opens the document afresh on its next request. None of
+    this touches the writer gate: the LSP layer is a **reader**, so it neither raises
+    `autosave.suspend()`/`localChanges.beginRevert()` nor is gated by them.
     `closeFile(id:)` (and every branch of its confirmation) routes through
     `forgetIndexedBuffer(_:)`, which hands the tab's entry back to disk only when no
     tab still shows the file — so the Cancel branch, and a file legitimately reached
@@ -228,10 +261,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     it), and `model.close(id:force: true)`
     when the resolved file is gone from disk (a modify/delete staged as a deletion).
     A successful Apply then closes the window itself.
-    The `willTerminateNotification` observer calls `diffWindows.closeAll()` and
-    `mergeWindows.closeAll()` alongside
-    `terminalSessions.terminateAll()` so no diff/merge windows linger past
-    termination. It
+    The `willTerminateNotification` observer calls `diffWindows.closeAll()`,
+    `mergeWindows.closeAll()` and `sourceViewers.closeAll()` alongside
+    `terminalSessions.terminateAll()` so no diff, merge or source-viewer window
+    lingers past termination — and `lspWorkspace.terminateNow()` beside them, for the
+    terminal sessions' reason: a `sourcekit-lsp` left behind is an orphan process
+    holding a build-system cache open, which the release check
+    (`pgrep -fl sourcekit-lsp`) is specifically looking for. **`terminateNow()`
+    rather than the graceful `shutdownAll()`**, because this is the last notification
+    AppKit posts before the process exits: a `Task` wrapping the async teardown would
+    compile, never be picked up, and leave exactly that orphan — the same reason the
+    autosave and session writers flush *synchronously* from this observer. It
     also holds the shared
     `CommitLogModel` (real
     `GitCLIService`); `openFolder()` refreshes it (`CommitLogView.initialLimit`)

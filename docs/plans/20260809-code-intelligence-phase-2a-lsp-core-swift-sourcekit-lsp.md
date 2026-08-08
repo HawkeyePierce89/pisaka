@@ -824,21 +824,46 @@ Three results, one of which was a real gap rather than a confirmation:
 
 ### Task 13: Update documentation
 
-- [ ] create `docs/architecture/core-lsp.md` with a full entry per new Core file and
+- [x] create `docs/architecture/core-lsp.md` with a full entry per new Core file and
       the decisions D1–D10 written out, including the line-separator known limit, the
       `DefinitionRequest.text` guard, the out-of-project read-only-window decision,
       the auto-import resolve race, and the SwiftPM-project-only scope of
       sourcekit-lsp's build-system support
-- [ ] extend `docs/architecture/app-editor.md` (transport, toolchain discovery,
+- [x] extend `docs/architecture/app-editor.md` (transport, toolchain discovery,
       completion insertion) and `docs/architecture/app-window.md` (the source viewer
       window), and update `core-intelligence.md` for the seam changes
-- [ ] add the index lines to `CLAUDE.md` plus the new cross-cutting invariant —
+- [x] add the index lines to `CLAUDE.md` plus the new cross-cutting invariant —
       *one server per (server, root), started lazily, silent per-request fallback,
       unavailable-for-session after repeated failure, and a reader that never takes
       the writer gate*
-- [ ] add the feature to `README.md`: semantic definition and completion for Swift,
+- [x] add the feature to `README.md`: semantic definition and completion for Swift,
       the Xcode requirement, auto-import, and the fallback/known limits in the
       existing "Known Limitations (1.0)" voice
+
+Three things this task settled that the checkboxes did not name:
+
+- **Two docs the plan did not list had to change as well**, because the repository
+  convention is per *file*, not per phase: `app-shell.md` owns `PisakaApp.swift`,
+  which task 9 gave the workspace construction, the provider composition, the
+  folder-switch pair and the `terminateNow()` on quit; and `app-ios.md` owns
+  `Platform/SymbolIndexController.swift`, whose `provider`/`installProvider(_:)` is
+  the seam the whole composition hangs on. Leaving those two entries describing a
+  pre-2a app would have been the exact failure mode the convention exists to
+  prevent — the next reader looks up the file, not the phase.
+- **`CLAUDE.md`'s size guideline is enforced, and it shaped the entry.** The first
+  draft of the index block and the new invariant pushed the file past 40 000
+  characters and a hook said so. Compressing them back to one line per file (and the
+  invariant to six) is not a concession — it is what the Documentation-placement
+  convention asks for, and the detail it displaced is exactly what `core-lsp.md`
+  now carries.
+- **The README's existing limitation had to become two.** "Code intelligence is
+  index-based, not a compiler" was a true sentence about the whole editor and is now
+  true only of the *fallback*, so it is introduced as such and preceded by a
+  separate bullet for what the language server does and does not do — the cold-start
+  first answer, the SwiftPM-project-only build-system scope, the give-up-after-four
+  rule, the second-undo-step auto-import race and D1's separator limit. Rewriting
+  the old bullet in place would have left a reader unable to tell which of the two
+  paths any given sentence was about.
 
 ## Post-Completion Checks (manual, on a machine with Xcode)
 

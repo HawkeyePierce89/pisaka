@@ -24,6 +24,11 @@ close files with a confirmation prompt when there are unsaved changes.
   show an error and the Annotate column stays silently empty; the rest of the
   editor works normally. On iOS git access is in-process via libgit2 (no `git`
   binary needed).
+- macOS, optional: Xcode, for the semantic Swift intelligence. `sourcekit-lsp` is
+  located with `xcrun --find` in the active toolchain (so `xcode-select` and
+  `DEVELOPER_DIR` decide which one), and nothing is bundled or downloaded. Without
+  Xcode, Swift files behave exactly as every other language does — Go to Definition
+  and completion answer from the tree-sitter symbol index, silently.
 
 ## Build & Run
 
@@ -309,6 +314,23 @@ involved.
   YAML/JSON keys, Dockerfile build stages, `.env` variables and HTML `id`s are
   indexed too. A file type with no query still completes from the words in the
   buffer.
+- Semantic code intelligence for **Swift** (macOS): when Xcode is installed, Swift
+  files are answered by `sourcekit-lsp` — found through `xcrun` in the active
+  toolchain, started on demand for the project you opened, and never bundled or
+  downloaded. Go to Definition becomes a real, compiler-backed jump: across modules
+  of a package, into a dependency, and into the SDK. A declaration that lives
+  *outside* the opened folder — an SDK interface, a dependency checkout — opens in a
+  separate **read-only** window (syntax-highlighted, with the same gutter and
+  Cmd+scroll zoom, one window per file) rather than as an editable tab, so a jump
+  into the SDK can never write outside your project. Completion becomes typed
+  candidates in the compiler's own ranking, including real members after a `.`, and
+  a symbol that needs an `import` inserts the import line together with the symbol —
+  caret after the symbol, and a single Cmd+Z undoes both.
+  All of this is silent and optional. Every other language keeps the index's
+  answers; so does Swift on a machine with no Xcode, in a project the server cannot
+  build, while the server is still starting, and if it crashes or hangs — the
+  question is simply answered from the index instead, with no alert, no banner and
+  no stall. Quitting the app stops every server it started.
 - VS Code-style minimap to the right of the editor: a scaled-down,
   syntax-colored overview of the file with a draggable viewport rectangle.
   Click or drag the rectangle to scroll the editor, or scroll the mouse wheel
@@ -550,7 +572,9 @@ and iPhone. The feature scope landed so far:
   `SettingsStore` preference; pinch-to-zoom steps it (the iOS analog of macOS
   Cmd+scroll). The editor's line-number gutter and minimap are deferred on iOS
   (the side-by-side diff panes do still draw per-side line numbers).
-- The same code intelligence as macOS, through touch-appropriate surfaces:
+- The same index-based code intelligence as macOS (there is no language server on
+  iOS, so Swift is answered the same way every other language is), through
+  touch-appropriate surfaces:
   **Go to Definition** is an extra item in the selection's edit menu (tap an
   identifier → "Go to Definition"), which jumps straight there, or asks which
   declaration you meant when several share the name; a name nothing declares gives
@@ -610,7 +634,26 @@ and iPhone. The feature scope landed so far:
   clicking an annotation opens no commit detail, there is no "annotate previous
   revision", no jump from an annotation into the Git Log, and the date format is
   fixed (not a setting).
-- Code intelligence is index-based, not a compiler: Go to Definition matches a
+- The semantic Swift intelligence is macOS-only and needs Xcode, and it covers
+  Go to Definition and completion only — there is still no Find Usages, no rename,
+  no hover types, no signature help and no diagnostics, and nothing about the
+  server is configurable or visible: no status indicator, no "restart server", no
+  log. It answers for projects `sourcekit-lsp` can build (a `Package.swift`, a
+  `compile_commands.json`, an `.xcodeproj` through the build server protocol); a
+  loose folder of Swift files is not one, so the server starts, answers little or
+  nothing, and everything falls back to the index. The **first** jump or completion
+  in a freshly opened project is answered from the index too, while the server is
+  still resolving the build system behind it — the next one is semantic. If a
+  server crashes it is restarted up to three times for that project and then given
+  up on for the rest of the session, silently. An auto-import committed before the
+  server finished describing it arrives as a second undo step rather than one, and
+  is skipped entirely if you kept typing in between. In a file whose lines are
+  separated by NEL / U+2028 / U+2029 the editor and the server count lines
+  differently; jumps and edits still land exactly right, since only the numbering
+  differs and no server line number is ever shown. On iOS there is no language
+  server at all (iOS has no subprocesses), so the next item applies there in full.
+- The tree-sitter fallback — which is what every other language, and Swift without
+  Xcode, always uses — is index-based, not a compiler: Go to Definition matches a
   *name*, so it cannot tell two same-named declarations apart (it lists both),
   knows nothing about imports, scope, generics or overload resolution, and finds
   nothing in dependencies outside the opened folder. There is no Find Usages, no

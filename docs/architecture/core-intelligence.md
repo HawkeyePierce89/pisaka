@@ -655,11 +655,33 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `IdentifierScanner`, so the provider never re-parses text), the file it was
     asked from, and the caret `offset` — unused by phase 1's name-based lookup and
     carried anyway, because it is the one piece of context an LSP
-    `textDocument/definition` cannot be built without. `DefinitionCandidate` pairs
-    the `Symbol` with a **precomputed** `relativePath` (the project root is the
-    provider's knowledge, not the text view's) and exposes `displayLabel`
-    (`Container.name — src/Worker.swift:42`), so the macOS `NSMenu` and the iOS
+    `textDocument/definition` cannot be built without — plus the `text` phase 2a
+    added: the buffer's **live** text, which an LSP provider must give the server
+    before it can ask anything about `offset` (D2, `core-lsp.md` — document sync is
+    request-driven, so the text travels with the question). It is defaulted to `""`
+    so no call site written before phase 2a breaks, which makes a *forgotten* call
+    site the real hazard, since an empty buffer clamps every position to `0:0` and
+    answers confidently wrong; the LSP provider therefore treats "empty text,
+    non-zero offset" as **unanswerable** and falls back rather than clamping, while
+    the tree-sitter provider ignores the field entirely.
+    `DefinitionCandidate` **stores what it displays and navigates by, not a
+    `Symbol`** (D8). An LSP definition answer is a *location* — a file, a range and
+    nothing else, with no declaration kind, because the server was asked "where", not
+    "what" — and wrapping a `Symbol` would force one of two bad options: invent a
+    synthetic `SymbolKind` case, which `SymbolQueryTests` compares by set equality
+    against the shipped queries and would fail, or lie with an existing one. So
+    `kind` is optional and the rest of the fields are flat (`name`, `containerName`,
+    `fileURL`, `range`, `line`, `relativePath`), `init(symbol:relativePath:)` is
+    retained so every *construction* site — the tree-sitter provider's included — is
+    unchanged, and `displayLabel` (`Container.name — src/Worker.swift:42`) is
+    byte-identical to what it produced before, so the macOS `NSMenu` and the iOS
     dialog show the same string and neither view decides what a candidate reads as.
+    `relativePath` stays **precomputed** (the project root is the provider's
+    knowledge, not the text view's), and `isOutsideProjectRoot` is precomputed for
+    the same reason and one more: it decides *where the jump lands*, since D3 opens
+    an out-of-root target in a separate read-only window instead of a tab. It is
+    always `false` on the tree-sitter path — the index only ever walks the opened
+    folder, so everything it can name is inside it.
     `CompletionRequest` carries the prefix, the file, and the buffer's **live
     text** — passed in rather than read from a model, because the buffer being
     typed in is always ahead of the index (the re-index debounce has not fired
@@ -682,12 +704,37 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     still has the same two methods with the same shapes, so a phase-2 LSP provider
     implements the same contract and simply maps these two fields onto a
     completion-context parameter instead of onto an index lookup — which is the
-    whole point of putting them here rather than in a second method.
-    `CompletionItem` is deliberately just a string plus two ranking facts (`kind`,
+    whole point of putting them here rather than in a second method. Phase 2a added
+    a third defaulted field, `offset`: the caret the request was made from, without
+    which a completion request has **no position in it at all** — and a position is
+    the whole of what `textDocument/completion` asks about, since a prefix cannot be
+    located in a buffer that may contain it a hundred times. `nil` is read by the LSP
+    provider as **unanswerable, never as 0** (D2's guard applied to the other request
+    kind); the tree-sitter provider ignores it, matching names rather than places, so
+    a call site that predates phase 2a keeps meaning exactly what it meant and only
+    the LSP answer is given up. Both editor call sites pass the caret they already
+    have, so only a future one could trip the guard.
+    `CompletionItem` is a string plus two ranking facts (`kind`,
     `isFromCurrentFile`): AppKit's stock popup shows strings only (plan Decision 2)
     and the iOS strip shows buttons, so the extra fields exist to make the
     *provider's* ranking testable and to give a later, richer popup its data
-    without changing the seam.
+    without changing the seam. Phase 2a added two more, both defaulted so the
+    tree-sitter provider and both iOS surfaces are untouched. `edits` is every buffer
+    edit committing the item performs, in buffer (UTF-16) coordinates — the primary
+    replacement plus any auto-import (D4) — and is **empty for a tree-sitter item**,
+    which is only `text` replacing the typed prefix and so is inserted by AppKit's
+    own machinery; a non-empty list is the editor's signal to apply the item itself
+    through `CompletionEditPlan`, in one undo group. `resolveHandle` is an opaque
+    token naming an item the server deferred to `completionItem/resolve`, opaque on
+    purpose: the seam must not leak an `LSPCompletionItem` (Core's LSP types stay
+    behind the provider), and the editor never interprets the number — it hands it
+    straight back to the provider that issued it, through the protocol's third
+    method. `resolveEdits(for:)` is **defaulted to "nothing to add"** because it is
+    meaningful for exactly one implementation; an item the issuing provider does not
+    recognise — a handle from a superseded list, or an item from a different provider
+    — answers `[]`, which the caller reads as "insert the plain text and nothing
+    else". The two providers that compose these answers, and the rules they follow,
+    are in `core-lsp.md`.
   - `SymbolIntelligenceProvider.swift` — the index-backed
     `CodeIntelligenceProviding` implementation and the home of **every ranking
     rule**, all of it `static` and pure over an index value, with the instance

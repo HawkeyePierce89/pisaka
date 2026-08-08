@@ -117,6 +117,19 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `CodeIntelligence.swift` — the async `CodeIntelligenceProviding` seam + its request/result value types (incl. the request's `language`/`member`).
 - `SymbolIntelligenceProvider.swift` — index-backed provider and the home of every definition/completion ranking rule, incl. fuzzy quality, the keyword source and the member branch.
 
+`docs/architecture/core-lsp.md` — the LSP client (phase 2a: Swift via sourcekit-lsp), incl. decisions D1–D10 and the known limits:
+- `LSPMessage.swift` — JSON-RPC envelopes; `JSONValue`, `LSPRequestID`, `LSPErrorCode`; `null` vs. absent.
+- `LSPFraming.swift` — `Content-Length` framing + the incremental `Decoder`; a framing error is terminal.
+- `LSPProtocolTypes.swift` — the bodies this phase uses; decode leniently, encode exactly; the closed capability tree.
+- `LSPPositionMap.swift` — offset ↔ `(line, character)` with LSP's separators only (D1).
+- `LSPTransport.swift` — the macOS/Core boundary: bytes out, bytes in, stop; EOF reports a crash.
+- `LSPSession.swift` — one conversation: handshake, ids, pending table, budgets, cancel, terminal-on-EOF.
+- `LSPServerDescription.swift` — description + registry (D9); `SyntaxLanguage.lspLanguageID`.
+- `LSPWorkspace.swift` — one server per `(server, root)`: lazy start, the D2 flush, D7 backoff, `shutdownAll()`/`terminateNow()`.
+- `CompletionEditPlan.swift` — the pure auto-import rule: roles, last-to-first order, the staleness gate, `shifted(…)`.
+- `LSPIntelligenceProvider.swift` — protocol answers as seam values: D6 ranking, D2's guards, out-of-root flagging, resolve.
+- `RoutingIntelligenceProvider.swift` — LSP first, tree-sitter otherwise; `LSPIntelligenceSource`, the whole-attempt budget.
+
 `docs/architecture/core-git.md` — git protocol, status & blame:
 - `GitError.swift` — typed `GitServicing` failures with user-facing `errorDescription`.
 - `GitServicing.swift` — the whole async git protocol (status/revert/log/merge/branch/blame/commit surfaces), defaulted so partial stubs compile.
@@ -180,7 +193,7 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `Platform/LicenseTextView.swift` — TextKit-backed license-text pane shared by both Acknowledgements screens (lazy layout for the 66 KB texts; full entry in app-shell).
 - `Platform/SymbolQueryCatalog.swift` — cached, lock-guarded `symbols.scm` loader/compiler; `nil` on failure, DEBUG-only compile assertion.
 - `Platform/SymbolExtractor.swift` — text → `[Symbol]` via tree-sitter matches; `nonisolated static`, parser + cursor per call.
-- `Platform/SymbolIndexController.swift` — the index's two debounces (400 ms buffer edit, 500 ms watcher refresh); immediate on tab open.
+- `Platform/SymbolIndexController.swift` — the index's two debounces (400 ms buffer edit, 500 ms watcher refresh); immediate on tab open; `provider`/`installProvider(_:)`, where the composed LSP provider is swapped in.
 - `iOS/PisakaApp_iOS.swift` / `RootView_iOS.swift` — iOS `@main` + adaptive root/navigation, revert & branch orchestration, symbol-index folder lifecycle + definition routing.
 - `iOS/BranchSwitcherView_iOS.swift` — iOS branch-switcher widget (dirty-checkout routing).
 - `iOS/CodeEditorView_iOS.swift` / `CodeEditorCoordinator_iOS.swift` — `UITextView` editor (Neon, indent/auto-pair, pinch zoom, edit-menu definition + completion strip).
@@ -206,6 +219,7 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 `docs/architecture/app-window.md` — window chrome (macOS):
 - `ContentView.swift` — window layout: splits, bottom dock, path bar, sheet wiring, deliberately non-observed `commitDialog`.
 - `DiffWindowContent.swift` / `DiffWindowController.swift` — separate diff windows.
+- `SourceViewerWindowController.swift` / `SourceViewerContent.swift` — the read-only window an out-of-project definition opens (one per file; structurally unwritable).
 - `ProjectTreeView.swift` — project tree (lazy children, `treeRevision` reloads, context menus).
 - `TabListView.swift` / `TabRowView.swift` — open-tabs list/strip.
 
@@ -219,8 +233,10 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `CodeEditorView.swift` — the `NSTextView` wrapper: Neon, indent/auto-pair/⌘D wiring, undo discipline, minimap/gutter/blame/search integration; the weak-capture retain-cycle rule.
 - `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift` — find/replace bar state, execution (visible-only highlight, single-edit Replace All) and UI.
 - `EditorRevealState.swift` — one-shot reveal request from Find in Files (and Go to Definition).
-- `CompletionController.swift` — precomputes candidates behind a debounce so AppKit's synchronous completions delegate has a prefix-matched snapshot ready.
+- `CompletionController.swift` — precomputes candidates behind a debounce so AppKit's synchronous completions delegate has a prefix-matched snapshot ready; applies an LSP item's own edits (auto-import), prefetches deferred resolves.
 - `DefinitionPicker.swift` — the multi-candidate `NSMenu` popped up under the identifier.
+- `LSPProcessTransport.swift` — the real `LSPTransport`: one process, three pipes, `F_SETNOSIGPIPE`, SIGTERM→SIGKILL teardown; publishes raw chunks.
+- `LSPToolchain.swift` — `xcrun --find` per launch description, cached (including "not found") per app run.
 - `ProjectSearchView.swift` / `ProjectSearchWindowController.swift` — Find in Files window (debounce, `resultsMatchControls` gate; single window).
 
 `docs/architecture/app-editor-overlays.md` — editor overlays (macOS):
@@ -260,6 +276,14 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   mid-revert costs at worst one entry the next refresh corrects, while taking the
   gate would serialize the editor behind a background walk (the reasoning already
   written on `projectWatcher`'s tree bump).
+- **Language servers**: one server per `(server, root)`, started lazily and never
+  twice; sync is request-driven (the live buffer travels with the request, flushed
+  as `didOpen`/`didChange` just before it); fallback to tree-sitter is per request
+  and silent (no alert, ever), and four failures mark that `(server, root)`
+  unavailable for the app run. A **reader**, like the index: never takes the writer
+  gate, never gated by it. `Process` lives only in `Sources/Pisaka` behind
+  `LSPTransport` — `LSPSourceGatingTests` asserts that by set equality over both
+  sides.
 - **Open-tab resync** after an operation rewrites the worktree: buffers are
   snapshotted before the hop; a clean, unchanged tab gets `reloadFromDisk`, an
   edited one `reconcileSavedBaseline` + beep, a deleted file force-closes

@@ -163,9 +163,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     a folder was opened in) as the seam the editor surfaces ask through, rather than
     handing views the model itself: a view that could reach the model could also
     drive the index, and the model republishes after every chunk, which must stay
-    off a view's update path. Lives in `Platform/` because both destinations drive
-    both halves; the project refresh is *watcher*-driven only on macOS, while on iOS
-    it is driven by the app's own working-tree rewrites.
+    off a view's update path. That `provider` is also **the seam phase 2a's LSP
+    layer reaches the editor through**, without a single view signature changing:
+    `installProvider(_:)` records a composed provider that `provider` then hands out
+    in the model's place, and the macOS app calls it once at construction with a
+    `RoutingIntelligenceProvider` built around *exactly* `model.provider` — so
+    replacing the seam adds a source of answers rather than taking one away, and
+    `CodeEditorView`/`CompletionController` go on reading `symbolIndex.provider` and
+    cannot tell which of the two answered. It is deliberately not an `init`
+    parameter: the routing provider needs `model.provider`, which needs the model,
+    which needs this controller to exist first. iOS installs nothing, so there
+    `provider` stays literally the index. Lives in `Platform/` because both
+    destinations drive both halves; the project refresh is *watcher*-driven only on
+    macOS, while on iOS it is driven by the app's own working-tree rewrites.
   - `iOS/PisakaApp_iOS.swift` — the iOS `@main` App (the macOS `@main` is gated
     out under one-`@main`-per-platform `#if`). It also constructs the
     `SymbolIndexModel` + `SymbolIndexController` pair, the same way the macOS app

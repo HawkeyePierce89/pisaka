@@ -303,7 +303,26 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     names the word, the provider (re-read from the controller per call, never
     stored, so no answer comes from the state a folder was opened in) ranks the
     candidates, and the count picks the surface — beep, jump, or `DefinitionPicker`
-    anchored on the asked-about range. The completions delegate
+    anchored on the asked-about range. **The buffer travels with the question**
+    (phase 2a's D2): the request is built with `text: textView.string`, because an
+    LSP provider has to tell the server the current text before it can ask about an
+    offset in it, and this is the one macOS path that reaches one. Leaving the
+    defaulted field to default here would not fail to compile — it would quietly ask
+    about offset *N* in an empty document, which is why the LSP provider treats
+    "empty text, non-zero offset" as unanswerable rather than clamping. Where a
+    chosen candidate *lands* is the coordinator's `navigate(to:)`, and the fork is
+    the candidate's own `isOutsideProjectRoot` — the provider knows the project
+    root, this view does not: an in-root target goes through today's
+    `navigateToDefinition`, an out-of-root one through
+    `viewDefinitionOutsideProject` to the read-only source viewer window (D3, see
+    `app-window.md`). It is one place precisely so the single-candidate jump and the
+    picker's choice cannot disagree, and every tree-sitter candidate takes the first
+    branch, since the index only ever walks the opened folder. `CodeEditorView`
+    exposes the second destination as its own `onViewDefinitionOutsideProject`
+    closure rather than as a flag on `onGoToDefinition`, because the two are
+    different app-level operations — one opens a tab through `WorkspaceModel`, the
+    other opens a window that has no model behind it at all. The completions
+    delegate
     (`textView(_:completions:forPartialWordRange:indexOfSelectedItem:)`) serves the
     controller's snapshot, **ignoring AppKit's `words`** (the spell checker's
     guesses: this is a code editor, and dictionary words beside project symbols
@@ -343,10 +362,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     to return Core's completion-prefix range (AppKit's stock implementation walks
     back over a broader word class and reporting the whole dotted expression is the
     classic reason a popup offers nothing; a non-empty selection is left to `super`);
-    `insertCompletion(_:forPartialWordRange:movement:isFinal:)` only brackets `super`
+    `insertCompletion(_:forPartialWordRange:movement:isFinal:)` brackets `super`
     with the flag, which is what keeps undo AppKit's — one ordinary step on the
     active per-file undo manager — and lowers it in a `defer` so an exception cannot
-    leave the interceptors disabled for the session; `goToDefinitionAtCaret()` uses
+    leave the interceptors disabled for the session. Its **one addition** is
+    `onInsertCompletion`, asked first: an LSP item may carry edits of its own — the
+    `import` line that makes the symbol resolve, or a replacement range the server
+    chose rather than the one the client typed (D4) — and those have to be applied
+    *as written*, which `super` cannot do because it only knows the word. It answers
+    `false` for every tree-sitter item, for most LSP ones, and for every preview of a
+    highlighted row, so the stock path stays the path;
+    `goToDefinitionAtCaret()` uses
     the selection's **start**, so the command behaves the same whether the user
     placed a caret in a name or double-clicked it; and `mouseDown(with:)` claims
     only a plain, single Command-click. **Command-*drag* must still select**, and
@@ -441,6 +467,145 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `IdentifierScanner` says what is being typed and `SymbolIntelligenceProvider`
     ranks and caps the answers, so this class decides only *when* to ask and whether
     the answer is still current.
+    **Phase 2a: the list is strings, but the answers are items.** AppKit's popup
+    shows strings and hands one back when a row is committed, while an LSP answer is
+    more than its text — it may carry the `import` line that makes the symbol resolve
+    (D4). The snapshot therefore keeps whole `CompletionItem`s keyed by the text they
+    insert (first wins on a duplicate, matching the provider's own dedup rule), so
+    `insert(_:forPartialWordRange:isFinal:in:)` can find the item behind the string.
+    It answers `true` — "handled here" — only for the D4 case, and `false`
+    everywhere else, which leaves AppKit's stock insertion to do the job it already
+    does correctly. Everything about *which* edits and in what order is
+    `CompletionEditPlan`'s; this class supplies the live buffer, the undo group and
+    the text view. Four things are load-bearing.
+    **AppKit writes the buffer before the user has chosen anything.** Arrowing
+    through the popup calls `insertCompletion(…, isFinal: false)` for each row, so by
+    the time the final call arrives, the typed word an item's edits are expressed
+    against has already been replaced — and `CompletionEditPlan`'s staleness gate,
+    doing its job, would refuse every auto-import picked with the arrow keys. So the
+    controller remembers the last `preview` (every one of those writes passes through
+    it) and Core gained `CompletionEdit.shifted(afterReplacingTypedWord:withLength:)`
+    to re-express an edit over it. A non-final call is *always* `false`: it is a
+    preview, not a commitment, and rewriting the file's imports once per arrow key
+    would be indefensible.
+    **Per edit, not per span.** `EditorSearchController.replaceAll` rewrites the
+    whole spanned range in one `insertText` because it has up to 180 000 matches and
+    cannot afford an edit cycle each; a completion has two or three, and its span
+    reaches from the `import` line to the caret — the whole file — so the same trick
+    would re-parse and re-highlight everything to insert two words. The plan's
+    last-to-first ordering exists precisely so the edits can be applied one at a time
+    with no offset arithmetic; the explicit `beginUndoGrouping` pair is what still
+    makes them a single ⌘Z and what keeps them from coalescing into the user's
+    preceding typing.
+    **Deferred items are prefetched, and a late one re-applies the whole edit set.**
+    `prefetchResolves` fires one task per deferred item the moment the list is shown
+    (one per item rather than one for the batch, so a single slow resolve holds back
+    neither the others nor the follow-up path that awaits one). If the user commits
+    before a resolve lands, `scheduleFollowUp` applies the edits when they arrive as a
+    second undo step — the whole set, not just the `additionalTextEdits`: shifted over
+    the insertion that already happened, the *primary* edit replaces the inserted text
+    with itself (or widens to what the server meant), so one code path serves both the
+    ordinary commit and the follow-up and `caretOffset` comes out right in both. D4's
+    stated condition — the buffer untouched since the insertion — is a whole-string
+    comparison read at the top of that task, which runs a main-actor turn *after*
+    `insertCompletion` returned and so has a real "before" to compare against. The
+    follow-up is outside AppKit's `insertCompletion` bracket, so it raises the
+    programmatic-edit flag itself through `noteProgrammaticEdit`.
+    **A caret move cancels nothing, because it supersedes nothing.** `forgetList()`
+    — which drops the previews, the prefetched resolves and any pending follow-up —
+    has exactly two callers, `update` (a keystroke) and `reset` (a tab teardown),
+    and both are the events that really do end a list's life. The list is re-validated
+    against the word under the caret when the delegate is asked, and an item's edits
+    against the text they were computed over when one is committed, so cancelling a
+    prefetch on a caret move would only throw away the resolve for a list still on
+    screen.
+  - `LSPProcessTransport.swift` — the real `LSPTransport`: one language-server
+    process, three pipes, and no opinion whatsoever about what the bytes mean. The
+    entire macOS half of the LSP client, written in `GitCLIService`'s idiom for the
+    same reason — Core owns framing, correlation, budgets and position mapping and is
+    unit-tested without an Xcode installation anywhere in sight, so this file owns
+    `Process`, is untested by repository convention, and is kept small enough to read
+    in one sitting. **It never interprets a message and never restarts anything**: a
+    crashed server is reported by `incomingBytes` *finishing*, and deciding what that
+    means (`core-lsp.md`'s D7) is `LSPWorkspace`'s job, the only thing that knows how
+    many times it has already happened. **The stream publishes raw chunks, not
+    payloads** — `LSPSession` already owns the one `LSPFraming.Decoder`, and a second
+    one here would frame already-framed bytes, so `availableData` goes straight
+    through, exactly as `LSPTransport` documents. `@unchecked Sendable` over an
+    `NSLock` (the `ScriptedLSPTransport` arrangement): `send` comes from the session's
+    actor, reads arrive on `FileHandle`'s own queue, and `terminate()` can come from
+    either plus `deinit`; the lock is never held across a stream yield or a subprocess
+    wait.
+    Four things are load-bearing. **`SIGPIPE` would kill the app, not the write.** A
+    server that crashes between two `didChange`s leaves a pipe with no reader, and
+    the default disposition of `SIGPIPE` terminates the *writing* process — Pisaka.
+    The write end is therefore put in `F_SETNOSIGPIPE` mode, per file descriptor
+    rather than by ignoring the signal process-wide, so `write(2)` returns `EPIPE`,
+    `FileHandle` throws it, and the failure joins the ordinary death path. This is the
+    one thing on the whole transport that could take the app down, and it is invisible
+    until a server crashes at exactly the wrong moment. **A failed write is reported
+    as EOF, because there is nobody to report it to**: `send` returns as soon as the
+    bytes are queued (the protocol says so — waiting would park the session's actor
+    behind a pipe a busy server has not drained, and a `didChange` carrying a large
+    file exceeds the buffer), so a write that fails afterwards finishes the byte
+    stream instead of throwing, which is the one signal the session already knows how
+    to act on; `notRunning` is thrown only for a send after the transport has stopped.
+    **`weak self` in the readability handler is load-bearing twice**: a `FileHandle`
+    retains its handler, the handle is retained by the pipe and the pipe by the
+    transport, so a strong capture is a cycle — `deinit` would never run and the
+    `deinit`-kills-the-process guarantee would silently evaporate — and it also makes
+    "a transport nobody references stops reading" true, matching the session's own
+    contract. The `terminationHandler` is the backstop for the EOF that never comes (a
+    server whose child inherited stdout), which otherwise leaves a crash unnoticed and
+    every request falling back until the folder is closed. **stderr is drained and
+    discarded**, and draining is not optional: a server that logs steadily would
+    otherwise fill the pipe buffer and block *writing a log line*, wedging itself
+    behind output nobody reads.
+    The environment is inherited wholesale and never assigned (`GitCLIService.run`'s
+    reasoning: a language server resolves its toolchain, caches and build system out
+    of `PATH`/`HOME`/`DEVELOPER_DIR`, and replacing the environment to add one
+    variable would take all of that away). `stop()` is idempotent: stop reading, close
+    stdin — which gives a server that reads to EOF a chance to exit on its own, as
+    sourcekit-lsp does — `SIGTERM`, then `SIGKILL` after a 2 s grace on a *concurrent*
+    reap queue, so two servers torn down on a folder switch do not wait for each
+    other. `pid > 0` guards the one genuinely dangerous mistake here: `kill(0, …)`
+    signals the whole process group, i.e. Pisaka itself — the same check
+    `TerminalSession.terminate()` makes. `make(for:root:)` is what
+    `LSPWorkspace.transportFactory` is handed, and it **throws** rather than returning
+    `nil` when the executable cannot be found, because the workspace already treats a
+    throwing factory exactly like a crash — one spent restart, then silence — and a
+    machine with no Xcode must not retry a process launch once per keystroke.
+  - `LSPToolchain.swift` — where a language server's executable actually is on
+    *this* machine, in exactly one shell-out: `xcrun --find <name>`. Resolution is the
+    app's job because Core cannot run `xcrun` (D9), and hard-coding
+    `/Applications/Xcode.app/…/sourcekit-lsp` would break the moment someone runs
+    `xcode-select`, installs a beta alongside a release, or exports `DEVELOPER_DIR`.
+    **Nothing is bundled and nothing is downloaded**: no Xcode means `xcrun --find`
+    answers nothing, this answers `nil`, the transport factory throws `launchFailed`,
+    and `LSPWorkspace` spends one restart on it — which is why the answer is cached
+    **including the negative one** (`[String: String?]`, so a recorded "not found" is
+    distinguishable from "not looked up yet"), or a machine with no toolchain would
+    fork `xcrun` once per keystroke forever. The cache is per app run, not per folder:
+    `DEVELOPER_DIR` is read from the environment the app was launched with and cannot
+    change under a running process, so someone who runs `xcode-select` mid-session
+    gets the old toolchain until the next launch — stated rather than papered over,
+    since the alternative is invalidation logic for an event nobody has ever hit.
+    Blocking and deliberately so: making it `async` would push a `Task` hop into the
+    workspace's transport factory, which is synchronous precisely because launching a
+    process is something the main-actor turn that decided to launch it can just do.
+    `prewarm(_:)` moves the first lookup to a background queue at app startup so the
+    first ⌘-click in a cold project does not pay for it inside the launch turn —
+    purely an optimisation, since correctness does not depend on it. `.executable(path:)`
+    is checked for existence and the executable bit here rather than being handed to
+    `Process` to fail on, so both launch kinds report "not on this machine" the same
+    way and the workspace sees one failure shape. Run through `/usr/bin/xcrun`
+    directly rather than `/usr/bin/env xcrun`, because this is a fixed system path and
+    going through `env` would let a `PATH` entry decide which `xcrun` resolves the
+    toolchain; the environment is inherited untouched, which is precisely how
+    `DEVELOPER_DIR` is honoured — `xcrun` reads it itself. stdin is `/dev/null` and
+    both pipes are drained before `waitUntilExit`, for `GitCLIService.runBlocking`'s
+    deadlock reason; stderr is captured and dropped, since "unable to find utility" is
+    an ordinary answer here and not something to show anyone (D7: no alerts, ever).
   - `DefinitionPicker.swift` — the "which one did you mean?" surface of Go to
     Definition: an `NSMenu` popped up under the identifier, one item per candidate
     (plan Decision 3). A menu rather than a custom `NSPanel` because AppKit gives
