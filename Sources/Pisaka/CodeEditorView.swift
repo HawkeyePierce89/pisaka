@@ -625,9 +625,10 @@ struct CodeEditorView: NSViewRepresentable {
             // controller's 400 ms debounce (a re-parse per keystroke would be felt).
             reindexSymbols(text: contents, language: language, immediate: false)
             // Offer completions for the word being typed, behind the completion
-            // controller's own (shorter) debounce. Its gates — a bare caret, at
-            // least two typed characters, no marked text — mean an ordinary
-            // keystroke outside an identifier costs one prefix scan and no task.
+            // controller's own (shorter) debounce. Its gates — a bare caret, no
+            // marked text, and either two typed characters or a member position
+            // (the caret sitting after `receiver.`) — mean an ordinary keystroke
+            // outside an identifier costs one prefix scan and no task.
             //
             // Not while a *programmatic* edit is being applied. AppKit's own
             // completion insertion fires this notification synchronously (for each

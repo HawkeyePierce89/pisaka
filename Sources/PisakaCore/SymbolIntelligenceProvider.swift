@@ -384,6 +384,16 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
         // about. The overlap between the two lists collapses in `assemble`.
         var candidates = index.members(matching: query, limit: memberCandidateLimit)
         if let promoted { candidates += index.members(inContainer: promoted) }
+        // And the current file's own members, for precisely the reason the
+        // ordinary path adds `symbols(inFile:)`: the pre-cap above slices the
+        // project in file-key order, so without this the file being typed in can
+        // contribute nothing at all and ranking rule 2 fails where it matters
+        // most. The promoted-container rescue does not cover it — that one fires
+        // only when the receiver spells a declared type, while `worker.` (the
+        // common case) promotes nothing. Re-matched below like every other
+        // source, so the lookup being unfiltered cannot widen what counts as a
+        // candidate; `assemble` collapses the overlap.
+        candidates += request.fileURL.map { index.members(inFile: $0) } ?? []
 
         var ranked: [Ranked] = candidates.compactMap { symbol in
             guard let quality = memberQuality(of: symbol.name, matching: query) else { return nil }

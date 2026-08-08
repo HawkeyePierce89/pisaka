@@ -351,12 +351,16 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
             // An empty partial word compares equal to an empty (member) prefix
             // *everywhere* there is no word at all — in open space, after a `(`,
             // at the start of a line — so the zero-length case additionally
-            // demands that the caret still sits after a dot, the only position
-            // in which the empty prefix was legitimate. Without it a caret move
-            // would inherit the previous dot's member list.
+            // demands that the caret still sits after a dot hanging off the
+            // **same receiver**, the only position in which the empty prefix was
+            // legitimate. Comparing receivers rather than merely finding *a* dot
+            // is what keeps a tap moved to `other.` from inheriting the member
+            // list `Worker.` was asked for; every other dot in the buffer would
+            // satisfy the weaker test.
             if range.length == 0 {
-                guard member != nil,
-                      IdentifierScanner.memberContext(in: liveText, at: offset) != nil
+                guard let member,
+                      let live = IdentifierScanner.memberContext(in: liveText, at: offset),
+                      live.receiver == member.receiver
                 else {
                     self.showCompletions([], in: textView)
                     return

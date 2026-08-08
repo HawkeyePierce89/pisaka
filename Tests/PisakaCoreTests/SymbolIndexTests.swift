@@ -268,6 +268,36 @@ final class SymbolIndexTests: XCTestCase {
         XCTAssertTrue(index.symbols(matching: "rray", limit: 10).isEmpty)
     }
 
+    /// The matcher and the bucket agree **at the cap**, which is what makes the
+    /// one-bucket lookup exhaustive rather than nearly so.
+    ///
+    /// `wordBoundaryInitials` keeps only the first `maximumInitials` starts, and
+    /// `symbols(matching:)` reads exactly the one bucket the query's first
+    /// character names. If `FuzzyMatch.quality` accepted an anchor past the cap,
+    /// a name with nine or more distinct boundary initials would be matchable but
+    /// unreachable through the index — a hole that looks exactly like "not
+    /// indexed yet", while the same query still found the name as a keyword or a
+    /// harvested buffer word.
+    func testTheMatcherAcceptsNoAnchorTheBucketCannotAnswer() {
+        var index = SymbolIndex()
+        let file = "/tmp/pisaka-symbols/a.swift"
+        let name = "a_b_c_d_e_f_g_h_i_j"
+        index.replace(fileURL: url(file), symbols: [symbol(name, kind: .type, in: file)])
+
+        let initials = FuzzyMatch.wordBoundaryInitials(of: name)
+        XCTAssertEqual(initials.count, FuzzyMatch.maximumInitials)
+        for initial in initials {
+            let query = String(initial)
+            XCTAssertNotNil(FuzzyMatch.quality(of: name, matching: query), query)
+            XCTAssertEqual(index.symbols(matching: query, limit: 10).map(\.name), [name], query)
+        }
+        // The boundaries past the cap: neither side may claim them.
+        for query in ["i", "ij", "j"] {
+            XCTAssertNil(FuzzyMatch.quality(of: name, matching: query), query)
+            XCTAssertTrue(index.symbols(matching: query, limit: 10).isEmpty, query)
+        }
+    }
+
     /// A name filed under several humps has to be swept out of *all* of them, or
     /// a re-index leaves the old spelling answering a hump query forever.
     func testReplaceLeavesNoResidueInAnyHumpBucket() {

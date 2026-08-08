@@ -37,9 +37,9 @@ import PisakaCore
 /// which opens the list on the typed `.` itself, with a prefix that is legally
 /// empty. A snapshot's `prefix` may therefore be `""`, and the checks that guard
 /// a stale snapshot are written to survive that: an empty prefix is accepted only
-/// while the caret is still in a member position, so a caret that has since moved
-/// to open space (where the partial word is also empty) does not inherit the
-/// member list.
+/// while the caret is still after a dot hanging off the *same receiver*, so
+/// neither a caret that has since moved to open space (where the partial word is
+/// also empty) nor one moved to a different `other.` inherits the member list.
 @MainActor
 final class CompletionController {
 
@@ -67,10 +67,15 @@ final class CompletionController {
     /// opens answers no typed characters at all.
     private struct Snapshot {
         let prefix: String
-        /// Whether these answer a member position, i.e. whether an empty `prefix`
-        /// is meaningful. Carried so the delegate can apply the same
-        /// still-in-a-member-position test `apply(prefix:isMember:items:)` does.
-        let isMember: Bool
+        /// The member position these answer, or `nil` when they answer an ordinary
+        /// partial word. Carried — **receiver and all** — so the delegate can
+        /// apply the same still-in-*this*-member-position test
+        /// `apply(prefix:member:items:)` does. The receiver is the load-bearing
+        /// half: an empty prefix matches every dot in the buffer, so a test of
+        /// "still after *a* dot" would let a caret moved to `other.` be served
+        /// `Worker.`'s list. Only the receiver is compared, not the whole context
+        /// — its `prefixRange` is position-dependent by construction.
+        let member: IdentifierScanner.MemberContext?
         let items: [String]
     }
 
@@ -120,13 +125,18 @@ final class CompletionController {
             return []
         }
         // An empty partial word matches an empty (member) prefix *everywhere*, so
-        // the member list is served only while the caret is still after a dot —
-        // the same extra condition `apply(prefix:isMember:items:)` opens under. A
-        // stock ⌥⎋ in open space therefore gets nothing rather than the last dot's
-        // members.
+        // the member list is served only while the caret is still after **the
+        // same receiver's** dot — the same extra condition
+        // `apply(prefix:member:items:)` opens under. This path is the one that
+        // needs it most: AppKit's stock ⌥⎋/F5 reaches the delegate directly,
+        // without going through `update(…)`, and a caret move does not refresh
+        // the snapshot — so without the receiver compare, ⌥⎋ after `other.` would
+        // be served the members of the `Worker.` typed before it, and ⌥⎋ in open
+        // space the last dot's list.
         if charRange.length == 0 {
-            guard snapshot.isMember,
-                  IdentifierScanner.memberContext(in: nsText, at: charRange.location) != nil
+            guard let member = snapshot.member,
+                  let live = IdentifierScanner.memberContext(in: nsText, at: charRange.location),
+                  live.receiver == member.receiver
             else { return [] }
         }
         return snapshot.items
@@ -220,7 +230,7 @@ final class CompletionController {
             let items = await provider.completions(for: request)
             guard let self, !Task.isCancelled, token == self.generation else { return }
             self.pendingTask = nil
-            self.apply(prefix: request.prefix, isMember: member != nil, items: items)
+            self.apply(prefix: request.prefix, member: member, items: items)
         }
     }
 
@@ -233,20 +243,21 @@ final class CompletionController {
     /// An empty result clears the snapshot and opens nothing — an empty popup is
     /// strictly worse than no popup.
     ///
-    /// `isMember` is what makes an *empty* prefix safe to re-check. The ordinary
+    /// `member` is what makes an *empty* prefix safe to re-check. The ordinary
     /// re-check is "the partial word under the caret is still the one these items
     /// answer", which an empty prefix satisfies everywhere there is no partial
     /// word at all — in open space, after a `(`, at the start of a line. So the
-    /// empty case additionally demands that the caret still sits in a member
-    /// position, which is the only place the empty prefix was legitimate to begin
-    /// with.
-    private func apply(prefix: String, isMember: Bool, items: [CompletionItem]) {
+    /// empty case additionally demands that the caret still sits after a dot
+    /// hanging off **the same receiver**, the only position the empty prefix was
+    /// legitimate in to begin with: a bare "after some dot" test is satisfied by
+    /// every other dot in the buffer too.
+    private func apply(prefix: String, member: IdentifierScanner.MemberContext?, items: [CompletionItem]) {
         let texts = items.map(\.text)
         guard !texts.isEmpty else {
             snapshot = nil
             return
         }
-        snapshot = Snapshot(prefix: prefix, isMember: isMember, items: texts)
+        snapshot = Snapshot(prefix: prefix, member: member, items: texts)
 
         guard let textView,
               !textView.hasMarkedText(),
@@ -261,8 +272,9 @@ final class CompletionController {
         let range = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
         guard nsText.substring(with: range) == prefix else { return }
         if range.length == 0 {
-            guard isMember,
-                  IdentifierScanner.memberContext(in: nsText, at: caret.location) != nil
+            guard let member,
+                  let live = IdentifierScanner.memberContext(in: nsText, at: caret.location),
+                  live.receiver == member.receiver
             else { return }
         }
         textView.complete(nil)

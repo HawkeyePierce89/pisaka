@@ -213,11 +213,13 @@ public struct SymbolIndex: Equatable, Sendable {
     /// offering it after one would be a worse answer than offering nothing.
     ///
     /// **No index structure backs this** — it is one ordered pass over the
-    /// per-file storage, stopping at `limit`. It runs at most once per typed
-    /// dot, behind the editor's completion debounce and off the main actor,
-    /// while ordinary per-keystroke completion never takes this path; a
-    /// by-container bucket would therefore cost memory on every keystroke to
-    /// speed up the one request that can afford to be linear.
+    /// per-file storage, stopping at `limit`. It runs once per completion tick
+    /// for as long as the caret sits after a dot (`worker.`, `worker.n`,
+    /// `worker.na` are all member positions), never on the ordinary
+    /// per-keystroke path — so what bounds the cost is the editor's completion
+    /// debounce coalescing a burst of keystrokes into one pass, run off the main
+    /// actor. A by-container bucket would cost memory on *every* keystroke to
+    /// speed up the requests that can afford to be linear.
     public func members(matching query: String, limit: Int) -> [Symbol] {
         guard limit > 0 else { return [] }
 
@@ -268,6 +270,22 @@ public struct SymbolIndex: Equatable, Sendable {
     /// The symbols of one file, in extraction order (i.e. source order).
     public func symbols(inFile fileURL: URL) -> [Symbol] {
         files[Self.fileKey(for: fileURL)] ?? []
+    }
+
+    /// The *members* of one file — `symbols(inFile:)` narrowed to the kinds a dot
+    /// can reach, in the same extraction order.
+    ///
+    /// The member path's counterpart to `symbols(inFile:)`, and it exists for
+    /// exactly the reason that one does: `members(matching:limit:)` walks the
+    /// project in file-key order and stops at its cap, so in a project with more
+    /// members than that cap every member of a file whose path sorts *after* the
+    /// cut is invisible — and whether the file the user is typing in is one of
+    /// them comes down to how its path happens to sort. The provider's ranking
+    /// rule "current file first" would then fail exactly where it is most
+    /// load-bearing, and the promoted-container rescue does not cover it (that
+    /// one only fires when the receiver spells a declared type).
+    public func members(inFile fileURL: URL) -> [Symbol] {
+        (files[Self.fileKey(for: fileURL)] ?? []).filter(Self.isMember)
     }
 
     /// How many files currently contribute to the index. A file that was walked

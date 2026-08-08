@@ -282,15 +282,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the opened folder) — while `textDidChange` goes through the controller's 400 ms
     debounce; scheduling *both* on a switch would re-parse the file twice per
     settled burst of typing. `textDidChange` also refreshes the completion
-    candidates behind their own shorter debounce, whose gates (bare caret, two typed
-    characters, no marked text) mean an ordinary keystroke outside an identifier
+    candidates behind their own shorter debounce, whose gates (bare caret, no marked
+    text, and either two typed characters *or* a member position — see
+    `CompletionController`) mean an ordinary keystroke outside an identifier
     costs one prefix scan and no task — but **not while
     `isApplyingProgrammaticEdit` is up**. AppKit's own completion insertion fires
     this notification synchronously (once per arrow-key preview as well as for the
     accepted word), so refreshing there would schedule a request for the word just
     completed and re-open the popup over it a debounce later; the iOS strip avoids
     the same treadmill by clearing after an insertion. Auto-pair, the indented
-    newline and ⌘D take the same path and are equally not typing. The snapshot the
+    newline and ⌘D take the same path and are equally not typing.
+    `updateCompletions` passes the highlighter's own `language` (the one
+    `updateHighlighter` owns), so the keywords offered are always the ones being
+    highlighted and a plain-text buffer passes `nil` and gets none. The snapshot the
     guard leaves standing is inert: `completions(forPartialWordRange:in:)`
     re-validates it against the live buffer, and a popup only ever opens from
     `apply` or ⌃Space. The coordinator's `goToDefinition(in:at:)` is
@@ -414,10 +418,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     so the ordinary "is this still the word these items answer" test passes
     everywhere and a member list would survive exactly the caret move it exists to
     catch. The zero-length case therefore additionally demands that the caret still
-    sits in a member position — and the same condition is applied on the *serving*
-    side (`completions(forPartialWordRange:in:)`, with the member-ness carried on
-    `Snapshot`), so a stock ⌥⎋ in open space gets nothing rather than the previous
-    dot's members. `rangeForUserCompletion`, `insertCompletion` and the
+    sits after a dot hanging off the **same receiver** — and the same condition is
+    applied on the *serving* side (`completions(forPartialWordRange:in:)`, with the
+    whole `MemberContext` carried on `Snapshot` and its `receiver` compared; the
+    `prefixRange` is position-dependent, so only the receiver can be), so a stock
+    ⌥⎋ in open space gets nothing rather than the previous dot's members. Comparing
+    the receiver rather than merely finding *a* dot is what closes the serving
+    side specifically: ⌥⎋/F5 reaches the delegate **without** going through
+    `update(…)`, and a caret move alone never refreshes the snapshot, so the
+    weaker test would hand `Worker.`'s member list to a caret since moved after
+    `other.`. `rangeForUserCompletion`, `insertCompletion` and the
     programmatic-edit bracket are untouched: an empty range at the caret is already
     the correct insertion range for a member completion. Thin glue otherwise:
     `IdentifierScanner` says what is being typed and `SymbolIntelligenceProvider`

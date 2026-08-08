@@ -188,19 +188,53 @@ final class IdentifierScannerTests: XCTestCase {
 
     /// The reported range is the same one ordinary completion would replace, so
     /// the member and identifier paths can never insert at different places.
+    ///
+    /// The found-context count is asserted alongside the equality: without it the
+    /// loop is a `continue` over offsets that report nothing, and a
+    /// `memberContext` regressed to returning `nil` everywhere would pass the one
+    /// test whose whole job is the cross-check between the two paths.
     func testMemberContextPrefixRangeMatchesCompletionPrefixRange() {
-        let sources = ["worker.", "worker.na", "a.b.c", "items[0].doR", "$FOO.bar"]
-        for source in sources {
+        // Per source: every offset strictly after its dot(s) is a member position.
+        let sources = [
+            ("worker.", 1), ("worker.na", 3), ("a.b.c", 4), ("items[0].doR", 4), ("$FOO.bar", 4)
+        ]
+        for (source, expectedContexts) in sources {
             let string = text(source)
+            var found = 0
             for offset in 0...string.length {
                 guard let context = IdentifierScanner.memberContext(in: string, at: offset) else { continue }
+                found += 1
                 XCTAssertEqual(
                     context.prefixRange,
                     IdentifierScanner.completionPrefixRange(in: string, at: offset),
                     "\(source) @ \(offset)"
                 )
             }
+            XCTAssertEqual(found, expectedContexts, source)
         }
+    }
+
+    /// A member prefix that is *all digits* is not a member position at all.
+    ///
+    /// The trim rule leaves nothing, so `completionPrefixRange` would report the
+    /// empty range **after** the digits — which the provider reads as "the dot was
+    /// just typed" (and answers with every member in the project) and which the
+    /// editors insert at, turning `pair.0|` into `pair.0doWork`. Swift tuple
+    /// access makes this an every-keystroke case, not an exotic one.
+    func testMemberContextIsNilWhenTheMemberPrefixIsAllDigits() {
+        for source in ["pair.0", "point.12", "ubuntu20.04", "items[0].7"] {
+            XCTAssertNil(
+                IdentifierScanner.memberContext(in: text(source), at: (source as NSString).length),
+                source
+            )
+        }
+        // The empty run is the legitimate bare-dot case and is unaffected, as is a
+        // digit-*containing* prefix that still trims to a name.
+        XCTAssertNotNil(IdentifierScanner.memberContext(in: text("pair."), at: 5))
+        XCTAssertEqual(
+            IdentifierScanner.memberContext(in: text("worker.name0"), at: 12)?.prefixRange,
+            NSRange(location: 7, length: 5)
+        )
     }
 
     /// The receiver goes through the same trim rule as every other lookup, and

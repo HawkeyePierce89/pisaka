@@ -399,8 +399,12 @@ covering libgit2 linking) in parallel. No signing, secrets, or simulator.
   a file of that language in a DEBUG build** and confirming its declarations
   answer ⌃⌘J; `SymbolQueryCatalog`'s DEBUG `assertionFailure` is what surfaces a
   query that no longer compiles, since Core cannot link SwiftTreeSitter and so
-  cannot compile one in a test. Rationale in
-  `docs/architecture/core-intelligence.md`.
+  cannot compile one in a test. A new case *also* needs a keyword list in
+  `LanguageKeywords.keywords(for:)` or an entry in
+  `LanguageKeywords.languagesWithoutKeywords` with the reason;
+  `LanguageKeywordsTests` compares the two against `allCases` by set equality on
+  the same principle, so a language can never silently complete to nothing
+  either. Rationale in `docs/architecture/core-intelligence.md`.
 - **Required-reason APIs are declared for the whole linked binary**, not just
   `Sources/`: libgit2 and the tree-sitter grammars compile from C source into the
   app and ship no privacy manifest of their own. Any new use of a required-reason

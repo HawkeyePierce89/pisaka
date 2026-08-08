@@ -63,13 +63,32 @@ final class LanguageKeywordsTests: XCTestCase {
     /// typing its own first character has to hit a word boundary, which for a
     /// whole-token query it trivially does. Cheap, but it is the join between
     /// this file and `FuzzyMatch`'s boundary rule.
-    func testEveryKeywordMatchesItsOwnPrefix() {
+    /// Every keyword is reachable through the matcher's *boundary* rule, which is
+    /// what the completion sources have in common.
+    ///
+    /// Deliberately not `FuzzyMatch.matches(keyword, query: keyword.prefix(2))`:
+    /// any string is a prefix of itself, so `quality`'s `hasPrefix` short-circuit
+    /// answers before a single boundary is computed and the assertion cannot fail
+    /// for any realistic list edit. The two properties asserted here are the ones
+    /// the keyword source actually depends on — that a keyword's first character
+    /// is its first boundary initial (the bucket rule symbols are filed under),
+    /// and that a *non-prefix* query anchored on a later boundary reaches it, the
+    /// path that goes through the subsequence walk rather than around it.
+    func testEveryKeywordIsReachableThroughTheBoundaryRule() {
         for language in SyntaxLanguage.allCases {
             for keyword in LanguageKeywords.keywords(for: language) {
-                let prefix = String(keyword.prefix(2))
-                XCTAssertTrue(
-                    FuzzyMatch.matches(keyword, query: prefix),
-                    "\(language.rawValue): \(keyword) is unreachable by \(prefix)"
+                let initials = FuzzyMatch.wordBoundaryInitials(of: keyword)
+                XCTAssertEqual(
+                    initials.first,
+                    keyword.lowercased().first,
+                    "\(language.rawValue): \(keyword) does not start its own first word"
+                )
+                // Anchor on the last boundary the matcher will accept and walk the
+                // rest of the name from there — a genuinely fuzzy query.
+                guard let anchor = initials.last, anchor != initials.first else { continue }
+                XCTAssertNotNil(
+                    FuzzyMatch.quality(of: keyword, matching: String(anchor)),
+                    "\(language.rawValue): \(keyword) is unreachable by \(anchor)"
                 )
             }
         }

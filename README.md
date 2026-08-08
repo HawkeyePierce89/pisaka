@@ -81,7 +81,7 @@ involved.
 | Cmd+Option+F| Replace in the current file (opens the bar with the replace row) |
 | Cmd+Shift+F | Find in Files (project-wide search window) |
 | Ctrl+Cmd+J  | Go to Definition of the identifier at the caret (Cmd+click does the same for the identifier under the pointer) |
-| Ctrl+Space  | Complete the word being typed (AppKit's stock Option+Esc and F5 work too) |
+| Ctrl+Space  | Complete the word being typed, or the members after a `.` (AppKit's stock Option+Esc and F5 work too) |
 | Cmd+K       | Commit… (opens the commit dialog for the open project) |
 | Cmd+R       | Run the active file in a new terminal session |
 | Cmd+U       | Run the active test file in a new terminal session |
@@ -280,8 +280,10 @@ involved.
   offers the project's declarations, the keywords of the language you are typing
   in, and the words already in the buffer. Matching is **fuzzy/camelCase**, not
   just literal: `arrBuf`, `aBu` and `buf` all reach `ArrayBuffer`, as long as the
-  first character you type starts a word in the name (its first letter, a
-  camelCase hump, or the character after a `_`/`-` or a digit). Ranking puts the
+  first character you type starts a word in the name — its first letter, a
+  camelCase hump, the character after a `_`/`-`, or either side of a
+  digit/letter transition (`base64Encoder` is reachable by `b`, `6` and `E`),
+  counting the first eight such starts. Ranking puts the
   best match first — an exact-case prefix, then a prefix ignoring case, then a
   fuzzy match, preferring the ones that land on word boundaries and stay tight —
   then the current file's names, then real declarations before keywords before

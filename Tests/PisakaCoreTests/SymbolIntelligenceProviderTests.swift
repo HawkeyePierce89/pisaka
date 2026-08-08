@@ -671,6 +671,124 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(items.map(\.text), (0..<5).map { "member\($0)" })
     }
 
+    /// The container key sits **above** match quality, so a fuzzy match in the
+    /// receiver's own type outranks a literal prefix match elsewhere.
+    ///
+    /// Every other member test passes an empty prefix, where `memberQuality` is a
+    /// constant for every candidate and the quality key cannot discriminate at
+    /// all — so swapping the first two comparisons in `isOrderedBefore` would
+    /// pass them. This one is the discriminating case.
+    func testTheContainerKeyOutranksMatchQuality() {
+        let store = index([
+            "a.swift": [
+                symbol("Worker", kind: .type, in: "a.swift", at: 0),
+                // `dr` reaches this only as a subsequence (fuzzy tier).
+                symbol("doRequest", kind: .method, in: "a.swift", at: 20, container: "Worker"),
+                symbol("Other", kind: .type, in: "a.swift", at: 40),
+                // …while `dr` is a literal, case-sensitive prefix of this one.
+                symbol("drab", kind: .property, in: "a.swift", at: 60, container: "Other")
+            ]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest("dr", receiver: "Worker"),
+            in: store
+        )
+        XCTAssertEqual(items.map(\.text), ["doRequest", "drab"])
+    }
+
+    /// Member mode honours ranking rule 2 (current file first) like every other
+    /// path — and reports `isFromCurrentFile` for the surfaces that render it.
+    ///
+    /// `al` is a case-sensitive prefix of both, so the quality key ties;
+    /// `alphaValue` is the *longer* name, so only the file key can put it first.
+    func testAMemberInTheCurrentFileOutranksAnEqualMatchElsewhere() {
+        let store = index([
+            "a.swift": [
+                symbol("A", kind: .type, in: "a.swift", at: 0),
+                symbol("alphaValue", kind: .method, in: "a.swift", at: 20, container: "A")
+            ],
+            "z.swift": [
+                symbol("Z", kind: .type, in: "z.swift", at: 0),
+                symbol("alp", kind: .property, in: "z.swift", at: 20, container: "Z")
+            ]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest("al", receiver: nil, from: "a.swift"),
+            in: store
+        )
+        XCTAssertEqual(items.map(\.text), ["alphaValue", "alp"])
+        XCTAssertEqual(items.map(\.isFromCurrentFile), [true, false])
+    }
+
+    /// The current file's members survive a member set larger than the pre-cap —
+    /// the member-path twin of
+    /// `testCurrentFileSymbolsSurviveAPrefixMatchSetLargerThanThePreCap`.
+    ///
+    /// `members(matching:limit:)` walks the project in file-key order and stops at
+    /// `memberCandidateLimit`, so without the separate `members(inFile:)` lookup
+    /// the file being typed in contributes nothing whenever its path sorts after
+    /// the cut — and the promoted-container rescue does not help, because a
+    /// lowercase receiver spells no declared type.
+    func testCurrentFileMembersSurviveAMemberSetLargerThanThePreCap() {
+        var groups: [String: [Symbol]] = [:]
+        for container in 0..<50 {
+            let file = String(format: "f%02d.swift", container)
+            groups[file] = (0..<10).map { member in
+                symbol(
+                    "filler\(container)_\(member)",
+                    kind: .method,
+                    in: file,
+                    at: member * 20,
+                    container: "C\(container)"
+                )
+            }
+        }
+        // Sorts last, well past the 400-member pre-cap.
+        groups["zzz.swift"] = [
+            symbol("myOwnMethod", kind: .method, in: "zzz.swift", at: 0, container: "Mine")
+        ]
+
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest(receiver: "thing", from: "zzz.swift"),
+            in: index(groups)
+        )
+        XCTAssertEqual(items.first?.text, "myOwnMethod")
+        XCTAssertEqual(items.first?.isFromCurrentFile, true)
+    }
+
+    /// The promoted container's members are collected uncapped, so the receiver's
+    /// own type is answered however its file happens to sort.
+    ///
+    /// Without that separate lookup, `Worker.` in a project with more than
+    /// `memberCandidateLimit` members offers an alphabetical slice of other
+    /// types' members and none of `Worker`'s — the exact failure the boost exists
+    /// to prevent.
+    func testThePromotedContainersMembersSurviveThePreCap() {
+        var groups: [String: [Symbol]] = [:]
+        for container in 0..<50 {
+            let file = String(format: "f%02d.swift", container)
+            groups[file] = (0..<10).map { member in
+                symbol(
+                    "filler\(container)_\(member)",
+                    kind: .method,
+                    in: file,
+                    at: member * 20,
+                    container: "C\(container)"
+                )
+            }
+        }
+        groups["zzz.swift"] = [
+            symbol("Worker", kind: .type, in: "zzz.swift", at: 0),
+            symbol("workerOnly", kind: .method, in: "zzz.swift", at: 20, container: "Worker")
+        ]
+
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest(receiver: "Worker"),
+            in: index(groups)
+        )
+        XCTAssertEqual(items.first?.text, "workerOnly")
+    }
+
     // MARK: - Completions: dedup, caps, degradation
 
     func testDuplicateNamesCollapseToTheirBestRankedEntry() {

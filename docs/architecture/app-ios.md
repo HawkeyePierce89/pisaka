@@ -323,8 +323,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     macOS's did: an empty (member) prefix compares equal to the also-empty partial
     word anywhere there is no word at all, so the zero-length case additionally
     requires that this request *was* a member request and that the live caret is
-    still in a member position — otherwise a caret move would inherit the previous
-    dot's list. `showCompletions` calls
+    still after a dot hanging off the **same receiver** — otherwise a caret move
+    to any other dot in the buffer would inherit the previous one's list. `showCompletions` calls
     `reloadInputViews()` only when the strip's **presence** changes, not per
     candidate list, because it visibly re-lays the keyboard and per keystroke would
     read as a flicker; an empty list removes the bar rather than showing an empty

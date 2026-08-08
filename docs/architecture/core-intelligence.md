@@ -59,7 +59,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     every initial is an entry appended to a project-wide bucket, while eight
     covers every hand-written name (`NSAttributedStringKey` has four); the kept
     eight are the *first* eight, so the cap is deterministic rather than
-    dictionary-ordered. Lowercasing is per-character and stays one character
+    dictionary-ordered, and `quality(of:matching:)` applies the **same** cap when
+    it decides whether a query may anchor on a boundary — the two go through one
+    private `boundaryInitials(of:boundaries:)` so they cannot drift apart, which
+    is the whole reason the index's one-bucket lookup is exhaustive rather than
+    merely usually right. Lowercasing is per-character and stays one character
     (`String.lowercased()` can widen `İ` to `i` + U+0307, which would
     desynchronize the lowercased array from the boundary flags computed over the
     original — and it agrees with how `SymbolIndex` derived its bucket key before
@@ -150,7 +154,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     without a new structure**: `symbols(matching:limit:)` still reads exactly
     *one* bucket — the one its first typed character names — and that bucket
     provably holds every candidate the matcher could accept, because
-    `FuzzyMatch` requires the first matched character to land on a boundary. The
+    `FuzzyMatch` requires the first matched character to land on a boundary
+    **and on one of the first `maximumInitials` of them**. That second half is
+    what makes "provably" true rather than nearly true: the cap is enforced
+    inside `quality(of:matching:)`, not only in `wordBoundaryInitials(of:)`, so
+    a name with nine or more distinct boundary initials cannot be a match the
+    bucket has no entry for — otherwise the same query would find such a name as
+    a keyword or a harvested buffer word and silently *not* as the identical
+    indexed symbol, a hole indistinguishable from "not indexed yet". The
     price is bounded and paid in both directions: `FuzzyMatch.maximumInitials`
     caps a name at 8 keys and hand-written code averages two or three, so both
     the stored entries and the entries scanned per keystroke grow by that same
@@ -519,7 +530,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (`foo .|`), after `(` or `,`, after another dot (`..|`), at the start of the
     file, and after a bare number — `1.|` is caught by the trim rule (a run of
     digits is not an identifier), so typing a decimal point never opens a member
-    list. Deleting the dot returns `nil` and the ordinary completion path resumes.
+    list. The same trim rule rejects a member prefix that is *itself* all digits
+    (`pair.0|`, `ubuntu20.04|`), and that rejection is explicit rather than
+    incidental: the trim leaves nothing, so `prefixRange` would be the empty range
+    **after** the digits — which the provider reads as "the dot was just typed"
+    and answers with every member in the project, and which both editors insert
+    at, turning `pair.0|` into `pair.0doWork`. Swift tuple access hits it on every
+    keystroke, so `memberContext` returns `nil` when a non-empty prefix run trims
+    away entirely. Deleting the dot returns `nil` and the ordinary path resumes.
     **String and comment context is deliberately not detected**: a dot inside a
     string literal or a comment *does* report a member position, exactly as
     identifier completion already offers candidates while typing inside one —
@@ -734,13 +752,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     applies unchanged, and on an ordinary request the key is constant 0, so the
     ranking outside member mode is bit-for-bit what it was before member completion
     existed. The promoted container's members are collected separately and
-    uncapped so the pre-cap cannot drop the very members the request is about;
+    uncapped so the pre-cap cannot drop the very members the request is about, and
+    the **current file's** members are collected separately too
+    (`SymbolIndex.members(inFile:)`) for exactly the reason `symbols(inFile:)` is
+    added on the ordinary path: the pre-cap slices the project in file-key order,
+    so without it the file being typed in can contribute nothing at all and
+    ranking rule 2 fails where it matters most. The promoted-container rescue does
+    not cover that case — it fires only when the receiver spells a declared type,
+    while `worker.`, the common case, promotes nothing. Both extra lookups are
+    re-matched like every other source, so being unfiltered cannot widen what
+    counts as a candidate, and `assemble` collapses the overlap.
     `memberCandidateLimit` 400 is a flat number rather than a multiple of the
     visible cap the way `candidateLimit(for:)` is, because that one slices a set
     the *query* already narrowed while a bare dot has no query at all — a few
     hundred members is far more than the popup can show and far less than a large
-    project declares, which keeps the one linear pass short enough to run per typed
-    dot behind the debounce. **The buffer-word fallback requires a non-empty member
+    project declares, which keeps the one linear pass short enough to run behind
+    the debounce for as long as the caret sits after a dot (`worker.`, `worker.n`
+    and `worker.na` are all member positions, so it is once per completion tick,
+    not once per dot). **The buffer-word fallback requires a non-empty member
     prefix**: words are offered only when the user has typed at least one character
     after the dot *and* no member matched it — the case where the project simply
     has not indexed the receiver's type and a word is better than an empty popup.

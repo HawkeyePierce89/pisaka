@@ -33,10 +33,13 @@ import Foundation
 /// obey exactly the same rule as a symbol. It is also what keeps the candidate
 /// set intelligible: without it, a three-letter query matches an appreciable
 /// fraction of every project's identifiers and the popup stops being a ranking
-/// problem and becomes a lottery.
+/// problem and becomes a lottery. The boundary it starts on must additionally be
+/// one of the name's first `maximumInitials` — see that constant for why the
+/// matcher, not just the index, is where the cap has to be stated.
 public enum FuzzyMatch {
 
-    /// How many bucket keys one name may contribute.
+    /// How many bucket keys one name may contribute — **and therefore how many
+    /// of its word boundaries a fuzzy match may be anchored on.**
     ///
     /// A generated or minified file can hold identifiers with dozens of humps,
     /// and every initial is an entry appended to a project-wide bucket. Eight
@@ -44,6 +47,14 @@ public enum FuzzyMatch {
     /// bounding what one pathological identifier can do to the index's memory.
     /// The kept eight are the *first* eight in name order, so the cap is
     /// deterministic rather than dictionary-ordered.
+    ///
+    /// The cap is enforced in `quality(of:matching:)` as well as in
+    /// `wordBoundaryInitials(of:)`, and that symmetry is load-bearing rather than
+    /// tidy: `SymbolIndex` reads exactly one bucket per query, so a matcher that
+    /// accepted a match anchored on a ninth boundary would claim candidates the
+    /// index can never hand back — the same query would then find such a name as
+    /// a keyword or a harvested buffer word and silently *not* as the identical
+    /// indexed symbol, which looks exactly like "not indexed yet".
     public static let maximumInitials = 8
 
     // MARK: - Quality
@@ -115,8 +126,10 @@ public enum FuzzyMatch {
     /// `nil` means one of exactly three things, and nothing else: the query is
     /// empty (nothing typed, nothing to rank), the query is not a
     /// case-insensitive subsequence of the candidate, or the query's first
-    /// character occurs in the candidate only *off* a word boundary (the rule
-    /// stated on the type).
+    /// character does not name one of the candidate's word-boundary initials
+    /// (the rule stated on the type, bounded by `maximumInitials` — so a
+    /// character occurring only *off* a boundary, or only on a boundary past the
+    /// cap, is not a match).
     ///
     /// The walk is greedy and left-to-right, and deliberately deterministic
     /// rather than optimal: for each query character it takes the next
@@ -142,6 +155,15 @@ public enum FuzzyMatch {
         let lowered = characters.map(lowercased)
         let target = query.map(lowercased)
         let boundaries = boundaryFlags(of: characters)
+
+        // The bucket agreement, enforced here rather than left to the index — see
+        // `maximumInitials`. A name contributes at most that many keys, so a match
+        // anchored on a later boundary is one `SymbolIndex` could never return,
+        // and stating the restriction in the matcher is what keeps a symbol, a
+        // keyword and a buffer word answering the same query alike.
+        guard let queried = target.first,
+              boundaryInitials(of: lowered, boundaries: boundaries).contains(queried)
+        else { return nil }
 
         guard let positions = positions(of: target, in: lowered, boundaries: boundaries, preferringBoundaries: true)
                 ?? positions(of: target, in: lowered, boundaries: boundaries, preferringBoundaries: false),
@@ -172,20 +194,29 @@ public enum FuzzyMatch {
     /// without a project-wide scan.
     public static func wordBoundaryInitials(of name: String) -> [Character] {
         let characters = Array(name)
-        let boundaries = boundaryFlags(of: characters)
+        return boundaryInitials(
+            of: characters.map(lowercased),
+            boundaries: boundaryFlags(of: characters)
+        )
+    }
 
+    // MARK: - Primitives
+
+    /// The capped, deduplicated boundary initials of an already-lowercased name —
+    /// the one implementation `wordBoundaryInitials(of:)` (which files a symbol)
+    /// and `quality(of:matching:)` (which decides whether a query may reach it)
+    /// both go through, so the two cannot drift apart at the cap.
+    private static func boundaryInitials(of lowered: [Character], boundaries: [Bool]) -> [Character] {
         var initials: [Character] = []
         var seen = Set<Character>()
-        for index in characters.indices where boundaries[index] {
-            let initial = lowercased(characters[index])
+        for index in lowered.indices where boundaries[index] {
+            let initial = lowered[index]
             guard seen.insert(initial).inserted else { continue }
             initials.append(initial)
             if initials.count == maximumInitials { break }
         }
         return initials
     }
-
-    // MARK: - Primitives
 
     /// One index per query character, or `nil` when the walk cannot place them
     /// all. The first character is restricted to boundary positions in *both*
