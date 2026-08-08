@@ -17,6 +17,34 @@ public struct DirectoryEntry: Identifiable, Equatable {
     public var name: String { url.lastPathComponent }
 }
 
+/// A cheap "has this file changed?" fingerprint: its size and its modification
+/// date, read together in one metadata call.
+///
+/// The symbol index compares this against the stamp it recorded when it last
+/// extracted a file, and re-parses only on a difference — which is what keeps an
+/// `npm i` (one FSEvents burst, thousands of untouched project files) from
+/// re-running tree-sitter over the whole project. It is deliberately *not* a
+/// content hash: hashing means reading every file, which is the cost the stamp
+/// exists to avoid.
+///
+/// The accepted inaccuracy is the classic one: a write that preserves both size
+/// and mtime looks unchanged. Only a deliberate `touch -t`/`utimes` does that,
+/// the editor's own buffers are re-indexed from live text rather than from disk,
+/// and the next genuine edit corrects the entry — so the failure mode is a
+/// briefly stale symbol, not a wrong jump target.
+public struct FileStamp: Equatable, Hashable, Sendable {
+    /// The file's size in bytes.
+    public let byteCount: Int
+    /// The file's content-modification date, or `nil` when the volume did not
+    /// report one (a stamp without a date still detects a size change).
+    public let modificationDate: Date?
+
+    public init(byteCount: Int, modificationDate: Date?) {
+        self.byteCount = byteCount
+        self.modificationDate = modificationDate
+    }
+}
+
 /// Text I/O against the file system, abstracted so the model can be tested
 /// with a stub that simulates read/write failures without touching disk.
 public protocol FileServicing {
@@ -59,6 +87,16 @@ public protocol FileServicing {
     /// find out" rather than as "empty".
     func fileByteCount(at url: URL) -> Int?
 
+    /// The size + modification date of the file at `url`, or `nil` when it
+    /// cannot be determined.
+    ///
+    /// Defaulted to `nil` for the same reason as `fileByteCount(at:)`, and with
+    /// the same reading: **"unknown" means "re-read it"**. The symbol index's
+    /// stamp gate treats a `nil` stamp as "always re-extract", so a partial stub
+    /// — or a service on a volume that reports no metadata — degrades to
+    /// correct-but-slower rather than to a stale index.
+    func fileStamp(at url: URL) -> FileStamp?
+
     /// The contents of `url` as text, or `nil` when it should not be searched:
     /// a **binary** file (a NUL byte in its head, git's own heuristic) or one
     /// **larger than `maxBytes`**.
@@ -76,6 +114,10 @@ public extension FileServicing {
     /// Defaulted to "unknown", so a stub that keeps its files in memory needs no
     /// size bookkeeping; the real `FileService` reads the on-disk size.
     func fileByteCount(at url: URL) -> Int? { nil }
+
+    /// Defaulted to "unknown", i.e. "this file always looks changed" — the safe
+    /// direction for a cache gate.
+    func fileStamp(at url: URL) -> FileStamp? { nil }
 
     /// A faithful default expressed in terms of `read(url:)` and
     /// `fileByteCount(at:)`, so *any* conforming type — an in-memory stub, the
@@ -169,6 +211,33 @@ public struct FileService: FileServicing {
     /// (the entry vanished, or its metadata is inaccessible).
     public func fileByteCount(at url: URL) -> Int? {
         (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+    }
+
+    /// The size + modification date of the file at `url`, read in **one**
+    /// metadata call — the whole point of the pair being one type: the symbol
+    /// index stamps every walked file on every refresh, so two separate `stat`s
+    /// per file would double the syscall cost of the gate that exists to save
+    /// work.
+    ///
+    /// `FileManager.attributesOfItem` rather than `URL.resourceValues`, and that
+    /// is not a style choice: a `URL` **caches** the resource values it has
+    /// already been asked for, so stamping the same `URL` instance twice can
+    /// return the first answer even after the file has been rewritten — which in
+    /// a cache gate means "unchanged" forever. Reading through the path is
+    /// stateless, so a stamp always describes the file as it is now.
+    ///
+    /// `nil` when the size is unavailable (the entry vanished between the walk
+    /// and the stamp, or its metadata is inaccessible), which the index reads as
+    /// "re-extract". A missing *date* alone is not `nil`: size changes still
+    /// detect the common edit.
+    public func fileStamp(at url: URL) -> FileStamp? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let byteCount = attributes[.size] as? Int
+        else { return nil }
+        return FileStamp(
+            byteCount: byteCount,
+            modificationDate: attributes[.modificationDate] as? Date
+        )
     }
 
     /// The contents of `url` as UTF-8 text, or `nil` when the file must not be

@@ -43,6 +43,20 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// steps on threshold crossings (see `handlePinch`).
     var pinchAccumulatedScale: CGFloat = 1
 
+    /// The shown file's on-disk location, or `nil` for an untitled buffer. Set by
+    /// the representable; read only by the symbol re-index, which keys files by URL.
+    var fileURL: URL?
+
+    /// Schedules the symbol index's re-index of the shown file. Held *weakly* —
+    /// the app owns it for its whole lifetime and this coordinator only asks it for
+    /// work; a deallocated one means no re-index, which is what a preview gets.
+    weak var symbolIndex: SymbolIndexController?
+
+    /// Where a resolved definition is sent: the root view owns tab opening and the
+    /// compact-width navigation stack, so this coordinator only asks. Weak for the
+    /// same reason as `symbolIndex` — the root outlives every editor it shows.
+    weak var definitionRoute: DefinitionRoute_iOS?
+
     /// The active Neon highlighter. It installs itself as the text storage's
     /// delegate; replacing it (or setting it to `nil`) detaches the old one.
     private var highlighter: TextViewHighlighter?
@@ -58,6 +72,35 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// the programmatic edit through untouched (mirrors the macOS guard).
     private var isApplyingProgrammaticEdit = false
 
+    /// The accessory strip offering completions above the keyboard. Built lazily,
+    /// on the first non-empty candidate list, so a plain-text buffer or a session
+    /// that never triggers completion pays nothing for it.
+    private var completionBar: CompletionBar_iOS?
+
+    /// The in-flight completion debounce/provider task; cancelled when a newer
+    /// keystroke or caret move lands.
+    private var completionTask: Task<Void, Never>?
+
+    /// Monotonic token discarding a candidate list a newer request superseded while
+    /// the provider was being awaited — the `BracketHighlightController` idiom, and
+    /// the same guard the macOS `CompletionController` uses.
+    private var completionGeneration = 0
+
+    /// Debounce before a provider call. 150 ms, matching macOS: the question is put
+    /// to a snapshot already in memory, so the cost is a prefix scan and a sort
+    /// rather than the re-parse the 400 ms index debounce covers.
+    private let completionDebounce: Duration = .milliseconds(150)
+
+    /// How many characters must be typed before the strip offers anything. One
+    /// character matches far too much to be a choice; the strip would flash a
+    /// full-width row of noise on the first letter of every identifier.
+    private static let minimumCompletionPrefixLength = 2
+
+    /// The `DefinitionRoute_iOS.Reveal` token this editor last acted on, so a
+    /// standing request is applied exactly once. `0` is below every issued token
+    /// (they start at 1), so the first request always lands.
+    private var appliedRevealToken = 0
+
     init(text: Binding<String>) {
         self.text = text
     }
@@ -65,7 +108,329 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     // MARK: - Edit bridging
 
     func textViewDidChange(_ textView: UITextView) {
-        text.wrappedValue = textView.text
+        // Read once: `UITextView.text` builds a fresh `String` out of the text
+        // storage on every access, so re-reading it per consumer made a keystroke
+        // cost several whole-buffer copies on the main thread.
+        let contents = textView.text ?? ""
+        text.wrappedValue = contents
+        // Keep this file's symbols in step with what is being typed, behind the
+        // controller's 400 ms debounce (a re-parse per keystroke would be felt).
+        reindexSymbols(text: contents, language: language, immediate: false)
+        // Offer completions for the word being typed, behind this coordinator's own
+        // (shorter) debounce. Its gates — a bare caret, at least two typed
+        // characters, no marked text — mean an ordinary keystroke outside an
+        // identifier costs one prefix scan and no task.
+        updateCompletions(in: textView)
+    }
+
+    /// A caret move (a tap, an arrow key on a hardware keyboard, a selection drag)
+    /// invalidates the strip as surely as a keystroke does: the word it answers is
+    /// no longer the word being typed.
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        updateCompletions(in: textView)
+    }
+
+    /// Re-index the shown file from its live buffer text — the peer of the macOS
+    /// coordinator's method, with the same two triggers.
+    ///
+    /// `immediate` is the tab-open / buffer-swap case; typing goes through the
+    /// debounce. An untitled buffer is skipped (the index is keyed by file URL), and
+    /// the language gate lives in the controller, so a plain-text or unindexable
+    /// file costs one call and no task.
+    func reindexSymbols(text: String, language: SyntaxLanguage?, immediate: Bool) {
+        guard let symbolIndex, let fileURL else { return }
+        if immediate {
+            symbolIndex.noteBufferOpened(url: fileURL, text: text, language: language)
+        } else {
+            symbolIndex.noteBufferChanged(url: fileURL, text: text, language: language)
+        }
+    }
+
+    // MARK: - Go to definition
+
+    /// Append "Go to Definition" to the selection's edit menu when the text under
+    /// it is an identifier — the iOS entry point for the feature ⌘-click and ⌃⌘J
+    /// drive on macOS.
+    ///
+    /// **The action is offered on the identifier, not on a resolved declaration**,
+    /// and that is a shape constraint rather than a preference: UIKit builds the
+    /// menu *synchronously* while it is already presenting it, whereas
+    /// `CodeIntelligenceProviding` is async (a phase-2 LSP provider must await a
+    /// socket). Awaiting the provider here is not possible, and pre-computing a
+    /// lookup for every selection change — the inversion the macOS completion
+    /// controller uses — would put a provider call behind every tap in the buffer
+    /// to save one menu row. So the lookup happens on *tap*, and the empty answer
+    /// is reported the way the plan specifies: a light haptic and nothing else.
+    func textView(
+        _ textView: UITextView,
+        editMenuForTextIn range: NSRange,
+        suggestedActions: [UIMenuElement]
+    ) -> UIMenu? {
+        guard symbolIndex != nil,
+              IdentifierScanner.identifier(in: textView.text as NSString, at: range.location) != nil
+        else { return nil }
+
+        let action = UIAction(title: "Go to Definition") { [weak self, weak textView] _ in
+            guard let self, let textView else { return }
+            self.goToDefinition(in: textView, at: textView.selectedRange.location)
+        }
+        // Returning `nil` above leaves UIKit's own menu untouched; here the
+        // suggested actions are carried through explicitly, so Cut/Copy/Paste and
+        // the system's own items keep working beside the new one.
+        return UIMenu(children: suggestedActions + [action])
+    }
+
+    /// Jump to the declaration of the identifier at `offset` — the single entry
+    /// point behind the edit-menu action, mirroring the macOS coordinator's method
+    /// so the two platforms cannot disagree about what counts as an identifier.
+    ///
+    /// Every decision is Core's: `IdentifierScanner` says which word the offset
+    /// names, the provider ranks the candidates, and `DefinitionRoute_iOS` turns
+    /// the count into a jump, a choice or a haptic.
+    func goToDefinition(in textView: UITextView, at offset: Int) {
+        guard let provider = symbolIndex?.provider,
+              let match = IdentifierScanner.identifier(in: textView.text as NSString, at: offset)
+        else {
+            PlatformFeedback.light()
+            return
+        }
+        let request = DefinitionRequest(
+            identifier: match.text,
+            fileURL: fileURL,
+            offset: match.range.location
+        )
+        Task { [weak self] in
+            let candidates = await provider.definitions(for: request)
+            guard let route = self?.definitionRoute else { return }
+            route.present(candidates)
+        }
+    }
+
+    /// Select and scroll to a pending definition jump, if it targets the file this
+    /// editor is showing and has not been applied yet — the iOS peer of the macOS
+    /// coordinator's `applyReveal`, with the same one-shot token rule.
+    ///
+    /// The selection is deferred by one main-loop turn: the caller runs inside
+    /// `updateUIView`, where the buffer may have just been replaced wholesale and
+    /// TextKit has not laid the new text out — scrolling there would compute
+    /// against the outgoing layout. The range is clamped to the live buffer, so a
+    /// declaration recorded before an edit shrank the file can never raise.
+    ///
+    /// The request is also retired *at the route* once applied, not merely recorded
+    /// here: `appliedRevealToken` dies with this coordinator, and on compact width
+    /// the editor is a `navigationDestination` the user can pop and re-enter, which
+    /// builds a fresh coordinator that would re-apply a still-standing request. The
+    /// route is captured strongly for the hop so the clear happens even if this
+    /// coordinator is torn down in the same turn — that is exactly the case the
+    /// clear exists for.
+    func applyReveal(_ request: DefinitionRoute_iOS.Reveal?, fileID: UUID) {
+        guard let request,
+              request.token != appliedRevealToken,
+              request.fileID == fileID,
+              textView != nil
+        else { return }
+        appliedRevealToken = request.token
+        let route = definitionRoute
+        DispatchQueue.main.async { [weak self] in
+            // Clearing `reveal` republishes the route, so it is deliberately done
+            // on this hop rather than inside `updateUIView`, where mutating
+            // observed state is a SwiftUI violation.
+            route?.consumeReveal(token: request.token)
+            guard let textView = self?.textView else { return }
+            let length = (textView.text as NSString).length
+            guard request.range.location != NSNotFound,
+                  request.range.location >= 0,
+                  request.range.location <= length
+            else { return }
+            // Clamped by *truncating the length*, not by intersecting: a range
+            // whose location is exactly the buffer end shares no unit with the
+            // document, and `NSIntersectionRange` answers `{0, 0}` for that — which
+            // would scroll to the top of the file instead of leaving the caret at
+            // the end.
+            let range = NSRange(
+                location: request.range.location,
+                length: min(request.range.length, length - request.range.location)
+            )
+            if let textRange = textView.uiTextRange(for: range) {
+                textView.selectedTextRange = textRange
+            }
+            textView.scrollRangeToVisible(range)
+        }
+    }
+
+    // MARK: - Completion
+
+    /// Recompute the accessory strip's candidates for whatever is being typed.
+    ///
+    /// The request is built here, on the main actor, from the live buffer — the
+    /// text goes *into* the request rather than being read after the hop, so the
+    /// words the provider harvests are the ones on screen when the user paused.
+    private func updateCompletions(in textView: UITextView) {
+        completionTask?.cancel()
+        completionTask = nil
+        completionGeneration += 1
+        let token = completionGeneration
+
+        guard let provider = symbolIndex?.provider,
+              // No offers mid-composition. Marked text is uncommitted input the
+              // input method still owns; completing over it would insert into a
+              // range the composition is about to replace.
+              textView.markedTextRange == nil,
+              // A non-empty selection is not a partial word: the user is about to
+              // replace it, not extend it.
+              let caret = textView.selectedTextRange, caret.isEmpty
+        else {
+            showCompletions([], in: textView)
+            return
+        }
+
+        // One read for both the prefix scan and the request — see the note in
+        // `textViewDidChange`; this runs on every keystroke and every caret move.
+        let contents = textView.text ?? ""
+        let nsText = contents as NSString
+        let offset = textView.offset(from: textView.beginningOfDocument, to: caret.start)
+        let prefixRange = IdentifierScanner.completionPrefixRange(in: nsText, at: offset)
+        guard prefixRange.length >= Self.minimumCompletionPrefixLength else {
+            showCompletions([], in: textView)
+            return
+        }
+
+        let request = CompletionRequest(
+            prefix: nsText.substring(with: prefixRange),
+            fileURL: fileURL,
+            text: contents
+        )
+        let interval = completionDebounce
+        completionTask = Task { [weak self, weak textView] in
+            try? await Task.sleep(for: interval)
+            if Task.isCancelled { return }
+            let items = await provider.completions(for: request)
+            guard let self, let textView, !Task.isCancelled, token == self.completionGeneration
+            else { return }
+            self.completionTask = nil
+            // Re-read the caret rather than trusting it from before the await: a
+            // tap or an undo in the meantime moves the strip's subject to a word
+            // these items do not answer.
+            guard textView.markedTextRange == nil,
+                  let caret = textView.selectedTextRange, caret.isEmpty
+            else {
+                self.showCompletions([], in: textView)
+                return
+            }
+            let liveText = textView.text as NSString
+            let offset = textView.offset(from: textView.beginningOfDocument, to: caret.start)
+            let range = IdentifierScanner.completionPrefixRange(in: liveText, at: offset)
+            guard range.length > 0, liveText.substring(with: range) == request.prefix else {
+                self.showCompletions([], in: textView)
+                return
+            }
+            self.showCompletions(items.map(\.text), in: textView)
+        }
+    }
+
+    /// Install, update or remove the accessory strip.
+    ///
+    /// `reloadInputViews()` is called only when the strip's *presence* changes, not
+    /// on every candidate list: it re-queries the responder's input views and
+    /// visibly re-lays the keyboard, which per keystroke would read as a flicker.
+    /// An empty list removes the bar rather than showing an empty one, so it never
+    /// occupies space for nothing.
+    private func showCompletions(_ items: [String], in textView: UITextView) {
+        guard !items.isEmpty else {
+            guard textView.inputAccessoryView != nil else { return }
+            textView.inputAccessoryView = nil
+            textView.reloadInputViews()
+            return
+        }
+
+        let bar = completionBar ?? {
+            let bar = CompletionBar_iOS()
+            bar.onSelect = { [weak self] item in self?.insertCompletion(item) }
+            completionBar = bar
+            return bar
+        }()
+        bar.setItems(items)
+        guard textView.inputAccessoryView !== bar else { return }
+        textView.inputAccessoryView = bar
+        textView.reloadInputViews()
+    }
+
+    /// Replace the partial word at the caret with a tapped candidate.
+    ///
+    /// Routed through `applyEdit` — the same path auto-pair, dedent and the
+    /// indented newline take — so the insertion is one undo step and passes the
+    /// programmatic-edit guard, meaning a candidate ending in `(` cannot fall into
+    /// `AutoPairEngine` and collect a closing bracket it never asked for.
+    ///
+    /// The prefix range is recomputed here rather than remembered from the
+    /// provider call: the strip is a live view, and a tap can land after another
+    /// keystroke has already moved the word it answers.
+    ///
+    /// The re-check is **case-insensitive**, matching how the candidates were
+    /// chosen: the provider deliberately keeps a merely case-insensitive prefix
+    /// match (typing `arr` still offers `ArrayBuffer`, just ranked below
+    /// `arrayCount`), so a case-sensitive guard here would let the user tap such
+    /// an item and have nothing happen at all.
+    private func insertCompletion(_ item: String) {
+        guard let textView,
+              textView.markedTextRange == nil,
+              let caret = textView.selectedTextRange, caret.isEmpty
+        else { return }
+        let nsText = textView.text as NSString
+        let offset = textView.offset(from: textView.beginningOfDocument, to: caret.start)
+        let range = IdentifierScanner.completionPrefixRange(in: nsText, at: offset)
+        guard range.length > 0,
+              item.lowercased().hasPrefix(nsText.substring(with: range).lowercased())
+        else { return }
+
+        applyEdit(
+            in: textView,
+            range: range,
+            replacement: item,
+            selecting: NSRange(
+                location: range.location + (item as NSString).length,
+                length: 0
+            )
+        )
+        // `applyEdit` fires `textViewDidChange` synchronously, which schedules a
+        // fresh debounce for the just-completed word; drop it. Offering longer
+        // names the instant a choice was made is how a completion strip turns into
+        // a treadmill.
+        clearCompletions()
+    }
+
+    /// Hide the strip and supersede an in-flight provider call — what an insertion
+    /// that just answered the question needs. The bar object itself is kept for
+    /// reuse; only `tearDownCompletions(in:)` lets it go.
+    func clearCompletions() {
+        completionTask?.cancel()
+        completionTask = nil
+        completionGeneration += 1
+        if let textView {
+            showCompletions([], in: textView)
+        }
+    }
+
+    /// Detach the strip on view teardown (a tab closed), alongside the highlighter.
+    ///
+    /// The accessory view is attached to the *responder*, not to the view
+    /// hierarchy, so nothing else would drop it; leaving it installed on a text
+    /// view SwiftUI is about to discard keeps a stale candidate row alive over the
+    /// next file.
+    func tearDownCompletions(in textView: UITextView) {
+        completionTask?.cancel()
+        completionTask = nil
+        completionGeneration += 1
+        if textView.inputAccessoryView === completionBar {
+            textView.inputAccessoryView = nil
+            // Paired with the detach exactly as in `showCompletions`: the accessory
+            // view is cached by the *responder*, so clearing the property alone can
+            // leave the strip on screen over the incoming file — the one outcome
+            // this method exists to prevent.
+            textView.reloadInputViews()
+        }
+        completionBar?.onSelect = nil
+        completionBar = nil
     }
 
     /// Intercept single-character input, Return, and Backspace for auto-indent and

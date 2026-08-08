@@ -37,7 +37,7 @@ final class VendoredGrammarQueryTests: XCTestCase {
     // MARK: - gitignore (query hand-written in this repository)
 
     func testGitignoreQueryUsesOnlyNodeNamesTheGrammarDeclares() throws {
-        try assertQueryNodesAreDeclared(vendoredPackage: "TreeSitterGitignore")
+        try assertHighlightQueryNodesAreDeclared(vendoredPackage: "TreeSitterGitignore")
     }
 
     func testGitignoreQueryEmitsExactlyTheExpectedCaptureNames() throws {
@@ -67,7 +67,7 @@ final class VendoredGrammarQueryTests: XCTestCase {
     // MARK: - dotenv (query vendored verbatim from upstream)
 
     func testDotenvQueryUsesOnlyNodeNamesTheGrammarDeclares() throws {
-        try assertQueryNodesAreDeclared(vendoredPackage: "TreeSitterDotenv")
+        try assertHighlightQueryNodesAreDeclared(vendoredPackage: "TreeSitterDotenv")
     }
 
     func testDotenvQueryEmitsExactlyTheExpectedCaptureNames() throws {
@@ -129,6 +129,31 @@ final class VendoredGrammarQueryTests: XCTestCase {
         XCTAssertEqual(query.namedNodes, ["variable", "pair", "key"])
         XCTAssertEqual(query.anonymousNodes, ["="])
         XCTAssertEqual(query.captureNames, ["constant", "variable", "operator"])
+        XCTAssertEqual(query.fieldNames, ["key"])
+    }
+
+    /// Fields are the third thing tree-sitter validates, and the scanner has to
+    /// tell them from the two it already collected: a field is the only *bare*
+    /// identifier a query may hold, so it is recognized by the `:` that follows.
+    /// Prose in a comment, a predicate's regex and a node name must not reach the
+    /// set — a spurious field would fail the check against `node-types.json` with
+    /// a mismatch that does not exist, and a missing one leaves the hole this
+    /// collection was added to close (`ts_query_new` answering
+    /// `TSQueryErrorField`, i.e. the language silently indexing nothing).
+    func testScannerCollectsFieldNamesAndNothingElse() {
+        let query = ParsedQuery(source: """
+        ; A comment mentioning body: and name: in prose.
+        (class_declaration
+          name: (identifier) @container
+          body: (block (function_definition name: (identifier) @definition.method)))
+        ((attribute (attribute_name) @_a) (#match? @_a "^id:$"))
+        (source_file (_ (pattern) @definition.variable))
+        """)
+
+        XCTAssertEqual(query.fieldNames, ["name", "body"])
+        XCTAssertEqual(query.anonymousNodes, [])
+        XCTAssertTrue(query.namedNodes.contains("class_declaration"))
+        XCTAssertFalse(query.namedNodes.contains("_"))
     }
 
     /// The predicate suppression must end with its own `)`, not swallow the rest
@@ -159,188 +184,30 @@ final class VendoredGrammarQueryTests: XCTestCase {
         }
     }
 
-    private func assertQueryNodesAreDeclared(
+    private func assertHighlightQueryNodesAreDeclared(
         vendoredPackage: String,
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
-        let query = try parsedQuery(vendoredPackage: vendoredPackage)
-        let declared = try declaredNodeTypes(vendoredPackage: vendoredPackage)
-
-        XCTAssertFalse(query.namedNodes.isEmpty, "parsed no node names out of the query",
-                       file: file, line: line)
-
-        for node in query.namedNodes.sorted() where !declared.named.contains(node) {
-            let asAnonymous = declared.anonymous.contains(node)
-                ? " — it is declared, but as an *anonymous* token, so the query must spell it "
-                    + "\"\(node)\" rather than (\(node))"
-                : ""
-            XCTFail("query names node (\(node)), which \(vendoredPackage)'s node-types.json "
-                    + "does not declare as a named node\(asAnonymous) — the query would fail to "
-                    + "compile and the file would degrade to plain text", file: file, line: line)
-        }
-        for literal in query.anonymousNodes.sorted() where !declared.anonymous.contains(literal) {
-            let asNamed = declared.named.contains(literal)
-                ? " — it is declared, but as a *named* node, so the query must spell it "
-                    + "(\(literal)) rather than \"\(literal)\""
-                : ""
-            XCTFail("query names anonymous node \"\(literal)\", which \(vendoredPackage)'s "
-                    + "node-types.json does not declare as an anonymous token\(asNamed) — the "
-                    + "query would fail to compile and the file would degrade to plain text",
-                    file: file, line: line)
-        }
+        assertQueryNodesAreDeclared(
+            try parsedQuery(vendoredPackage: vendoredPackage),
+            declaredBy: try declaredNodeTypes(vendoredPackage: vendoredPackage,
+                                              file: file, line: line),
+            describedAs: vendoredPackage,
+            consequence: "the file would degrade to plain text",
+            file: file, line: line
+        )
     }
 
     // MARK: - Reading the vendored files
-
-    /// The repository root, derived from this file's own compile-time path
-    /// (`<root>/Tests/PisakaCoreTests/<this file>`).
-    private static let repositoryRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()  // PisakaCoreTests
-        .deletingLastPathComponent()  // Tests
-        .deletingLastPathComponent()  // <root>
-
-    private func vendoredFile(_ package: String, _ relativePath: String) -> URL {
-        Self.repositoryRoot
-            .appendingPathComponent("Vendor")
-            .appendingPathComponent(package)
-            .appendingPathComponent(relativePath)
-    }
 
     private func captureNames(vendoredPackage: String) throws -> Set<String> {
         try parsedQuery(vendoredPackage: vendoredPackage).captureNames
     }
 
     private func parsedQuery(vendoredPackage: String) throws -> ParsedQuery {
-        let url = vendoredFile(vendoredPackage, "queries/highlights.scm")
-        let source = try String(contentsOf: url, encoding: .utf8)
-        return ParsedQuery(source: source)
-    }
-
-    /// Every node type the grammar declares, split by its `named` flag.
-    ///
-    /// `node-types.json` lists both kinds side by side at the top level, but the
-    /// two are *not* interchangeable in a query: a named node is matched as
-    /// `(name)` and an anonymous token as `"literal"`, and using the wrong form
-    /// fails `ts_query_new` with `TSQueryErrorNodeType` — the same silent
-    /// degradation to plain text an unknown name causes. Merging them into one
-    /// set would therefore pass a query that cannot compile, which is exactly the
-    /// failure this assertion exists to catch. It is a live hazard rather than a
-    /// theoretical one in both directions: gitignore declares 18 *anonymous*
-    /// types that read like ordinary identifiers (`digit`, `alpha`, `space`, …),
-    /// so `(digit) @string` looks correct, and a grammar update flipping a node's
-    /// `named` status is an ordinary upstream change.
-    private func declaredNodeTypes(
-        vendoredPackage: String
-    ) throws -> (named: Set<String>, anonymous: Set<String>) {
-        let url = vendoredFile(vendoredPackage, "src/node-types.json")
-        let data = try Data(contentsOf: url)
-        let entries = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] ?? []
-
-        var named: Set<String> = []
-        var anonymous: Set<String> = []
-        for entry in entries {
-            guard let type = entry["type"] as? String else { continue }
-            // A missing `named` flag means anonymous, matching tree-sitter's own
-            // default — but every entry both vendored grammars emit carries it.
-            if entry["named"] as? Bool == true { named.insert(type) } else { anonymous.insert(type) }
-        }
-
-        XCTAssertFalse(named.isEmpty && anonymous.isEmpty,
-                       "read no node types out of \(url.lastPathComponent)")
-        return (named, anonymous)
-    }
-}
-
-/// The three things a tree-sitter query says about a grammar: which named nodes
-/// it matches, which anonymous literals it matches, and which captures it emits.
-///
-/// A hand-rolled scanner rather than a regex because the three are only
-/// distinguishable with `;`-comment and string-literal state — a comment in the
-/// gitignore query mentions node names in prose, and the query matches literal
-/// `"["` / `"]"` / `"-"` tokens.
-private struct ParsedQuery {
-    private(set) var captureNames: Set<String> = []
-    private(set) var namedNodes: Set<String> = []
-    private(set) var anonymousNodes: Set<String> = []
-
-    init(source: String) {
-        let characters = Array(source)
-        var index = 0
-        var depth = 0
-        // The paren depth a `(#predicate? …)` form opened at, while inside one.
-        // A predicate's *arguments* are ordinary strings — `(#match? @constant
-        // "^[A-Z_]+$")` — not anonymous nodes, so collecting them would make
-        // `assertQueryNodesAreDeclared` demand a regex be declared in
-        // `node-types.json`. Neither vendored query uses a predicate today, but
-        // upstream queries commonly do (the dockerfile grammar's own does), and
-        // the dotenv query is re-copied verbatim on every update.
-        var predicateDepth: Int?
-
-        while index < characters.count {
-            let character = characters[index]
-
-            switch character {
-            case ";":  // comment — the rest of the line is prose
-                while index < characters.count, !characters[index].isNewline { index += 1 }
-
-            case "\"":  // anonymous node, e.g. "[" or "export"
-                index += 1
-                var literal = ""
-                while index < characters.count, characters[index] != "\"" {
-                    if characters[index] == "\\", index + 1 < characters.count {
-                        index += 1
-                    }
-                    literal.append(characters[index])
-                    index += 1
-                }
-                index += 1  // closing quote
-                if predicateDepth == nil { anonymousNodes.insert(literal) }
-
-            case "@":  // capture name, e.g. @punctuation.delimiter
-                // Collected inside a predicate too: a predicate can only refer to
-                // a capture its own pattern already emitted, so the name is real
-                // either way.
-                index += 1
-                let name = ParsedQuery.identifier(in: characters, from: &index, allowingDots: true)
-                if !name.isEmpty { captureNames.insert(name) }
-
-            case "(":  // node pattern, e.g. (bracket_expr …) — or a (#predicate?)
-                index += 1
-                depth += 1
-                while index < characters.count, characters[index].isWhitespace { index += 1 }
-                if index < characters.count, characters[index] == "#" {
-                    if predicateDepth == nil { predicateDepth = depth }
-                    break  // leave `#` for the default branch to step over
-                }
-                let name = ParsedQuery.identifier(in: characters, from: &index, allowingDots: false)
-                if !name.isEmpty, predicateDepth == nil { namedNodes.insert(name) }
-
-            case ")":
-                index += 1
-                depth -= 1
-                if let opened = predicateDepth, depth < opened { predicateDepth = nil }
-
-            default:
-                index += 1
-            }
-        }
-    }
-
-    private static func identifier(
-        in characters: [Character],
-        from index: inout Int,
-        allowingDots: Bool
-    ) -> String {
-        var name = ""
-        while index < characters.count {
-            let character = characters[index]
-            let isIdentifierCharacter = character.isLetter || character.isNumber
-                || character == "_" || (allowingDots && character == ".")
-            guard isIdentifierCharacter else { break }
-            name.append(character)
-            index += 1
-        }
-        return name
+        let url = TestRepository.url(
+            atRepositoryPath: "Vendor/\(vendoredPackage)/queries/highlights.scm")
+        return ParsedQuery(source: try String(contentsOf: url, encoding: .utf8))
     }
 }

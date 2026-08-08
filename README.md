@@ -80,6 +80,8 @@ involved.
 | Cmd+Shift+G | Find Previous (while the search bar is open) |
 | Cmd+Option+F| Replace in the current file (opens the bar with the replace row) |
 | Cmd+Shift+F | Find in Files (project-wide search window) |
+| Ctrl+Cmd+J  | Go to Definition of the identifier at the caret (Cmd+click does the same for the identifier under the pointer) |
+| Ctrl+Space  | Complete the word being typed (AppKit's stock Option+Esc and F5 work too) |
 | Cmd+K       | Commit… (opens the commit dialog for the open project) |
 | Cmd+R       | Run the active file in a new terminal session |
 | Cmd+U       | Run the active test file in a new terminal session |
@@ -266,6 +268,31 @@ involved.
   new project: whatever was already written stands, the report says the folder
   changed, and the rest is left untouched. Afterwards the summary is shown and the
   search re-runs.
+- Go to Definition: Cmd+click an identifier — or put the caret in it and press
+  Ctrl+Cmd+J (Find > Go to Definition) — to jump to where it is declared, in this
+  file or anywhere in the open project. The caret lands on the declaration's
+  *name*, the file is opened (or its tab re-selected) as needed, and when several
+  declarations share the name a small menu at the click point lists them as
+  `Container.name — path/to/file.swift:42`, with the current file's first. A name
+  nothing declares just beeps. Cmd+drag still selects text, and Cmd+Shift+click /
+  Cmd+Option+click keep their usual meaning.
+- Autocompletion: as you type an identifier (from the second character), a popup
+  offers the project's declarations and the words already in the buffer, ranked
+  with your capitalization respected, the current file's names first, real
+  declarations before plain words, and shorter names first. Arrow keys or the
+  mouse choose, Return inserts, Esc dismisses, and the insertion is a single undo
+  step. Ctrl+Space (Find > Complete) asks for the list explicitly, from the first
+  character. Nothing pops up mid-composition with an input method.
+  Both features are backed by a project-wide symbol index built from the same
+  tree-sitter parse trees that drive the syntax highlighting — no language server
+  and no network. It is built when you open a folder, refreshed when files change
+  on disk (only the files whose size or modification date actually moved get
+  re-parsed), and kept current for the file you are typing in, so a name you just
+  wrote is completable before it is saved. Declarations are indexed for Swift,
+  JavaScript, TypeScript and Python; Markdown headings, CSS selectors, top-level
+  YAML/JSON keys, Dockerfile build stages, `.env` variables and HTML `id`s are
+  indexed too. A file type with no query still completes from the words in the
+  buffer.
 - VS Code-style minimap to the right of the editor: a scaled-down,
   syntax-colored overview of the file with a draggable viewport rectangle.
   Click or drag the rectangle to scroll the editor, or scroll the mouse wheel
@@ -507,6 +534,17 @@ and iPhone. The feature scope landed so far:
   `SettingsStore` preference; pinch-to-zoom steps it (the iOS analog of macOS
   Cmd+scroll). The editor's line-number gutter and minimap are deferred on iOS
   (the side-by-side diff panes do still draw per-side line numbers).
+- The same code intelligence as macOS, through touch-appropriate surfaces:
+  **Go to Definition** is an extra item in the selection's edit menu (tap an
+  identifier → "Go to Definition"), which jumps straight there, or asks which
+  declaration you meant when several share the name; a name nothing declares gives
+  a light haptic. **Completion** is a QuickType-style strip above the keyboard —
+  it appears from the second character typed, scrolls horizontally, tapping a word
+  inserts it as one undo step, and it disappears when there is nothing to offer,
+  so it works the same with the on-screen and a hardware keyboard. iOS has no
+  file-system watcher, so the index is built when you open a folder and kept
+  current as you open tabs and type, but it does not notice changes made to the
+  files by another app.
 - A Preferences sheet bound to the same `SettingsStore` (theme, tab orientation,
   font size), with an **About → Acknowledgements** screen listing the same
   third-party dependencies and their full license texts as the macOS tab.
@@ -554,6 +592,15 @@ and iPhone. The feature scope landed so far:
   clicking an annotation opens no commit detail, there is no "annotate previous
   revision", no jump from an annotation into the Git Log, and the date format is
   fixed (not a setting).
+- Code intelligence is index-based, not a compiler: Go to Definition matches a
+  *name*, so it cannot tell two same-named declarations apart (it lists both),
+  knows nothing about imports, scope, generics or overload resolution, and finds
+  nothing in dependencies outside the opened folder. There is no Find Usages, no
+  rename refactoring, no hover types or signature help, and completion offers
+  identifiers only — no kind or file column in the macOS popup, no snippets, and
+  no member completion after a `.`. A language with no bundled symbols query (and
+  `.gitignore` deliberately has none) completes from the buffer's words alone.
+  On iOS the index does not see changes made to the files outside the app.
 - No tab reordering, drag-and-drop, or split views.
 - The path bar above the editor is macOS-only and read-only: its breadcrumb
   segments are not clickable, there is no "copy path" action or window proxy

@@ -29,7 +29,7 @@ import Foundation
 /// of it appear regularly, so enumerating them would go stale. The leading dot
 /// is load-bearing — this is a dot-file convention, not an extension — so
 /// `foo.ignore`, `gitignore` and `ignore` deliberately do *not* match.
-public enum SyntaxLanguage: String, CaseIterable, Equatable {
+public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable {
     case swift
     case javascript
     case typescript

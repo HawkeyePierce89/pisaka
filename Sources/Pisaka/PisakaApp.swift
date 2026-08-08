@@ -73,36 +73,69 @@ struct PisakaApp: App {
     /// the `CodeEditorView` that will honour it exists.
     @StateObject private var reveal = EditorRevealState()
 
-    /// Wire the workspace and the project-search model together.
+    /// The project-wide symbol index behind go-to-definition and completion.
+    ///
+    /// A plain stored property, deliberately **not** `@StateObject` — the
+    /// `commitDialog` precedent, and here the argument is even sharper: the model
+    /// republishes its `index` after *every chunk* of the walk, so subscribing this
+    /// scene's `body` to it would re-create `ContentView` (and with it the project
+    /// tree, the tab list and `CodeEditorView.updateNSView`) dozens of times while
+    /// a project is being indexed, for a value nothing in the window reads. The
+    /// editor surfaces ask their questions through `symbolIndex.provider`, which
+    /// reads the latest snapshot on demand. The `@main` App is created once, so a
+    /// `let` is a stable instance for the app's lifetime.
+    private let symbolIndex: SymbolIndexModel
+
+    /// Schedules the index's incremental work: the debounced buffer re-index while
+    /// typing, the immediate one on a tab switch, and the debounced project refresh
+    /// the FSEvents callback asks for. A plain stored reference like the window
+    /// controllers above.
+    private let symbolIndexController: SymbolIndexController
+
+    /// Wire the workspace, the project-search model and the symbol index together.
     ///
     /// `ProjectSearchModel`'s buffer closures are `let`s taken at construction, and
     /// they must close over the very `WorkspaceModel` this app publishes — which a
     /// property initializer cannot reach. Creating the workspace here and wrapping
-    /// both in `StateObject` is the whole reason this `init` exists; every other
-    /// stored property keeps its inline default.
+    /// it in `StateObject` is the whole reason this `init` exists; every other
+    /// stored property keeps its inline default. `SymbolIndexModel` joins for the
+    /// same reason, over the *same* buffer snapshot closure, so the two features
+    /// agree about what an open tab's text is.
     init() {
         let workspace = WorkspaceModel()
         _model = StateObject(wrappedValue: workspace)
+        // An open tab's text — dirty or not — is what the user sees, so it is what
+        // gets searched and indexed; a file with no tab goes down the on-disk
+        // branch. Handing over the whole snapshot (rather than answering one URL at
+        // a time) is what keeps the project walk off the main thread: each model
+        // re-keys these by canonical path *off-main* and matches every candidate
+        // with a dictionary hit, instead of making this closure re-resolve every
+        // tab's symlinks per file. A url-less "Untitled" buffer names no file, so
+        // it is left out. Weak, so neither model resurrects a torn-down workspace.
+        let openBuffers: () -> [URL: String] = { [weak workspace] in
+            guard let workspace else { return [:] }
+            var buffers: [URL: String] = [:]
+            buffers.reserveCapacity(workspace.openFiles.count)
+            for file in workspace.openFiles {
+                if let url = file.url { buffers[url] = file.text }
+            }
+            return buffers
+        }
+        // The extractor is handed over as a **direct synchronous function
+        // reference** — no `Task`, no actor hop. `SymbolIndexModel` calls it only
+        // from inside its own off-main serial queue, which is the whole point of
+        // that seam being synchronous (see the model's note on it).
+        let symbolIndex = SymbolIndexModel(
+            fileService: FileService(),
+            openBuffers: openBuffers,
+            extractSymbols: SymbolExtractor.symbols(in:language:fileURL:)
+        )
+        self.symbolIndex = symbolIndex
+        self.symbolIndexController = SymbolIndexController(model: symbolIndex)
         _projectSearch = StateObject(
             wrappedValue: ProjectSearchModel(
                 fileService: FileService(),
-                // An open tab's text — dirty or not — is what the user sees, so it
-                // is what gets searched; a file with no tab goes down the on-disk
-                // branch. Handing over the whole snapshot (rather than answering
-                // one URL at a time) is what keeps the project walk off the main
-                // thread: the model re-keys these by canonical path *off-main*
-                // and matches each candidate with a dictionary hit, instead of
-                // making this closure re-resolve every tab's symlinks per file.
-                // A url-less "Untitled" buffer names no file, so it is left out.
-                openBuffers: { [weak workspace] in
-                    guard let workspace else { return [:] }
-                    var buffers: [URL: String] = [:]
-                    buffers.reserveCapacity(workspace.openFiles.count)
-                    for file in workspace.openFiles {
-                        if let url = file.url { buffers[url] = file.text }
-                    }
-                    return buffers
-                },
+                openBuffers: openBuffers,
                 // …and what gets replaced: the edit lands in the buffer, leaving
                 // the tab dirty and the save the user's call, rather than being
                 // written to disk behind the editor's back.
@@ -212,6 +245,8 @@ struct PisakaApp: App {
                 settings: settings,
                 search: search,
                 reveal: reveal,
+                symbolIndex: symbolIndexController,
+                onGoToDefinition: { url, range in activateSearchMatch(url: url, range: range) },
                 bottomPanel: $bottomPanel,
                 onTogglePanel: { togglePanel($0) },
                 onClose: { closeFile(id: $0) },
@@ -403,6 +438,34 @@ struct PisakaApp: App {
                 Button("Find in Files…") { openProjectSearch() }
                     .keyboardShortcut("f", modifiers: [.command, .shift])
                     .disabled(model.projectRoot == nil)
+
+                Divider()
+
+                // ⌃⌘J — Xcode's Jump to Definition binding, and free here (⌘J and
+                // ⌃⌘F are not, being AppKit's "center selection" and full screen).
+                // The keyboard peer of ⌘-clicking an identifier: both end up in the
+                // editor coordinator's one `goToDefinition(in:at:)`. Gated on a tab
+                // being open rather than on a project: a symbol declared in the
+                // buffer itself is indexed from that buffer, so a lone open file
+                // can still jump within itself.
+                Button("Go to Definition") { goToDefinitionAtCaret() }
+                    .keyboardShortcut("j", modifiers: [.control, .command])
+                    .disabled(model.selectedID == nil)
+
+                // The explicit "complete this word now" command, in addition to
+                // AppKit's stock ⌥⎋ and F5, which reach the same delegate.
+                //
+                // Carries *no* key equivalent, unlike every other item here, and
+                // that is the point: its ⌃Space lives on `EditorTextView.keyDown`
+                // instead (see the override, which explains why). A menu equivalent
+                // is claimed app-wide and beats the first responder to the
+                // keystroke, and ⌃Space is the one shortcut this app wants that
+                // carries no ⌘ — so binding it here swallowed ⌃Space out of the
+                // focused embedded terminal, which needs it as NUL. The item stays
+                // for discoverability and still works while the editor is focused,
+                // via the same responder hop as ⌃⌘J.
+                Button("Complete") { completeAtCaret() }
+                    .disabled(model.selectedID == nil)
             }
 
             CommandMenu("Git") {
@@ -641,7 +704,18 @@ struct PisakaApp: App {
         // stream down first — so this doubles as the folder switch: events from the
         // old root stop arriving. The callback runs on the main actor and does the
         // one thing the tree needs, the same bump the app's own file operations use.
-        projectWatcher.start(root: url, onChange: { model.bumpTreeRevision() })
+        //
+        // The same callback drives the symbol index's refresh, debounced a further
+        // 500 ms on top of the watcher's own 1 s coalescing. Nothing about that is
+        // gated either, and for the reason spelled out on `projectWatcher` and on
+        // `SymbolIndexModel`: the index is a *reader*, so a refresh landing in the
+        // middle of a revert costs at worst one stale entry that the next refresh
+        // corrects. `url` is captured rather than read from the model so the
+        // refresh always names the root this subscription was started for.
+        projectWatcher.start(root: url, onChange: {
+            model.bumpTreeRevision()
+            symbolIndexController.noteProjectFilesChanged(root: url)
+        })
         // Record the folder switch *synchronously*, in this same main-actor turn,
         // before launching the async refresh. The model's revert guard keys off a
         // folder change being observed (via `rootRequestGeneration`) — but bumping
@@ -715,6 +789,23 @@ struct PisakaApp: App {
         if commitDialog.prepareForFolderChange(root: url) != generationBefore {
             isCommitDialogPresented = false
         }
+
+        // Register the switch with the symbol index *synchronously* too, and only
+        // then spawn the walk. `prepareForFolderChange` bumps the request
+        // generation and clears the index in this turn, so an in-flight walk finds
+        // itself superseded when it resumes and no symbol from the folder the user
+        // just left stays jumpable while the new one is being read — a definition
+        // that opens a file from the previous project is worse than none. The
+        // controller's two debounces are dropped for the same reason: whatever they
+        // would publish is already superseded, so the work is simply not done.
+        //
+        // Unlike Find in Files, a walk *is* spawned: the index has to exist before
+        // the user asks for a definition, since there is no window to open first.
+        // This is the sole place a folder switch is registered, so the launch-time
+        // session restore builds the index exactly as a user-driven open does.
+        symbolIndexController.reset()
+        let symbolRequest = symbolIndex.prepareForFolderChange(root: url)
+        Task { await symbolIndex.rebuild(root: url, request: symbolRequest) }
     }
 
     // MARK: - Commit dialog
@@ -1005,10 +1096,55 @@ struct PisakaApp: App {
     /// the update that creates it is the one that installs the file's contents.
     /// A file that failed to open beeps in `openFile` and resolves to no tab, so
     /// nothing is revealed.
+    ///
+    /// Also the destination of **Go to Definition** (⌘-click / ⌃⌘J), which names a
+    /// declaration's file and name range instead of a search hit: the two want the
+    /// exact same three steps, and sharing them is what keeps a jump into the file
+    /// already being edited on the same code path as a jump across the project.
     private func activateSearchMatch(url: URL, range: NSRange) {
         openFile(url: url)
         guard let id = model.fileID(forURL: url) else { return }
         reveal.reveal(fileID: id, range: range)
+    }
+
+    // MARK: - Go to definition
+
+    /// The Find menu's "Go to Definition" (⌃⌘J): ask the focused editor to jump
+    /// from wherever its caret is.
+    ///
+    /// Routed through the first responder rather than through a window-scoped
+    /// state object (the `EditorSearchState` shape): this command carries no state
+    /// at all — no query, no toggles, nothing to survive a tab switch — so a
+    /// published object for it would be an empty mailbox between the menu and the
+    /// one view that can answer. The responder chain already names that view.
+    /// Anything else focused (the project tree, the terminal, a text field) has no
+    /// definition to go to and beeps.
+    private func goToDefinitionAtCaret() {
+        guard let editor = NSApp.keyWindow?.firstResponder as? EditorTextView else {
+            PlatformFeedback.warning()
+            return
+        }
+        editor.goToDefinitionAtCaret()
+    }
+
+    // MARK: - Completion
+
+    /// The Find menu's "Complete": ask the focused editor to offer completions for
+    /// the word at its caret. (⌃Space reaches the same request without passing
+    /// through here — `EditorTextView.keyDown` handles it, so the keystroke is not
+    /// taken from the embedded terminal.)
+    ///
+    /// Routed through the first responder for the same reason as
+    /// `goToDefinitionAtCaret()` — the command carries no state, and the responder
+    /// chain already names the one view that can answer. Anything else focused has
+    /// no partial word to complete, and beeps rather than opening a popup
+    /// somewhere the user is not typing.
+    private func completeAtCaret() {
+        guard let editor = NSApp.keyWindow?.firstResponder as? EditorTextView else {
+            PlatformFeedback.warning()
+            return
+        }
+        editor.completeAtCaret()
     }
 
     /// Run a project-wide Replace All under the same disk-writer coordination as
@@ -1039,6 +1175,13 @@ struct PisakaApp: App {
             autosave.resume()
             localChanges.endRevert()
         }
+        // The buffers as they stand *before* the batch, so the resync below can
+        // name exactly the tabs it rewrote — `ReplaceSummary` counts files, it does
+        // not list them. Keyed by tab id, not URL: two tabs can legitimately show
+        // the same file (opened once by path, once through a symlink).
+        let textsBeforeBatch = Dictionary(
+            uniqueKeysWithValues: model.openFiles.map { ($0.id, $0.text) }
+        )
         let summary = await projectSearch.replaceAll(
             template: template,
             originGeneration: originGeneration
@@ -1046,6 +1189,21 @@ struct PisakaApp: App {
         guard summary.filesChanged > 0 else { return summary }
         refreshLocalChanges()
         model.bumpTreeRevision()
+        // The batch rewrote files the user mostly has no tab for, so their symbols
+        // are stale until a stamp-gated refresh re-extracts them.
+        notifyIndexOfProjectFileChanges()
+        // …but a file that *does* have a tab was replaced **in the buffer**
+        // (`applyBufferText`), never on disk, and a buffer-sourced entry is exactly
+        // what that refresh declines to re-extract. Only the selected tab repairs
+        // itself, through its live `CodeEditorView`'s content-replaced path; every
+        // other rewritten tab would keep answering Go to Definition and completion
+        // with the pre-replacement identifiers, at the pre-replacement ranges,
+        // until it was selected or closed. Same resync the worktree rewrites do
+        // (revert / checkout / merge apply) — see `reindexReloadedBuffer`.
+        for file in model.openFiles {
+            guard let url = file.url, textsBeforeBatch[file.id] != file.text else { continue }
+            reindexReloadedBuffer(id: file.id, url: url)
+        }
         return summary
     }
 
@@ -1112,6 +1270,9 @@ struct PisakaApp: App {
             // not change, so gating on containment would add a path check for no
             // benefit.
             model.bumpTreeRevision()
+            // The buffer was untitled until now, so nothing has ever indexed it
+            // under this path; the refresh picks the written file up from disk.
+            notifyIndexOfProjectFileChanges()
             refreshLocalChanges()
             return true
         } catch {
@@ -1211,6 +1372,12 @@ struct PisakaApp: App {
             // redundant bump for the subprocess cases costs nothing.
             if !reverted.isEmpty {
                 model.bumpTreeRevision()
+                // Same asymmetry as the bump above: the untracked-file branch is an
+                // in-process `unlinkat` the watcher never reports, so without this
+                // the deleted file's symbols would outlive it. Redundant for the
+                // subprocess branches, which the watcher does cover, and harmless
+                // there — the refresh re-reads only what changed.
+                notifyIndexOfProjectFileChanges()
             }
             for url in reverted {
                 guard let id = model.fileID(forURL: url) else { continue }
@@ -1244,10 +1411,17 @@ struct PisakaApp: App {
                         // would write back over the revert, so close it rather than
                         // leave that trap open.
                         model.close(id: id, force: true)
+                        forgetIndexedBuffer(url)
                         PlatformFeedback.warning()
+                    } else {
+                        reindexReloadedBuffer(id: id, url: url)
                     }
                 } else {
                     model.close(id: id, force: true)
+                    // The revert deleted the file. Hand its index entry back to disk
+                    // so the next refresh can drop it: a buffer-sourced entry is
+                    // exempt from that removal and would stay jumpable forever.
+                    forgetIndexedBuffer(url)
                 }
             }
         }
@@ -1489,10 +1663,17 @@ struct PisakaApp: App {
             if FileManager.default.fileExists(atPath: url.path) {
                 if !model.reloadFromDisk(id: id) {
                     model.close(id: id, force: true)
+                    forgetIndexedBuffer(url)
                     didPreserve = true
+                } else {
+                    reindexReloadedBuffer(id: id, url: url)
                 }
             } else if mayRemoveFiles {
                 model.close(id: id, force: true)
+                // Same rule as the revert resync: a closed tab's entry must stop
+                // being buffer-sourced, or the refresh can neither re-extract nor
+                // remove the file the branch switch took away.
+                forgetIndexedBuffer(url)
             }
         }
         if didPreserve { PlatformFeedback.warning() }
@@ -1618,6 +1799,14 @@ struct PisakaApp: App {
         let applied = await mergeModel.apply()
         guard applied else { return false }
         refreshLocalChanges()
+        // `MergeModel.apply()` writes the resolved file through `fileService` — an
+        // in-process write `kFSEventStreamCreateFlagIgnoreSelf` drops — and the
+        // `git add` beside it touches only `.git`, which `TreeRefreshFilter` drops
+        // too. So no watcher callback follows, and the merge editor is normally
+        // opened from Local Changes on a file with no tab: without this the
+        // pre-merge symbols would answer lookups for the rest of the session. The
+        // iOS peer in `RootView_iOS` makes the same call for the same reason.
+        notifyIndexOfProjectFileChanges()
         guard let id = model.fileID(forURL: resolvedURL) else { return true }
         // Reload the tab to match the applied resolution only when its buffer holds
         // no unsaved edits to lose: it was clean at the snapshot *and* is provably
@@ -1637,10 +1826,15 @@ struct PisakaApp: App {
         if FileManager.default.fileExists(atPath: resolvedURL.path) {
             if !model.reloadFromDisk(id: id) {
                 model.close(id: id, force: true)
+                forgetIndexedBuffer(resolvedURL)
                 PlatformFeedback.warning()
+            } else {
+                reindexReloadedBuffer(id: id, url: resolvedURL)
             }
         } else {
             model.close(id: id, force: true)
+            // Resolved to the deleted side: same rule as the other resync paths.
+            forgetIndexedBuffer(resolvedURL)
         }
         return true
     }
@@ -1765,10 +1959,27 @@ struct PisakaApp: App {
         // renames the target away that symlink dangles and would no longer match.
         // Apply the plan only after the move succeeds.
         let plan = model.planRename(from: url, to: destination)
+        // The paths the index still has those tabs' buffers filed under, captured
+        // alongside the plan and before the move for the same reason: once
+        // `applyRenamePlan` retargets a tab, its old url is no longer reachable from
+        // the model. A *folder* rename retargets every tab beneath it, so this is a
+        // list rather than just `url` — which alone would strand each of those files.
+        let retargetedURLs = plan.compactMap { retarget in
+            model.openFiles.first { $0.id == retarget.id }?.url
+        }
         do {
             try fileService.move(from: url, to: destination)
             model.applyRenamePlan(plan)
+            // The tabs now name their destinations, so nothing holds a buffer for the
+            // old paths any more. Without this each entry stays marked buffer-sourced
+            // — which exempts it from both the refresh's re-extraction and its
+            // removal — and the file would keep answering lookups under a name that
+            // no longer exists, beside a second entry under the new one.
+            retargetedURLs.forEach(forgetIndexedBuffer)
             model.bumpTreeRevision()
+            // The index still holds the entry filed under the old path; only the
+            // refresh's removal pass drops it, and only this call reaches it.
+            notifyIndexOfProjectFileChanges()
         } catch {
             reportFileOperationFailure(error)
         }
@@ -1786,10 +1997,22 @@ struct PisakaApp: App {
         // the item is gone that symlink dangles and would no longer match. Close
         // them only after the removal succeeds.
         let affectedIDs = model.tabIDs(under: url)
+        // Captured alongside the ids and for the same reason: once the item is gone
+        // the tabs are closed and their URLs are no longer reachable from the model.
+        let affectedURLs = affectedIDs.compactMap { id in
+            model.openFiles.first { $0.id == id }?.url
+        }
         do {
             try fileService.removeItem(at: url)
             model.closeFiles(ids: affectedIDs)
+            // Hand every closed tab's entry back to disk. A buffer-sourced entry is
+            // exempt from the refresh's removal pass, so without this a deleted
+            // file's symbols would stay jumpable for the rest of the session.
+            affectedURLs.forEach(forgetIndexedBuffer)
             model.bumpTreeRevision()
+            // Handing the entries back to disk is only half of it: what actually
+            // drops the deleted files' symbols is the refresh's removal pass.
+            notifyIndexOfProjectFileChanges()
         } catch {
             reportFileOperationFailure(error)
         }
@@ -1874,6 +2097,12 @@ struct PisakaApp: App {
     /// Close the file identified by `id`, confirming first when it has unsaved
     /// changes. Used by both the tab close button and the Cmd+W menu command.
     private func closeFile(id: UUID) {
+        // Hand the tab's index entry back to disk once the close is settled,
+        // whichever way it went. `forgetIndexedBuffer` checks that no tab still
+        // shows the file, so the Cancel branch — and a second tab on the same file
+        // — leave the buffer mark exactly where it is.
+        let closingURL = model.openFiles.first { $0.id == id }?.url
+        defer { forgetIndexedBuffer(closingURL) }
         guard model.close(id: id) == .needsConfirmation else { return }
         let name = model.openFiles.first { $0.id == id }?.displayName ?? "Untitled"
         // Suspend the regular autosave triggers across the close confirmation.
@@ -1900,6 +2129,77 @@ struct PisakaApp: App {
         case .cancel:
             break
         }
+    }
+
+    /// Tell the symbol index that `url` no longer has an editor buffer behind it,
+    /// so it re-extracts the file from disk instead of keeping the text the closed
+    /// tab held.
+    ///
+    /// A no-op while *any* tab still shows the file: a cancelled close leaves the
+    /// tab open, and the same file can legitimately be reached through two tabs
+    /// (opened once by path and once through a symlink — `fileID(forURL:)` matches
+    /// canonically, exactly as the index keys its files).
+    private func forgetIndexedBuffer(_ url: URL?) {
+        guard let url, model.fileID(forURL: url) == nil else { return }
+        symbolIndexController.noteBufferClosed(url: url)
+    }
+
+    /// Re-index a still-open tab whose buffer an in-app rewrite just replaced —
+    /// with the file's new on-disk contents through `reloadFromDisk` (revert,
+    /// branch checkout, merge apply), or with replaced text written straight into
+    /// the buffer (project-wide Replace All).
+    ///
+    /// The `notifyIndexOfProjectFileChanges()` refresh these same operations
+    /// schedule cannot cover this: the file is still buffer-sourced, and the walk
+    /// deliberately declines to re-extract — or remove — a file an editor owns.
+    /// Only the *selected* tab re-indexes itself, through its live
+    /// `CodeEditorView`'s content-replaced path; a background tab has no editor
+    /// view behind it at all, so without this it would keep answering Go to
+    /// Definition and completion with the *previous* revision's declarations, at
+    /// the previous revision's ranges, until the user happened to select or close
+    /// it.
+    ///
+    /// Immediate rather than debounced, for the same reason a tab switch is: a
+    /// resync touches a bounded set of files, not a burst of keystrokes. The
+    /// selected tab is re-indexed twice (here and from its own editor) and that is
+    /// harmless — the second scheduling supersedes the first under the same key.
+    private func reindexReloadedBuffer(id: UUID, url: URL) {
+        guard let text = model.text(for: id) else { return }
+        symbolIndexController.noteBufferOpened(
+            url: url,
+            text: text,
+            language: SyntaxLanguage(forFileName: url.lastPathComponent)
+        )
+    }
+
+    /// Tell the symbol index that the project's files changed on disk — the
+    /// index's counterpart to `model.bumpTreeRevision()`, and called beside it.
+    ///
+    /// The watcher covers everything a *child* process writes (every
+    /// `GitCLIService` run, the embedded terminal), but
+    /// `kFSEventStreamCreateFlagIgnoreSelf` drops the app's own writes, so the
+    /// mutations this process performs itself have to say so — for the index for
+    /// exactly the reason `ProjectWatcher` already spells out for the tree. Without
+    /// it the stamp-gated refresh, which is the only thing that re-extracts a
+    /// rewritten file and the only thing that *removes* a vanished one, would never
+    /// run for a rename, a delete or a Replace All: a renamed file would go on
+    /// answering Go to Definition under a path that no longer exists, and a
+    /// project-wide replace would keep serving the identifiers it just replaced,
+    /// until some unrelated child process happened to touch the tree.
+    ///
+    /// Cheap enough to call unconditionally: it is debounced 500 ms, the walk that
+    /// follows re-reads only files whose stamp changed, and it takes no writer gate
+    /// (the index is a reader — see `SymbolIndexModel`).
+    ///
+    /// Not every `bumpTreeRevision()` needs one, which is why this is a separate
+    /// call rather than folded into that one: `newFile`/`newFolder` write an empty
+    /// file (or none at all) and `newFile` opens a tab for it, so the buffer
+    /// re-index already covers everything there is to index; an ordinary save and
+    /// the autosave's recreating save rewrite a file a tab still owns, and a
+    /// buffer-sourced entry is exactly what a refresh declines to touch.
+    private func notifyIndexOfProjectFileChanges() {
+        guard let root = model.projectRoot else { return }
+        symbolIndexController.noteProjectFilesChanged(root: root)
     }
 }
 

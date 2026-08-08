@@ -30,6 +30,24 @@ struct PisakaApp_iOS: App {
     /// the root (so Settings can manage the tokens).
     private let credentialStore: KeychainCredentialStore
 
+    /// The project-wide symbol index behind go-to-definition and completion, and the
+    /// controller that schedules its incremental work — the iOS peers of the macOS
+    /// `PisakaApp` properties, constructed the same way from the same synchronous
+    /// `SymbolExtractor` function.
+    ///
+    /// Plain stored properties rather than `@StateObject` for the reason the macOS
+    /// app records: the model republishes its index after *every chunk* of a walk,
+    /// and subscribing this scene's `body` to that would rebuild the whole root view
+    /// dozens of times while a project is indexed, for a value no view reads.
+    ///
+    /// iOS has **no file-system watcher**, so nothing here refreshes on a genuinely
+    /// *external* change (Files.app, another app's share extension) — stated rather
+    /// than worked around. The index moves forward on folder open, tab open, buffer
+    /// edits, and the working-tree rewrites the app performs itself, which it knows
+    /// about and reports through `RootView_iOS.notifyIndexOfProjectFileChanges`.
+    private let symbolIndex: SymbolIndexModel
+    private let symbolIndexController: SymbolIndexController
+
     init() {
         // The scoped service decorates a real `FileService`; the workspace model
         // reads/writes through it so every file op is bracketed by the covering
@@ -78,6 +96,27 @@ struct PisakaApp_iOS: App {
                 )
             )
         )
+        // The index reads through the *scoped* service like everything else, so its
+        // traversal runs under the opened folder's security-scope grant; an open
+        // tab's text — dirty or not — wins over the file on disk, which is the same
+        // snapshot closure shape the macOS app hands both of its project models.
+        // The extractor is a direct synchronous function reference: the model calls
+        // it only from inside its own off-main serial queue.
+        let symbolIndex = SymbolIndexModel(
+            fileService: scopedService,
+            openBuffers: { [weak model] in
+                guard let model else { return [:] }
+                var buffers: [URL: String] = [:]
+                buffers.reserveCapacity(model.openFiles.count)
+                for file in model.openFiles {
+                    if let url = file.url { buffers[url] = file.text }
+                }
+                return buffers
+            },
+            extractSymbols: SymbolExtractor.symbols(in:language:fileURL:)
+        )
+        self.symbolIndex = symbolIndex
+        self.symbolIndexController = SymbolIndexController(model: symbolIndex)
     }
 
     var body: some Scene {
@@ -91,7 +130,9 @@ struct PisakaApp_iOS: App {
                 branchSwitcher: branchSwitcher,
                 fileService: scopedService,
                 scopeProvider: scopedService,
-                credentialStore: credentialStore
+                credentialStore: credentialStore,
+                symbolIndex: symbolIndex,
+                symbolIndexController: symbolIndexController
             )
         }
     }

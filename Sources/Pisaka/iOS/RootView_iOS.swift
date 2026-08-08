@@ -48,6 +48,14 @@ struct RootView_iOS: View {
     /// branch-switcher's fetch (a create-from-`origin/…` on a private HTTPS repo).
     let credentialStore: KeychainCredentialStore
 
+    /// The project-wide symbol index and the controller that schedules its
+    /// incremental work. Plain `let`s, never `@ObservedObject`: the model
+    /// republishes after every chunk of a walk and nothing in this view reads it —
+    /// observing it would rebuild the whole root on each chunk. The editor surfaces
+    /// ask their questions through `symbolIndex.provider`.
+    let symbolIndex: SymbolIndexModel
+    let symbolIndexController: SymbolIndexController
+
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     /// Which document picker (if any) is presented.
@@ -77,6 +85,13 @@ struct RootView_iOS: View {
     /// `PisakaApp.handleFetchUnavailable`.
     @State private var pendingFetchUnavailable: PendingFetchUnavailable?
 
+    /// Routes a resolved Go to Definition: the editor asks, this view opens the tab
+    /// and the editor selects the range. A `@StateObject` rather than the plain
+    /// `@State` a `MergeModel` gets, because unlike a merge target this one is also
+    /// *read* here — the disambiguation dialog is driven by its `choices` and the
+    /// reveal it publishes is handed down to the editor.
+    @StateObject private var definitionRoute = DefinitionRoute_iOS()
+
     /// A failed branch switch/create to surface to the user. The branch sheet (which
     /// hosts `branchSwitcher.errorMessage`) is dismissed before the async git op runs,
     /// so a blocked checkout / create failure has no surface there — this root-level
@@ -92,7 +107,19 @@ struct RootView_iOS: View {
             // Restore the most-recently-opened folder on launch (resolving its
             // security-scoped bookmark), so the tree is populated without a
             // re-pick. A no-op when there are no recents.
-            .onAppear { fileAccess.restoreLastFolder() }
+            .onAppear {
+                fileAccess.restoreLastFolder()
+                installDefinitionOpener()
+            }
+            // A jump may have opened a file that was not the selected tab; on
+            // compact width the editor also has to be pushed onto the stack before
+            // there is anything to reveal it in. Done here rather than inside the
+            // route's `openFile` closure so it reads the *current* size class
+            // instead of the one captured when the closure was installed.
+            .onChange(of: definitionRoute.reveal) { _, request in
+                guard request != nil, isCompact else { return }
+                showingEditor = true
+            }
             // Refresh the always-visible branch widget when the project folder
             // changes — both a picker open and a launch-time bookmark restore route
             // through `WorkspaceModel.openFolder`, which publishes `projectRoot`.
@@ -103,7 +130,18 @@ struct RootView_iOS: View {
             // their sheets' `.onAppear`; the branch widget is never dismissed, so it
             // needs this.)
             .onChange(of: model.projectRoot) { _, newRoot in
+                // The symbol index is registered here rather than in
+                // `synchronizeGitModels` precisely because *both* folder paths — a
+                // picker open and the launch-time bookmark restore — publish
+                // `projectRoot`, and an index that only existed after a manual pick
+                // would leave go-to-definition dead on every relaunch. Closing the
+                // folder (`nil`) still prepares, which clears the index: a symbol
+                // pointing into a folder the app can no longer read is worse than
+                // no symbol.
+                symbolIndexController.reset()
+                let symbolRequest = symbolIndex.prepareForFolderChange(root: newRoot)
                 guard let newRoot else { return }
+                Task { await symbolIndex.rebuild(root: newRoot, request: symbolRequest) }
                 let request = branchSwitcher.prepareForRefresh(root: newRoot)
                 Task { await branchSwitcher.refresh(root: newRoot, request: request) }
             }
@@ -200,6 +238,22 @@ struct RootView_iOS: View {
             } message: { alert in
                 Text(alert.message)
             }
+            // More than one declaration answers the tapped name. A confirmation
+            // dialog rather than a sheet: the list is short, already ranked, and
+            // the rows are the same `displayLabel` strings the macOS `NSMenu`
+            // shows, so neither platform decides what a candidate reads as.
+            .confirmationDialog(
+                "Go to Definition",
+                isPresented: definitionChoiceBinding,
+                titleVisibility: .visible
+            ) {
+                ForEach(definitionRoute.choices) { choice in
+                    Button(choice.candidate.displayLabel) {
+                        definitionRoute.navigate(to: choice.candidate)
+                    }
+                }
+                Button("Cancel", role: .cancel) { definitionRoute.cancelChoices() }
+            }
     }
 
     // MARK: - Adaptive composition
@@ -284,9 +338,13 @@ struct RootView_iOS: View {
             CodeEditorView_iOS(
                 fileID: file.id,
                 fileName: file.displayName,
+                fileURL: file.url,
                 text: binding(for: file.id),
                 fontSize: settings.fontSize,
-                onStepFontSize: { settings.stepFontSize(by: $0) }
+                onStepFontSize: { settings.stepFontSize(by: $0) },
+                symbolIndex: symbolIndexController,
+                definitionRoute: definitionRoute,
+                reveal: definitionRoute.reveal
             )
         } else {
             VStack(spacing: 8) {
@@ -420,6 +478,25 @@ struct RootView_iOS: View {
         Task { await branchSwitcher.refresh(root: root, request: branchRequest) }
     }
 
+    /// Teach the definition route how to open a tab.
+    ///
+    /// Only `model` (a reference type) is captured, deliberately: anything read
+    /// from the view struct — the size class, a `@State` flag — would be frozen at
+    /// the moment of installation, so the one thing that *does* depend on the
+    /// current layout (pushing the editor on compact width) is handled by the
+    /// `onChange(of: definitionRoute.reveal)` observer instead.
+    ///
+    /// The target lives under the already-scoped project root (the index only walks
+    /// what was opened), so the read flows through the registered folder's access
+    /// grant, exactly like `openTreeFile`. A read failure answers `nil` and the
+    /// route reports it.
+    private func installDefinitionOpener() {
+        definitionRoute.openFile = { [model] url in
+            guard (try? model.open(url: url)) != nil else { return nil }
+            return model.fileID(forURL: url)
+        }
+    }
+
     /// Open a file from the project tree. It lives under the already-scoped
     /// project root, so the model's read flows through the registered folder's
     /// access grant — no per-file bookmark needed (unlike a standalone file pick).
@@ -464,12 +541,20 @@ struct RootView_iOS: View {
             if fileExistsScoped(url) {
                 if !model.reloadFromDisk(id: id) {
                     model.close(id: id, force: true)
+                    forgetIndexedBuffer(url)
                     PlatformFeedback.warning()
+                } else {
+                    reindexReloadedBuffer(id: id, url: url)
                 }
             } else {
                 model.close(id: id, force: true)
+                forgetIndexedBuffer(url)
             }
         }
+        // libgit2 rewrote the working tree in this process, so every reverted file
+        // the user has no tab for is stale in the index (and a reverted *untracked*
+        // file is gone entirely). See `notifyIndexOfProjectFileChanges`.
+        notifyIndexOfProjectFileChanges()
     }
 
     /// `FileManager.fileExists` bracketed by the covering security scope. On a real
@@ -530,6 +615,9 @@ struct RootView_iOS: View {
             let requestGeneration = localChanges.currentRequestGeneration
             await localChanges.refresh(root: projectRoot, requestGeneration: requestGeneration)
         }
+        // The apply wrote the resolved file — which need not have a tab behind it,
+        // since the merge editor opens from Local Changes.
+        notifyIndexOfProjectFileChanges()
 
         guard let resolvedURL, let id = model.fileID(forURL: resolvedURL) else { return true }
         // Reload only when the tab holds no unsaved edits to lose.
@@ -542,10 +630,14 @@ struct RootView_iOS: View {
         if fileExistsScoped(resolvedURL) {
             if !model.reloadFromDisk(id: id) {
                 model.close(id: id, force: true)
+                forgetIndexedBuffer(resolvedURL)
                 PlatformFeedback.warning()
+            } else {
+                reindexReloadedBuffer(id: id, url: resolvedURL)
             }
         } else {
             model.close(id: id, force: true)
+            forgetIndexedBuffer(resolvedURL)
         }
         return true
     }
@@ -712,13 +804,21 @@ struct RootView_iOS: View {
             if let url = file.url, fileExistsScoped(url) {
                 if !model.reloadFromDisk(id: id) {
                     model.close(id: id, force: true)
+                    forgetIndexedBuffer(fileURL)
                     didPreserve = true
+                } else {
+                    reindexReloadedBuffer(id: id, url: fileURL)
                 }
             } else {
                 model.close(id: id, force: true)
+                forgetIndexedBuffer(fileURL)
             }
         }
         if didPreserve { PlatformFeedback.warning() }
+        // The checkout rewrote the working tree in this process: files with no tab
+        // hold another branch's declarations, and files this branch does not have
+        // are gone. See `notifyIndexOfProjectFileChanges`.
+        notifyIndexOfProjectFileChanges()
     }
 
     /// Refresh Local Changes and Log after a branch change (same folder), each pinned
@@ -745,6 +845,13 @@ struct RootView_iOS: View {
         )
     }
 
+    private var definitionChoiceBinding: Binding<Bool> {
+        Binding(
+            get: { !definitionRoute.choices.isEmpty },
+            set: { if !$0 { definitionRoute.cancelChoices() } }
+        )
+    }
+
     private var branchAlertBinding: Binding<Bool> {
         Binding(
             get: { branchAlert != nil },
@@ -764,12 +871,64 @@ struct RootView_iOS: View {
     /// Request to close a tab. A clean tab closes immediately; a dirty one defers
     /// to a confirmation dialog (Save / Discard / Cancel).
     private func requestClose(_ id: UUID) {
+        // Hand the tab's index entry back to disk once the close is settled;
+        // `forgetIndexedBuffer` no-ops while any tab still shows the file, so the
+        // deferred-confirmation branch leaves the buffer mark alone.
+        let closingURL = model.openFiles.first { $0.id == id }?.url
+        defer { forgetIndexedBuffer(closingURL) }
         if model.close(id: id) == .needsConfirmation {
             pendingCloseID = id
         } else if isCompact && model.openFiles.isEmpty {
             // Closing the last tab on the pushed editor screen returns to the tree.
             showingEditor = false
         }
+    }
+
+    /// Tell the symbol index that `url` no longer has an editor buffer behind it, so
+    /// it re-extracts the file from disk — the iOS peer of
+    /// `PisakaApp.forgetIndexedBuffer`, and a no-op while any tab still shows the
+    /// file (a cancelled close, or the same file reached through two tabs).
+    private func forgetIndexedBuffer(_ url: URL?) {
+        guard let url, model.fileID(forURL: url) == nil else { return }
+        symbolIndexController.noteBufferClosed(url: url)
+    }
+
+    /// Re-index a still-open tab whose buffer a worktree rewrite (revert, branch
+    /// checkout, merge apply) just replaced through `reloadFromDisk` — the iOS peer
+    /// of `PisakaApp.reindexReloadedBuffer`, and load-bearing for the same reason.
+    ///
+    /// The `notifyIndexOfProjectFileChanges()` refresh beside it cannot reach these
+    /// files: they are still buffer-sourced, and the walk declines to re-extract or
+    /// remove a file an editor owns. Only the *selected* tab re-indexes itself,
+    /// from its live `CodeEditorView_iOS`; a background tab has no editor behind it
+    /// and would keep answering out of the previous revision until selected or
+    /// closed.
+    private func reindexReloadedBuffer(id: UUID, url: URL) {
+        guard let text = model.text(for: id) else { return }
+        symbolIndexController.noteBufferOpened(
+            url: url,
+            text: text,
+            language: SyntaxLanguage(forFileName: url.lastPathComponent)
+        )
+    }
+
+    /// Tell the symbol index that the project's files changed on disk — the iOS
+    /// peer of `PisakaApp.notifyIndexOfProjectFileChanges`.
+    ///
+    /// iOS has no file-system watcher, so *nothing* here is covered by one: the
+    /// index would otherwise move forward only on folder open, tab open and buffer
+    /// edits, and every git operation the app performs (revert, merge apply,
+    /// checkout) rewrites the working tree in-process with `projectRoot`
+    /// unchanged. Left unsaid, a branch switch would leave Go to Definition and
+    /// completion answering out of the *previous* branch for the rest of the
+    /// session, with no user-reachable way to correct it short of closing and
+    /// reopening the folder. These are the moments the app itself knows about,
+    /// which is precisely why they can stand in for the watcher it lacks — the
+    /// out-of-band edit (Files.app, another app's share extension) remains
+    /// uncovered, and stays a stated Phase 1 limit.
+    private func notifyIndexOfProjectFileChanges() {
+        guard let root = model.projectRoot else { return }
+        symbolIndexController.noteProjectFilesChanged(root: root)
     }
 
     private var closeConfirmationBinding: Binding<Bool> {
@@ -788,6 +947,7 @@ struct RootView_iOS: View {
                 do {
                     _ = try model.save(for: id)
                     model.close(id: id, force: true)
+                    forgetIndexedBuffer(file.url)
                 } catch {
                     PlatformFeedback.warning()
                 }
@@ -795,7 +955,9 @@ struct RootView_iOS: View {
             }
         }
         Button("Discard Changes", role: .destructive) {
+            let closingURL = model.openFiles.first { $0.id == id }?.url
             model.close(id: id, force: true)
+            forgetIndexedBuffer(closingURL)
             pendingCloseID = nil
             if isCompact && model.openFiles.isEmpty { showingEditor = false }
         }

@@ -107,8 +107,10 @@ public struct ReplaceSummary: Equatable {
 /// it through an injected `openBuffers` snapshot closure, so Core stays unaware
 /// of the workspace.
 ///
-/// **What is skipped, and by whom.** `.git` and `.DS_Store` are skipped by the
-/// traversal itself (`FileService.isExcludedEntryName`) — `GitignoreMatcher`
+/// **What is skipped, and by whom.** The traversal itself is
+/// `ProjectFileWalk.collectFiles`, shared with the symbol index so both features
+/// see exactly the same set of files. `.git` and `.DS_Store` are skipped there
+/// (`FileService.isExcludedEntryName`) — `GitignoreMatcher`
 /// deliberately says nothing about them. Every other exclusion is a
 /// `.gitignore` decision, composed down the tree by `GitignoreStack`. Binary and
 /// oversize files are skipped by `FileServicing.readTextIfNotBinary`, and a
@@ -159,8 +161,6 @@ public final class ProjectSearchModel: ObservableObject {
     /// is still visible in its row.
     nonisolated static let previewLead = 40
 
-    /// The file name whose contents feed `GitignoreStack`.
-    nonisolated static let gitignoreName = ".gitignore"
 
     /// The hits of the last (or currently running) search, grouped by file in
     /// traversal order. Published per chunk while a search runs.
@@ -793,84 +793,22 @@ public final class ProjectSearchModel: ObservableObject {
             .filter { !$0.isEmpty }
     }
 
-    /// Whether a file *name* passes the mask. No pattern is "everything"; a
-    /// pattern is `Glob`'s single-component rule (the same one a `.gitignore`
-    /// component uses), matched case-sensitively and against the name alone — a
-    /// mask is a file-type filter, not a path selector.
+    /// Whether a file *name* passes the mask — `ProjectFileWalk.matchesMask`,
+    /// kept under this name because the mask is a search concept the walk merely
+    /// applies.
     nonisolated public static func matchesMask(name: String, patterns: [String]) -> Bool {
-        guard !patterns.isEmpty else { return true }
-        return patterns.contains { Glob.matches(name: name, pattern: $0) }
+        ProjectFileWalk.matchesMask(name: name, patterns: patterns)
     }
 
-    /// Every file under `root` worth searching, depth-first with a directory's
-    /// own files before its subdirectories — so results stream in as "this
-    /// folder, then what is under it" rather than surfacing a deeply nested hit
-    /// before the root's own (`contentsOfDirectory` sorts directories *first*,
-    /// which is right for a tree view and backwards for a result list). Within
-    /// each of the two groups the listing's alphabetical order is kept, so the
-    /// result order is deterministic.
-    ///
-    /// A directory's own `.gitignore` is read *before* its entries are judged, so
-    /// the file governs its own directory as git's does; the resulting
-    /// `GitignoreStack` is passed down, so a nested file layers over the outer
-    /// ones. An unreadable directory is skipped rather than failing the search —
-    /// one permission-denied folder must not blank the whole result list.
+    /// Every file under `root` worth searching — `ProjectFileWalk.collectFiles`,
+    /// which the symbol index walks the project with as well, so a file one of
+    /// them declines to read is invisible to the other too.
     nonisolated static func collectFiles(
         root: URL,
         maskPatterns: [String],
         fileService: FileServicing
     ) -> [URL] {
-        var found: [URL] = []
-
-        func walk(directory: URL, components: [String], ignores: GitignoreStack) {
-            guard let entries = try? fileService.contentsOfDirectory(at: directory) else { return }
-
-            var ignores = ignores
-            if entries.contains(where: { !$0.isDirectory && $0.name == gitignoreName }),
-               let contents = try? fileService.read(url: directory.appendingPathComponent(gitignoreName)) {
-                ignores = ignores.appending(
-                    rules: GitignoreRules(fileContents: contents),
-                    relativeDirectory: components.joined(separator: "/")
-                )
-            }
-
-            // `.git`/`.DS_Store` are the traversal's business, not the matcher's
-            // (see `GitignoreRules`' scope note). The real `FileService` already
-            // filters them from its listing; checking here too means a
-            // differently-behaving service cannot leak the repository's
-            // internals into the results.
-            let visible = entries.filter { entry in
-                guard !FileService.isExcludedEntryName(entry.name) else { return false }
-                let relative = (components + [entry.name]).joined(separator: "/")
-                return !ignores.isExcluded(relativePath: relative, isDirectory: entry.isDirectory)
-            }
-
-            for entry in visible where !entry.isDirectory {
-                guard matchesMask(name: entry.name, patterns: maskPatterns) else { continue }
-                // A symlinked *file* is skipped for the same reason a symlinked
-                // directory is not descended into: a link pointing back inside
-                // the tree duplicates a file already reached under its real
-                // name, and one pointing outside is not part of this project.
-                // `isDirectory` comes from `.isDirectoryKey`, which dereferences
-                // the link, so a link to a file arrives here indistinguishable
-                // from an ordinary one — and Replace All writes atomically
-                // (`String.write(to:atomically:)` renames a temp file over the
-                // destination), which would silently replace the link itself
-                // with a regular file.
-                guard fileService.symbolicLinkDestination(at: entry.url) == nil else { continue }
-                found.append(entry.url)
-            }
-            for entry in visible where entry.isDirectory {
-                // A symlinked directory is not descended into: it can point back
-                // up the tree (an unbounded walk), and its target is already
-                // reached under its real name.
-                guard fileService.symbolicLinkDestination(at: entry.url) == nil else { continue }
-                walk(directory: entry.url, components: components + [entry.name], ignores: ignores)
-            }
-        }
-
-        walk(directory: root, components: [], ignores: GitignoreStack())
-        return found
+        ProjectFileWalk.collectFiles(root: root, maskPatterns: maskPatterns, fileService: fileService)
     }
 
     /// Search one batch of files, preferring an open buffer's text over the
@@ -936,14 +874,10 @@ public final class ProjectSearchModel: ObservableObject {
         return results
     }
 
-    /// `url`'s path below `root`. The URLs come from the traversal, which builds
-    /// them by appending components to `root`, so a lexical strip is exact and
-    /// needs no `CanonicalPath` round trip; an unexpected URL degrades to its own
-    /// last component rather than to an absolute path.
+    /// `url`'s path below `root` — `ProjectFileWalk.relativePath(of:under:)`, so
+    /// a result row and a definition-picker row spell the same file identically.
     nonisolated static func relativePath(of url: URL, under root: URL) -> String {
-        let base = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        guard url.path.hasPrefix(base) else { return url.lastPathComponent }
-        return String(url.path.dropFirst(base.count))
+        ProjectFileWalk.relativePath(of: url, under: root)
     }
 
     /// The clipped line around `match`, plus the match's range inside it.

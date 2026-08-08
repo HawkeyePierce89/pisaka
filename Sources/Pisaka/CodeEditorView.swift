@@ -77,6 +77,22 @@ struct CodeEditorView: NSViewRepresentable {
     /// fresh state so a default-constructed view (previews/tests) still compiles.
     @ObservedObject var reveal: EditorRevealState = EditorRevealState()
 
+    /// Keeps the shown file's symbols current: an immediate re-index when the tab
+    /// is opened or switched to, a debounced one while typing. Owned by
+    /// `PisakaApp`; not observed here (it publishes nothing — see `ContentView`'s
+    /// note on why the index model must stay off this view's update path).
+    /// Defaults to a controller over a fresh, never-walked index so a
+    /// default-constructed view (previews/tests) still compiles.
+    var symbolIndex: SymbolIndexController = SymbolIndexController(model: SymbolIndexModel())
+
+    /// Open the file a chosen definition lives in and select the declaration's
+    /// name range. Wired to the very `PisakaApp.activateSearchMatch(url:range:)`
+    /// a Find in Files result goes through — opening the tab is the app's job, and
+    /// a definition in the *current* file deliberately takes the same route so the
+    /// caret move and the scroll are one code path. Default no-op so a
+    /// default-constructed view (previews/tests) still compiles.
+    var onGoToDefinition: (URL, NSRange) -> Void = { _, _ in }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text)
     }
@@ -128,6 +144,26 @@ struct CodeEditorView: NSViewRepresentable {
         // turns back into the stock behavior.
         textView.onCancelSearch = { [weak coordinator = context.coordinator] in
             coordinator?.closeSearchBar() ?? false
+        }
+        // ⌘-click / ⌃⌘J → the coordinator's go-to-definition entry point. Weakly
+        // captured for the same retain-cycle reason as the two closures above; a
+        // deallocated coordinator simply navigates nowhere.
+        textView.onGoToDefinition = { [weak coordinator = context.coordinator] tv, offset in
+            coordinator?.goToDefinition(in: tv, at: offset)
+        }
+        // ⌃Space (and the Find menu's "Complete") → an undebounced candidate
+        // refresh, which opens the popup itself once the provider answers. Weakly
+        // captured for the same retain-cycle reason as the closures above.
+        textView.onRequestCompletions = { [weak coordinator = context.coordinator] in
+            coordinator?.requestCompletions()
+        }
+        // AppKit's completion insertion brackets itself with the coordinator's
+        // programmatic-edit flag, so the auto-pair/dedent interceptor does not
+        // treat the inserted word as typed text. Weakly captured for the same
+        // reason; a deallocated coordinator just leaves the flag alone, which is
+        // correct because there is then no interceptor to guard.
+        textView.onCompletionInsertion = { [weak coordinator = context.coordinator] isApplying in
+            coordinator?.noteCompletionInsertion(isApplying)
         }
 
         let scrollView = NSScrollView()
@@ -244,6 +280,10 @@ struct CodeEditorView: NSViewRepresentable {
         // previous tab with a pattern typed).
         context.coordinator.attachSearch(textView: textView, state: search)
         context.coordinator.updateSearch(state: search, force: true)
+        // Bind the completion popup's candidate source. Nothing is computed here:
+        // the list is asked for on the first keystroke (or an explicit ⌃Space),
+        // never on a tab that has only been looked at.
+        context.coordinator.attachCompletion(textView: textView)
         // Record which file the gutter would annotate (enabling/disabling its menu
         // item). Nothing loads here: annotate starts off for every tab and is only
         // turned on from the context menu.
@@ -251,6 +291,17 @@ struct CodeEditorView: NSViewRepresentable {
             fileURL: fileURL,
             diskRevision: diskRevision,
             contentReplaced: true
+        )
+        // Index the file being shown from its *buffer* text, at once: the tab the
+        // user is looking at must have symbols before they finish reading it, and
+        // the disk walk may not have reached this file yet (or may be gone
+        // entirely, for a file outside the opened folder).
+        context.coordinator.symbolIndex = symbolIndex
+        context.coordinator.navigateToDefinition = onGoToDefinition
+        context.coordinator.reindexSymbols(
+            text: text,
+            language: language,
+            immediate: true
         )
         return container
     }
@@ -412,6 +463,26 @@ struct CodeEditorView: NSViewRepresentable {
             contentReplaced: contentReplaced
         )
 
+        // Re-index the shown file's symbols. Only on a tab switch or a wholesale
+        // buffer swap, and then immediately: ordinary keystrokes are covered by
+        // `textDidChange` (debounced), so scheduling here as well would re-parse
+        // the file twice per settled burst of typing.
+        context.coordinator.symbolIndex = symbolIndex
+        // Keep the navigation closure current: it captures `PisakaApp`'s state, so
+        // a stale one from a previous update would open tabs through a torn-down
+        // scene's workspace.
+        context.coordinator.navigateToDefinition = onGoToDefinition
+        if switchedFile || contentReplaced {
+            context.coordinator.reindexSymbols(
+                text: textView.string,
+                language: language,
+                immediate: true
+            )
+            // The candidates computed for the outgoing buffer answer a file that
+            // is no longer on screen (see `clearCompletions`).
+            context.coordinator.clearCompletions()
+        }
+
         // Consume a pending Find in Files activation. Deliberately *after* the
         // buffer swap above: when the activation opened the file, this very update
         // is the one that installs its contents, so selecting earlier would land
@@ -479,6 +550,18 @@ struct CodeEditorView: NSViewRepresentable {
         /// `git blame --porcelain` loads feeding `LineNumberRulerView`.
         private let blame = BlameController()
 
+        /// Precomputes the completion popup's candidates from the async code
+        /// intelligence seam, so AppKit's synchronous completions delegate has an
+        /// answer ready when it asks. Owned strongly here (it holds the text view
+        /// weakly, so there is no cycle), like the search controller.
+        private let completion = CompletionController()
+
+        /// Schedules the symbol index's re-index of the shown file. Held *weakly*,
+        /// like `searchBarState`: the app owns it for its whole lifetime, and the
+        /// coordinator only asks it for work. A deallocated one simply means no
+        /// re-index, which is the same graceful nothing a preview gets.
+        weak var symbolIndex: SymbolIndexController?
+
         /// The displayed file's URL, as last seen by `syncBlame`. Kept so the
         /// gutter's context-menu action (which passes nothing) knows *what* to
         /// blame; `nil` for an untitled buffer.
@@ -522,16 +605,204 @@ struct CodeEditorView: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            text.wrappedValue = textView.string
+            // Read once. `NSTextView.string` bridges a *mutable* `NSTextStorage`, so
+            // every access materializes a fresh Swift `String` — copying the whole
+            // buffer. Three reads per keystroke made typing latency scale with file
+            // size on the main thread, in the one path that has to stay cheap.
+            let contents = textView.string
+            text.wrappedValue = contents
             // Refresh the minimap overview from the edited text (debounced and
             // cache-guarded inside the tokenizer, so this is cheap per keystroke).
             if let fileID {
                 updateMinimap(
-                    text: textView.string,
+                    text: contents,
                     language: language,
                     fileID: fileID,
                     immediate: false
                 )
+            }
+            // Keep this file's symbols in step with what is being typed, behind the
+            // controller's 400 ms debounce (a re-parse per keystroke would be felt).
+            reindexSymbols(text: contents, language: language, immediate: false)
+            // Offer completions for the word being typed, behind the completion
+            // controller's own (shorter) debounce. Its gates — a bare caret, at
+            // least two typed characters, no marked text — mean an ordinary
+            // keystroke outside an identifier costs one prefix scan and no task.
+            //
+            // Not while a *programmatic* edit is being applied. AppKit's own
+            // completion insertion fires this notification synchronously (for each
+            // arrow-key preview as well as for the accepted word), so refreshing
+            // here would schedule a fresh request for the word just completed and
+            // re-open the popup over it a debounce later — the treadmill the iOS
+            // strip avoids by clearing after an insertion. Auto-pair and the
+            // indented newline take the same path and are equally not typing.
+            if !isApplyingProgrammaticEdit {
+                updateCompletions(explicit: false)
+            }
+        }
+
+        // MARK: - Completion
+
+        /// Bind the completion popup's candidate source to this text view
+        /// (`makeNSView`).
+        func attachCompletion(textView: NSTextView) {
+            completion.attach(textView: textView)
+        }
+
+        /// Recompute the popup's candidates for what is being typed.
+        ///
+        /// The provider is re-read from the index controller on every call rather
+        /// than stored: the controller hands out the model's latest snapshot, so a
+        /// held reference would answer from the state a folder was opened in.
+        private func updateCompletions(explicit: Bool) {
+            completion.update(
+                provider: symbolIndex?.provider,
+                fileURL: fileURL,
+                explicit: explicit
+            )
+        }
+
+        /// The Find menu's "Complete" (⌃Space): refresh the candidates *now* and
+        /// let the controller open the popup once the provider answers.
+        ///
+        /// Deliberately not a bare `complete(nil)`: the delegate can only serve a
+        /// snapshot, so opening the popup before the refresh would show whatever
+        /// the last keystroke's debounce happened to leave behind — or nothing at
+        /// all, which is what an explicit invocation on a still-debouncing prefix
+        /// would otherwise get.
+        func requestCompletions() {
+            updateCompletions(explicit: true)
+        }
+
+        /// Drop the candidate snapshot because the editor is now showing a
+        /// different file (or a wholesale new buffer).
+        ///
+        /// The snapshot is matched only against the *text* of the partial word it
+        /// was computed for, so without this a stock completion invocation
+        /// (⌥⎋, F5) on the same word in the incoming file would be served the
+        /// outgoing file's list — ranked with the wrong file as "current", so the
+        /// declarations actually in view are missing or demoted. The iOS editor
+        /// clears its strip on the same condition.
+        func clearCompletions() {
+            completion.reset()
+        }
+
+        /// AppKit is asking what to put in the popup it is already opening.
+        ///
+        /// Synchronous by its contract and correct anyway, because the awaiting
+        /// happened during the debounce — see `CompletionController`. `words` (the
+        /// spell checker's guesses) is deliberately ignored: this is a code
+        /// editor, and offering dictionary words beside project symbols would bury
+        /// the latter.
+        ///
+        /// `indexOfSelectedItem` is forced to `-1` (nothing preselected), which is
+        /// **mandatory, not cosmetic**. AppKit's stock value is `0`, and a selected
+        /// row is not merely highlighted: `complete(_:)` immediately calls
+        /// `insertCompletion(…, isFinal: false)` for it, so opening the popup
+        /// *writes that candidate into the buffer* before the user has chosen
+        /// anything. With the as-you-type trigger that means every 150 ms pause
+        /// inside a ≥2-character identifier rewrites the word being typed —
+        /// `textDidChange` pushes it into `WorkspaceModel` (marking the tab dirty
+        /// and making it eligible for an idle autosave to write to the file) and
+        /// each preview registers its own undo step. `-1` opens the same popup with
+        /// no row selected and no insertion; arrow keys or the mouse pick a row,
+        /// Return inserts it, exactly as the feature is documented.
+        func textView(
+            _ textView: NSTextView,
+            completions words: [String],
+            forPartialWordRange charRange: NSRange,
+            indexOfSelectedItem index: UnsafeMutablePointer<Int>?
+        ) -> [String] {
+            index?.pointee = -1
+            return completion.completions(forPartialWordRange: charRange, in: textView)
+        }
+
+        /// Raise/lower `isApplyingProgrammaticEdit` around AppKit's completion
+        /// insertion (`EditorTextView.insertCompletion(…)`).
+        ///
+        /// Mandatory, not defensive: the insertion goes through the same text-view
+        /// edit path typing does, so a completion ending in `(` — or a one-
+        /// character one — would otherwise fall into `AutoPairEngine` and get a
+        /// closing bracket it never asked for, and a completion whose replaced
+        /// range starts a line could trip the dedent rewrite.
+        func noteCompletionInsertion(_ isApplying: Bool) {
+            isApplyingProgrammaticEdit = isApplying
+        }
+
+        // MARK: - Symbol index
+
+        /// Re-index the shown file from its live buffer text.
+        ///
+        /// `immediate` is the tab-switch / buffer-swap case; typing goes through the
+        /// debounce. An untitled buffer is skipped: the index is keyed by file URL,
+        /// so there is nothing to file it under. The language gate lives in the
+        /// controller, so a plain-text or unindexable file costs one call and no
+        /// task.
+        func reindexSymbols(text: String, language: SyntaxLanguage?, immediate: Bool) {
+            guard let symbolIndex, let fileURL else { return }
+            if immediate {
+                symbolIndex.noteBufferOpened(url: fileURL, text: text, language: language)
+            } else {
+                symbolIndex.noteBufferChanged(url: fileURL, text: text, language: language)
+            }
+        }
+
+        // MARK: - Go to definition
+
+        /// Opens a chosen declaration's file and selects its name range. Assigned
+        /// from `CodeEditorView` on every update, because it captures the app's
+        /// scene state (see the property's note there).
+        var navigateToDefinition: (URL, NSRange) -> Void = { _, _ in }
+
+        /// Jump to the declaration of the identifier at `offset` — the single
+        /// entry point behind both ⌘-click and the ⌃⌘J menu item, so the two can
+        /// never disagree about what counts as an identifier or how a jump is made.
+        ///
+        /// Every decision here is Core's: `IdentifierScanner` says which word the
+        /// offset names, and the provider ranks the candidates. This method only
+        /// picks the surface — beep, jump, or picker — from how many came back.
+        ///
+        /// The lookup is `async` because the seam is (an LSP provider must await a
+        /// socket), so the answer arrives a turn later; the text view is
+        /// re-captured weakly for that hop, and the picker is anchored on the range
+        /// the question was asked about, which `DefinitionPicker` clamps against
+        /// the buffer as it is by then.
+        func goToDefinition(in textView: NSTextView, at offset: Int) {
+            guard let provider = symbolIndex?.provider,
+                  let match = IdentifierScanner.identifier(in: textView.string as NSString, at: offset)
+            else {
+                PlatformFeedback.warning()
+                return
+            }
+            let request = DefinitionRequest(
+                identifier: match.text,
+                fileURL: fileURL,
+                offset: match.range.location
+            )
+            Task { [weak self, weak textView] in
+                let candidates = await provider.definitions(for: request)
+                guard let self, let textView else { return }
+                switch candidates.count {
+                case 0:
+                    // Nothing declares that name in the indexed project — the
+                    // documented "no definition" outcome, and deliberately silent
+                    // beyond the beep: an alert for a mistyped ⌘-click would be
+                    // worse than the click itself.
+                    PlatformFeedback.warning()
+                case 1:
+                    self.navigateToDefinition(
+                        candidates[0].symbol.fileURL,
+                        candidates[0].symbol.range
+                    )
+                default:
+                    DefinitionPicker.present(
+                        candidates,
+                        in: textView,
+                        anchoredTo: match.range
+                    ) { [weak self] candidate in
+                        self?.navigateToDefinition(candidate.symbol.fileURL, candidate.symbol.range)
+                    }
+                }
             }
         }
 
@@ -689,9 +960,14 @@ struct CodeEditorView: NSViewRepresentable {
                       request.range.location >= 0,
                       request.range.location <= length
                 else { return }
-                let range = NSIntersectionRange(
-                    request.range,
-                    NSRange(location: 0, length: length)
+                // Clamped by *truncating the length*, not by intersecting: a range
+                // whose location is exactly the buffer end shares no unit with the
+                // document, and `NSIntersectionRange` answers `{0, 0}` for that —
+                // which would scroll to the top of the file instead of leaving the
+                // caret at the end.
+                let range = NSRange(
+                    location: request.range.location,
+                    length: min(request.range.length, length - request.range.location)
                 )
                 textView.setSelectedRange(range)
                 textView.scrollRangeToVisible(range)
@@ -1066,6 +1342,10 @@ struct CodeEditorView: NSViewRepresentable {
             // keep serving its commands.
             searchController.reset()
             searchBarState = nil
+            // Drops the candidate snapshot and supersedes an in-flight provider
+            // call, so a torn-down tab can neither serve a closed file's
+            // identifiers nor open a popup over the tab that replaced it.
+            completion.reset()
             // Empties the column, supersedes an in-flight blame load and drops the
             // per-tab annotate state wholesale (see `BlameController.enabledFileIDs`
             // on why nothing prunes it before this point).
@@ -1288,6 +1568,146 @@ final class EditorTextView: NSTextView {
     /// until then.
     var onCancelSearch: (() -> Bool)?
 
+    /// Jumps to the declaration of the identifier at a UTF-16 offset (a ⌘-click's
+    /// character index, or the caret's for the ⌃⌘J menu item). Set by
+    /// `CodeEditorView.makeNSView` to the coordinator's
+    /// `goToDefinition(in:at:)`; `nil` until then.
+    var onGoToDefinition: ((NSTextView, Int) -> Void)?
+
+    /// Recomputes the completion candidates immediately and opens the popup over
+    /// them. Set by `CodeEditorView.makeNSView` to the coordinator's
+    /// `requestCompletions()`; `nil` until then.
+    var onRequestCompletions: (() -> Void)?
+
+    /// Brackets an AppKit completion insertion with the coordinator's
+    /// `isApplyingProgrammaticEdit` flag: called with `true` before the insertion
+    /// and `false` after. Set by `CodeEditorView.makeNSView`; `nil` until then.
+    var onCompletionInsertion: ((Bool) -> Void)?
+
+    /// Complete from the caret — the entry point shared by this view's own ⌃Space
+    /// (`keyDown`) and the Find menu's "Complete", which reaches this view as the
+    /// key window's first responder, exactly like ⌃⌘J.
+    ///
+    /// The popup is *not* opened here: `complete(_:)` asks the delegate
+    /// synchronously, and the delegate can only serve an already-computed
+    /// snapshot, so the request is handed to the coordinator's completion
+    /// controller, which opens the popup itself the moment the provider answers.
+    func completeAtCaret() {
+        onRequestCompletions?()
+    }
+
+    /// The partial word a completion replaces, per `IdentifierScanner` — the one
+    /// rule that also decides what a ⌘-click resolves and which words the buffer
+    /// harvester offers, so the popup can never complete something the provider
+    /// was not asked about.
+    ///
+    /// Overriding this is what makes `foo.bar|` complete `bar`: AppKit's stock
+    /// implementation walks back over a broader "word" class, and reporting the
+    /// whole dotted expression is the classic reason a completion popup offers
+    /// nothing. A non-empty selection is left to `super` — the user is about to
+    /// replace it, not extend it.
+    override var rangeForUserCompletion: NSRange {
+        let selection = selectedRange()
+        guard selection.length == 0 else { return super.rangeForUserCompletion }
+        return IdentifierScanner.completionPrefixRange(
+            in: string as NSString,
+            at: selection.location
+        )
+    }
+
+    /// Insert a chosen completion, with the coordinator's programmatic-edit flag
+    /// raised for the duration.
+    ///
+    /// `super` does the whole job — the replacement, the caret, and the *single*
+    /// undo step it registers on the active per-file undo manager — so nothing
+    /// about the documented undo discipline changes here. The only addition is the
+    /// flag, which keeps `AutoPairEngine`/`IndentEngine` from treating the
+    /// inserted word as typed text (a completion ending in an opener would
+    /// otherwise be auto-closed). The flag is lowered unconditionally, so an
+    /// exception out of `super` cannot leave the interceptors disabled for the
+    /// rest of the session.
+    override func insertCompletion(
+        _ word: String,
+        forPartialWordRange charRange: NSRange,
+        movement: Int,
+        isFinal: Bool
+    ) {
+        onCompletionInsertion?(true)
+        defer { onCompletionInsertion?(false) }
+        super.insertCompletion(
+            word,
+            forPartialWordRange: charRange,
+            movement: movement,
+            isFinal: isFinal
+        )
+    }
+
+    /// Go to Definition from the caret — the Find menu's ⌃⌘J entry point, which
+    /// reaches this view as the key window's first responder rather than through
+    /// any editor-side state.
+    ///
+    /// The *start* of the selection is used, so the command behaves the same
+    /// whether the user placed a caret in a name or double-clicked to select it;
+    /// `IdentifierScanner` additionally resolves the word a caret sitting just
+    /// past its last character belongs to, which is where the caret lands after
+    /// typing one.
+    func goToDefinitionAtCaret() {
+        onGoToDefinition?(self, selectedRange().location)
+    }
+
+    /// A Command-held click navigates to the clicked identifier's declaration;
+    /// every other click keeps the stock behavior.
+    ///
+    /// **Command-*drag* must still select**, and AppKit gives no way to learn that
+    /// from the mouse-down alone: `super.mouseDown` runs its own modal tracking
+    /// loop until the button comes up, so a `mouseUp` override is never reached
+    /// during a drag-select. The events that follow this one are therefore peeked
+    /// at here — a mouse-up within the slop radius is the click, and the first
+    /// real movement hands the *original* event back to `super`, whose tracking
+    /// loop anchors on it and picks the drag up from the current mouse position.
+    /// Only a plain, single Command-click is claimed: ⌘⇧-click extends a selection
+    /// and ⌘⌥-click starts a rectangular one, both of which stay AppKit's.
+    ///
+    /// **The claimed click still behaves like a click.** `super.mouseDown` cannot
+    /// be called on this path — its tracking loop would block on a mouse-up this
+    /// method has already taken off the queue — so the two things it would have
+    /// done are done here instead: the view takes first responder, and the caret
+    /// moves to the clicked offset. Without them a ⌘-click that resolves nothing
+    /// (whitespace, punctuation, a keyword — `goToDefinition` just beeps) is
+    /// swallowed whole, leaving the click with no effect at all, and a ⌘-click in
+    /// an editor that is not yet focused would jump without ever focusing it.
+    override func mouseDown(with event: NSEvent) {
+        guard
+            event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command],
+            event.clickCount == 1,
+            let onGoToDefinition
+        else { return super.mouseDown(with: event) }
+
+        let anchor = event.locationInWindow
+        while let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
+            if next.type == .leftMouseUp {
+                let point = convert(event.locationInWindow, from: nil)
+                let offset = characterIndexForInsertion(at: point)
+                if window?.firstResponder !== self { window?.makeFirstResponder(self) }
+                setSelectedRange(NSRange(location: offset, length: 0))
+                onGoToDefinition(self, offset)
+                return
+            }
+            let moved = hypot(
+                next.locationInWindow.x - anchor.x,
+                next.locationInWindow.y - anchor.y
+            )
+            if moved > Self.clickSlop { return super.mouseDown(with: event) }
+        }
+        super.mouseDown(with: event)
+    }
+
+    /// How far the mouse may travel between down and up and still count as a
+    /// click rather than the start of a Command-drag selection. Two points is the
+    /// usual hand-tremor allowance and less than one character cell, so a
+    /// tolerated wobble can never resolve a different word than the one clicked.
+    private static let clickSlop: CGFloat = 2
+
     /// Esc with the find bar open closes it (and drops the match highlight);
     /// otherwise the key falls through to the stock behavior.
     ///
@@ -1307,6 +1727,37 @@ final class EditorTextView: NSTextView {
     override func scrollWheel(with event: NSEvent) {
         if handleCommandScrollFontStep(event, step: onStepFontSize) { return }
         super.scrollWheel(with: event)
+    }
+
+    /// Intercept a *clean* ⌃Space (no Command/Shift/Option) as "complete the word
+    /// at the caret"; every other combination falls through to stock handling.
+    ///
+    /// Deliberately bound here rather than as the Find menu item's key equivalent,
+    /// which is where it started: a menu key equivalent is claimed **app-wide**,
+    /// and the menu is offered the keystroke before the key window's first
+    /// responder ever sees it. ⌃Space is the only Control-only shortcut this app
+    /// binds — every other one carries ⌘, which no terminal wants — and it is a
+    /// keystroke the embedded terminal genuinely needs (NUL; readline's and Emacs'
+    /// `set-mark`). As a menu equivalent it therefore swallowed ⌃Space out of a
+    /// *focused terminal* and beeped instead, `completeAtCaret()`'s first-responder
+    /// cast having failed — and did so only once a tab was open, since a disabled
+    /// item does not claim its equivalent. Scoping the binding to this view keeps
+    /// the terminal whole; the menu item, AppKit's stock ⌥⎋ and F5 all still reach
+    /// the same request.
+    ///
+    /// Bails while an IME composition is in flight for the same reason ⌘D does:
+    /// `rangeForUserCompletion` would measure a partial word across uncommitted
+    /// marked text, and accepting a row would replace the composition.
+    override func keyDown(with event: NSEvent) {
+        if event.charactersIgnoringModifiers == " ",
+           event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.control],
+           isEditable,
+           !hasMarkedText(),
+           onRequestCompletions != nil {
+            completeAtCaret()
+            return
+        }
+        super.keyDown(with: event)
     }
 
     /// Intercept a *clean* Cmd+D (no Shift/Option/Control) to duplicate the line

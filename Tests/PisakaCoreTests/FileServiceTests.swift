@@ -782,6 +782,76 @@ final class FileServiceTests: XCTestCase {
         XCTAssertNil(try TextOnlyStub(contents: "hello").readTextIfNotBinary(url: url, maxBytes: 4))
         XCTAssertNil(try TextOnlyStub(contents: "a\0b").readTextIfNotBinary(url: url, maxBytes: 10))
         XCTAssertNil(TextOnlyStub(contents: "hello").fileByteCount(at: url))
+        // "Unknown stamp" is the same shape of default, and the symbol index
+        // reads it as "always re-extract".
+        XCTAssertNil(TextOnlyStub(contents: "hello").fileStamp(at: url))
+    }
+
+    // MARK: - File stamps
+
+    func testFileStampReportsSizeAndModificationDate() throws {
+        let service = FileService()
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("a.swift")
+        try service.write("let x = 1\n", to: url)
+
+        let stamp = try XCTUnwrap(service.fileStamp(at: url))
+        XCTAssertEqual(stamp.byteCount, 10)
+        XCTAssertNotNil(stamp.modificationDate)
+        // The size half agrees with the dedicated reader, so the one-call pair
+        // cannot drift from it.
+        XCTAssertEqual(stamp.byteCount, service.fileByteCount(at: url))
+    }
+
+    func testFileStampIsStableForAnUntouchedFile() throws {
+        let service = FileService()
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("a.swift")
+        try service.write("let x = 1\n", to: url)
+
+        // The whole point of the gate: reading twice must compare equal, or the
+        // index would re-parse every file on every FSEvents burst.
+        XCTAssertEqual(service.fileStamp(at: url), service.fileStamp(at: url))
+    }
+
+    func testFileStampChangesWhenTheContentsChange() throws {
+        let service = FileService()
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("a.swift")
+        try service.write("let x = 1\n", to: url)
+        let before = try XCTUnwrap(service.fileStamp(at: url))
+
+        try service.write("let x = 1\nlet y = 2\n", to: url)
+
+        XCTAssertNotEqual(service.fileStamp(at: url), before)
+    }
+
+    func testFileStampIsNilForMissingFile() throws {
+        let service = FileService()
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        XCTAssertNil(service.fileStamp(at: dir.appendingPathComponent("nope.txt")))
+    }
+
+    func testFileStampsWithoutADateStillCompareBySize() {
+        XCTAssertEqual(
+            FileStamp(byteCount: 10, modificationDate: nil),
+            FileStamp(byteCount: 10, modificationDate: nil)
+        )
+        XCTAssertNotEqual(
+            FileStamp(byteCount: 10, modificationDate: nil),
+            FileStamp(byteCount: 11, modificationDate: nil)
+        )
+        // A same-size edit is caught by the date half.
+        let date = Date(timeIntervalSince1970: 1_000)
+        XCTAssertNotEqual(
+            FileStamp(byteCount: 10, modificationDate: date),
+            FileStamp(byteCount: 10, modificationDate: date.addingTimeInterval(1))
+        )
     }
 
     // MARK: - Helpers

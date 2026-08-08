@@ -233,7 +233,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     is the one installing its contents, so selecting earlier would land the range in
     the previous tab's text. It is one-shot by `token` (not by value — activating the
     same match twice is a legitimate second request), ignores a request whose
-    `fileID` is not this tab's, and clamps the range to the live buffer.
+    `fileID` is not this tab's, and clamps the range to the live buffer — by
+    **truncating the length**, not by intersecting: a range whose location is
+    exactly the buffer end shares no unit with the document, and
+    `NSIntersectionRange` answers `{0, 0}` for that, which would scroll to the top
+    of the file instead of leaving the caret at the end.
     The gutter's git-blame column is wired through two more inputs — `fileURL:
     URL?` (what `BlameController` blames; a `nil` untitled buffer disables the
     context-menu item) and `diskRevision: Int = 0`
@@ -255,6 +259,169 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     whole-document replacement — and `syncBlame(...)` *after* the swap, so the array
     is sized against the line count the swap's notification has just rebuilt.
     `teardown()` calls `reset()`.
+    **Code intelligence** is wired here too, through two more inputs — a
+    `SymbolIndexController` (not observed: it publishes nothing, and the index model
+    behind it republishes after every chunk of a walk, which must stay off this
+    view's update path) and `onGoToDefinition`, bound to the very
+    `PisakaApp.activateSearchMatch(url:range:)` a Find in Files result goes through,
+    so opening the tab stays the app's job and a definition in the *current* file
+    takes the same route (one code path for the caret move and the scroll). Both are
+    defaulted so a default-constructed view still compiles, and
+    `navigateToDefinition` is re-assigned on **every** update, because it captures
+    the scene's state and a stale one would open tabs through a torn-down
+    workspace. `makeNSView` binds three new `EditorTextView` closures — a ⌘-click's
+    `onGoToDefinition`, the completion request's `onRequestCompletions`, and
+    `onCompletionInsertion` — all with the same **weak** coordinator capture the
+    `onDuplicate`/`onCancelSearch` rule requires, and attaches the coordinator's
+    `CompletionController` to the text view (nothing is computed there: candidates
+    are asked for on the first keystroke or an explicit ⌃Space, never for a tab that
+    was only looked at). The shown file is re-indexed from its **buffer** text
+    immediately in `makeNSView` and on a `switchedFile`/`contentReplaced` update —
+    the tab being looked at must have symbols before the user finishes reading it,
+    and the disk walk may not have reached that file (or may never reach one outside
+    the opened folder) — while `textDidChange` goes through the controller's 400 ms
+    debounce; scheduling *both* on a switch would re-parse the file twice per
+    settled burst of typing. `textDidChange` also refreshes the completion
+    candidates behind their own shorter debounce, whose gates (bare caret, two typed
+    characters, no marked text) mean an ordinary keystroke outside an identifier
+    costs one prefix scan and no task — but **not while
+    `isApplyingProgrammaticEdit` is up**. AppKit's own completion insertion fires
+    this notification synchronously (once per arrow-key preview as well as for the
+    accepted word), so refreshing there would schedule a request for the word just
+    completed and re-open the popup over it a debounce later; the iOS strip avoids
+    the same treadmill by clearing after an insertion. Auto-pair, the indented
+    newline and ⌘D take the same path and are equally not typing. The snapshot the
+    guard leaves standing is inert: `completions(forPartialWordRange:in:)`
+    re-validates it against the live buffer, and a popup only ever opens from
+    `apply` or ⌃Space. The coordinator's `goToDefinition(in:at:)` is
+    the **single** entry point behind both ⌘-click and ⌃⌘J, so the two cannot
+    disagree about what an identifier is or how a jump is made: `IdentifierScanner`
+    names the word, the provider (re-read from the controller per call, never
+    stored, so no answer comes from the state a folder was opened in) ranks the
+    candidates, and the count picks the surface — beep, jump, or `DefinitionPicker`
+    anchored on the asked-about range. The completions delegate
+    (`textView(_:completions:forPartialWordRange:indexOfSelectedItem:)`) serves the
+    controller's snapshot, **ignoring AppKit's `words`** (the spell checker's
+    guesses: this is a code editor, and dictionary words beside project symbols
+    would bury the latter) and forcing `indexOfSelectedItem` to `-1`. That last one
+    is **mandatory, not cosmetic**: AppKit's stock `0` does not merely highlight a
+    row, it makes `complete(_:)` call `insertCompletion(…, isFinal: false)` for it,
+    so the popup *writes its top candidate into the buffer* before the user chooses
+    anything — once per 150 ms typing pause, each time pushed into `WorkspaceModel`
+    by `textDidChange` (dirtying the tab, so an idle autosave can write it to the
+    file) and each time registering its own undo step. `-1` opens the same popup
+    with nothing selected and nothing inserted; arrow keys or the mouse choose and
+    Return inserts, which is the contract README states. `noteCompletionInsertion`
+    raising `isApplyingProgrammaticEdit` around AppKit's insertion is **mandatory,
+    not defensive**: the insertion goes through the same edit path typing does, so a
+    completion ending in `(` would otherwise be auto-closed by `AutoPairEngine` and
+    one whose replaced range starts a line could trip the dedent rewrite.
+    `teardown()` additionally calls `completion.reset()`, so a torn-down tab can
+    neither serve a closed file's identifiers nor open a popup over the tab that
+    replaced it — and `updateNSView` calls the same thing through
+    `clearCompletions()` on `switchedFile || contentReplaced`, because a tab
+    *switch* reuses this view rather than tearing it down. The snapshot is matched
+    only against the text of the partial word it answers, so without that the
+    stock completion bindings (⌥⎋, F5) on the same word in the incoming file would
+    be served the outgoing file's list — ranked with the wrong file as "current",
+    so the declarations actually on screen are missing or demoted. The iOS editor
+    clears its strip on the identical condition. On `EditorTextView` itself:
+    `keyDown(with:)` claims a *clean* ⌃Space (no ⌘/⇧/⌥, editable, no marked text)
+    and routes it to `completeAtCaret()`. That binding lives here rather than on the
+    Find menu item — the only shortcut in the app that does — because a menu key
+    equivalent is claimed **app-wide** and is offered the keystroke before the key
+    window's first responder, and ⌃Space is the one shortcut the app wants that
+    carries no ⌘: as a menu binding it swallowed ⌃Space out of a focused embedded
+    terminal, which needs it as NUL (readline's and Emacs' `set-mark`), beeping
+    instead once `completeAtCaret()`'s first-responder cast failed — and only once a
+    tab was open, since a disabled item does not claim its equivalent. It bails on
+    marked text for the same reason ⌘D does. `rangeForUserCompletion` is overridden
+    to return Core's completion-prefix range (AppKit's stock implementation walks
+    back over a broader word class and reporting the whole dotted expression is the
+    classic reason a popup offers nothing; a non-empty selection is left to `super`);
+    `insertCompletion(_:forPartialWordRange:movement:isFinal:)` only brackets `super`
+    with the flag, which is what keeps undo AppKit's — one ordinary step on the
+    active per-file undo manager — and lowers it in a `defer` so an exception cannot
+    leave the interceptors disabled for the session; `goToDefinitionAtCaret()` uses
+    the selection's **start**, so the command behaves the same whether the user
+    placed a caret in a name or double-clicked it; and `mouseDown(with:)` claims
+    only a plain, single Command-click. **Command-*drag* must still select**, and
+    AppKit gives no way to learn that from the mouse-down alone (`super.mouseDown`
+    runs its own modal tracking loop until the button comes up, so a `mouseUp`
+    override is never reached during a drag-select), so the following events are
+    peeked at: a mouse-up within a small slop radius is the click, while the first
+    real movement hands the *original* event back to `super`, whose tracking loop
+    anchors on it and picks the drag up from the current position. ⌘⇧-click
+    (extend) and ⌘⌥-click (rectangular) stay AppKit's. **The claimed click still
+    behaves like a click**: `super.mouseDown` cannot be called on the resolve path
+    — its tracking loop would block on a mouse-up already taken off the queue — so
+    the two things it would have done are done by hand instead, the view taking
+    first responder and the caret moving to the clicked offset. Without them a
+    ⌘-click that resolves nothing (whitespace, punctuation, a keyword — the
+    coordinator just beeps) is swallowed whole and the click has no effect at all,
+    and a ⌘-click into an editor that is not yet focused jumps without ever
+    focusing it.
+  - `CompletionController.swift` — feeds AppKit's built-in completion popup from
+    the *asynchronous* code-intelligence seam. **The whole problem it exists to
+    solve is a mismatch of shapes:**
+    `textView(_:completions:forPartialWordRange:indexOfSelectedItem:)` is
+    synchronous — AppKit asks for the list while it is already putting the popup on
+    screen — while `CodeIntelligenceProviding` is async, because a phase-2 LSP
+    provider has to await a socket. So the work is inverted: candidates are computed
+    ahead of time behind a debounce, stored *together with the prefix they answer*,
+    and only then is the text view asked to `complete(nil)`; the delegate call that
+    follows touches nothing asynchronous. Nothing about the seam is compromised —
+    the provider is still awaited, one turn earlier than AppKit would like. Storing
+    the prefix with the items is the only thing that makes an asynchronously-computed
+    list safe to hand to a synchronous delegate: by the time AppKit asks, the user
+    may have typed another character, and offering completions for the previous word
+    is worse than offering none, so a mismatch returns `[]` — not an error but the
+    ordinary "typed one more character" state, which dismisses the popup until the
+    debounce fires again with a list that does match. The requested range is
+    validated against the live buffer before it is read, since a session that
+    outlived a shrinking edit would otherwise index out of bounds. Debounce (150 ms,
+    the minimap tokenizer's rather than the index's 400 ms — this asks a question of
+    a snapshot already in memory, so the cost is a prefix scan and a sort) and a
+    monotonic generation token follow the `BracketHighlightController` idiom.
+    `update(provider:fileURL:explicit:)` builds the request on the main actor from
+    the live buffer — the text goes *into* the request rather than being read after
+    the hop, so the harvested words are the ones on screen when the user paused —
+    and refuses in three cases: marked text (uncommitted IME input, the ⌘D guard's
+    reasoning), a non-empty selection (about to be replaced, not extended), and a
+    prefix under two characters. That minimum is the single most-complained-of
+    behavior of as-you-type completion, so `explicit` (⌃Space / the menu item)
+    bypasses both it and the debounce — the user asked. `apply` re-reads the caret
+    *after* the await (a click, an arrow key or an undo during the debounce moves
+    the popup's anchor to a word these items do not answer), opens nothing on an
+    empty result (an empty popup is strictly worse than no popup), and requires the
+    text view to still be the window's first responder, or `complete(nil)` would put
+    a floating list over whatever the user *is* typing in. Thin glue otherwise:
+    `IdentifierScanner` says what is being typed and `SymbolIntelligenceProvider`
+    ranks and caps the answers, so this class decides only *when* to ask and whether
+    the answer is still current.
+  - `DefinitionPicker.swift` — the "which one did you mean?" surface of Go to
+    Definition: an `NSMenu` popped up under the identifier, one item per candidate
+    (plan Decision 3). A menu rather than a custom `NSPanel` because AppKit gives
+    arrow-key navigation, type-select, Esc dismissal and screen-edge flipping for
+    free, with no window controller to own, position or tear down across a tab
+    switch; the cosmetic price is that a row is one string, which is exactly what
+    `DefinitionCandidate.displayLabel` is for, so both platforms show the same text
+    and this file decides nothing about it. `autoenablesItems = false` because the
+    items are model-driven — without it AppKit would ask a validator that does not
+    exist and grey every row out. The anchor is the bottom-left of the identifier's
+    glyph bounds, asked of the layout manager (rather than
+    `firstRect(forCharacterRange:)`, which answers in *screen* coordinates and would
+    have to be converted back) and offset by the text container's origin, which is
+    non-zero here because the gutter is a ruler view; the range is clamped first,
+    since it was computed against the buffer as it was when the question was asked.
+    The action receiver is held across the modal call with `withExtendedLifetime`,
+    and that is mandatory rather than defensive: `NSMenuItem.target` is a *weak*
+    reference, and ARC may release a local at its last use — which here is the
+    assignment inside the item loop, before `popUp(positioning:at:in:)` is even
+    called. An optimized build could therefore show a menu whose every row points
+    at a deallocated target and silently does nothing when chosen. Wrapping the
+    modal call (it tracks modally and returns only once the menu is gone) is what
+    keeps the target alive for exactly as long as it can be messaged.
   - `EditorSearchState.swift` — the find/replace bar's observable state (macOS):
     `isVisible`, `isReplaceExpanded`, `pattern`, `template`, the three toggles
     (`caseSensitive`/`wholeWord`/`isRegex`), the published-back `matchCount`/

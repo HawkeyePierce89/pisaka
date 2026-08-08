@@ -20,7 +20,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `CodeEditorView`, along with `fileURL: file.url` and `diskRevision:
     model.diskRevision(for: file.id)` for the gutter's git-blame column (both with
     defaults on the editor side, so the existing parameter order is untouched and a
-    default-constructed `CodeEditorView` still compiles). The private `PathBarView` is the VS Code-style
+    default-constructed `CodeEditorView` still compiles). Two more pass straight
+    through to the editor for **code intelligence**: the `SymbolIndexController`
+    that schedules the shown file's re-index, and `onGoToDefinition`, wired to
+    `PisakaApp`'s Find-in-Files activation path (opening a tab is the app's job).
+    The controller is deliberately **not** `@ObservedObject` — it publishes nothing,
+    and the index model behind it republishes after every chunk of a walk, which is
+    exactly the per-update cost `PathBarView.equatable()` and the non-observed
+    `commitDialog` exist to keep off this view; both default (to a controller over a
+    fresh, never-walked index, and a no-op) so previews compile.
+    The private `PathBarView` is the VS Code-style
     breadcrumb: a `.caption`/`.secondary` `Text` of
     `DisplayPath.components(fileURL:projectRoot:home:
     FileManager.default.homeDirectoryForCurrentUser)` joined with `" › "`. All the
