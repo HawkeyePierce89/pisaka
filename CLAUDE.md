@@ -32,12 +32,15 @@ The app target is built through the XcodeGen-generated Xcode project, *not*
   Each builds in isolation (`swift build --package-path Vendor/<name>`); the
   root `Package.swift` does not reference them, so `swift test` stays
   dependency-free.
-- `Resources/` — release metadata bundled into the app on both destinations: the
+- `Resources/` — data bundled into the app on both destinations: the
   partial `Info.plist` (merged with Xcode's generated keys), the
-  `PrivacyInfo.xcprivacy` manifest, and `Licenses/` (`licenses.json` + one
-  verbatim license text per shipped dependency, copied as a folder reference).
-  All three are verified statically by `swift test` (`ReleaseMetadataTests`,
-  `LicenseCoverageTests`); rationale in `docs/architecture/core-services.md`.
+  `PrivacyInfo.xcprivacy` manifest, `Licenses/` (`licenses.json` + one
+  verbatim license text per shipped dependency, copied as a folder reference),
+  and `Queries/<language>/symbols.scm` (the symbol-index tree-sitter queries,
+  also a folder reference, so adding one needs no `xcodegen generate`). All four
+  are verified statically by `swift test` (`ReleaseMetadataTests`,
+  `LicenseCoverageTests`, `SymbolQueryTests`); rationale in
+  `docs/architecture/core-services.md` + `core-intelligence.md`.
   Release versioning and the per-upload build-number override are in
   `docs/RELEASING.md`.
 - `Package.swift` builds *only* the platform-agnostic `PisakaCore` library
@@ -75,7 +78,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 
 `docs/architecture/core-workspace.md` — files, paths & workspace:
 - `OpenFile.swift` — open-file model: optional `url`, `text`/`savedText`, `isDirty`.
-- `FileService.swift` — disk IO behind `FileServicing`: read/write/list, create/move/delete, `ensureDirectory`, binary/oversize-aware `readTextIfNotBinary`; `.git`/`.DS_Store` exclusion predicates; typed `FileServiceError`.
+- `FileService.swift` — disk IO behind `FileServicing`: read/write/list, create/move/delete, `ensureDirectory`, binary/oversize-aware `readTextIfNotBinary`, `FileStamp`/`fileStamp(at:)` (the index's change gate); `.git`/`.DS_Store` exclusion predicates; typed `FileServiceError`.
 - `FileName.swift` — name/path validation for the tree dialogs: `isValidFileName`, `parseRelativeEntryPath`, reasoned validators over `EntryPathIssue`.
 - `GitRefName.swift` — branch-name validation for the "New Branch…" dialogs.
 - `BranchRef.swift` — branch value type + build/group/filter helpers for the switcher.
@@ -101,7 +104,16 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 
 `docs/architecture/core-search.md` — Find in Files:
 - `GitignoreMatcher.swift` — gitignore(5) pattern matching (`GitignorePattern`/`GitignoreRules`/`GitignoreStack`; `Glob` also serves the file mask); oracle-tested against `git check-ignore`.
-- `ProjectSearchModel.swift` — project-wide search / Replace All: traversal, chunked streaming, match caps, open-buffer branch, per-file staleness re-checks, two generation tokens; known limits recorded there.
+- `ProjectSearchModel.swift` — project-wide search / Replace All: chunked streaming, match caps, open-buffer branch, per-file staleness re-checks, two generation tokens; known limits recorded there. Walks through `ProjectFileWalk`.
+
+`docs/architecture/core-intelligence.md` — code intelligence (symbol index, go-to-definition, completion):
+- `Symbol.swift` — `SymbolKind` (strict, failable capture-name mapping) + `Symbol` (name-node range, 1-based line).
+- `SymbolIndex.swift` — the symbol store: canonical-path file keys, name + lowercased-initial buckets, ranks nothing.
+- `ProjectFileWalk.swift` — the one project traversal shared by Find in Files and the index (`collectFiles`/`matchesMask`/`relativePath`).
+- `SymbolIndexModel.swift` — the async index lifecycle: generation-pinned rebuild, chunked publishing, stamp-gated refresh, buffer-over-disk precedence, the synchronous extractor seam; a reader, never a writer.
+- `IdentifierScanner.swift` — the one identifier-boundary rule: word at offset, completion prefix range, buffer word harvest.
+- `CodeIntelligence.swift` — the async `CodeIntelligenceProviding` seam + its request/result value types.
+- `SymbolIntelligenceProvider.swift` — index-backed provider and the home of every definition/completion ranking rule.
 
 `docs/architecture/core-git.md` — git protocol, status & blame:
 - `GitError.swift` — typed `GitServicing` failures with user-facing `errorDescription`.
@@ -164,9 +176,14 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `Platform/PlatformColor.swift` / `PlatformFeedback.swift` / `PlatformAlert.swift` / `PlatformRoute.swift` — per-platform API shims (colors, feedback, alerts, route presentation).
 - `Platform/LicenseCatalogLoader.swift` — bundled-license reader shared by both Acknowledgements screens (one-shot cache; full entry in app-shell).
 - `Platform/LicenseTextView.swift` — TextKit-backed license-text pane shared by both Acknowledgements screens (lazy layout for the 66 KB texts; full entry in app-shell).
-- `iOS/PisakaApp_iOS.swift` / `RootView_iOS.swift` — iOS `@main` + adaptive root/navigation, revert & branch orchestration.
+- `Platform/SymbolQueryCatalog.swift` — cached, lock-guarded `symbols.scm` loader/compiler; `nil` on failure, DEBUG-only compile assertion.
+- `Platform/SymbolExtractor.swift` — text → `[Symbol]` via tree-sitter matches; `nonisolated static`, parser + cursor per call.
+- `Platform/SymbolIndexController.swift` — the index's two debounces (400 ms buffer edit, 500 ms watcher refresh); immediate on tab open.
+- `iOS/PisakaApp_iOS.swift` / `RootView_iOS.swift` — iOS `@main` + adaptive root/navigation, revert & branch orchestration, symbol-index folder lifecycle + definition routing.
 - `iOS/BranchSwitcherView_iOS.swift` — iOS branch-switcher widget (dirty-checkout routing).
-- `iOS/CodeEditorView_iOS.swift` / `CodeEditorCoordinator_iOS.swift` — `UITextView` editor (Neon, indent/auto-pair, pinch zoom).
+- `iOS/CodeEditorView_iOS.swift` / `CodeEditorCoordinator_iOS.swift` — `UITextView` editor (Neon, indent/auto-pair, pinch zoom, edit-menu definition + completion strip).
+- `iOS/CompletionBar_iOS.swift` — QuickType-style completion strip installed as the editor's `inputAccessoryView`.
+- `iOS/DefinitionRoute_iOS.swift` — Go to Definition routing: candidate choices + the one-shot, token-guarded reveal.
 - `iOS/FilePicker_iOS.swift` / `SecurityScopedBookmarks.swift` — document picker + `SecurityScopedFileService` decorator.
 - `iOS/LibGit2Service.swift` — in-process libgit2 `GitServicing` (HTTPS-only fetch, credential callback).
 - `iOS/KeychainCredentialStore.swift` — Keychain-backed PAT store.
@@ -199,7 +216,9 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 `docs/architecture/app-editor.md` — code editor & find (macOS):
 - `CodeEditorView.swift` — the `NSTextView` wrapper: Neon, indent/auto-pair/⌘D wiring, undo discipline, minimap/gutter/blame/search integration; the weak-capture retain-cycle rule.
 - `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift` — find/replace bar state, execution (visible-only highlight, single-edit Replace All) and UI.
-- `EditorRevealState.swift` — one-shot reveal request from Find in Files.
+- `EditorRevealState.swift` — one-shot reveal request from Find in Files (and Go to Definition).
+- `CompletionController.swift` — precomputes candidates behind a debounce so AppKit's synchronous completions delegate has a prefix-matched snapshot ready.
+- `DefinitionPicker.swift` — the multi-candidate `NSMenu` popped up under the identifier.
 - `ProjectSearchView.swift` / `ProjectSearchWindowController.swift` — Find in Files window (debounce, `resultsMatchControls` gate; single window).
 
 `docs/architecture/app-editor-overlays.md` — editor overlays (macOS):
@@ -233,6 +252,12 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   `autosave.suspend()` + `localChanges.beginRevert()` synchronously before its
   first `await` (balanced by `defer`); the project-tree file ops, ⌘S and the
   run/test saves refuse while the gate is up.
+- **Readers do not take the writer gate**: the symbol index
+  (`SymbolIndexModel`/`SymbolIndexController`) only *reads*, so it neither raises
+  `autosave.suspend()`/`beginRevert()` nor is gated by them — a refresh landing
+  mid-revert costs at worst one entry the next refresh corrects, while taking the
+  gate would serialize the editor behind a background walk (the reasoning already
+  written on `projectWatcher`'s tree bump).
 - **Open-tab resync** after an operation rewrites the worktree: buffers are
   snapshotted before the hop; a clean, unchanged tab gets `reloadFromDisk`, an
   edited one `reconcileSavedBaseline` + beep, a deleted file force-closes
@@ -255,7 +280,10 @@ not the SwiftUI views.
 A second class of suites in the same target verifies **repository files** rather
 than Core code — read through `#filePath` with Foundation only, so they run in
 `swift test` without an Xcode build: `VendoredGrammarQueryTests` (the in-repo
-highlight queries), `DependencyPinTests` (`Package.resolved` schema and pins,
+highlight queries), `SymbolQueryTests` (the shipped `symbols.scm` queries:
+coverage by set equality against `SyntaxLanguage.allCases`, emitted captures vs.
+`SymbolKind`, node names against `node-types.json` or a by-hand pin),
+`DependencyPinTests` (`Package.resolved` schema and pins,
 and that each pin matches the requirement `project.yml` states for it),
 `ReleaseMetadataTests` (`Resources/Info.plist`, `PrivacyInfo.xcprivacy`, the
 `project.yml` lines that wire them into the bundle, and the iOS launch-screen

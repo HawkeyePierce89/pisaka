@@ -626,24 +626,24 @@ every Core decision with macOS.
 
 ### Task 11: Update documentation
 
-- [ ] add `docs/architecture/core-intelligence.md` with full entries for
+- [x] add `docs/architecture/core-intelligence.md` with full entries for
       `Symbol`, `SymbolIndex`, `ProjectFileWalk`, `SymbolIndexModel`,
       `IdentifierScanner`, `CodeIntelligence` and `SymbolIntelligenceProvider` —
       including the buffer-over-disk rule, the stamp-gated refresh, the
       reader-not-writer statement, the **synchronous-extractor seam and why it
       is not an actor** (Decision 7), and the manual runtime query check the
       static tests cannot cover
-- [ ] add the app-layer entries: `SymbolQueryCatalog`, `SymbolExtractor` and
+- [x] add the app-layer entries: `SymbolQueryCatalog`, `SymbolExtractor` and
       `SymbolIndexController` to `docs/architecture/app-ios.md` (Platform
       shims), recording `SymbolExtractor`'s parser-per-call thread-safety
       contract; the macOS completion/definition files to
       `docs/architecture/app-editor.md`; the `PisakaApp` lifecycle wiring to
       `docs/architecture/app-shell.md`; the iOS surfaces to
       `docs/architecture/app-ios.md`
-- [ ] note the `collectFiles`/`relativePath` move in
+- [x] note the `collectFiles`/`relativePath` move in
       `docs/architecture/core-search.md`
-- [ ] add index lines only to `CLAUDE.md` (one per new file, plus the new doc in
+- [x] add index lines only to `CLAUDE.md` (one per new file, plus the new doc in
       the architecture index) and extend the cross-cutting invariants section
       with the index's reader-only coordination rule
-- [ ] update `README.md` with the two new user-facing features and their
+- [x] update `README.md` with the two new user-facing features and their
       shortcuts

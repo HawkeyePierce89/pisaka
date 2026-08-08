@@ -159,7 +159,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     Traversal emits a directory's own files *before* its subdirectories, so results
     stream root-first (`contentsOfDirectory` sorts directories first, which is
     right for a tree view and backwards for a result list), keeping the listing's
-    alphabetical order within each group so the result order is deterministic. The
+    alphabetical order within each group so the result order is deterministic.
+    **The traversal itself now lives in `ProjectFileWalk`** (`collectFiles`,
+    `matchesMask`, `relativePath`, moved verbatim — doc comments included — and
+    called through from here), because the symbol index has to walk a project by
+    exactly these rules: a file Find in Files refuses to search because a
+    `.gitignore` excludes it must not turn up as a go-to-definition target either.
+    Nothing above changed in the move; the reasoning stays written here, where it
+    was, and `ProjectFileWalkTests` holds the traversal tests that moved with it.
+    Its entry is in `core-intelligence.md`. The
     work runs on a private serial queue (`GitCLIService`'s `offMain` shape) while
     the model itself stays `@MainActor`. `replaceAll(template:originGeneration:)
     async -> ReplaceSummary` has **two branches and one rule**: a file with an open tab is
@@ -269,8 +277,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     philosophy), while an *error* is a read or write that actually failed; neither
     stops the batch. `results` is deliberately left describing pre-replacement
     text, so the caller re-runs the search afterwards. Pure static helpers
-    (`maskPatterns`, `matchesMask`, `collectFiles`, `searchChunk`, `relativePath`,
-    `preview`, `replacedText`, `replaceOnDisk`) keep the branching under fast unit
+    (`maskPatterns`, `searchChunk`, `preview`, `replacedText`, `replaceOnDisk`,
+    plus the `ProjectFileWalk` trio it forwards to — `matchesMask`, `collectFiles`,
+    `relativePath`) keep the branching under fast unit
     tests in `ProjectSearchModelTests` while only I/O and sequencing are async.
     **Known limits (accepted boundaries of Find in Files / Text Search)** — five
     behaviors that are deliberate rather than oversights, recorded so a reader

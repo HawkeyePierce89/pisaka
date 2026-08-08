@@ -94,6 +94,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     byte-level version that never decodes a file it is going to reject and also
     rejects non-UTF-8 bytes (an encoding the editor cannot round-trip is skipped
     rather than lossily decoded).
+    A third defaulted method backs the **symbol index**: `fileStamp(at:) ->
+    FileStamp?`, where `FileStamp` is `(byteCount, modificationDate)` — a cheap
+    "has this file changed?" fingerprint the index compares against what it
+    recorded when it last extracted a file, so an FSEvents burst re-parses only
+    what actually moved. Deliberately not a content hash: hashing means reading
+    every file, which is the cost the stamp exists to avoid. The accepted
+    inaccuracy is the classic one — a write preserving both size and mtime looks
+    unchanged — and it is bounded: only a deliberate `touch -t`/`utimes` does
+    that, editor buffers are re-indexed from live text rather than from disk, and
+    the next genuine edit corrects the entry, so the failure mode is a briefly
+    stale symbol and not a wrong jump target. Defaulted to `nil` with the same
+    reading as `fileByteCount`: **"unknown" means "re-read it"**, so a partial
+    stub or a volume that reports no metadata degrades to correct-but-slower
+    rather than to a stale index. The real service reads both values in **one**
+    metadata call (the whole reason the pair is one type — the index stamps every
+    walked file on every refresh, so two `stat`s per file would double the syscall
+    cost of the gate that exists to save work), and through
+    `FileManager.attributesOfItem` rather than `URL.resourceValues`, which is not a
+    style choice: a `URL` **caches** the resource values it has already been asked
+    for, so stamping the same instance twice can return the first answer after the
+    file has been rewritten — in a cache gate, "unchanged" forever. A missing
+    *date* alone is not `nil`, since a size change still catches the common edit.
   - `FileName.swift` — pure, testable name/path validation for the project-tree
     dialogs, in two shapes over *one* rule: the boolean predicates
     `isValidFileName(_:) -> Bool` / `parseRelativeEntryPath(_:) -> [String]?` (the

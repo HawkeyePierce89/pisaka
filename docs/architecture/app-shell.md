@@ -85,7 +85,54 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `activateSearchMatch(url:range:)` opens the file through the ordinary
     `openFile(url:)` path (so an already-open tab is re-selected, not duplicated),
     resolves the tab id, and records the range with `reveal.reveal(fileID:range:)` —
-    a failed open resolves to no tab, so nothing is revealed.
+    a failed open resolves to no tab, so nothing is revealed. It is **also the
+    destination of Go to Definition** (⌘-click / ⌃⌘J), which names a declaration's
+    file and name range instead of a search hit: the two want the same three steps,
+    and sharing them is what keeps a jump inside the file already being edited on
+    the same code path as one across the project.
+    The same `init()` additionally builds the **symbol index**: a
+    `SymbolIndexModel` over the *same* `openBuffers` snapshot closure (so Find in
+    Files and go-to-definition cannot disagree about what an open tab's text is) plus
+    a `SymbolIndexController` over it. Its `extractSymbols` argument is a **direct
+    synchronous reference** to `SymbolExtractor.symbols(in:language:fileURL:)` — no
+    `Task`, no actor hop, because the model calls it only from inside its own
+    off-main serial queue (plan Decision 7; the reasoning is in
+    `core-intelligence.md`). Both are plain `let`s, deliberately **not**
+    `@StateObject` — the `commitDialog` precedent, with an even sharper argument
+    here: the model republishes its `index` after *every chunk* of a walk, so
+    subscribing this scene's `body` to it would re-create `ContentView` (and with it
+    the project tree, the tab list and `CodeEditorView.updateNSView`) dozens of times
+    while a project is indexed, for a value nothing in the window reads. The editor
+    surfaces ask through `symbolIndex.provider`, which reads the latest snapshot on
+    demand, and `ContentView` threads the *controller* (not the model) down to
+    `CodeEditorView` alongside `onGoToDefinition`. `openFolder(url:)` calls
+    `symbolIndexController.reset()` + `symbolIndex.prepareForFolderChange(root:)`
+    **synchronously**, in the same main-actor turn as every other collaborator, and
+    only then spawns the pinned `Task { await rebuild(root:request:) }` — the
+    generation bump and the index clear happen before any hop, so an in-flight walk
+    finds itself superseded and no symbol from the folder the user just left stays
+    jumpable while the new one is read (a definition that opens a file from the
+    previous project is worse than none). Unlike Find in Files a walk *is* spawned:
+    the index has to exist before the user asks, since there is no window to open
+    first. Because this is the sole place a folder switch is registered, the
+    launch-time session restore builds the index exactly as a user-driven open does.
+    `closeFile(id:)` (and every branch of its confirmation) routes through
+    `forgetIndexedBuffer(_:)`, which hands the tab's entry back to disk only when no
+    tab still shows the file — so the Cancel branch, and a file legitimately reached
+    through two tabs (once by path, once through a symlink, since `fileID(forURL:)`
+    matches canonically exactly as the index keys its files), leave the buffer mark
+    where it is. Two `Find` menu items reach the focused editor through the responder
+    chain rather than through any window-scoped state, because neither command
+    carries state to survive a tab switch: "Go to Definition" at **⌃⌘J** (Xcode's
+    binding, and free here — ⌘J and ⌃⌘F are AppKit's "center selection" and full
+    screen) and "Complete" at **⌃Space** (in addition to AppKit's stock ⌥⎋ and F5,
+    which reach the same delegate; ⌃Space is what a code editor's users reach for,
+    but macOS ships it bound to "Select the previous input source", so keeping both
+    leaves a user with several input sources two working alternatives). Both are
+    gated on a tab being open rather than on a project — a symbol declared in the
+    buffer itself is indexed from that buffer, so a lone open file can still jump
+    within itself — and anything else focused beeps rather than acting somewhere the
+    user is not typing.
     `replaceAllInProject(template:originGeneration:)` brackets
     `ProjectSearchModel.replaceAll` with
     the *same* coordination as `applyMerge`/`revertChanges`, because a project-wide
@@ -331,6 +378,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     *subprocess*, so `IgnoreSelf` does not suppress them) are inert — the gates
     (`isReverting`, autosave suspension) exist for *disk writers*, which a re-read is
     not; the `.git` noise of those same git runs is dropped by the Core filter.
+    That same callback additionally asks `symbolIndexController.noteProjectFilesChanged(
+    root:)` for a **debounced symbol-index refresh** (a further 500 ms on top of the
+    watcher's own 1 s coalescing, since a build or an `npm i` outlives that window).
+    It is ungated for exactly the reason above, restated on `SymbolIndexModel`: the
+    index is a *reader*, so a refresh landing mid-revert costs at worst one entry
+    extracted from a half-rewritten file, which the next refresh corrects, while
+    taking the writer gate would serialize the editor behind a background walk. The
+    root is *captured* rather than read from the model, so the refresh always names
+    the folder this subscription was started for.
     Because the watcher ignores self-generated events, `saveAs(id:)` bumps
     explicitly: after a successful `model.saveAs(url:for:)` it calls
     `model.bumpTreeRevision()` (next to `refreshLocalChanges()`) — Save As writes a
