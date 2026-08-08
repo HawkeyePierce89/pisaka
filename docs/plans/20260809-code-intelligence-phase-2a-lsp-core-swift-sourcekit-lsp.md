@@ -792,15 +792,35 @@ carrying into Task 13's `core-lsp.md` (and the first three into `app-editor.md`)
 
 ### Task 12: Verify acceptance criteria
 
-- [ ] run `swift test` — full suite green
-- [ ] `xcodegen generate` then build macOS:
+- [x] run `swift test` — full suite green
+- [x] `xcodegen generate` then build macOS:
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
-- [ ] build iOS:
+- [x] build iOS:
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build`
-- [ ] confirm the gating suite covers every new app file and that no Core LSP file
+- [x] confirm the gating suite covers every new app file and that no Core LSP file
       imports a platform framework
-- [ ] confirm the no-server-registered routing tests assert equality with the bare
+- [x] confirm the no-server-registered routing tests assert equality with the bare
       tree-sitter provider (behavior identical to today, pinned rather than asserted)
+
+Three results, one of which was a real gap rather than a confirmation:
+
+- **The sweep was prefix-shaped and the layer is not.** `LSPSourceGatingTests`
+  discovered files by the `LSP` file-name prefix, which reaches
+  `LSPProcessTransport`/`LSPToolchain` but not the two app files Task 10 added
+  (`SourceViewerContent`, `SourceViewerWindowController`) nor the two Core files
+  named for what they decide rather than for the protocol
+  (`CompletionEditPlan`, `RoutingIntelligenceProvider`). All four were correct
+  already — that is the point: nothing was *checked*, and a later edit dropping
+  the `#if os(macOS)` off the viewer would have broken the iOS build with a
+  message pointing several layers away from the mistake, which is the exact cost
+  the suite exists to avoid. The sweep now takes a prefix list per side.
+- **Containment became set equality**, in the `SymbolQueryTests` mould. The
+  named list caught a rename that empties the sweep but said nothing when the
+  sweep *grows*, so a new app file could match a prefix and be swept without
+  anyone updating the list that tells the next reader what this layer put in the
+  app. The two builds and the routing equality test needed no changes.
+- Both builds are unsigned and pass — macOS `platform=macOS`, iOS device arch
+  `generic/platform=iOS` — which is the same pair CI runs after `swift test`.
 
 ### Task 13: Update documentation
 

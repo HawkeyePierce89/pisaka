@@ -28,13 +28,30 @@ import XCTest
 /// rewording the documentation to appease a test — is the wrong direction
 /// entirely. String literals are stripped for the same reason.
 final class LSPSourceGatingTests: XCTestCase {
-    /// The app-side LSP files that must exist and must be macOS-gated. Named
+    /// The app-side files that must exist and must be macOS-gated. Named
     /// explicitly *as well as* discovered, so a rename does not quietly empty the
     /// sweep and leave a passing suite that checks nothing.
     private static let expectedAppFiles: Set<String> = [
         "LSPProcessTransport.swift",
         "LSPToolchain.swift",
+        "SourceViewerContent.swift",
+        "SourceViewerWindowController.swift",
     ]
+
+    /// File-name prefixes that mark a file as belonging to this layer. `LSP` is
+    /// the obvious one; `SourceViewer` is here because the read-only definition
+    /// viewer is app-side machinery this layer introduced (an out-of-root jump
+    /// has nowhere else to land) and is exactly as dependent on `AppKit` — a
+    /// forgotten `#if os(macOS)` there breaks the iOS build the same way, and a
+    /// prefix-only sweep would not have noticed.
+    private static let appFilePrefixes = ["LSP", "SourceViewer"]
+
+    /// The same, for Core. `CompletionEditPlan` and `RoutingIntelligenceProvider`
+    /// carry no `LSP` prefix — they are named for what they decide rather than for
+    /// the protocol that made them necessary — but they are the layer's Core
+    /// surface just as much as `LSPSession` is, and the Foundation-only rule is
+    /// about the whole of it.
+    private static let coreFilePrefixes = ["LSP", "CompletionEditPlan", "RoutingIntelligenceProvider"]
 
     /// Identifiers that must not appear in Core's LSP files. `Process` is matched
     /// as a whole token, so `ProcessInfo` and `processIdentifier` — both of which
@@ -46,7 +63,7 @@ final class LSPSourceGatingTests: XCTestCase {
 
     func testEveryAppLSPFileIsGatedToMacOS() throws {
         let files = try appLSPFiles()
-        XCTAssertFalse(files.isEmpty, "no Sources/Pisaka LSP files found — the sweep is broken")
+        XCTAssertFalse(files.isEmpty, "no Sources/Pisaka files of this layer found — the sweep is broken")
 
         for url in files {
             let lines = try significantLines(of: url)
@@ -62,21 +79,24 @@ final class LSPSourceGatingTests: XCTestCase {
         }
     }
 
-    func testTheExpectedAppLSPFilesExist() throws {
+    /// Set equality, not containment, in the `SymbolQueryTests` mould: containment
+    /// alone catches a rename that empties the sweep, but says nothing when the
+    /// sweep grows. A new file matching one of the prefixes is a file somebody has
+    /// to have looked at — and the list is what the *next* reader consults to know
+    /// what this layer put in the app.
+    func testTheDiscoveredAppFilesAreExactlyTheExpectedOnes() throws {
         let found = Set(try appLSPFiles().map(\.lastPathComponent))
-        for expected in Self.expectedAppFiles {
-            XCTAssertTrue(
-                found.contains(expected),
-                "\(expected) is missing — if it was renamed, update expectedAppFiles"
-            )
-        }
+        XCTAssertEqual(
+            found, Self.expectedAppFiles,
+            "the app-side file set changed; if a file was added or renamed, update expectedAppFiles"
+        )
     }
 
     // MARK: - The Core half
 
     func testNoCoreLSPFileReachesForAPlatformFramework() throws {
         let files = try coreLSPFiles()
-        XCTAssertFalse(files.isEmpty, "no Sources/PisakaCore LSP files found — the sweep is broken")
+        XCTAssertFalse(files.isEmpty, "no Sources/PisakaCore files of this layer found — the sweep is broken")
 
         for url in files {
             let code = Self.strippingCommentsAndStringLiterals(try read(url))
@@ -161,18 +181,24 @@ final class LSPSourceGatingTests: XCTestCase {
         try String(contentsOf: url, encoding: .utf8)
     }
 
-    /// Every `LSP*.swift` under `Sources/Pisaka`, at any depth — a future
+    /// This layer's files under `Sources/Pisaka`, at any depth — a future
     /// `Platform/` or `iOS/` file is swept without anyone remembering to add a
     /// directory here.
     private func appLSPFiles() throws -> [URL] {
-        try lspFiles(under: Self.repositoryRoot.appendingPathComponent("Sources/Pisaka"))
+        try files(
+            under: Self.repositoryRoot.appendingPathComponent("Sources/Pisaka"),
+            prefixedBy: Self.appFilePrefixes
+        )
     }
 
     private func coreLSPFiles() throws -> [URL] {
-        try lspFiles(under: Self.repositoryRoot.appendingPathComponent("Sources/PisakaCore"))
+        try files(
+            under: Self.repositoryRoot.appendingPathComponent("Sources/PisakaCore"),
+            prefixedBy: Self.coreFilePrefixes
+        )
     }
 
-    private func lspFiles(under directory: URL) throws -> [URL] {
+    private func files(under directory: URL, prefixedBy prefixes: [String]) throws -> [URL] {
         guard let enumerator = FileManager.default.enumerator(
             at: directory,
             includingPropertiesForKeys: nil
@@ -182,7 +208,10 @@ final class LSPSourceGatingTests: XCTestCase {
         }
         return enumerator
             .compactMap { $0 as? URL }
-            .filter { $0.lastPathComponent.hasPrefix("LSP") && $0.pathExtension == "swift" }
+            .filter { url in
+                url.pathExtension == "swift"
+                    && prefixes.contains { url.lastPathComponent.hasPrefix($0) }
+            }
             .sorted { $0.path < $1.path }
     }
 
