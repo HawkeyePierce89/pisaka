@@ -1,0 +1,93 @@
+{
+  "id": 4,
+  "jsonrpc": "2.0",
+  "result": {
+    "isIncomplete": true,
+    "items": [
+      {
+        "data": {
+          "itemId": 0,
+          "sessionId": 0,
+          "uri": "file:///tmp/lspfix/pkg/Sources/App/main.swift"
+        },
+        "deprecated": false,
+        "detail": "Greeter",
+        "filterText": "self",
+        "insertText": "self",
+        "insertTextFormat": 1,
+        "kind": 14,
+        "label": "self",
+        "sortText": "4998.58250000-self",
+        "textEdit": {
+          "newText": "self",
+          "range": {
+            "end": {
+              "character": 22,
+              "line": 4
+            },
+            "start": {
+              "character": 22,
+              "line": 4
+            }
+          }
+        }
+      },
+      {
+        "data": {
+          "itemId": 1,
+          "sessionId": 0,
+          "uri": "file:///tmp/lspfix/pkg/Sources/App/main.swift"
+        },
+        "deprecated": false,
+        "detail": "String",
+        "filterText": "salutation",
+        "insertText": "salutation",
+        "insertTextFormat": 1,
+        "kind": 10,
+        "label": "salutation",
+        "sortText": "4998.47618750-salutation",
+        "textEdit": {
+          "newText": "salutation",
+          "range": {
+            "end": {
+              "character": 22,
+              "line": 4
+            },
+            "start": {
+              "character": 22,
+              "line": 4
+            }
+          }
+        }
+      },
+      {
+        "data": {
+          "itemId": 2,
+          "sessionId": 0,
+          "uri": "file:///tmp/lspfix/pkg/Sources/App/main.swift"
+        },
+        "deprecated": false,
+        "detail": "String",
+        "filterText": "greet(:)",
+        "insertText": "greet()",
+        "insertTextFormat": 1,
+        "kind": 2,
+        "label": "greet(name: String)",
+        "sortText": "4998.54706250-greet(name: String)",
+        "textEdit": {
+          "newText": "greet()",
+          "range": {
+            "end": {
+              "character": 22,
+              "line": 4
+            },
+            "start": {
+              "character": 22,
+              "line": 4
+            }
+          }
+        }
+      }
+    ]
+  }
+}

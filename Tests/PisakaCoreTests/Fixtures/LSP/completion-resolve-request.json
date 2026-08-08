@@ -1,0 +1,28 @@
+{
+  "data": {
+    "itemId": 13118,
+    "sessionId": 0,
+    "uri": "file:///tmp/lspfix/pkg/Sources/App/main.swift"
+  },
+  "deprecated": false,
+  "detail": "Int32",
+  "filterText": "VM_MEMORY_MALLOC_LARGE_REUSED",
+  "insertText": "VM_MEMORY_MALLOC_LARGE_REUSED",
+  "insertTextFormat": 1,
+  "kind": 6,
+  "label": "VM_MEMORY_MALLOC_LARGE_REUSED",
+  "sortText": "5001.92000968-VM_MEMORY_MALLOC_LARGE_REUSED",
+  "textEdit": {
+    "newText": "VM_MEMORY_MALLOC_LARGE_REUSED",
+    "range": {
+      "end": {
+        "character": 18,
+        "line": 3
+      },
+      "start": {
+        "character": 14,
+        "line": 3
+      }
+    }
+  }
+}

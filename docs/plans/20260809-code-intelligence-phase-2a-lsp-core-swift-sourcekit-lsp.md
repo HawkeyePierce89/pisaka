@@ -197,22 +197,47 @@ The message bodies this phase uses, and the offset↔position bridge (D1).
 - Modify: `Package.swift` (exclude the fixtures directory from the test target's
   sources)
 
-- [ ] value types for initialize/initialized,
+- [x] value types for initialize/initialized,
       `textDocument/didOpen|didChange|didClose`, `textDocument/definition`
       (Location, Location[], LocationLink[]), `textDocument/completion`
       (CompletionList and bare array, `CompletionItemKind`, `sortText`,
       `filterText`, `textEdit`/`insertText`, `additionalTextEdits`, `data`),
       `completionItem/resolve`, `shutdown`/`exit`, `$/cancelRequest`
-- [ ] client capabilities advertise exactly this phase's surface: full text sync,
+- [x] client capabilities advertise exactly this phase's surface: full text sync,
       `positionEncoding: utf-16`, definition with link support, completion with
       `resolveSupport` for `additionalTextEdits`/`detail`, **no** snippet support (D5)
-- [ ] `LSPPositionMap`: `position(forOffset:in:)` and `offset(for:in:)` over an
+- [x] `LSPPositionMap`: `position(forOffset:in:)` and `offset(for:in:)` over an
       `NSString`, LSP separators only, clamping an out-of-range line/character
-- [ ] tests: decode every recorded sourcekit-lsp response fixture and re-encode every
+- [x] tests: decode every recorded sourcekit-lsp response fixture and re-encode every
       request shape; mapping both directions across surrogate pairs, empty lines,
       CRLF, a lone CR, EOF with and without a trailing newline, and the documented
       NEL/LS/PS divergence asserted explicitly rather than assumed
-- [ ] run `swift test` — must pass before task 3
+- [x] run `swift test` — must pass before task 3
+
+Fixtures were **recorded from a live `sourcekit-lsp`** (Xcode 26.6) driven over a
+throwaway two-module SwiftPM package, not hand-written from the specification;
+`Tests/PisakaCoreTests/Fixtures/LSP/README.md` records the provenance of each
+file. Two shapes that server would not produce — `LocationLink[]` (it answered
+`Location[]` from every position tried, even with `linkSupport` advertised) and a
+completion item carrying `additionalTextEdits` (it offers no unimported symbols,
+so it never emitted one) — are authored to the spec and labelled as such in that
+README rather than passed off as recordings.
+
+Three things the recording settled that the plan had only assumed:
+
+- The identifier-completion fixture is kept **unreordered** because the recorded
+  answer puts `Greeter` *last* in the array with the *lowest* `sortText`. D6's
+  "rank by `sortText`, never by array order" is therefore pinned against real
+  output rather than against a constructed example.
+- One recorded item spells itself three ways — label `greet(name: String)`,
+  filterText `greet(:)`, insertText `greet()` — so `insertedText` follows the
+  spec's precedence and the test asserts all three.
+- The interior of a CRLF pair is **not an addressable LSP position**, which the
+  exhaustive offset↔position round-trip surfaced. Both directions agree to clamp
+  it to the line's content end; `LSPPositionMapTests`
+  `testAnOffsetInsideACRLFPairIsNotAnAddressablePosition` states that outright
+  instead of the round-trip assertion being quietly weakened. Worth carrying into
+  Task 13's `core-lsp.md` alongside D1's NEL/LS/PS limit.
 
 ### Task 3: Transport seam and the session actor
 

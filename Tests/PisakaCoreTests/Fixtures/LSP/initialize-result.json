@@ -1,0 +1,151 @@
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": {
+    "capabilities": {
+      "callHierarchyProvider": true,
+      "codeActionProvider": true,
+      "codeLensProvider": {},
+      "colorProvider": true,
+      "completionProvider": {
+        "resolveProvider": true,
+        "triggerCharacters": [
+          ".",
+          "("
+        ]
+      },
+      "declarationProvider": true,
+      "definitionProvider": true,
+      "documentFormattingProvider": {
+        "workDoneProgress": false
+      },
+      "documentHighlightProvider": true,
+      "documentRangeFormattingProvider": {
+        "workDoneProgress": false
+      },
+      "documentSymbolProvider": true,
+      "executeCommandProvider": {
+        "commands": [
+          "semantic.refactor.command",
+          "expand.macro.command"
+        ]
+      },
+      "experimental": {
+        "textDocument/doccDocumentation": {
+          "version": 1
+        },
+        "textDocument/tests": {
+          "version": 2
+        },
+        "window/didChangeActiveDocument": {
+          "version": 1
+        },
+        "workspace/getReferenceDocument": {
+          "version": 1
+        },
+        "workspace/tests": {
+          "version": 2
+        },
+        "workspace/triggerReindex": {
+          "version": 1
+        }
+      },
+      "foldingRangeProvider": true,
+      "hoverProvider": true,
+      "implementationProvider": true,
+      "inlayHintProvider": {
+        "resolveProvider": false
+      },
+      "referencesProvider": true,
+      "renameProvider": {
+        "prepareProvider": true
+      },
+      "semanticTokensProvider": {
+        "full": true,
+        "legend": {
+          "tokenModifiers": [
+            "declaration",
+            "definition",
+            "readonly",
+            "static",
+            "deprecated",
+            "abstract",
+            "async",
+            "modification",
+            "documentation",
+            "defaultLibrary",
+            "deduced",
+            "virtual",
+            "dependentName",
+            "usedAsMutableReference",
+            "usedAsMutablePointer",
+            "constructorOrDestructor",
+            "userDefined",
+            "functionScope",
+            "classScope",
+            "fileScope",
+            "globalScope"
+          ],
+          "tokenTypes": [
+            "namespace",
+            "type",
+            "class",
+            "enum",
+            "interface",
+            "struct",
+            "typeParameter",
+            "parameter",
+            "variable",
+            "property",
+            "enumMember",
+            "event",
+            "function",
+            "method",
+            "macro",
+            "keyword",
+            "modifier",
+            "comment",
+            "string",
+            "number",
+            "regexp",
+            "operator",
+            "decorator",
+            "bracket",
+            "label",
+            "concept",
+            "unknown",
+            "identifier"
+          ]
+        },
+        "range": true
+      },
+      "signatureHelpProvider": {
+        "retriggerCharacters": [
+          ",",
+          ":"
+        ],
+        "triggerCharacters": [
+          "(",
+          "["
+        ]
+      },
+      "textDocumentSync": {
+        "change": 2,
+        "openClose": true,
+        "save": {
+          "includeText": false
+        },
+        "willSave": true,
+        "willSaveWaitUntil": false
+      },
+      "typeHierarchyProvider": true,
+      "workspace": {
+        "workspaceFolders": {
+          "changeNotifications": true,
+          "supported": true
+        }
+      },
+      "workspaceSymbolProvider": true
+    }
+  }
+}

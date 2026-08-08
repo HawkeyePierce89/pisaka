@@ -1,0 +1,293 @@
+{
+  "id": 15,
+  "jsonrpc": "2.0",
+  "result": {
+    "isIncomplete": true,
+    "items": [
+      {
+        "data": {
+          "itemId": 13118,
+          "sessionId": 0,
+          "uri": "file:///tmp/lspfix/pkg/Sources/App/main.swift"
+        },
+        "deprecated": false,
+        "detail": "Int32",
+        "filterText": "VM_MEMORY_MALLOC_LARGE_REUSED",
+        "insertText": "VM_MEMORY_MALLOC_LARGE_REUSED",
+        "insertTextFormat": 1,
+        "kind": 6,
+        "label": "VM_MEMORY_MALLOC_LARGE_REUSED",
+        "sortText": "5001.92000968-VM_MEMORY_MALLOC_LARGE_REUSED",
+        "textEdit": {
+          "newText": "VM_MEMORY_MALLOC_LARGE_REUSED",
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 3
+            },
+            "start": {
+              "character": 14,
+              "line": 3
+            }
+          }
+        }
+      },
+      {
+        "data": {
+          "itemId": 9841,
+          "sessionId": 0,
+          "uri": "file:///tmp/lspfix/pkg/Sources/App/main.swift"
+        },
+        "deprecated": false,
+        "detail": "Int32",
+        "filterText": "MACH_MSG_TYPE_DISPOSE_RECEIVE",
+        "insertText": "MACH_MSG_TYPE_DISPOSE_RECEIVE",
+        "insertTextFormat": 1,
+        "kind": 6,
+        "label": "MACH_MSG_TYPE_DISPOSE_RECEIVE",
+        "sortText": "5001.92000968-MACH_MSG_TYPE_DISPOSE_RECEIVE",
+        "textEdit": {
+          "newText": "MACH_MSG_TYPE_DISPOSE_RECEIVE",
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 3
+            },
+            "start": {
+              "character": 14,
+              "line": 3
+            }
+          }
+        }
+      },
+      {
+        "data": {
+          "itemId": 18927,
+          "sessionId": 0,
+          "uri": "file:///tmp/lspfix/pkg/Sources/App/main.swift"
+        },
+        "deprecated": false,
+        "detail": "Int",
+        "filterText": "CSSMERR_CSP_MISSING_ATTR_SEED",
+        "insertText": "CSSMERR_CSP_MISSING_ATTR_SEED",
+        "insertTextFormat": 1,
+        "kind": 6,
+        "label": "CSSMERR_CSP_MISSING_ATTR_SEED",
+        "sortText": "5001.92000968-CSSMERR_CSP_MISSING_ATTR_SEED",
+        "textEdit": {
+          "newText": "CSSMERR_CSP_MISSING_ATTR_SEED",
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 3
+            },
+            "start": {
+              "character": 14,
+              "line": 3
+            }
+          }
+        }
+      },
+      {
+        "data": {
+          "itemId": 11521,
+          "sessionId": 0,
+          "uri": "file:///tmp/lspfix/pkg/Sources/App/main.swift"
+        },
+        "deprecated": false,
+        "detail": "Int32",
+        "filterText": "SADB_EXT_MIGRATE_ADDRESS_SRC",
+        "insertText": "SADB_EXT_MIGRATE_ADDRESS_SRC",
+        "insertTextFormat": 1,
+        "kind": 6,
+        "label": "SADB_EXT_MIGRATE_ADDRESS_SRC",
+        "sortText": "5001.91912260-SADB_EXT_MIGRATE_ADDRESS_SRC",
+        "textEdit": {
+          "newText": "SADB_EXT_MIGRATE_ADDRESS_SRC",
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 3
+            },
+            "start": {
+              "character": 14,
+              "line": 3
+            }
+          }
+        }
+      },
+      {
+        "data": {
+          "itemId": 11520,
+          "sessionId": 0,
+          "uri": "file:///tmp/lspfix/pkg/Sources/App/main.swift"
+        },
+        "deprecated": false,
+        "detail": "Int32",
+        "filterText": "SADB_EXT_MIGRATE_ADDRESS_DST",
+        "insertText": "SADB_EXT_MIGRATE_ADDRESS_DST",
+        "insertTextFormat": 1,
+        "kind": 6,
+        "label": "SADB_EXT_MIGRATE_ADDRESS_DST",
+        "sortText": "5001.91912260-SADB_EXT_MIGRATE_ADDRESS_DST",
+        "textEdit": {
+          "newText": "SADB_EXT_MIGRATE_ADDRESS_DST",
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 3
+            },
+            "start": {
+              "character": 14,
+              "line": 3
+            }
+          }
+        }
+      },
+      {
+        "data": {
+          "itemId": 9903,
+          "sessionId": 0,
+          "uri": "file:///tmp/lspfix/pkg/Sources/App/main.swift"
+        },
+        "deprecated": false,
+        "detail": "Int32",
+        "filterText": "MACH_PORT_STATUS_FLAG_REVIVE",
+        "insertText": "MACH_PORT_STATUS_FLAG_REVIVE",
+        "insertTextFormat": 1,
+        "kind": 6,
+        "label": "MACH_PORT_STATUS_FLAG_REVIVE",
+        "sortText": "5001.91912260-MACH_PORT_STATUS_FLAG_REVIVE",
+        "textEdit": {
+          "newText": "MACH_PORT_STATUS_FLAG_REVIVE",
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 3
+            },
+            "start": {
+              "character": 14,
+              "line": 3
+            }
+          }
+        }
+      },
+      {
+        "data": {
+          "itemId": 11366,
+          "sessionId": 0,
+          "uri": "file:///tmp/lspfix/pkg/Sources/App/main.swift"
+        },
+        "deprecated": false,
+        "detail": "Int32",
+        "filterText": "REG_UNGREEDY",
+        "insertText": "REG_UNGREEDY",
+        "insertTextFormat": 1,
+        "kind": 6,
+        "label": "REG_UNGREEDY",
+        "sortText": "4991.54909502-REG_UNGREEDY",
+        "textEdit": {
+          "newText": "REG_UNGREEDY",
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 3
+            },
+            "start": {
+              "character": 14,
+              "line": 3
+            }
+          }
+        }
+      },
+      {
+        "data": {
+          "itemId": 24014,
+          "sessionId": 0,
+          "uri": "file:///tmp/lspfix/pkg/Sources/App/main.swift"
+        },
+        "deprecated": false,
+        "detail": "CFString!",
+        "filterText": "kCFStringTransformLatinGreek",
+        "insertText": "kCFStringTransformLatinGreek",
+        "insertTextFormat": 1,
+        "kind": 6,
+        "label": "kCFStringTransformLatinGreek",
+        "sortText": "4988.15370403-kCFStringTransformLatinGreek",
+        "textEdit": {
+          "newText": "kCFStringTransformLatinGreek",
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 3
+            },
+            "start": {
+              "character": 14,
+              "line": 3
+            }
+          }
+        }
+      },
+      {
+        "data": {
+          "itemId": 25303,
+          "sessionId": 0,
+          "uri": "file:///tmp/lspfix/pkg/Sources/App/main.swift"
+        },
+        "deprecated": false,
+        "detail": "Int",
+        "filterText": "dsGreeting",
+        "insertText": "dsGreeting",
+        "insertTextFormat": 1,
+        "kind": 6,
+        "label": "dsGreeting",
+        "sortText": "4987.75902357-dsGreeting",
+        "textEdit": {
+          "newText": "dsGreeting",
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 3
+            },
+            "start": {
+              "character": 14,
+              "line": 3
+            }
+          }
+        }
+      },
+      {
+        "data": {
+          "itemId": 448,
+          "sessionId": 0,
+          "uri": "file:///tmp/lspfix/pkg/Sources/App/main.swift"
+        },
+        "deprecated": false,
+        "detail": "Greeter",
+        "documentation": {
+          "kind": "markdown",
+          "value": "A greeter used by the recorded LSP fixtures."
+        },
+        "filterText": "Greeter",
+        "insertText": "Greeter",
+        "insertTextFormat": 1,
+        "kind": 22,
+        "label": "Greeter",
+        "sortText": "4939.67153671-Greeter",
+        "textEdit": {
+          "newText": "Greeter",
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 3
+            },
+            "start": {
+              "character": 14,
+              "line": 3
+            }
+          }
+        }
+      }
+    ]
+  }
+}

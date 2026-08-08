@@ -1,0 +1,682 @@
+import XCTest
+@testable import PisakaCore
+
+/// The LSP message bodies, pinned against a **real** server's output.
+///
+/// The fixtures in `Fixtures/LSP/` were recorded from the `sourcekit-lsp` in
+/// Xcode 26.6 and are read here through `#filePath`, in the same style as
+/// `SymbolQueryTests` and `ReleaseMetadataTests` — Foundation only, no bundle, no
+/// SwiftPM resource, and no process ever spawned by `swift test`. That is the
+/// point: a decoder written against a remembered reading of the specification
+/// passes its own tests and then meets a server that spells `result: null` where
+/// an empty array was expected. `Fixtures/LSP/README.md` records how each file
+/// was produced, and marks the two shapes that are authored rather than
+/// recorded.
+///
+/// The suite runs in two halves. *Decoding* is asserted against those
+/// transcripts. *Encoding* is asserted on exact bytes, because a request is
+/// read by a program nobody here controls: the failure mode of a wrong capability
+/// or a mis-spelled parameter is not a crash but silence — the server answers
+/// something unhelpful, the provider falls back, and the feature simply never
+/// works.
+final class LSPProtocolTypesTests: XCTestCase {
+    // MARK: - Fixtures
+
+    /// The repository root, from this file's own compile-time path
+    /// (`<root>/Tests/PisakaCoreTests/<this file>`).
+    private static let repositoryRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()  // PisakaCoreTests
+        .deletingLastPathComponent()  // Tests
+        .deletingLastPathComponent()  // <root>
+
+    private static let fixtures = repositoryRoot
+        .appendingPathComponent("Tests/PisakaCoreTests/Fixtures/LSP")
+
+    /// The recorded project root the fixtures' URIs point into — `/tmp` as the
+    /// server resolved it, `/private/tmp` and all.
+    private static let recordedRoot = "file:///private/tmp/lspfix/pkg"
+
+    private func fixture(_ name: String) throws -> Data {
+        try Data(contentsOf: Self.fixtures.appendingPathComponent(name))
+    }
+
+    /// A fixture is a whole recorded *response envelope*; this is the two-step
+    /// every test takes — envelope first, then the typed body — which is exactly
+    /// the path `LSPSession` will take at runtime.
+    private func result<T: Decodable>(of name: String, as type: T.Type) throws -> T {
+        let message = try LSPIncomingMessage.decode(try fixture(name))
+        guard case .response(let response) = message else {
+            throw XCTSkip("\(name) is not a response")
+        }
+        XCTAssertNil(response.error, "\(name) recorded an error response")
+        let value = try XCTUnwrap(response.result, "\(name) has no `result` member")
+        return try value.decoded(as: T.self)
+    }
+
+    private func json(_ value: some Encodable) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return String(decoding: try encoder.encode(value), as: UTF8.self)
+    }
+
+    /// Every fixture still parses as the kind of thing it was recorded as, so a
+    /// file edited by hand into something illegal fails here rather than in
+    /// whichever suite happens to read it next — including the ones later phases
+    /// will add.
+    ///
+    /// Two kinds live in the directory: recorded *responses* (whole envelopes)
+    /// and the one recorded set of request *params*, distinguished by a
+    /// `-request` suffix. The distinction is real rather than cosmetic — params
+    /// have no `jsonrpc`, no `id` and no `method`, so decoding one as a message
+    /// is a decode failure, not a lenient no-op.
+    func testEveryFixtureIsReadableAndIsWhatItsNameSaysItIs() throws {
+        let names = try FileManager.default
+            .contentsOfDirectory(atPath: Self.fixtures.path)
+            .filter { $0.hasSuffix(".json") }
+            .sorted()
+        XCTAssertFalse(names.isEmpty, "the fixture directory is empty")
+        for name in names {
+            if name.hasSuffix("-request.json") {
+                XCTAssertNoThrow(
+                    try JSONDecoder().decode(
+                        LSPCompletionItem.self,
+                        from: try fixture(name)
+                    ),
+                    "\(name) does not decode as request params"
+                )
+            } else {
+                XCTAssertNoThrow(
+                    try LSPIncomingMessage.decode(try fixture(name)),
+                    "\(name) does not decode as an LSP message"
+                )
+            }
+        }
+    }
+
+    // MARK: - initialize
+
+    func testInitializeResultDecodesTheCapabilitiesThisPhaseActsOn() throws {
+        let result = try result(of: "initialize-result.json", as: LSPInitializeResult.self)
+        XCTAssertTrue(result.capabilities.supportsDefinition)
+        XCTAssertTrue(result.capabilities.supportsCompletion)
+        XCTAssertTrue(result.capabilities.resolvesCompletionItems)
+        XCTAssertEqual(result.capabilities.completionTriggerCharacters, [".", "("])
+    }
+
+    /// The recorded server omits `positionEncoding` entirely, which the spec says
+    /// means utf-16 — the encoding every offset in this codebase assumes. Absence
+    /// must therefore read as agreement, not as "unknown, fall back".
+    func testAnAbsentPositionEncodingMeansUTF16() throws {
+        let result = try result(of: "initialize-result.json", as: LSPInitializeResult.self)
+        XCTAssertNil(result.capabilities.positionEncoding)
+        XCTAssertTrue(result.capabilities.usesUTF16Positions)
+    }
+
+    func testAnExplicitUTF8EncodingIsNotAccepted() throws {
+        // The one answer that makes every position wrong in any file containing a
+        // non-ASCII character — and wrong *quietly*, which is why it is a flag
+        // the workspace can refuse on rather than something to paper over.
+        let capabilities = try JSONDecoder().decode(
+            LSPServerCapabilities.self,
+            from: Data(#"{"positionEncoding":"utf-8","definitionProvider":true}"#.utf8)
+        )
+        XCTAssertFalse(capabilities.usesUTF16Positions)
+    }
+
+    func testProvidersSpelledAsOptionsObjectsCountAsSupported() throws {
+        // `definitionProvider` is `boolean | DefinitionOptions`; a server sending
+        // `{}` supports definitions. Reading only the boolean spelling would
+        // silently disable the feature for every server that sends the other one.
+        let capabilities = try JSONDecoder().decode(
+            LSPServerCapabilities.self,
+            from: Data(#"{"definitionProvider":{},"completionProvider":{"resolveProvider":false}}"#.utf8)
+        )
+        XCTAssertTrue(capabilities.supportsDefinition)
+        XCTAssertTrue(capabilities.supportsCompletion)
+        XCTAssertFalse(capabilities.resolvesCompletionItems)
+    }
+
+    func testAbsentOrFalseProvidersCountAsUnsupported() throws {
+        let capabilities = try JSONDecoder().decode(
+            LSPServerCapabilities.self,
+            from: Data(#"{"definitionProvider":false}"#.utf8)
+        )
+        XCTAssertFalse(capabilities.supportsDefinition)
+        XCTAssertFalse(capabilities.supportsCompletion)
+    }
+
+    /// The capability block is asserted byte for byte because it is a *promise*:
+    /// each flag tells the server what this editor can handle. Advertising
+    /// `snippetSupport` would start `${1:placeholder}` arriving in `newText`
+    /// (D5); dropping `linkSupport` would cost every jump its identifier range;
+    /// omitting `resolveSupport` would mean auto-import edits never arrive at all
+    /// (D4). None of those fail a build or throw — they just make the feature
+    /// quietly worse — so the exact promise is pinned here.
+    func testClientCapabilitiesAdvertiseExactlyThisPhasesSurface() throws {
+        XCTAssertEqual(
+            try json(LSPClientCapabilities()),
+            """
+            {"general":{"positionEncodings":["utf-16"]},\
+            "textDocument":{\
+            "completion":{\
+            "completionItem":{\
+            "commitCharactersSupport":false,\
+            "deprecatedSupport":false,\
+            "documentationFormat":["plaintext"],\
+            "insertReplaceSupport":false,\
+            "preselectSupport":false,\
+            "resolveSupport":{"properties":["detail","additionalTextEdits"]},\
+            "snippetSupport":false},\
+            "completionItemKind":{"valueSet":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25]},\
+            "contextSupport":true,\
+            "dynamicRegistration":false},\
+            "definition":{"dynamicRegistration":false,"linkSupport":true},\
+            "synchronization":{"didSave":false,"dynamicRegistration":false,\
+            "willSave":false,"willSaveWaitUntil":false}},\
+            "workspace":{"configuration":false,"workspaceFolders":false}}
+            """
+        )
+    }
+
+    func testInitializeParamsWriteNullRatherThanOmittingProcessIdAndRootUri() throws {
+        // Both are `T | null` in the spec, and a server may reject a request that
+        // omits them outright — `encodeIfPresent` would do exactly that.
+        let params = LSPInitializeParams(processId: nil, rootUri: nil)
+        let encoded = try json(params)
+        XCTAssertTrue(encoded.contains(#""processId":null"#), encoded)
+        XCTAssertTrue(encoded.contains(#""rootUri":null"#), encoded)
+        XCTAssertFalse(encoded.contains("initializationOptions"), encoded)
+    }
+
+    func testInitializeParamsCarryClientInfoAndInitializationOptions() throws {
+        let params = LSPInitializeParams(
+            processId: 4242,
+            clientInfo: LSPClientInfo(name: "Pisaka", version: "1.0"),
+            rootUri: Self.recordedRoot,
+            initializationOptions: .object(["backgroundIndexing": .bool(true)])
+        )
+        let encoded = try json(params)
+        XCTAssertTrue(encoded.contains(#""processId":4242"#), encoded)
+        XCTAssertTrue(encoded.contains(#""clientInfo":{"name":"Pisaka","version":"1.0"}"#), encoded)
+        XCTAssertTrue(encoded.contains(#""rootUri":"\#(Self.recordedRoot)""#), encoded)
+        XCTAssertTrue(encoded.contains(#""initializationOptions":{"backgroundIndexing":true}"#), encoded)
+    }
+
+    // MARK: - Document sync (D2)
+
+    func testDidOpenParamsEncodeTheWholeDocument() throws {
+        let params = LSPDidOpenTextDocumentParams(
+            textDocument: LSPTextDocumentItem(
+                uri: "\(Self.recordedRoot)/Sources/App/main.swift",
+                languageId: "swift",
+                version: 1,
+                text: "import Core\n"
+            )
+        )
+        XCTAssertEqual(
+            try json(params),
+            """
+            {"textDocument":{"languageId":"swift",\
+            "text":"import Core\\n",\
+            "uri":"file:///private/tmp/lspfix/pkg/Sources/App/main.swift",\
+            "version":1}}
+            """
+        )
+    }
+
+    /// Full sync (D2): one change entry, no `range` member at all. A `range`
+    /// present but null would be read as an incremental edit of nothing.
+    func testDidChangeParamsSendTheWholeTextWithNoRange() throws {
+        let params = LSPDidChangeTextDocumentParams(
+            uri: "\(Self.recordedRoot)/Sources/App/main.swift",
+            version: 7,
+            fullText: "let a = 1\n"
+        )
+        XCTAssertEqual(
+            try json(params),
+            """
+            {"contentChanges":[{"text":"let a = 1\\n"}],\
+            "textDocument":{"uri":"file:///private/tmp/lspfix/pkg/Sources/App/main.swift","version":7}}
+            """
+        )
+    }
+
+    func testDidCloseParamsCarryOnlyTheURI() throws {
+        XCTAssertEqual(
+            try json(LSPDidCloseTextDocumentParams(uri: "file:///a/b.swift")),
+            #"{"textDocument":{"uri":"file:///a/b.swift"}}"#
+        )
+    }
+
+    func testAnIncrementalChangeEventStillRoundTrips() throws {
+        // Never sent, but a transcript of some other client must not fail to
+        // decode through these types.
+        let event = LSPTextDocumentContentChangeEvent(
+            range: LSPRange(
+                start: LSPPosition(line: 1, character: 0),
+                end: LSPPosition(line: 1, character: 4)
+            ),
+            text: "x"
+        )
+        let decoded = try JSONDecoder().decode(
+            LSPTextDocumentContentChangeEvent.self,
+            from: try JSONEncoder().encode(event)
+        )
+        XCTAssertEqual(decoded, event)
+    }
+
+    // MARK: - textDocument/definition
+
+    func testDefinitionParamsEncodeAsAPositionRequest() throws {
+        let params = LSPTextDocumentPositionParams(
+            uri: "file:///a/b.swift",
+            position: LSPPosition(line: 3, character: 16)
+        )
+        XCTAssertEqual(
+            try json(params),
+            #"{"position":{"character":16,"line":3},"textDocument":{"uri":"file:///a/b.swift"}}"#
+        )
+    }
+
+    /// The recorded cross-module jump: `Greeter` in `main.swift`, answered with
+    /// **two** plain `Location`s in another module's file (the type and its
+    /// `init`). Two is not a mistake to collapse — it is why the picker exists.
+    func testCrossModuleDefinitionDecodesEveryRecordedLocation() throws {
+        let response = try result(of: "definition-cross-module.json", as: LSPDefinitionResponse.self)
+        XCTAssertEqual(response.targets.count, 2)
+        for target in response.targets {
+            XCTAssertEqual(target.uri, "\(Self.recordedRoot)/Sources/Core/Greeter.swift")
+            // A plain `Location` carries no identifier range, so a jump uses the
+            // range it did send.
+            XCTAssertNil(target.selectionRange)
+            XCTAssertEqual(target.jumpRange, target.range)
+        }
+        XCTAssertEqual(response.targets[0].range, LSPRange(at: LSPPosition(line: 1, character: 14)))
+        XCTAssertEqual(response.targets[1].range, LSPRange(at: LSPPosition(line: 4, character: 11)))
+    }
+
+    /// The SDK jump: a target under `/var/folders/…`, outside every project root
+    /// — the case D3 routes to a read-only window. Nothing here decides that;
+    /// what is pinned is that the URI survives intact so the decision *can* be
+    /// made.
+    func testSDKDefinitionDecodesATargetOutsideTheProjectRoot() throws {
+        let response = try result(of: "definition-sdk.json", as: LSPDefinitionResponse.self)
+        let target = try XCTUnwrap(response.targets.first)
+        XCTAssertTrue(target.uri.hasSuffix("Swift.String.swiftinterface"), target.uri)
+        XCTAssertFalse(target.uri.hasPrefix(Self.recordedRoot))
+        XCTAssertEqual(target.range.start.line, 18545)
+    }
+
+    /// `"result": null` — a real answer meaning "nothing found", not a decode
+    /// failure and not an error response.
+    func testADefinitionThatFoundNothingDecodesAsNoTargets() throws {
+        let response = try result(of: "definition-none.json", as: LSPDefinitionResponse.self)
+        XCTAssertTrue(response.isEmpty)
+    }
+
+    /// `LocationLink[]` — the shape that carries `targetSelectionRange`, which is
+    /// the identifier rather than the whole declaration, and so the better place
+    /// to land a caret.
+    func testLocationLinkResultPrefersTheSelectionRangeForJumping() throws {
+        let response = try result(of: "definition-location-link.json", as: LSPDefinitionResponse.self)
+        let target = try XCTUnwrap(response.targets.first)
+        XCTAssertEqual(
+            target.range,
+            LSPRange(
+                start: LSPPosition(line: 1, character: 0),
+                end: LSPPosition(line: 11, character: 1)
+            )
+        )
+        XCTAssertEqual(
+            target.selectionRange,
+            LSPRange(
+                start: LSPPosition(line: 1, character: 14),
+                end: LSPPosition(line: 1, character: 21)
+            )
+        )
+        XCTAssertEqual(target.jumpRange, target.selectionRange)
+        XCTAssertEqual(
+            target.originSelectionRange,
+            LSPRange(
+                start: LSPPosition(line: 3, character: 14),
+                end: LSPPosition(line: 3, character: 21)
+            )
+        )
+    }
+
+    func testASingleBareLocationDecodesToOneTarget() throws {
+        // The third legal spelling, which no recorded fixture uses.
+        let response = try JSONDecoder().decode(
+            LSPDefinitionResponse.self,
+            from: (
+                #"{"uri":"file:///a.swift","range":{"start":{"line":2,"character":1},"#
+                    + #""end":{"line":2,"character":5}}}"#
+            ).utf8Data
+        )
+        XCTAssertEqual(response.targets.count, 1)
+        XCTAssertEqual(response.targets[0].uri, "file:///a.swift")
+    }
+
+    func testAnEmptyArrayIsTheSameAnswerAsNull() throws {
+        let response = try JSONDecoder().decode(LSPDefinitionResponse.self, from: Data("[]".utf8))
+        XCTAssertTrue(response.isEmpty)
+    }
+
+    func testAnUnrecognisedDefinitionShapeThrowsRatherThanDecodingToNothing() {
+        // "Nothing found" and "I could not read the answer" must stay
+        // distinguishable: the first is a beep, the second is a fallback.
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(LSPDefinitionResponse.self, from: Data(#""nonsense""#.utf8))
+        )
+    }
+
+    // MARK: - textDocument/completion
+
+    func testCompletionParamsCarryTheMemberTriggerCharacter() throws {
+        let params = LSPCompletionParams(
+            uri: "file:///a/b.swift",
+            position: LSPPosition(line: 4, character: 22),
+            context: .dot
+        )
+        XCTAssertEqual(
+            try json(params),
+            """
+            {"context":{"triggerCharacter":".","triggerKind":2},\
+            "position":{"character":22,"line":4},\
+            "textDocument":{"uri":"file:///a/b.swift"}}
+            """
+        )
+    }
+
+    func testCompletionParamsForOrdinaryIdentifierCompletion() throws {
+        let params = LSPCompletionParams(
+            uri: "file:///a/b.swift",
+            position: LSPPosition(line: 0, character: 4),
+            context: .invoked
+        )
+        let encoded = try json(params)
+        XCTAssertTrue(encoded.contains(#""context":{"triggerKind":1}"#), encoded)
+        XCTAssertFalse(encoded.contains("triggerCharacter"), encoded)
+    }
+
+    /// The recorded member completion after `greeter.` — the payoff case for
+    /// phase 2a, and the one tree-sitter cannot answer: these are the members of
+    /// a *type*, not words that appear in the file.
+    func testMemberCompletionDecodesTheRecordedItems() throws {
+        let response = try result(of: "completion-member.json", as: LSPCompletionResponse.self)
+        XCTAssertTrue(response.isIncomplete)
+        XCTAssertEqual(response.items.map(\.label), ["self", "salutation", "greet(name: String)"])
+
+        // Three different strings for one item, which is exactly why the seam
+        // cannot collapse them: the server *displays* `greet(name: String)`,
+        // *filters* on `greet(:)`, and *inserts* `greet()`. Using the label as
+        // the inserted text — the obvious shortcut — would put a type annotation
+        // in the buffer.
+        let greet = try XCTUnwrap(response.items.last)
+        XCTAssertEqual(greet.kind, .method)
+        XCTAssertEqual(greet.label, "greet(name: String)")
+        XCTAssertEqual(greet.filterText, "greet(:)")
+        XCTAssertEqual(greet.insertText, "greet()")
+        XCTAssertEqual(greet.sortText, "4998.54706250-greet(name: String)")
+        XCTAssertEqual(greet.insertedText, "greet()")
+
+        let salutation = try XCTUnwrap(response.items.dropFirst().first)
+        XCTAssertEqual(salutation.kind, .property)
+        XCTAssertEqual(salutation.detail, "String")
+    }
+
+    func testAMemberItemsTextEditReplacesTheCaretPosition() throws {
+        let response = try result(of: "completion-member.json", as: LSPCompletionResponse.self)
+        let edit = try XCTUnwrap(response.items.first?.textEdit)
+        // An empty range right after the `.`: nothing typed yet, so nothing is
+        // replaced.
+        XCTAssertEqual(edit.range, LSPRange(at: LSPPosition(line: 4, character: 22)))
+        XCTAssertNil(edit.insertRange)
+        XCTAssertEqual(edit.newText, "self")
+    }
+
+    /// The recorded identifier completion, trimmed to ten items but *not*
+    /// reordered — and its point is the last one. `Greeter` arrives last in the
+    /// array and carries the lowest `sortText`, so D6's rule (rank by
+    /// `sortText ?? label`, never by array order) is the difference between the
+    /// one useful candidate being first and being tenth.
+    func testIdentifierCompletionRanksBySortTextNotByServerArrayOrder() throws {
+        let response = try result(of: "completion-identifier.json", as: LSPCompletionResponse.self)
+        XCTAssertEqual(response.items.count, 10)
+        XCTAssertEqual(response.items.last?.label, "Greeter")
+
+        let ranked = response.items
+            .enumerated()
+            .sorted { lhs, rhs in
+                lhs.element.rankingKey == rhs.element.rankingKey
+                    ? lhs.offset < rhs.offset
+                    : lhs.element.rankingKey < rhs.element.rankingKey
+            }
+            .map(\.element.label)
+        XCTAssertEqual(ranked.first, "Greeter")
+    }
+
+    func testEveryRecordedItemHasTheKindAndEditTheProviderWillNeed() throws {
+        let response = try result(of: "completion-identifier.json", as: LSPCompletionResponse.self)
+        for item in response.items {
+            XCTAssertNotNil(item.kind, item.label)
+            XCTAssertNotNil(item.textEdit, item.label)
+            XCTAssertEqual(item.insertTextFormat, 1, "\(item.label) is not plain text (D5)")
+            XCTAssertFalse(item.insertedText.isEmpty, item.label)
+        }
+    }
+
+    func testATextEditRangeCanBeWiderThanASingleCaretPosition() throws {
+        // The identifier fixture's edits replace the four characters already
+        // typed, so the client's own prefix range is not what gets replaced —
+        // the server's range is.
+        let response = try result(of: "completion-identifier.json", as: LSPCompletionResponse.self)
+        let edit = try XCTUnwrap(response.items.first?.textEdit)
+        XCTAssertEqual(
+            edit.range,
+            LSPRange(
+                start: LSPPosition(line: 3, character: 14),
+                end: LSPPosition(line: 3, character: 18)
+            )
+        )
+    }
+
+    /// D4's shape: a primary edit at the completion point plus an
+    /// `additionalTextEdits` entry inserting an `import` line *above* it.
+    func testAutoImportItemCarriesItsAdditionalEdits() throws {
+        let response = try result(of: "completion-auto-import.json", as: LSPCompletionResponse.self)
+        let item = try XCTUnwrap(response.items.first)
+        XCTAssertEqual(item.label, "Greeter")
+        XCTAssertEqual(item.insertedText, "Greeter")
+
+        let additional = try XCTUnwrap(item.additionalTextEdits)
+        XCTAssertEqual(additional.count, 1)
+        XCTAssertEqual(additional[0].newText, "import Core\n")
+        XCTAssertEqual(additional[0].range, LSPRange(at: LSPPosition(line: 1, character: 0)))
+        // The import comes before the completion point, which is the ordering
+        // that makes naive edit application move the caret to the wrong place.
+        XCTAssertLessThan(additional[0].range.start, try XCTUnwrap(item.textEdit).range.start)
+    }
+
+    func testAnItemThatAlreadyCarriesItsEditsNeedsNoResolve() throws {
+        let response = try result(of: "completion-auto-import.json", as: LSPCompletionResponse.self)
+        let item = try XCTUnwrap(response.items.first)
+        XCTAssertNotNil(item.data)
+        XCTAssertFalse(item.needsResolve)
+    }
+
+    func testAnItemWithOpaqueDataAndNoEditsNeedsResolve() throws {
+        let response = try result(of: "completion-member.json", as: LSPCompletionResponse.self)
+        for item in response.items {
+            XCTAssertTrue(item.needsResolve, item.label)
+        }
+    }
+
+    func testABareArrayResultIsACompletionList() throws {
+        let response = try JSONDecoder().decode(
+            LSPCompletionResponse.self,
+            from: Data(#"[{"label":"one"},{"label":"two"}]"#.utf8)
+        )
+        XCTAssertFalse(response.isIncomplete)
+        XCTAssertEqual(response.items.map(\.label), ["one", "two"])
+    }
+
+    func testANullCompletionResultIsAnEmptyList() throws {
+        let response = try JSONDecoder().decode(
+            LSPCompletionResponse.self,
+            from: Data("null".utf8)
+        )
+        XCTAssertTrue(response.isEmpty)
+    }
+
+    func testAnItemWithNothingButALabelInsertsThatLabel() throws {
+        let response = try JSONDecoder().decode(
+            LSPCompletionResponse.self,
+            from: Data(#"[{"label":"bare"}]"#.utf8)
+        )
+        XCTAssertEqual(response.items[0].insertedText, "bare")
+        XCTAssertEqual(response.items[0].rankingKey, "bare")
+        XCTAssertFalse(response.items[0].needsResolve)
+    }
+
+    func testAnUnknownItemKindDecodesInsteadOfDroppingTheItem() throws {
+        // Open sets: a kind from a newer specification must not cost the user a
+        // whole completion list.
+        let response = try JSONDecoder().decode(
+            LSPCompletionResponse.self,
+            from: Data(#"[{"label":"future","kind":9999}]"#.utf8)
+        )
+        XCTAssertEqual(response.items[0].kind, LSPCompletionItemKind(rawValue: 9999))
+    }
+
+    func testAnInsertReplaceEditDecodesToItsReplaceRange() throws {
+        // `insertReplaceSupport` is not advertised, so this should never arrive;
+        // if it does, replacing the typed token is the behaviour that matches
+        // what the primary edit does everywhere else.
+        let response = try JSONDecoder().decode(
+            LSPCompletionResponse.self,
+            from: (
+                #"[{"label":"x","textEdit":{"newText":"xy","#
+                    + #""insert":{"start":{"line":0,"character":1},"end":{"line":0,"character":2}},"#
+                    + #""replace":{"start":{"line":0,"character":1},"end":{"line":0,"character":5}}}}]"#
+            ).utf8Data
+        )
+        let edit = try XCTUnwrap(response.items[0].textEdit)
+        XCTAssertEqual(edit.range.end, LSPPosition(line: 0, character: 5))
+        XCTAssertEqual(edit.insertRange?.end, LSPPosition(line: 0, character: 2))
+        XCTAssertEqual(edit.newText, "xy")
+    }
+
+    // MARK: - completionItem/resolve
+
+    /// Resolve echoes the item back. The `data` member is the server's own
+    /// correlation key — `{sessionId, itemId, uri}` here — and re-encoding it as
+    /// anything but what arrived (a float for an int, a reordered object) is how
+    /// a resolve silently answers nothing.
+    func testResolveParamsRoundTripTheItemVerbatim() throws {
+        let original = try JSONDecoder().decode(
+            LSPCompletionItem.self,
+            from: try fixture("completion-resolve-request.json")
+        )
+        let reDecoded = try JSONDecoder().decode(
+            LSPCompletionItem.self,
+            from: try JSONEncoder().encode(original)
+        )
+        XCTAssertEqual(reDecoded, original)
+        XCTAssertEqual(
+            original.data,
+            .object([
+                "itemId": .int(13118),
+                "sessionId": .int(0),
+                "uri": .string("file:///tmp/lspfix/pkg/Sources/App/main.swift")
+            ])
+        )
+    }
+
+    func testResolveResultDecodesAsACompletionItem() throws {
+        let resolved = try result(of: "completion-resolve.json", as: LSPCompletionItem.self)
+        let original = try JSONDecoder().decode(
+            LSPCompletionItem.self,
+            from: try fixture("completion-resolve-request.json")
+        )
+        // This server resolved the item to itself — nothing was being held back.
+        // The provider must cope with that (no extra edits appear) as readily as
+        // with a resolve that adds an import.
+        XCTAssertEqual(resolved, original)
+        XCTAssertNil(resolved.additionalTextEdits)
+    }
+
+    /// The other outcome of a resolve, and the one D4 exists for: the item comes
+    /// back carrying edits it did not have. Both are the same decode, so the
+    /// provider cannot tell them apart by type — only by whether
+    /// `additionalTextEdits` appeared.
+    func testAResolveThatAddsEditsIsWhatTheProviderIsWaitingFor() throws {
+        let unresolved = try JSONDecoder().decode(
+            LSPCompletionItem.self,
+            from: try fixture("completion-resolve-request.json")
+        )
+        let enriched = try result(of: "completion-auto-import.json", as: LSPCompletionResponse.self)
+        XCTAssertNil(unresolved.additionalTextEdits)
+        XCTAssertEqual(enriched.items.first?.additionalTextEdits?.count, 1)
+    }
+
+    // MARK: - shutdown / cancel
+
+    func testShutdownResultIsAPresentNull() throws {
+        let message = try LSPIncomingMessage.decode(try fixture("shutdown-result.json"))
+        guard case .response(let response) = message else {
+            return XCTFail("shutdown-result.json is not a response")
+        }
+        // Present-and-null, not absent: the distinction `LSPResponseMessage`
+        // keeps, and the difference between "the server agreed to shut down" and
+        // "the server sent something we could not read".
+        XCTAssertEqual(response.result, JSONValue.null)
+        XCTAssertNil(response.error)
+    }
+
+    func testCancelParamsCarryTheRequestID() throws {
+        XCTAssertEqual(try json(LSPCancelParams(id: .number(17))), #"{"id":17}"#)
+        XCTAssertEqual(try json(LSPCancelParams(id: .string("abc"))), #"{"id":"abc"}"#)
+    }
+
+    func testMethodNamesAreSpelledAsTheSpecificationSpellsThem() {
+        XCTAssertEqual(LSPMethod.initialize, "initialize")
+        XCTAssertEqual(LSPMethod.initialized, "initialized")
+        XCTAssertEqual(LSPMethod.shutdown, "shutdown")
+        XCTAssertEqual(LSPMethod.exit, "exit")
+        XCTAssertEqual(LSPMethod.cancelRequest, "$/cancelRequest")
+        XCTAssertEqual(LSPMethod.didOpen, "textDocument/didOpen")
+        XCTAssertEqual(LSPMethod.didChange, "textDocument/didChange")
+        XCTAssertEqual(LSPMethod.didClose, "textDocument/didClose")
+        XCTAssertEqual(LSPMethod.definition, "textDocument/definition")
+        XCTAssertEqual(LSPMethod.completion, "textDocument/completion")
+        XCTAssertEqual(LSPMethod.resolveCompletionItem, "completionItem/resolve")
+        XCTAssertEqual(LSPMethod.workspaceConfiguration, "workspace/configuration")
+        XCTAssertEqual(LSPMethod.registerCapability, "client/registerCapability")
+    }
+
+    // MARK: - Geometry
+
+    func testPositionsOrderByLineThenCharacter() {
+        XCTAssertLessThan(LSPPosition(line: 1, character: 9), LSPPosition(line: 2, character: 0))
+        XCTAssertLessThan(LSPPosition(line: 2, character: 1), LSPPosition(line: 2, character: 2))
+        XCTAssertFalse(LSPPosition(line: 2, character: 2) < LSPPosition(line: 2, character: 2))
+    }
+
+    func testAZeroLengthRangeIsEmpty() {
+        XCTAssertTrue(LSPRange(at: LSPPosition(line: 3, character: 3)).isEmpty)
+        XCTAssertFalse(
+            LSPRange(
+                start: LSPPosition(line: 3, character: 3),
+                end: LSPPosition(line: 3, character: 4)
+            ).isEmpty
+        )
+    }
+}
+
+private extension String {
+    /// The tests above build a few JSON literals by concatenation, which reads
+    /// better than one unbroken line; this keeps the `Data(…)` conversion at the
+    /// end where the literal finishes.
+    var utf8Data: Data { Data(utf8) }
+}
