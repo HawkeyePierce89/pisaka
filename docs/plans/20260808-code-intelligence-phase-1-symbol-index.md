@@ -391,11 +391,11 @@ symbols.
   not link. It is covered instead by a debug-build guard in Task 5 and recorded
   as a manual check in the architecture doc, following the `VENDORED.md`
   precedent.
-- [ ] author the eleven `symbols.scm` files under the stated capture convention
-- [ ] wire `Resources/Queries` into `project.yml` as a folder reference
-- [ ] move `ParsedQuery` into shared test support and repoint the vendored suite
-- [ ] add `SymbolQueryTests` and the `ReleaseMetadataTests` assertion
-- [ ] run `swift test` — must pass before Task 5
+- [x] author the eleven `symbols.scm` files under the stated capture convention
+- [x] wire `Resources/Queries` into `project.yml` as a folder reference
+- [x] move `ParsedQuery` into shared test support and repoint the vendored suite
+- [x] add `SymbolQueryTests` and the `ReleaseMetadataTests` assertion
+- [x] run `swift test` — must pass before Task 5
 
 ### Task 5: The app-layer tree-sitter symbol extractor
 

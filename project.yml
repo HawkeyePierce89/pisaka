@@ -163,6 +163,18 @@ targets:
       # `Bundle.main`.
       - path: Resources/Licenses
         type: folder
+      # The `symbols.scm` tree-sitter queries that drive the project symbol
+      # index (go-to-definition, autocompletion), declared as a *folder
+      # reference* for the same reason as `Licenses/`: the directory is copied
+      # verbatim, so it lands as `Queries/<language>/symbols.scm` in the bundle
+      # and adding a language's query needs no `xcodegen generate`.
+      # `SymbolQueryCatalog` resolves them through `Bundle.main`; a query that
+      # does not reach the bundle degrades that language to "no symbols", which
+      # looks exactly like a file that declares nothing — hence the folder
+      # reference is asserted by `ReleaseMetadataTests` and the queries
+      # themselves by `SymbolQueryTests`.
+      - path: Resources/Queries
+        type: folder
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ws.karmanov.pisaka

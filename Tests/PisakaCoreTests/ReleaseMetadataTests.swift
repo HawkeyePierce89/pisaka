@@ -202,6 +202,19 @@ final class ReleaseMetadataTests: XCTestCase {
                     type: folder
             """,
                        "Resources/Licenses as a folder reference")
+        // Same shape, same reason, quieter failure: `SymbolQueryTests` checks
+        // that every language's `symbols.scm` exists and is well-formed, and all
+        // of that stays green when the directory stops being copied into the
+        // bundle. `SymbolQueryCatalog` would then find no query for any
+        // language, and every file would index zero symbols — which is
+        // indistinguishable from a project that declares nothing. A folder
+        // reference specifically, because the catalog resolves each query
+        // through a `Queries/<language>/` *subdirectory* of the bundle.
+        assertDeclares("""
+            - path: Resources/Queries
+                    type: folder
+            """,
+                       "Resources/Queries as a folder reference")
     }
 
     /// The launch screen is the one App Store requirement in this area that no
