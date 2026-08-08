@@ -17,7 +17,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `DiffColors` (raw `NSColor`) on macOS, a parallel `DiffColors_iOS` (raw
     `UIColor`) on iOS — using the system semantic colors directly.
   - `Platform/PlatformFeedback.swift` — `warning()` (beep on macOS, error haptic
-    on iOS), the single reroute for every former `NSSound.beep()` call site.
+    on iOS), the single reroute for every former `NSSound.beep()` call site, plus
+    `light()` for "the action ran but found nothing" — a Go to Definition on a
+    name the index does not know. Two cues rather than one because iOS *has* the
+    gradation and an error notification haptic (three sharp taps) reads as a
+    problem to act on; macOS has no stock equivalent and keeps the beep for both,
+    so the split costs nothing there.
   - `Platform/PlatformAlert.swift` — `presentMessage` over `NSAlert` /
     `UIAlertController`.
   - `Platform/PlatformRoute.swift` — `RoutePresentation` (separate window on

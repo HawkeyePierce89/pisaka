@@ -85,6 +85,13 @@ struct RootView_iOS: View {
     /// `PisakaApp.handleFetchUnavailable`.
     @State private var pendingFetchUnavailable: PendingFetchUnavailable?
 
+    /// Routes a resolved Go to Definition: the editor asks, this view opens the tab
+    /// and the editor selects the range. A `@StateObject` rather than the plain
+    /// `@State` a `MergeModel` gets, because unlike a merge target this one is also
+    /// *read* here — the disambiguation dialog is driven by its `choices` and the
+    /// reveal it publishes is handed down to the editor.
+    @StateObject private var definitionRoute = DefinitionRoute_iOS()
+
     /// A failed branch switch/create to surface to the user. The branch sheet (which
     /// hosts `branchSwitcher.errorMessage`) is dismissed before the async git op runs,
     /// so a blocked checkout / create failure has no surface there — this root-level
@@ -100,7 +107,19 @@ struct RootView_iOS: View {
             // Restore the most-recently-opened folder on launch (resolving its
             // security-scoped bookmark), so the tree is populated without a
             // re-pick. A no-op when there are no recents.
-            .onAppear { fileAccess.restoreLastFolder() }
+            .onAppear {
+                fileAccess.restoreLastFolder()
+                installDefinitionOpener()
+            }
+            // A jump may have opened a file that was not the selected tab; on
+            // compact width the editor also has to be pushed onto the stack before
+            // there is anything to reveal it in. Done here rather than inside the
+            // route's `openFile` closure so it reads the *current* size class
+            // instead of the one captured when the closure was installed.
+            .onChange(of: definitionRoute.reveal) { _, request in
+                guard request != nil, isCompact else { return }
+                showingEditor = true
+            }
             // Refresh the always-visible branch widget when the project folder
             // changes — both a picker open and a launch-time bookmark restore route
             // through `WorkspaceModel.openFolder`, which publishes `projectRoot`.
@@ -219,6 +238,22 @@ struct RootView_iOS: View {
             } message: { alert in
                 Text(alert.message)
             }
+            // More than one declaration answers the tapped name. A confirmation
+            // dialog rather than a sheet: the list is short, already ranked, and
+            // the rows are the same `displayLabel` strings the macOS `NSMenu`
+            // shows, so neither platform decides what a candidate reads as.
+            .confirmationDialog(
+                "Go to Definition",
+                isPresented: definitionChoiceBinding,
+                titleVisibility: .visible
+            ) {
+                ForEach(definitionRoute.choices) { choice in
+                    Button(choice.candidate.displayLabel) {
+                        definitionRoute.navigate(to: choice.candidate)
+                    }
+                }
+                Button("Cancel", role: .cancel) { definitionRoute.cancelChoices() }
+            }
     }
 
     // MARK: - Adaptive composition
@@ -307,7 +342,9 @@ struct RootView_iOS: View {
                 text: binding(for: file.id),
                 fontSize: settings.fontSize,
                 onStepFontSize: { settings.stepFontSize(by: $0) },
-                symbolIndex: symbolIndexController
+                symbolIndex: symbolIndexController,
+                definitionRoute: definitionRoute,
+                reveal: definitionRoute.reveal
             )
         } else {
             VStack(spacing: 8) {
@@ -439,6 +476,25 @@ struct RootView_iOS: View {
         // repo the user just left. This closes it, matching `PisakaApp.openFolder`.
         let branchRequest = branchSwitcher.prepareForRefresh(root: root)
         Task { await branchSwitcher.refresh(root: root, request: branchRequest) }
+    }
+
+    /// Teach the definition route how to open a tab.
+    ///
+    /// Only `model` (a reference type) is captured, deliberately: anything read
+    /// from the view struct — the size class, a `@State` flag — would be frozen at
+    /// the moment of installation, so the one thing that *does* depend on the
+    /// current layout (pushing the editor on compact width) is handled by the
+    /// `onChange(of: definitionRoute.reveal)` observer instead.
+    ///
+    /// The target lives under the already-scoped project root (the index only walks
+    /// what was opened), so the read flows through the registered folder's access
+    /// grant, exactly like `openTreeFile`. A read failure answers `nil` and the
+    /// route reports it.
+    private func installDefinitionOpener() {
+        definitionRoute.openFile = { [model] url in
+            guard (try? model.open(url: url)) != nil else { return nil }
+            return model.fileID(forURL: url)
+        }
     }
 
     /// Open a file from the project tree. It lives under the already-scoped
@@ -763,6 +819,13 @@ struct RootView_iOS: View {
         Binding(
             get: { pendingFetchUnavailable != nil },
             set: { if !$0 { pendingFetchUnavailable = nil } }
+        )
+    }
+
+    private var definitionChoiceBinding: Binding<Bool> {
+        Binding(
+            get: { !definitionRoute.choices.isEmpty },
+            set: { if !$0 { definitionRoute.cancelChoices() } }
         )
     }
 

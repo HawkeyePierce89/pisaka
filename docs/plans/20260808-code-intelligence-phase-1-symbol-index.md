@@ -607,11 +607,11 @@ every Core decision with macOS.
 - The bar hides itself when there are no candidates, so it never occupies space
   for nothing, and it is torn down in `dismantleUIView` alongside the
   highlighter.
-- [ ] add the edit-menu action and `DefinitionRoute_iOS`, wired through
+- [x] add the edit-menu action and `DefinitionRoute_iOS`, wired through
       `RootView_iOS`
-- [ ] add `CompletionBar_iOS` and install it as the input accessory
-- [ ] route insertion through the existing programmatic-edit path
-- [ ] run `swift test` — must stay green
+- [x] add `CompletionBar_iOS` and install it as the input accessory
+- [x] route insertion through the existing programmatic-edit path
+- [x] run `swift test` — must stay green
 
 ### Task 10: Verify acceptance criteria
 

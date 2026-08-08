@@ -53,6 +53,18 @@ struct CodeEditorView_iOS: UIViewRepresentable {
     /// so a default-constructed view (previews) still compiles.
     var symbolIndex: SymbolIndexController = SymbolIndexController(model: SymbolIndexModel())
 
+    /// Where a resolved Go to Definition is sent. The root view owns it (and tab
+    /// opening); this view only hands it to the coordinator. Defaults to a fresh,
+    /// unwired route so a default-constructed view (previews) still compiles — its
+    /// `openFile` is `nil`, which makes a jump a no-op.
+    var definitionRoute: DefinitionRoute_iOS = DefinitionRoute_iOS()
+
+    /// The pending "select this range" request the route published, applied once
+    /// (by token) when it names the file this editor is showing. Passed as a value
+    /// rather than by observing the route, so a candidate-list change cannot make
+    /// the editor rebuild.
+    var reveal: DefinitionRoute_iOS.Reveal? = nil
+
     func makeCoordinator() -> CodeEditorCoordinator_iOS {
         CodeEditorCoordinator_iOS(text: $text)
     }
@@ -117,6 +129,7 @@ struct CodeEditorView_iOS: UIViewRepresentable {
         // and the file may sit outside the walked folder (a standalone document
         // pick) where nothing else would ever reach it.
         context.coordinator.symbolIndex = symbolIndex
+        context.coordinator.definitionRoute = definitionRoute
         context.coordinator.fileURL = fileURL
         context.coordinator.reindexSymbols(text: text, language: language, immediate: true)
         return textView
@@ -170,6 +183,7 @@ struct CodeEditorView_iOS: UIViewRepresentable {
         // `textViewDidChange`'s debounced call, so doing it here too would re-parse
         // the file twice per settled burst of typing.
         context.coordinator.symbolIndex = symbolIndex
+        context.coordinator.definitionRoute = definitionRoute
         context.coordinator.fileURL = fileURL
         if switchedFile || contentReplaced {
             context.coordinator.reindexSymbols(
@@ -177,13 +191,22 @@ struct CodeEditorView_iOS: UIViewRepresentable {
                 language: language,
                 immediate: true
             )
+            // The strip's candidates answer the word being typed in the *outgoing*
+            // buffer; a swap invalidates them before the user can tap one.
+            context.coordinator.clearCompletions()
         }
+
+        // Apply a pending Go to Definition jump last, so it runs against the buffer
+        // this update just installed rather than the one it replaced.
+        context.coordinator.applyReveal(reveal, fileID: fileID)
     }
 
-    /// Detach the highlighter when the view is torn down (e.g. a tab closed) so the
-    /// storage delegate doesn't linger.
+    /// Detach the highlighter and the completion strip when the view is torn down
+    /// (e.g. a tab closed) so neither the storage delegate nor an accessory view
+    /// attached to the responder lingers.
     static func dismantleUIView(_ textView: UITextView, coordinator: CodeEditorCoordinator_iOS) {
         coordinator.detachHighlighter(from: textView)
+        coordinator.tearDownCompletions(in: textView)
     }
 }
 
