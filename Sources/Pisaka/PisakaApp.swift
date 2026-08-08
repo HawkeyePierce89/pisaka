@@ -451,6 +451,16 @@ struct PisakaApp: App {
                 Button("Go to Definition") { goToDefinitionAtCaret() }
                     .keyboardShortcut("j", modifiers: [.control, .command])
                     .disabled(model.selectedID == nil)
+
+                // ⌃Space — the explicit "complete this word now" command, in
+                // addition to AppKit's stock ⌥⎋ and F5, which reach the same
+                // delegate. Both are kept: ⌃Space is what a code editor's users
+                // reach for, but macOS ships it bound to "Select the previous
+                // input source", so a user with more than one input source
+                // installed still has two working alternatives.
+                Button("Complete") { completeAtCaret() }
+                    .keyboardShortcut(.space, modifiers: .control)
+                    .disabled(model.selectedID == nil)
             }
 
             CommandMenu("Git") {
@@ -1110,6 +1120,24 @@ struct PisakaApp: App {
             return
         }
         editor.goToDefinitionAtCaret()
+    }
+
+    // MARK: - Completion
+
+    /// The Find menu's "Complete" (⌃Space): ask the focused editor to offer
+    /// completions for the word at its caret.
+    ///
+    /// Routed through the first responder for the same reason as
+    /// `goToDefinitionAtCaret()` — the command carries no state, and the responder
+    /// chain already names the one view that can answer. Anything else focused has
+    /// no partial word to complete, and beeps rather than opening a popup
+    /// somewhere the user is not typing.
+    private func completeAtCaret() {
+        guard let editor = NSApp.keyWindow?.firstResponder as? EditorTextView else {
+            PlatformFeedback.warning()
+            return
+        }
+        editor.completeAtCaret()
     }
 
     /// Run a project-wide Replace All under the same disk-writer coordination as

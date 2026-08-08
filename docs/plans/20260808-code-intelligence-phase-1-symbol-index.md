@@ -566,12 +566,12 @@ without disturbing anything the editor already does with a keystroke.
   AppKit's stock ⌥⎋ / F5 keep working through the same delegate.
 - The popup must not appear while an IME composition is in flight
   (`hasMarkedText()`), matching the ⌘D guard's reasoning.
-- [ ] add `CompletionController` with the debounce, snapshot and generation
+- [x] add `CompletionController` with the debounce, snapshot and generation
       guard
-- [ ] override `rangeForUserCompletion` and `insertCompletion(…)`; implement the
+- [x] override `rangeForUserCompletion` and `insertCompletion(…)`; implement the
       completions delegate
-- [ ] add the ⌃Space menu item and the IME guard
-- [ ] run `swift test` — must stay green
+- [x] add the ⌃Space menu item and the IME guard
+- [x] run `swift test` — must stay green
 
 ### Task 9: The iOS surfaces
 

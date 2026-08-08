@@ -151,6 +151,20 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onGoToDefinition = { [weak coordinator = context.coordinator] tv, offset in
             coordinator?.goToDefinition(in: tv, at: offset)
         }
+        // ⌃Space (and the Find menu's "Complete") → an undebounced candidate
+        // refresh, which opens the popup itself once the provider answers. Weakly
+        // captured for the same retain-cycle reason as the closures above.
+        textView.onRequestCompletions = { [weak coordinator = context.coordinator] in
+            coordinator?.requestCompletions()
+        }
+        // AppKit's completion insertion brackets itself with the coordinator's
+        // programmatic-edit flag, so the auto-pair/dedent interceptor does not
+        // treat the inserted word as typed text. Weakly captured for the same
+        // reason; a deallocated coordinator just leaves the flag alone, which is
+        // correct because there is then no interceptor to guard.
+        textView.onCompletionInsertion = { [weak coordinator = context.coordinator] isApplying in
+            coordinator?.noteCompletionInsertion(isApplying)
+        }
 
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
@@ -266,6 +280,10 @@ struct CodeEditorView: NSViewRepresentable {
         // previous tab with a pattern typed).
         context.coordinator.attachSearch(textView: textView, state: search)
         context.coordinator.updateSearch(state: search, force: true)
+        // Bind the completion popup's candidate source. Nothing is computed here:
+        // the list is asked for on the first keystroke (or an explicit ⌃Space),
+        // never on a tab that has only been looked at.
+        context.coordinator.attachCompletion(textView: textView)
         // Record which file the gutter would annotate (enabling/disabling its menu
         // item). Nothing loads here: annotate starts off for every tab and is only
         // turned on from the context menu.
@@ -529,6 +547,12 @@ struct CodeEditorView: NSViewRepresentable {
         /// `git blame --porcelain` loads feeding `LineNumberRulerView`.
         private let blame = BlameController()
 
+        /// Precomputes the completion popup's candidates from the async code
+        /// intelligence seam, so AppKit's synchronous completions delegate has an
+        /// answer ready when it asks. Owned strongly here (it holds the text view
+        /// weakly, so there is no cycle), like the search controller.
+        private let completion = CompletionController()
+
         /// Schedules the symbol index's re-index of the shown file. Held *weakly*,
         /// like `searchBarState`: the app owns it for its whole lifetime, and the
         /// coordinator only asks it for work. A deallocated one simply means no
@@ -592,6 +616,76 @@ struct CodeEditorView: NSViewRepresentable {
             // Keep this file's symbols in step with what is being typed, behind the
             // controller's 400 ms debounce (a re-parse per keystroke would be felt).
             reindexSymbols(text: textView.string, language: language, immediate: false)
+            // Offer completions for the word being typed, behind the completion
+            // controller's own (shorter) debounce. Its gates — a bare caret, at
+            // least two typed characters, no marked text — mean an ordinary
+            // keystroke outside an identifier costs one prefix scan and no task.
+            updateCompletions(explicit: false)
+        }
+
+        // MARK: - Completion
+
+        /// Bind the completion popup's candidate source to this text view
+        /// (`makeNSView`).
+        func attachCompletion(textView: NSTextView) {
+            completion.attach(textView: textView)
+        }
+
+        /// Recompute the popup's candidates for what is being typed.
+        ///
+        /// The provider is re-read from the index controller on every call rather
+        /// than stored: the controller hands out the model's latest snapshot, so a
+        /// held reference would answer from the state a folder was opened in.
+        private func updateCompletions(explicit: Bool) {
+            completion.update(
+                provider: symbolIndex?.provider,
+                fileURL: fileURL,
+                explicit: explicit
+            )
+        }
+
+        /// The Find menu's "Complete" (⌃Space): refresh the candidates *now* and
+        /// let the controller open the popup once the provider answers.
+        ///
+        /// Deliberately not a bare `complete(nil)`: the delegate can only serve a
+        /// snapshot, so opening the popup before the refresh would show whatever
+        /// the last keystroke's debounce happened to leave behind — or nothing at
+        /// all, which is what an explicit invocation on a still-debouncing prefix
+        /// would otherwise get.
+        func requestCompletions() {
+            updateCompletions(explicit: true)
+        }
+
+        /// AppKit is asking what to put in the popup it is already opening.
+        ///
+        /// Synchronous by its contract and correct anyway, because the awaiting
+        /// happened during the debounce — see `CompletionController`. `words` (the
+        /// spell checker's guesses) is deliberately ignored: this is a code
+        /// editor, and offering dictionary words beside project symbols would bury
+        /// the latter.
+        ///
+        /// `indexOfSelectedItem` is left exactly as AppKit passed it in, so the
+        /// popup's initial selection stays the platform's stock behavior — the
+        /// same reason Decision 2 chose this machinery over a custom panel.
+        func textView(
+            _ textView: NSTextView,
+            completions words: [String],
+            forPartialWordRange charRange: NSRange,
+            indexOfSelectedItem index: UnsafeMutablePointer<Int>?
+        ) -> [String] {
+            completion.completions(forPartialWordRange: charRange, in: textView)
+        }
+
+        /// Raise/lower `isApplyingProgrammaticEdit` around AppKit's completion
+        /// insertion (`EditorTextView.insertCompletion(…)`).
+        ///
+        /// Mandatory, not defensive: the insertion goes through the same text-view
+        /// edit path typing does, so a completion ending in `(` — or a one-
+        /// character one — would otherwise fall into `AutoPairEngine` and get a
+        /// closing bracket it never asked for, and a completion whose replaced
+        /// range starts a line could trip the dedent rewrite.
+        func noteCompletionInsertion(_ isApplying: Bool) {
+            isApplyingProgrammaticEdit = isApplying
         }
 
         // MARK: - Symbol index
@@ -1202,6 +1296,10 @@ struct CodeEditorView: NSViewRepresentable {
             // keep serving its commands.
             searchController.reset()
             searchBarState = nil
+            // Drops the candidate snapshot and supersedes an in-flight provider
+            // call, so a torn-down tab can neither serve a closed file's
+            // identifiers nor open a popup over the tab that replaced it.
+            completion.reset()
             // Empties the column, supersedes an in-flight blame load and drops the
             // per-tab annotate state wholesale (see `BlameController.enabledFileIDs`
             // on why nothing prunes it before this point).
@@ -1429,6 +1527,73 @@ final class EditorTextView: NSTextView {
     /// `CodeEditorView.makeNSView` to the coordinator's
     /// `goToDefinition(in:at:)`; `nil` until then.
     var onGoToDefinition: ((NSTextView, Int) -> Void)?
+
+    /// Recomputes the completion candidates immediately and opens the popup over
+    /// them. Set by `CodeEditorView.makeNSView` to the coordinator's
+    /// `requestCompletions()`; `nil` until then.
+    var onRequestCompletions: (() -> Void)?
+
+    /// Brackets an AppKit completion insertion with the coordinator's
+    /// `isApplyingProgrammaticEdit` flag: called with `true` before the insertion
+    /// and `false` after. Set by `CodeEditorView.makeNSView`; `nil` until then.
+    var onCompletionInsertion: ((Bool) -> Void)?
+
+    /// Complete from the caret — the Find menu's ⌃Space entry point, which reaches
+    /// this view as the key window's first responder, exactly like ⌃⌘J.
+    ///
+    /// The popup is *not* opened here: `complete(_:)` asks the delegate
+    /// synchronously, and the delegate can only serve an already-computed
+    /// snapshot, so the request is handed to the coordinator's completion
+    /// controller, which opens the popup itself the moment the provider answers.
+    func completeAtCaret() {
+        onRequestCompletions?()
+    }
+
+    /// The partial word a completion replaces, per `IdentifierScanner` — the one
+    /// rule that also decides what a ⌘-click resolves and which words the buffer
+    /// harvester offers, so the popup can never complete something the provider
+    /// was not asked about.
+    ///
+    /// Overriding this is what makes `foo.bar|` complete `bar`: AppKit's stock
+    /// implementation walks back over a broader "word" class, and reporting the
+    /// whole dotted expression is the classic reason a completion popup offers
+    /// nothing. A non-empty selection is left to `super` — the user is about to
+    /// replace it, not extend it.
+    override var rangeForUserCompletion: NSRange {
+        let selection = selectedRange()
+        guard selection.length == 0 else { return super.rangeForUserCompletion }
+        return IdentifierScanner.completionPrefixRange(
+            in: string as NSString,
+            at: selection.location
+        )
+    }
+
+    /// Insert a chosen completion, with the coordinator's programmatic-edit flag
+    /// raised for the duration.
+    ///
+    /// `super` does the whole job — the replacement, the caret, and the *single*
+    /// undo step it registers on the active per-file undo manager — so nothing
+    /// about the documented undo discipline changes here. The only addition is the
+    /// flag, which keeps `AutoPairEngine`/`IndentEngine` from treating the
+    /// inserted word as typed text (a completion ending in an opener would
+    /// otherwise be auto-closed). The flag is lowered unconditionally, so an
+    /// exception out of `super` cannot leave the interceptors disabled for the
+    /// rest of the session.
+    override func insertCompletion(
+        _ word: String,
+        forPartialWordRange charRange: NSRange,
+        movement: Int,
+        isFinal: Bool
+    ) {
+        onCompletionInsertion?(true)
+        defer { onCompletionInsertion?(false) }
+        super.insertCompletion(
+            word,
+            forPartialWordRange: charRange,
+            movement: movement,
+            isFinal: isFinal
+        )
+    }
 
     /// Go to Definition from the caret — the Find menu's ⌃⌘J entry point, which
     /// reaches this view as the key window's first responder rather than through
