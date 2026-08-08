@@ -257,6 +257,47 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
         )
     }
 
+    /// The cold-start promise: a server that is still *starting* costs the
+    /// router's budget, not the handshake's.
+    ///
+    /// The load-bearing case of the whole layer, and the one a task group could
+    /// not keep: waiting for a launch in flight is `await Task.value` on a
+    /// non-throwing task, which ignores cancellation, so a group's implicit drain
+    /// held the caller until sourcekit-lsp had resolved the build system — up to
+    /// twenty seconds of a ⌘-click that answered nothing at all, where the index
+    /// had the answer in hand the whole time.
+    func testAServerStillStartingFallsBackWithinTheBudgetRatherThanWaitingItOut() async {
+        transport.script(
+            LSPMethod.initialize,
+            .reply(ScriptedLSPTransport.initializeResult(), after: 1)
+        )
+        transport.script(LSPMethod.definition, .reply(serverDefinitionReply()))
+        let router = makeRouter(
+            index: makeIndex(),
+            budgets: RoutingIntelligenceProvider.Budgets(definition: 0.05)
+        )
+
+        let started = Date()
+        let candidates = await router.definitions(for: definitionRequest())
+        let elapsed = Date().timeIntervalSince(started)
+
+        XCTAssertEqual(candidates.map(\.relativePath), ["Sources/Legacy/Greeter.swift"])
+        // Asserted by *content* rather than by the stopwatch alone: the answer
+        // arrived while `initialize` was still the only thing on the wire, i.e.
+        // before the handshake this attempt gave up on could possibly have
+        // finished. A run that waited it out would have sent `initialized` and a
+        // `didOpen` by now.
+        XCTAssertEqual(transport.sentMethods, [LSPMethod.initialize])
+        XCTAssertLessThan(elapsed, 0.5, "the budget bounds the whole attempt, handshake included")
+
+        // And abandoning the attempt did not abandon the launch: it is an
+        // unstructured task the workspace owns, so the next jump is semantic.
+        try? await Task.sleep(nanoseconds: 1_300_000_000)
+        let afterwards = await router.definitions(for: definitionRequest())
+        XCTAssertEqual(afterwards.map(\.relativePath), ["Sources/Core/Greeter.swift"])
+        XCTAssertEqual(harness.launches, 1, "the server was started once and kept")
+    }
+
     /// Nothing is remembered: the next request asks the same server again. D7's
     /// only durable state is the restart budget, and a timeout is not a crash.
     func testATimeoutIsNotRememberedAndTheNextRequestAsksAgain() async {

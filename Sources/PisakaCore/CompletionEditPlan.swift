@@ -60,10 +60,27 @@ public struct CompletionEdit: Equatable, Hashable, Sendable {
     /// by the same amount. An edit that starts inside the typed word cannot
     /// occur in a plan that validates; it is shifted as "before" here and
     /// `CompletionEditPlan.make` then refuses it for overlapping the primary.
+    ///
+    /// **The primary edit is recognised by its role, not by its geometry**, and
+    /// that is what makes an *empty* typed word work. A member list opened by a
+    /// bare `.` replaces nothing (`typedWord.length == 0`), so the word's start,
+    /// its end and the caret are all the same number — and the primary edit, a
+    /// zero-length insertion sitting on it, is geometrically indistinguishable
+    /// from an edit "wholly after the word". Read as the latter it would slide
+    /// past the preview it is supposed to replace, `make` would reject the plan
+    /// for `primaryEditMissesTypedWord`, and the item's `import` would be
+    /// silently dropped on exactly the completion kind that has no prefix.
     public func shifted(afterReplacingTypedWord typedWord: NSRange, withLength length: Int) -> CompletionEdit {
         let delta = length - typedWord.length
         guard delta != 0 else { return self }
         let boundary = NSMaxRange(typedWord)
+        if role == .primary, range.location <= typedWord.location, NSMaxRange(range) >= boundary {
+            return CompletionEdit(
+                range: NSRange(location: range.location, length: range.length + delta),
+                newText: newText,
+                role: role
+            )
+        }
         if range.location >= boundary {
             return CompletionEdit(
                 range: NSRange(location: range.location + delta, length: range.length),

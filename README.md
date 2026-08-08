@@ -95,7 +95,7 @@ involved.
 | Cmd+Shift+C | Show/Hide the Local Changes bottom panel   |
 | Cmd+,       | Open Preferences                           |
 | Cmd+scroll  | Adjust the editor font size over any code view |
-| Esc         | Close the search bar, or the focused diff / merge / Find in Files window |
+| Esc         | Close the search bar, or the focused diff / merge / Find in Files / source viewer window |
 
 ## Features
 
@@ -275,7 +275,8 @@ involved.
   search re-runs.
 - Go to Definition: Cmd+click an identifier — or put the caret in it and press
   Ctrl+Cmd+J (Find > Go to Definition) — to jump to where it is declared, in this
-  file or anywhere in the open project. The caret lands on the declaration's
+  file or anywhere in the open project (for Swift on macOS it reaches beyond it,
+  into dependencies and the SDK — see below). The caret lands on the declaration's
   *name*, the file is opened (or its tab re-selected) as needed, and when several
   declarations share the name a small menu at the click point lists them as
   `Container.name — path/to/file.swift:42`, with the current file's first. A name
@@ -305,8 +306,9 @@ involved.
   character, and works after a dot too. Nothing pops up mid-composition with an
   input method.
   Both features are backed by a project-wide symbol index built from the same
-  tree-sitter parse trees that drive the syntax highlighting — no language server
-  and no network. It is built when you open a folder, refreshed when files change
+  tree-sitter parse trees that drive the syntax highlighting — no network, and
+  (except for Swift on macOS, below) no language server either. It is built when
+  you open a folder, refreshed when files change
   on disk (only the files whose size or modification date actually moved get
   re-parsed), and kept current for the file you are typing in, so a name you just
   wrote is completable before it is saved. Declarations are indexed for Swift,
@@ -320,8 +322,9 @@ involved.
   downloaded. Go to Definition becomes a real, compiler-backed jump: across modules
   of a package, into a dependency, and into the SDK. A declaration that lives
   *outside* the opened folder — an SDK interface, a dependency checkout — opens in a
-  separate **read-only** window (syntax-highlighted, with the same gutter and
-  Cmd+scroll zoom, one window per file) rather than as an editable tab, so a jump
+  separate **read-only** window (syntax-highlighted, with the same line-number
+  gutter — no blame column — and Cmd+scroll zoom, one window per file) rather
+  than as an editable tab, so a jump
   into the SDK can never write outside your project. Completion becomes typed
   candidates in the compiler's own ranking, including real members after a `.`, and
   a symbol that needs an `import` inserts the import line together with the symbol —

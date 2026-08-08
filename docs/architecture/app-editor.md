@@ -500,7 +500,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     **Deferred items are prefetched, and a late one re-applies the whole edit set.**
     `prefetchResolves` fires one task per deferred item the moment the list is shown
     (one per item rather than one for the batch, so a single slow resolve holds back
-    neither the others nor the follow-up path that awaits one). If the user commits
+    neither the others nor the follow-up path that awaits one). **An empty resolve
+    is not an answer**: `resolveEdits` returns `[]` for a timeout, a dead session and
+    a superseded handle alike, so the commit path falls back to the edits the item
+    was *published* with rather than reading `[]` as "this item turned out to have
+    none" — which would have thrown away a server-chosen range wider than the typed
+    prefix and left those characters standing in the buffer. A resolve that
+    genuinely adds nothing loses nothing either way: it answers the same edits the
+    item already carried. If the user commits
     before a resolve lands, `scheduleFollowUp` applies the edits when they arrive as a
     second undo step — the whole set, not just the `additionalTextEdits`: shifted over
     the insertion that already happened, the *primary* edit replaces the inserted text

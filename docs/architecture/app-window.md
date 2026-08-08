@@ -20,10 +20,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `CodeEditorView`, along with `fileURL: file.url` and `diskRevision:
     model.diskRevision(for: file.id)` for the gutter's git-blame column (both with
     defaults on the editor side, so the existing parameter order is untouched and a
-    default-constructed `CodeEditorView` still compiles). Two more pass straight
+    default-constructed `CodeEditorView` still compiles). Three more pass straight
     through to the editor for **code intelligence**: the `SymbolIndexController`
-    that schedules the shown file's re-index, and `onGoToDefinition`, wired to
-    `PisakaApp`'s Find-in-Files activation path (opening a tab is the app's job).
+    that schedules the shown file's re-index, `onGoToDefinition`, wired to
+    `PisakaApp`'s Find-in-Files activation path (opening a tab is the app's job),
+    and `onViewDefinitionOutsideProject`, wired to the read-only source viewer
+    window (D3). The last two are separate closures rather than one with a flag,
+    because opening a tab and opening a model-less window are different app-level
+    operations that happen to be reached from the same click.
     The controller is deliberately **not** `@ObservedObject` — it publishes nothing,
     and the index model behind it republishes after every chunk of a walk, which is
     exactly the per-update cost `PathBarView.equatable()` and the non-observed

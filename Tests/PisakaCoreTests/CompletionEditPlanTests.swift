@@ -384,6 +384,43 @@ final class CompletionEditPlanTests: XCTestCase {
         )
     }
 
+    /// The member case: nothing was typed, so the typed word is empty and the
+    /// primary edit is a zero-length insertion sitting exactly on it.
+    ///
+    /// Geometrically that edit is indistinguishable from one lying "wholly after
+    /// the word", and reading it as such would slide it past the preview instead
+    /// of growing it to cover it — after which `make` refuses the plan and the
+    /// auto-import is silently dropped. The role is what tells the two apart.
+    func testAZeroLengthPrimaryEditOnAnEmptyTypedWordGrowsOverThePreview() throws {
+        let live = "let x = worker.greet"
+        let typedWord = NSRange(location: 15, length: 0)  // the caret after `worker.`
+        let preview = "greet"
+        let edits = [
+            primary(typedWord, "greet"),
+            additional(NSRange(location: 0, length: 0), "import Greetings\n")
+        ]
+        XCTAssertEqual(
+            edits[0].shifted(afterReplacingTypedWord: typedWord, withLength: 5),
+            primary(NSRange(location: 15, length: 5), "greet")
+        )
+        // An *additional* edit at the same offset is still "after the word" and
+        // still slides: only the primary one spans it.
+        XCTAssertEqual(
+            additional(typedWord, "()").shifted(afterReplacingTypedWord: typedWord, withLength: 5),
+            additional(NSRange(location: 20, length: 0), "()")
+        )
+
+        let result = CompletionEditPlan.make(
+            edits: edits.map { $0.shifted(afterReplacingTypedWord: typedWord, withLength: 5) },
+            in: live as NSString,
+            replacing: NSRange(location: 15, length: 5),
+            typed: preview
+        )
+        let plan = try XCTUnwrap(try? result.get())
+        XCTAssertEqual(apply(plan, to: live), "import Greetings\nlet x = worker.greet")
+        XCTAssertEqual(plan.caretOffset, 37)
+    }
+
     /// Nothing moves when the replacement is the same length as the typed word
     /// — the ordinary case of a preview that happens to match.
     func testShiftingByZeroIsIdentity() {

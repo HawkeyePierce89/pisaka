@@ -504,6 +504,44 @@ final class LSPWorkspaceTests: XCTestCase {
         XCTAssertEqual(harness.launches.count, 4)
     }
 
+    /// Two requests in flight over one crash cost **one** restart between them.
+    ///
+    /// Both read the same live session and both suspend on `isRunning`, so both
+    /// come back holding the same corpse — the interleaving D7's counter has to
+    /// survive. Booking a failure twice for one death would spend the budget of
+    /// three restarts in two crashes and mark the server unavailable early, which
+    /// is silent and lasts the rest of the app run.
+    func testTwoRequestsObservingOneCrashSpendOneRestartBetweenThem() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        await crash(harness.latest)
+
+        async let first = workspace.prepare(url: mainFile, language: .swift, text: "a")
+        async let second = workspace.prepare(url: greeterFile, language: .swift, text: "b")
+        let answers = await [first, second]
+
+        XCTAssertEqual(answers.compactMap { $0 }.count, 2, "both requests are served")
+        XCTAssertEqual(harness.launches.count, 2, "one crash, one restart — not two servers")
+        XCTAssertEqual(recordedDelays, [1], "one crash is one backoff")
+
+        // The budget is intact: the second and third crashes are still restarted
+        // from, at D7's own delays, and only the fourth is terminal.
+        for expected in [2.0, 4.0] {
+            await crash(harness.latest)
+            let prepared = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+            XCTAssertNotNil(prepared)
+            XCTAssertEqual(recordedDelays.last, expected)
+            XCTAssertFalse(workspace.isUnavailable(.swift))
+        }
+
+        await crash(harness.latest)
+        let givenUp = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        XCTAssertNil(givenUp)
+        XCTAssertTrue(workspace.isUnavailable(.swift))
+    }
+
     func testARestartedServerIsToldAboutTheDocumentAgainRatherThanChangedAgainst() async throws {
         let harness = ServerHarness()
         let workspace = makeWorkspace(harness: harness)

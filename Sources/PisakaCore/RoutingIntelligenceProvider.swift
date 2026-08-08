@@ -185,28 +185,96 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
     ///
     /// `nil` is "the budget ran out"; a genuine empty answer comes back as an
     /// empty value, and the callers above treat the two the same anyway. The
-    /// losing child is cancelled rather than left running, which is what turns an
+    /// loser is cancelled rather than left running, which is what turns an
     /// abandoned definition into a `$/cancelRequest` on the wire (the session's
     /// cancellation handler) instead of a server still computing an answer nobody
-    /// will read. The group is drained before this returns, so by the time the
-    /// caller sees `nil` the cancellation has already been *sent*, not merely
-    /// scheduled.
+    /// will read.
+    ///
+    /// **Deliberately not a task group**, which is what this was and what it must
+    /// not be. A group awaits every child before it returns, and `cancelAll()`
+    /// only shortens a child that is *cancellable* — which the LSP attempt is not
+    /// at the one point that matters. Waiting for a launch already in flight is
+    /// `await Task.value` on a `Task<_, Never>`, and that ignores the awaiting
+    /// task's cancellation entirely, so a group held the caller for the
+    /// **handshake's** budget (20 s on a cold sourcekit-lsp) rather than for this
+    /// one — turning the promise above exactly backwards: the first jump in a cold
+    /// project waited out the whole start instead of being answered by
+    /// tree-sitter while it happened. So the two racers are unstructured tasks
+    /// meeting at a one-shot rendezvous, and this returns the moment either
+    /// settles, leaving the loser to unwind on its own. The consequence worth
+    /// stating: the cancellation is *scheduled* by the time the caller sees `nil`,
+    /// not already written to the wire.
     private func withBudget<T: Sendable>(
         _ budget: TimeInterval,
         _ operation: @escaping @Sendable () async -> T
     ) async -> T? {
-        await withTaskGroup(of: Optional<T>.self) { group in
-            group.addTask { await operation() }
-            group.addTask {
-                // A cancelled sleep throws and answers `nil`, so a caller whose own
-                // task was cancelled falls through to the index rather than
-                // waiting out a budget for an answer it is about to discard.
-                try? await Task.sleep(nanoseconds: UInt64(max(0, budget) * 1_000_000_000))
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
+        let race = FirstAnswer<T>()
+        let work = Task { race.settle(await operation()) }
+        let deadline = Task {
+            // A cancelled sleep throws and settles `nil` all the same, so nothing
+            // is left waiting when the caller gets its answer from the other side.
+            try? await Task.sleep(nanoseconds: UInt64(max(0, budget) * 1_000_000_000))
+            race.settle(nil)
         }
+        defer {
+            work.cancel()
+            deadline.cancel()
+        }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
+                race.arm(continuation)
+            }
+        } onCancel: {
+            // The caller's own task was cancelled (a newer keystroke superseded
+            // the completion behind this one). Answering `nil` immediately is what
+            // sends it to the index instead of leaving it on a budget nobody is
+            // waiting out any more.
+            race.settle(nil)
+        }
+    }
+}
+
+/// A one-shot rendezvous between a piece of work and its deadline.
+///
+/// Whichever of the two settles first resumes the waiting caller; every later
+/// settle is dropped. A bare `CheckedContinuation` cannot express that on its own
+/// — it must be resumed exactly once, and here two independent tasks race to do
+/// it — and a lock is enough, because settling is one store and one hand-off.
+///
+/// `arm` can lose the race too, which is why the value is remembered rather than
+/// only forwarded: `withTaskCancellationHandler` runs `onCancel` *immediately*
+/// when the calling task is already cancelled, i.e. possibly before the
+/// continuation exists at all. A continuation armed after the fact is resumed
+/// with the answer that arrived first.
+private final class FirstAnswer<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T?, Never>?
+    private var isSettled = false
+    private var value: T?
+
+    func arm(_ continuation: CheckedContinuation<T?, Never>) {
+        lock.lock()
+        guard !isSettled else {
+            let value = self.value
+            lock.unlock()
+            continuation.resume(returning: value)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func settle(_ value: T?) {
+        lock.lock()
+        guard !isSettled else {
+            lock.unlock()
+            return
+        }
+        isSettled = true
+        self.value = value
+        let waiting = continuation
+        continuation = nil
+        lock.unlock()
+        waiting?.resume(returning: value)
     }
 }

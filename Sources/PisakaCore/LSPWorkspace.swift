@@ -411,7 +411,21 @@ public final class LSPWorkspace {
             // *noticed*: nothing pushes it, because a session that reported its own
             // death would need a back-reference to the thing that decides whether
             // it deserves another chance.
-            guard await noteDeath(of: key) else { return nil }
+            //
+            // `sessions[key]` is re-read rather than trusted across the hop above:
+            // two requests in flight (a definition and a completion, say) both read
+            // the slot, both suspend on `isRunning`, and both come back holding the
+            // same corpse. Only the one that still finds *its* session filed under
+            // the key books the death — the other would spend a second restart on
+            // one crash, and D7's budget of three would be gone after two.
+            if sessions[key] === existing {
+                guard await noteDeath(of: key) else { return nil }
+            } else if let replacement = sessions[key] {
+                // The other observer has already restarted it. That server is the
+                // answer; launching a second one for the same key is the one thing
+                // this method exists to prevent.
+                return replacement
+            }
         }
 
         // A second request arriving while the first is still handshaking waits for
@@ -513,15 +527,21 @@ public final class LSPWorkspace {
 
     /// A session that was running is not any more: forget it, forget what it was
     /// told, and decide whether it gets another chance.
+    /// Every mutation happens *before* the one `await`, and that ordering is the
+    /// point: a second request that observed the same crash must find the slot
+    /// already empty (`liveSession`'s identity check) rather than a session still
+    /// filed under the key while this one waits on a terminate.
     private func noteDeath(of key: ServerKey) async -> Bool {
-        if let dead = sessions[key] { await dead.terminate() }
+        let dead = sessions[key]
         sessions[key] = nil
         transports[key] = nil
         // Everything this server was told died with it. Dropping the state is what
         // makes the next request send a `didOpen` rather than a `didChange`
         // against a document the new process has never heard of.
         documents = documents.filter { $0.value.serverKey != key }
-        return noteFailure(of: key)
+        let mayRestart = noteFailure(of: key)
+        if let dead { await dead.terminate() }
+        return mayRestart
     }
 
     /// D7's counter. `false` once the budget is spent — and from then on the

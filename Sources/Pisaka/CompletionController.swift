@@ -445,8 +445,16 @@ final class CompletionController {
             location: charRange.location,
             length: (snapshot.prefix as NSString).length
         )
+        // An empty resolve is not an answer. `resolveEdits` returns `[]` for a
+        // timeout, a dead session and a superseded handle alike, so reading it as
+        // "this item turned out to have no edits" would throw away the ones the
+        // item was *published* with — including a server-chosen range wider than
+        // the typed prefix, which AppKit's stock insertion would then leave
+        // standing in the buffer. A resolve that genuinely adds nothing loses
+        // nothing here either: it answers the same edits the item already carried.
+        let edits = resolved[word].flatMap { $0.isEmpty ? nil : $0 } ?? item.edits
         if let plan = plan(
-            for: resolved[word] ?? item.edits,
+            for: edits,
             over: preview ?? snapshot.prefix,
             replacing: typedWord,
             in: nsText

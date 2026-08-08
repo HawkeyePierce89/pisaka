@@ -313,18 +313,26 @@ coverage by set equality against `SyntaxLanguage.allCases`, emitted captures vs.
 and that each pin matches the requirement `project.yml` states for it),
 `ReleaseMetadataTests` (`Resources/Info.plist`, `PrivacyInfo.xcprivacy`, the
 `project.yml` lines that wire them into the bundle, and the iOS launch-screen
-setting) and `LicenseCoverageTests`
-(`licenses.json` vs. `project.yml`/`Package.resolved`/`Vendor/`). Follow that
-pattern for anything that ships in the bundle but has no Swift code behind it:
+setting), `LicenseCoverageTests`
+(`licenses.json` vs. `project.yml`/`Package.resolved`/`Vendor/`) and
+`LSPSourceGatingTests` (the LSP layer's platform split, by set equality over both
+sides). Follow that
+pattern for anything that ships in the bundle but has no Swift code behind it —
 these files have no compiler and no runtime check, so a static assertion is the
-only thing between a mistake and an App Store rejection.
+only thing between a mistake and an App Store rejection — and for any
+architectural rule `swift test` cannot otherwise see, since it compiles
+`PisakaCore` alone. Non-Swift test data lives in
+`Tests/PisakaCoreTests/Fixtures/<area>/`, is read through `#filePath` the same
+way, and must be listed in the test target's `exclude:` (why, in `core-lsp.md`).
 
 Shared test helpers live in `Tests/PisakaCoreTests/Support/`: `StubFileTree` (an
 in-memory `FileServicing` project tree, with hooks for unreadable files, absent
 stamps and stamp overrides), `Gate` (a blocking rendezvous that holds off-main
 work suspended while a test mutates model state on the main actor — how the
-folder-switch-mid-walk cases are staged) and `QueryScanner`'s `ParsedQuery`, the
-`.scm` scanner `VendoredGrammarQueryTests` and `SymbolQueryTests` share. Reach for
+folder-switch-mid-walk cases are staged), `QueryScanner`'s `ParsedQuery`, the
+`.scm` scanner `VendoredGrammarQueryTests` and `SymbolQueryTests` share, and
+`ScriptedLSPTransport`, the deterministic `LSPTransport` fake the session and
+workspace suites drive a whole conversation through. Reach for
 these before writing a new stub.
 
 ## Commands

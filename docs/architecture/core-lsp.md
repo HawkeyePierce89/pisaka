@@ -307,6 +307,18 @@ document, together with the limits they carry.
     document bookkeeping for that server is dropped — which is why a restarted
     server is sent `didOpen` rather than a `didChange` against a document the new
     process never had.
+    **One crash costs one restart even when two requests notice it.** Two requests
+    in flight (a definition and a completion, say) both read `sessions[key]` and
+    both suspend on `isRunning`, so both come back holding the same corpse. Only
+    the one that still finds *its* session filed under the key books the death:
+    `liveSession` re-reads the slot after the hop, and `noteDeath` does every
+    mutation — clearing the session, the transport, the documents, and incrementing
+    the counter — *before* its own `await`, so the loser finds the slot already
+    empty and falls through to join the launch instead of booking a second failure.
+    Without that, D7's budget of three restarts was spent in two crashes and the
+    `(server, root)` went silently unavailable for the rest of the app run. The
+    loser also returns a session another request restarted in the meantime rather
+    than starting a second one for the same key.
     **Two tokens, not one.** `prepareForFolderChange(root:)` bumps the public
     `generation` — only when the root actually changes, matching
     `SymbolIndexModel.prepareForFolderChange` so a caller can pin one token across
@@ -368,8 +380,15 @@ document, together with the limits they carry.
     shapes are possible, since a plan's edits never overlap and the primary one
     covers the typed word entirely: an edit wholly before it is untouched, one
     wholly after it slides, and the primary edit — the only one that can span the
-    boundary — grows or shrinks by the difference. It is a decision, not glue, so it
-    lives in Core with its own tests.
+    boundary — grows or shrinks by the difference. **The primary edit is recognised
+    by its role, not by its geometry**, and that is what makes an empty typed word
+    work: a member list opened by a bare `.` replaces nothing, so the word's start,
+    its end and the caret are one number and the primary edit is a zero-length
+    insertion sitting on it — geometrically indistinguishable from an edit "wholly
+    after the word", and read as one it slid past the preview it was supposed to
+    replace, `make` rejected the plan for `primaryEditMissesTypedWord`, and the
+    item's `import` was silently dropped on exactly the completion kind that has no
+    prefix. It is a decision, not glue, so it lives in Core with its own tests.
     `make(edits:in:replacing:typed:)` returns the ordered application list and the
     resulting caret, or a typed `Rejection`. **Edits are ordered strictly
     last-to-first**, the same rule `TextSearch`'s Replace All follows and for the
@@ -517,13 +536,31 @@ document, together with the limits they carry.
     up and does not care — so the rule stays in `LSPIntelligenceProvider` and the
     router needs no special case, because "no answer" already routes to tree-sitter.
     The routed outcome is pinned by its own test all the same.
-    `withBudget` races the call against a sleep in a task group and cancels the
-    loser, which is what turns an abandoned definition into a `$/cancelRequest` on
-    the wire rather than a server still computing an answer nobody will read; the
-    group is drained before returning, so by the time the caller sees `nil` the
-    cancellation has already been *sent*, not merely scheduled. A cancelled sleep
-    answers `nil` too, so a caller whose own task was cancelled falls through to the
-    index instead of waiting out a budget for an answer it is about to discard.
+    `withBudget` races the call against a sleep and cancels the loser, which is what
+    turns an abandoned definition into a `$/cancelRequest` on the wire rather than a
+    server still computing an answer nobody will read. A cancelled sleep settles
+    `nil` too, so a caller whose own task was cancelled falls through to the index
+    instead of waiting out a budget for an answer it is about to discard.
+    **It is deliberately not a task group**, which is what it was first written as
+    and what it cannot be: a group awaits every child before returning, and
+    `cancelAll()` only shortens a child that is *cancellable* — which the LSP
+    attempt is not at the one point that matters. Joining a launch already in
+    flight is `await Task.value` on a `Task<_, Never>`, and that ignores the
+    awaiting task's cancellation entirely, so the group's implicit drain held the
+    caller for the **handshake's** budget rather than the router's: the cold-start
+    promise two paragraphs up came out exactly backwards, with the first ⌘-click in
+    a cold project answering nothing for up to twenty seconds while the index had
+    the answer the whole time. The two racers are therefore unstructured tasks
+    meeting at a one-shot rendezvous (`FirstAnswer`, a lock around a single
+    `CheckedContinuation` — a continuation must be resumed exactly once and here
+    two tasks race to do it), and `withBudget` returns the moment either settles.
+    The consequence worth stating: by the time the caller sees `nil` the loser's
+    cancellation is *scheduled* rather than already written to the wire.
+    `RoutingIntelligenceProviderTests` pins the whole thing against a scripted
+    handshake that takes twenty times the budget, asserting by content — the answer
+    arrives while `initialize` is still the only thing on the wire — rather than by
+    stopwatch alone, and then that the abandoned launch still finished and made the
+    *next* jump semantic.
     `resolveEdits` takes no `canServe` gate: the item in hand *came from* a live
     list, so the language question was settled when it was published, and an item
     from the other provider resolves to `[]` there anyway.
