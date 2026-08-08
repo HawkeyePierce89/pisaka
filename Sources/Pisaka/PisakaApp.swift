@@ -227,6 +227,16 @@ struct PisakaApp: App {
     /// from the same `willTerminateNotification` observer.
     private let projectSearchWindows = ProjectSearchWindowController()
 
+    /// Owns the separate, non-modal read-only source viewer windows a Go to
+    /// Definition opens when the declaration lives *outside* the opened folder — an
+    /// SDK interface, a dependency checkout (D3). A plain stored reference and a
+    /// `closeAll()` from the same `willTerminateNotification` observer, mirroring
+    /// `diffWindows`/`mergeWindows`.
+    ///
+    /// Only the LSP provider ever produces such a candidate, so on a project with
+    /// no language server this stays empty for the app's whole life.
+    private let sourceViewers = SourceViewerWindowController()
+
     /// Watches the opened project folder with FSEvents so an *external* change (a
     /// generator run in the embedded terminal, a Finder rename, a console `git
     /// checkout`) shows up in the project tree on its own. A plain stored reference
@@ -294,6 +304,9 @@ struct PisakaApp: App {
                 reveal: reveal,
                 symbolIndex: symbolIndexController,
                 onGoToDefinition: { url, range in activateSearchMatch(url: url, range: range) },
+                onViewDefinitionOutsideProject: { url, range in
+                    viewDefinitionOutsideProject(url: url, range: range)
+                },
                 bottomPanel: $bottomPanel,
                 onTogglePanel: { togglePanel($0) },
                 onClose: { closeFile(id: $0) },
@@ -374,6 +387,7 @@ struct PisakaApp: App {
                         diffWindows.closeAll()
                         mergeWindows.closeAll()
                         projectSearchWindows.closeAll()
+                        sourceViewers.closeAll()
                         // And every language server, for the terminal sessions'
                         // reason: a `sourcekit-lsp` left behind is an orphan process
                         // holding a build-system cache open, which the release check
@@ -1190,6 +1204,27 @@ struct PisakaApp: App {
     }
 
     // MARK: - Go to definition
+
+    /// Show a declaration that lives **outside** the opened folder in a separate,
+    /// read-only source viewer window (D3) — the other half of
+    /// `activateSearchMatch(url:range:)`, which handles every target inside it.
+    ///
+    /// A jump into an SDK `.swiftinterface` or a dependency checkout deliberately
+    /// does *not* go through `openFile(url:)`: that would put a file the user
+    /// cannot meaningfully edit into `WorkspaceModel`, where the autosave gate, the
+    /// session snapshot and ⌘S all apply to it. The viewer has no model behind it,
+    /// so a semantic jump outside the project cannot become a write outside the
+    /// project.
+    ///
+    /// An unreadable target (the path moved, permission denied, binary or oversize)
+    /// beeps and opens nothing — exactly what a ⌘-click that resolved nothing does,
+    /// because from the user's side it is the same event: the jump did not happen.
+    private func viewDefinitionOutsideProject(url: URL, range: NSRange) {
+        guard sourceViewers.open(fileURL: url, range: range, settings: settings) else {
+            PlatformFeedback.warning()
+            return
+        }
+    }
 
     /// The Find menu's "Go to Definition" (⌃⌘J): ask the focused editor to jump
     /// from wherever its caret is.

@@ -93,6 +93,20 @@ struct CodeEditorView: NSViewRepresentable {
     /// default-constructed view (previews/tests) still compiles.
     var onGoToDefinition: (URL, NSRange) -> Void = { _, _ in }
 
+    /// Show a definition that lives *outside* the opened folder — an SDK
+    /// interface, a dependency checkout — in the separate read-only source viewer
+    /// window instead of opening it as a tab (D3). Wired to
+    /// `PisakaApp.viewDefinitionOutsideProject(url:range:)`, which beeps when the
+    /// file cannot be read. Default no-op so a default-constructed view
+    /// (previews/tests) still compiles.
+    ///
+    /// A separate closure rather than a flag on `onGoToDefinition`, because the two
+    /// destinations are different app-level operations: one opens a tab through
+    /// `WorkspaceModel`, the other opens a window that has no model behind it at
+    /// all. Only the LSP provider ever marks a candidate out-of-root, so on the
+    /// tree-sitter path this is never called.
+    var onViewDefinitionOutsideProject: (URL, NSRange) -> Void = { _, _ in }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text)
     }
@@ -298,6 +312,7 @@ struct CodeEditorView: NSViewRepresentable {
         // entirely, for a file outside the opened folder).
         context.coordinator.symbolIndex = symbolIndex
         context.coordinator.navigateToDefinition = onGoToDefinition
+        context.coordinator.viewDefinitionOutsideProject = onViewDefinitionOutsideProject
         context.coordinator.reindexSymbols(
             text: text,
             language: language,
@@ -470,8 +485,10 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.symbolIndex = symbolIndex
         // Keep the navigation closure current: it captures `PisakaApp`'s state, so
         // a stale one from a previous update would open tabs through a torn-down
-        // scene's workspace.
+        // scene's workspace. The out-of-root destination is kept current for the
+        // same reason.
         context.coordinator.navigateToDefinition = onGoToDefinition
+        context.coordinator.viewDefinitionOutsideProject = onViewDefinitionOutsideProject
         if switchedFile || contentReplaced {
             context.coordinator.reindexSymbols(
                 text: textView.string,
@@ -760,6 +777,11 @@ struct CodeEditorView: NSViewRepresentable {
         /// scene state (see the property's note there).
         var navigateToDefinition: (URL, NSRange) -> Void = { _, _ in }
 
+        /// Shows a declaration that lives outside the opened folder in the separate
+        /// read-only viewer window. Assigned from `CodeEditorView` on every update,
+        /// like `navigateToDefinition`, and for the same reason.
+        var viewDefinitionOutsideProject: (URL, NSRange) -> Void = { _, _ in }
+
         /// Jump to the declaration of the identifier at `offset` — the single
         /// entry point behind both ⌘-click and the ⌃⌘J menu item, so the two can
         /// never disagree about what counts as an identifier or how a jump is made.
@@ -803,19 +825,32 @@ struct CodeEditorView: NSViewRepresentable {
                     // worse than the click itself.
                     PlatformFeedback.warning()
                 case 1:
-                    self.navigateToDefinition(
-                        candidates[0].fileURL,
-                        candidates[0].range
-                    )
+                    self.navigate(to: candidates[0])
                 default:
                     DefinitionPicker.present(
                         candidates,
                         in: textView,
                         anchoredTo: match.range
                     ) { [weak self] candidate in
-                        self?.navigateToDefinition(candidate.fileURL, candidate.range)
+                        self?.navigate(to: candidate)
                     }
                 }
+            }
+        }
+
+        /// Land on a chosen declaration: a tab for a file inside the opened folder,
+        /// the read-only viewer window for one outside it (D3).
+        ///
+        /// The fork is the candidate's own `isOutsideProjectRoot` — the provider
+        /// knows the project root, this view does not — and it is applied in one
+        /// place so the single-candidate jump and the picker's choice can never
+        /// disagree about where a target opens. Every tree-sitter candidate takes
+        /// the first branch: the index only ever walks the opened folder.
+        private func navigate(to candidate: DefinitionCandidate) {
+            if candidate.isOutsideProjectRoot {
+                viewDefinitionOutsideProject(candidate.fileURL, candidate.range)
+            } else {
+                navigateToDefinition(candidate.fileURL, candidate.range)
             }
         }
 

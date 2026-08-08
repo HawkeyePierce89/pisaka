@@ -672,15 +672,58 @@ Where an out-of-project target lands (D3).
   `Sources/Pisaka/SourceViewerContent.swift`
 - Modify: `Sources/Pisaka/CodeEditorView.swift`, `Sources/Pisaka/PisakaApp.swift`
 
-- [ ] a retained-window controller mirroring `DiffWindowController` (release on
+- [x] a retained-window controller mirroring `DiffWindowController` (release on
       close, `closeAll()` on termination) hosting a read-only, syntax-highlighted
       `NSTextView` modeled on `DiffView`'s pane, scrolled to the target range
-- [ ] `goToDefinition` routes an in-root candidate through today's
+- [x] `goToDefinition` routes an in-root candidate through today's
       `navigateToDefinition` and an out-of-root one to the viewer; an unreadable
       target beeps, exactly like a resolved-nothing click
-- [ ] the viewer is structurally read-only: no `WorkspaceModel` tab, no autosave
+- [x] the viewer is structurally read-only: no `WorkspaceModel` tab, no autosave
       participation, no path by which a file outside the root can be written
-- [ ] run `swift test` — must pass before task 11
+- [x] run `swift test` — must pass before task 11
+
+Four things the implementation settled that the plan had left open, all worth
+carrying into Task 13's `core-lsp.md` (and `app-window.md`, which owns the
+window-chrome half):
+
+- **The file is read before the window exists.** `DiffWindowContent` loads
+  asynchronously and shows "Loading…" because its rows come from `git show`; a
+  viewer's whole content is one file read, and doing it up front is what lets
+  "an unreadable target beeps" be *nothing happened* rather than an empty window
+  the user has to close. `SourceViewerWindowController.open` therefore returns
+  `false` — having created nothing — and the caller beeps. It reads through
+  `FileService.readTextIfNotBinary` under
+  `LSPIntelligenceProvider.maximumTargetFileBytes`, deliberately the same door
+  and the same cap the provider already used to turn the server's
+  `(line, character)` into an offset: a file the provider refused produced no
+  candidate at all, so the viewer can never be asked for something larger.
+- **One window per file, unlike the diff windows.** `DiffWindowController`
+  states outright that it does not dedup, and is right not to — two diffs of one
+  file at different commits are different documents. A viewer shows a *file*, so
+  ⌘-clicking three `Foundation` symbols must not leave three identical windows;
+  a second jump into a file already open re-reveals through that window's own
+  `EditorRevealState` token and brings it forward. The key is the
+  symlink-resolved path, for `CanonicalPath`'s reason: the server answers with
+  the path *it* resolved (`/private/tmp/…` for a folder opened as `/tmp/…`), and
+  two spellings of one file must not become two windows.
+- **`EditorRevealState` is reused rather than reinvented**, which is what makes
+  the reveal correct on the *first* showing too: the request is recorded before
+  the content exists and consumed on the pane's first update — the same update
+  that installs the text — which is the exact ordering that state was designed
+  around for a Find in Files activation that has to open the file first. Each
+  window gets its own state and a generated `fileID`, since a viewer shows one
+  file for its whole life.
+- **The viewer is not `CodeEditorView` with `isEditable = false`.** That view
+  brings the binding it writes back through, per-file undo managers, auto-pair
+  and auto-indent interception, the symbol re-index, blame, the minimap and
+  completion — none of which means anything for a file that is not a tab. What
+  is left after removing all of it is `DiffView.makePane` with the editor's own
+  gutter, and the read-only guarantee stops being a flag: the content is a
+  `String` copied out of the file once, and there is no path from the window back
+  to disk to get wrong. The routing fork lives in one place
+  (`Coordinator.navigate(to:)`) so the single-candidate jump and the picker's
+  choice cannot disagree, and it reads the candidate's own
+  `isOutsideProjectRoot` — always `false` on the tree-sitter path.
 
 ### Task 11: Completion insertion — combined edits, one undo step
 
