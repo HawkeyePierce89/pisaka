@@ -307,7 +307,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     one whose replaced range starts a line could trip the dedent rewrite.
     `teardown()` additionally calls `completion.reset()`, so a torn-down tab can
     neither serve a closed file's identifiers nor open a popup over the tab that
-    replaced it. On `EditorTextView` itself: `rangeForUserCompletion` is overridden
+    replaced it — and `updateNSView` calls the same thing through
+    `clearCompletions()` on `switchedFile || contentReplaced`, because a tab
+    *switch* reuses this view rather than tearing it down. The snapshot is matched
+    only against the text of the partial word it answers, so without that the
+    stock completion bindings (⌥⎋, F5) on the same word in the incoming file would
+    be served the outgoing file's list — ranked with the wrong file as "current",
+    so the declarations actually on screen are missing or demoted. The iOS editor
+    clears its strip on the identical condition. On `EditorTextView` itself: `rangeForUserCompletion` is overridden
     to return Core's completion-prefix range (AppKit's stock implementation walks
     back over a broader word class and reporting the whole dotted expression is the
     classic reason a popup offers nothing; a non-empty selection is left to `super`);

@@ -160,6 +160,25 @@ public final class SymbolIndexModel: ObservableObject {
     /// re-extracts nor removes one (the buffer owns it until `forgetBuffer`).
     private var bufferSourced: Set<String> = []
 
+    /// Files whose buffer was given up (`forgetBuffer`, i.e. a tab close) **since
+    /// the current walk read its buffer snapshot**.
+    ///
+    /// The walk's counterpart to `reindexBuffer`'s post-parse cancellation check,
+    /// and it exists for exactly the failure that check prevents. A chunk carries
+    /// `.walkBuffer` outcomes for the tabs that were open when the walk started;
+    /// if one of those tabs closes while the chunk is in flight, `forgetBuffer`
+    /// runs first (clearing a mark that was never set) and `apply` lands
+    /// afterwards, marking the file buffer-sourced with no editor behind it. The
+    /// entry would then be frozen for the rest of the session: `extractChunk`
+    /// skips buffer-sourced files, so no refresh re-reads it from disk, and
+    /// `removeFiles` exempts them, so it would go on answering go-to-definition
+    /// even after the file was deleted.
+    ///
+    /// Cleared at the start of every walk, so it only ever describes the window it
+    /// is consulted for, and a stale key could at worst cost one extra disk
+    /// extraction — the safe direction.
+    private var buffersClosedDuringWalk: Set<String> = []
+
     /// - Parameters:
     ///   - openBuffers: the *unsaved* text of every open editor tab that has a
     ///     URL, keyed by that URL — `ProjectSearchModel`'s closure, and in the app
@@ -310,6 +329,10 @@ public final class SymbolIndexModel: ObservableObject {
         isIndexing = true
 
         let service = fileService
+        // Everything this walk's buffer snapshot claims is true as of *now*; a tab
+        // that closes from here on is recorded so `apply` can decline the
+        // ownership its in-flight outcome would otherwise take.
+        buffersClosedDuringWalk = []
         // One main-actor read of the workspace for the whole walk, canonicalized
         // off-main — `ProjectSearchModel`'s rule, for the same reason: a per-file
         // lookup would put a symlink resolution per open tab on the main thread
@@ -341,6 +364,15 @@ public final class SymbolIndexModel: ObservableObject {
         let byteCap = maxFileBytes
         var start = 0
 
+        // Snapshotted **once** for the whole walk, unlike the buffer marks below.
+        // `apply` writes stamps only for files in chunks it has already processed,
+        // and a candidate appears in exactly one chunk, so a per-chunk copy would
+        // never decide anything differently — while a second reference to the
+        // dictionary held across `apply`'s mutation forces a full copy of it per
+        // chunk, i.e. O(files²/chunk) element copies on the main actor for a pass
+        // whose entire purpose is to avoid work.
+        let knownStamps = stampGated ? stamps : [:]
+
         while start < candidates.count {
             let end = min(start + Self.chunkSize, candidates.count)
             let chunk = Array(candidates[start..<end])
@@ -350,7 +382,6 @@ public final class SymbolIndexModel: ObservableObject {
             // `reindexBuffer` that lands between two chunks must be visible to
             // the next one, or that chunk would republish the file from the
             // walk-time text and undo the edit (see `extractChunk`).
-            let knownStamps = stampGated ? stamps : [:]
             let skippable = bufferSourced
 
             let outcomes = await offMain {
@@ -434,6 +465,9 @@ public final class SymbolIndexModel: ObservableObject {
         let key = SymbolIndex.fileKey(for: url)
         bufferSourced.remove(key)
         stamps[key] = nil
+        // A walk may be holding an outcome for this file that was extracted from
+        // the buffer this call just gave up; see `buffersClosedDuringWalk`.
+        buffersClosedDuringWalk.insert(key)
     }
 
     // MARK: - Applying results
@@ -452,10 +486,25 @@ public final class SymbolIndexModel: ObservableObject {
             let key = outcome.candidate.key
             if outcome.source != .liveBuffer && bufferSourced.contains(key) { continue }
 
-            index.replace(fileURL: outcome.candidate.url, symbols: outcome.symbols)
+            // A walk-snapshot outcome whose tab has since closed publishes its
+            // symbols but takes no ownership: they are still the best text anyone
+            // has for the file, while the mark would pin the entry to a buffer
+            // that no longer exists (see `buffersClosedDuringWalk`). Demoting to
+            // `.disk` also records the outcome's `nil` stamp, which is what makes
+            // the next refresh re-extract the file from disk.
+            let source: OutcomeSource =
+                outcome.source == .walkBuffer && buffersClosedDuringWalk.contains(key)
+                    ? .disk
+                    : outcome.source
+
+            // Filed under the key the walk resolved off-main, never a freshly
+            // derived one: `SymbolIndex.replace(fileKey:)` states both halves of
+            // why (a symlink resolution per file on the main actor, and a key that
+            // could diverge from the one `indexedFiles`/`stamps` track).
+            index.replace(fileKey: key, symbols: outcome.symbols)
             indexedFiles.insert(key)
 
-            if outcome.source.isBuffer {
+            if source.isBuffer {
                 bufferSourced.insert(key)
                 // A buffer's text has no on-disk stamp; recording the file's
                 // would claim the *disk* version was extracted and make the next

@@ -65,6 +65,29 @@ private final class RecordingExtractor: @unchecked Sendable {
     }
 }
 
+/// A *mutable* stand-in for the workspace's open tabs, so a test can close one
+/// while a walk is in flight — which the constant closures elsewhere in this
+/// suite cannot express.
+private final class OpenBuffers: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [URL: String]
+
+    init(_ storage: [URL: String]) { self.storage = storage }
+
+    /// The closure `SymbolIndexModel` is constructed with.
+    var snapshot: [URL: String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func close(_ url: URL) {
+        lock.lock()
+        storage[url] = nil
+        lock.unlock()
+    }
+}
+
 @MainActor
 final class SymbolIndexModelTests: XCTestCase {
     private let root = URL(fileURLWithPath: "/project")
@@ -664,6 +687,42 @@ final class SymbolIndexModelTests: XCTestCase {
 
         XCTAssertEqual(names(model, "typed"), ["typed"])
         XCTAssertTrue(names(model, "savedTwo").isEmpty)
+    }
+
+    func testATabClosedMidWalkDoesNotLeaveTheFileBufferOwned() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym saved\n"])
+        let url = stub.url("a.swift")
+        let buffers = OpenBuffers([url: "sym typed\n"])
+        let model = SymbolIndexModel(
+            fileService: stub,
+            openBuffers: { buffers.snapshot },
+            extractSymbols: RecordingExtractor().extract
+        )
+
+        let gate = Gate()
+        stub.listingGate = gate
+        let walk = Task { await model.rebuild(root: root) }
+        await gate.waitUntilReached()
+
+        // The tab closes after the walk read the workspace, so its chunk is still
+        // carrying an outcome extracted from a buffer that no longer exists — the
+        // walk's version of the window `reindexBuffer`'s cancellation check covers.
+        buffers.close(url)
+        model.forgetBuffer(url: url)
+        gate.release()
+        await walk.value
+
+        // The symbols survive: they are still the best text anyone has for the
+        // file.
+        XCTAssertEqual(names(model, "typed"), ["typed"])
+
+        // What must *not* survive is the ownership. If the outcome had marked the
+        // file buffer-sourced, every later refresh would skip it and the entry
+        // would stay frozen for the rest of the session.
+        stub.files["a.swift"] = "sym savedTwo\n"
+        await model.refresh(root: root)
+        XCTAssertEqual(names(model, "savedTwo"), ["savedTwo"])
+        XCTAssertTrue(names(model, "typed").isEmpty)
     }
 
     func testForgetBufferLetsTheNextRefreshTakeTheDiskVersion() async {

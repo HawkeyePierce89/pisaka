@@ -170,5 +170,22 @@ final class SecurityScopedFileService: FileServicing, SecurityScopeProviding, @u
     func symbolicLinkDestination(at url: URL) -> String? {
         withScope(url) { base.symbolicLinkDestination(at: url) }
     }
+
+    /// Forwarded (rather than inheriting the protocol extension's `nil` default)
+    /// so the size check in `readTextIfNotBinary` actually fires on iOS: `nil`
+    /// means "unknown", and the default implementation then decodes the whole file
+    /// into memory before measuring it — on a picked folder containing a large
+    /// binary, exactly the read the cap exists to avoid.
+    func fileByteCount(at url: URL) -> Int? {
+        withScope(url) { base.fileByteCount(at: url) }
+    }
+
+    /// Forwarded for the same reason, and with the same stakes as
+    /// `fileStamp(at:)`'s own note: `nil` reads as "this file always looks
+    /// changed", so inheriting the default would make every symbol-index refresh
+    /// on iOS re-read and re-parse the entire project.
+    func fileStamp(at url: URL) -> FileStamp? {
+        withScope(url) { base.fileStamp(at: url) }
+    }
 }
 #endif

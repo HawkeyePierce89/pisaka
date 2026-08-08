@@ -56,7 +56,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     go-to-definition until the folder was reopened. `SymbolIndexModel.removeFiles`
     therefore keeps the keys (`indexedFiles` is a `Set<String>`, not a key→URL
     map) and passes them straight back, which also drops a syscall per removed
-    file from the main actor.
+    file from the main actor. `replace(fileKey:symbols:)` is the *insert* side of
+    the same rule, and `replace(fileURL:symbols:)` now delegates to it: the walk
+    already resolved every candidate's key off-main (that is what `IndexCandidate`
+    carries it for), so re-deriving it in `apply` would put one symlink resolution
+    per indexed file back on the main actor — and could file the entry under a key
+    that `indexedFiles`/`stamps`/`bufferSourced` never recorded, which no later
+    `remove(fileKey:)` would find.
     That purge sweeps **one bucket per distinct name and initial**, not one per
     symbol: `prefixBucket[initial]` holds the entries of the whole project for
     that letter, so a per-symbol loop would rescan it end to end (and, bound with
@@ -212,6 +218,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     reopened. The check and `apply` are one main-actor run with no suspension
     between them, so a cancellation lands either before it (nothing is published)
     or after the entry was applied (and `forgetBuffer` then clears it).
+    **The walk has the same window, and `buffersClosedDuringWalk` is its guard.**
+    A chunk carries `.walkBuffer` outcomes for the tabs that were open when the
+    walk read the workspace; if one of those closes while the chunk is in flight,
+    `forgetBuffer` runs first (clearing a mark that was never set) and `apply`
+    lands afterwards — re-creating exactly the frozen entry the cancellation check
+    above exists to prevent, with no cancellation anywhere to catch it, since the
+    walk is not the tab's task. `forgetBuffer` therefore records the key in a set
+    that `walk` clears at its start, and `apply` demotes a `.walkBuffer` outcome
+    whose key is in it to `.disk`: the symbols are still published (they remain the
+    best text anyone has for the file) but the entry is not marked buffer-sourced,
+    and the outcome's `nil` stamp is what makes the next refresh re-extract it from
+    disk. A stale key in that set could at worst cost one extra extraction — the
+    safe direction.
     **Buffer-over-disk precedence** is the rule that makes the two sources safe to
     mix, and it turns on *where the text came from*, which is why `FileOutcome`
     carries a three-case `OutcomeSource` rather than a `fromBuffer` flag: `.disk`,
@@ -231,9 +250,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     promise; a file with buffer text that is *not* yet buffer-sourced is the first
     walk to see that tab, so its text is indexed and takes ownership. That check
     is a cheap short-circuit, not the guarantee: the snapshot it reads is taken
-    per *chunk* (for the same reason as the stamps), so it closes the window only
+    per *chunk*, so it closes the window only
     up to the chunk's dispatch and `apply`'s guard is what covers a
-    `reindexBuffer` landing while the chunk runs.
+    `reindexBuffer` landing while the chunk runs. The **stamp** snapshot, by
+    contrast, is taken once for the whole walk: a candidate appears in exactly one
+    chunk and `apply` writes stamps only for chunks already processed, so a
+    per-chunk copy would decide nothing differently — while a second reference to
+    the dictionary held across `apply`'s mutation forces a full copy of it per
+    chunk, i.e. O(files²/32) element copies on the main actor for the pass whose
+    whole purpose is to avoid work.
     **A walk also indexes the open tabs it cannot reach.** `bufferCandidates`
     appends one candidate per open buffer the traversal did not produce — a tab on
     a file under the folder the user just left, or one this project's `.gitignore`

@@ -136,6 +136,25 @@ final class SymbolIndexTests: XCTestCase {
         XCTAssertFalse(index.isEmpty)
     }
 
+    func testReplaceByKeyMatchesReplaceByURL() {
+        let file = "/tmp/pisaka-symbols/a.swift"
+        let key = SymbolIndex.fileKey(for: url(file))
+
+        var byKey = SymbolIndex()
+        byKey.replace(fileKey: key, symbols: [symbol("run", in: file)])
+        var byURL = SymbolIndex()
+        byURL.replace(fileURL: url(file), symbols: [symbol("run", in: file)])
+
+        // The caller-supplied key is the one the URL would have resolved to, so
+        // the two stores are indistinguishable — including to `remove(fileKey:)`,
+        // which is what the index's bookkeeping owner calls to undo either.
+        XCTAssertEqual(byKey, byURL)
+        XCTAssertEqual(byKey.symbols(inFile: url(file)).map(\.name), ["run"])
+
+        byKey.remove(fileKey: key)
+        XCTAssertTrue(byKey.isEmpty)
+    }
+
     func testRemoveErasesTheFileFromBothBuckets() {
         var index = SymbolIndex()
         let gone = "/tmp/pisaka-symbols/gone.swift"

@@ -55,7 +55,19 @@ public struct SymbolIndex: Equatable, Sendable {
     /// the first call in either bucket, which is what makes a re-index after an
     /// edit safe to run as often as the debounce fires.
     public mutating func replace(fileURL: URL, symbols: [Symbol]) {
-        let key = Self.fileKey(for: fileURL)
+        replace(fileKey: Self.fileKey(for: fileURL), symbols: symbols)
+    }
+
+    /// The same replacement, by the key the file is to be **filed under**.
+    ///
+    /// The one a caller that already holds the key must use, and for the same two
+    /// reasons `remove(fileKey:)` states: `fileKey(for:)` resolves symlinks
+    /// against the file system, so re-deriving it here would put one such round
+    /// trip per indexed file on whichever actor is publishing — and it could
+    /// answer a *different* string than the one the caller's own bookkeeping
+    /// (`indexedFiles`, `stamps`) recorded when it walked the file, which would
+    /// file the entry under a key no later removal looks for.
+    public mutating func replace(fileKey key: String, symbols: [Symbol]) {
         purge(fileKey: key)
         files[key] = symbols
         for symbol in symbols {

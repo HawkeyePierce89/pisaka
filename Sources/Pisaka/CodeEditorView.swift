@@ -478,6 +478,9 @@ struct CodeEditorView: NSViewRepresentable {
                 language: language,
                 immediate: true
             )
+            // The candidates computed for the outgoing buffer answer a file that
+            // is no longer on screen (see `clearCompletions`).
+            context.coordinator.clearCompletions()
         }
 
         // Consume a pending Find in Files activation. Deliberately *after* the
@@ -664,6 +667,19 @@ struct CodeEditorView: NSViewRepresentable {
         /// would otherwise get.
         func requestCompletions() {
             updateCompletions(explicit: true)
+        }
+
+        /// Drop the candidate snapshot because the editor is now showing a
+        /// different file (or a wholesale new buffer).
+        ///
+        /// The snapshot is matched only against the *text* of the partial word it
+        /// was computed for, so without this a stock completion invocation
+        /// (⌥⎋, F5) on the same word in the incoming file would be served the
+        /// outgoing file's list — ranked with the wrong file as "current", so the
+        /// declarations actually in view are missing or demoted. The iOS editor
+        /// clears its strip on the same condition.
+        func clearCompletions() {
+            completion.reset()
         }
 
         /// AppKit is asking what to put in the popup it is already opening.

@@ -333,7 +333,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     mutating method is *forwarded* through `withScope` rather than left to inherit
     the protocol extension's default — including `ensureDirectory(at:)`, so a whole
     created chain lands under the covering scope's grant (iOS has no tree
-    create/rename UI yet, so this is consistency, not a live call site).
+    create/rename UI yet, so this is consistency, not a live call site). The two
+    *metadata* readers are forwarded for the same reason, and there the default is
+    not merely inconsistent but wrong in effect: `fileByteCount(at:)` and
+    `fileStamp(at:)` both default to `nil`, which every caller reads as "unknown,
+    so do the work" — the oversize check in `readTextIfNotBinary` would then decode
+    a whole file into memory before measuring it, and the symbol index's stamp gate
+    would re-read and re-parse the entire project on every refresh (latent today,
+    since iOS has no watcher and so never calls `refresh(root:)`).
     `SecurityScopedFileService` also conforms to `SecurityScopeProviding` (a small
     `AnyObject` protocol vending `withSecurityScope(covering:_:)`): `LibGit2Service`
     touches the working tree/index directly via `FileManager`/libgit2 rather than
