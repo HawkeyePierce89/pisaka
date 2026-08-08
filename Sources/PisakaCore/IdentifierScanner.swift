@@ -1,19 +1,20 @@
 import Foundation
 
 /// The editor's single definition of *"what is an identifier"*, shared by the
-/// three questions code intelligence asks about raw text: which word did the
+/// four questions code intelligence asks about raw text: which word did the
 /// user ⌘-click (`identifier(in:at:)`), which partial word are they typing
-/// (`completionPrefixRange(in:at:)`), and which words does this buffer contain
-/// (`words(in:limit:)`).
+/// (`completionPrefixRange(in:at:)`), which words does this buffer contain
+/// (`words(in:limit:)`), and is the caret sitting after a member-access dot
+/// (`memberContext(in:at:)`).
 ///
 /// Pure and Foundation-only, operating on an `NSString` and UTF-16 offsets like
 /// every other editor engine (`DuplicateEngine`, `BracketMatchEngine`,
 /// `AutoPairEngine`), so a range it returns can be handed straight to the text
 /// view — and to `EditorRevealState` — without a coordinate conversion.
 ///
-/// **The one boundary rule**, deliberately shared by all three entry points so
-/// the word a click resolves, the prefix a keystroke completes and the words the
-/// harvester offers can never disagree:
+/// **The one boundary rule**, deliberately shared by every entry point so the
+/// word a click resolves, the prefix a keystroke completes, the words the
+/// harvester offers and the receiver a dot hangs off can never disagree:
 ///
 /// - an identifier *starts* with a Unicode letter or `_`;
 /// - it *continues* with letters, digits, combining marks and `_`;
@@ -37,6 +38,26 @@ public enum IdentifierScanner {
         public init(text: String, range: NSRange) {
             self.text = text
             self.range = range
+        }
+    }
+
+    /// The caret sitting in a *member position* — just after a `.` that hangs
+    /// off something a member could belong to.
+    public struct MemberContext: Equatable, Sendable {
+        /// The identifier immediately left of the dot (`worker` in `worker.na|`),
+        /// or `nil` when the dot follows a closing bracket (`f().|`,
+        /// `items[0].|`) — an expression whose spelling says nothing about the
+        /// type, so the ranking has no receiver to prefer.
+        public let receiver: String?
+        /// The UTF-16 range a completion replaces: the member prefix already
+        /// typed after the dot, **possibly empty** when the dot was just typed.
+        /// Always equal to `completionPrefixRange(in:at:)` at the same offset,
+        /// so the two paths can never insert at different places.
+        public let prefixRange: NSRange
+
+        public init(receiver: String?, prefixRange: NSRange) {
+            self.receiver = receiver
+            self.prefixRange = prefixRange
         }
     }
 
@@ -136,6 +157,58 @@ public enum IdentifierScanner {
         guard start < clamped else { return empty }
         let run = NSRange(location: start, length: clamped - start)
         return trimmedIdentifier(in: text, range: run)?.range ?? empty
+    }
+
+    /// Whether the caret at `offset` sits in a member position — after a `.`
+    /// that hangs off an identifier or a closing bracket — and, if so, what the
+    /// completion should replace and which receiver it hangs off.
+    ///
+    /// This extends the file's one boundary rule rather than inventing a second
+    /// one: the member prefix is the same maximal run of continuation scalars
+    /// `completionPrefixRange(in:at:)` takes (and `prefixRange` is literally that
+    /// call's answer, so the two can never disagree about the insertion point),
+    /// and the receiver is the same `identifierRun` a ⌘-click would resolve.
+    ///
+    /// The dot must hang off something a member could belong to. Accepted:
+    /// an identifier (`worker.|`) and the closing brackets `)`, `]`, `}`
+    /// (`f().|`, `items[0].|`, `{ … }.|`), whose expression yields *some* value
+    /// even though its spelling names no type — hence `receiver == nil` there.
+    /// Rejected, all yielding `nil`: a dot after whitespace (`foo .|`), after
+    /// `(` or `,`, after another dot (`..|`), at the start of the file, and
+    /// after a bare number — `1.|` and `1.5|` are float literals, caught by the
+    /// trim rule (a run of digits is not an identifier), so typing a decimal
+    /// point never opens a member list.
+    ///
+    /// **String and comment context is deliberately not detected.** A dot inside
+    /// a string literal or a comment *does* report a member position, exactly as
+    /// identifier completion already offers candidates while typing inside one:
+    /// knowing better needs the syntax tree, which this Foundation-only scanner
+    /// does not have, and the provider's own rules (a bare dot offers members
+    /// only, never buffer words) are what keep the resulting popup quiet.
+    ///
+    /// `offset` is clamped and moved onto a scalar boundary like the rest of the
+    /// file, so a stale caret degrades instead of trapping.
+    public static func memberContext(in text: NSString, at offset: Int) -> MemberContext? {
+        let clamped = scalarStart(in: text, at: min(max(offset, 0), text.length))
+
+        // The member prefix: the run of continuation scalars left of the caret.
+        var start = clamped
+        while let scalar = scalar(in: text, endingAt: start), isIdentifierContinuation(scalar.value) {
+            start = scalar.range.location
+        }
+
+        // The dot must be immediately before it — no whitespace is tolerated,
+        // so `foo .|` is not a member position.
+        guard let dot = scalar(in: text, endingAt: start), dot.value == "." else { return nil }
+        guard let preceding = scalar(in: text, endingAt: dot.range.location) else { return nil }
+
+        let prefixRange = completionPrefixRange(in: text, at: clamped)
+        if preceding.value == ")" || preceding.value == "]" || preceding.value == "}" {
+            return MemberContext(receiver: nil, prefixRange: prefixRange)
+        }
+        guard isIdentifierContinuation(preceding.value),
+              let receiver = identifierRun(in: text, seededBy: preceding.range) else { return nil }
+        return MemberContext(receiver: receiver.text, prefixRange: prefixRange)
     }
 
     /// Every distinct identifier in `text`, in first-occurrence order, capped at

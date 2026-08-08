@@ -124,6 +124,104 @@ final class IdentifierScannerTests: XCTestCase {
         )
     }
 
+    // MARK: - memberContext(in:at:)
+
+    /// The two shapes that open a member list: the dot just typed (empty
+    /// prefix) and a few characters typed after it.
+    func testMemberContextResolvesTheReceiverAndTheTypedPrefix() {
+        let justTyped = text("worker.")
+        XCTAssertEqual(
+            IdentifierScanner.memberContext(in: justTyped, at: 7),
+            IdentifierScanner.MemberContext(
+                receiver: "worker",
+                prefixRange: NSRange(location: 7, length: 0)
+            )
+        )
+
+        let partial = text("worker.na")
+        XCTAssertEqual(
+            IdentifierScanner.memberContext(in: partial, at: 9),
+            IdentifierScanner.MemberContext(
+                receiver: "worker",
+                prefixRange: NSRange(location: 7, length: 2)
+            )
+        )
+    }
+
+    /// A chained access takes the *nearest* receiver, not the whole expression:
+    /// in `a.b.c|` the members being offered are `b`'s.
+    func testMemberContextTakesTheNearestReceiverInAChain() {
+        XCTAssertEqual(IdentifierScanner.memberContext(in: text("a.b.c"), at: 5)?.receiver, "b")
+        XCTAssertEqual(IdentifierScanner.memberContext(in: text("a.b."), at: 4)?.receiver, "b")
+    }
+
+    /// A dot off a closing bracket is still a member position — the expression
+    /// yields a value — but its spelling names no type, so there is no receiver.
+    func testMemberContextAfterAClosingBracketHasNoReceiver() {
+        for source in ["items[0].", "f().", "compute { x }."] {
+            let context = IdentifierScanner.memberContext(in: text(source), at: (source as NSString).length)
+            XCTAssertNotNil(context, source)
+            XCTAssertNil(context?.receiver, source)
+        }
+    }
+
+    /// Everything a dot can follow that is *not* a member access. `1.` and
+    /// `1.5` are the float literals: typing a decimal point must never open a
+    /// member list.
+    func testMemberContextIsNilWhereTheDotIsNotAMemberAccess() {
+        let cases = ["1.", "1.5", "3.14", "foo .", "(.", "..", ".", "foo ,.", "+."]
+        for source in cases {
+            XCTAssertNil(
+                IdentifierScanner.memberContext(in: text(source), at: (source as NSString).length),
+                source
+            )
+        }
+        XCTAssertNil(IdentifierScanner.memberContext(in: text(""), at: 0))
+    }
+
+    /// Deleting the dot hands the caret back to ordinary identifier completion:
+    /// there is no member context left to find.
+    func testMemberContextIsNilOnceTheDotIsDeleted() {
+        XCTAssertNil(IdentifierScanner.memberContext(in: text("workerna"), at: 8))
+        XCTAssertNil(IdentifierScanner.memberContext(in: text("foo"), at: 3))
+    }
+
+    /// The reported range is the same one ordinary completion would replace, so
+    /// the member and identifier paths can never insert at different places.
+    func testMemberContextPrefixRangeMatchesCompletionPrefixRange() {
+        let sources = ["worker.", "worker.na", "a.b.c", "items[0].doR", "$FOO.bar"]
+        for source in sources {
+            let string = text(source)
+            for offset in 0...string.length {
+                guard let context = IdentifierScanner.memberContext(in: string, at: offset) else { continue }
+                XCTAssertEqual(
+                    context.prefixRange,
+                    IdentifierScanner.completionPrefixRange(in: string, at: offset),
+                    "\(source) @ \(offset)"
+                )
+            }
+        }
+    }
+
+    /// The receiver goes through the same trim rule as every other lookup, and
+    /// the scan is surrogate-pair aware on both sides of the dot.
+    func testMemberContextAppliesTheSharedBoundaryRule() {
+        XCTAssertEqual(IdentifierScanner.memberContext(in: text("9foo.bar"), at: 8)?.receiver, "foo")
+        XCTAssertEqual(IdentifierScanner.memberContext(in: text("x2.y"), at: 4)?.receiver, "x2")
+        XCTAssertEqual(IdentifierScanner.memberContext(in: text("_private."), at: 9)?.receiver, "_private")
+        XCTAssertEqual(IdentifierScanner.memberContext(in: text("имя.по"), at: 6)?.receiver, "имя")
+        XCTAssertEqual(
+            IdentifierScanner.memberContext(in: text("\u{1D400}bc.d"), at: 6)?.receiver,
+            "\u{1D400}bc"
+        )
+    }
+
+    func testMemberContextClampsOffsetsOutsideTheString() {
+        let source = text("worker.na")
+        XCTAssertEqual(IdentifierScanner.memberContext(in: source, at: 999)?.receiver, "worker")
+        XCTAssertNil(IdentifierScanner.memberContext(in: source, at: -5))
+    }
+
     // MARK: - words(in:limit:)
 
     func testWordsHarvestsDistinctNamesInFirstOccurrenceOrder() {

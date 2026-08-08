@@ -227,11 +227,11 @@ dot is least likely to be a member access.
 - Modify: `Sources/PisakaCore/IdentifierScanner.swift`
 - Modify: `Tests/PisakaCoreTests/IdentifierScannerTests.swift`
 
-- [ ] Add `IdentifierScanner.MemberContext` — `receiver: String?` (the
+- [x] Add `IdentifierScanner.MemberContext` — `receiver: String?` (the
       identifier immediately left of the dot, `nil` when the dot follows a
       closing bracket) plus the `prefixRange` the completion replaces (the
       member prefix already typed after the dot, possibly empty).
-- [ ] Add `IdentifierScanner.memberContext(in text: NSString, at offset: Int)
+- [x] Add `IdentifierScanner.memberContext(in text: NSString, at offset: Int)
       -> MemberContext?`, extending the file's one boundary rule rather than
       inventing a second: walk back over identifier continuation scalars (the
       member prefix), require a `.` immediately before, and require the scalar
@@ -239,15 +239,15 @@ dot is least likely to be a member access.
       `}`. A dot after whitespace, `(`, `,`, another `.`, or a bare number
       (`1.`, so a float literal never triggers) yields `nil`. Surrogate-pair
       aware and offset-clamped like the rest of the file.
-- [ ] Document that string/comment context is deliberately not detected, so a
+- [x] Document that string/comment context is deliberately not detected, so a
       dot inside a string does trigger — matching identifier completion's
       existing behavior.
-- [ ] Write tests: `worker.|`, `worker.na|`, `a.b.c|` (receiver `b`),
+- [x] Write tests: `worker.|`, `worker.na|`, `a.b.c|` (receiver `b`),
       `items[0].|` and `f().|` (receiver `nil`), `1.|`, `foo .|`, `(.|`,
       `..|` and start-of-file all `nil`; `foo|` after the dot is deleted yields
       `nil` (the ordinary-completion path returns); the reported `prefixRange`
       equals `completionPrefixRange` at the same offset.
-- [ ] Run `swift test` — must pass before Task 5.
+- [x] Run `swift test` — must pass before Task 5.
 
 ### Task 5: Fuzzy + keyword ranking in the provider
 
