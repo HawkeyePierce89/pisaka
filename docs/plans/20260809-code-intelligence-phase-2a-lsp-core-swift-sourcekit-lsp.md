@@ -248,22 +248,44 @@ The protocol driver: one live conversation with one server process.
 - Create: `Tests/PisakaCoreTests/Support/ScriptedLSPTransport.swift`
 - Create: `Tests/PisakaCoreTests/LSPSessionTests.swift`
 
-- [ ] `LSPTransport` protocol (send `Data`, an `AsyncStream<Data>` of incoming bytes,
+- [x] `LSPTransport` protocol (send `Data`, an `AsyncStream<Data>` of incoming bytes,
       `terminate()`) plus `LSPTransportError` — the whole macOS/Core boundary
-- [ ] `LSPSession` actor: handshake, monotonic ids, pending-request table,
+- [x] `LSPSession` actor: handshake, monotonic ids, pending-request table,
       per-request budget (D7), `$/cancelRequest` on Swift task cancellation,
       answering server-initiated requests (`client/registerCapability`,
       `workspace/configuration` → an empty/absent-value result; anything unknown →
       `MethodNotFound`), ignoring unknown notifications, graceful
       `shutdown`→`exit`→terminate, and a terminal state on EOF that fails every
       pending request
-- [ ] `ScriptedLSPTransport`: a deterministic fake driving the session from a
+- [x] `ScriptedLSPTransport`: a deterministic fake driving the session from a
       recorded script (reply, delay, drop, close the stream) with no real process
-- [ ] tests: successful round-trip, out-of-order replies, a reply to an unknown id
+- [x] tests: successful round-trip, out-of-order replies, a reply to an unknown id
       ignored, timeout fails only its own request, cancellation emits
       `$/cancelRequest` and does not leak the pending entry, EOF mid-flight fails
       pending requests once, `shutdown` sequence order
-- [ ] run `swift test` — must pass before task 4
+- [x] run `swift test` — must pass before task 4
+
+Two things the implementation settled that the plan had left open, both worth
+carrying into Task 13's `core-lsp.md`:
+
+- **The owner keeps the session alive.** `LSPSession`'s read task holds `self`
+  *weakly*, so a session nobody references stops reading. That is deliberate — a
+  strong self would keep every session (and its process) alive until the server
+  itself exited, which is exactly what D7's "drop it and restart" cannot afford —
+  but it makes retention a contract: `LSPWorkspace` owns sessions, and anything
+  else holding one for the length of a conversation has to say so. Three tests
+  caught this by discarding the session and then watching the server-initiated
+  requests go unanswered.
+- **A framing error is terminal, a bad *payload* is not.** `ingest` distinguishes
+  the two: unreadable framing closes the session (there is no way to find where
+  the next message starts), while a correctly framed payload that is not a
+  JSON-RPC message is dropped and the stream read on — exactly one message is
+  lost, and the alternative would kill a live server over one malformed
+  notification.
+
+`LSPSession.Budgets` also carries `resolve` (D4's background
+`completionItem/resolve`, given the completion budget) and `shutdown` (2 s) beside
+D7's three numbers; both are stated on the type rather than left implicit.
 
 ### Task 4: Server registry and workspace lifecycle
 
