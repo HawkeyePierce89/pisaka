@@ -174,6 +174,17 @@ public final class SymbolIndexModel: ObservableObject {
     /// `removeFiles` exempts them, so it would go on answering go-to-definition
     /// even after the file was deleted.
     ///
+    /// `apply` therefore **drops** such an outcome outright rather than merely
+    /// demoting it to `.disk`. Demoting fixes the ownership but not the text: a
+    /// close also runs `reindexFromDisk`, and that hand-off can land *first* — the
+    /// walk's chunk is already extracted and only waiting on the main actor, while
+    /// the hand-off's one-file read is a much shorter trip — so a published
+    /// `.walkBuffer` outcome would overwrite the correct disk symbols with the
+    /// closed buffer's text. Nothing corrects that: a close writes nothing, so no
+    /// watcher fires. Dropping is safe precisely because the close guarantees the
+    /// hand-off (see `forgetBuffer`), which re-derives the entry from disk in
+    /// whichever order the two land.
+    ///
     /// Cleared at the start of every walk, so it only ever describes the window it
     /// is consulted for, and a stale key could at worst cost one extra disk
     /// extraction — the safe direction.
@@ -458,20 +469,92 @@ public final class SymbolIndexModel: ObservableObject {
         apply([outcome])
     }
 
-    /// Forget that `url`'s entry came from a buffer — what a tab close means.
+    /// Forget that `url`'s entry came from a buffer — the first half of what a tab
+    /// close means.
     ///
-    /// The symbols stay: they are still the best knowledge available, and the
-    /// file on disk is usually identical anyway (the tab was saved). What changes
-    /// is who owns the entry: the stamp is cleared alongside the mark, so the
-    /// next refresh re-extracts the file from disk unconditionally rather than
-    /// concluding from an unchanged stamp that the buffer's version is current.
+    /// The symbols stay for now: they are still the best knowledge available, and
+    /// the file on disk is usually identical anyway (the tab was saved). What
+    /// changes is who owns the entry: the stamp is cleared alongside the mark, so
+    /// any later refresh re-extracts the file from disk unconditionally rather
+    /// than concluding from an unchanged stamp that the buffer's version is
+    /// current. **The other half is `reindexFromDisk(url:)`**, which a close must
+    /// also call — see there for why "any later refresh" is not something a tab
+    /// close may rely on.
     public func forgetBuffer(url: URL) {
         let key = SymbolIndex.fileKey(for: url)
         bufferSourced.remove(key)
         stamps[key] = nil
         // A walk may be holding an outcome for this file that was extracted from
-        // the buffer this call just gave up; see `buffersClosedDuringWalk`.
+        // the buffer this call just gave up; recording the key is what makes
+        // `apply` drop it in favour of the hand-off below. See
+        // `buffersClosedDuringWalk`.
         buffersClosedDuringWalk.insert(key)
+    }
+
+    /// Re-extract `url` from **disk**, now that no buffer owns its entry — the
+    /// second half of a tab close, and the one that actually makes the hand-off
+    /// happen.
+    ///
+    /// `forgetBuffer` only gives up the *ownership*; it leaves the symbols in
+    /// place on the understanding that a refresh will re-derive them. Nothing
+    /// schedules that refresh. A tab close writes nothing, so no watcher fires,
+    /// and with no folder open — a standalone file, `lastRoot == nil` — `refresh`
+    /// is unreachable by construction. Left at that, a buffer whose changes were
+    /// *discarded*, or whose last keystrokes the close cancelled out of the
+    /// debounce, would go on answering go-to-definition and completion with text
+    /// that exists nowhere, for the rest of the session. Re-reading the one file
+    /// involved closes that window at its source, and costs a single read rather
+    /// than making every tab close walk the project.
+    ///
+    /// A file that can no longer be read — deleted, or closed *because* it was
+    /// deleted — drops out of the index entirely: with neither a buffer nor a file
+    /// behind it, there is nothing left its entry could be true of. One the
+    /// service declines (binary or oversize) indexes as empty, exactly as a walk
+    /// would.
+    ///
+    /// Ordered against the buffer path exactly as `reindexBuffer` is: the
+    /// `rootGeneration` re-check drops the result of a folder switch that landed
+    /// mid-read, cancellation is honoured after the read (a tab reopened while it
+    /// was in flight cancels this and re-indexes immediately), and both `apply`
+    /// and `dropIfUnowned` stand aside for a file that has become buffer-sourced
+    /// again — so the editor's text always outranks the disk copy.
+    public func reindexFromDisk(url: URL) async {
+        guard let language = Self.indexableLanguage(forFileName: url.lastPathComponent) else { return }
+
+        let token = rootGeneration
+        let service = fileService
+        let extract = extractSymbols
+        let byteCap = maxFileBytes
+
+        let result = await offMain { () -> (key: String, outcome: FileOutcome?) in
+            let candidate = IndexCandidate(
+                url: url,
+                key: SymbolIndex.fileKey(for: url),
+                language: language
+            )
+            // The walk's own per-file body, so a hand-off reads, gates and
+            // classifies a file exactly as a refresh does — including the key,
+            // resolved off-main once and used for both branches below. No known
+            // stamp (the entry is being re-derived, not skipped) and no buffers
+            // (that is the whole point of the call).
+            let outcomes = Self.extractChunk(
+                candidates: [candidate],
+                buffers: [:],
+                knownStamps: [:],
+                bufferSourced: [],
+                fileService: service,
+                maxBytes: byteCap,
+                extract: extract
+            )
+            return (candidate.key, outcomes.first)
+        }
+        guard token == rootGeneration, !Task.isCancelled else { return }
+
+        if let outcome = result.outcome {
+            apply([outcome])
+        } else {
+            dropIfUnowned(fileKey: result.key)
+        }
     }
 
     // MARK: - Applying results
@@ -484,7 +567,8 @@ public final class SymbolIndexModel: ObservableObject {
     /// the re-index the user's keystroke has since caused, and the file is
     /// buffer-owned afterwards, so no refresh would ever correct it. Only a
     /// `liveBuffer` outcome, which by construction carries the editor's current
-    /// text, is allowed through.
+    /// text, is allowed through. A walk-snapshot outcome for a tab that closed
+    /// mid-walk is not published at all — see `buffersClosedDuringWalk`.
     ///
     /// The batch is assembled in a local and written back to `index` **once**.
     /// `@Published` exposes only a get/set pair, so `index.replace(…)` inside the
@@ -499,16 +583,14 @@ public final class SymbolIndexModel: ObservableObject {
             let key = outcome.candidate.key
             if outcome.source != .liveBuffer && bufferSourced.contains(key) { continue }
 
-            // A walk-snapshot outcome whose tab has since closed publishes its
-            // symbols but takes no ownership: they are still the best text anyone
-            // has for the file, while the mark would pin the entry to a buffer
-            // that no longer exists (see `buffersClosedDuringWalk`). Demoting to
-            // `.disk` also records the outcome's `nil` stamp, which is what makes
-            // the next refresh re-extract the file from disk.
-            let source: OutcomeSource =
-                outcome.source == .walkBuffer && buffersClosedDuringWalk.contains(key)
-                    ? .disk
-                    : outcome.source
+            // A walk-snapshot outcome whose tab has since closed is dropped
+            // whole, text and ownership alike. The mark would pin the entry to a
+            // buffer that no longer exists, and the *text* is no better: the
+            // close's `reindexFromDisk` hand-off re-derives this very file from
+            // disk and may already have published, so republishing here would put
+            // the closed buffer's text back over it with nothing scheduled to
+            // correct it (see `buffersClosedDuringWalk`).
+            if outcome.source == .walkBuffer && buffersClosedDuringWalk.contains(key) { continue }
 
             // Filed under the key the walk resolved off-main, never a freshly
             // derived one: `SymbolIndex.replace(fileKey:)` states both halves of
@@ -517,7 +599,7 @@ public final class SymbolIndexModel: ObservableObject {
             updated.replace(fileKey: key, symbols: outcome.symbols)
             indexedFiles.insert(key)
 
-            if source.isBuffer {
+            if outcome.source.isBuffer {
                 bufferSourced.insert(key)
                 // A buffer's text has no on-disk stamp; recording the file's
                 // would claim the *disk* version was extracted and make the next
@@ -550,6 +632,24 @@ public final class SymbolIndexModel: ObservableObject {
         }
         index = updated
         indexedFiles.subtract(gone)
+    }
+
+    /// Drop one file's entry unless a buffer owns it — `removeFiles` for a single
+    /// file, and it makes the same exemption for the same reason: a tab reopened
+    /// while `reindexFromDisk`'s read was in flight owns the entry, and dropping
+    /// it would empty completion in the very file being typed in.
+    ///
+    /// Takes the key the caller resolved off-main rather than a URL, for
+    /// `removeFiles`' reason: the file is by definition gone, so re-canonicalizing
+    /// it is both a syscall on the main actor and a chance to derive a key the
+    /// entry was never stored under.
+    private func dropIfUnowned(fileKey key: String) {
+        guard indexedFiles.contains(key), !bufferSourced.contains(key) else { return }
+        var updated = index
+        updated.remove(fileKey: key)
+        index = updated
+        indexedFiles.remove(key)
+        stamps[key] = nil
     }
 
     /// Clear everything the model knows, synchronously — the folder-change reset.

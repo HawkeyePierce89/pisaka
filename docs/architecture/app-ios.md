@@ -132,7 +132,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     debounce or already inside the extractor, because `reindexBuffer` re-checks
     cancellation after its parse (the reasoning is written there, in
     `core-intelligence.md`); keying by URL is what keeps it from being collateral
-    damage to another tab. The keys are standardized rather than canonical — every
+    damage to another tab. It then files `reindexFromDisk` under that same key,
+    immediately rather than debounced (one file, and a close is not a burst): that
+    is the half of the hand-off that actually re-reads the file, and nothing else
+    would, since a close writes nothing for a watcher to see and a standalone file
+    with no folder open has no project refresh at all. Sharing the key is what
+    makes a tab reopened mid-read cancel the hand-off and let its own immediate
+    re-index win. The keys are standardized rather than canonical — every
     caller hands over the URL its tab already holds, and `SymbolIndex.fileKey(for:)`
     resolves symlinks, a file-system round trip this would otherwise pay on the
     main actor on every keystroke to tell apart spellings no tab produces. Nothing here is gated on the

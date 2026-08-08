@@ -2100,8 +2100,8 @@ struct PisakaApp: App {
     }
 
     /// Tell the symbol index that `url` no longer has an editor buffer behind it,
-    /// so the next refresh re-extracts it from disk instead of keeping the text the
-    /// closed tab held.
+    /// so it re-extracts the file from disk instead of keeping the text the closed
+    /// tab held.
     ///
     /// A no-op while *any* tab still shows the file: a cancelled close leaves the
     /// tab open, and the same file can legitimately be reached through two tabs

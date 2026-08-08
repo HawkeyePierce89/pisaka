@@ -879,7 +879,7 @@ struct RootView_iOS: View {
     }
 
     /// Tell the symbol index that `url` no longer has an editor buffer behind it, so
-    /// the next walk re-extracts it from disk — the iOS peer of
+    /// it re-extracts the file from disk — the iOS peer of
     /// `PisakaApp.forgetIndexedBuffer`, and a no-op while any tab still shows the
     /// file (a cancelled close, or the same file reached through two tabs).
     private func forgetIndexedBuffer(_ url: URL?) {

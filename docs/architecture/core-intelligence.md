@@ -212,11 +212,31 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `rootGeneration` re-check after it, so a folder switch landing mid-parse
     discards the
     result — and marks the entry buffer-sourced; an unindexable language is dropped
-    before any work. `forgetBuffer(url:)` is what a tab close means: the symbols
-    *stay* (they are still the best knowledge available, and the file on disk is
-    usually identical anyway), but the entry's owner changes and its stamp is
-    cleared, so the next refresh re-extracts from disk unconditionally rather than
-    concluding from an unchanged stamp that a buffer's version is current.
+    before any work. **A tab close is two calls, and both are needed.**
+    `forgetBuffer(url:)` gives up the *ownership*: the symbols stay for the moment
+    (they are still the best knowledge available, and the file on disk is usually
+    identical anyway), but the entry's owner changes and its stamp is cleared, so
+    any later refresh re-extracts from disk unconditionally rather than concluding
+    from an unchanged stamp that a buffer's version is current.
+    `reindexFromDisk(url:)` is what actually performs the hand-off, and it exists
+    because "any later refresh" is not something a close may rely on: a tab close
+    writes nothing, so no watcher fires, and with no folder open — a standalone
+    file, `lastRoot == nil` — `refresh` is unreachable by construction, its `root
+    == lastRoot` guard rejecting every call. Without it, a buffer whose changes
+    were *discarded*, or whose last keystrokes the close cancelled out of the
+    debounce, would go on answering go-to-definition and completion with text that
+    exists nowhere, for the rest of the session. It re-reads the one file through
+    `extractChunk` itself (no known stamp, no buffers), so a hand-off reads, gates
+    and classifies exactly as a refresh does; a file that can no longer be read —
+    deleted, or closed *because* it was deleted — is dropped from the index by
+    `dropIfUnowned`, the single-file `removeFiles`, since with neither a buffer nor
+    a file behind it there is nothing left the entry could be true of. One file per
+    close rather than a project walk per close is the whole reason it is a separate
+    entry point. It is ordered against the buffer path exactly as `reindexBuffer`
+    is — `rootGeneration` re-check, cancellation honoured after the read — and both
+    of its branches stand aside for a file that has become buffer-sourced again
+    (a tab reopened while the read was in flight), so the editor's text always
+    outranks the disk copy.
     **Cancellation is honoured after the parse**, and that half is load-bearing
     rather than a courtesy: `SymbolIndexController.noteBufferClosed` cancels the
     in-flight re-index and then calls `forgetBuffer`, and without the re-check a
@@ -234,12 +254,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     lands afterwards — re-creating exactly the frozen entry the cancellation check
     above exists to prevent, with no cancellation anywhere to catch it, since the
     walk is not the tab's task. `forgetBuffer` therefore records the key in a set
-    that `walk` clears at its start, and `apply` demotes a `.walkBuffer` outcome
-    whose key is in it to `.disk`: the symbols are still published (they remain the
-    best text anyone has for the file) but the entry is not marked buffer-sourced,
-    and the outcome's `nil` stamp is what makes the next refresh re-extract it from
-    disk. A stale key in that set could at worst cost one extra extraction — the
-    safe direction.
+    that `walk` clears at its start, and `apply` **drops** a `.walkBuffer` outcome
+    whose key is in it — text and ownership alike, not merely demoting it to
+    `.disk`. Demoting would fix the ownership and still republish the closed
+    buffer's text, and that is not a harmless staleness: the same close runs
+    `reindexFromDisk`, whose one-file read can finish *first* (the walk's chunk is
+    already extracted and only waiting on the main actor), so the outcome would
+    land on top of the correct disk symbols with nothing scheduled to correct it —
+    a close writes nothing, so no watcher fires
+    (`testAWalkChunkDoesNotUndoTheDiskHandOffOfATabClosedMidWalk`). Dropping is
+    safe for exactly that reason: the hand-off a close guarantees re-derives the
+    entry from disk in whichever order the two land, so no walk snapshot of a
+    closed buffer is ever the best text anyone has. A stale key in that set could
+    at worst cost one extra extraction — the safe direction.
     **Buffer-over-disk precedence** is the rule that makes the two sources safe to
     mix, and it turns on *where the text came from*, which is why `FileOutcome`
     carries a three-case `OutcomeSource` rather than a `fromBuffer` flag: `.disk`,

@@ -37,8 +37,10 @@ final class SymbolIndexController {
     /// the controller's whole purpose is to outlive individual editor views.
     private let model: SymbolIndexModel
 
-    /// The in-flight buffer re-index **per file**; a newer re-index of the *same*
-    /// file cancels the older one, so a burst of keystrokes re-parses once.
+    /// The in-flight index work **per file** — a buffer re-index, or the disk
+    /// hand-off a close schedules in its place; a newer piece of work for the
+    /// *same* file cancels the older one, so a burst of keystrokes re-parses once
+    /// and a reopened tab supersedes the hand-off it interrupts.
     ///
     /// Keyed rather than a single slot, because the two are not interchangeable:
     /// a tab switch re-indexes the incoming file immediately, and with one slot
@@ -103,20 +105,35 @@ final class SymbolIndexController {
 
     /// A tab was closed: hand its entry back to disk.
     ///
-    /// A passthrough, but the one the debounce has to respect — so it cancels
-    /// this file's in-flight re-index first, which would otherwise re-mark it
-    /// buffer-sourced right after this un-marked it and pin the index to text no
-    /// editor holds any more. `reindexBuffer` re-checks cancellation after its
-    /// parse, so the cancel bites whether the work is still sleeping out the
-    /// debounce or already inside the extractor.
+    /// Three steps, and each is load-bearing. The **cancel** takes out this file's
+    /// in-flight re-index, which would otherwise re-mark it buffer-sourced right
+    /// after `forgetBuffer` un-marked it and pin the index to text no editor holds
+    /// any more; `reindexBuffer` re-checks cancellation after its parse, so it
+    /// bites whether the work is still sleeping out the debounce or already inside
+    /// the extractor. **`forgetBuffer`** gives up the ownership. **`reindexFromDisk`**
+    /// then completes the hand-off by re-reading the file, and nothing else would:
+    /// a close writes nothing, so no watcher fires, and a standalone file with no
+    /// folder open has no project refresh at all — the symbols of a buffer whose
+    /// changes were discarded would go on answering go-to-definition for the rest
+    /// of the session. Immediate rather than debounced: it is one file, and a
+    /// close is not a burst.
     ///
-    /// The URL match is what keeps that cancel from being collateral damage:
-    /// closing tab A must not throw away a re-index of tab B that happens to be
-    /// the one in flight.
+    /// The hand-off is filed under the same key as the buffer work it replaces, so
+    /// a tab reopened while the read is in flight cancels it and its own immediate
+    /// re-index wins — and the URL match is what keeps *both* cancels from being
+    /// collateral damage: closing tab A must not throw away work for tab B that
+    /// happens to be the one in flight.
     func noteBufferClosed(url: URL) {
         let key = url.standardizedFileURL
         bufferTasks.removeValue(forKey: key)?.cancel()
         model.forgetBuffer(url: url)
+        bufferTasks[key] = Task { [weak self, model] in
+            await model.reindexFromDisk(url: url)
+            // Same reasoning as `schedule`: every replacement cancels the task it
+            // evicts, so a task that reaches here still owns the entry.
+            guard let self, !Task.isCancelled else { return }
+            self.bufferTasks[key] = nil
+        }
     }
 
     private func schedule(url: URL, text: String, language: SyntaxLanguage?, immediate: Bool) {

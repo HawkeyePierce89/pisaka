@@ -719,16 +719,50 @@ final class SymbolIndexModelTests: XCTestCase {
         gate.release()
         await walk.value
 
-        // The symbols survive: they are still the best text anyone has for the
-        // file.
-        XCTAssertEqual(names(model, "typed"), ["typed"])
+        // The outcome is dropped whole: neither the closed buffer's text nor the
+        // ownership it would have taken reaches the index. Had it marked the file
+        // buffer-sourced, every later refresh would skip it and the entry would
+        // stay frozen for the rest of the session.
+        XCTAssertTrue(names(model, "typed").isEmpty)
 
-        // What must *not* survive is the ownership. If the outcome had marked the
-        // file buffer-sourced, every later refresh would skip it and the entry
-        // would stay frozen for the rest of the session.
         stub.files["a.swift"] = "sym savedTwo\n"
         await model.refresh(root: root)
         XCTAssertEqual(names(model, "savedTwo"), ["savedTwo"])
+        XCTAssertTrue(names(model, "typed").isEmpty)
+    }
+
+    func testAWalkChunkDoesNotUndoTheDiskHandOffOfATabClosedMidWalk() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym saved\n"])
+        let url = stub.url("a.swift")
+        let buffers = OpenBuffers([url: "sym typed\n"])
+        let model = SymbolIndexModel(
+            fileService: stub,
+            openBuffers: { buffers.snapshot },
+            extractSymbols: RecordingExtractor().extract
+        )
+
+        let gate = Gate()
+        stub.listingGate = gate
+        let walk = Task { await model.rebuild(root: root) }
+        await gate.waitUntilReached()
+
+        // Both halves of a tab close, staged so the hand-off's one-file read is
+        // queued behind the held traversal and *ahead* of the chunk that follows
+        // it — so the hand-off publishes the disk version first and the walk's
+        // stale `.walkBuffer` outcome lands on top of it.
+        buffers.close(url)
+        model.forgetBuffer(url: url)
+        let handOff = Task { await model.reindexFromDisk(url: url) }
+        await Task.yield()
+        gate.release()
+        await handOff.value
+        await walk.value
+
+        // Demoting the walk outcome to `.disk` would fix its ownership and still
+        // republish the closed buffer's text over the hand-off — with nothing
+        // scheduled to correct it, since a close writes nothing and no watcher
+        // fires.
+        XCTAssertEqual(names(model, "saved"), ["saved"])
         XCTAssertTrue(names(model, "typed").isEmpty)
     }
 
@@ -745,6 +779,134 @@ final class SymbolIndexModelTests: XCTestCase {
 
         XCTAssertEqual(names(model, "saved"), ["saved"])
         XCTAssertTrue(names(model, "typed").isEmpty)
+    }
+
+    func testClosingATabReExtractsTheFileFromDiskWithoutARefresh() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym saved\n"])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+        await model.rebuild(root: root)
+        let url = stub.url("a.swift")
+        await model.reindexBuffer(url: url, text: "sym typed\n", language: .swift)
+
+        // The close, both halves — and *no* refresh afterwards. A tab close writes
+        // nothing, so nothing schedules one; the discarded buffer's symbols would
+        // otherwise stay jumpable for the rest of the session.
+        model.forgetBuffer(url: url)
+        await model.reindexFromDisk(url: url)
+
+        XCTAssertEqual(names(model, "saved"), ["saved"])
+        XCTAssertTrue(names(model, "typed").isEmpty)
+    }
+
+    func testClosingAStandaloneFileWithNoFolderOpenDropsItsBufferSymbols() async {
+        // No folder was ever opened, so `refresh` is unreachable by construction:
+        // this file's entry has no walk that could ever correct it.
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym saved\n"])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+        let url = stub.url("a.swift")
+        await model.reindexBuffer(url: url, text: "sym typed\n", language: .swift)
+        XCTAssertEqual(names(model, "typed"), ["typed"])
+
+        model.forgetBuffer(url: url)
+        await model.reindexFromDisk(url: url)
+
+        XCTAssertEqual(names(model, "saved"), ["saved"])
+        XCTAssertTrue(names(model, "typed").isEmpty)
+    }
+
+    func testClosingATabOnADeletedFileRemovesItFromTheIndex() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym saved\n"])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+        await model.rebuild(root: root)
+        let url = stub.url("a.swift")
+        await model.reindexBuffer(url: url, text: "sym typed\n", language: .swift)
+
+        // Closed *because* the file went away: neither a buffer nor a file is left
+        // for the entry to be true of.
+        stub.files["a.swift"] = nil
+        model.forgetBuffer(url: url)
+        await model.reindexFromDisk(url: url)
+
+        XCTAssertTrue(names(model, "typed").isEmpty)
+        XCTAssertTrue(names(model, "saved").isEmpty)
+        XCTAssertEqual(model.index.indexedFileCount, 0)
+    }
+
+    func testAHandOffNeverOverwritesAFileABufferOwnsAgain() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym saved\n"])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+        await model.rebuild(root: root)
+        let url = stub.url("a.swift")
+
+        // The tab was closed and reopened before the hand-off landed. Its text is
+        // newer than anything on disk, so the disk copy must not overwrite it.
+        model.forgetBuffer(url: url)
+        await model.reindexBuffer(url: url, text: "sym typed\n", language: .swift)
+        await model.reindexFromDisk(url: url)
+
+        XCTAssertEqual(names(model, "typed"), ["typed"])
+        XCTAssertTrue(names(model, "saved").isEmpty)
+    }
+
+    func testAHandOffOnADeletedFileSparesAFileABufferOwnsAgain() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym saved\n"])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+        await model.rebuild(root: root)
+        let url = stub.url("a.swift")
+
+        // The removal branch makes `removeFiles`' exemption too: a buffer that took
+        // the entry back must not be emptied out from under the editor, however
+        // little of the file is left on disk.
+        stub.files["a.swift"] = nil
+        model.forgetBuffer(url: url)
+        await model.reindexBuffer(url: url, text: "sym typed\n", language: .swift)
+        await model.reindexFromDisk(url: url)
+
+        XCTAssertEqual(names(model, "typed"), ["typed"])
+    }
+
+    func testAHandOffLandingAfterAFolderChangePublishesNothing() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym saved\n"])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+        await model.rebuild(root: root)
+        let url = stub.url("a.swift")
+        await model.reindexBuffer(url: url, text: "sym typed\n", language: .swift)
+
+        let gate = Gate()
+        stub.readGate = (path: "a.swift", gate: gate)
+        model.forgetBuffer(url: url)
+        let handOff = Task { await model.reindexFromDisk(url: url) }
+        await gate.waitUntilReached()
+
+        model.prepareForFolderChange(root: URL(fileURLWithPath: "/other"))
+        gate.release()
+        await handOff.value
+
+        // The previous project's symbols must not appear in the new one's index.
+        XCTAssertTrue(names(model, "saved").isEmpty)
+        XCTAssertTrue(names(model, "typed").isEmpty)
+        XCTAssertEqual(model.index.indexedFileCount, 0)
+    }
+
+    func testAHandOffForAFileWithNoQueryReadsNothing() async {
+        let stub = StubFileTree(root: root, files: [
+            ".gitignore": "sym alpha\n",
+            "notes.txt": "sym beta\n"
+        ])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+        await model.rebuild(root: root)
+        // The traversal reads `.gitignore` for its rules, so the baseline is what
+        // the walk already did rather than "nothing at all".
+        let readsAfterWalk = stub.readPaths
+
+        // A language with no `symbols.scm`, and a name that resolves to no language
+        // at all: neither can have an entry, so neither is worth a read.
+        await model.reindexFromDisk(url: stub.url(".gitignore"))
+        await model.reindexFromDisk(url: stub.url("notes.txt"))
+
+        XCTAssertEqual(stub.readPaths, readsAfterWalk)
+        XCTAssertTrue(names(model, "alpha").isEmpty)
+        XCTAssertTrue(names(model, "beta").isEmpty)
     }
 
     // MARK: - Provider
