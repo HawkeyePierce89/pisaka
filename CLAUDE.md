@@ -108,12 +108,14 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 
 `docs/architecture/core-intelligence.md` — code intelligence (symbol index, go-to-definition, completion):
 - `Symbol.swift` — `SymbolKind` (strict, failable capture-name mapping) + `Symbol` (name-node range, 1-based line).
-- `SymbolIndex.swift` — the symbol store: canonical-path file keys, name + lowercased-initial buckets, ranks nothing.
+- `FuzzyMatch.swift` — the one completion matcher: word-boundary initials, subsequence walk, the `Quality` sort key.
+- `SymbolIndex.swift` — the symbol store: canonical-path file keys, name + word-boundary-initial buckets, fuzzy/member lookups, ranks nothing.
 - `ProjectFileWalk.swift` — the one project traversal shared by Find in Files and the index (`collectFiles`/`matchesMask`/`relativePath`).
 - `SymbolIndexModel.swift` — the async index lifecycle: generation-pinned rebuild, chunked publishing, stamp-gated refresh, buffer-over-disk precedence, the synchronous extractor seam; a reader, never a writer.
-- `IdentifierScanner.swift` — the one identifier-boundary rule: word at offset, completion prefix range, buffer word harvest.
-- `CodeIntelligence.swift` — the async `CodeIntelligenceProviding` seam + its request/result value types.
-- `SymbolIntelligenceProvider.swift` — index-backed provider and the home of every definition/completion ranking rule.
+- `IdentifierScanner.swift` — the one identifier-boundary rule: word at offset, completion prefix range, member-access context, buffer word harvest.
+- `LanguageKeywords.swift` — the static per-language keyword lists (and the stated set of languages that get none).
+- `CodeIntelligence.swift` — the async `CodeIntelligenceProviding` seam + its request/result value types (incl. the request's `language`/`member`).
+- `SymbolIntelligenceProvider.swift` — index-backed provider and the home of every definition/completion ranking rule, incl. fuzzy quality, the keyword source and the member branch.
 
 `docs/architecture/core-git.md` — git protocol, status & blame:
 - `GitError.swift` — typed `GitServicing` failures with user-facing `errorDescription`.

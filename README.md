@@ -277,12 +277,26 @@ involved.
   nothing declares just beeps. Cmd+drag still selects text, and Cmd+Shift+click /
   Cmd+Option+click keep their usual meaning.
 - Autocompletion: as you type an identifier (from the second character), a popup
-  offers the project's declarations and the words already in the buffer, ranked
-  with your capitalization respected, the current file's names first, real
-  declarations before plain words, and shorter names first. Arrow keys or the
+  offers the project's declarations, the keywords of the language you are typing
+  in, and the words already in the buffer. Matching is **fuzzy/camelCase**, not
+  just literal: `arrBuf`, `aBu` and `buf` all reach `ArrayBuffer`, as long as the
+  first character you type starts a word in the name (its first letter, a
+  camelCase hump, or the character after a `_`/`-` or a digit). Ranking puts the
+  best match first — an exact-case prefix, then a prefix ignoring case, then a
+  fuzzy match, preferring the ones that land on word boundaries and stay tight —
+  then the current file's names, then real declarations before keywords before
+  plain words, then shorter names. Keywords are offered for Swift, JavaScript,
+  TypeScript, Python and Dockerfile (`FROM`, `HEALTHCHECK`, … in the uppercase
+  they are written in); the data formats, Markdown and `.gitignore` deliberately
+  have no list, and HTML/CSS are left out until completion knows about position.
+  Type a `.` after an identifier or a closing bracket and the list opens right
+  there with that receiver's members — methods, properties and constants that
+  belong to a type — with the members of the type you actually named
+  (`Worker.`) ranked above everyone else's. Arrow keys or the
   mouse choose, Return inserts, Esc dismisses, and the insertion is a single undo
   step. Ctrl+Space (Find > Complete) asks for the list explicitly, from the first
-  character. Nothing pops up mid-composition with an input method.
+  character, and works after a dot too. Nothing pops up mid-composition with an
+  input method.
   Both features are backed by a project-wide symbol index built from the same
   tree-sitter parse trees that drive the syntax highlighting — no language server
   and no network. It is built when you open a folder, refreshed when files change
@@ -539,7 +553,9 @@ and iPhone. The feature scope landed so far:
   identifier → "Go to Definition"), which jumps straight there, or asks which
   declaration you meant when several share the name; a name nothing declares gives
   a light haptic. **Completion** is a QuickType-style strip above the keyboard —
-  it appears from the second character typed, scrolls horizontally, tapping a word
+  it appears from the second character typed (or as soon as you type a `.`, with
+  that receiver's members), offers the same fuzzy/camelCase matches and language
+  keywords as macOS, scrolls horizontally, tapping a word
   inserts it as one undo step, and it disappears when there is nothing to offer,
   so it works the same with the on-screen and a hardware keyboard. iOS has no
   file-system watcher, so the index is built when you open a folder and kept
@@ -597,9 +613,19 @@ and iPhone. The feature scope landed so far:
   knows nothing about imports, scope, generics or overload resolution, and finds
   nothing in dependencies outside the opened folder. There is no Find Usages, no
   rename refactoring, no hover types or signature help, and completion offers
-  identifiers only — no kind or file column in the macOS popup, no snippets, and
-  no member completion after a `.`. A language with no bundled symbols query (and
-  `.gitignore` deliberately has none) completes from the buffer's words alone.
+  identifiers only — no kind or file column in the macOS popup and no snippets.
+  Member completion after a `.` is **name-based, not typed**: it offers every
+  member the whole project declares, ranked so the members of a type you named
+  outright (`Worker.`) come first, while a receiver whose type would have to be
+  inferred (`worker.`, `f().`) gets no such preference. Fuzzy matching needs the
+  first character you type to start a word in the candidate, so `buf` finds
+  `ArrayBuffer` but `rray` finds nothing. A dot inside a string or a comment
+  still opens the member list, since the trigger does not look at the syntax
+  tree — but a dot with nothing typed after it offers **members only**, so if the
+  project declares none the list simply stays empty rather than falling back to
+  words from the file. A language with no bundled symbols query (and
+  `.gitignore` deliberately has none) completes from the buffer's words alone, and
+  the data formats, Markdown and `.gitignore` have no keyword list either.
   On iOS the index does not see changes made to the files outside the app.
 - No tab reordering, drag-and-drop, or split views.
 - The path bar above the editor is macOS-only and read-only: its breadcrumb

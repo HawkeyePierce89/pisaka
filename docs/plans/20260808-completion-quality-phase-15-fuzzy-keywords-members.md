@@ -400,7 +400,7 @@ dot is least likely to be a member access.
 - Modify: `CLAUDE.md`
 - Modify: `README.md`
 
-- [ ] `core-intelligence.md`: full entries for `FuzzyMatch.swift` and
+- [x] `core-intelligence.md`: full entries for `FuzzyMatch.swift` and
       `LanguageKeywords.swift`; updated entries for `SymbolIndex` (the
       word-boundary initial bucket, its memory/scan cost, and the
       first-character-must-hit-a-boundary limit), `IdentifierScanner` (member
@@ -410,11 +410,11 @@ dot is least likely to be a member access.
       with the current-file rule, the member branch, the receiver heuristic,
       the non-empty-prefix-only buffer-word fallback, and the member-mode
       costs).
-- [ ] `CLAUDE.md`: index lines only — two new `PisakaCore` files under
+- [x] `CLAUDE.md`: index lines only — two new `PisakaCore` files under
       `docs/architecture/core-intelligence.md`, and a phrase-level refresh of
       the `SymbolIndex`/`IdentifierScanner`/`SymbolIntelligenceProvider` lines.
       No per-file essays.
-- [ ] `README.md`: rewrite the completion bullet (fuzzy/camelCase matching, the
+- [x] `README.md`: rewrite the completion bullet (fuzzy/camelCase matching, the
       keyword source and which languages have one, member completion after a
       dot and how it is triggered on both platforms); update the known-limits
       entry — drop "no member completion after a `.`", and state that member
@@ -424,7 +424,17 @@ dot is least likely to be a member access.
       still triggers, and that **a dot with nothing typed after it offers only
       members — if the project declares none, the list stays empty rather than
       falling back to words from the file**.
-- [ ] Run `swift test` (the repository-file suites read these paths).
+- [x] Run `swift test` (the repository-file suites read these paths). Green:
+      1782 tests, 0 failures. Two doc entries the plan did not name were updated
+      in the same pass, because Tasks 7 and 8 changed the behavior they describe
+      and the repository's convention is that a file's entry moves with it:
+      `app-editor.md`'s `CompletionController` entry (the member trigger, the
+      `language:` parameter, the empty-prefix snapshot and the extra
+      still-in-a-member-position condition on both the applying and the serving
+      side) and `app-ios.md`'s coordinator entry (the same gate, plus the
+      insertion guard now asking `FuzzyMatch` instead of `hasPrefix`, whose old
+      "case-insensitively" wording had become wrong rather than merely
+      incomplete).
 
 ### Task 10: Verify acceptance criteria
 

@@ -313,8 +313,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     strip as surely as a keystroke — the word it answers is no longer the word being
     typed), behind a 150 ms debounce and a generation token, gated on a bare caret,
     no `markedTextRange` (marked text is uncommitted input the input method still
-    owns) and at least two typed characters. The caret is re-read *after* the await
-    for the same reason macOS does it. `showCompletions` calls
+    owns) and at least two typed characters — **or a member position**
+    (`IdentifierScanner.memberContext(in:at:)`), asked before the length gate and
+    bypassing it, since the typed `.` is itself the request; the request then
+    carries the member context and the file's `language` (the keyword source, `nil`
+    meaning no keywords rather than some default language's). The caret is re-read
+    *after* the await
+    for the same reason macOS does it, and the re-check needed the same relaxation
+    macOS's did: an empty (member) prefix compares equal to the also-empty partial
+    word anywhere there is no word at all, so the zero-length case additionally
+    requires that this request *was* a member request and that the live caret is
+    still in a member position — otherwise a caret move would inherit the previous
+    dot's list. `showCompletions` calls
     `reloadInputViews()` only when the strip's **presence** changes, not per
     candidate list, because it visibly re-lays the keyboard and per keystroke would
     read as a flicker; an empty list removes the bar rather than showing an empty
@@ -325,11 +335,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     undo step and passes the programmatic-edit guard — a candidate ending in `(`
     cannot fall into `AutoPairEngine` and collect a closer it never asked for — and
     it recomputes the prefix range at tap time rather than trusting the one the
-    provider answered — **case-insensitively**, matching how the candidates were
-    chosen, since the provider deliberately keeps a merely case-insensitive prefix
-    match (`arr` still offers `ArrayBuffer`, just ranked below `arrayCount`) and a
-    case-sensitive re-check would let the user tap such an item and have nothing at
-    all happen — then clears the strip: `applyEdit` fires
+    provider answered (the strip is a live view, and a tap can land after another
+    keystroke has moved the word it answers), re-checking it with **the same
+    matcher the candidates were chosen by**, `FuzzyMatch.matches(_:query:)`. That
+    is a correctness rule rather than a refinement: the provider offers
+    case-insensitive prefix *and* subsequence matches (`arr` still offers
+    `ArrayBuffer` just ranked below `arrayCount`, and `arrBuf` offers it too), so
+    any narrower guard — the `hasPrefix` test this replaced — would let the user
+    tap a perfectly valid row and have nothing at all happen, with no feedback
+    explaining it. A **zero-length** range is accepted outright when the caret is
+    still in a member position: that is the bare typed `.`, where there is no typed
+    text to match against and the empty range at the caret is already the right
+    insertion point; everywhere else a zero-length range means the word the tap
+    answered has moved, and the tap is dropped. It
+    then clears the strip: `applyEdit` fires
     `textViewDidChange` synchronously, and offering longer names the instant a
     choice was made is how a completion strip turns into a treadmill.
     `dismantleUIView` tears the strip down alongside the highlighter, since an
