@@ -291,7 +291,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     safe for exactly that reason: the hand-off a close guarantees re-derives the
     entry from disk in whichever order the two land, so no walk snapshot of a
     closed buffer is ever the best text anyone has. A stale key in that set could
-    at worst cost one extra extraction — the safe direction.
+    at worst cost one extra extraction — the safe direction — which is why the set
+    is only emptied by the two resets that end its usefulness: the start of a walk,
+    and `clearIndex` (the folder-change reset, and the one that matters with **no**
+    folder open, where `refresh` is unreachable by construction and the set would
+    otherwise accumulate one key per tab close for the whole session).
     **Buffer-over-disk precedence** is the rule that makes the two sources safe to
     mix, and it turns on *where the text came from*, which is why `FileOutcome`
     carries a three-case `OutcomeSource` rather than a `fromBuffer` flag: `.disk`,

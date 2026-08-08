@@ -90,7 +90,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     rather than silently relying on this. Captured ranges are whitespace-trimmed on
     **both** the text and the range (a Markdown heading's `inline` node carries the
     space after the `#` and the trailing newline), so a jump still lands on the
-    name's first character; the 1-based line comes from `LineStartIndex.offsets`
+    name's first character. The same narrowing drops the **leading `#` of a
+    JavaScript/TypeScript `private_property_identifier`**, the one captured node
+    whose text is not just the name (the grammar spans the sigil and offers no
+    inner node to capture): stored verbatim, `#count` is not merely ugly but
+    *unreachable*, because `IdentifierScanner` never produces a name containing
+    `#` — a ⌘-click on it resolves `count` and misses, and the completion bucket is
+    keyed on `'#'` where no typed prefix can land. It is matched by *node type*,
+    not by "the text starts with `#`", so a Markdown heading or a CSS `#id` that
+    legitimately begins with one is untouched; the convention it restores is the
+    one every query already states — the symbol is the name, never the sigil
+    (CSS captures `card`, not `.card`; YAML the anchor name, not `&name`).
+    The 1-based line comes from `LineStartIndex.offsets`
     computed *once per file* and only when the file actually declares something,
     then binary-searched per symbol. `fileURL` is carried into each `Symbol`
     unchanged — `SymbolIndex` owns canonicalization. Unknown captures and empty

@@ -90,7 +90,7 @@ enum SymbolExtractor {
 
             let container = match.captures
                 .first { $0.name == SymbolKind.containerCaptureName }
-                .flatMap { name(in: content, range: $0.range)?.text }
+                .flatMap { name(in: content, range: $0.range, nodeType: $0.node.nodeType)?.text }
 
             for capture in match.captures {
                 guard
@@ -100,7 +100,7 @@ enum SymbolExtractor {
                     // what filters the auxiliary `@_attribute` and `@container`
                     // captures out of the symbol stream.
                     let kind = SymbolKind(captureName: captureName),
-                    let name = name(in: content, range: capture.range)
+                    let name = name(in: content, range: capture.range, nodeType: capture.node.nodeType)
                 else {
                     continue
                 }
@@ -125,25 +125,52 @@ enum SymbolExtractor {
     }
 
     /// The captured node's text and the range it actually occupies, with
-    /// surrounding whitespace trimmed off both — or `nil` when nothing is left.
+    /// surrounding whitespace — and a private member's leading `#` — trimmed off
+    /// both, or `nil` when nothing is left.
     ///
-    /// Trimming exists for the nodes that are not bare identifiers: a Markdown
-    /// heading's `inline`/`paragraph` node can carry the space after the `#` and
-    /// the newline that ends it. The *range* is narrowed alongside the text rather
-    /// than only the text, so go-to-definition still lands the caret on the first
-    /// character of the name and not on the whitespace before it.
-    private static func name(in content: NSString, range: NSRange) -> (text: String, range: NSRange)? {
+    /// Whitespace trimming exists for the nodes that are not bare identifiers: a
+    /// Markdown heading's `inline`/`paragraph` node can carry the space after the
+    /// `#` and the newline that ends it. The *range* is narrowed alongside the text
+    /// rather than only the text, so go-to-definition still lands the caret on the
+    /// first character of the name and not on the whitespace before it.
+    ///
+    /// **The `#` rule is the same convention every query states**: the symbol is
+    /// the *name*, never the sigil that introduces it — CSS captures `card` and not
+    /// `.card`, YAML captures the anchor name and not `&name`. JavaScript and
+    /// TypeScript are the one place the grammar gives no separate name node to
+    /// capture: `private_property_identifier` spans the `#` too, so `#count` would
+    /// be stored verbatim. That name is not merely ugly, it is **unreachable**:
+    /// `IdentifierScanner` — the one authority on identifier boundaries, shared by
+    /// go-to-definition, completion and the word harvester — never produces a name
+    /// containing `#`, so a ⌘-click on `#count` resolves `count` and misses, and the
+    /// completion bucket is keyed on `'#'` where no typed prefix can land. Narrowing
+    /// the range by that one code unit (rather than only the text) keeps the jump
+    /// landing on the name's first character, exactly as the whitespace trim does.
+    private static func name(
+        in content: NSString,
+        range: NSRange,
+        nodeType: String?
+    ) -> (text: String, range: NSRange)? {
         guard range.location >= 0, NSMaxRange(range) <= content.length else { return nil }
 
         var start = range.location
         var end = NSMaxRange(range)
         while start < end, isWhitespace(content.character(at: start)) { start += 1 }
         while end > start, isWhitespace(content.character(at: end - 1)) { end -= 1 }
+        if nodeType == privateMemberNodeType, start < end, content.character(at: start) == 0x23 {
+            start += 1
+        }
         guard end > start else { return nil }
 
         let trimmed = NSRange(location: start, length: end - start)
         return (content.substring(with: trimmed), trimmed)
     }
+
+    /// The JavaScript/TypeScript node whose text carries a leading `#` — see the
+    /// `#` rule on `name(in:range:nodeType:)`. Matched by node type rather than by
+    /// "the text starts with `#`", so a name that legitimately begins with one (a
+    /// Markdown heading, a CSS `#id` written into a selector list) is untouched.
+    private static let privateMemberNodeType = "private_property_identifier"
 
     /// Whether `character` is whitespace for the trimming above. A deliberately
     /// small set (space, tab and the line separators `LineStartIndex` splits on):

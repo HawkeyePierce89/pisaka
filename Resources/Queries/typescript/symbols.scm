@@ -9,6 +9,13 @@
 ; patterns rather than relying on composition — the same reason
 ; `SyntaxLanguageConfiguration.makeTypeScriptConfiguration` merges the two
 ; highlight queries. Keep the two files in step when either changes.
+;
+; `private_property_identifier` is the one captured node whose text is not just
+; the name: the grammar spans the leading `#` (`#count`) and offers no inner node
+; to capture instead. `SymbolExtractor` narrows that one code unit off both the
+; text and the range, so the member is stored as `count` — the spelling
+; `IdentifierScanner` resolves, and therefore the only one go-to-definition and
+; completion can ever reach. See the `#` rule on `SymbolExtractor.name`.
 
 ; ---- Classes ---------------------------------------------------------------
 (class_declaration name: (type_identifier) @definition.type)

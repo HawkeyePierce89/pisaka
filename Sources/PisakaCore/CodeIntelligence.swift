@@ -39,7 +39,10 @@ public struct DefinitionRequest: Equatable, Sendable {
     /// Used to rank a declaration in the current file first — the same file is
     /// overwhelmingly the likely target for a local helper.
     public let fileURL: URL?
-    /// The caret's UTF-16 offset in that file.
+    /// The UTF-16 offset of the identifier's **first character** in that file —
+    /// the resolved word's start, not the raw caret position it was resolved from
+    /// (a ⌘-click lands mid-word, and ⌃⌘J fires with the caret just past the last
+    /// character), so the same click always yields the same offset.
     ///
     /// Unused by phase 1's name-based lookup and carried anyway: it is the one
     /// piece of context an LSP `textDocument/definition` request cannot be built

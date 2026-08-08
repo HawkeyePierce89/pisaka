@@ -669,6 +669,10 @@ public final class SymbolIndexModel: ObservableObject {
         indexedFiles = []
         stamps = [:]
         bufferSourced = []
+        // Nothing a walk could still be holding survives this reset, and with no
+        // folder open no walk will ever run to clear it — so the set is emptied
+        // here too rather than growing one key per tab close for the session.
+        buffersClosedDuringWalk = []
     }
 
     /// Run `work` on the private serial queue and resume with its result — the
