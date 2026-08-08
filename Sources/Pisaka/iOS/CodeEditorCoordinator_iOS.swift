@@ -94,6 +94,12 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// How many characters must be typed before the strip offers anything. One
     /// character matches far too much to be a choice; the strip would flash a
     /// full-width row of noise on the first letter of every identifier.
+    ///
+    /// A **member position** — a caret after `receiver.`, per
+    /// `IdentifierScanner.memberContext(in:at:)` — bypasses this, exactly as it
+    /// does on macOS: the `.` is itself the request, and waiting for two more
+    /// characters would defeat the point of member completion. The prefix a
+    /// member request carries is therefore legitimately empty.
     private static let minimumCompletionPrefixLength = 2
 
     /// The `DefinitionRoute_iOS.Reveal` token this editor last acted on, so a
@@ -117,9 +123,9 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         // controller's 400 ms debounce (a re-parse per keystroke would be felt).
         reindexSymbols(text: contents, language: language, immediate: false)
         // Offer completions for the word being typed, behind this coordinator's own
-        // (shorter) debounce. Its gates — a bare caret, at least two typed
-        // characters, no marked text — mean an ordinary keystroke outside an
-        // identifier costs one prefix scan and no task.
+        // (shorter) debounce. Its gates — a bare caret, no marked text, and either
+        // two typed characters or a member position — mean an ordinary keystroke
+        // outside an identifier costs one prefix scan and no task.
         updateCompletions(in: textView)
     }
 
@@ -265,6 +271,13 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// The request is built here, on the main actor, from the live buffer — the
     /// text goes *into* the request rather than being read after the hop, so the
     /// words the provider harvests are the ones on screen when the user paused.
+    ///
+    /// **Two triggers, not one**, the same pair the macOS `CompletionController`
+    /// has: an ordinary partial word of at least `minimumCompletionPrefixLength`
+    /// characters, or a member position, which opens the strip on the typed `.`
+    /// with a prefix that may be empty. `language` feeds the keyword source and
+    /// nothing else — `nil` (an unclassifiable buffer) means no keywords rather
+    /// than some default language's.
     private func updateCompletions(in textView: UITextView) {
         completionTask?.cancel()
         completionTask = nil
@@ -289,16 +302,27 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         let contents = textView.text ?? ""
         let nsText = contents as NSString
         let offset = textView.offset(from: textView.beginningOfDocument, to: caret.start)
-        let prefixRange = IdentifierScanner.completionPrefixRange(in: nsText, at: offset)
-        guard prefixRange.length >= Self.minimumCompletionPrefixLength else {
-            showCompletions([], in: textView)
-            return
+        // Ask about the member position *before* the length gate: it is the one
+        // state in which a zero- or one-character prefix is still worth a list,
+        // and `memberContext`'s own `prefixRange` is exactly what
+        // `completionPrefixRange` reports here, so the two agree by construction
+        // rather than by a second scan.
+        let member = IdentifierScanner.memberContext(in: nsText, at: offset)
+        let prefixRange = member?.prefixRange
+            ?? IdentifierScanner.completionPrefixRange(in: nsText, at: offset)
+        if member == nil {
+            guard prefixRange.length >= Self.minimumCompletionPrefixLength else {
+                showCompletions([], in: textView)
+                return
+            }
         }
 
         let request = CompletionRequest(
             prefix: nsText.substring(with: prefixRange),
             fileURL: fileURL,
-            text: contents
+            text: contents,
+            language: language,
+            member: member
         )
         let interval = completionDebounce
         completionTask = Task { [weak self, weak textView] in
@@ -320,9 +344,23 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
             let liveText = textView.text as NSString
             let offset = textView.offset(from: textView.beginningOfDocument, to: caret.start)
             let range = IdentifierScanner.completionPrefixRange(in: liveText, at: offset)
-            guard range.length > 0, liveText.substring(with: range) == request.prefix else {
+            guard liveText.substring(with: range) == request.prefix else {
                 self.showCompletions([], in: textView)
                 return
+            }
+            // An empty partial word compares equal to an empty (member) prefix
+            // *everywhere* there is no word at all — in open space, after a `(`,
+            // at the start of a line — so the zero-length case additionally
+            // demands that the caret still sits after a dot, the only position
+            // in which the empty prefix was legitimate. Without it a caret move
+            // would inherit the previous dot's member list.
+            if range.length == 0 {
+                guard member != nil,
+                      IdentifierScanner.memberContext(in: liveText, at: offset) != nil
+                else {
+                    self.showCompletions([], in: textView)
+                    return
+                }
             }
             self.showCompletions(items.map(\.text), in: textView)
         }
@@ -366,11 +404,19 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// provider call: the strip is a live view, and a tap can land after another
     /// keystroke has already moved the word it answers.
     ///
-    /// The re-check is **case-insensitive**, matching how the candidates were
-    /// chosen: the provider deliberately keeps a merely case-insensitive prefix
-    /// match (typing `arr` still offers `ArrayBuffer`, just ranked below
-    /// `arrayCount`), so a case-sensitive guard here would let the user tap such
-    /// an item and have nothing happen at all.
+    /// The re-check asks the **same matcher the candidates were chosen by**,
+    /// `FuzzyMatch`, rather than a prefix test of its own. That is not a
+    /// refinement but a correctness rule: the provider offers case-insensitive
+    /// prefix *and* subsequence matches (typing `arrBuf` offers `ArrayBuffer`),
+    /// so any narrower guard here would let the user tap a perfectly valid
+    /// candidate and have nothing happen at all — a dead row on the strip, with
+    /// no feedback explaining it.
+    ///
+    /// A **zero-length** range is accepted outright when the caret is still in a
+    /// member position: that is the bare typed `.`, where there is no typed text
+    /// to match against and the empty range at the caret is already the correct
+    /// insertion point. Everywhere else a zero-length range means the word this
+    /// tap answered has moved, and the tap is dropped.
     private func insertCompletion(_ item: String) {
         guard let textView,
               textView.markedTextRange == nil,
@@ -379,9 +425,11 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         let nsText = textView.text as NSString
         let offset = textView.offset(from: textView.beginningOfDocument, to: caret.start)
         let range = IdentifierScanner.completionPrefixRange(in: nsText, at: offset)
-        guard range.length > 0,
-              item.lowercased().hasPrefix(nsText.substring(with: range).lowercased())
-        else { return }
+        if range.length == 0 {
+            guard IdentifierScanner.memberContext(in: nsText, at: offset) != nil else { return }
+        } else {
+            guard FuzzyMatch.matches(item, query: nsText.substring(with: range)) else { return }
+        }
 
         applyEdit(
             in: textView,

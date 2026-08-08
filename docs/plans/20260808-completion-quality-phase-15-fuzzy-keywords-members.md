@@ -373,18 +373,25 @@ dot is least likely to be a member access.
 **Files:**
 - Modify: `Sources/Pisaka/iOS/CodeEditorCoordinator_iOS.swift`
 
-- [ ] Apply the same member-context gate in `updateCompletions(in:)`, passing
+- [x] Apply the same member-context gate in `updateCompletions(in:)`, passing
       `language` and the member context into the `CompletionRequest`.
-- [ ] Relax the post-await re-check (`range.length > 0`) the same way, keeping
-      the "the word this answers has moved" discard.
-- [ ] Fix `insertCompletion(_:)`'s guard, which is `hasPrefix`-based and would
+- [x] Relax the post-await re-check (`range.length > 0`) the same way, keeping
+      the "the word this answers has moved" discard. As on macOS, the relaxation
+      needed the extra condition the plan named only for Task 7: an empty prefix
+      compares equal to the (also empty) partial word anywhere there is no word
+      at all, so the zero-length case additionally requires that this request was
+      a member request *and* that `memberContext(in:at:)` is still non-nil at the
+      live caret — otherwise a caret move would inherit the previous dot's list.
+- [x] Fix `insertCompletion(_:)`'s guard, which is `hasPrefix`-based and would
       silently swallow a tap on a fuzzy candidate: accept the item when
-      `FuzzyMatch.quality(of: item, matching: typedText) != nil`, and accept an
-      empty range outright when the caret is in a member position. Update the
-      comment that explains the guard.
-- [ ] `swift test` must pass, then build
+      `FuzzyMatch.quality(of: item, matching: typedText) != nil` (through the
+      `FuzzyMatch.matches(_:query:)` wrapper the plan added for exactly these
+      non-ranking call sites), and accept an empty range outright when the caret
+      is in a member position. Update the comment that explains the guard.
+- [x] `swift test` must pass, then build
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
-      'generic/platform=iOS' build`.
+      'generic/platform=iOS' build`. Both green: 1782 Core tests,
+      `** BUILD SUCCEEDED **`.
 
 ### Task 9: Documentation
 
