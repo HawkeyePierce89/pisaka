@@ -733,17 +733,62 @@ The auto-import payoff, applied through the coordinator's programmatic-edit path
 - Modify: `Sources/Pisaka/CompletionController.swift`,
   `Sources/Pisaka/CodeEditorView.swift`
 
-- [ ] the snapshot keeps whole `CompletionItem`s keyed by inserted text (first wins),
+- [x] the snapshot keeps whole `CompletionItem`s keyed by inserted text (first wins),
       so the delegate still returns strings while insertion can find its item
-- [ ] `EditorTextView.insertCompletion` applies an item carrying edits itself —
+- [x] `EditorTextView.insertCompletion` applies an item carrying edits itself —
       programmatic-edit flag raised, one undo group, `CompletionEditPlan`'s ordered
       edits, caret after the inserted text — and defers to `super` for a plain item
-- [ ] deferred-resolve items are prefetched concurrently the moment the popup opens;
+- [x] deferred-resolve items are prefetched concurrently the moment the popup opens;
       an item committed before its resolve lands gets the import as a follow-up edit
       only while the buffer is unchanged (D4's stated limit)
-- [ ] the pending prefetch is cancelled by the same events that clear the snapshot
+- [x] the pending prefetch is cancelled by the same events that clear the snapshot
       (new keystroke, caret move, tab switch, `reset()`)
-- [ ] run `swift test` — must pass before task 12
+- [x] run `swift test` — must pass before task 12
+
+Four things the implementation settled that the plan had left open, all worth
+carrying into Task 13's `core-lsp.md` (and the first three into `app-editor.md`):
+
+- **AppKit writes the buffer before the user has chosen anything.** Arrowing
+  through the popup calls `insertCompletion(…, isFinal: false)` for each row, so
+  by the time the final call arrives the typed word an item's edits are expressed
+  against has already been replaced — and `CompletionEditPlan`'s staleness gate,
+  doing its job, would refuse every auto-import picked with the arrow keys. Two
+  things fix it. The controller remembers the last preview (every one of those
+  writes passes through it), and Core gains
+  `CompletionEdit.shifted(afterReplacingTypedWord:withLength:)`, which
+  re-expresses one edit against a buffer where the typed word has become
+  something of a different length. It is a decision, not glue, so it is in Core
+  with its own tests: three shapes only — an edit before the word is untouched,
+  one after it slides, and the primary edit (the only one that can span the
+  boundary, since it must cover the word) grows by the difference.
+- **The late auto-import re-applies the whole edit set, not just the import.**
+  D4's race puts the plain text in the buffer first, and the obvious follow-up —
+  apply only the `additionalTextEdits` — gets the caret wrong the moment a line
+  is inserted above it, and cannot honour a server-chosen range wider than the
+  typed word. Shifted over the insertion that already happened, the *primary*
+  edit replaces the inserted text with itself (or widens to what the server
+  meant), so one code path serves both the ordinary commit and the follow-up, and
+  `caretOffset` comes out right in both. The condition D4 states — the buffer
+  untouched since the insertion — is a whole-string comparison read at the top of
+  the follow-up task, which runs a main-actor turn *after* `insertCompletion`
+  returned and so has a real "before" to compare against.
+- **Per edit, not per span.** `EditorSearchController.replaceAll` rewrites the
+  whole spanned range in one `insertText`, because it has up to 180 000 matches
+  and cannot afford an edit cycle each. A completion has two or three, and its
+  span reaches from the `import` line to the caret — the whole file — so the same
+  trick would re-parse and re-highlight everything to insert two words. The
+  plan's last-to-first ordering exists precisely so the edits can be applied one
+  at a time without offset arithmetic; the explicit `beginUndoGrouping` pair is
+  what still makes them a single ⌘Z, and what keeps them from coalescing into the
+  user's preceding typing.
+- **A caret move cancels nothing, because it supersedes nothing.** The checkbox
+  above lists it beside the keystroke and the tab switch, but no caret move has
+  ever cleared this snapshot: the list is re-validated against the word under the
+  caret when the delegate is asked, and an item's edits are re-validated against
+  the text they were computed over when one is committed. Cancelling a prefetch
+  there would throw away the resolve for a list that is still on screen, so
+  `forgetList()` has exactly two callers — `update` (a keystroke) and `reset` (a
+  tab teardown) — and both are the events that really do end a list's life.
 
 ### Task 12: Verify acceptance criteria
 

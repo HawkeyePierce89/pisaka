@@ -179,6 +179,19 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onCompletionInsertion = { [weak coordinator = context.coordinator] isApplying in
             coordinator?.noteCompletionInsertion(isApplying)
         }
+        // A committed row whose item carries its own edits (an auto-import) is
+        // applied by the completion controller instead of AppKit. Weakly
+        // captured for the same retain-cycle reason; a deallocated coordinator
+        // answers `false`, which is the stock insertion — the same graceful
+        // degradation as losing the flag above.
+        textView.onInsertCompletion = { [weak coordinator = context.coordinator] word, range, isFinal, tv in
+            coordinator?.insertCompletion(
+                word,
+                forPartialWordRange: range,
+                isFinal: isFinal,
+                in: tv
+            ) ?? false
+        }
 
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
@@ -663,8 +676,18 @@ struct CodeEditorView: NSViewRepresentable {
 
         /// Bind the completion popup's candidate source to this text view
         /// (`makeNSView`).
+        ///
+        /// The controller is additionally given the programmatic-edit flag, for
+        /// the one insertion it performs outside AppKit's own
+        /// `insertCompletion` bracket: a late auto-import (D4). Captured weakly
+        /// — the coordinator owns the controller — so a torn-down editor simply
+        /// leaves the flag alone, which is right because there is then no
+        /// interceptor left to guard.
         func attachCompletion(textView: NSTextView) {
             completion.attach(textView: textView)
+            completion.noteProgrammaticEdit = { [weak self] isApplying in
+                self?.isApplyingProgrammaticEdit = isApplying
+            }
         }
 
         /// Recompute the popup's candidates for what is being typed.
@@ -750,6 +773,27 @@ struct CodeEditorView: NSViewRepresentable {
         /// range starts a line could trip the dedent rewrite.
         func noteCompletionInsertion(_ isApplying: Bool) {
             isApplyingProgrammaticEdit = isApplying
+        }
+
+        /// A row was committed (or previewed): let the completion controller
+        /// apply the item's own edits, and say whether it did.
+        ///
+        /// `false` — the answer for every tree-sitter item and most LSP ones —
+        /// leaves AppKit's stock insertion to do the job it already does
+        /// correctly. `true` is the auto-import case, where the item's edits
+        /// have to be applied as written and in one undo group.
+        func insertCompletion(
+            _ word: String,
+            forPartialWordRange charRange: NSRange,
+            isFinal: Bool,
+            in textView: NSTextView
+        ) -> Bool {
+            completion.insert(
+                word,
+                forPartialWordRange: charRange,
+                isFinal: isFinal,
+                in: textView
+            )
         }
 
         // MARK: - Symbol index
@@ -1632,6 +1676,13 @@ final class EditorTextView: NSTextView {
     /// and `false` after. Set by `CodeEditorView.makeNSView`; `nil` until then.
     var onCompletionInsertion: ((Bool) -> Void)?
 
+    /// Applies a committed completion item's own edits, answering whether it
+    /// performed the whole insertion. Set by `CodeEditorView.makeNSView` to the
+    /// coordinator's `insertCompletion(_:forPartialWordRange:isFinal:in:)`;
+    /// `nil` until then, and `false` from it for everything that is just a word
+    /// replacing the typed prefix.
+    var onInsertCompletion: ((String, NSRange, Bool, NSTextView) -> Bool)?
+
     /// Complete from the caret — the entry point shared by this view's own ⌃Space
     /// (`keyDown`) and the Find menu's "Complete", which reaches this view as the
     /// key window's first responder, exactly like ⌃⌘J.
@@ -1666,14 +1717,22 @@ final class EditorTextView: NSTextView {
     /// Insert a chosen completion, with the coordinator's programmatic-edit flag
     /// raised for the duration.
     ///
-    /// `super` does the whole job — the replacement, the caret, and the *single*
-    /// undo step it registers on the active per-file undo manager — so nothing
-    /// about the documented undo discipline changes here. The only addition is the
-    /// flag, which keeps `AutoPairEngine`/`IndentEngine` from treating the
-    /// inserted word as typed text (a completion ending in an opener would
-    /// otherwise be auto-closed). The flag is lowered unconditionally, so an
+    /// `super` does the whole job for an ordinary item — the replacement, the
+    /// caret, and the *single* undo step it registers on the active per-file undo
+    /// manager — so nothing about the documented undo discipline changes for the
+    /// tree-sitter path. The flag keeps `AutoPairEngine`/`IndentEngine` from
+    /// treating the inserted word as typed text (a completion ending in an opener
+    /// would otherwise be auto-closed), and is lowered unconditionally, so an
     /// exception out of `super` cannot leave the interceptors disabled for the
     /// rest of the session.
+    ///
+    /// The one addition is `onInsertCompletion`: an LSP item may carry edits of
+    /// its own — the `import` line that makes the symbol resolve, or a
+    /// replacement range the server chose rather than the one the client typed
+    /// (D4) — and those have to be applied *as written*, which `super` cannot do
+    /// because it only knows the word. It answers `false` for everything else,
+    /// including every preview of a highlighted row, so the stock path stays the
+    /// path.
     override func insertCompletion(
         _ word: String,
         forPartialWordRange charRange: NSRange,
@@ -1682,6 +1741,7 @@ final class EditorTextView: NSTextView {
     ) {
         onCompletionInsertion?(true)
         defer { onCompletionInsertion?(false) }
+        if onInsertCompletion?(word, charRange, isFinal, self) == true { return }
         super.insertCompletion(
             word,
             forPartialWordRange: charRange,

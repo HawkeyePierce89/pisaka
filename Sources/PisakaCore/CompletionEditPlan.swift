@@ -39,6 +39,47 @@ public struct CompletionEdit: Equatable, Hashable, Sendable {
 
     /// How much the buffer's length changes when this edit is applied.
     var delta: Int { (newText as NSString).length - range.length }
+
+    /// This edit re-expressed against a buffer in which the typed word has
+    /// already been replaced by `length` UTF-16 units of other text.
+    ///
+    /// The edits a provider hands back are in the coordinates of the buffer the
+    /// *request* was made against, and by the time one is committed the editor
+    /// itself may have written over the typed word twice: AppKit inserts a
+    /// **preview** of the highlighted row as the user arrows through the popup
+    /// (`insertCompletion(…, isFinal: false)`), and an item whose auto-import
+    /// arrives late (D4's stated race) is applied on top of an insertion that
+    /// has already happened. Both replace exactly the typed word and nothing
+    /// else, so both are one number — the length now standing where `typedWord`
+    /// stood — and every offset past that word moves by the difference.
+    ///
+    /// Only three shapes are possible, because a plan's edits never overlap and
+    /// the primary one covers the typed word entirely: an edit wholly before it
+    /// (an `import` line) is untouched, an edit wholly after it slides, and the
+    /// primary edit — the only one that can span the boundary — grows or shrinks
+    /// by the same amount. An edit that starts inside the typed word cannot
+    /// occur in a plan that validates; it is shifted as "before" here and
+    /// `CompletionEditPlan.make` then refuses it for overlapping the primary.
+    public func shifted(afterReplacingTypedWord typedWord: NSRange, withLength length: Int) -> CompletionEdit {
+        let delta = length - typedWord.length
+        guard delta != 0 else { return self }
+        let boundary = NSMaxRange(typedWord)
+        if range.location >= boundary {
+            return CompletionEdit(
+                range: NSRange(location: range.location + delta, length: range.length),
+                newText: newText,
+                role: role
+            )
+        }
+        if NSMaxRange(range) >= boundary {
+            return CompletionEdit(
+                range: NSRange(location: range.location, length: range.length + delta),
+                newText: newText,
+                role: role
+            )
+        }
+        return self
+    }
 }
 
 /// The ordered application of a completion item's edits, and where the caret

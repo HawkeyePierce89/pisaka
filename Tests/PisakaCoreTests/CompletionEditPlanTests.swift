@@ -350,6 +350,137 @@ final class CompletionEditPlanTests: XCTestCase {
         XCTAssertEqual(plan.caretOffset, 11)
     }
 
+    // MARK: - Re-expressing edits over an insertion that already happened
+
+    /// The three shapes, in isolation: before the typed word, after it, and the
+    /// primary edit spanning it.
+    func testShiftingMovesOnlyWhatLiesAtOrPastTheTypedWord() {
+        let typedWord = NSRange(location: 26, length: 3)  // "Gre"
+        // Replaced by "Greeter" — four units longer.
+        let importLine = additional(NSRange(location: 18, length: 0), "import Greetings\n")
+        XCTAssertEqual(
+            importLine.shifted(afterReplacingTypedWord: typedWord, withLength: 7),
+            importLine
+        )
+        XCTAssertEqual(
+            additional(NSRange(location: 40, length: 2), "()")
+                .shifted(afterReplacingTypedWord: typedWord, withLength: 7),
+            additional(NSRange(location: 44, length: 2), "()")
+        )
+        XCTAssertEqual(
+            primary(typedWord, "Greeter").shifted(afterReplacingTypedWord: typedWord, withLength: 7),
+            primary(NSRange(location: 26, length: 7), "Greeter")
+        )
+    }
+
+    /// A primary edit *wider* than the typed word keeps its start and grows by
+    /// the same difference, so it still covers exactly the text it meant to.
+    func testShiftingGrowsAWiderPrimaryEditRatherThanMovingIt() {
+        let typedWord = NSRange(location: 10, length: 3)
+        XCTAssertEqual(
+            primary(NSRange(location: 6, length: 7), "greet()")
+                .shifted(afterReplacingTypedWord: typedWord, withLength: 5),
+            primary(NSRange(location: 6, length: 9), "greet()")
+        )
+    }
+
+    /// Nothing moves when the replacement is the same length as the typed word
+    /// — the ordinary case of a preview that happens to match.
+    func testShiftingByZeroIsIdentity() {
+        let typedWord = NSRange(location: 4, length: 3)
+        let edits = [primary(typedWord, "abc"), additional(NSRange(location: 0, length: 0), "x")]
+        for edit in edits {
+            XCTAssertEqual(edit.shifted(afterReplacingTypedWord: typedWord, withLength: 3), edit)
+        }
+    }
+
+    /// The arrow-key case end to end: AppKit previewed a row into the buffer, so
+    /// the request's edits are re-expressed over the preview and still produce
+    /// the auto-imported result with the caret after the symbol.
+    func testAPreviewedRowStillPlansAgainstTheLiveBuffer() throws {
+        let requested = "import Foundation\nlet x = Gre\n"
+        let typedWord = NSRange(location: 26, length: 3)  // "Gre"
+        let edits = [
+            primary(typedWord, "Greeter"),
+            additional(NSRange(location: 18, length: 0), "import Greetings\n")
+        ]
+        // The user arrowed onto a different row first, so the buffer now holds
+        // that row's text where "Gre" was.
+        let preview = "GreeterFactory"
+        let live = "import Foundation\nlet x = GreeterFactory\n"
+        XCTAssertEqual(
+            (requested as NSString).replacingCharacters(in: typedWord, with: preview),
+            live
+        )
+        let liveTypedWord = NSRange(location: 26, length: (preview as NSString).length)
+
+        let result = CompletionEditPlan.make(
+            edits: edits.map { $0.shifted(afterReplacingTypedWord: typedWord, withLength: liveTypedWord.length) },
+            in: live as NSString,
+            replacing: liveTypedWord,
+            typed: preview
+        )
+        let plan = try XCTUnwrap(try? result.get())
+        XCTAssertEqual(
+            apply(plan, to: live),
+            "import Foundation\nimport Greetings\nlet x = Greeter\n"
+        )
+        XCTAssertEqual(plan.caretOffset, 50)
+    }
+
+    /// D4's race, in coordinates: the plain text went in first and the import
+    /// arrived afterwards, so re-expressing the *whole* edit set over the
+    /// insertion re-applies the symbol as a no-op and adds only the import —
+    /// and moves the caret down by the line it inserted above.
+    func testAResolvedImportAppliesOverAnInsertionThatAlreadyHappened() throws {
+        let typedWord = NSRange(location: 26, length: 3)  // "Gre"
+        let edits = [
+            primary(typedWord, "Greeter"),
+            additional(NSRange(location: 18, length: 0), "import Greetings\n")
+        ]
+        // AppKit already inserted the plain text, because the resolve had not
+        // landed when the user hit Return.
+        let live = "import Foundation\nlet x = Greeter\n"
+        let inserted = NSRange(location: 26, length: 7)
+
+        let result = CompletionEditPlan.make(
+            edits: edits.map { $0.shifted(afterReplacingTypedWord: typedWord, withLength: inserted.length) },
+            in: live as NSString,
+            replacing: inserted,
+            typed: "Greeter"
+        )
+        let plan = try XCTUnwrap(try? result.get())
+        XCTAssertEqual(
+            apply(plan, to: live),
+            "import Foundation\nimport Greetings\nlet x = Greeter\n"
+        )
+        XCTAssertEqual(plan.caretOffset, 50)
+    }
+
+    /// The shift accounts for the *editor's* own writes and nothing else: a
+    /// deletion at the completion point after the insertion is refused rather
+    /// than applied over whatever is there now.
+    ///
+    /// A change elsewhere in the buffer still reads correctly at these offsets
+    /// and is therefore not this rule's job — the follow-up path additionally
+    /// requires the whole buffer to be untouched since the insertion, which is
+    /// D4's stated condition and is checked in the editor, against the text.
+    func testAFollowUpAgainstAnEditedCompletionPointIsRejected() {
+        let typedWord = NSRange(location: 26, length: 3)
+        let edits = [
+            primary(typedWord, "Greeter"),
+            additional(NSRange(location: 18, length: 0), "import Greetings\n")
+        ]
+        let live = "import Foundation\nlet x = Greete\n"  // a character deleted again
+        let result = CompletionEditPlan.make(
+            edits: edits.map { $0.shifted(afterReplacingTypedWord: typedWord, withLength: 7) },
+            in: live as NSString,
+            replacing: NSRange(location: 26, length: 7),
+            typed: "Greeter"
+        )
+        XCTAssertEqual(rejection(result), .bufferChanged)
+    }
+
     // MARK: - The seam's defaults
 
     /// A tree-sitter item carries no edits and no resolve handle, so nothing
