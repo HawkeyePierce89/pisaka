@@ -169,20 +169,20 @@ The bytes-in/bytes-out layer, with no LSP semantics in it at all.
 - Create: `Tests/PisakaCoreTests/LSPFramingTests.swift`,
   `Tests/PisakaCoreTests/LSPMessageTests.swift`
 
-- [ ] `JSONValue` (a Foundation-only `Codable` any-JSON value), `LSPRequestID` (int
+- [x] `JSONValue` (a Foundation-only `Codable` any-JSON value), `LSPRequestID` (int
       or string), `LSPErrorCode`, and the three envelopes — outgoing
       request/notification/response, incoming response/notification/server-request —
       decoding a peer message into one typed enum case
-- [ ] `LSPFraming`: `encode(_:) -> Data` and an incremental `Decoder` that accepts
+- [x] `LSPFraming`: `encode(_:) -> Data` and an incremental `Decoder` that accepts
       arbitrary chunks and yields zero or more complete payloads, tolerating header
       case/whitespace variation, ignoring `Content-Type`, and reporting a malformed
       header as a typed error that poisons the stream rather than desyncing it
-- [ ] tests: split-mid-header, split-mid-body, several messages in one read, one
+- [x] tests: split-mid-header, split-mid-body, several messages in one read, one
       message across many reads, a body containing `\r\n\r\n`, missing/duplicate/
       non-numeric `Content-Length`, absurd length rejected by a cap
-- [ ] tests: envelope round-trips, out-of-order/unknown-id responses decoded
+- [x] tests: envelope round-trips, out-of-order/unknown-id responses decoded
       faithfully, error responses, `null` results
-- [ ] run `swift test` — must pass before task 2
+- [x] run `swift test` — must pass before task 2
 
 ### Task 2: LSP protocol types and position mapping
 
