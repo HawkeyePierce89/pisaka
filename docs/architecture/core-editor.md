@@ -132,14 +132,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `.markdown` rather than to `.gitignore`. `testEveryCaseIsReachableByFileName`
     covers every `allCases` through a file *name* (not an extension), so a future
     case added with no resolution rule fails the suite.
-    **Adding a case has two obligations beyond the map**: a grammar in
-    `project.yml`/`SyntaxLanguageConfiguration` for highlighting, and a
+    **Adding a case has three obligations beyond the map**: a grammar in
+    `project.yml`/`SyntaxLanguageConfiguration` for highlighting; a
     `Resources/Queries/<raw value>/symbols.scm` for the symbol index — or an
     explicit listing in `SymbolIndexModel.unindexableLanguages` with the reason
-    (`.gitignore` sits there: it declares nothing a jump could land on).
-    `SymbolQueryTests` compares the shipped query directories against `allCases`
-    by *set equality*, so `swift test` fails until one of the two is done — the
-    point being that a language can never silently index to nothing. The
+    (`.gitignore` sits there: it declares nothing a jump could land on); and a
+    keyword list in `LanguageKeywords.keywords(for:)` — or an entry in
+    `LanguageKeywords.languagesWithoutKeywords`, again with the reason (the data
+    formats and Markdown sit there: they have no reserved words a completion
+    could offer). `SymbolQueryTests` and `LanguageKeywordsTests` each compare
+    their side against `allCases` by *set equality*, so `swift test` fails until
+    each pair is resolved — the point in both cases being that a language can
+    never silently index, or complete, to nothing. The
     `Hashable`/`Sendable` conformances are load-bearing for that layer rather
     than decorative: `SymbolQueryCatalog`'s compiled-query cache keys on this
     enum, and it crosses the `@Sendable` extractor seam

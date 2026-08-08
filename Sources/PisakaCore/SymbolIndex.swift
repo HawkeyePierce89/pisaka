@@ -2,7 +2,8 @@ import Foundation
 
 /// The project's symbol store: per-file symbol arrays plus the two lookup
 /// buckets everything above it asks questions through — *"who is named X"*
-/// (go-to-definition) and *"who starts with X"* (autocompletion).
+/// (go-to-definition) and *"who could the typed text be reaching for"*
+/// (autocompletion, literal prefix or fuzzy alike).
 ///
 /// A value type on purpose. `SymbolIndexModel` mutates a working copy off the
 /// main actor and publishes snapshots, so the reader
@@ -15,13 +16,17 @@ import Foundation
 /// `/tmp`) collapse to one entry instead of double-indexing the file and
 /// offering every symbol in it twice.
 ///
-/// **This type ranks nothing.** Lookups return candidates in a stable,
-/// documented order (file key, then location within the file, then name), and
-/// every relevance decision — current-file first, case-sensitive prefix before
-/// case-insensitive, symbols before bare words — belongs to
-/// `SymbolIntelligenceProvider`. Keeping the two apart is what lets the ranking
-/// rules be tested exhaustively without building an index, and what lets the
-/// phase-2 LSP provider reuse the ranking with a different source of truth.
+/// **This type ranks nothing.** Every lookup here *filters and orders*; none of
+/// them scores. That holds for the fuzzy and member lookups too: they ask
+/// `FuzzyMatch` whether a candidate matches at all and throw the match quality
+/// away, returning candidates in a stable, documented order (file key, then
+/// location within the file, then name). Every relevance decision —
+/// current-file first, case-sensitive prefix before case-insensitive, the
+/// receiver's own container first, symbols before keywords before bare words —
+/// belongs to `SymbolIntelligenceProvider`. Keeping the two apart is what lets
+/// the ranking rules be tested exhaustively without building an index, and what
+/// lets the phase-2 LSP provider reuse the ranking with a different source of
+/// truth.
 public struct SymbolIndex: Equatable, Sendable {
 
     /// One stored symbol together with the file key it was filed under, so the
@@ -36,14 +41,26 @@ public struct SymbolIndex: Equatable, Sendable {
     private var files: [String: [Symbol]] = [:]
     /// Exact, case-sensitive name → every entry declaring it.
     private var nameBucket: [String: [Entry]] = [:]
-    /// Lowercased first character → every entry whose name starts with it.
+    /// Lowercased **word-boundary initial** → every entry whose name has a word
+    /// starting with it (`ArrayBuffer` is filed under both `a` and `b`).
     ///
-    /// A coarse bucket by design: it turns a prefix query into a scan of one
+    /// A coarse bucket by design: it turns a completion query into a scan of one
     /// small slice rather than of the whole project, and it costs one array per
     /// distinct initial letter instead of one per distinct prefix (which is what
     /// a full prefix trie/multimap would cost, for a lookup that is already fast
     /// enough at this granularity).
-    private var prefixBucket: [Character: [Entry]] = [:]
+    ///
+    /// Filing a name under every boundary rather than only under its first
+    /// character is what makes fuzzy lookup affordable: `symbols(matching:)`
+    /// still reads exactly *one* bucket — the one its first typed character
+    /// names — and that bucket provably holds every candidate `FuzzyMatch` could
+    /// accept, because the matcher requires the first matched character to land
+    /// on a word boundary. The price is bounded and paid in both directions:
+    /// `FuzzyMatch.maximumInitials` caps a name at 8 keys, and hand-written code
+    /// averages two or three, so both the stored entries and the entries scanned
+    /// per keystroke grow by that same small factor rather than by the size of
+    /// the project.
+    private var initialBucket: [Character: [Entry]] = [:]
 
     public init() {}
 
@@ -73,8 +90,8 @@ public struct SymbolIndex: Equatable, Sendable {
         for symbol in symbols {
             let entry = Entry(fileKey: key, symbol: symbol)
             nameBucket[symbol.name, default: []].append(entry)
-            if let initial = Self.initial(of: symbol.name) {
-                prefixBucket[initial, default: []].append(entry)
+            for initial in FuzzyMatch.wordBoundaryInitials(of: symbol.name) {
+                initialBucket[initial, default: []].append(entry)
             }
         }
     }
@@ -105,16 +122,23 @@ public struct SymbolIndex: Equatable, Sendable {
     /// symbols name them), so the cost is proportional to the *index's* share of
     /// those buckets and not to the size of the whole index.
     ///
-    /// **One sweep per distinct bucket, not per symbol.** `prefixBucket[initial]`
-    /// holds the entries of the entire project for that letter, so a per-symbol
-    /// loop would scan it end to end once for every symbol in the file — and, if
-    /// the entry were bound with `var` while the dictionary still referenced it,
-    /// copy it that many times too. A 500-symbol file touches at most a couple of
-    /// dozen distinct initials, so collecting the distinct names and initials
-    /// first turns a re-index (which fires every debounce tick while the user
-    /// types in that file) from hundreds of full-bucket passes into one each.
-    /// The removals go through `dict[key]?.removeAll` rather than a `var`
-    /// binding, which mutates the stored array in place instead of copying it.
+    /// **One sweep per distinct bucket, not per symbol.**
+    /// `initialBucket[initial]` holds the entries of the entire project for that
+    /// letter, so a per-symbol loop would scan it end to end once for every
+    /// symbol in the file — and, if the entry were bound with `var` while the
+    /// dictionary still referenced it, copy it that many times too. A 500-symbol
+    /// file touches at most a couple of dozen distinct initials, so collecting
+    /// the distinct names and initials first turns a re-index (which fires every
+    /// debounce tick while the user types in that file) from hundreds of
+    /// full-bucket passes into one each. The removals go through
+    /// `dict[key]?.removeAll` rather than a `var` binding, which mutates the
+    /// stored array in place instead of copying it.
+    ///
+    /// The initials are collected with the very function `replace` filed them
+    /// under, so a name that contributed several keys (`ArrayBuffer` → `a`, `b`)
+    /// is swept out of *all* of them: deriving them any other way here would
+    /// leave a hump-keyed entry behind and let a deleted symbol keep answering
+    /// completion.
     private mutating func purge(fileKey key: String) {
         guard let previous = files[key] else { return }
 
@@ -122,7 +146,7 @@ public struct SymbolIndex: Equatable, Sendable {
         var initials = Set<Character>()
         for symbol in previous {
             names.insert(symbol.name)
-            if let initial = Self.initial(of: symbol.name) { initials.insert(initial) }
+            initials.formUnion(FuzzyMatch.wordBoundaryInitials(of: symbol.name))
         }
 
         for name in names {
@@ -130,8 +154,8 @@ public struct SymbolIndex: Equatable, Sendable {
             if nameBucket[name]?.isEmpty == true { nameBucket[name] = nil }
         }
         for initial in initials {
-            prefixBucket[initial]?.removeAll { $0.fileKey == key }
-            if prefixBucket[initial]?.isEmpty == true { prefixBucket[initial] = nil }
+            initialBucket[initial]?.removeAll { $0.fileKey == key }
+            if initialBucket[initial]?.isEmpty == true { initialBucket[initial] = nil }
         }
     }
 
@@ -147,27 +171,184 @@ public struct SymbolIndex: Equatable, Sendable {
         return Self.ordered(nameBucket[name] ?? [])
     }
 
-    /// Every symbol whose name starts with `prefix`, case-**in**sensitively,
-    /// capped at `limit` after ordering.
+    /// Every symbol `query` could be reaching for — a literal prefix
+    /// (case-sensitively or not) *or* a fuzzy/camelCase subsequence — capped at
+    /// `limit` after ordering.
     ///
-    /// Case-insensitive because this answers completion, where typing `arr`
-    /// should still offer `ArrayBuffer`. The cap is applied to the *ordered*
-    /// result, so it is deterministic rather than "whichever matches were
-    /// stored first". An empty prefix yields nothing: with nothing typed there
-    /// is nothing to complete, and returning the whole project would only push
-    /// the truncation decision up a layer.
-    public func symbols(withPrefix prefix: String, limit: Int) -> [Symbol] {
-        guard !prefix.isEmpty, limit > 0, let initial = Self.initial(of: prefix) else { return [] }
-        let lowered = prefix.lowercased()
-        let matches = (prefixBucket[initial] ?? []).filter {
-            $0.symbol.name.lowercased().hasPrefix(lowered)
+    /// A superset of the prefix lookup this replaced, not a different rule:
+    /// `arr` still finds `ArrayBuffer`, and now `aBu` and `buf` do too.
+    /// `FuzzyMatch` owns what counts as a match; this method only asks. That is
+    /// also why the answer needs exactly one bucket: the matcher requires the
+    /// first matched character to sit on a word boundary, and every boundary of
+    /// every name is a bucket key, so the bucket named by the query's first
+    /// character already contains every candidate that could possibly match.
+    ///
+    /// The cap is applied to the *ordered* result, so it is deterministic rather
+    /// than "whichever matches were stored first". An empty query yields
+    /// nothing: with nothing typed there is nothing to complete, and returning
+    /// the whole project would only push the truncation decision up a layer.
+    /// (Member completion's typed dot is the one case where an empty query is
+    /// meaningful, and it asks `members(matching:limit:)` instead — where the
+    /// candidate set is bounded by the member kinds rather than by the query.)
+    ///
+    /// **A literal prefix match survives the cut ahead of a fuzzy one**, and that
+    /// is a truncation rule rather than a ranking: the returned array is still in
+    /// the one documented order, and the caller still ranks it. It exists because
+    /// fuzzy matching widened the matched set by one to two orders of magnitude
+    /// for a short query while `limit` — which the provider sets to a multiple of
+    /// what the popup shows, not to the size of the project — did not. Cutting
+    /// that set purely by file key would decide *which* matches the ranking ever
+    /// sees by how paths happen to sort: a `setUp` in `zzTests/` is an exact
+    /// prefix match for `se`, and in a project with a few hundred names holding
+    /// an `s`-word followed by an `e` it would fall past the cut and never be
+    /// offered, while it always was before the matcher widened. Splitting the cut
+    /// costs one extra partition of a set already in hand and makes the eviction
+    /// order the one property the caller cannot repair afterwards.
+    public func symbols(matching query: String, limit: Int) -> [Symbol] {
+        guard !query.isEmpty, limit > 0, let initial = Self.initial(of: query) else { return [] }
+
+        var prefixMatches: [Entry] = []
+        var fuzzyMatches: [Entry] = []
+        for entry in initialBucket[initial] ?? [] {
+            guard let quality = FuzzyMatch.quality(of: entry.symbol.name, matching: query) else { continue }
+            if quality.isPrefixMatch { prefixMatches.append(entry) } else { fuzzyMatches.append(entry) }
         }
-        return Array(Self.ordered(matches).prefix(limit))
+        return Self.cut(prefixes: prefixMatches, fuzzy: fuzzyMatches, limit: limit)
+    }
+
+    /// Every *member* — a `.method`, `.property` or `.constant` that names an
+    /// enclosing type — matching `query`, capped at `limit`.
+    ///
+    /// **An empty query matches every member.** That is the typed-dot case: the
+    /// user has committed to a member access and typed nothing after it, so the
+    /// candidate set is bounded by the kind filter rather than by the text, and
+    /// the cap is what keeps it finite. Every other lookup here treats an empty
+    /// query as "nothing to complete"; this one cannot, and the difference is
+    /// the whole reason it is a separate method.
+    ///
+    /// Container-less symbols are excluded even when their kind qualifies: a
+    /// `.constant` declared at file scope is not reachable through a dot, and
+    /// offering it after one would be a worse answer than offering nothing.
+    ///
+    /// **A non-empty query reads the same single bucket `symbols(matching:)`
+    /// does**, for the same reason and by the same argument: the matcher requires
+    /// the first matched character to land on a word boundary, and every boundary
+    /// of every name is a bucket key, so the bucket the query's first character
+    /// names already holds every member that could match. Only the kind filter is
+    /// applied on top.
+    ///
+    /// It also takes the same **split cut** — a literal prefix match survives the
+    /// truncation ahead of a fuzzy one — through the shared `cut(prefixes:fuzzy:limit:)`.
+    /// The kind filter narrows the set but does not change the argument
+    /// `symbols(matching:limit:)` spells out: fuzzy matching widened the matched
+    /// set by one to two orders of magnitude while the cap did not, so a flat cut
+    /// in file-key order would decide *which* matches the provider ever ranks by
+    /// how paths happen to sort, and a `setUp` in `zzTests/` — an exact prefix
+    /// match — could fall past the cut while unrelated fuzzy matches from
+    /// early-sorting paths survive. The provider's `members(inFile:)` and
+    /// `members(inContainer:)` rescues do not cover it: neither reaches a member
+    /// of an un-promoted receiver declared in some third file. Eviction order is
+    /// the one property the caller cannot repair, because by then the candidate
+    /// is simply absent.
+    ///
+    /// That routing is what keeps the member path off a project-wide scan. The
+    /// linear pass below is reached only by the **empty** query — the bare typed
+    /// dot — where there is no first character to look a bucket up by. It is
+    /// bounded from the other end instead: with no query every member counts, so
+    /// the walk stops at `limit` after seeing `limit` members, which in a project
+    /// large enough for the scan to be expensive happens almost immediately. A
+    /// *selective* query is the case that would otherwise walk every symbol in
+    /// the project without ever reaching the cap — and it is exactly the case the
+    /// user is in while typing, one completion tick per character.
+    public func members(matching query: String, limit: Int) -> [Symbol] {
+        guard limit > 0 else { return [] }
+
+        if !query.isEmpty {
+            guard let initial = Self.initial(of: query) else { return [] }
+            var prefixMatches: [Entry] = []
+            var fuzzyMatches: [Entry] = []
+            for entry in initialBucket[initial] ?? [] {
+                guard Self.isMember(entry.symbol),
+                      let quality = FuzzyMatch.quality(of: entry.symbol.name, matching: query)
+                else { continue }
+                if quality.isPrefixMatch { prefixMatches.append(entry) } else { fuzzyMatches.append(entry) }
+            }
+            return Self.cut(prefixes: prefixMatches, fuzzy: fuzzyMatches, limit: limit)
+        }
+
+        var found: [Symbol] = []
+        for key in files.keys.sorted() {
+            for symbol in files[key] ?? [] where Self.isMember(symbol) {
+                found.append(symbol)
+                if found.count == limit { return found }
+            }
+        }
+        return found
+    }
+
+    /// Every member declared in the container spelled exactly `name`, uncapped.
+    ///
+    /// Case-**sensitive**: this answers "the receiver is spelled `Worker`, which
+    /// members belong to `Worker`", and a type name that differs only in case is
+    /// a different type in every language the editor indexes — the same reason
+    /// `symbols(named:)` is case-sensitive. Uncapped because one type's member
+    /// list is small by construction, and truncating it is what would make the
+    /// receiver's own members — the ones ranked first — go missing.
+    ///
+    /// **This one is a project walk**, and knowingly so: a container name is not
+    /// a bucket key (the buckets are keyed by name and by word-boundary initial,
+    /// neither of which answers "whose members are these"), and the answer must
+    /// be complete rather than capped, so there is nothing to stop the pass
+    /// early. It is reached only when the receiver *spells a type the project
+    /// declares* — `Worker.n`, not `worker.n` — so it is the one member-mode
+    /// lookup whose per-keystroke cost is proportional to the size of the
+    /// project. The pass does no matching, only a kind test and a string compare
+    /// per symbol; a container bucket filed in `replace` and swept in `purge` is
+    /// what would remove even that, should it ever measure.
+    public func members(inContainer name: String) -> [Symbol] {
+        guard !name.isEmpty else { return [] }
+
+        var found: [Symbol] = []
+        for key in files.keys.sorted() {
+            for symbol in files[key] ?? [] where Self.isMember(symbol) && symbol.containerName == name {
+                found.append(symbol)
+            }
+        }
+        return found
+    }
+
+    /// Whether the project declares a **type** named exactly `name` — the one
+    /// question the receiver heuristic asks before it promotes a container's own
+    /// members.
+    ///
+    /// Deliberately not "declares anything named `name`": a function called
+    /// `worker` says nothing about what `worker.` will offer, and promoting an
+    /// unrelated container that happens to share the spelling would be worse
+    /// than promoting nothing.
+    public func declaresType(named name: String) -> Bool {
+        guard !name.isEmpty else { return false }
+        return nameBucket[name]?.contains { $0.symbol.kind == .type } ?? false
     }
 
     /// The symbols of one file, in extraction order (i.e. source order).
     public func symbols(inFile fileURL: URL) -> [Symbol] {
         files[Self.fileKey(for: fileURL)] ?? []
+    }
+
+    /// The *members* of one file — `symbols(inFile:)` narrowed to the kinds a dot
+    /// can reach, in the same extraction order.
+    ///
+    /// The member path's counterpart to `symbols(inFile:)`, and it exists for
+    /// exactly the reason that one does: `members(matching:limit:)` walks the
+    /// project in file-key order and stops at its cap, so in a project with more
+    /// members than that cap every member of a file whose path sorts *after* the
+    /// cut is invisible — and whether the file the user is typing in is one of
+    /// them comes down to how its path happens to sort. The provider's ranking
+    /// rule "current file first" would then fail exactly where it is most
+    /// load-bearing, and the promoted-container rescue does not cover it (that
+    /// one only fires when the receiver spells a declared type).
+    public func members(inFile fileURL: URL) -> [Symbol] {
+        (files[Self.fileKey(for: fileURL)] ?? []).filter(Self.isMember)
     }
 
     /// How many files currently contribute to the index. A file that was walked
@@ -185,24 +366,67 @@ public struct SymbolIndex: Equatable, Sendable {
         CanonicalPath.canonical(url).path
     }
 
-    /// The bucket character for a name: its first character, lowercased.
-    /// Multi-scalar lowercasing (`İ`) can widen a character, so the first
-    /// character of the lowercased string is taken rather than the lowercased
-    /// first character — both sides of the comparison then agree.
+    /// The bucket character a *query* is looked up under: its first character,
+    /// lowercased. Multi-scalar lowercasing (`İ`) can widen a character, so the
+    /// first character of the lowercased string is taken rather than the
+    /// lowercased first character — which is exactly what
+    /// `FuzzyMatch.wordBoundaryInitials(of:)` does when it files a name, so both
+    /// sides of the lookup agree.
     private static func initial(of name: String) -> Character? {
         name.lowercased().first
+    }
+
+    /// Whether a symbol is reachable through a dot: a kind that hangs off a type
+    /// *and* an actual container to hang off. Both halves are load-bearing —
+    /// see `members(matching:limit:)` on why a container-less constant is not a
+    /// member.
+    private static func isMember(_ symbol: Symbol) -> Bool {
+        switch symbol.kind {
+        case .method, .property, .constant:
+            return !(symbol.containerName ?? "").isEmpty
+        default:
+            return false
+        }
     }
 
     /// The documented stable order: file key, then position in the file, then
     /// name. Deterministic regardless of the order files were indexed in, which
     /// is what keeps a rebuilt index from reshuffling a menu under the user.
     private static func ordered(_ entries: [Entry]) -> [Symbol] {
+        sorted(entries).map(\.symbol)
+    }
+
+    /// Truncate a matched set to `limit` so that **a literal prefix match
+    /// survives the cut ahead of a fuzzy one**, and return it in the one
+    /// documented order.
+    ///
+    /// Shared by `symbols(matching:limit:)` and `members(matching:limit:)`
+    /// deliberately: the rule is a property of "fuzzy matching widened the set
+    /// but the cap did not", which is true of both lookups, and two copies of it
+    /// would be free to drift — as they did, the member path having been written
+    /// with a flat cut. The rule is a *truncation* rule and not a ranking one:
+    /// both halves come back merged into the single file-key/position/name order
+    /// the type documents, and the caller still ranks what it is handed.
+    private static func cut(prefixes: [Entry], fuzzy: [Entry], limit: Int) -> [Symbol] {
+        guard prefixes.count + fuzzy.count > limit else {
+            return Self.ordered(prefixes + fuzzy)
+        }
+        let keptPrefixes = Self.sorted(prefixes).prefix(limit)
+        let keptFuzzy = Self.sorted(fuzzy).prefix(limit - keptPrefixes.count)
+        return Self.ordered(Array(keptPrefixes) + Array(keptFuzzy))
+    }
+
+    /// The same order, still as entries — what a lookup that has to *select*
+    /// before it projects (the split cut in `cut(prefixes:fuzzy:limit:)`) needs,
+    /// so both halves are truncated by the one documented order rather than by
+    /// storage position.
+    private static func sorted(_ entries: [Entry]) -> [Entry] {
         entries.sorted { lhs, rhs in
             if lhs.fileKey != rhs.fileKey { return lhs.fileKey < rhs.fileKey }
             if lhs.symbol.range.location != rhs.symbol.range.location {
                 return lhs.symbol.range.location < rhs.symbol.range.location
             }
             return lhs.symbol.name < rhs.symbol.name
-        }.map(\.symbol)
+        }
     }
 }

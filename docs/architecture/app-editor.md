@@ -282,15 +282,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the opened folder) — while `textDidChange` goes through the controller's 400 ms
     debounce; scheduling *both* on a switch would re-parse the file twice per
     settled burst of typing. `textDidChange` also refreshes the completion
-    candidates behind their own shorter debounce, whose gates (bare caret, two typed
-    characters, no marked text) mean an ordinary keystroke outside an identifier
+    candidates behind their own shorter debounce, whose gates (bare caret, no marked
+    text, and either two typed characters *or* a member position — see
+    `CompletionController`) mean an ordinary keystroke outside an identifier
     costs one prefix scan and no task — but **not while
     `isApplyingProgrammaticEdit` is up**. AppKit's own completion insertion fires
     this notification synchronously (once per arrow-key preview as well as for the
     accepted word), so refreshing there would schedule a request for the word just
     completed and re-open the popup over it a debounce later; the iOS strip avoids
     the same treadmill by clearing after an insertion. Auto-pair, the indented
-    newline and ⌘D take the same path and are equally not typing. The snapshot the
+    newline and ⌘D take the same path and are equally not typing.
+    `updateCompletions` passes the highlighter's own `language` (the one
+    `updateHighlighter` owns), so the keywords offered are always the ones being
+    highlighted and a plain-text buffer passes `nil` and gets none. The snapshot the
     guard leaves standing is inert: `completions(forPartialWordRange:in:)`
     re-validates it against the live buffer, and a popup only ever opens from
     `apply` or ⌃Space. The coordinator's `goToDefinition(in:at:)` is
@@ -383,19 +387,57 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the minimap tokenizer's rather than the index's 400 ms — this asks a question of
     a snapshot already in memory, so the cost is a prefix scan and a sort) and a
     monotonic generation token follow the `BracketHighlightController` idiom.
-    `update(provider:fileURL:explicit:)` builds the request on the main actor from
+    `update(provider:fileURL:language:explicit:)` builds the request on the main
+    actor from
     the live buffer — the text goes *into* the request rather than being read after
     the hop, so the harvested words are the ones on screen when the user paused —
     and refuses in three cases: marked text (uncommitted IME input, the ⌘D guard's
     reasoning), a non-empty selection (about to be replaced, not extended), and a
     prefix under two characters. That minimum is the single most-complained-of
     behavior of as-you-type completion, so `explicit` (⌃Space / the menu item)
-    bypasses both it and the debounce — the user asked. `apply` re-reads the caret
+    bypasses both it and the debounce — the user asked. `language` is threaded
+    through from the coordinator for the keyword source and nothing else; `nil` (an
+    unclassifiable buffer) means no keywords rather than some default language's.
+    **Two triggers, not one.** The second is a *member position* —
+    `IdentifierScanner.memberContext(in:at:)` non-`nil`, i.e. a caret after
+    `receiver.` — asked **before** the length gate and bypassing it entirely,
+    because the `.` is itself the request and waiting for two more characters would
+    defeat the point; the member context's own `prefixRange` is what the request
+    carries, so it and `completionPrefixRange` agree by construction rather than by
+    a second scan. A snapshot's prefix may therefore be the **empty string**, and
+    both places that re-check a snapshot are written to survive that. `apply` re-reads
+    the caret
     *after* the await (a click, an arrow key or an undo during the debounce moves
     the popup's anchor to a word these items do not answer), opens nothing on an
     empty result (an empty popup is strictly worse than no popup), and requires the
     text view to still be the window's first responder, or `complete(nil)` would put
-    a floating list over whatever the user *is* typing in. Thin glue otherwise:
+    a floating list over whatever the user *is* typing in. Dropping the old
+    `range.length > 0` re-check was not enough on its own, and the extra condition
+    is load-bearing: an empty prefix compares **equal** to the (also empty) partial
+    word at a caret sitting in open space, after a `(`, or at the start of a line,
+    so the ordinary "is this still the word these items answer" test passes
+    everywhere and a member list would survive exactly the caret move it exists to
+    catch. Both re-checks therefore additionally demand that the caret still be in
+    the **same member state** the items were computed for — the same receiver, or
+    no member position on either side — and they demand it at **every** prefix
+    length rather than only at zero. The empty prefix is only the loudest case: a
+    member list and an ordinary list answer the same characters with different
+    candidate *sets* (no keywords, no non-member symbols after a dot), so
+    `worker.na`'s member-only list is just as wrong served over an unrelated `na`
+    as the bare dot's list is served in open space. The comparison is
+    `memberContext(…).map(\.receiver)` on both sides rather than `?.receiver`: the
+    receiver is itself optional — a bracketed one (`f().`) names no type — and
+    optional chaining would flatten "not a member position" into "a member position
+    with an unnamed receiver" and let the two serve each other's lists. Only the
+    receiver is compared, not the whole `MemberContext` carried on `Snapshot`; its
+    `prefixRange` is position-dependent by construction. The *serving* side
+    (`completions(forPartialWordRange:in:)`) is where this matters most: ⌥⎋/F5
+    reaches the delegate **without** going through `update(…)`, and a caret move
+    alone never refreshes the snapshot, so the weaker test would hand `Worker.`'s
+    member list to a caret since moved after `other.`, and a stock ⌥⎋ in open space
+    the previous dot's members. `rangeForUserCompletion`, `insertCompletion` and the
+    programmatic-edit bracket are untouched: an empty range at the caret is already
+    the correct insertion range for a member completion. Thin glue otherwise:
     `IdentifierScanner` says what is being typed and `SymbolIntelligenceProvider`
     ranks and caps the answers, so this class decides only *when* to ask and whether
     the answer is still current.

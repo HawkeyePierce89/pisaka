@@ -33,9 +33,92 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     later would mean re-reading the file the symbol came from. `qualifiedName`
     (`Container.name`, or the bare name) is the label both platforms' pickers lead
     a row with.
+  - `FuzzyMatch.swift` — the completion matcher: *"does this candidate answer
+    what the user typed, and how well"*, as **one** subsequence walk shared by
+    every candidate source (indexed symbols, language keywords, harvested buffer
+    words), so a fuzzy hit means the same thing wherever it comes from and the
+    ranking can compare across sources at all. Pure, Foundation-only, and
+    working on `Character`s (grapheme clusters) rather than UTF-16 units —
+    unlike every other editor engine in Core, deliberately: this type never
+    reports a range back to a text view, it only compares two names and produces
+    a sort key, so working in characters is what keeps a decomposed accent or an
+    emoji in an identifier from being cut in half by the walk.
+    **The file owns the one word-boundary rule**, and it lives here rather than
+    in `SymbolIndex` because two very different things depend on it agreeing with
+    itself: the index's lookup bucket is *keyed* by the boundary initials, and
+    the ranking *prefers* a match whose characters land on them. A name's word
+    starts are index 0 always (including a leading `_`, so `_private` is
+    reachable by typing the underscore as well as by typing `p`); a camelCase
+    hump — any uppercase not preceded by an uppercase (`arrayBuffer` → `B`) plus
+    the *last* uppercase of an uppercase run followed by a lowercase
+    (`URLSession` → `S`, not `R`/`L`); the character after a `_`/`-` separator
+    (`snake_case` → `c`); and either side of a digit/letter transition
+    (`base64Encoder` → `6`, `E`). `wordBoundaryInitials(of:)` returns them
+    deduplicated, lowercased, in name order and capped at `maximumInitials` 8 —
+    a generated or minified file can hold identifiers with dozens of humps and
+    every initial is an entry appended to a project-wide bucket, while eight
+    covers every hand-written name (`NSAttributedStringKey` has four); the kept
+    eight are the *first* eight, so the cap is deterministic rather than
+    dictionary-ordered, and `quality(of:matching:)` applies the **same** cap when
+    it decides whether a query may anchor on a boundary — the two go through one
+    private `boundaryInitials(of:boundaries:)` so they cannot drift apart, which
+    is the whole reason the index's one-bucket lookup is exhaustive rather than
+    merely usually right. Lowercasing is per-character and stays one character
+    (`String.lowercased()` can widen `İ` to `i` + U+0307, which would
+    desynchronize the lowercased array from the boundary flags computed over the
+    original — and it agrees with how `SymbolIndex` derived its bucket key before
+    this file existed).
+    **A fuzzy match must *start* on a word boundary.** `buf` matches
+    `ArrayBuffer` (the hump), `rray` does not. That is not a performance accident
+    of the index's bucket — it is stated in the matcher precisely so a keyword and
+    a buffer word, neither of which is looked up through a bucket, obey exactly
+    the same rule as a symbol. It is also what keeps the candidate set
+    intelligible: without it a three-letter query matches an appreciable fraction
+    of every project's identifiers, and the popup stops being a ranking problem
+    and becomes a lottery. It is the documented **limit** of the feature, stated
+    in the README: the *first* typed character has to hit a boundary.
+    `quality(of:matching:)` answers `nil` in exactly three cases and no others —
+    an empty query, not a case-insensitive subsequence, or a first character that
+    occurs only off a boundary — and otherwise a `Quality`, the ranking's first
+    key, ordered best-first on `tier` (0 case-sensitive prefix, 1
+    case-insensitive prefix, 2 fuzzy), then `offBoundary` (how many matched
+    characters missed a boundary: `aBu` → `ArrayBuffer` hits two humps and reads
+    as intentional, the same three characters scattered mid-name do not), then
+    `span` (tighter over looser), then `start` (earlier over later). **For a
+    prefix match the three fuzzy sub-keys are pinned to zero rather than
+    computed**, and that is what keeps the pre-existing ranking intact
+    bit-for-bit: with a literal prefix the whole key collapses to the two-valued
+    case rank the provider ranked on before fuzzy matching existed, so every
+    candidate that tied then still ties now and the later tie-breaks decide
+    exactly as before. The walk itself is greedy, left-to-right and deliberately
+    deterministic rather than optimal — for each query character it takes the next
+    *boundary* occurrence if there is one and the next occurrence otherwise, and
+    retries taking the leftmost throughout if that pass runs out of candidate.
+    Two passes rather than a search because the candidate set is scanned once per
+    keystroke: the pair answers "is this a subsequence at all" exactly, and only
+    the *quality* of a pathological name (`abC_bx` against `abc`, where the
+    boundary-preferring pass has to back off) depends on which pass succeeded.
+    **Answering "no" must not cost an allocation**, and that is a stated
+    requirement rather than a tuning detail: this function is asked about every
+    harvested buffer word (up to 5 000), every keyword and — in member position —
+    every member the index holds, on every completion tick, and rejection is by
+    far the common answer. So the two-pass walk and the four arrays it needs sit
+    behind two gates that allocate nothing: a first-character comparison before
+    the case-insensitive prefix test's `lowercased()` pair, and
+    `isSubsequence(_:of:)`, an in-place walk of the *necessary* half of what the
+    positional pass decides (that one additionally demands a boundary anchor, so
+    it can only reject more). Without them a rejection cost the same as a match —
+    measured at ~100× the literal-prefix test the matcher replaced, over a
+    5 000-word buffer, paid on the ordinary per-keystroke path and not only after
+    a dot. The capped initials list is likewise deduplicated by a linear scan of
+    at most eight characters rather than by a `Set`, which would allocate a hash
+    table per candidate *and* per symbol on every re-index.
+    `matches(_:query:)` is the same call without the key, for the filtering call
+    sites that do not rank — `SymbolIndex`'s lookups and the iOS insertion guard.
   - `SymbolIndex.swift` — the project's symbol store: per-file symbol arrays plus
     the two buckets everything above asks questions through, *"who is named X"*
-    (go-to-definition) and *"who starts with X"* (autocompletion). A **value
+    (go-to-definition) and *"who could the typed text be reaching for"*
+    (autocompletion, literal prefix or fuzzy alike). A **value
     type** on purpose: `SymbolIndexModel` mutates a working copy off the main
     actor and publishes snapshots, so the reader — `SymbolIntelligenceProvider`,
     on the main actor, between keystrokes — never sees a half-applied chunk and
@@ -64,29 +147,108 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     that `indexedFiles`/`stamps`/`bufferSourced` never recorded, which no later
     `remove(fileKey:)` would find.
     That purge sweeps **one bucket per distinct name and initial**, not one per
-    symbol: `prefixBucket[initial]` holds the entries of the whole project for
+    symbol: `initialBucket[initial]` holds the entries of the whole project for
     that letter, so a per-symbol loop would rescan it end to end (and, bound with
     `var` while the dictionary still referenced it, copy it) once per symbol in
     the file — hundreds of full-bucket passes on every debounce tick while the
     user types in a large file, for a set of buckets a couple of dozen wide. The
     removals go through `dict[key]?.removeAll`, which mutates the stored array in
-    place rather than copying it.
-    The prefix bucket is keyed by **lowercased first character only** — a
-    deliberately coarse index: it turns a prefix query into a scan of one small
-    slice instead of the whole project, at one array per distinct initial letter
-    rather than one per distinct prefix (what a trie would cost, for a lookup
-    already fast enough at this granularity). The bucket character is the first
-    character *of the lowercased string* rather than the lowercased first
-    character, so a multi-scalar lowercasing (`İ`) leaves both sides of the
-    comparison agreeing. `symbols(named:)` is case-**sensitive** (`Foo` and `foo`
+    place rather than copying it. The initials swept are collected with the very
+    function `replace` filed them under
+    (`FuzzyMatch.wordBoundaryInitials(of:)`), so a name that contributed several
+    keys (`ArrayBuffer` → `a`, `b`) is swept out of *all* of them: deriving them
+    any other way here would leave a hump-keyed entry behind and let a deleted
+    symbol go on answering completion.
+    The completion bucket is keyed by **every lowercased word-boundary initial**
+    of a name (`ArrayBuffer` is filed under both `a` and `b`) — still a
+    deliberately coarse index: it turns a completion query into a scan of one
+    small slice instead of the whole project, at one array per distinct initial
+    letter rather than one per distinct prefix (what a trie would cost, for a
+    lookup already fast enough at this granularity). Filing under every boundary
+    rather than only the first character is what makes **fuzzy lookup affordable
+    without a new structure**: `symbols(matching:limit:)` still reads exactly
+    *one* bucket — the one its first typed character names — and that bucket
+    provably holds every candidate the matcher could accept, because
+    `FuzzyMatch` requires the first matched character to land on a boundary
+    **and on one of the first `maximumInitials` of them**. That second half is
+    what makes "provably" true rather than nearly true: the cap is enforced
+    inside `quality(of:matching:)`, not only in `wordBoundaryInitials(of:)`, so
+    a name with nine or more distinct boundary initials cannot be a match the
+    bucket has no entry for — otherwise the same query would find such a name as
+    a keyword or a harvested buffer word and silently *not* as the identical
+    indexed symbol, a hole indistinguishable from "not indexed yet". The
+    price is bounded and paid in both directions: `FuzzyMatch.maximumInitials`
+    caps a name at 8 keys and hand-written code averages two or three, so both
+    the stored entries and the entries scanned per keystroke grow by that same
+    small factor (~2–3×) rather than by the size of the project. The bucket
+    character for a *query* is the first character *of the lowercased string*
+    rather than the lowercased first character, so a multi-scalar lowercasing
+    (`İ`) leaves both sides of the lookup agreeing — the same rule
+    `wordBoundaryInitials` applies when it files a name.
+    `symbols(named:)` is case-**sensitive** (`Foo` and `foo`
     are two declarations in every language indexed, and offering both would open a
-    picker where the jump was unambiguous); `symbols(withPrefix:limit:)` is
-    case-**in**sensitive (typing `arr` should still surface `ArrayBuffer`) and caps
+    picker where the jump was unambiguous); `symbols(matching:limit:)` is the
+    superset that replaced the old prefix lookup rather than a different rule —
+    `arr` still finds `ArrayBuffer`, and now `aBu` and `buf` do too — and caps
     *after* ordering, so the cap is deterministic rather than "whichever matches
-    were stored first". An empty name or prefix yields nothing. `indexedFileCount`
+    were stored first". **The cap fills from the literal-prefix matches first**,
+    which is a truncation rule and not a ranking (the returned array is still in
+    the one documented order, and the provider still ranks it): fuzzy matching
+    widened the matched set by one to two orders of magnitude for a short query
+    while the caller's `limit` — a multiple of what the popup shows, not of the
+    project — did not, so a cut made purely in file-key order would decide *which*
+    matches the ranking ever sees by how paths happen to sort. A `setUp` in
+    `zzTests/` is an exact prefix match for `se` that the pre-fuzzy lookup always
+    offered and that a path-ordered cut would silently drop behind a few hundred
+    unrelated `s…e…` names. The provider cannot repair this afterwards — by the
+    time it sees the result the evicted candidate is simply absent — so it is
+    fixed at the cut, at the cost of one extra partition of a set already in hand.
+    An empty name or query yields nothing. `indexedFileCount`
     counts a walked file that yielded no symbols too: it *is* indexed, just empty.
-    **This type ranks nothing** — lookups return a stable, documented order (file
-    key, then position in the file, then name), and every relevance decision
+    **Member lookup adds no index structure of its own**, deliberately: a
+    *non-empty* member query reads the very same `initialBucket`
+    `symbols(matching:limit:)` does, by the same argument (the matcher anchors the
+    first matched character on a word boundary and every boundary is a bucket key,
+    so that one bucket already holds every member that could match), with only the
+    `.method`/`.property`/`.constant`-with-a-container filter applied on top, and
+    it takes the same split cut through the one shared `cut(prefixes:fuzzy:limit:)`
+    — the rule is a property of "fuzzy matching widened the set while the cap did
+    not", which is as true of the member path as of its sibling, and two copies of
+    it were free to drift, as they had. That
+    routing is what keeps the member path off a project-wide scan while the user
+    types, which is the case that would otherwise walk every symbol in the project
+    once per keystroke and never reach its cap. The linear pass over the per-file
+    storage (files by key, symbols in extraction order) is left to the **empty**
+    query — the bare typed `.`, which has no first character to look a bucket up
+    by — and is bounded from the other end instead: with no query every member
+    counts, so it stops after seeing `limit` of them, which in a project large
+    enough for the scan to hurt happens almost immediately.
+    `members(inContainer:)` is the same kind filter restricted to one
+    container name, case-**sensitively** (a type differing only in case is a
+    different type, the `symbols(named:)` reasoning) and **uncapped**, because one
+    type's member list is small by construction and truncating it is exactly what
+    would make the receiver's own members — the ones the provider ranks first —
+    go missing. A by-container bucket was rejected: it would cost memory on every
+    keystroke to speed up a pass that compares a container name per symbol without
+    running the matcher at all, and that runs only when the receiver spells a
+    declared type. **An empty query matches every member** here and nowhere else in
+    the type — that is the typed-dot case, where the user has committed to a
+    member access and typed nothing, so the candidate set is bounded by the kind
+    filter rather than by the text and the cap is what keeps it finite; that
+    single difference is the whole reason it is a separate method. A
+    container-less symbol is excluded even when its kind qualifies: a `.constant`
+    at file scope is not reachable through a dot, and offering it after one is a
+    worse answer than offering nothing. `declaresType(named:)` is the receiver
+    heuristic's one question, and it asks specifically about a `.type` rather than
+    about anything with that name — a *function* called `worker` says nothing
+    about what `worker.` will offer, and promoting an unrelated container that
+    happens to share the spelling would be worse than promoting nothing.
+    **This type ranks nothing** — that holds for the fuzzy and member lookups
+    too: they ask `FuzzyMatch` whether a candidate matches *at all* and throw the
+    quality away, returning the stable documented order (file key, then position
+    in the file, then name). Every relevance decision — current file first,
+    case-sensitive before case-insensitive, the receiver's own container first,
+    symbols before keywords before bare words —
     belongs to the provider. Keeping the two apart is what lets the ranking rules
     be pinned by tests that build three symbols instead of a project, and what
     lets a phase-2 LSP provider reuse the ranking over a different source of
@@ -354,9 +516,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     one object rather than a separately-constructed provider that would capture a
     stale index value.
   - `IdentifierScanner.swift` — the editor's single definition of *"what is an
-    identifier"*, shared by the three questions code intelligence asks of raw
+    identifier"*, shared by the four questions code intelligence asks of raw
     text: which word was ⌘-clicked (`identifier(in:at:)`), which partial word is
-    being typed (`completionPrefixRange(in:at:)`), and which words this buffer
+    being typed (`completionPrefixRange(in:at:)`), whether the caret sits after a
+    member-access dot (`memberContext(in:at:)`), and which words this buffer
     contains (`words(in:limit:)`). Pure and Foundation-only over an `NSString` and
     UTF-16 offsets like every other editor engine (`DuplicateEngine`,
     `BracketMatchEngine`, `AutoPairEngine`), so a range it returns can be handed
@@ -391,7 +554,44 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     exactly what `NSTextView.rangeForUserCompletion` must report, and returning the
     whole dotted expression there is the classic reason a popup offers nothing. It
     returns an **empty range at the caret**, never `nil`, so callers can hand it to
-    AppKit unconditionally. `words(in:limit:)` is the graceful-degradation half of
+    AppKit unconditionally.
+    `memberContext(in:at:)` answers the fourth question — is this caret in a
+    *member position*, and if so what does the completion replace and what does
+    the dot hang off — and it **extends the one boundary rule rather than
+    inventing a second**: the member prefix is the same maximal run of
+    continuation scalars `completionPrefixRange(in:at:)` takes (`MemberContext
+    .prefixRange` is literally that call's answer, so the two paths can never
+    insert at different places), and the receiver is the same run a ⌘-click would
+    resolve. Accepted before the dot: an identifier (`worker.|`, receiver
+    `worker`; `a.b.c|` therefore reports `b`) and the closing brackets `)`, `]`,
+    `}` (`f().|`, `items[0].|`), whose expression yields *some* value while its
+    spelling names no type — hence `receiver == nil` there, and no container
+    promotion in the ranking. Rejected, all `nil`: a dot after whitespace
+    (`foo .|`), after `(` or `,`, after another dot (`..|`), at the start of the
+    file, and after a bare number — `1.|` is caught by the trim rule (a run of
+    digits is not an identifier), so typing a decimal point never opens a member
+    list. The same trim rule rejects a member prefix that does not **begin** where
+    the dot ends, and that rejection is explicit rather than incidental — the
+    guard is `prefixRange.location == start`, i.e. the trimmed identifier and the
+    raw run after the dot start at the same offset. Two shapes fail it, both from
+    digits. A run that is *all* digits (`pair.0|`, `ubuntu20.04|`) trims to
+    nothing, so `prefixRange` would be the empty range **after** the digits —
+    which the provider reads as "the dot was just typed" and answers with every
+    member in the project, and which both editors insert at, turning `pair.0|`
+    into `pair.0doWork`. A run that merely *starts* with digits
+    (`ubuntu20.04lts|`, `v1.0beta|`) trims partway in, so a completion would
+    replace `lts` three characters inside a token that is not a member access at
+    all, rewriting the version to `ubuntu20.04doWork`. Swift tuple access hits the
+    first shape on every keystroke. A leading `_` *is* an identifier start, so
+    `worker._x|` is unaffected. Deleting the dot returns `nil` and the ordinary
+    path resumes.
+    **String and comment context is deliberately not detected**: a dot inside a
+    string literal or a comment *does* report a member position, exactly as
+    identifier completion already offers candidates while typing inside one —
+    knowing better needs the syntax tree, which this Foundation-only scanner does
+    not have, and it is the *provider's* rule (a bare dot offers members only,
+    never buffer words) that keeps the resulting popup quiet.
+    `words(in:limit:)` is the graceful-degradation half of
     completion — a language with no `symbols.scm`, or a file the index has not
     reached yet, still offers the buffer's own words, which is what every editor's
     "dumb" completion does. It de-duplicates, keeps first-occurrence order (a `Set`
@@ -400,6 +600,47 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the cap is reached: a minified bundle or a generated data file is one buffer
     with hundreds of thousands of tokens, and an uncapped harvest would allocate
     that set on every debounce tick.
+  - `LanguageKeywords.swift` — completion's **third candidate source**: the
+    reserved vocabulary of the language being typed in. Static per-language lists
+    rather than anything derived from the parse tree, because a keyword is spelled
+    the same in every file of a language, never moves, and is exactly what a
+    project's *first* file — the one that declares nothing yet and whose buffer
+    holds no words to harvest — has to offer, so the cheapest possible source is
+    also the right one: no index, no read, no parse, just a filter over a sorted
+    array behind the same `FuzzyMatch` every other source goes through. The lists
+    are **curated, not generated** — the tokens a person types while writing the
+    language (declaration and statement keywords, the literal spellings
+    `true`/`nil`/`None`, the widely-used contextual keywords) and nothing more.
+    They are deliberately not a standard-library index: `print`, `console` and
+    `String` are declarations, and a project that uses them has them in its buffer
+    or (for its own code) in its symbol index already. TypeScript is *composed*
+    from JavaScript plus a type-level list and re-sorted, so there is one list to
+    maintain instead of two that drift and the composition cannot break the sorted
+    invariant. **A keyword is never a definition**: `SymbolIntelligenceProvider`'s
+    go-to-definition path does not consult these lists, because a keyword has no
+    declaration site to jump to — the two features sharing a provider is exactly
+    why that is pinned by a test rather than left to convention.
+    `languagesWithoutKeywords` records the absence as a *stated decision*, the way
+    `SymbolIndexModel.unindexableLanguages` does, and for the same enforcement
+    reason: `LanguageKeywordsTests` asserts by **set equality** against
+    `SyntaxLanguage.allCases` that every case either has a non-empty list or is
+    named there, so a language added to the enum fails `swift test` until someone
+    decides which it is and can never silently complete to nothing. The reasons,
+    by family — **JSON, YAML, dotenv** are data, not code: their grammar is
+    punctuation, the only "keywords" (`true`/`false`/`null`, YAML's scalar
+    spellings) are shorter than the popup they would open, and what a data file
+    actually wants completed is the keys already in the buffer, which the
+    harvested-word source offers; **Markdown** is prose with no reserved words at
+    all; **gitignore** is patterns, with no vocabulary to complete (which is also
+    why it is the one language the index skips); **HTML and CSS** have an open
+    vocabulary a flat list would answer badly — element, attribute and property
+    names are only meaningful *in position*, and several hundred names with no
+    positional filter is noise rather than a spelling aid, so doing it properly is
+    a structural completion belonging to whatever phase takes on typed context.
+    The suite also pins that each list is sorted, duplicate-free and made of
+    *insertable* tokens — every entry survives
+    `IdentifierScanner.completionPrefixRange` unchanged, so a keyword the ranking
+    offers can actually be typed and completed.
   - `CodeIntelligence.swift` — the seam between the editor surfaces and whatever
     knows about code: the two questions, their requests and their results, in one
     file, so the platform layers depend on *this* and never on the index and
@@ -422,7 +663,26 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `CompletionRequest` carries the prefix, the file, and the buffer's **live
     text** — passed in rather than read from a model, because the buffer being
     typed in is always ahead of the index (the re-index debounce has not fired
-    yet) and a name typed thirty seconds ago must still be completable.
+    yet) and a name typed thirty seconds ago must still be completable — plus the
+    two fields phase 1.5 added, `language` and `member`. `language` exists for the
+    keyword source and nothing else, and `nil` means **no keywords at all** rather
+    than some default language's: offering Swift's `guard` while typing in a file
+    the editor could not classify is a worse answer than offering nothing (a
+    language that *has* no list reaches the same outcome through
+    `LanguageKeywords.languagesWithoutKeywords`). `member` is
+    `IdentifierScanner.memberContext(in:at:)`'s answer, carried on the request
+    rather than re-derived by the provider because the provider is given a prefix
+    and a buffer, not a caret: the editor layer is the only place that knows where
+    the caret is, and it already has to ask the question to decide whether to
+    bypass its minimum-length trigger gate. Non-`nil` is also the one state in
+    which `prefix` may legitimately be empty. Both are **defaulted to `nil`**, so
+    every construction site that predates member completion — and every test that
+    only cares about ranking — compiles and means exactly what it meant before.
+    Note what grew: the *request*, not `CodeIntelligenceProviding`. The protocol
+    still has the same two methods with the same shapes, so a phase-2 LSP provider
+    implements the same contract and simply maps these two fields onto a
+    completion-context parameter instead of onto an index lookup — which is the
+    whole point of putting them here rather than in a second method.
     `CompletionItem` is deliberately just a string plus two ranking facts (`kind`,
     `isFromCurrentFile`): AppKit's stock popup shows strings only (plan Decision 2)
     and the iOS strip shows buttons, so the extra fields exist to make the
@@ -462,34 +722,136 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     JSON/YAML keys and CSS selectors), so a docs-heavy or multi-package project
     really can hold hundreds of declarations of `name`, `id` or `Overview`. Past a
     screenful the menu has stopped disambiguating anything, and on iPhone a
-    several-hundred-action sheet is a hang. **Completions** merge the index's prefix
-    matches with the buffer's harvested words and rank by (1) case-sensitive prefix
-    match before merely case-insensitive — the user's capitalization is a signal,
-    so `arr` still surfaces `ArrayBuffer` but never above `arrayCount`; (2) current
-    file before the rest of the project; (3) a known symbol before a bare word — a
-    declaration is a fact, a word is a guess, and the guess is only there so
-    query-less languages still complete; (4) shorter name — the shortest completion
+    several-hundred-action sheet is a hang. **Only the index is consulted** for a
+    definition — not the buffer's words, and not `LanguageKeywords`, which the
+    completion path below *does* read: a keyword has no declaration site, so a
+    `guard` under the caret must beep rather than open a picker, and the two
+    features sharing this type is exactly why that is pinned by a test instead of
+    left to convention. **Completions** merge three sources — the index's matches,
+    the language's keywords and the buffer's harvested words — and rank by
+    (1) **match quality**, `FuzzyMatch.Quality`, which is itself ordered
+    case-sensitive prefix, then case-insensitive prefix, then fuzzy, and within
+    fuzzy prefers a match landing on word boundaries, then a tighter span, then an
+    earlier start: typing `arr` still surfaces `ArrayBuffer` but never above
+    `arrayCount`, and a literal prefix always beats a scattered subsequence
+    however short the scattered candidate is. For a literal prefix that key
+    *collapses* to exactly the two-valued case rank this method ranked on before
+    fuzzy matching existed, so every order that held then holds now — which is why
+    the pre-existing ranking tests pass unedited;
+    (2) current file before the rest of the project; (3) the **source**: a known
+    symbol, then a language keyword, then a bare harvested word — a declaration is
+    a fact, a keyword is a certainty about the language that says nothing about
+    *this* project, and a word is a guess that only exists so query-less languages
+    still complete; (4) shorter name — the shortest completion
     of a prefix is the most common intent and the cheapest to correct; (5)
     lexicographic, then kind, purely so two equally-ranked entries cannot swap
-    places between keystrokes. The typed token itself is dropped (completing `foo`
+    places between keystrokes. **Keywords carry `isFromCurrentFile: true`**, so
+    rule 2 puts them level with harvested words and rule 3 is what separates the
+    two: a keyword belongs to the language of the file being typed in and is
+    exactly as local as a word lifted out of it. Where rules 2 and 3 genuinely
+    conflict — a keyword against a symbol declared in *another* file — the
+    current-file rule wins, precisely as it already does between a harvested word
+    and a project symbol; the keyword tests isolate rule 3 by putting everything
+    in one file, the way `testSymbolsOutrankBareBufferWords` already does. A
+    keyword is a `CompletionItem` with `kind == nil` and its source rank lives
+    inside the private `Ranked` rather than on the seam, so `SymbolKind` — pinned
+    by `SymbolQueryTests` against the shipped queries — gains no case for
+    something no query emits and the public type gains no field nobody renders.
+    The typed token itself is dropped (completing `foo`
     to `foo` inserts nothing and hides a real candidate behind it), duplicates
     collapse to their best-ranked entry (so a name both declared here and present
-    in the buffer appears once, as the symbol), and the result is capped —
-    `defaultCompletionLimit` 30, because beyond a couple of dozen entries a list
-    stops being a choice and the next keystroke narrows it anyway. The index is
-    asked for **more than the cap** (`candidateLimit`) precisely because it orders
-    by storage position: capping there would hand the ranking an arbitrary slice
-    and the best candidate could be missing entirely. A generous multiple still is
-    not a guarantee, and the one place that matters is the current file — storage
-    order is *by file key*, so in a project with more prefix matches than the
+    in the buffer appears once, as the symbol — and `guard`, which a Swift buffer
+    both contains and reserves, appears once as the keyword), and the result is
+    capped — `defaultCompletionLimit` 30, because beyond a couple of dozen entries
+    a list stops being a choice and the next keystroke narrows it anyway. The index
+    is asked for **more than the cap** (`candidateLimit`) precisely because it
+    orders by storage position: capping there would hand the ranking an arbitrary
+    slice and the best candidate could be missing entirely. A generous multiple
+    still is not a guarantee, and the one place that matters is the current file —
+    storage order is *by file key*, so in a project with more matches than the
     pre-cap every match in a path sorting after the cut is invisible, and whether
     the file being typed in is one of them comes down to how its path happens to
     sort. Ranking rule 2 would then fail exactly where it is most load-bearing, so
     that file's own symbols are asked for separately (`symbols(inFile:)`, one
-    dictionary hit) and prefix-filtered in; the de-duplication above collapses the
-    overlap with whatever the bucket already returned. Ranking facts are
+    dictionary hit) and re-matched in; the de-duplication above collapses the
+    overlap with whatever the bucket already returned. Fuzzy matching *widens* the
+    set the pre-cap slices, so that mitigation matters more now, not less: the cut
+    falls earlier in file-key order and the current file is likelier to sit past
+    it. The file-scoped lookup is unfiltered, so its symbols are re-matched rather
+    than trusted wholesale — it is the matcher, applied to every source alike,
+    that decides what is a candidate. The *other* half of that widening — a
+    literal prefix match in some third file evicted by unrelated fuzzy matches
+    from files that sort earlier — cannot be repaired here at all, because by the
+    time this sees the result the evicted candidate is simply absent; it is
+    handled at the cut instead, by `symbols(matching:limit:)` filling the cap from
+    the prefix matches first.
+    **Member mode is a branch, not a filter**, taken whenever `request.member` is
+    non-`nil`, and it changes three things while reordering nothing. *The prefix
+    may be empty*: a typed `.` is the user committing to a member access before
+    typing anything, so "nothing typed, nothing to complete" — right everywhere
+    else, and still enforced for a request with no member context — would answer
+    the one unambiguous request with nothing; the candidate set is bounded by the
+    member kinds instead (`SymbolIndex.members(matching:limit:)`, whose empty
+    query matches every member). *The candidates are members only*, and **keywords
+    are not offered at all**, for the same reason a type or a free function is
+    not: no language lets `guard` follow a dot. *The receiver's own container
+    ranks first* — one key **above** match quality and therefore above every other
+    key, but only when the receiver spells a type the project declares
+    (`index.declaresType(named:)`). That is a name-based heuristic and not type
+    inference: `worker.` cannot be resolved without knowing what `worker` was
+    assigned, while `Worker.` names the container outright, and a receiver naming a
+    *function* promotes nothing. Below that one key every ordinary tie-break still
+    applies unchanged, and on an ordinary request the key is constant 0, so the
+    ranking outside member mode is bit-for-bit what it was before member completion
+    existed. The promoted container's members are collected separately and
+    uncapped so the pre-cap cannot drop the very members the request is about, and
+    the **current file's** members are collected separately too
+    (`SymbolIndex.members(inFile:)`) for exactly the reason `symbols(inFile:)` is
+    added on the ordinary path: the pre-cap slices the project in file-key order,
+    so without it the file being typed in can contribute nothing at all and
+    ranking rule 2 fails where it matters most. The promoted-container rescue does
+    not cover that case — it fires only when the receiver spells a declared type,
+    while `worker.`, the common case, promotes nothing. Both extra lookups are
+    re-matched like every other source, so being unfiltered cannot widen what
+    counts as a candidate, and `assemble` collapses the overlap. The *third* way
+    the pre-cap can lose a candidate — a literal prefix match evicted by unrelated
+    fuzzy matches from earlier-sorting files — is not repairable here either, and
+    is handled at the cut for the same reason and by the same shared rule the
+    ordinary path uses: `members(matching:limit:)` fills the cap from the prefix
+    matches first. Neither rescue above covers it, since a member of an
+    un-promoted receiver declared in some third file is reached by neither.
+    `memberCandidateLimit` 400 is a flat number rather than a multiple of the
+    visible cap the way `candidateLimit(for:)` is, because that one slices a set
+    the *query* already narrowed while a bare dot has no query at all — a few
+    hundred members is far more than the popup can show and far less than a large
+    project declares. That cap is also what bounds the bare-dot lookup's linear
+    pass, which stops as soon as it has seen that many members; every *other*
+    member request — `worker.n`, `worker.na`, i.e. every subsequent completion
+    tick for as long as the caret sits after the dot — carries a query and is
+    answered from the initial bucket instead of by a walk, which is what keeps the
+    per-keystroke cost of member mode comparable to ordinary completion rather
+    than proportional to the size of the project. The one exception is the
+    promoted-container rescue: `SymbolIndex.members(inContainer:)` *is* a project
+    walk, because a container name is not a bucket key and the answer has to be
+    complete rather than capped. It fires only when the receiver spells a declared
+    type (`Worker.n`, not `worker.n`) and does no matching — a kind test and a
+    string compare per symbol — so it is left as a walk; a container bucket filed
+    in `replace` and swept in `purge` is what would remove it if it ever measured. **The buffer-word fallback requires a non-empty member
+    prefix**: words are offered only when the user has typed at least one character
+    after the dot *and* no member matched it — the case where the project simply
+    has not indexed the receiver's type and a word is better than an empty popup.
+    With an empty prefix there is no fallback at all, because an empty query
+    matches *every* word in the buffer and the scanner deliberately does not know
+    about strings or comments, so a dot inside a JSON value, a URL in a comment or
+    a decimal point would otherwise open a list of unrelated words exactly where
+    the dot is least likely to be a member access; nothing at all is the honest
+    answer there. A *single* matching member suppresses the fallback entirely, so
+    words never dilute a real member list. Ranking facts are
     precomputed per candidate (`Ranked`) so the comparator does no string work
-    across `O(n log n)` calls, and canonical file keys are memoized
+    across `O(n log n)` calls — with `sourceRank` *passed in* rather than derived
+    from `item.kind`, since two of the three sources produce a kind-less item (a
+    keyword and a harvested word are both "just a string") and the source is the
+    caller's knowledge anyway — and canonical file keys are memoized
     (`FileKeyCache`) because `SymbolIndex.fileKey(for:)` resolves symlinks — i.e.
     touches the file system — and a completion pass compares hundreds of candidates
     from a handful of files on every debounce tick. `defaultBufferWordLimit` 5 000

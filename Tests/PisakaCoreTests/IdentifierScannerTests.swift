@@ -124,6 +124,153 @@ final class IdentifierScannerTests: XCTestCase {
         )
     }
 
+    // MARK: - memberContext(in:at:)
+
+    /// The two shapes that open a member list: the dot just typed (empty
+    /// prefix) and a few characters typed after it.
+    func testMemberContextResolvesTheReceiverAndTheTypedPrefix() {
+        let justTyped = text("worker.")
+        XCTAssertEqual(
+            IdentifierScanner.memberContext(in: justTyped, at: 7),
+            IdentifierScanner.MemberContext(
+                receiver: "worker",
+                prefixRange: NSRange(location: 7, length: 0)
+            )
+        )
+
+        let partial = text("worker.na")
+        XCTAssertEqual(
+            IdentifierScanner.memberContext(in: partial, at: 9),
+            IdentifierScanner.MemberContext(
+                receiver: "worker",
+                prefixRange: NSRange(location: 7, length: 2)
+            )
+        )
+    }
+
+    /// A chained access takes the *nearest* receiver, not the whole expression:
+    /// in `a.b.c|` the members being offered are `b`'s.
+    func testMemberContextTakesTheNearestReceiverInAChain() {
+        XCTAssertEqual(IdentifierScanner.memberContext(in: text("a.b.c"), at: 5)?.receiver, "b")
+        XCTAssertEqual(IdentifierScanner.memberContext(in: text("a.b."), at: 4)?.receiver, "b")
+    }
+
+    /// A dot off a closing bracket is still a member position — the expression
+    /// yields a value — but its spelling names no type, so there is no receiver.
+    func testMemberContextAfterAClosingBracketHasNoReceiver() {
+        for source in ["items[0].", "f().", "compute { x }."] {
+            let context = IdentifierScanner.memberContext(in: text(source), at: (source as NSString).length)
+            XCTAssertNotNil(context, source)
+            XCTAssertNil(context?.receiver, source)
+        }
+    }
+
+    /// Everything a dot can follow that is *not* a member access. `1.` and
+    /// `1.5` are the float literals: typing a decimal point must never open a
+    /// member list.
+    func testMemberContextIsNilWhereTheDotIsNotAMemberAccess() {
+        let cases = ["1.", "1.5", "3.14", "foo .", "(.", "..", ".", "foo ,.", "+."]
+        for source in cases {
+            XCTAssertNil(
+                IdentifierScanner.memberContext(in: text(source), at: (source as NSString).length),
+                source
+            )
+        }
+        XCTAssertNil(IdentifierScanner.memberContext(in: text(""), at: 0))
+    }
+
+    /// Deleting the dot hands the caret back to ordinary identifier completion:
+    /// there is no member context left to find.
+    func testMemberContextIsNilOnceTheDotIsDeleted() {
+        XCTAssertNil(IdentifierScanner.memberContext(in: text("workerna"), at: 8))
+        XCTAssertNil(IdentifierScanner.memberContext(in: text("foo"), at: 3))
+    }
+
+    /// The reported range is the same one ordinary completion would replace, so
+    /// the member and identifier paths can never insert at different places.
+    ///
+    /// The found-context count is asserted alongside the equality: without it the
+    /// loop is a `continue` over offsets that report nothing, and a
+    /// `memberContext` regressed to returning `nil` everywhere would pass the one
+    /// test whose whole job is the cross-check between the two paths.
+    func testMemberContextPrefixRangeMatchesCompletionPrefixRange() {
+        // Per source: every offset strictly after its dot(s) is a member position.
+        let sources = [
+            ("worker.", 1), ("worker.na", 3), ("a.b.c", 4), ("items[0].doR", 4), ("$FOO.bar", 4)
+        ]
+        for (source, expectedContexts) in sources {
+            let string = text(source)
+            var found = 0
+            for offset in 0...string.length {
+                guard let context = IdentifierScanner.memberContext(in: string, at: offset) else { continue }
+                found += 1
+                XCTAssertEqual(
+                    context.prefixRange,
+                    IdentifierScanner.completionPrefixRange(in: string, at: offset),
+                    "\(source) @ \(offset)"
+                )
+            }
+            XCTAssertEqual(found, expectedContexts, source)
+        }
+    }
+
+    /// A member prefix that does not *begin* right after the dot is not a member
+    /// position at all.
+    ///
+    /// Two shapes, one rule. When the run after the dot is all digits the trim
+    /// leaves nothing, so `completionPrefixRange` reports the empty range **after**
+    /// the digits — which the provider reads as "the dot was just typed" (and
+    /// answers with every member in the project) and which the editors insert at,
+    /// turning `pair.0|` into `pair.0doWork`. When the run merely *starts* with
+    /// digits the trim lands partway into it, and completing there rewrites the
+    /// middle of a token: `ubuntu20.04lts|` would offer members for the receiver
+    /// `ubuntu20` and replace `lts`, yielding `ubuntu20.04doWork`. Swift tuple
+    /// access makes the first shape an every-keystroke case, not an exotic one.
+    func testMemberContextIsNilWhenTheMemberPrefixDoesNotStartAtTheDot() {
+        let sources = [
+            "pair.0", "point.12", "ubuntu20.04", "items[0].7",  // trims to nothing
+            "ubuntu20.04lts", "v1.0beta", "x.0rc",               // trims partway in
+        ]
+        for source in sources {
+            XCTAssertNil(
+                IdentifierScanner.memberContext(in: text(source), at: (source as NSString).length),
+                source
+            )
+        }
+        // The empty run is the legitimate bare-dot case and is unaffected, as is a
+        // prefix that *contains* digits but still begins with a name character.
+        XCTAssertNotNil(IdentifierScanner.memberContext(in: text("pair."), at: 5))
+        XCTAssertEqual(
+            IdentifierScanner.memberContext(in: text("worker.name0"), at: 12)?.prefixRange,
+            NSRange(location: 7, length: 5)
+        )
+        // A leading `_` starts an identifier, so it is the run's own first
+        // character and the position stands.
+        XCTAssertEqual(
+            IdentifierScanner.memberContext(in: text("worker._x"), at: 9)?.prefixRange,
+            NSRange(location: 7, length: 2)
+        )
+    }
+
+    /// The receiver goes through the same trim rule as every other lookup, and
+    /// the scan is surrogate-pair aware on both sides of the dot.
+    func testMemberContextAppliesTheSharedBoundaryRule() {
+        XCTAssertEqual(IdentifierScanner.memberContext(in: text("9foo.bar"), at: 8)?.receiver, "foo")
+        XCTAssertEqual(IdentifierScanner.memberContext(in: text("x2.y"), at: 4)?.receiver, "x2")
+        XCTAssertEqual(IdentifierScanner.memberContext(in: text("_private."), at: 9)?.receiver, "_private")
+        XCTAssertEqual(IdentifierScanner.memberContext(in: text("имя.по"), at: 6)?.receiver, "имя")
+        XCTAssertEqual(
+            IdentifierScanner.memberContext(in: text("\u{1D400}bc.d"), at: 6)?.receiver,
+            "\u{1D400}bc"
+        )
+    }
+
+    func testMemberContextClampsOffsetsOutsideTheString() {
+        let source = text("worker.na")
+        XCTAssertEqual(IdentifierScanner.memberContext(in: source, at: 999)?.receiver, "worker")
+        XCTAssertNil(IdentifierScanner.memberContext(in: source, at: -5))
+    }
+
     // MARK: - words(in:limit:)
 
     func testWordsHarvestsDistinctNamesInFirstOccurrenceOrder() {

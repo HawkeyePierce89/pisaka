@@ -54,12 +54,38 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         DefinitionRequest(identifier: identifier, fileURL: file.map(fileURL), offset: 0)
     }
 
+    /// `language` defaults to `nil` — the state every pre-fuzzy test was written
+    /// in, and the one in which no keyword is offered.
     private func completionRequest(
         _ prefix: String,
         from file: String? = nil,
-        text: String = ""
+        text: String = "",
+        language: SyntaxLanguage? = nil
     ) -> CompletionRequest {
-        CompletionRequest(prefix: prefix, fileURL: file.map(fileURL), text: text)
+        CompletionRequest(prefix: prefix, fileURL: file.map(fileURL), text: text, language: language)
+    }
+
+    /// A request in *member* position — what the editor builds after a typed
+    /// `.`. `prefixRange` is irrelevant to the provider (only the two editor
+    /// layers insert), so it is the empty range the scanner reports for an
+    /// unrelated offset.
+    private func memberRequest(
+        _ prefix: String = "",
+        receiver: String?,
+        from file: String? = nil,
+        text: String = "",
+        language: SyntaxLanguage? = nil
+    ) -> CompletionRequest {
+        CompletionRequest(
+            prefix: prefix,
+            fileURL: file.map(fileURL),
+            text: text,
+            language: language,
+            member: IdentifierScanner.MemberContext(
+                receiver: receiver,
+                prefixRange: NSRange(location: 0, length: prefix.utf16.count)
+            )
+        )
     }
 
     // MARK: - Definitions
@@ -310,6 +336,459 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(items.map(\.text), ["runA", "runB"])
     }
 
+    // MARK: - Completions: fuzzy matching
+
+    /// The headline of the phase: a camelCase query reaches a name it is not a
+    /// prefix of at all.
+    func testACamelCaseQueryReachesAHumpedName() {
+        let store = index(["a.swift": [symbol("ArrayBuffer", kind: .type, in: "a.swift")]])
+        for query in ["aBu", "arrBuf", "buf"] {
+            let items = SymbolIntelligenceProvider.completions(
+                for: completionRequest(query, from: "a.swift"),
+                in: store
+            )
+            XCTAssertEqual(items.map(\.text), ["ArrayBuffer"], "query \(query)")
+        }
+        // …and the rule that keeps the widened set intelligible: the first typed
+        // character has to land on a word boundary.
+        XCTAssertTrue(
+            SymbolIntelligenceProvider.completions(
+                for: completionRequest("rray", from: "a.swift"),
+                in: store
+            ).isEmpty
+        )
+    }
+
+    /// Both candidates are fuzzy, in the same file, from the same source, so only
+    /// the `offBoundary` sub-key can decide — and it puts the intentional-looking
+    /// match first even though the scattered one is *shorter*.
+    func testBoundaryHittingFuzzyMatchesOutrankScatteredOnes() {
+        let store = index([
+            "a.swift": [
+                symbol("aBigCat", kind: .type, in: "a.swift", at: 0),
+                symbol("aback", in: "a.swift", at: 40)
+            ]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: completionRequest("abc", from: "a.swift"),
+            in: store
+        )
+        XCTAssertEqual(items.map(\.text), ["aBigCat", "aback"])
+    }
+
+    /// Match quality is the *first* key, so a literal prefix wins over a fuzzy
+    /// match that every later tie-break would have preferred: the fuzzy candidate
+    /// here is shorter, alphabetically earlier, and equally local.
+    func testAnExactCasePrefixOutranksAShorterFuzzyMatch() {
+        let store = index([
+            "a.swift": [
+                symbol("arrayBuffer", in: "a.swift", at: 0),
+                symbol("aRowRef", in: "a.swift", at: 40)
+            ]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: completionRequest("arr", from: "a.swift"),
+            in: store
+        )
+        // `aRowRef` is a boundary-clean fuzzy match (a·R·R), shorter, and sorts
+        // first lexicographically — every later key prefers it, and it still loses.
+        XCTAssertEqual(items.map(\.text), ["arrayBuffer", "aRowRef"])
+    }
+
+    // MARK: - Completions: the keyword source
+
+    func testKeywordsOfTheRequestedLanguageAreOffered() {
+        let items = SymbolIntelligenceProvider.completions(
+            for: completionRequest("gua", from: "a.swift", language: .swift),
+            in: SymbolIndex()
+        )
+        XCTAssertEqual(items.map(\.text), ["guard"])
+        // A keyword is not a declaration — nothing to jump to, nothing to render
+        // an icon for.
+        XCTAssertEqual(items.first?.kind, nil)
+    }
+
+    /// Isolated from the current-file rule, which outranks the source rule: the
+    /// symbol, the keyword and the word all belong to the same file here, the way
+    /// `testSymbolsOutrankBareBufferWords` isolates its own rule.
+    func testKeywordsRankBelowSymbolsAndAboveBareBufferWords() {
+        let store = index(["a.swift": [symbol("gutter", kind: .property, in: "a.swift")]])
+        let items = SymbolIntelligenceProvider.completions(
+            for: completionRequest("gu", from: "a.swift", text: "gulp", language: .swift),
+            in: store
+        )
+        // Length runs the other way (gulp 4 < guard 5 < gutter 6), so only the
+        // source rule can produce this order.
+        XCTAssertEqual(items.map(\.text), ["gutter", "guard", "gulp"])
+        XCTAssertEqual(items.map(\.isFromCurrentFile), [true, true, true])
+    }
+
+    /// A symbol in *another* file loses to a keyword: rule 2 (current file)
+    /// outranks rule 3 (source), and a keyword is as local as the file's language.
+    func testAKeywordOutranksASymbolDeclaredInAnotherFile() {
+        let store = index(["z.swift": [symbol("guardian", kind: .type, in: "z.swift")]])
+        let items = SymbolIntelligenceProvider.completions(
+            for: completionRequest("guar", from: "a.swift", language: .swift),
+            in: store
+        )
+        XCTAssertEqual(items.map(\.text), ["guard", "guardian"])
+    }
+
+    func testAKeywordAlsoPresentInTheBufferAppearsOnce() {
+        let items = SymbolIntelligenceProvider.completions(
+            for: completionRequest("gua", from: "a.swift", text: "guard let x = y", language: .swift),
+            in: SymbolIndex()
+        )
+        XCTAssertEqual(items.map(\.text), ["guard"])
+    }
+
+    /// A language the editor could not resolve contributes no vocabulary at all —
+    /// Swift's `guard` while typing in an unclassified buffer is a worse answer
+    /// than nothing.
+    func testANilLanguageYieldsNoKeywords() {
+        XCTAssertTrue(
+            SymbolIntelligenceProvider.completions(
+                for: completionRequest("gua", from: "a.swift"),
+                in: SymbolIndex()
+            ).isEmpty
+        )
+        // The same holds for a language that deliberately has no list.
+        XCTAssertTrue(
+            SymbolIntelligenceProvider.completions(
+                for: completionRequest("tru", from: "a.json", language: .json),
+                in: SymbolIndex()
+            ).isEmpty
+        )
+    }
+
+    /// The separation the two features share a provider across: keywords feed
+    /// completion only, because a keyword has no declaration site to jump to.
+    func testDefinitionsNeverContainKeywords() {
+        let store = index(["a.swift": [symbol("guardian", kind: .type, in: "a.swift")]])
+        for spelling in ["guard", "func", "return"] {
+            XCTAssertTrue(
+                SymbolIntelligenceProvider.definitions(
+                    for: definitionRequest(spelling, from: "a.swift"),
+                    in: store,
+                    projectRoot: root
+                ).isEmpty,
+                "definitions for \(spelling)"
+            )
+        }
+    }
+
+    // MARK: - Completions: member mode
+
+    /// The headline of the member branch: a typed dot with nothing after it
+    /// still answers, and it answers with members *only* — the kinds that hang
+    /// off a type and actually name one.
+    func testATypedDotListsMembersAndExcludesEverythingElse() {
+        let store = index([
+            "a.swift": [
+                symbol("Worker", kind: .type, in: "a.swift", at: 0),
+                symbol("run", kind: .method, in: "a.swift", at: 20, container: "Worker"),
+                symbol("total", kind: .property, in: "a.swift", at: 40, container: "Worker"),
+                symbol("max", kind: .constant, in: "a.swift", at: 60, container: "Worker"),
+                symbol("helper", in: "a.swift", at: 80),
+                // A file-scope constant: the right *kind*, but nothing to hang
+                // off, so a dot cannot reach it.
+                symbol("limit", kind: .constant, in: "a.swift", at: 100)
+            ]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest(receiver: nil),
+            in: store
+        )
+        // Every candidate ties on quality (nothing typed) and on container rank
+        // (no receiver), so the ordinary length-then-lexicographic keys decide.
+        XCTAssertEqual(items.map(\.text), ["max", "run", "total"])
+    }
+
+    /// The receiver heuristic, isolated: `alpha` is shorter, alphabetically
+    /// earlier and just as local, so only the container key can put `zeta` first.
+    func testTheReceiversOwnContainerRanksFirst() {
+        let store = index([
+            "a.swift": [
+                symbol("Worker", kind: .type, in: "a.swift", at: 0),
+                symbol("zeta", kind: .method, in: "a.swift", at: 20, container: "Worker"),
+                symbol("Other", kind: .type, in: "a.swift", at: 40),
+                symbol("alpha", kind: .property, in: "a.swift", at: 60, container: "Other")
+            ]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest(receiver: "Worker"),
+            in: store
+        )
+        XCTAssertEqual(items.map(\.text), ["zeta", "alpha"])
+    }
+
+    /// Two containers declaring the same member name collapse to one entry — and
+    /// the survivor is the receiver's, which is the whole point of the boost.
+    func testAnIdenticallyNamedMemberResolvesToTheReceiversOwn() {
+        let store = index([
+            "a.swift": [
+                symbol("Worker", kind: .type, in: "a.swift", at: 0),
+                symbol("run", kind: .method, in: "a.swift", at: 20, container: "Worker")
+            ],
+            // Sorts *before* the receiver's file, so storage order alone would
+            // have offered this one.
+            "0.swift": [
+                symbol("Other", kind: .type, in: "0.swift", at: 0),
+                symbol("run", kind: .property, in: "0.swift", at: 20, container: "Other")
+            ]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest(receiver: "Worker"),
+            in: store
+        )
+        XCTAssertEqual(items.map(\.text), ["run"])
+        XCTAssertEqual(items.first?.kind, .method)
+    }
+
+    /// The heuristic is name-based but not credulous: it asks whether the
+    /// receiver spells a *type*. A function of the same name promotes nothing.
+    func testAReceiverNamingAFunctionGetsNoContainerBoost() {
+        func store(receiverKind: SymbolKind) -> SymbolIndex {
+            index([
+                "a.swift": [
+                    symbol("worker", kind: receiverKind, in: "a.swift", at: 0),
+                    symbol("longMember", kind: .method, in: "a.swift", at: 20, container: "worker"),
+                    symbol("Other", kind: .type, in: "a.swift", at: 40),
+                    symbol("ab", kind: .property, in: "a.swift", at: 60, container: "Other")
+                ]
+            ])
+        }
+
+        // A function named `worker` says nothing about what `worker.` offers, so
+        // the ordinary keys decide and the shorter name leads.
+        XCTAssertEqual(
+            SymbolIntelligenceProvider.completions(
+                for: memberRequest(receiver: "worker"),
+                in: store(receiverKind: .function)
+            ).map(\.text),
+            ["ab", "longMember"]
+        )
+        // The identical project with `worker` declared as a type flips it — which
+        // is what proves the first assertion is the boost's absence and not some
+        // other rule.
+        XCTAssertEqual(
+            SymbolIntelligenceProvider.completions(
+                for: memberRequest(receiver: "worker"),
+                in: store(receiverKind: .type)
+            ).map(\.text),
+            ["longMember", "ab"]
+        )
+    }
+
+    /// A member prefix narrows the list with the same matcher as everything else,
+    /// fuzzy tiers included.
+    func testAMemberPrefixFiltersFuzzily() {
+        let store = index([
+            "a.swift": [
+                symbol("doRequest", kind: .method, in: "a.swift", at: 0, container: "Worker"),
+                symbol("total", kind: .property, in: "a.swift", at: 20, container: "Worker")
+            ]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest("dR", receiver: "worker"),
+            in: store
+        )
+        XCTAssertEqual(items.map(\.text), ["doRequest"])
+    }
+
+    /// No language lets a keyword follow a dot, so the keyword source is not
+    /// consulted in member mode at all — even with a language on the request and a
+    /// prefix that would otherwise match one.
+    func testKeywordsAreNeverOfferedAfterADot() {
+        let store = index([
+            "a.swift": [symbol("guardValue", kind: .property, in: "a.swift", container: "Worker")]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest("gua", receiver: "worker", from: "a.swift", language: .swift),
+            in: store
+        )
+        XCTAssertEqual(items.map(\.text), ["guardValue"])
+    }
+
+    /// The stricter half of the fallback rule: a bare dot the index cannot answer
+    /// shows **nothing**, rather than every word in the buffer. A dot inside a
+    /// JSON value or a comment is exactly this request.
+    func testABareDotWithNoMatchingMemberOffersNothingAtAll() {
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest(receiver: nil, from: "a.json", text: "worker workshop wonder"),
+            in: SymbolIndex()
+        )
+        XCTAssertTrue(items.isEmpty)
+    }
+
+    /// …while a member prefix the index cannot answer *does* fall back: the user
+    /// typed real characters, and a word from the buffer beats an empty popup
+    /// when the receiver's type simply is not indexed.
+    func testANonEmptyMemberPrefixFallsBackToBufferWords() {
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest("wor", receiver: "thing", from: "a.swift", text: "worker workshop"),
+            in: SymbolIndex()
+        )
+        XCTAssertEqual(items.map(\.text), ["worker", "workshop"])
+        XCTAssertEqual(items.map(\.kind), [nil, nil])
+    }
+
+    /// And the fallback is a fallback: one matching member is enough to suppress
+    /// it entirely, so the buffer's words never dilute a real member list.
+    func testTheFallbackIsSuppressedWhenAnyMemberMatches() {
+        let store = index([
+            "a.swift": [symbol("workUnit", kind: .method, in: "a.swift", container: "Worker")]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest("wor", receiver: nil, from: "a.swift", text: "worker workshop"),
+            in: store
+        )
+        XCTAssertEqual(items.map(\.text), ["workUnit"])
+    }
+
+    func testMemberResultsAreCappedAndDeduplicated() {
+        var groups: [String: [Symbol]] = [:]
+        for container in 0..<10 {
+            let file = String(format: "f%02d.swift", container)
+            groups[file] = (0..<10).map { member in
+                symbol(
+                    "member\(member)",
+                    kind: .method,
+                    in: file,
+                    at: member * 20,
+                    container: "C\(container)"
+                )
+            }
+        }
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest(receiver: nil),
+            in: index(groups),
+            limit: 5
+        )
+        XCTAssertEqual(items.count, 5)
+        // Ten containers declare each of these names; each appears once.
+        XCTAssertEqual(Set(items.map(\.text)).count, 5)
+        XCTAssertEqual(items.map(\.text), (0..<5).map { "member\($0)" })
+    }
+
+    /// The container key sits **above** match quality, so a fuzzy match in the
+    /// receiver's own type outranks a literal prefix match elsewhere.
+    ///
+    /// Every other member test passes an empty prefix, where `memberQuality` is a
+    /// constant for every candidate and the quality key cannot discriminate at
+    /// all — so swapping the first two comparisons in `isOrderedBefore` would
+    /// pass them. This one is the discriminating case.
+    func testTheContainerKeyOutranksMatchQuality() {
+        let store = index([
+            "a.swift": [
+                symbol("Worker", kind: .type, in: "a.swift", at: 0),
+                // `dr` reaches this only as a subsequence (fuzzy tier).
+                symbol("doRequest", kind: .method, in: "a.swift", at: 20, container: "Worker"),
+                symbol("Other", kind: .type, in: "a.swift", at: 40),
+                // …while `dr` is a literal, case-sensitive prefix of this one.
+                symbol("drab", kind: .property, in: "a.swift", at: 60, container: "Other")
+            ]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest("dr", receiver: "Worker"),
+            in: store
+        )
+        XCTAssertEqual(items.map(\.text), ["doRequest", "drab"])
+    }
+
+    /// Member mode honours ranking rule 2 (current file first) like every other
+    /// path — and reports `isFromCurrentFile` for the surfaces that render it.
+    ///
+    /// `al` is a case-sensitive prefix of both, so the quality key ties;
+    /// `alphaValue` is the *longer* name, so only the file key can put it first.
+    func testAMemberInTheCurrentFileOutranksAnEqualMatchElsewhere() {
+        let store = index([
+            "a.swift": [
+                symbol("A", kind: .type, in: "a.swift", at: 0),
+                symbol("alphaValue", kind: .method, in: "a.swift", at: 20, container: "A")
+            ],
+            "z.swift": [
+                symbol("Z", kind: .type, in: "z.swift", at: 0),
+                symbol("alp", kind: .property, in: "z.swift", at: 20, container: "Z")
+            ]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest("al", receiver: nil, from: "a.swift"),
+            in: store
+        )
+        XCTAssertEqual(items.map(\.text), ["alphaValue", "alp"])
+        XCTAssertEqual(items.map(\.isFromCurrentFile), [true, false])
+    }
+
+    /// The current file's members survive a member set larger than the pre-cap —
+    /// the member-path twin of
+    /// `testCurrentFileSymbolsSurviveAPrefixMatchSetLargerThanThePreCap`.
+    ///
+    /// `members(matching:limit:)` walks the project in file-key order and stops at
+    /// `memberCandidateLimit`, so without the separate `members(inFile:)` lookup
+    /// the file being typed in contributes nothing whenever its path sorts after
+    /// the cut — and the promoted-container rescue does not help, because a
+    /// lowercase receiver spells no declared type.
+    func testCurrentFileMembersSurviveAMemberSetLargerThanThePreCap() {
+        var groups: [String: [Symbol]] = [:]
+        for container in 0..<50 {
+            let file = String(format: "f%02d.swift", container)
+            groups[file] = (0..<10).map { member in
+                symbol(
+                    "filler\(container)_\(member)",
+                    kind: .method,
+                    in: file,
+                    at: member * 20,
+                    container: "C\(container)"
+                )
+            }
+        }
+        // Sorts last, well past the 400-member pre-cap.
+        groups["zzz.swift"] = [
+            symbol("myOwnMethod", kind: .method, in: "zzz.swift", at: 0, container: "Mine")
+        ]
+
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest(receiver: "thing", from: "zzz.swift"),
+            in: index(groups)
+        )
+        XCTAssertEqual(items.first?.text, "myOwnMethod")
+        XCTAssertEqual(items.first?.isFromCurrentFile, true)
+    }
+
+    /// The promoted container's members are collected uncapped, so the receiver's
+    /// own type is answered however its file happens to sort.
+    ///
+    /// Without that separate lookup, `Worker.` in a project with more than
+    /// `memberCandidateLimit` members offers an alphabetical slice of other
+    /// types' members and none of `Worker`'s — the exact failure the boost exists
+    /// to prevent.
+    func testThePromotedContainersMembersSurviveThePreCap() {
+        var groups: [String: [Symbol]] = [:]
+        for container in 0..<50 {
+            let file = String(format: "f%02d.swift", container)
+            groups[file] = (0..<10).map { member in
+                symbol(
+                    "filler\(container)_\(member)",
+                    kind: .method,
+                    in: file,
+                    at: member * 20,
+                    container: "C\(container)"
+                )
+            }
+        }
+        groups["zzz.swift"] = [
+            symbol("Worker", kind: .type, in: "zzz.swift", at: 0),
+            symbol("workerOnly", kind: .method, in: "zzz.swift", at: 20, container: "Worker")
+        ]
+
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest(receiver: "Worker"),
+            in: index(groups)
+        )
+        XCTAssertEqual(items.first?.text, "workerOnly")
+    }
+
     // MARK: - Completions: dedup, caps, degradation
 
     func testDuplicateNamesCollapseToTheirBestRankedEntry() {
@@ -426,9 +905,12 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
             for: completionRequest("wor", from: "a.swift", text: "worker workshop wonder"),
             in: SymbolIndex()
         )
-        XCTAssertEqual(items.map(\.text), ["worker", "workshop"])
-        XCTAssertEqual(items.map(\.kind), [nil, nil])
-        XCTAssertEqual(items.map(\.isFromCurrentFile), [true, true])
+        // `wonder` is a *fuzzy* match for `wor` (w-o…r), so the widened matcher
+        // offers it too — but strictly behind both literal prefixes, because
+        // match quality is the first ranking key.
+        XCTAssertEqual(items.map(\.text), ["worker", "workshop", "wonder"])
+        XCTAssertEqual(items.map(\.kind), [nil, nil, nil])
+        XCTAssertEqual(items.map(\.isFromCurrentFile), [true, true, true])
     }
 
     func testBufferWordHarvestIsCappedIndependently() {

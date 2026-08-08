@@ -313,8 +313,26 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     strip as surely as a keystroke — the word it answers is no longer the word being
     typed), behind a 150 ms debounce and a generation token, gated on a bare caret,
     no `markedTextRange` (marked text is uncommitted input the input method still
-    owns) and at least two typed characters. The caret is re-read *after* the await
-    for the same reason macOS does it. `showCompletions` calls
+    owns) and at least two typed characters — **or a member position**
+    (`IdentifierScanner.memberContext(in:at:)`), asked before the length gate and
+    bypassing it, since the typed `.` is itself the request; the request then
+    carries the member context and the file's `language` (the keyword source, `nil`
+    meaning no keywords rather than some default language's). The caret is re-read
+    *after* the await
+    for the same reason macOS does it, and it carries the same second half macOS
+    carries: matching the live partial word is not enough at **any** prefix length,
+    because a member-only list and an ordinary list answer the same typed
+    characters with different candidate *sets*, so the caret must still be in the
+    same member state — **receiver and all** — the rows were computed for
+    (`memberContext(…).map(\.receiver) == member.map(\.receiver)`, `map` rather
+    than `?.` so "not a member position" cannot flatten into "a member position
+    with an unnamed receiver"). The empty prefix makes that most obvious — it
+    compares equal to the also-empty partial word anywhere there is no word at all,
+    so any other dot in the buffer would inherit the previous one's list — but
+    `worker.na`'s member-only list is just as wrong over an unrelated `na`, which is
+    why the compare is not nested in the zero-length case. `showCompletions(_:answering:in:)` records that
+    member position as `answeredMember` so the *insertion* guard can make the same
+    comparison; it calls
     `reloadInputViews()` only when the strip's **presence** changes, not per
     candidate list, because it visibly re-lays the keyboard and per keystroke would
     read as a flicker; an empty list removes the bar rather than showing an empty
@@ -325,11 +343,31 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     undo step and passes the programmatic-edit guard — a candidate ending in `(`
     cannot fall into `AutoPairEngine` and collect a closer it never asked for — and
     it recomputes the prefix range at tap time rather than trusting the one the
-    provider answered — **case-insensitively**, matching how the candidates were
-    chosen, since the provider deliberately keeps a merely case-insensitive prefix
-    match (`arr` still offers `ArrayBuffer`, just ranked below `arrayCount`) and a
-    case-sensitive re-check would let the user tap such an item and have nothing at
-    all happen — then clears the strip: `applyEdit` fires
+    provider answered (the strip is a live view, and a tap can land after another
+    keystroke has moved the word it answers), re-checking it with **the same
+    matcher the candidates were chosen by**, `FuzzyMatch.matches(_:query:)`. That
+    is a correctness rule rather than a refinement: the provider offers
+    case-insensitive prefix *and* subsequence matches (`arr` still offers
+    `ArrayBuffer` just ranked below `arrayCount`, and `arrBuf` offers it too), so
+    any narrower guard — the `hasPrefix` test this replaced — would let the user
+    tap a perfectly valid row and have nothing at all happen, with no feedback
+    explaining it. That matcher test is the *second* guard. The first is the same
+    member-state compare the post-await re-check makes, made here at every prefix
+    length too: the position the rows answered is remembered as `answeredMember`
+    (recorded by `showCompletions(_:answering:in:)` alongside the rows it is
+    showing, cleared by an empty list and by `tearDownCompletions(in:)`), and its
+    **receiver** — not merely "some dot is here" — must equal the live one. Only
+    then is a **zero-length** range accepted, as the bare typed `.`, where there is
+    no typed text to match against and the empty range at the caret is already the
+    right insertion point; everywhere else a zero-length range means the word the
+    tap answered has moved, and the tap is dropped. All of this matters
+    because a caret move does not clear the strip synchronously:
+    `textViewDidChangeSelection` schedules the same 150 ms debounce a keystroke
+    does, so for that window the previous receiver's rows are still on screen — and
+    without the compare a tap in it inserts a member of `Worker` at the `other.`
+    caret, or one of `worker.na`'s members over an unrelated `na` that happens to
+    fuzzy-match. It
+    then clears the strip: `applyEdit` fires
     `textViewDidChange` synchronously, and offering longer names the instant a
     choice was made is how a completion strip turns into a treadmill.
     `dismantleUIView` tears the strip down alongside the highlighter, since an

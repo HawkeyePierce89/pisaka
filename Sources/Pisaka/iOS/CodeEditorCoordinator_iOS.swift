@@ -77,6 +77,21 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// that never triggers completion pays nothing for it.
     private var completionBar: CompletionBar_iOS?
 
+    /// The member position the strip's current items answer, or `nil` when they
+    /// answer an ordinary partial word.
+    ///
+    /// Carried — **receiver and all** — for exactly the reason the macOS
+    /// `CompletionController.Snapshot` carries it, and compared at **every** prefix
+    /// length rather than only at zero. A caret move does **not** clear the strip
+    /// synchronously — `textViewDidChangeSelection` schedules the same 150 ms
+    /// debounce a keystroke does — so for that window the previous receiver's rows
+    /// are still on screen. Without the compare, a tap landing in that window
+    /// inserts a member of `Worker` at the `other.` caret (the zero-length case:
+    /// "still after *a* dot" is satisfied by every other dot in the buffer), and
+    /// equally inserts one of `worker.na`'s members over an unrelated `na`, which
+    /// a fuzzy-match test of the typed characters alone waves through.
+    private var answeredMember: IdentifierScanner.MemberContext?
+
     /// The in-flight completion debounce/provider task; cancelled when a newer
     /// keystroke or caret move lands.
     private var completionTask: Task<Void, Never>?
@@ -94,6 +109,12 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// How many characters must be typed before the strip offers anything. One
     /// character matches far too much to be a choice; the strip would flash a
     /// full-width row of noise on the first letter of every identifier.
+    ///
+    /// A **member position** — a caret after `receiver.`, per
+    /// `IdentifierScanner.memberContext(in:at:)` — bypasses this, exactly as it
+    /// does on macOS: the `.` is itself the request, and waiting for two more
+    /// characters would defeat the point of member completion. The prefix a
+    /// member request carries is therefore legitimately empty.
     private static let minimumCompletionPrefixLength = 2
 
     /// The `DefinitionRoute_iOS.Reveal` token this editor last acted on, so a
@@ -117,9 +138,9 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         // controller's 400 ms debounce (a re-parse per keystroke would be felt).
         reindexSymbols(text: contents, language: language, immediate: false)
         // Offer completions for the word being typed, behind this coordinator's own
-        // (shorter) debounce. Its gates — a bare caret, at least two typed
-        // characters, no marked text — mean an ordinary keystroke outside an
-        // identifier costs one prefix scan and no task.
+        // (shorter) debounce. Its gates — a bare caret, no marked text, and either
+        // two typed characters or a member position — mean an ordinary keystroke
+        // outside an identifier costs one prefix scan and no task.
         updateCompletions(in: textView)
     }
 
@@ -265,6 +286,13 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// The request is built here, on the main actor, from the live buffer — the
     /// text goes *into* the request rather than being read after the hop, so the
     /// words the provider harvests are the ones on screen when the user paused.
+    ///
+    /// **Two triggers, not one**, the same pair the macOS `CompletionController`
+    /// has: an ordinary partial word of at least `minimumCompletionPrefixLength`
+    /// characters, or a member position, which opens the strip on the typed `.`
+    /// with a prefix that may be empty. `language` feeds the keyword source and
+    /// nothing else — `nil` (an unclassifiable buffer) means no keywords rather
+    /// than some default language's.
     private func updateCompletions(in textView: UITextView) {
         completionTask?.cancel()
         completionTask = nil
@@ -289,16 +317,27 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         let contents = textView.text ?? ""
         let nsText = contents as NSString
         let offset = textView.offset(from: textView.beginningOfDocument, to: caret.start)
-        let prefixRange = IdentifierScanner.completionPrefixRange(in: nsText, at: offset)
-        guard prefixRange.length >= Self.minimumCompletionPrefixLength else {
-            showCompletions([], in: textView)
-            return
+        // Ask about the member position *before* the length gate: it is the one
+        // state in which a zero- or one-character prefix is still worth a list,
+        // and `memberContext`'s own `prefixRange` is exactly what
+        // `completionPrefixRange` reports here, so the two agree by construction
+        // rather than by a second scan.
+        let member = IdentifierScanner.memberContext(in: nsText, at: offset)
+        let prefixRange = member?.prefixRange
+            ?? IdentifierScanner.completionPrefixRange(in: nsText, at: offset)
+        if member == nil {
+            guard prefixRange.length >= Self.minimumCompletionPrefixLength else {
+                showCompletions([], in: textView)
+                return
+            }
         }
 
         let request = CompletionRequest(
             prefix: nsText.substring(with: prefixRange),
             fileURL: fileURL,
-            text: contents
+            text: contents,
+            language: language,
+            member: member
         )
         let interval = completionDebounce
         completionTask = Task { [weak self, weak textView] in
@@ -320,11 +359,34 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
             let liveText = textView.text as NSString
             let offset = textView.offset(from: textView.beginningOfDocument, to: caret.start)
             let range = IdentifierScanner.completionPrefixRange(in: liveText, at: offset)
-            guard range.length > 0, liveText.substring(with: range) == request.prefix else {
+            guard liveText.substring(with: range) == request.prefix else {
                 self.showCompletions([], in: textView)
                 return
             }
-            self.showCompletions(items.map(\.text), in: textView)
+            // Matching the partial word is not enough on its own, at **any**
+            // prefix length: a member list and an ordinary list answer the same
+            // typed characters with different candidate *sets* (a member list
+            // carries no keywords and no non-member symbols), so the caret must
+            // still be in the same member state these items were computed for —
+            // receiver and all. The empty prefix makes that most obvious (it
+            // compares equal everywhere there is no word at all: in open space,
+            // after a `(`, at the start of a line, and after every other dot in
+            // the buffer), but `worker.na`'s member-only list is just as wrong
+            // over an unrelated `na` — which is why this is not nested in the
+            // zero-length case, matching the macOS `CompletionController`.
+            //
+            // `map(\.receiver)` rather than `?.receiver`: the receiver is itself
+            // optional (a bracketed one — `f().` — names no type), and optional
+            // chaining would flatten "not a member position" into "a member
+            // position with an unnamed receiver" and let the two serve each
+            // other's lists.
+            guard IdentifierScanner.memberContext(in: liveText, at: offset).map(\.receiver)
+                    == member.map(\.receiver)
+            else {
+                self.showCompletions([], in: textView)
+                return
+            }
+            self.showCompletions(items.map(\.text), answering: member, in: textView)
         }
     }
 
@@ -335,7 +397,17 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// visibly re-lays the keyboard, which per keystroke would read as a flicker.
     /// An empty list removes the bar rather than showing an empty one, so it never
     /// occupies space for nothing.
-    private func showCompletions(_ items: [String], in textView: UITextView) {
+    ///
+    /// `member` is the position these items answer, recorded alongside them so
+    /// `insertCompletion(_:)` can make the same still-in-*this*-member-position
+    /// test the post-await re-check above makes — see `answeredMember`. An empty
+    /// list clears it, so a dismissed strip can never leave a receiver behind.
+    private func showCompletions(
+        _ items: [String],
+        answering member: IdentifierScanner.MemberContext? = nil,
+        in textView: UITextView
+    ) {
+        answeredMember = items.isEmpty ? nil : member
         guard !items.isEmpty else {
             guard textView.inputAccessoryView != nil else { return }
             textView.inputAccessoryView = nil
@@ -366,11 +438,27 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// provider call: the strip is a live view, and a tap can land after another
     /// keystroke has already moved the word it answers.
     ///
-    /// The re-check is **case-insensitive**, matching how the candidates were
-    /// chosen: the provider deliberately keeps a merely case-insensitive prefix
-    /// match (typing `arr` still offers `ArrayBuffer`, just ranked below
-    /// `arrayCount`), so a case-sensitive guard here would let the user tap such
-    /// an item and have nothing happen at all.
+    /// The re-check asks the **same matcher the candidates were chosen by**,
+    /// `FuzzyMatch`, rather than a prefix test of its own. That is not a
+    /// refinement but a correctness rule: the provider offers case-insensitive
+    /// prefix *and* subsequence matches (typing `arrBuf` offers `ArrayBuffer`),
+    /// so any narrower guard here would let the user tap a perfectly valid
+    /// candidate and have nothing happen at all — a dead row on the strip, with
+    /// no feedback explaining it.
+    ///
+    /// That matcher test is the second guard, not the only one. The first is that
+    /// the caret is still in the **same member state** these items answered —
+    /// `answeredMember`'s *receiver*, not merely "some dot is here" — and it is
+    /// demanded at every prefix length, exactly as macOS demands it: a member-only
+    /// list and an ordinary list answer the same typed characters with different
+    /// candidate sets, so `worker.na`'s members are as wrong over an unrelated
+    /// `na` as they are after a caret moved to `other.`.
+    ///
+    /// A **zero-length** range is then accepted only in that member position: it is
+    /// the bare typed `.`, where there is no typed text to match against and the
+    /// empty range at the caret is already the correct insertion point. Everywhere
+    /// else a zero-length range means the word this tap answered has moved, and the
+    /// tap is dropped.
     private func insertCompletion(_ item: String) {
         guard let textView,
               textView.markedTextRange == nil,
@@ -379,9 +467,18 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         let nsText = textView.text as NSString
         let offset = textView.offset(from: textView.beginningOfDocument, to: caret.start)
         let range = IdentifierScanner.completionPrefixRange(in: nsText, at: offset)
-        guard range.length > 0,
-              item.lowercased().hasPrefix(nsText.substring(with: range).lowercased())
+        guard IdentifierScanner.memberContext(in: nsText, at: offset).map(\.receiver)
+                == answeredMember.map(\.receiver)
         else { return }
+        if range.length == 0 {
+            // The bare typed `.`, whose member position the compare above has
+            // already confirmed is still the one these items answered. Everywhere
+            // else a zero-length range means the word this tap answered has moved,
+            // and the tap is dropped.
+            guard answeredMember != nil else { return }
+        } else {
+            guard FuzzyMatch.matches(item, query: nsText.substring(with: range)) else { return }
+        }
 
         applyEdit(
             in: textView,
@@ -421,6 +518,10 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         completionTask?.cancel()
         completionTask = nil
         completionGeneration += 1
+        // This path does not go through `showCompletions`, so the receiver the
+        // strip last answered has to be dropped here too; leaving it set would
+        // outlive the bar it belongs to.
+        answeredMember = nil
         if textView.inputAccessoryView === completionBar {
             textView.inputAccessoryView = nil
             // Paired with the detach exactly as in `showCompletions`: the accessory

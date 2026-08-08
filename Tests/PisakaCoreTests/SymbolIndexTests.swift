@@ -74,9 +74,9 @@ final class SymbolIndexTests: XCTestCase {
         index.replace(fileURL: url(file), symbols: [symbol("newName", in: file)])
 
         XCTAssertTrue(index.symbols(named: "oldName").isEmpty)
-        XCTAssertTrue(index.symbols(withPrefix: "old", limit: 10).isEmpty)
+        XCTAssertTrue(index.symbols(matching: "old", limit: 10).isEmpty)
         XCTAssertEqual(index.symbols(named: "newName").count, 1)
-        XCTAssertEqual(index.symbols(withPrefix: "new", limit: 10).count, 1)
+        XCTAssertEqual(index.symbols(matching: "new", limit: 10).count, 1)
         XCTAssertEqual(index.symbols(inFile: url(file)).map(\.name), ["newName"])
         XCTAssertEqual(index.indexedFileCount, 1)
     }
@@ -89,7 +89,7 @@ final class SymbolIndexTests: XCTestCase {
         index.replace(fileURL: url(file), symbols: symbols)
 
         XCTAssertEqual(index.symbols(named: "run").count, 1)
-        XCTAssertEqual(index.symbols(withPrefix: "s", limit: 10).count, 1)
+        XCTAssertEqual(index.symbols(matching: "s", limit: 10).count, 1)
         XCTAssertEqual(index.symbols(inFile: url(file)).count, 2)
     }
 
@@ -108,9 +108,9 @@ final class SymbolIndexTests: XCTestCase {
         index.replace(fileURL: url(file), symbols: [symbol("run", in: file)])
 
         XCTAssertEqual(index.symbols(named: "run").count, 1)
-        XCTAssertEqual(index.symbols(withPrefix: "r", limit: 10).count, 1)
+        XCTAssertEqual(index.symbols(matching: "r", limit: 10).count, 1)
         XCTAssertTrue(index.symbols(named: "stop").isEmpty)
-        XCTAssertTrue(index.symbols(withPrefix: "s", limit: 10).isEmpty)
+        XCTAssertTrue(index.symbols(matching: "s", limit: 10).isEmpty)
     }
 
     func testReplaceOnlyPurgesTheFileItRewrites() {
@@ -125,7 +125,7 @@ final class SymbolIndexTests: XCTestCase {
         index.replace(fileURL: url(a), symbols: [])
 
         XCTAssertEqual(index.symbols(named: "run").map(\.fileURL), [url(b)])
-        XCTAssertEqual(index.symbols(withPrefix: "r", limit: 10).map(\.name), ["run", "rise"])
+        XCTAssertEqual(index.symbols(matching: "r", limit: 10).map(\.name), ["run", "rise"])
         XCTAssertTrue(index.symbols(named: "rest").isEmpty)
     }
 
@@ -165,7 +165,7 @@ final class SymbolIndexTests: XCTestCase {
         index.remove(fileURL: url(gone))
 
         XCTAssertEqual(index.symbols(named: "shared").map(\.fileURL), [url(kept)])
-        XCTAssertEqual(index.symbols(withPrefix: "sh", limit: 10).map(\.fileURL), [url(kept)])
+        XCTAssertEqual(index.symbols(matching: "sh", limit: 10).map(\.fileURL), [url(kept)])
         XCTAssertTrue(index.symbols(inFile: url(gone)).isEmpty)
         XCTAssertEqual(index.indexedFileCount, 1)
     }
@@ -183,14 +183,17 @@ final class SymbolIndexTests: XCTestCase {
         XCTAssertTrue(index.isEmpty)
         XCTAssertEqual(index.indexedFileCount, 0)
         XCTAssertTrue(index.symbols(named: "run").isEmpty)
-        XCTAssertTrue(index.symbols(withPrefix: "r", limit: 10).isEmpty)
+        XCTAssertTrue(index.symbols(matching: "r", limit: 10).isEmpty)
         XCTAssertTrue(index.symbols(inFile: url("/tmp/pisaka-symbols/a.swift")).isEmpty)
+        XCTAssertTrue(index.members(matching: "", limit: 10).isEmpty)
+        XCTAssertTrue(index.members(inContainer: "Worker").isEmpty)
+        XCTAssertFalse(index.declaresType(named: "Worker"))
     }
 
     // MARK: - Lookups
 
     /// Exact lookup is case-sensitive (`Foo` and `foo` are distinct
-    /// declarations); prefix lookup is not (typing `arr` must still offer
+    /// declarations); completion lookup is not (typing `arr` must still offer
     /// `ArrayBuffer`).
     func testCaseHandlingDiffersBetweenExactAndPrefixLookup() {
         var index = SymbolIndex()
@@ -207,27 +210,108 @@ final class SymbolIndexTests: XCTestCase {
         XCTAssertEqual(index.symbols(named: "widget").map(\.kind), [.variable])
         XCTAssertTrue(index.symbols(named: "WIDGET").isEmpty)
 
-        XCTAssertEqual(index.symbols(withPrefix: "wid", limit: 10).count, 2)
-        XCTAssertEqual(index.symbols(withPrefix: "WID", limit: 10).count, 2)
-        XCTAssertEqual(index.symbols(withPrefix: "Widg", limit: 10).count, 2)
+        XCTAssertEqual(index.symbols(matching: "wid", limit: 10).count, 2)
+        XCTAssertEqual(index.symbols(matching: "WID", limit: 10).count, 2)
+        XCTAssertEqual(index.symbols(matching: "Widg", limit: 10).count, 2)
     }
 
     func testPrefixLookupRejectsAnEmptyPrefixAndANonPositiveLimit() {
         var index = SymbolIndex()
         index.replace(fileURL: url("/tmp/pisaka-symbols/a.swift"), symbols: [symbol("run")])
-        XCTAssertTrue(index.symbols(withPrefix: "", limit: 10).isEmpty)
-        XCTAssertTrue(index.symbols(withPrefix: "r", limit: 0).isEmpty)
+        XCTAssertTrue(index.symbols(matching: "", limit: 10).isEmpty)
+        XCTAssertTrue(index.symbols(matching: "r", limit: 0).isEmpty)
         XCTAssertTrue(index.symbols(named: "").isEmpty)
     }
 
-    func testPrefixLookupMatchesOnlyPrefixesNotSubstrings() {
+    /// The lookup is a *superset* of the prefix lookup it replaced: a prefix
+    /// still matches, a subsequence starting on a word boundary now matches too,
+    /// and a name whose only occurrence of the first typed character sits inside
+    /// a word still does not — the rule `FuzzyMatch` states and this bucket is
+    /// keyed for.
+    func testMatchingWidensPrefixLookupButStillAnchorsAtAWordBoundary() {
         var index = SymbolIndex()
         let file = "/tmp/pisaka-symbols/a.swift"
         index.replace(
             fileURL: url(file),
-            symbols: [symbol("runLoop", in: file), symbol("rerun", at: 20, in: file)]
+            symbols: [
+                symbol("runLoop", in: file),
+                symbol("rerun", at: 20, in: file),
+                symbol("prerun", at: 40, in: file),
+            ]
         )
-        XCTAssertEqual(index.symbols(withPrefix: "run", limit: 10).map(\.name), ["runLoop"])
+        // `runLoop` by prefix, `rerun` as a subsequence anchored on its own `r`;
+        // `prerun` contains "run" outright but cannot start the match on a
+        // boundary, so it stays out.
+        XCTAssertEqual(index.symbols(matching: "run", limit: 10).map(\.name), ["runLoop", "rerun"])
+        XCTAssertEqual(index.symbols(matching: "runL", limit: 10).map(\.name), ["runLoop"])
+    }
+
+    /// The camelCase case the widened bucket exists for: a hump is a bucket key,
+    /// so a query starting at the hump reaches the name — without giving up the
+    /// plain prefix query, which reads the very same bucket.
+    func testMatchingFindsACamelCaseNameFromAnyOfItsHumps() {
+        var index = SymbolIndex()
+        let file = "/tmp/pisaka-symbols/a.swift"
+        index.replace(
+            fileURL: url(file),
+            symbols: [symbol("ArrayBuffer", kind: .type, in: file)]
+        )
+
+        for query in ["aBu", "arrBuf", "buf", "ArrayBuffer", "arr"] {
+            XCTAssertEqual(
+                index.symbols(matching: query, limit: 10).map(\.name),
+                ["ArrayBuffer"],
+                "expected \(query) to reach ArrayBuffer"
+            )
+        }
+        // Off every boundary: the first typed character lands inside `Array`.
+        XCTAssertTrue(index.symbols(matching: "rray", limit: 10).isEmpty)
+    }
+
+    /// The matcher and the bucket agree **at the cap**, which is what makes the
+    /// one-bucket lookup exhaustive rather than nearly so.
+    ///
+    /// `wordBoundaryInitials` keeps only the first `maximumInitials` starts, and
+    /// `symbols(matching:)` reads exactly the one bucket the query's first
+    /// character names. If `FuzzyMatch.quality` accepted an anchor past the cap,
+    /// a name with nine or more distinct boundary initials would be matchable but
+    /// unreachable through the index — a hole that looks exactly like "not
+    /// indexed yet", while the same query still found the name as a keyword or a
+    /// harvested buffer word.
+    func testTheMatcherAcceptsNoAnchorTheBucketCannotAnswer() {
+        var index = SymbolIndex()
+        let file = "/tmp/pisaka-symbols/a.swift"
+        let name = "a_b_c_d_e_f_g_h_i_j"
+        index.replace(fileURL: url(file), symbols: [symbol(name, kind: .type, in: file)])
+
+        let initials = FuzzyMatch.wordBoundaryInitials(of: name)
+        XCTAssertEqual(initials.count, FuzzyMatch.maximumInitials)
+        for initial in initials {
+            let query = String(initial)
+            XCTAssertNotNil(FuzzyMatch.quality(of: name, matching: query), query)
+            XCTAssertEqual(index.symbols(matching: query, limit: 10).map(\.name), [name], query)
+        }
+        // The boundaries past the cap: neither side may claim them.
+        for query in ["i", "ij", "j"] {
+            XCTAssertNil(FuzzyMatch.quality(of: name, matching: query), query)
+            XCTAssertTrue(index.symbols(matching: query, limit: 10).isEmpty, query)
+        }
+    }
+
+    /// A name filed under several humps has to be swept out of *all* of them, or
+    /// a re-index leaves the old spelling answering a hump query forever.
+    func testReplaceLeavesNoResidueInAnyHumpBucket() {
+        var index = SymbolIndex()
+        let file = "/tmp/pisaka-symbols/a.swift"
+        index.replace(fileURL: url(file), symbols: [symbol("ArrayBuffer", kind: .type, in: file)])
+        XCTAssertEqual(index.symbols(matching: "buf", limit: 10).count, 1)
+
+        index.replace(fileURL: url(file), symbols: [symbol("ArrayView", kind: .type, in: file)])
+
+        XCTAssertTrue(index.symbols(matching: "buf", limit: 10).isEmpty)
+        XCTAssertTrue(index.symbols(matching: "aBu", limit: 10).isEmpty)
+        XCTAssertEqual(index.symbols(matching: "vie", limit: 10).map(\.name), ["ArrayView"])
+        XCTAssertEqual(index.symbols(matching: "arr", limit: 10).map(\.name), ["ArrayView"])
     }
 
     /// The cap is applied to the *ordered* result, so it is deterministic rather
@@ -239,7 +323,34 @@ final class SymbolIndexTests: XCTestCase {
             fileURL: url(file),
             symbols: (0..<5).map { symbol("run\($0)", at: $0 * 10, in: file) }
         )
-        XCTAssertEqual(index.symbols(withPrefix: "run", limit: 2).map(\.name), ["run0", "run1"])
+        XCTAssertEqual(index.symbols(matching: "run", limit: 2).map(\.name), ["run0", "run1"])
+    }
+
+    /// The cut fills from the *literal prefix* matches first.
+    ///
+    /// Fuzzy matching widened the matched set by one to two orders of magnitude
+    /// while the caller's cap did not, so a cut made purely in file-key order
+    /// would decide which matches the ranking ever sees by how paths sort: here
+    /// `setUp` is an exact prefix match for `se` and lives in the last-sorting
+    /// file, behind more fuzzy-only matches than the cap allows. It has to
+    /// survive anyway — the caller cannot rank a candidate it was never handed.
+    func testTheLimitEvictsFuzzyMatchesBeforeLiteralPrefixMatches() {
+        var index = SymbolIndex()
+        let early = "/tmp/pisaka-symbols/aaa.swift"
+        let late = "/tmp/pisaka-symbols/zzz.swift"
+        // Fuzzy-only matches for `se`: an `s` word boundary, an `e` later on.
+        index.replace(
+            fileURL: url(early),
+            symbols: (0..<10).map { symbol("sharedState\($0)", at: $0 * 10, in: early) }
+        )
+        index.replace(fileURL: url(late), symbols: [symbol("setUp", at: 0, in: late)])
+
+        let found = index.symbols(matching: "se", limit: 3).map(\.name)
+        XCTAssertTrue(found.contains("setUp"), "\(found)")
+        XCTAssertEqual(found.count, 3)
+        // The order handed back is still the one documented order, not the
+        // split used to decide the cut.
+        XCTAssertEqual(found, ["sharedState0", "sharedState1", "setUp"])
     }
 
     /// Ordering is file key, then location, then name — regardless of the order
@@ -276,9 +387,129 @@ final class SymbolIndexTests: XCTestCase {
         var index = SymbolIndex()
         let file = "/tmp/pisaka-symbols/u.swift"
         index.replace(fileURL: url(file), symbols: [symbol("Ünicode", kind: .type, in: file)])
-        XCTAssertEqual(index.symbols(withPrefix: "ün", limit: 10).count, 1)
-        XCTAssertEqual(index.symbols(withPrefix: "Ü", limit: 10).count, 1)
+        XCTAssertEqual(index.symbols(matching: "ün", limit: 10).count, 1)
+        XCTAssertEqual(index.symbols(matching: "Ü", limit: 10).count, 1)
         XCTAssertEqual(index.symbols(named: "Ünicode").count, 1)
+    }
+
+    // MARK: - Members
+
+    /// A small two-file project holding one of everything the member filter has
+    /// to decide about.
+    private func memberIndex() -> SymbolIndex {
+        var index = SymbolIndex()
+        let a = "/tmp/pisaka-symbols/a.swift"
+        let b = "/tmp/pisaka-symbols/b.swift"
+        index.replace(
+            fileURL: url(a),
+            symbols: [
+                symbol("Worker", kind: .type, at: 0, in: a),
+                symbol("doRequest", kind: .method, at: 10, in: a, container: "Worker"),
+                symbol("retries", kind: .property, at: 20, in: a, container: "Worker"),
+                symbol("timeout", kind: .constant, at: 30, in: a, container: "Worker"),
+                symbol("freeFunction", kind: .function, at: 40, in: a),
+                symbol("looseConstant", kind: .constant, at: 50, in: a),
+                symbol("emptyContainer", kind: .property, at: 60, in: a, container: ""),
+            ]
+        )
+        index.replace(
+            fileURL: url(b),
+            symbols: [
+                symbol("worker", kind: .function, at: 0, in: b),
+                symbol("retries", kind: .property, at: 10, in: b, container: "Client"),
+            ]
+        )
+        return index
+    }
+
+    /// The typed-dot case: an empty query matches every member, and *only*
+    /// members — a type, a free function and a container-less symbol are not
+    /// reachable through a dot.
+    func testEmptyMemberQueryReturnsEveryContainerCarryingMember() {
+        let found = memberIndex().members(matching: "", limit: 100)
+        XCTAssertEqual(found.map(\.name), ["doRequest", "retries", "timeout", "retries"])
+        XCTAssertEqual(found.map(\.containerName), ["Worker", "Worker", "Worker", "Client"])
+    }
+
+    func testMemberQueryFiltersFuzzilyAndCaps() {
+        let index = memberIndex()
+        XCTAssertEqual(index.members(matching: "dR", limit: 10).map(\.name), ["doRequest"])
+        // Both `retries` by prefix, and `doRequest` too: its `R` hump is a word
+        // boundary, so `ret` is an anchored subsequence of it.
+        XCTAssertEqual(
+            index.members(matching: "ret", limit: 10).map(\.name),
+            ["doRequest", "retries", "retries"]
+        )
+        XCTAssertEqual(index.members(matching: "retr", limit: 10).map(\.name), ["retries", "retries"])
+        // The cap stops the ordered pass, so it takes the first file's members.
+        XCTAssertEqual(index.members(matching: "", limit: 2).map(\.name), ["doRequest", "retries"])
+        XCTAssertTrue(index.members(matching: "", limit: 0).isEmpty)
+        XCTAssertTrue(index.members(matching: "zzz", limit: 10).isEmpty)
+    }
+
+    /// The member cut takes the same split its sibling does: a **literal prefix**
+    /// match survives ahead of a fuzzy one.
+    ///
+    /// The argument is the one `symbols(matching:limit:)` spells out, and the kind
+    /// filter does not weaken it — `setUp()` is an exact prefix match for `se` and
+    /// lives in the last-sorting file, behind more fuzzy-only members than the cap
+    /// allows. Neither of the provider's two rescues reaches it (the receiver here
+    /// spells no declared type, and the file is not the one being typed in), so a
+    /// flat cut in file-key order would drop it for good.
+    func testTheMemberLimitEvictsFuzzyMatchesBeforeLiteralPrefixMatches() {
+        var index = SymbolIndex()
+        let early = "/tmp/pisaka-symbols/aaa.swift"
+        let late = "/tmp/pisaka-symbols/zzz.swift"
+        // Fuzzy-only members for `se`: an `s` word boundary, an `e` later on.
+        index.replace(
+            fileURL: url(early),
+            symbols: (0..<10).map {
+                symbol("sharedState\($0)", kind: .property, at: $0 * 20, in: early, container: "Store")
+            }
+        )
+        index.replace(
+            fileURL: url(late),
+            symbols: [symbol("setUp", kind: .method, at: 0, in: late, container: "Case")]
+        )
+
+        let found = index.members(matching: "se", limit: 3).map(\.name)
+        XCTAssertTrue(found.contains("setUp"), "\(found)")
+        XCTAssertEqual(found, ["sharedState0", "sharedState1", "setUp"])
+    }
+
+    /// Case-sensitive, for the same reason `symbols(named:)` is: the receiver's
+    /// spelling *is* the question being asked.
+    func testMembersInContainerAreCaseSensitive() {
+        let index = memberIndex()
+        XCTAssertEqual(
+            index.members(inContainer: "Worker").map(\.name),
+            ["doRequest", "retries", "timeout"]
+        )
+        XCTAssertTrue(index.members(inContainer: "worker").isEmpty)
+        XCTAssertTrue(index.members(inContainer: "WORKER").isEmpty)
+        XCTAssertTrue(index.members(inContainer: "").isEmpty)
+        XCTAssertEqual(index.members(inContainer: "Client").map(\.name), ["retries"])
+    }
+
+    /// The receiver heuristic asks about *types* only: a function named `worker`
+    /// says nothing about what `worker.` will offer.
+    func testDeclaresTypeIgnoresSameNamedNonTypes() {
+        let index = memberIndex()
+        XCTAssertTrue(index.declaresType(named: "Worker"))
+        XCTAssertFalse(index.declaresType(named: "worker"))
+        XCTAssertFalse(index.declaresType(named: "doRequest"))
+        XCTAssertFalse(index.declaresType(named: "never-declared"))
+        XCTAssertFalse(index.declaresType(named: ""))
+    }
+
+    /// Members live in the per-file storage, so removing a file takes its
+    /// members with it — there is no second structure to fall out of step.
+    func testRemovingAFileRemovesItsMembers() {
+        var index = memberIndex()
+        index.remove(fileURL: url("/tmp/pisaka-symbols/a.swift"))
+        XCTAssertEqual(index.members(matching: "", limit: 100).map(\.containerName), ["Client"])
+        XCTAssertTrue(index.members(inContainer: "Worker").isEmpty)
+        XCTAssertFalse(index.declaresType(named: "Worker"))
     }
 
     // MARK: - Canonical keying
