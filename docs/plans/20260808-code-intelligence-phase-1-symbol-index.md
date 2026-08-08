@@ -237,11 +237,11 @@ isolation; the word harvester's boundaries are pinned including the
 returns buffer words, which is the graceful-degradation guarantee for languages
 with no query.
 
-- [ ] add `IdentifierScanner`
-- [ ] add the request/result types and `CodeIntelligenceProviding`
-- [ ] add `SymbolIntelligenceProvider` with the documented ranking
-- [ ] write both test files, covering ordering, dedup, caps and boundaries
-- [ ] run `swift test` — must pass before Task 3
+- [x] add `IdentifierScanner`
+- [x] add the request/result types and `CodeIntelligenceProviding`
+- [x] add `SymbolIntelligenceProvider` with the documented ranking
+- [x] write both test files, covering ordering, dedup, caps and boundaries
+- [x] run `swift test` — must pass before Task 3
 
 ### Task 3: The shared project traversal and the async index model
 
