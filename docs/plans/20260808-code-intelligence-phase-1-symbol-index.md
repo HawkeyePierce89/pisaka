@@ -174,11 +174,11 @@ call in either bucket; `remove` erases a file from both; a symbol whose name
 differs only in case is found by prefix and not by exact name; the
 canonical-path keying collapses `/tmp` and `/private/tmp` spellings.
 
-- [ ] add `SymbolKind` + `Symbol` with the capture-name mapping
-- [ ] add `SymbolIndex` with replace/remove and the two lookups
-- [ ] write `SymbolIndexTests` covering replace/remove semantics, prefix vs
+- [x] add `SymbolKind` + `Symbol` with the capture-name mapping
+- [x] add `SymbolIndex` with replace/remove and the two lookups
+- [x] write `SymbolIndexTests` covering replace/remove semantics, prefix vs
       exact matching, case handling and canonical-path keying
-- [ ] run `swift test` — must pass before Task 2
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: Identifier scanning, the provider protocol, and ranking
 
