@@ -297,23 +297,52 @@ One server per (server, project root), started lazily, torn down deliberately.
 - Create: `Tests/PisakaCoreTests/LSPServerRegistryTests.swift`,
   `Tests/PisakaCoreTests/LSPWorkspaceTests.swift`
 
-- [ ] `LSPServerDescription` + `LSPServerRegistry` per D9, with the
+- [x] `LSPServerDescription` + `LSPServerRegistry` per D9, with the
       Swift/sourcekit-lsp description as the only registered entry
-- [ ] `LSPWorkspace` (`@MainActor`): lazy start on first request for a served
+- [x] `LSPWorkspace` (`@MainActor`): lazy start on first request for a served
       language, a `transportFactory` closure (so `Process` stays out of Core),
       per-document open/version bookkeeping, the request-driven
       `didOpen`/`didChange` flush (D2), `didClose`, backoff/restart and session-wide
       unavailability (D7), and `prepareForFolderChange(root:)` returning a generation
       token, synchronously, before any hop — matching the repository's existing scheme
-- [ ] `shutdownAll()` for folder switch and termination; a document is never opened
+- [x] `shutdownAll()` for folder switch and termination; a document is never opened
       against a root it does not live under
-- [ ] tests, all on scripted transports: a fake second server description is served
+- [x] tests, all on scripted transports: a fake second server description is served
       by configuration alone (no client changes); lazy start happens once per root; a
       text change flushes exactly one `didChange` before the request and none when the
       text is unchanged; a folder switch supersedes in-flight work and closes every
       document; three crashes restart, the fourth marks unavailable and no further
       launch is attempted
-- [ ] run `swift test` — must pass before task 5
+- [x] run `swift test` — must pass before task 5
+
+Four things the implementation settled that the plan had left open, all worth
+carrying into Task 13's `core-lsp.md`:
+
+- **Two tokens, not one.** `prepareForFolderChange` bumps the public `generation`
+  (only when the root actually changes, matching
+  `SymbolIndexModel.prepareForFolderChange` so a caller can pin one token across
+  both models) *and* a private `epoch`. `shutdownAll()` bumps only the epoch. A
+  launch captures the epoch before its handshake and terminates the server it just
+  started if it no longer matches — which is what makes "a folder switch supersedes
+  in-flight work" true. One token could not do both jobs: a `shutdownAll()` in the
+  same turn would invalidate the very token the caller had just pinned from
+  `prepareForFolderChange`.
+- **A crash is noticed on the next request, not pushed.** `LSPSession` has no
+  back-reference to the workspace (Task 3's weak-read-task contract), so
+  `liveSession` asks `isRunning` and treats a dead session as the crash. That is
+  also where the document bookkeeping for that server is dropped, which is why a
+  restarted server is sent `didOpen` rather than a `didChange` against a document
+  the new process never had.
+- **The restart budget is per `(server, root)`, and a launch failure spends it.**
+  D7 says "3 times per (server, root)", so a server that cannot cope with one
+  broken project does not poison the next folder. A factory that throws (no Xcode,
+  `xcrun --find` empty) counts exactly like a crash — otherwise a machine with no
+  toolchain retries a process launch once per keystroke forever.
+- **Two failures are terminal rather than countable**, and both are marked
+  unavailable immediately: a server that answers `positionEncoding: utf-8` (every
+  offset in this codebase is UTF-16, and it will answer the same on every restart)
+  and a superseded launch is the opposite — *not* a failure at all, so it costs no
+  restart budget and pays no backoff.
 
 ### Task 5: Seam changes — candidate, item edits, request text
 
