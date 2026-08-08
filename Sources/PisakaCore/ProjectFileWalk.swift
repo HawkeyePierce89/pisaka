@@ -49,10 +49,37 @@ public enum ProjectFileWalk {
         maskPatterns: [String],
         fileService: FileServicing
     ) -> [URL] {
+        collectFilesIfReadable(root: root, maskPatterns: maskPatterns, fileService: fileService) ?? []
+    }
+
+    /// `collectFiles`, but answering `nil` when the **root itself** could not be
+    /// listed rather than folding that into an empty result.
+    ///
+    /// The two are genuinely different questions, and only the root's answer is
+    /// ambiguous: a nested directory that cannot be read is skipped on purpose
+    /// (one permission-denied folder must not blank the whole result list), and
+    /// the files it would have contributed are the only ones lost. A *root* that
+    /// cannot be read loses everything, so `[]` there means either "this project
+    /// has no files" or "ask again later" — and a caller that treats the two
+    /// alike acts on the wrong one. `SymbolIndexModel.refresh` is why this exists:
+    /// it removes every indexed file the walk stopped producing, so an empty walk
+    /// it cannot distinguish empties the index outright, silently and for the rest
+    /// of the session (an unindexed project looks exactly like one that declares
+    /// nothing). Find in Files, whose empty result is visible and re-run by the
+    /// next keystroke, keeps using `collectFiles`.
+    public static func collectFilesIfReadable(
+        root: URL,
+        maskPatterns: [String],
+        fileService: FileServicing
+    ) -> [URL]? {
         var found: [URL] = []
 
-        func walk(directory: URL, components: [String], ignores: GitignoreStack) {
-            guard let entries = try? fileService.contentsOfDirectory(at: directory) else { return }
+        /// `false` when `directory` itself could not be listed; the recursive
+        /// calls discard it, since only the root's answer is the caller's
+        /// business.
+        @discardableResult
+        func walk(directory: URL, components: [String], ignores: GitignoreStack) -> Bool {
+            guard let entries = try? fileService.contentsOfDirectory(at: directory) else { return false }
 
             var ignores = ignores
             if entries.contains(where: { !$0.isDirectory && $0.name == gitignoreName }),
@@ -96,9 +123,10 @@ public enum ProjectFileWalk {
                 guard fileService.symbolicLinkDestination(at: entry.url) == nil else { continue }
                 walk(directory: entry.url, components: components + [entry.name], ignores: ignores)
             }
+            return true
         }
 
-        walk(directory: root, components: [], ignores: GitignoreStack())
+        guard walk(directory: root, components: [], ignores: GitignoreStack()) else { return nil }
         return found
     }
 

@@ -48,7 +48,8 @@ public enum IdentifierScanner {
     /// with one — which is what lets the trim step turn `9foo` into `foo` and
     /// keep `123` out of the completion list entirely.
     public static func isIdentifierStart(_ scalar: UnicodeScalar) -> Bool {
-        scalar == "_" || CharacterSet.letters.contains(scalar)
+        if scalar.isASCII { return isASCIILetterOrUnderscore(scalar) }
+        return letters.contains(scalar)
     }
 
     /// Whether `scalar` may *continue* an identifier: a letter, digit,
@@ -58,8 +59,28 @@ public enum IdentifierScanner {
     /// categories, so a decomposed accent (`e` + U+0301) keeps the name it
     /// belongs to in one piece instead of ending it mid-word.
     public static func isIdentifierContinuation(_ scalar: UnicodeScalar) -> Bool {
-        scalar == "_" || CharacterSet.alphanumerics.contains(scalar)
+        if scalar.isASCII { return isASCIILetterOrUnderscore(scalar) || (scalar >= "0" && scalar <= "9") }
+        return alphanumerics.contains(scalar)
     }
+
+    /// The ASCII half of both rules, which is what source code is made of.
+    ///
+    /// `CharacterSet.letters`/`.alphanumerics` are computed properties: each
+    /// access *builds* a bridged set, and `words(in:limit:)` asks the question
+    /// once per scalar of the whole buffer on every completion tick. Answering
+    /// the ASCII range with two range compares — and holding the Unicode sets in
+    /// `static let`s for everything else — keeps the classification identical
+    /// (`CharacterSet.letters` is exactly `A-Za-z` within ASCII, and
+    /// `.alphanumerics` adds exactly `0-9`) while taking the allocation out of
+    /// the loop. Same reasoning as `BracketDepthScanner`'s bulk read: these
+    /// scanners run over a whole file behind a debounce, so a per-scalar
+    /// allocation is the cost that matters.
+    private static func isASCIILetterOrUnderscore(_ scalar: UnicodeScalar) -> Bool {
+        (scalar >= "a" && scalar <= "z") || (scalar >= "A" && scalar <= "Z") || scalar == "_"
+    }
+
+    private static let letters = CharacterSet.letters
+    private static let alphanumerics = CharacterSet.alphanumerics
 
     // MARK: - Lookup
 

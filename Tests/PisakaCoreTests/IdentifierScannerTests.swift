@@ -168,4 +168,27 @@ final class IdentifierScannerTests: XCTestCase {
         XCTAssertFalse(IdentifierScanner.isIdentifierContinuation("-"))
         XCTAssertFalse(IdentifierScanner.isIdentifierContinuation(" "))
     }
+
+    /// The ASCII fast path must be a pure optimization: over the whole ASCII
+    /// range both rules have to answer exactly what `CharacterSet.letters` /
+    /// `.alphanumerics` do, or the scanner would quietly disagree with itself
+    /// about a character source code is full of. Checked exhaustively rather than
+    /// by sampling — the range is 128 values, and an off-by-one at a boundary
+    /// (`@`/`A`, `Z`/`[`, `` ` ``/`a`, `z`/`{`, `/`/`0`, `9`/`:`) is precisely the
+    /// mistake a hand-written range compare makes.
+    func testASCIIClassificationMatchesTheUnicodeSetsItShortCircuits() {
+        for value in 0..<128 {
+            let scalar = UnicodeScalar(UInt8(value))
+            XCTAssertEqual(
+                IdentifierScanner.isIdentifierStart(scalar),
+                scalar == "_" || CharacterSet.letters.contains(scalar),
+                "start rule disagrees for U+\(String(value, radix: 16))"
+            )
+            XCTAssertEqual(
+                IdentifierScanner.isIdentifierContinuation(scalar),
+                scalar == "_" || CharacterSet.alphanumerics.contains(scalar),
+                "continuation rule disagrees for U+\(String(value, radix: 16))"
+            )
+        }
+    }
 }

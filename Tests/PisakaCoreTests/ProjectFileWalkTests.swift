@@ -70,6 +70,45 @@ final class ProjectFileWalkTests: XCTestCase {
         XCTAssertEqual(walk(stub), ["a.swift"])
     }
 
+    /// The distinction `collectFilesIfReadable` exists for: a nested directory
+    /// that cannot be listed loses only its own files, but an unreadable *root*
+    /// loses everything — so it must not answer the same `[]` an empty project
+    /// does. `SymbolIndexModel.refresh` removes what the walk stopped producing,
+    /// and cannot tell those apart on its own.
+    func testUnreadableRootIsDistinguishedFromAnEmptyProject() {
+        let stub = StubFileTree(root: root, files: ["a.swift": ""])
+        stub.unreadableDirectories = [""]
+
+        XCTAssertNil(
+            ProjectFileWalk.collectFilesIfReadable(root: root, maskPatterns: [], fileService: stub)
+        )
+        XCTAssertEqual(walk(stub), [])
+
+        let empty = StubFileTree(root: root, files: [:])
+        XCTAssertEqual(
+            ProjectFileWalk.collectFilesIfReadable(root: root, maskPatterns: [], fileService: empty)?
+                .count,
+            0
+        )
+    }
+
+    /// An unreadable directory *below* the root keeps the walk succeeding — the
+    /// documented "one permission-denied folder must not blank the whole result
+    /// list" rule, which the root's new `nil` must not have widened.
+    func testUnreadableNestedDirectoryStillYieldsAReadableWalk() {
+        let stub = StubFileTree(root: root, files: [
+            "a.swift": "",
+            "secret/b.swift": ""
+        ])
+        stub.unreadableDirectories = ["secret"]
+
+        XCTAssertEqual(
+            ProjectFileWalk.collectFilesIfReadable(root: root, maskPatterns: [], fileService: stub)?
+                .map { ProjectFileWalk.relativePath(of: $0, under: root) },
+            ["a.swift"]
+        )
+    }
+
     func testFilesOfADirectoryComeBeforeItsSubdirectories() {
         let stub = StubFileTree(root: root, files: [
             "sub/deep.swift": "",

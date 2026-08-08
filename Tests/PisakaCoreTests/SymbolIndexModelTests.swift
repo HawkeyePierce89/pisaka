@@ -389,6 +389,39 @@ final class SymbolIndexModelTests: XCTestCase {
         XCTAssertEqual(model.index.indexedFileCount, 1)
     }
 
+    /// The other side of the rule above: the walk removing what it stopped
+    /// producing is only sound when it actually *looked*. A root that could not be
+    /// listed — a revoked security scope, an unmounted volume, a permissions blip
+    /// — must leave the index alone rather than empty it, because nothing else
+    /// schedules a refresh to put it back and an empty index is indistinguishable
+    /// from a project that declares nothing.
+    func testRefreshKeepsTheIndexWhenTheRootCannotBeListed() async {
+        let stub = StubFileTree(root: root, files: [
+            "a.swift": "sym alpha\n",
+            "b.swift": "sym beta\n"
+        ])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+        await model.rebuild(root: root)
+
+        stub.unreadableDirectories = [""]
+        await model.refresh(root: root)
+
+        XCTAssertEqual(names(model, "alpha"), ["alpha"])
+        XCTAssertEqual(names(model, "beta"), ["beta"])
+        XCTAssertEqual(model.index.indexedFileCount, 2)
+        XCTAssertFalse(model.isIndexing)
+
+        // And the next refresh that *can* read the root still removes what really
+        // went away — the gate above suppresses nothing beyond the failed walk.
+        stub.unreadableDirectories = []
+        stub.files["b.swift"] = nil
+        await model.refresh(root: root)
+
+        XCTAssertEqual(names(model, "alpha"), ["alpha"])
+        XCTAssertTrue(names(model, "beta").isEmpty)
+        XCTAssertEqual(model.index.indexedFileCount, 1)
+    }
+
     func testARefreshForTheFolderTheUserJustLeftIsDiscarded() async {
         let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
         let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)

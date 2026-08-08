@@ -112,6 +112,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `FileServicing.readTextIfNotBinary`, where the byte cap lives. `relativePath`
     accepts a `nil` root (only the definition picker can be asked about one) and
     degrades to the bare file name, as it already did for a URL outside the root.
+    **`collectFilesIfReadable` is the same walk with the root's failure kept
+    distinguishable.** An unreadable directory *below* the root is skipped on
+    purpose — one permission-denied folder must not blank the whole result list —
+    and only the files it would have contributed are lost. An unreadable *root*
+    loses everything, so folding it into `[]` makes "this project has no files"
+    and "ask again later" the same answer, and a caller that acts on the wrong one
+    acts destructively: `SymbolIndexModel.refresh` removes every indexed file the
+    walk stopped producing, so one transient failure (a revoked iOS security
+    scope, an unmounted volume, a permissions blip mid-checkout) would empty the
+    index outright — silently, because an unindexed project looks exactly like one
+    that declares nothing, and for the rest of the session, because nothing else
+    schedules a refresh (iOS has no watcher at all). `collectFilesIfReadable`
+    therefore answers `nil` for that one case and `collectFiles` stays the
+    `?? []` wrapper Find in Files keeps using, whose empty result is visible on
+    screen and re-run by the next keystroke.
   - `SymbolIndexModel.swift` — observable state for the project-wide index: the
     traversal, the extraction of every file worth indexing, and the bookkeeping
     that keeps the index honest while the project changes under it. Modelled
@@ -185,6 +200,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     break completion in the very file being typed in. A `nil` stamp
     means "always re-extract" (see `FileStamp` in `core-workspace.md`), so a stub
     service degrades to correct-but-slower rather than to a stale index.
+    That third rule is only sound when the walk actually *looked*, which is why
+    the traversal runs through `ProjectFileWalk.collectFilesIfReadable` and the
+    removal pass is skipped entirely when the root could not be listed: a walk that
+    produced nothing because it could not see is not a project that emptied, and
+    removing what it failed to see would drop every non-buffer entry on one
+    transient failure — permanently, since nothing schedules the corrective
+    refresh. Keeping the entries costs at worst stale symbols the next successful
+    refresh replaces. The buffer half of the walk still runs in that case (an open
+    tab is readable however the root is faring), and the *next* readable refresh
+    removes what really went away.
     **A refresh naming a root the model is not currently indexing is discarded**,
     and that *is* its stale-token guard — which is why it takes no `request:`
     counterpart to `rebuild`'s: the root is the token. A refresh is only ever
@@ -340,7 +365,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     nothing). Classification is Unicode-based (`CharacterSet.letters` /
     `.alphanumerics`, which covers Letter/Mark/Number, so a decomposed accent keeps
     its name in one piece) rather than ASCII, so `имя`, `número` and `変数` are
-    single identifiers; scanning is surrogate-pair aware, so a non-BMP scalar is
+    single identifiers — though the **ASCII range short-circuits to two range
+    compares** before either set is consulted, which is a pure optimization pinned
+    by an exhaustive 0..<128 equivalence test: `CharacterSet.letters` and
+    `.alphanumerics` are computed properties that *build* a bridged set per access,
+    and `words(in:limit:)` asks the question once per scalar of the whole buffer on
+    every completion tick (its `limit` counts *distinct* words, so it does not
+    bound the scan), which is the same reason `BracketDepthScanner` reads in bulk;
+    the two Unicode sets are held in `static let`s for everything else. Scanning is
+    surrogate-pair aware, so a non-BMP scalar is
     never cut in half, and a caret sitting on a trailing surrogate half (only
     reachable through a stale offset) is moved back onto the boundary rather than
     becoming a dead spot inside a name. `identifier(in:at:)` probes twice — the

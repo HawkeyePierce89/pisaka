@@ -338,7 +338,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     peeked at: a mouse-up within a small slop radius is the click, while the first
     real movement hands the *original* event back to `super`, whose tracking loop
     anchors on it and picks the drag up from the current position. ⌘⇧-click
-    (extend) and ⌘⌥-click (rectangular) stay AppKit's.
+    (extend) and ⌘⌥-click (rectangular) stay AppKit's. **The claimed click still
+    behaves like a click**: `super.mouseDown` cannot be called on the resolve path
+    — its tracking loop would block on a mouse-up already taken off the queue — so
+    the two things it would have done are done by hand instead, the view taking
+    first responder and the caret moving to the clicked offset. Without them a
+    ⌘-click that resolves nothing (whitespace, punctuation, a keyword — the
+    coordinator just beeps) is swallowed whole and the click has no effect at all,
+    and a ⌘-click into an editor that is not yet focused jumps without ever
+    focusing it.
   - `CompletionController.swift` — feeds AppKit's built-in completion popup from
     the *asynchronous* code-intelligence seam. **The whole problem it exists to
     solve is a mismatch of shapes:**

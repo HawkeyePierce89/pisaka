@@ -1656,6 +1656,15 @@ final class EditorTextView: NSTextView {
     /// loop anchors on it and picks the drag up from the current mouse position.
     /// Only a plain, single Command-click is claimed: ⌘⇧-click extends a selection
     /// and ⌘⌥-click starts a rectangular one, both of which stay AppKit's.
+    ///
+    /// **The claimed click still behaves like a click.** `super.mouseDown` cannot
+    /// be called on this path — its tracking loop would block on a mouse-up this
+    /// method has already taken off the queue — so the two things it would have
+    /// done are done here instead: the view takes first responder, and the caret
+    /// moves to the clicked offset. Without them a ⌘-click that resolves nothing
+    /// (whitespace, punctuation, a keyword — `goToDefinition` just beeps) is
+    /// swallowed whole, leaving the click with no effect at all, and a ⌘-click in
+    /// an editor that is not yet focused would jump without ever focusing it.
     override func mouseDown(with event: NSEvent) {
         guard
             event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command],
@@ -1667,7 +1676,10 @@ final class EditorTextView: NSTextView {
         while let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
             if next.type == .leftMouseUp {
                 let point = convert(event.locationInWindow, from: nil)
-                onGoToDefinition(self, characterIndexForInsertion(at: point))
+                let offset = characterIndexForInsertion(at: point)
+                if window?.firstResponder !== self { window?.makeFirstResponder(self) }
+                setSelectedRange(NSRange(location: offset, length: 0))
+                onGoToDefinition(self, offset)
                 return
             }
             let moved = hypot(

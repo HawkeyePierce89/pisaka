@@ -354,7 +354,8 @@ public final class SymbolIndexModel: ObservableObject {
         // for every file in the project.
         let buffers = openBuffers()
 
-        let (candidates, bufferIndex) = await offMain { () -> ([IndexCandidate], [String: String]) in
+        let (candidates, bufferIndex, rootUnreadable) = await offMain {
+            () -> ([IndexCandidate], [String: String], Bool) in
             let walked = Self.candidates(root: root, fileService: service)
             // An open tab the traversal cannot produce — a file under the folder
             // the user just left, or one this project's `.gitignore` excludes —
@@ -364,14 +365,24 @@ public final class SymbolIndexModel: ObservableObject {
             // user is *looking at* answers nothing until they switch away and
             // back. `removeFiles` already states the same rule from the other
             // side: such a tab is exempt from removal.
+            let seen = walked ?? []
             return (
-                walked + Self.bufferCandidates(buffers, excluding: Set(walked.map(\.key))),
-                Self.bufferIndex(buffers)
+                seen + Self.bufferCandidates(buffers, excluding: Set(seen.map(\.key))),
+                Self.bufferIndex(buffers),
+                walked == nil
             )
         }
         guard token == generation else { return }
 
-        if stampGated {
+        // A walk that could not list the root produced no disk candidates because
+        // it could not *look*, not because the project emptied — removing what it
+        // failed to see would drop every indexed file on one transient failure
+        // (a revoked iOS security scope, an unmounted volume, a permissions blip
+        // mid-checkout) and leave definitions and completion answering nothing
+        // until the folder is reopened, since nothing else schedules a refresh.
+        // Keeping the entries costs at worst stale symbols the next successful
+        // refresh corrects.
+        if stampGated, !rootUnreadable {
             removeFiles(missingFrom: Set(candidates.map(\.key)))
         }
 
@@ -715,11 +726,15 @@ public final class SymbolIndexModel: ObservableObject {
 
     /// Every file under `root` worth indexing, in traversal order.
     ///
-    /// The shared `ProjectFileWalk.collectFiles` with no file mask, then the
-    /// language gate: a file whose name resolves to no language, or to one with
-    /// no `symbols.scm`, is dropped **before** it is read.
-    nonisolated static func candidates(root: URL, fileService: FileServicing) -> [IndexCandidate] {
-        ProjectFileWalk.collectFiles(root: root, maskPatterns: [], fileService: fileService)
+    /// The shared `ProjectFileWalk.collectFilesIfReadable` with no file mask, then
+    /// the language gate: a file whose name resolves to no language, or to one
+    /// with no `symbols.scm`, is dropped **before** it is read.
+    ///
+    /// `nil` — the root could not be listed — is passed through rather than
+    /// flattened to `[]`, because `walk` must not let a project it merely failed
+    /// to *see* look like one that has become empty. See `collectFilesIfReadable`.
+    nonisolated static func candidates(root: URL, fileService: FileServicing) -> [IndexCandidate]? {
+        ProjectFileWalk.collectFilesIfReadable(root: root, maskPatterns: [], fileService: fileService)?
             .compactMap { url in
                 guard let language = indexableLanguage(forFileName: url.lastPathComponent) else {
                     return nil
