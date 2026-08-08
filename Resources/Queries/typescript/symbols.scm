@@ -81,6 +81,13 @@
   value: [(arrow_function) (function_expression)])
 
 ; ---- Bindings --------------------------------------------------------------
-(lexical_declaration "const" (variable_declarator name: (identifier) @definition.constant))
-(lexical_declaration "let" (variable_declarator name: (identifier) @definition.variable))
-(variable_declaration (variable_declarator name: (identifier) @definition.variable))
+; Anchored to the module's top level, for the reason spelled out in the
+; JavaScript query: unanchored, these match a binding at any depth and fill the
+; index with function locals.
+(program (lexical_declaration "const" (variable_declarator name: (identifier) @definition.constant)))
+(program (lexical_declaration "let" (variable_declarator name: (identifier) @definition.variable)))
+(program (variable_declaration (variable_declarator name: (identifier) @definition.variable)))
+
+(export_statement (lexical_declaration "const" (variable_declarator name: (identifier) @definition.constant)))
+(export_statement (lexical_declaration "let" (variable_declarator name: (identifier) @definition.variable)))
+(export_statement (variable_declaration (variable_declarator name: (identifier) @definition.variable)))

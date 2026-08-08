@@ -13,13 +13,18 @@
 ; extractor must therefore *resolve predicates* rather than walk raw matches;
 ; without that, every attribute value in the file would be indexed as an anchor.
 ; Both halves are asserted by `SymbolQueryTests`.
+;
+; The filter is `#match?` rather than `#eq?` because **HTML attribute names are
+; case-insensitive**: `<p ID="top">` and `<p Id="top">` are the same attribute as
+; `id="top"`, and an `#eq?` on the exact spelling silently skips them. The
+; pattern is anchored at both ends so it cannot also admit `data-id` or `idx`.
 
 ((attribute
    (attribute_name) @_attribute
    (quoted_attribute_value (attribute_value) @definition.anchor))
- (#eq? @_attribute "id"))
+ (#match? @_attribute "^[iI][dD]$"))
 
 ((attribute
    (attribute_name) @_attribute
    (attribute_value) @definition.anchor)
- (#eq? @_attribute "id"))
+ (#match? @_attribute "^[iI][dD]$"))

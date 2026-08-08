@@ -40,6 +40,23 @@
   value: [(arrow_function) (function_expression)])
 
 ; ---- Bindings --------------------------------------------------------------
-(lexical_declaration "const" (variable_declarator name: (identifier) @definition.constant))
-(lexical_declaration "let" (variable_declarator name: (identifier) @definition.variable))
-(variable_declaration (variable_declarator name: (identifier) @definition.variable))
+; Anchored to the module's top level (`(program …)`, plus the `export` wrapper),
+; exactly as Swift anchors to `(source_file …)` and Python to `(module …)`.
+; Unanchored, these patterns match a `const`/`let`/`var` at *any* depth, so every
+; loop counter and every intermediate inside every function becomes a
+; project-wide symbol; `config`, `result` and `handler` then fill the
+; go-to-definition menu to its cap with locals nobody navigates to, pushing the
+; real declaration out. That is the same reasoning the JSON query states for
+; refusing nested keys, and functions and classes are deliberately *not* anchored
+; alongside these: a nested function or class is a declaration worth finding,
+; while a block-scoped binding is not.
+(program (lexical_declaration "const" (variable_declarator name: (identifier) @definition.constant)))
+(program (lexical_declaration "let" (variable_declarator name: (identifier) @definition.variable)))
+(program (variable_declaration (variable_declarator name: (identifier) @definition.variable)))
+
+; `export const …` nests the declaration one level deeper — and an exported
+; binding is the one most worth indexing, so it cannot be left to the anchor
+; above.
+(export_statement (lexical_declaration "const" (variable_declarator name: (identifier) @definition.constant)))
+(export_statement (lexical_declaration "let" (variable_declarator name: (identifier) @definition.variable)))
+(export_statement (variable_declaration (variable_declarator name: (identifier) @definition.variable)))

@@ -605,12 +605,17 @@ struct CodeEditorView: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            text.wrappedValue = textView.string
+            // Read once. `NSTextView.string` bridges a *mutable* `NSTextStorage`, so
+            // every access materializes a fresh Swift `String` — copying the whole
+            // buffer. Three reads per keystroke made typing latency scale with file
+            // size on the main thread, in the one path that has to stay cheap.
+            let contents = textView.string
+            text.wrappedValue = contents
             // Refresh the minimap overview from the edited text (debounced and
             // cache-guarded inside the tokenizer, so this is cheap per keystroke).
             if let fileID {
                 updateMinimap(
-                    text: textView.string,
+                    text: contents,
                     language: language,
                     fileID: fileID,
                     immediate: false
@@ -618,7 +623,7 @@ struct CodeEditorView: NSViewRepresentable {
             }
             // Keep this file's symbols in step with what is being typed, behind the
             // controller's 400 ms debounce (a re-parse per keystroke would be felt).
-            reindexSymbols(text: textView.string, language: language, immediate: false)
+            reindexSymbols(text: contents, language: language, immediate: false)
             // Offer completions for the word being typed, behind the completion
             // controller's own (shorter) debounce. Its gates — a bare caret, at
             // least two typed characters, no marked text — mean an ordinary
@@ -955,9 +960,14 @@ struct CodeEditorView: NSViewRepresentable {
                       request.range.location >= 0,
                       request.range.location <= length
                 else { return }
-                let range = NSIntersectionRange(
-                    request.range,
-                    NSRange(location: 0, length: length)
+                // Clamped by *truncating the length*, not by intersecting: a range
+                // whose location is exactly the buffer end shares no unit with the
+                // document, and `NSIntersectionRange` answers `{0, 0}` for that —
+                // which would scroll to the top of the file instead of leaving the
+                // caret at the end.
+                let range = NSRange(
+                    location: request.range.location,
+                    length: min(request.range.length, length - request.range.location)
                 )
                 textView.setSelectedRange(range)
                 textView.scrollRangeToVisible(range)

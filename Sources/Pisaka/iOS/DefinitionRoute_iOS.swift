@@ -103,6 +103,24 @@ final class DefinitionRoute_iOS: ObservableObject {
         reveal = Reveal(fileID: id, range: candidate.symbol.range, token: nextToken)
     }
 
+    /// Retire the reveal an editor has just applied.
+    ///
+    /// The token guard on the coordinator alone is **not** enough to keep the
+    /// request one-shot, because that guard dies with the coordinator: on compact
+    /// width the editor lives in a `navigationDestination`, so popping back to the
+    /// tree tears the text view down and re-entering builds a fresh coordinator
+    /// whose `appliedRevealToken` is back to `0`. A request left standing here
+    /// would then be applied a second time — caret yanked, range re-selected, view
+    /// scrolled — on a screen the user opened for an unrelated reason. Clearing it
+    /// at the source is the only place that survives the teardown.
+    ///
+    /// Guarded by the token so a *newer* jump, issued between the editor's deferred
+    /// application and this call, is not thrown away.
+    func consumeReveal(token: Int) {
+        guard reveal?.token == token else { return }
+        reveal = nil
+    }
+
     /// Dismiss the disambiguation dialog without jumping.
     func cancelChoices() {
         choices = []

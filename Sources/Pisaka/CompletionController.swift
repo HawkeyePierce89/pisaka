@@ -89,12 +89,16 @@ final class CompletionController {
     /// session that outlived an edit shrinking the buffer would otherwise index
     /// out of bounds.
     func completions(forPartialWordRange charRange: NSRange, in textView: NSTextView) -> [String] {
+        // One read: `NSTextView.string` copies the whole buffer out of the mutable
+        // text storage on every access, and this runs while AppKit is already
+        // putting the popup on screen.
+        let nsText = textView.string as NSString
         guard let snapshot,
               charRange.location != NSNotFound,
               charRange.location >= 0,
-              NSMaxRange(charRange) <= (textView.string as NSString).length
+              NSMaxRange(charRange) <= nsText.length
         else { return [] }
-        guard (textView.string as NSString).substring(with: charRange) == snapshot.prefix else {
+        guard nsText.substring(with: charRange) == snapshot.prefix else {
             return []
         }
         return snapshot.items
@@ -138,7 +142,11 @@ final class CompletionController {
             return
         }
 
-        let nsText = textView.string as NSString
+        // Read the buffer once and reuse it for both the prefix scan and the
+        // request: each `textView.string` access copies the entire text storage,
+        // and this runs on every keystroke that passes the gates above.
+        let contents = textView.string
+        let nsText = contents as NSString
         let prefixRange = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
         guard prefixRange.length >= (explicit ? 1 : Self.minimumPrefixLength) else {
             snapshot = nil
@@ -148,7 +156,7 @@ final class CompletionController {
         let request = CompletionRequest(
             prefix: nsText.substring(with: prefixRange),
             fileURL: fileURL,
-            text: textView.string
+            text: contents
         )
         let interval = debounceInterval
         pendingTask = Task { [weak self] in

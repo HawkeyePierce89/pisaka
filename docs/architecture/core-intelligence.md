@@ -511,24 +511,56 @@ capture name is the kind (`@definition.type`, `@definition.function`, …), and 
 optional `@container` capture *in the same match* supplies the enclosing type's
 name — which is why `SymbolExtractor` walks matches rather than captures.
 
+A second convention runs alongside it: **what is indexed is what someone
+navigates to**, so every query that would otherwise match at arbitrary depth is
+anchored to the file's top level. Swift anchors to `(source_file …)`, Python to
+`(module …)`, JSON to `(document (object …))`, YAML to the top-level
+`block_mapping`, and JavaScript/TypeScript anchor their `const`/`let`/`var`
+bindings to `(program …)` plus the `(export_statement …)` wrapper an exported
+binding nests under. Left unanchored, the binding patterns match every loop
+counter and every intermediate inside every function, and common names (`config`,
+`result`, `handler`) then fill the go-to-definition menu to its cap with locals,
+pushing the real declaration out. Functions and classes are deliberately *not*
+anchored in JS/TS: a nested function or class is a declaration worth finding,
+while a block-scoped binding is not.
+
+The HTML query filters attributes with `#match? @_attribute "^[iI][dD]$"` rather
+than `#eq? … "id"` because **HTML attribute names are case-insensitive** — `ID=`
+and `Id=` name the same attribute — while the anchors keep `data-id` and `idx`
+out. `SwiftTreeSitter` evaluates `match?` with `firstMatch`, so the anchoring is
+load-bearing rather than decorative.
+
 A broken symbols query is quieter than a broken highlight query: an unhighlighted
 file is visibly plain text, whereas an unindexed file looks exactly like a file
-that declares nothing. Both tree-sitter failure modes are in play — an unknown
-*node* name fails `ts_query_new`, so the whole language indexes zero symbols,
-while a mistyped *capture* name compiles and is then (correctly) dropped by
-`SymbolKind(captureName:)`, losing that one declaration. Neither shows up in a
-build, in CI, or in a screenshot. `SymbolQueryTests` closes the static half,
-Foundation-only through `#filePath`: set equality of query directories against
-`SyntaxLanguage.allCases` (with `.gitignore`'s absence asserted deliberately),
-every query non-empty, set equality of emitted capture names against what
-`SymbolKind` resolves, each kind capture resolving to *its own* kind, the single
-auxiliary capture (`@_attribute`, the HTML `id` filter) pinned by its own set
-equality, the dotenv query validated against the vendored grammar's own
-`node-types.json` under the matching `named` flag, and — for the nine remote
-grammars, whose sources are not in the repository — the node-name and
-anonymous-literal sets pinned by hand, the way `SyntaxTokenKindTests` pins the
-dockerfile captures, so a grammar update that renames a node fails with the
-language named.
+that declares nothing. All three tree-sitter failure modes are in play — an
+unknown *node* name fails `ts_query_new` with `TSQueryErrorNodeType`, an unknown
+*field* name fails it just as fatally with `TSQueryErrorField` (either way the
+whole language indexes zero symbols), while a mistyped *capture* name compiles
+and is then (correctly) dropped by `SymbolKind(captureName:)`, losing that one
+declaration. None shows up in a build, in CI, or in a screenshot.
+`SymbolQueryTests` closes the static half, Foundation-only through `#filePath`:
+set equality of query directories against `SyntaxLanguage.allCases` (with
+`.gitignore`'s absence asserted deliberately), every query non-empty, set
+equality of emitted capture names against what `SymbolKind` resolves, each kind
+capture resolving to *its own* kind, the single auxiliary capture
+(`@_attribute`, the HTML `id` filter) pinned by its own set equality, the dotenv
+query validated against the vendored grammar's own `node-types.json` under the
+matching `named` flag *and* against its declared field table, and — for the ten
+remote grammars, whose sources are not in the repository — the node-name,
+anonymous-literal and field-name sets pinned by hand, the way
+`SyntaxTokenKindTests` pins the dockerfile captures, so a grammar update that
+renames a node or a field fails with the language named.
+
+**Fields are checked as a third kind, not folded into the node names**, for the
+same reason the named and anonymous sets are read apart: they are validated by a
+different table, and almost every pattern here hangs off one (`name:`, `body:`,
+`key:`, `heading_content:`, `left:`, `value:`, `as:`). A `heading_content:`
+mistyped to `heading_kontent:` compiles nowhere and indexes no Markdown heading,
+yet leaves every node-name and capture-name assertion byte-identical — so
+without the field set the widest hole in the static checks sat under the queries
+that need them most. `ParsedQuery` recognizes a field as the only *bare*
+identifier a query may contain (node names are parenthesized, captures follow an
+`@`), by the `:` that follows it.
 
 **What stays manual**, because verifying it needs SwiftTreeSitter and Core
 deliberately does not link it: that each query actually *compiles* against its

@@ -108,10 +108,14 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     // MARK: - Edit bridging
 
     func textViewDidChange(_ textView: UITextView) {
-        text.wrappedValue = textView.text
+        // Read once: `UITextView.text` builds a fresh `String` out of the text
+        // storage on every access, so re-reading it per consumer made a keystroke
+        // cost several whole-buffer copies on the main thread.
+        let contents = textView.text ?? ""
+        text.wrappedValue = contents
         // Keep this file's symbols in step with what is being typed, behind the
         // controller's 400 ms debounce (a re-parse per keystroke would be felt).
-        reindexSymbols(text: textView.text, language: language, immediate: false)
+        reindexSymbols(text: contents, language: language, immediate: false)
         // Offer completions for the word being typed, behind this coordinator's own
         // (shorter) debounce. Its gates — a bare caret, at least two typed
         // characters, no marked text — mean an ordinary keystroke outside an
@@ -211,6 +215,14 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// TextKit has not laid the new text out — scrolling there would compute
     /// against the outgoing layout. The range is clamped to the live buffer, so a
     /// declaration recorded before an edit shrank the file can never raise.
+    ///
+    /// The request is also retired *at the route* once applied, not merely recorded
+    /// here: `appliedRevealToken` dies with this coordinator, and on compact width
+    /// the editor is a `navigationDestination` the user can pop and re-enter, which
+    /// builds a fresh coordinator that would re-apply a still-standing request. The
+    /// route is captured strongly for the hop so the clear happens even if this
+    /// coordinator is torn down in the same turn — that is exactly the case the
+    /// clear exists for.
     func applyReveal(_ request: DefinitionRoute_iOS.Reveal?, fileID: UUID) {
         guard let request,
               request.token != appliedRevealToken,
@@ -218,16 +230,26 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
               textView != nil
         else { return }
         appliedRevealToken = request.token
+        let route = definitionRoute
         DispatchQueue.main.async { [weak self] in
+            // Clearing `reveal` republishes the route, so it is deliberately done
+            // on this hop rather than inside `updateUIView`, where mutating
+            // observed state is a SwiftUI violation.
+            route?.consumeReveal(token: request.token)
             guard let textView = self?.textView else { return }
             let length = (textView.text as NSString).length
             guard request.range.location != NSNotFound,
                   request.range.location >= 0,
                   request.range.location <= length
             else { return }
-            let range = NSIntersectionRange(
-                request.range,
-                NSRange(location: 0, length: length)
+            // Clamped by *truncating the length*, not by intersecting: a range
+            // whose location is exactly the buffer end shares no unit with the
+            // document, and `NSIntersectionRange` answers `{0, 0}` for that — which
+            // would scroll to the top of the file instead of leaving the caret at
+            // the end.
+            let range = NSRange(
+                location: request.range.location,
+                length: min(request.range.length, length - request.range.location)
             )
             if let textRange = textView.uiTextRange(for: range) {
                 textView.selectedTextRange = textRange
@@ -262,7 +284,10 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
             return
         }
 
-        let nsText = textView.text as NSString
+        // One read for both the prefix scan and the request — see the note in
+        // `textViewDidChange`; this runs on every keystroke and every caret move.
+        let contents = textView.text ?? ""
+        let nsText = contents as NSString
         let offset = textView.offset(from: textView.beginningOfDocument, to: caret.start)
         let prefixRange = IdentifierScanner.completionPrefixRange(in: nsText, at: offset)
         guard prefixRange.length >= Self.minimumCompletionPrefixLength else {
@@ -273,7 +298,7 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         let request = CompletionRequest(
             prefix: nsText.substring(with: prefixRange),
             fileURL: fileURL,
-            text: textView.text
+            text: contents
         )
         let interval = completionDebounce
         completionTask = Task { [weak self, weak textView] in
@@ -398,6 +423,11 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         completionGeneration += 1
         if textView.inputAccessoryView === completionBar {
             textView.inputAccessoryView = nil
+            // Paired with the detach exactly as in `showCompletions`: the accessory
+            // view is cached by the *responder*, so clearing the property alone can
+            // leave the strip on screen over the incoming file — the one outcome
+            // this method exists to prevent.
+            textView.reloadInputViews()
         }
         completionBar?.onSelect = nil
         completionBar = nil

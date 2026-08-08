@@ -84,7 +84,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     flat capture stream would lose which type a method belongs to. **Predicates are
     resolved** (`match.allowed(in:)`), unlike the minimap's highlight pass: exactly
     one query needs it — an HTML `id` attribute is structurally identical to every
-    other attribute, so without evaluating `(#eq? @_attribute "id")` every `class=`
+    other attribute, so without evaluating `(#match? @_attribute "^[iI][dD]$")`
+    every `class=`
     and `href=` value would be indexed as an anchor — and `SymbolQueryTests` pins
     that HTML is the only query with a predicate, so a second one is reviewed
     rather than silently relying on this. Captured ranges are whitespace-trimmed on
@@ -287,7 +288,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the buffer that update just installed, and defers the selection by one main-loop
     turn because TextKit has not laid out a wholesale replacement yet; the range is
     clamped to the live buffer and a `token` makes a standing request apply exactly
-    once. **Definition** is offered through
+    once. On that same hop it calls `DefinitionRoute_iOS.consumeReveal(token:)` —
+    the token guard alone dies with the coordinator, so the request has to be
+    retired at the route or a popped-and-re-entered editor re-applies it; the route
+    is captured *strongly* for the hop precisely because the teardown case is the
+    one the clear exists for, and the clear happens on the hop rather than in
+    `updateUIView`, where mutating observed state is a SwiftUI violation. The clamp
+    **truncates the length** instead of calling `NSIntersectionRange`: a range whose
+    location is exactly the buffer end shares no unit with the document, and
+    intersection answers `{0, 0}` for that — scrolling to the top of the file rather
+    than leaving the caret where the (stale) range pointed. **Definition** is
+    offered through
     `textView(_:editMenuForTextIn:suggestedActions:)`, which appends one "Go to
     Definition" action when the text under the selection is an identifier and
     carries the suggested actions through explicitly so Cut/Copy/Paste keep working
@@ -307,7 +318,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `reloadInputViews()` only when the strip's **presence** changes, not per
     candidate list, because it visibly re-lays the keyboard and per keystroke would
     read as a flicker; an empty list removes the bar rather than showing an empty
-    one. Insertion goes through the coordinator's existing `applyEdit`, so it is one
+    one. `tearDownCompletions(in:)` pairs the same call with its own detach — the
+    accessory view is cached by the *responder*, so clearing the property alone can
+    leave the strip on screen over the incoming file, the one outcome that method
+    exists to prevent. Insertion goes through the coordinator's existing `applyEdit`, so it is one
     undo step and passes the programmatic-edit guard — a candidate ending in `(`
     cannot fall into `AutoPairEngine` and collect a closer it never asked for — and
     it recomputes the prefix range at tap time rather than trusting the one the
@@ -360,6 +374,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     definition may *open* the file, so the editor that will show it does not exist
     yet when the jump is decided. Comparing the token rather than the value is what
     makes jumping to the same declaration twice a legitimate second request.
+    `consumeReveal(token:)` retires a request the editor applied, and it is
+    **required rather than tidy**: the coordinator's `appliedRevealToken` dies with
+    the coordinator, and on compact width the editor lives in a
+    `navigationDestination` the user can pop and re-enter, which builds a fresh one
+    starting from `0` — a request left standing here would then be applied a second
+    time, yanking the caret on a screen opened for an unrelated reason. The token
+    guard on the clear keeps a *newer* jump, issued between the editor's deferred
+    application and the call, from being thrown away.
     `present(_:)` turns the count into an outcome — zero is deliberately quiet (a
     light `PlatformFeedback` haptic, no alert: the user tapped a word the index does
     not know, which is an ordinary outcome of asking), one navigates, several open

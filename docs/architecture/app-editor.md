@@ -233,7 +233,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     is the one installing its contents, so selecting earlier would land the range in
     the previous tab's text. It is one-shot by `token` (not by value — activating the
     same match twice is a legitimate second request), ignores a request whose
-    `fileID` is not this tab's, and clamps the range to the live buffer.
+    `fileID` is not this tab's, and clamps the range to the live buffer — by
+    **truncating the length**, not by intersecting: a range whose location is
+    exactly the buffer end shares no unit with the document, and
+    `NSIntersectionRange` answers `{0, 0}` for that, which would scroll to the top
+    of the file instead of leaving the caret at the end.
     The gutter's git-blame column is wired through two more inputs — `fileURL:
     URL?` (what `BlameController` blames; a `nil` untitled buffer disables the
     context-menu item) and `diskRevision: Int = 0`

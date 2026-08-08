@@ -129,6 +129,31 @@ final class VendoredGrammarQueryTests: XCTestCase {
         XCTAssertEqual(query.namedNodes, ["variable", "pair", "key"])
         XCTAssertEqual(query.anonymousNodes, ["="])
         XCTAssertEqual(query.captureNames, ["constant", "variable", "operator"])
+        XCTAssertEqual(query.fieldNames, ["key"])
+    }
+
+    /// Fields are the third thing tree-sitter validates, and the scanner has to
+    /// tell them from the two it already collected: a field is the only *bare*
+    /// identifier a query may hold, so it is recognized by the `:` that follows.
+    /// Prose in a comment, a predicate's regex and a node name must not reach the
+    /// set — a spurious field would fail the check against `node-types.json` with
+    /// a mismatch that does not exist, and a missing one leaves the hole this
+    /// collection was added to close (`ts_query_new` answering
+    /// `TSQueryErrorField`, i.e. the language silently indexing nothing).
+    func testScannerCollectsFieldNamesAndNothingElse() {
+        let query = ParsedQuery(source: """
+        ; A comment mentioning body: and name: in prose.
+        (class_declaration
+          name: (identifier) @container
+          body: (block (function_definition name: (identifier) @definition.method)))
+        ((attribute (attribute_name) @_a) (#match? @_a "^id:$"))
+        (source_file (_ (pattern) @definition.variable))
+        """)
+
+        XCTAssertEqual(query.fieldNames, ["name", "body"])
+        XCTAssertEqual(query.anonymousNodes, [])
+        XCTAssertTrue(query.namedNodes.contains("class_declaration"))
+        XCTAssertFalse(query.namedNodes.contains("_"))
     }
 
     /// The predicate suppression must end with its own `)`, not swallow the rest

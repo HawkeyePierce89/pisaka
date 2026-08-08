@@ -15,6 +15,10 @@ import XCTest
 ///  * an unknown *node* name fails `ts_query_new` with `TSQueryErrorNodeType`,
 ///    so `SymbolQueryCatalog` compiles nothing and the language silently indexes
 ///    zero symbols;
+///  * an unknown *field* name fails it just as fatally with `TSQueryErrorField`,
+///    and fields carry almost every pattern here (`name:`, `body:`, `key:`,
+///    `heading_content:`, `left:`, `value:`, `as:`), so they are checked and
+///    pinned exactly like node names;
 ///  * a mistyped *capture* name compiles fine and is then dropped by
 ///    `SymbolKind(captureName:)`, which is strict by design — so that
 ///    declaration alone disappears from the index.
@@ -157,13 +161,16 @@ final class SymbolQueryTests: XCTestCase {
     /// that the extractor has to resolve predicates rather than walk raw matches.
     func testTheHTMLQueryFiltersAttributesByName() throws {
         let source = try querySource(for: .html)
-        XCTAssertTrue(source.contains("#eq? @_attribute \"id\""), """
+        // `#match?` with a case-insensitive, fully anchored pattern rather than
+        // `#eq? "id"`: HTML attribute names are case-insensitive, so `ID=`/`Id=`
+        // name the same attribute, while the anchors keep `data-id`/`idx` out.
+        XCTAssertTrue(source.contains("#match? @_attribute \"^[iI][dD]$\""), """
             The HTML symbols query no longer filters attributes by name. An `id` attribute is \
             structurally identical to every other attribute, so without the predicate every \
             attribute value in every HTML file is indexed as an anchor.
             """)
 
-        XCTAssertEqual(try parsedQuery(for: .html).predicateNames, ["eq?"])
+        XCTAssertEqual(try parsedQuery(for: .html).predicateNames, ["match?"])
 
         for language in try indexableLanguages() where language != .html {
             XCTAssertEqual(try parsedQuery(for: language).predicateNames, [], """
@@ -190,11 +197,11 @@ final class SymbolQueryTests: XCTestCase {
         )
     }
 
-    /// The nine *remote* grammars' sources are not in this repository, so their
+    /// The ten *remote* grammars' sources are not in this repository, so their
     /// `node-types.json` cannot be read and the check above cannot be made. What
-    /// can be pinned is the set of node names and anonymous literals each query
-    /// uses — by hand, the way `SyntaxTokenKindTests` pins the dockerfile
-    /// grammar's capture names.
+    /// can be pinned is the set of node names, anonymous literals and field names
+    /// each query uses — by hand, the way `SyntaxTokenKindTests` pins the
+    /// dockerfile grammar's capture names.
     ///
     /// This does not catch an upstream rename on its own — nothing in a
     /// repository that cannot see the grammar can. What it catches is the *edit*:
@@ -209,6 +216,12 @@ final class SymbolQueryTests: XCTestCase {
                            "\(language.rawValue)/symbols.scm changed which named nodes it matches")
             XCTAssertEqual(query.anonymousNodes, expected.anonymous,
                            "\(language.rawValue)/symbols.scm changed which literals it matches")
+            XCTAssertEqual(query.fieldNames, expected.fields, """
+                \(language.rawValue)/symbols.scm changed which fields it navigates by. An \
+                undeclared field fails ts_query_new with TSQueryErrorField exactly as an \
+                undeclared node does, so the language would index zero symbols with nothing \
+                else to notice it.
+                """)
         }
 
         // Every language with a query is either pinned here or read from its
@@ -217,60 +230,64 @@ final class SymbolQueryTests: XCTestCase {
                        Set(try indexableLanguages()))
     }
 
-    private static let pinnedNodeNames: [SyntaxLanguage: (named: Set<String>, anonymous: Set<String>)] = [
+    private static let pinnedNodeNames: [SyntaxLanguage: (
+        named: Set<String>,
+        anonymous: Set<String>,
+        fields: Set<String>
+    )] = [
         .swift: (named: [
             "associatedtype_declaration", "class_declaration", "enum_class_body", "enum_entry",
             "function_declaration", "init_declaration", "pattern", "property_declaration",
             "protocol_body", "protocol_declaration", "protocol_function_declaration",
             "protocol_property_declaration", "simple_identifier", "source_file", "type_identifier",
             "typealias_declaration", "user_type", "value_binding_pattern",
-        ], anonymous: ["init", "let", "var"]),
+        ], anonymous: ["init", "let", "var"], fields: ["body", "name"]),
 
         .javascript: (named: [
-            "arrow_function", "class_body", "class_declaration", "field_definition",
-            "function_declaration", "function_expression", "generator_function_declaration",
-            "identifier", "lexical_declaration", "method_definition", "pair",
-            "private_property_identifier", "property_identifier", "variable_declaration",
-            "variable_declarator",
-        ], anonymous: ["const", "let"]),
+            "arrow_function", "class_body", "class_declaration", "export_statement",
+            "field_definition", "function_declaration", "function_expression",
+            "generator_function_declaration", "identifier", "lexical_declaration",
+            "method_definition", "pair", "private_property_identifier", "program",
+            "property_identifier", "variable_declaration", "variable_declarator",
+        ], anonymous: ["const", "let"], fields: ["body", "key", "name", "property", "value"]),
 
         .typescript: (named: [
             "abstract_class_declaration", "abstract_method_signature", "arrow_function",
             "class_body", "class_declaration", "enum_assignment", "enum_body", "enum_declaration",
-            "function_declaration", "function_expression", "function_signature",
+            "export_statement", "function_declaration", "function_expression", "function_signature",
             "generator_function_declaration", "identifier", "interface_body",
             "interface_declaration", "internal_module", "lexical_declaration", "method_definition",
             "method_signature", "module", "nested_identifier", "pair",
-            "private_property_identifier", "property_identifier", "property_signature",
+            "private_property_identifier", "program", "property_identifier", "property_signature",
             "public_field_definition", "type_alias_declaration", "type_identifier",
             "variable_declaration", "variable_declarator",
-        ], anonymous: ["const", "let"]),
+        ], anonymous: ["const", "let"], fields: ["body", "key", "name", "value"]),
 
         .python: (named: [
             "assignment", "block", "class_definition", "decorated_definition",
             "expression_statement", "function_definition", "identifier", "module",
-        ], anonymous: []),
+        ], anonymous: [], fields: ["body", "left", "name"]),
 
         .markdown: (named: ["atx_heading", "inline", "paragraph", "setext_heading"],
-                    anonymous: []),
+                    anonymous: [], fields: ["heading_content"]),
 
         .css: (named: [
             "class_name", "class_selector", "id_name", "id_selector", "keyframes_name",
             "keyframes_statement",
-        ], anonymous: []),
+        ], anonymous: [], fields: []),
 
         .yaml: (named: [
             "anchor", "anchor_name", "block_mapping", "block_mapping_pair", "block_node",
             "document", "flow_node",
-        ], anonymous: []),
+        ], anonymous: [], fields: ["key"]),
 
         .json: (named: ["document", "object", "pair", "string", "string_content"],
-                anonymous: []),
+                anonymous: [], fields: ["key"]),
 
         .html: (named: ["attribute", "attribute_name", "attribute_value", "quoted_attribute_value"],
-                anonymous: []),
+                anonymous: [], fields: []),
 
-        .dockerfile: (named: ["from_instruction", "image_alias"], anonymous: []),
+        .dockerfile: (named: ["from_instruction", "image_alias"], anonymous: [], fields: ["as"]),
     ]
 
     // MARK: - Reading the shipped queries
