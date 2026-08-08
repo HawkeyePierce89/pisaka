@@ -79,7 +79,31 @@ final class SymbolIndexController {
     /// which is this class's job. Reading the property each time is deliberate:
     /// the provider reads the model's latest snapshot on demand, so no caller can
     /// end up answering from the state a folder was opened in.
-    var provider: CodeIntelligenceProviding { model.provider }
+    var provider: CodeIntelligenceProviding { composedProvider ?? model.provider }
+
+    /// The provider handed out instead of the index's own, once something above has
+    /// composed one — `nil` on every path that has not.
+    ///
+    /// This is how the LSP layer reaches the editor without a single view signature
+    /// changing: the macOS app builds a `RoutingIntelligenceProvider` around
+    /// *exactly* `model.provider` and installs it here, so `CodeEditorView` and
+    /// `CompletionController` go on reading `symbolIndex.provider` and cannot tell
+    /// which of the two answered. iOS installs nothing, so there it stays literally
+    /// the index.
+    private var composedProvider: (any CodeIntelligenceProviding)?
+
+    /// Answer the editor's questions through `provider` from now on.
+    ///
+    /// Called once, at app construction, with the routing provider whose fallback is
+    /// this controller's own model — so replacing the seam adds a source of answers
+    /// rather than taking one away. Deliberately *not* an `init` parameter: the
+    /// routing provider needs `model.provider`, which needs the model, which needs
+    /// this controller to exist first, and threading that knot through the
+    /// initializer would put the composition in the one place that cannot express
+    /// it.
+    func installProvider(_ provider: any CodeIntelligenceProviding) {
+        composedProvider = provider
+    }
 
     // MARK: - Buffers
 

@@ -362,6 +362,73 @@ final class LSPWorkspaceTests: XCTestCase {
         XCTAssertEqual(harness.launches.last?.root, otherRoot)
     }
 
+    // MARK: - Termination
+
+    func testTerminateNowStopsEveryServerWithoutAwaitingAnything() async {
+        let fake = LSPServerDescription(
+            id: "fake-pyls",
+            languages: [.python],
+            launch: .executable(path: "/usr/local/bin/fake-pyls"),
+            arguments: [],
+            initializationOptions: nil
+        )
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(
+            harness: harness,
+            registry: LSPServerRegistry([.sourcekitLSP, fake])
+        )
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        _ = await workspace.prepare(
+            url: root.appendingPathComponent("app.py"),
+            language: .python,
+            text: "x = 1"
+        )
+        XCTAssertEqual(workspace.liveServerCount, 2)
+
+        // The app's `willTerminateNotification` observer: no `await` is available
+        // there, so everything this call has to do, it does synchronously.
+        workspace.terminateNow()
+
+        XCTAssertEqual(harness.transports.count, 2)
+        XCTAssertTrue(harness.transports.allSatisfy(\.isTerminated))
+        XCTAssertEqual(workspace.liveServerCount, 0)
+        XCTAssertTrue(workspace.openDocumentURIs.isEmpty)
+        // Unconditional, not a handshake: nothing polite was sent first.
+        XCTAssertFalse(harness.latest.sentMethods.contains(LSPMethod.shutdown))
+    }
+
+    func testTerminateNowKillsAServerThatIsStillHandshaking() async {
+        // The likeliest quit-time state: a first request has just launched a server
+        // and sourcekit-lsp is resolving the build system, which is the slowest
+        // thing this layer ever does.
+        let harness = ServerHarness()
+        harness.initializeDelay = 0.2
+        let workspace = makeWorkspace(harness: harness)
+
+        let pending = Task { await workspace.prepare(url: mainFile, language: .swift, text: "a") }
+        await waitFor("the launch to start") { harness.launches.count == 1 }
+
+        workspace.terminateNow()
+
+        XCTAssertTrue(harness.latest.isTerminated)
+        let prepared = await pending.value
+        XCTAssertNil(prepared)
+        XCTAssertEqual(workspace.liveServerCount, 0)
+    }
+
+    func testTerminateNowIsIdempotentAndSurvivesHavingNothingToDo() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+
+        workspace.terminateNow()
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        workspace.terminateNow()
+        workspace.terminateNow()
+
+        XCTAssertTrue(harness.latest.isTerminated)
+        XCTAssertEqual(workspace.liveServerCount, 0)
+    }
+
     func testARepeatedFolderChangeForTheSameRootIsANoOp() {
         let harness = ServerHarness()
         let workspace = makeWorkspace(harness: harness)

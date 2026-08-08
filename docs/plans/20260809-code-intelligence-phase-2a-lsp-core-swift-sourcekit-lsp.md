@@ -604,21 +604,64 @@ Hanging the new layer off the places that already exist, and nowhere else.
 - Modify: `Sources/Pisaka/Platform/SymbolIndexController.swift` (the `provider` seam
   it already exposes)
 
-- [ ] construct the `LSPWorkspace` with the process transport factory and the Swift
+- [x] construct the `LSPWorkspace` with the process transport factory and the Swift
       registry entry, wrap `symbolIndex.provider` in the routing provider, and hand
       the *routing* provider to the editor surfaces — no view signature changes
-- [ ] re-confirm the macOS `goToDefinition` path built in Task 5 passes the live
+- [x] re-confirm the macOS `goToDefinition` path built in Task 5 passes the live
       buffer text through the routing provider — no path reaches the LSP provider with
       a defaulted-empty `DefinitionRequest.text`
-- [ ] folder switch: `prepareForFolderChange` + `shutdownAll()` in the same
+- [x] folder switch: `prepareForFolderChange` + `shutdownAll()` in the same
       main-actor turn as the existing tokens, alongside `symbolIndexController.reset()`
-- [ ] tab close: `didClose` beside `forgetIndexedBuffer(_:)`, under the same "no
+- [x] tab close: `didClose` beside `forgetIndexedBuffer(_:)`, under the same "no
       other tab shows this file" guard
-- [ ] termination: `shutdownAll()` from the existing `willTerminateNotification`
+- [x] termination: `shutdownAll()` from the existing `willTerminateNotification`
       observer, beside `terminalSessions.terminateAll()` / `diffWindows.closeAll()`
-- [ ] confirm the writer gate is untouched: no `autosave.suspend()` /
+      — resolved to the synchronous `LSPWorkspace.terminateNow()`, see below
+- [x] confirm the writer gate is untouched: no `autosave.suspend()` /
       `beginRevert()` anywhere on this path (D10)
-- [ ] run `swift test` — must pass before task 10
+- [x] run `swift test` — must pass before task 10
+
+Four things the implementation settled that the plan had left open, all worth
+carrying into Task 13's `core-lsp.md` (and the first into `app-editor.md`):
+
+- **A quit cannot `await`, so termination needed a synchronous path.**
+  `willTerminateNotification` is the last thing AppKit posts before the process
+  exits, which is why the autosave and session writers already flush
+  *synchronously* from that observer — a `Task` wrapping `shutdownAll()` there
+  would compile, never be picked up, and leave exactly the orphan
+  `pgrep -fl sourcekit-lsp` checks for. So `LSPWorkspace` gains
+  `terminateNow()`: it reaches past the sessions (actors, hence unreachable
+  without a hop) to the transports, whose `terminate()` is synchronous and
+  idempotent by Task 3's contract. That required the workspace to hold the
+  transport beside each session — registered *before* the handshake, so a quit
+  also kills a server still resolving a build system, which is the state a quit
+  is likeliest to land in. `shutdownAll()` stays the polite path and is what a
+  folder switch uses. A `forget(_:for:)` identity check guards the map for
+  `pendingLaunches`' reason: a launch that gives up resumes arbitrarily later and
+  must not clear a *newer* transport filed under the same key.
+- **The seam is the controller's `provider`, not the view signatures.** The
+  editor surfaces read `symbolIndex.provider` already, so
+  `SymbolIndexController.installProvider(_:)` swaps in the composed provider and
+  not one view signature changes — and the routing provider's fallback is
+  literally `model.provider`, the same live-reading instance, so a language no
+  server serves takes the path it took before this phase existed. iOS installs
+  nothing and so stays exactly the index.
+- **The folder switch has one narrow window, stated rather than engineered
+  around.** `prepareForFolderChange` is synchronous (the ordering rule) and
+  `shutdownAll()` cannot be, so a request landing between the two sees the *new*
+  root and may start its server, which the teardown then stops. It costs one
+  wasted launch and one tree-sitter answer and — the part that matters — no
+  restart budget: a superseded launch is not a failure, and a server shut down
+  deliberately leaves no dead session for the next request to count as a crash.
+  The teardown is skipped entirely when the root did not change, so re-opening
+  the same folder does not throw away a resolved build system.
+- **`didClose` shares the tab-close guard rather than copying it.** It sits
+  inside `forgetIndexedBuffer(_:)`, under the same "no other tab shows this file"
+  test, because the index and the server must agree about when a file stops
+  having a buffer — a `didClose` for a file another tab still shows would leave
+  the server answering about a document it has dropped. Fire-and-forget: nothing
+  waits on it, and a server that cannot be told opens the document afresh on its
+  next request anyway.
 
 ### Task 10: Definition surfaces — the read-only window
 

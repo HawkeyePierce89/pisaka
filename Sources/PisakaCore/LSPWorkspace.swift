@@ -106,6 +106,15 @@ public final class LSPWorkspace {
     private let processID: Int?
 
     private var sessions: [ServerKey: LSPSession] = [:]
+    /// The transport behind each session — including one whose handshake has not
+    /// finished yet, registered the moment the factory hands it over.
+    ///
+    /// Duplicating what `LSPSession` already holds, for exactly one reason:
+    /// `terminateNow()` has to reach a live process from a context that cannot
+    /// `await`, and a session is an actor. `LSPTransport.terminate()` is
+    /// synchronous and idempotent (its own contract), so this map is the only thing
+    /// that makes the quit path possible at all.
+    private var transports: [ServerKey: LSPTransport] = [:]
     private var pendingLaunches: [ServerKey: PendingLaunch] = [:]
     private var documents: [String: DocumentState] = [:]
     private var failures: [ServerKey: Int] = [:]
@@ -195,6 +204,7 @@ public final class LSPWorkspace {
         let inflight = pendingLaunches
         let open = documents
         sessions = [:]
+        transports = [:]
         pendingLaunches = [:]
         documents = [:]
 
@@ -211,6 +221,40 @@ public final class LSPWorkspace {
         for pending in inflight.values {
             if let orphan = await pending.task.value { await orphan.shutdown() }
         }
+    }
+
+    /// Kill every server **now**, synchronously, without the handshake — what app
+    /// termination means.
+    ///
+    /// `shutdownAll()` is the polite path and the one every other caller wants, but
+    /// it cannot be the quit path: `NSApplication.willTerminateNotification` is the
+    /// last thing AppKit posts before the process exits, so there is no further
+    /// run-loop turn in which a `Task` wrapping an `async` teardown would ever run —
+    /// the same reason the autosave and session writers flush *synchronously* from
+    /// that observer. A `Task` there would compile, do nothing, and leave the orphan
+    /// `sourcekit-lsp` the release check greps for.
+    ///
+    /// So this reaches past the sessions to the transports, whose `terminate()` is
+    /// synchronous and idempotent by contract: stdin closed, `SIGTERM` sent,
+    /// escalating on its own. A launch still mid-handshake is killed too — its
+    /// transport is registered before the handshake starts precisely so this can
+    /// find it — and the `LSPSession` objects are simply dropped: with the byte
+    /// stream gone there is nothing left for one to do, and nobody will ask it
+    /// anything after this.
+    ///
+    /// The epoch bump keeps that true for the launch tasks that resume during the
+    /// remaining moments of the process: they find themselves superseded, terminate
+    /// what they built, and register nothing.
+    public func terminateNow() {
+        epoch += 1
+
+        let live = transports
+        sessions = [:]
+        transports = [:]
+        pendingLaunches = [:]
+        documents = [:]
+
+        for transport in live.values { transport.terminate() }
     }
 
     // MARK: - Documents
@@ -414,6 +458,10 @@ public final class LSPWorkspace {
             _ = noteFailure(of: key)
             return nil
         }
+        // Registered *before* the handshake, so `terminateNow()` can reach a server
+        // that is still resolving a build system — the case a quit is most likely to
+        // land in, since that is also the slowest thing this layer ever does.
+        transports[key] = transport
 
         let session = LSPSession(transport: transport, budgets: budgets)
         do {
@@ -427,6 +475,7 @@ public final class LSPWorkspace {
                 // server was starting. Not a failure — nothing went wrong — so it
                 // costs no restart budget, but the process must not survive it.
                 await session.terminate()
+                forget(transport, for: key)
                 return nil
             }
             guard capabilities.usesUTF16Positions else {
@@ -436,6 +485,7 @@ public final class LSPWorkspace {
                 // it will choose the same encoding on every restart, so this is
                 // terminal rather than countable.
                 await session.terminate()
+                forget(transport, for: key)
                 unavailable.insert(key)
                 return nil
             }
@@ -443,9 +493,22 @@ public final class LSPWorkspace {
             return session
         } catch {
             await session.terminate()
+            forget(transport, for: key)
             _ = noteFailure(of: key)
             return nil
         }
+    }
+
+    /// Drop `transport` from the map — but only while it is still the one filed
+    /// under `key`.
+    ///
+    /// A launch that gives up resumes on a main-actor turn arbitrarily later, by
+    /// which time a folder switch may have emptied the map and a *newer* launch
+    /// registered its own transport in it. Clearing that one would leave a live
+    /// process nothing could reach, which is the one thing this bookkeeping exists
+    /// to prevent — the same identity check `liveSession` makes on `pendingLaunches`.
+    private func forget(_ transport: LSPTransport, for key: ServerKey) {
+        if transports[key] === transport { transports[key] = nil }
     }
 
     /// A session that was running is not any more: forget it, forget what it was
@@ -453,6 +516,7 @@ public final class LSPWorkspace {
     private func noteDeath(of key: ServerKey) async -> Bool {
         if let dead = sessions[key] { await dead.terminate() }
         sessions[key] = nil
+        transports[key] = nil
         // Everything this server was told died with it. Dropping the state is what
         // makes the next request send a `didOpen` rather than a `didChange`
         // against a document the new process has never heard of.
