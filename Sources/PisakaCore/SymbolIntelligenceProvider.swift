@@ -209,6 +209,10 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
     /// 5. lexicographic, then kind, purely so the list is deterministic: two
     ///    equally ranked entries must not swap places between two keystrokes.
     ///
+    /// A member request (`request.member != nil`) adds **one key above all of
+    /// these** — the receiver's own container first — and reorders none of them;
+    /// see `memberCompletions(…)`.
+    ///
     /// **Keywords count as current-file** (rule 2 puts them level with
     /// harvested words), because a keyword belongs to the language of the file
     /// being typed in and is exactly as local as a word lifted out of it; rule
@@ -224,14 +228,28 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
     /// Swift buffer both contains and reserves, appears once as the keyword.
     ///
     /// An empty prefix yields nothing — with nothing typed there is nothing to
-    /// complete, and a popup listing the project would be noise.
+    /// complete, and a popup listing the project would be noise. The **one**
+    /// exception is a request carrying a `member` context, which is handled by
+    /// `memberCompletions(…)` below: a typed dot is itself the commitment, so
+    /// there the empty prefix is meaningful and the candidate set is bounded by
+    /// the member kinds instead of by the text.
     public static func completions(
         for request: CompletionRequest,
         in index: SymbolIndex,
         limit: Int = SymbolIntelligenceProvider.defaultCompletionLimit,
         bufferWordLimit: Int = SymbolIntelligenceProvider.defaultBufferWordLimit
     ) -> [CompletionItem] {
-        guard !request.prefix.isEmpty, limit > 0 else { return [] }
+        guard limit > 0 else { return [] }
+        if let member = request.member {
+            return memberCompletions(
+                for: request,
+                member: member,
+                in: index,
+                limit: limit,
+                bufferWordLimit: bufferWordLimit
+            )
+        }
+        guard !request.prefix.isEmpty else { return [] }
 
         var keys = FileKeyCache()
         let currentKey = request.fileURL.map { keys.key(for: $0) }
@@ -304,10 +322,135 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
             )
         }
 
+        return assemble(ranked, typed: request.prefix, limit: limit)
+    }
+
+    // MARK: - Member completions (pure)
+
+    /// Completion candidates for a caret sitting **after a member-access dot**,
+    /// which `IdentifierScanner.memberContext(in:at:)` has already recognized.
+    ///
+    /// Three things make this a branch rather than a filter on the ordinary
+    /// path:
+    ///
+    /// 1. **The prefix may be empty.** A typed `.` is the user committing to a
+    ///    member access before typing anything, so "nothing typed, nothing to
+    ///    complete" — right everywhere else — would answer the one request that
+    ///    is unambiguous about intent with nothing. The candidate set is bounded
+    ///    by the member kinds instead (see `SymbolIndex.members(matching:limit:)`).
+    /// 2. **The candidates are members only** — a `.method`, `.property` or
+    ///    `.constant` that names an enclosing type. A type, a free function or a
+    ///    file-scope constant is not reachable through a dot, and offering one
+    ///    after a dot is a worse answer than offering nothing. **Keywords are not
+    ///    offered at all**, for the same reason: no language lets `guard` follow
+    ///    a dot.
+    /// 3. **The receiver's own container ranks first**, above match quality and
+    ///    therefore above every other key — but only when the receiver *spells a
+    ///    type the project declares* (`index.declaresType(named:)`). This is a
+    ///    name-based heuristic, not type inference: `worker.` cannot be resolved
+    ///    without knowing what `worker` was assigned, while `Worker.` names the
+    ///    container outright. A receiver that names a function rather than a type
+    ///    promotes nothing, because a function called `worker` says nothing about
+    ///    what `worker.` will offer. Below that one key every ordinary tie-break
+    ///    still applies, unchanged.
+    ///
+    /// **The buffer-word fallback needs a non-empty member prefix.** Words are
+    /// offered only when the user has typed at least one character after the dot
+    /// *and* no member matched it — the case where the project simply has not
+    /// indexed the receiver's type and a word from the buffer is better than an
+    /// empty popup. With an **empty** prefix there is no fallback at all: an
+    /// empty query matches every word in the buffer, and this scanner
+    /// deliberately does not know about strings or comments, so a dot inside a
+    /// JSON value, a URL in a comment or a decimal-less number would otherwise
+    /// open a list of unrelated words exactly where the dot is least likely to be
+    /// a member access. Nothing at all is the honest answer there.
+    private static func memberCompletions(
+        for request: CompletionRequest,
+        member: IdentifierScanner.MemberContext,
+        in index: SymbolIndex,
+        limit: Int,
+        bufferWordLimit: Int
+    ) -> [CompletionItem] {
+        var keys = FileKeyCache()
+        let currentKey = request.fileURL.map { keys.key(for: $0) }
+        let query = request.prefix
+
+        // The receiver heuristic's one question, asked once — see rule 3 above.
+        let promoted = member.receiver.flatMap { index.declaresType(named: $0) ? $0 : nil }
+
+        // The promoted container's members are collected separately and
+        // *uncapped*, so the pre-cap below — which slices the project in file-key
+        // order — cannot be what drops the very members this request is most
+        // about. The overlap between the two lists collapses in `assemble`.
+        var candidates = index.members(matching: query, limit: memberCandidateLimit)
+        if let promoted { candidates += index.members(inContainer: promoted) }
+
+        var ranked: [Ranked] = candidates.compactMap { symbol in
+            guard let quality = memberQuality(of: symbol.name, matching: query) else { return nil }
+            return Ranked(
+                item: CompletionItem(
+                    text: symbol.name,
+                    kind: symbol.kind,
+                    isFromCurrentFile: currentKey != nil && keys.key(for: symbol.fileURL) == currentKey
+                ),
+                quality: quality,
+                sourceRank: Ranked.symbolSource,
+                containerRank: promoted != nil && symbol.containerName == promoted ? 0 : 1
+            )
+        }
+
+        if ranked.isEmpty, !query.isEmpty {
+            for word in IdentifierScanner.words(in: request.text as NSString, limit: bufferWordLimit) {
+                guard let quality = FuzzyMatch.quality(of: word, matching: query) else { continue }
+                ranked.append(
+                    Ranked(
+                        item: CompletionItem(text: word, kind: nil, isFromCurrentFile: true),
+                        quality: quality,
+                        sourceRank: Ranked.wordSource
+                    )
+                )
+            }
+        }
+
+        return assemble(ranked, typed: query, limit: limit)
+    }
+
+    /// How well a member answers the member prefix.
+    ///
+    /// The ordinary matcher, except for the bare typed dot: with an empty query
+    /// `FuzzyMatch` reports `nil` (nothing typed cannot be ranked), while here
+    /// every member answers *equally* well, so the key is a constant and the
+    /// remaining rules — the receiver's container, the current file, the shorter
+    /// name — decide the whole order. The constant is the best tier with the
+    /// fuzzy sub-keys zeroed, i.e. exactly the key a literal prefix produces, so
+    /// members and the (impossible here) prefix case cannot be ordered against
+    /// each other by accident.
+    private static func memberQuality(of name: String, matching query: String) -> FuzzyMatch.Quality? {
+        guard !query.isEmpty else {
+            return FuzzyMatch.Quality(
+                tier: FuzzyMatch.Quality.caseSensitivePrefixTier,
+                offBoundary: 0,
+                span: 0,
+                start: 0
+            )
+        }
+        return FuzzyMatch.quality(of: name, matching: query)
+    }
+
+    // MARK: - Assembly and caps
+
+    /// Sort, drop the typed token, de-duplicate by name and cap — the tail every
+    /// completion path shares, so an ordinary request and a member request can
+    /// never disagree about which of two identically-named candidates survives.
+    ///
+    /// The typed token is dropped because completing `run` to `run` inserts
+    /// nothing and hides a real candidate behind it; that holds after a dot too,
+    /// where the token is the member prefix.
+    private static func assemble(_ ranked: [Ranked], typed: String, limit: Int) -> [CompletionItem] {
         var seen = Set<String>()
         var results: [CompletionItem] = []
         for entry in ranked.sorted(by: isOrderedBefore) {
-            guard entry.item.text != request.prefix else { continue }
+            guard entry.item.text != typed else { continue }
             guard seen.insert(entry.item.text).inserted else { continue }
             results.append(entry.item)
             if results.count == limit { break }
@@ -321,6 +464,20 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
     private static func candidateLimit(for limit: Int) -> Int {
         max(limit * 8, 200)
     }
+
+    /// How many members to collect before ranking a member request.
+    ///
+    /// Deliberately a flat number rather than a multiple of the visible cap, the
+    /// way `candidateLimit(for:)` is: that one slices a set the *query* already
+    /// narrowed, while a bare typed dot has no query at all, so what bounds this
+    /// pass is only the number itself. A few hundred members is far more than the
+    /// popup can show and far less than a large project declares, which keeps the
+    /// one linear pass over the index (see `SymbolIndex.members(matching:limit:)`)
+    /// short enough to run per typed dot behind the editor's debounce. Where the
+    /// cut falls is not load-bearing either: the receiver's own members — the ones
+    /// ranked first and the reason the request was made — are collected separately
+    /// and uncapped.
+    private static let memberCandidateLimit = 400
 
     /// A candidate plus the precomputed ranking facts, so the comparator does no
     /// string work per comparison (`sorted` calls it O(n log n) times).
@@ -338,6 +495,12 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
         static let wordSource = 2
 
         let item: CompletionItem
+        /// 0 for a member of the receiver's own container — **member mode only**,
+        /// and the one key that outranks match quality. Constant 0 on every
+        /// ordinary request, so the key is inert outside member mode and the
+        /// ranking there is bit-for-bit what it was before member completion
+        /// existed.
+        let containerRank: Int
         /// How well the candidate answers what was typed — the first key.
         let quality: FuzzyMatch.Quality
         /// 0 for the current file.
@@ -347,8 +510,14 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
         /// UTF-16 length, the "shorter first" key.
         let length: Int
 
-        init(item: CompletionItem, quality: FuzzyMatch.Quality, sourceRank: Int) {
+        init(
+            item: CompletionItem,
+            quality: FuzzyMatch.Quality,
+            sourceRank: Int,
+            containerRank: Int = 0
+        ) {
             self.item = item
+            self.containerRank = containerRank
             self.quality = quality
             self.fileRank = item.isFromCurrentFile ? 0 : 1
             self.sourceRank = sourceRank
@@ -357,6 +526,7 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
     }
 
     private static func isOrderedBefore(_ lhs: Ranked, _ rhs: Ranked) -> Bool {
+        if lhs.containerRank != rhs.containerRank { return lhs.containerRank < rhs.containerRank }
         if lhs.quality != rhs.quality { return lhs.quality < rhs.quality }
         if lhs.fileRank != rhs.fileRank { return lhs.fileRank < rhs.fileRank }
         if lhs.sourceRank != rhs.sourceRank { return lhs.sourceRank < rhs.sourceRank }

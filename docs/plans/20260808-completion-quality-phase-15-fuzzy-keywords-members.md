@@ -300,25 +300,25 @@ dot is least likely to be a member access.
 - Modify: `Sources/PisakaCore/SymbolIntelligenceProvider.swift`
 - Modify: `Tests/PisakaCoreTests/SymbolIntelligenceProviderTests.swift`
 
-- [ ] Branch `completions(for:in:...)` on `request.member`: allow an empty
+- [x] Branch `completions(for:in:...)` on `request.member`: allow an empty
       prefix in that branch only (an empty prefix with no member context still
       yields nothing), and take candidates from
       `SymbolIndex.members(matching:limit:)` — no keywords at all.
-- [ ] Apply the receiver heuristic: when `member.receiver` is non-nil and
+- [x] Apply the receiver heuristic: when `member.receiver` is non-nil and
       `index.declaresType(named:)` is true, collect
       `members(inContainer: receiver)` first and give them a container rank
       above every other container's; that rank sorts above match quality, and
       every existing tie-break still applies underneath.
-- [ ] Fall back to harvested buffer words **only when the member prefix is
+- [x] Fall back to harvested buffer words **only when the member prefix is
       non-empty and no member candidate matched it**. With an empty member
       prefix (the bare typed dot) there is no fallback at all — the request
       returns an empty result rather than every word in the buffer. Document
       that rule and its reasoning (an empty prefix matches every word, so the
       fallback would turn a dot inside a JSON string or a comment into a list
       of unrelated words).
-- [ ] Add a member-mode pre-cap constant with its own reasoning comment, in the
+- [x] Add a member-mode pre-cap constant with its own reasoning comment, in the
       voice of the existing `candidateLimit(for:)` note.
-- [ ] Write tests: a typed dot with an empty prefix lists members and excludes
+- [x] Write tests: a typed dot with an empty prefix lists members and excludes
       types, free functions and container-less symbols; `Worker.` puts
       `Worker`'s own members above another container's identically-named
       member; a receiver that names a *function* rather than a type gets no
@@ -326,8 +326,11 @@ dot is least likely to be a member access.
       `doRequest`); keywords never appear in member mode; **a bare dot with no
       matching member returns nothing even though the buffer has words**; a
       *non-empty* member prefix with no matching member falls back to buffer
-      words; results are still capped and de-duplicated.
-- [ ] Run `swift test` — must pass before Task 7.
+      words; results are still capped and de-duplicated. Plus one the plan did
+      not name and the fallback rule needs: a *single* matching member
+      suppresses the buffer-word fallback entirely, so words never dilute a real
+      member list.
+- [x] Run `swift test` — must pass before Task 7.
 
 ### Task 7: macOS editor wiring
 
