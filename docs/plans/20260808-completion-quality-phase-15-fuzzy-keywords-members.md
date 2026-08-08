@@ -203,23 +203,23 @@ dot is least likely to be a member access.
 - Create: `Sources/PisakaCore/LanguageKeywords.swift`
 - Create: `Tests/PisakaCoreTests/LanguageKeywordsTests.swift`
 
-- [ ] Add `LanguageKeywords.keywords(for language: SyntaxLanguage) -> [String]`
+- [x] Add `LanguageKeywords.keywords(for language: SyntaxLanguage) -> [String]`
       with lists for `.swift`, `.javascript`, `.typescript`, `.python` and
       `.dockerfile` (the instruction set, uppercase as written), and an empty
       list for the data languages. Document *why* the data languages get none
       (a token list there is noise, not a spelling aid), in the same voice as
       `SymbolIndexModel.unindexableLanguages`.
-- [ ] Add an explicit `LanguageKeywords.languagesWithoutKeywords` set so the
+- [x] Add an explicit `LanguageKeywords.languagesWithoutKeywords` set so the
       absence is a stated decision rather than a gap, mirroring how
       `unindexableLanguages` records its reasons.
-- [ ] Write tests: **set equality** over `SyntaxLanguage.allCases` — every case
+- [x] Write tests: **set equality** over `SyntaxLanguage.allCases` — every case
       is either in `languagesWithoutKeywords` or has a non-empty list, so a new
       language fails the suite until someone decides; each list is sorted,
       duplicate-free and made of insertable tokens (every entry survives
       `IdentifierScanner.completionPrefixRange` unchanged, so a keyword can
       actually be typed and completed); spot-check `guard` in Swift, `async` in
       TypeScript, `elif` in Python, `FROM`/`HEALTHCHECK` in Dockerfile.
-- [ ] Run `swift test` — must pass before Task 4.
+- [x] Run `swift test` — must pass before Task 4.
 
 ### Task 4: Member-position detection
 
