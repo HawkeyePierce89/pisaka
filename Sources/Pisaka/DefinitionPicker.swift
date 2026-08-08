@@ -22,9 +22,13 @@ enum DefinitionPicker {
     /// chosen candidate (never called when the user dismisses the menu).
     ///
     /// `NSMenu.popUp(positioning:at:in:)` tracks modally and returns only once the
-    /// menu is gone, so the local `target` — which the menu items reference
-    /// *weakly*, as `NSMenuItem.target` always does — stays alive for exactly as
-    /// long as it can be messaged.
+    /// menu is gone, so the `target` — which the menu items reference *weakly*, as
+    /// `NSMenuItem.target` always does — has to stay alive for exactly that long.
+    /// A local `let` is *not* enough: ARC may release a local at its last use, and
+    /// the last use here is the assignment inside the loop, so an optimized build
+    /// is free to deallocate the target before the menu is even shown — leaving
+    /// every row pointing at `nil` and silently doing nothing when chosen. The
+    /// `withExtendedLifetime` around the modal call is what actually holds it.
     static func present(
         _ candidates: [DefinitionCandidate],
         in textView: NSTextView,
@@ -48,7 +52,9 @@ enum DefinitionPicker {
             item.tag = offset
             menu.addItem(item)
         }
-        menu.popUp(positioning: nil, at: anchorPoint(in: textView, for: range), in: textView)
+        withExtendedLifetime(target) {
+            menu.popUp(positioning: nil, at: anchorPoint(in: textView, for: range), in: textView)
+        }
     }
 
     /// The bottom-left corner of `range` in `textView`'s coordinates, so the menu
@@ -80,8 +86,8 @@ enum DefinitionPicker {
     }
 
     /// The menu's action receiver. `NSMenuItem.target` is a weak reference, so
-    /// this is kept alive by the caller's local `let` for the duration of the
-    /// modal `popUp` — the only window in which an item can be chosen.
+    /// this is kept alive by the caller's `withExtendedLifetime` around the modal
+    /// `popUp` — the only window in which an item can be chosen.
     private final class Target: NSObject {
         private let candidates: [DefinitionCandidate]
         private let onSelect: (DefinitionCandidate) -> Void

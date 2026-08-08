@@ -138,13 +138,14 @@ public final class SymbolIndexModel: ObservableObject {
     /// tell a refresh from a folder change wearing its clothes.
     private var lastRoot: URL?
 
-    /// File key → the URL that key was filed under, for every file currently in
-    /// the index.
+    /// The key of every file currently in the index.
     ///
     /// `SymbolIndex` is keyed by canonical path and does not hand its keys back;
     /// this is what lets a refresh compute "which indexed files did the walk stop
-    /// seeing" as a set difference, and remembers the URL each removal needs.
-    private var indexedFiles: [String: URL] = [:]
+    /// seeing" as a set difference. Keys alone, no URLs: removal goes through
+    /// `SymbolIndex.remove(fileKey:)` precisely so a vanished file's entry is not
+    /// looked up by re-canonicalizing a path that no longer resolves.
+    private var indexedFiles: Set<String> = []
 
     /// File key → the stamp the file had when it was last extracted **from
     /// disk**. A file with no entry here is always re-extracted, which is the
@@ -315,9 +316,18 @@ public final class SymbolIndexModel: ObservableObject {
         // for every file in the project.
         let buffers = openBuffers()
 
-        let (candidates, bufferIndex) = await offMain {
-            (
-                Self.candidates(root: root, fileService: service),
+        let (candidates, bufferIndex) = await offMain { () -> ([IndexCandidate], [String: String]) in
+            let walked = Self.candidates(root: root, fileService: service)
+            // An open tab the traversal cannot produce — a file under the folder
+            // the user just left, or one this project's `.gitignore` excludes —
+            // is indexed anyway, from its buffer. `prepareForFolderChange` clears
+            // the buffer marks along with the index, and a walk is the only thing
+            // that runs afterwards, so leaving these out would mean the file the
+            // user is *looking at* answers nothing until they switch away and
+            // back. `removeFiles` already states the same rule from the other
+            // side: such a tab is exempt from removal.
+            return (
+                walked + Self.bufferCandidates(buffers, excluding: Set(walked.map(\.key))),
                 Self.bufferIndex(buffers)
             )
         }
@@ -405,7 +415,7 @@ public final class SymbolIndexModel: ObservableObject {
                 candidate: candidate,
                 symbols: extract(text, language, url),
                 stamp: nil,
-                fromBuffer: true
+                source: .liveBuffer
             )
         }
         guard token == rootGeneration, !Task.isCancelled else { return }
@@ -430,19 +440,22 @@ public final class SymbolIndexModel: ObservableObject {
 
     /// Publish one batch of extraction outcomes.
     ///
-    /// The buffer-over-disk rule lives here: a disk-sourced outcome for a file a
-    /// buffer already wrote is dropped, because the chunk read that file's text
-    /// before the edit and publishing it would undo the re-index the user's
-    /// keystroke just caused.
+    /// The buffer-over-disk rule lives here: **no walk outcome** — disk-read or
+    /// walk-snapshot alike — overwrites a file a buffer already wrote. Both are
+    /// text as it stood when the walk started, so publishing either would undo
+    /// the re-index the user's keystroke has since caused, and the file is
+    /// buffer-owned afterwards, so no refresh would ever correct it. Only a
+    /// `liveBuffer` outcome, which by construction carries the editor's current
+    /// text, is allowed through.
     private func apply(_ outcomes: [FileOutcome]) {
         for outcome in outcomes {
             let key = outcome.candidate.key
-            if !outcome.fromBuffer && bufferSourced.contains(key) { continue }
+            if outcome.source != .liveBuffer && bufferSourced.contains(key) { continue }
 
             index.replace(fileURL: outcome.candidate.url, symbols: outcome.symbols)
-            indexedFiles[key] = outcome.candidate.url
+            indexedFiles.insert(key)
 
-            if outcome.fromBuffer {
+            if outcome.source.isBuffer {
                 bufferSourced.insert(key)
                 // A buffer's text has no on-disk stamp; recording the file's
                 // would claim the *disk* version was extracted and make the next
@@ -460,19 +473,22 @@ public final class SymbolIndexModel: ObservableObject {
     /// outside the walked root (or one the project's `.gitignore` excludes), and
     /// removing its symbols would break completion in the very file being typed
     /// in.
+    /// Removed **by key**, not by URL: the file is by definition gone, so asking
+    /// `SymbolIndex` to re-canonicalize its URL is both a syscall on the main
+    /// actor and a chance to derive a key the entry was never stored under.
     private func removeFiles(missingFrom walked: Set<String>) {
-        for (key, url) in indexedFiles
-        where !walked.contains(key) && !bufferSourced.contains(key) {
-            index.remove(fileURL: url)
-            indexedFiles[key] = nil
+        let gone = indexedFiles.subtracting(walked).subtracting(bufferSourced)
+        for key in gone {
+            index.remove(fileKey: key)
             stamps[key] = nil
         }
+        indexedFiles.subtract(gone)
     }
 
     /// Clear everything the model knows, synchronously — the folder-change reset.
     private func clearIndex() {
         index = SymbolIndex()
-        indexedFiles = [:]
+        indexedFiles = []
         stamps = [:]
         bufferSourced = []
     }
@@ -499,6 +515,26 @@ public final class SymbolIndexModel: ObservableObject {
         let language: SyntaxLanguage
     }
 
+    /// Where the text one outcome was extracted from came from.
+    ///
+    /// Three cases rather than a `fromBuffer` flag, because the two buffer cases
+    /// differ in exactly the way `apply` has to arbitrate. Both take ownership of
+    /// the entry, but only one of them is *current*: the walk reads the workspace
+    /// once, before it starts, so a chunk's buffer text can already be several
+    /// keystrokes old by the time it is applied.
+    enum OutcomeSource: Equatable, Sendable {
+        /// Read from the file itself.
+        case disk
+        /// The walk-time snapshot of an open tab — a buffer's authority, but not
+        /// necessarily its freshness.
+        case walkBuffer
+        /// A `reindexBuffer` of the text the editor holds *now*.
+        case liveBuffer
+
+        /// Whether the entry this produces is owned by an editor buffer.
+        var isBuffer: Bool { self != .disk }
+    }
+
     /// What one file's extraction produced. A file the batch *skipped* (unchanged
     /// stamp, unreadable) simply yields no outcome, so "keep what is indexed"
     /// needs no separate case.
@@ -507,8 +543,7 @@ public final class SymbolIndexModel: ObservableObject {
         let symbols: [Symbol]
         /// The stamp the file had when it was read, or `nil` for buffer text.
         let stamp: FileStamp?
-        /// Whether the text came from a live editor buffer.
-        let fromBuffer: Bool
+        let source: OutcomeSource
     }
 
     /// Every file under `root` worth indexing, in traversal order.
@@ -550,13 +585,16 @@ public final class SymbolIndexModel: ObservableObject {
             // A file a buffer already wrote is left alone — **before** the buffer
             // snapshot is consulted, not after. `buffers` was read once when the
             // walk started, so for a file the user is typing in it is already
-            // behind: a `reindexBuffer` that has since published those keystrokes
-            // would be silently overwritten here by the text as it stood at walk
-            // time, and the outcome carries `fromBuffer: true` so `apply` has
-            // nothing left to reject it with. Skipping is also what this model
-            // documents a refresh does with a buffer-sourced file — entirely,
-            // without being read or re-parsed — and the parse was wasted either
-            // way, since the buffer owns the entry until `forgetBuffer`.
+            // behind, and re-parsing it would only produce an outcome `apply`
+            // rejects (as `.walkBuffer`, which never outranks a buffer-owned
+            // entry). Skipping is also what this model documents a refresh does
+            // with a buffer-sourced file — entirely, without being read or
+            // re-parsed — and the parse was wasted either way, since the buffer
+            // owns the entry until `forgetBuffer`.
+            //
+            // This snapshot is taken per chunk, so it closes the window only up to
+            // the chunk's dispatch; a `reindexBuffer` landing while the chunk runs
+            // is caught by `apply`'s guard instead.
             if bufferSourced.contains(candidate.key) { continue }
 
             // Not yet buffer-sourced: this is the first walk that has seen the
@@ -570,7 +608,7 @@ public final class SymbolIndexModel: ObservableObject {
                         candidate: candidate,
                         symbols: extract(text, candidate.language, candidate.url),
                         stamp: nil,
-                        fromBuffer: true
+                        source: .walkBuffer
                     )
                 )
                 continue
@@ -582,7 +620,7 @@ public final class SymbolIndexModel: ObservableObject {
             do {
                 guard let text = try fileService.readTextIfNotBinary(url: candidate.url, maxBytes: maxBytes) else {
                     outcomes.append(
-                        FileOutcome(candidate: candidate, symbols: [], stamp: stamp, fromBuffer: false)
+                        FileOutcome(candidate: candidate, symbols: [], stamp: stamp, source: .disk)
                     )
                     continue
                 }
@@ -591,7 +629,7 @@ public final class SymbolIndexModel: ObservableObject {
                         candidate: candidate,
                         symbols: extract(text, candidate.language, candidate.url),
                         stamp: stamp,
-                        fromBuffer: false
+                        source: .disk
                     )
                 )
             } catch {
@@ -600,6 +638,34 @@ public final class SymbolIndexModel: ObservableObject {
         }
 
         return outcomes
+    }
+
+    /// The open tabs the traversal did not produce, as candidates in their own
+    /// right — the walk's "index what the user can see" half.
+    ///
+    /// Same language gate as `candidates`, so a tab on a plain-text or
+    /// unindexable file still costs nothing, and the same canonical key, so a tab
+    /// opened through a symlink is recognized as the file the walk already found
+    /// rather than indexed a second time. Ordered by key so a walk is
+    /// deterministic: a dictionary's iteration order is not.
+    ///
+    /// These candidates carry no on-disk existence claim. `extractChunk` finds
+    /// each of them in the buffer snapshot and never reaches its disk branch,
+    /// which is what makes a tab on a file outside the root — or on one that has
+    /// since been deleted from it — safe to include.
+    nonisolated static func bufferCandidates(
+        _ buffers: [URL: String],
+        excluding walked: Set<String>
+    ) -> [IndexCandidate] {
+        buffers.keys.compactMap { url in
+            guard let language = indexableLanguage(forFileName: url.lastPathComponent) else {
+                return nil
+            }
+            let key = SymbolIndex.fileKey(for: url)
+            guard !walked.contains(key) else { return nil }
+            return IndexCandidate(url: url, key: key, language: language)
+        }
+        .sorted { $0.key < $1.key }
     }
 
     /// A snapshot of the open tabs re-keyed by canonical path, so a candidate is

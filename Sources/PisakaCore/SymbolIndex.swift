@@ -70,7 +70,19 @@ public struct SymbolIndex: Equatable, Sendable {
     /// Forget a file entirely — used when the traversal no longer sees it
     /// (deleted, renamed, or newly gitignored).
     public mutating func remove(fileURL: URL) {
-        let key = Self.fileKey(for: fileURL)
+        remove(fileKey: Self.fileKey(for: fileURL))
+    }
+
+    /// The same removal, by the key the file was **filed under**.
+    ///
+    /// The one a caller that already holds the key must use, and removal is
+    /// exactly where that matters: `fileKey(for:)` resolves symlinks against the
+    /// file system, so re-deriving it from the URL of a file that has just been
+    /// deleted can answer a different string than the one the entry was stored
+    /// under — and the removal would then quietly purge nothing, leaving the
+    /// vanished file's symbols answering go-to-definition until the folder was
+    /// reopened. It also saves a syscall per removed file.
+    public mutating func remove(fileKey key: String) {
         purge(fileKey: key)
         files[key] = nil
     }

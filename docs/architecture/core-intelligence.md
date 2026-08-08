@@ -46,7 +46,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     of double-indexing it and offering every symbol in it twice. `replace(fileURL:
     symbols:)` is idempotent and *total* for that file (it purges the previous
     contribution from both buckets first), which is what makes re-indexing as
-    often as the debounce fires safe; `remove(fileURL:)` erases a file from both.
+    often as the debounce fires safe; `remove(fileKey:)` erases a file from both,
+    and `remove(fileURL:)` is the convenience that derives the key first. Removal
+    by *key* is the one a caller holding it must use, because removal is exactly
+    where re-deriving is unsafe: `fileKey(for:)` resolves symlinks against the
+    file system, so a file that has just been deleted can canonicalize to a
+    different string than the entry was stored under — and the purge would then
+    quietly match nothing, leaving a vanished file's symbols answering
+    go-to-definition until the folder was reopened. `SymbolIndexModel.removeFiles`
+    therefore keeps the keys (`indexedFiles` is a `Set<String>`, not a key→URL
+    map) and passes them straight back, which also drops a syscall per removed
+    file from the main actor.
     That purge sweeps **one bucket per distinct name and initial**, not one per
     symbol: `prefixBucket[initial]` holds the entries of the whole project for
     that letter, so a per-symbol loop would rescan it end to end (and, bound with
@@ -203,20 +213,39 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     between them, so a cancellation lands either before it (nothing is published)
     or after the entry was applied (and `forgetBuffer` then clears it).
     **Buffer-over-disk precedence** is the rule that makes the two sources safe to
-    mix, and it is applied in *both* places the two can meet. In `apply`, a
-    disk-sourced outcome for a file a buffer already wrote is dropped, because the
-    chunk read that text *before* the edit and publishing it would undo the
-    re-index the user's keystroke just caused. In `extractChunk`, the
-    `bufferSourced` check runs **before** the walk's buffer snapshot is consulted,
-    not after: that snapshot was taken when the walk started, so for the file being
-    typed in it is already behind, and an outcome built from it carries
-    `fromBuffer: true` — which is exactly what `apply` has no grounds to reject. A
-    file the buffer already owns is therefore skipped entirely, without being read
-    or re-parsed, which is what the refresh rules above promise; a file with buffer
-    text that is *not* yet buffer-sourced is the first walk to see that tab, so its
-    text is indexed and takes ownership of the entry. The `bufferSourced` snapshot
-    is taken per *chunk* rather than per walk for the same reason as the stamps —
-    a `reindexBuffer` landing between two chunks must be visible to the next one.
+    mix, and it turns on *where the text came from*, which is why `FileOutcome`
+    carries a three-case `OutcomeSource` rather than a `fromBuffer` flag: `.disk`,
+    `.walkBuffer` (the walk-time snapshot of an open tab) and `.liveBuffer` (a
+    `reindexBuffer` of what the editor holds now). Both buffer cases take
+    ownership of the entry, but only the live one is *current* — the walk reads
+    the workspace once, before it starts, so a chunk's buffer text can be several
+    keystrokes old by the time it is applied. `apply` therefore rejects **every
+    walk outcome**, disk-read and walk-snapshot alike, for a file already marked
+    buffer-sourced; only a `.liveBuffer` outcome may overwrite one. A flag that
+    said merely "from a buffer" would have let a chunk republish walk-time text
+    over the keystrokes a `reindexBuffer` had just published — and, the file being
+    buffer-owned afterwards, no refresh would ever have corrected it.
+    `extractChunk` additionally checks `bufferSourced` **before** consulting the
+    buffer snapshot, so a file the buffer already owns is skipped entirely,
+    without being read or re-parsed, which is what the refresh rules above
+    promise; a file with buffer text that is *not* yet buffer-sourced is the first
+    walk to see that tab, so its text is indexed and takes ownership. That check
+    is a cheap short-circuit, not the guarantee: the snapshot it reads is taken
+    per *chunk* (for the same reason as the stamps), so it closes the window only
+    up to the chunk's dispatch and `apply`'s guard is what covers a
+    `reindexBuffer` landing while the chunk runs.
+    **A walk also indexes the open tabs it cannot reach.** `bufferCandidates`
+    appends one candidate per open buffer the traversal did not produce — a tab on
+    a file under the folder the user just left, or one this project's `.gitignore`
+    excludes — under the same language gate and the same canonical key, ordered by
+    key so a walk stays deterministic. Without it, `prepareForFolderChange`
+    (which clears the buffer marks along with the index) would leave the file the
+    user is *looking at* answering nothing until they switched tabs and back,
+    since the walk is the only thing that runs on a folder switch. These
+    candidates carry no on-disk existence claim: `extractChunk` finds each of them
+    in the buffer snapshot and never reaches its disk branch. It is the same rule
+    `removeFiles` already states from the other side — such a tab is exempt from
+    removal.
     A file that throws
     on read produces no outcome at all (it keeps whatever the index holds and is
     retried next refresh), while one the service declines to hand over — binary or

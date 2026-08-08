@@ -378,9 +378,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     have to be converted back) and offset by the text container's origin, which is
     non-zero here because the gutter is a ruler view; the range is clamped first,
     since it was computed against the buffer as it was when the question was asked.
-    The action receiver is a local `let`: `NSMenuItem.target` is a weak reference,
-    and `popUp(positioning:at:in:)` tracks modally and returns only once the menu is
-    gone, so the target stays alive for exactly as long as it can be messaged.
+    The action receiver is held across the modal call with `withExtendedLifetime`,
+    and that is mandatory rather than defensive: `NSMenuItem.target` is a *weak*
+    reference, and ARC may release a local at its last use — which here is the
+    assignment inside the item loop, before `popUp(positioning:at:in:)` is even
+    called. An optimized build could therefore show a menu whose every row points
+    at a deallocated target and silently does nothing when chosen. Wrapping the
+    modal call (it tracks modally and returns only once the menu is gone) is what
+    keeps the target alive for exactly as long as it can be messaged.
   - `EditorSearchState.swift` — the find/replace bar's observable state (macOS):
     `isVisible`, `isReplaceExpanded`, `pattern`, `template`, the three toggles
     (`caseSensitive`/`wholeWord`/`isRegex`), the published-back `matchCount`/

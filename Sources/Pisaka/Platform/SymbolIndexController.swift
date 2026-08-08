@@ -36,20 +36,25 @@ final class SymbolIndexController {
     /// the controller's whole purpose is to outlive individual editor views.
     private let model: SymbolIndexModel
 
-    /// The in-flight buffer re-index (debounced or immediate); cancelled when a
-    /// newer one lands, so a burst of keystrokes re-parses once.
-    private var bufferTask: Task<Void, Never>?
-
-    /// Which file `bufferTask` is re-indexing, so `noteBufferClosed` can cancel
-    /// the pending work for *the file being closed* and leave another tab's
-    /// alone. One slot, matching `bufferTask`: a newer re-index supersedes the
-    /// older one regardless of file, so there is never more than one to name.
+    /// The in-flight buffer re-index **per file**; a newer re-index of the *same*
+    /// file cancels the older one, so a burst of keystrokes re-parses once.
     ///
-    /// Compared standardized rather than canonically: every caller hands over the
+    /// Keyed rather than a single slot, because the two are not interchangeable:
+    /// a tab switch re-indexes the incoming file immediately, and with one slot
+    /// that call would cancel the outgoing file's still-sleeping debounce — the
+    /// only thing that would ever publish those keystrokes. Nothing else picks
+    /// them up: the file is already buffer-sourced, so a refresh neither
+    /// re-extracts nor removes it, and the entry would stay frozen at its last
+    /// parse until the tab was re-selected or closed.
+    ///
+    /// Each task removes its own entry when it finishes, so the dictionary is
+    /// bounded by the number of files being typed in at once — in practice one.
+    ///
+    /// Keys are standardized rather than canonical: every caller hands over the
     /// URL its tab already holds, and `SymbolIndex.fileKey(for:)` resolves
     /// symlinks — a file-system round trip this would pay on the main actor on
     /// every keystroke, to distinguish spellings no tab produces.
-    private var bufferTaskURL: URL?
+    private var bufferTasks: [URL: Task<Void, Never>] = [:]
 
     /// The in-flight project refresh; cancelled the same way, so an FSEvents burst
     /// re-walks once.
@@ -87,9 +92,10 @@ final class SymbolIndexController {
 
     /// A tab was opened or switched to: re-index it **now**.
     ///
-    /// Same call, no debounce — see the type's note. It still supersedes a pending
-    /// keystroke re-index, which by then describes the file being switched away
-    /// from and would republish it a moment later for nothing.
+    /// Same call, no debounce — see the type's note. It supersedes a pending
+    /// keystroke re-index *of this same file* only; the file being switched away
+    /// from keeps its debounce, which is the one chance its last keystrokes have
+    /// of reaching the index (see `bufferTasks`).
     func noteBufferOpened(url: URL, text: String, language: SyntaxLanguage?) {
         schedule(url: url, text: text, language: language, immediate: true)
     }
@@ -107,29 +113,28 @@ final class SymbolIndexController {
     /// closing tab A must not throw away a re-index of tab B that happens to be
     /// the one in flight.
     func noteBufferClosed(url: URL) {
-        if bufferTaskURL == url.standardizedFileURL {
-            bufferTask?.cancel()
-            bufferTask = nil
-            bufferTaskURL = nil
-        }
+        let key = url.standardizedFileURL
+        bufferTasks.removeValue(forKey: key)?.cancel()
         model.forgetBuffer(url: url)
     }
 
     private func schedule(url: URL, text: String, language: SyntaxLanguage?, immediate: Bool) {
         guard let language, SymbolIndexModel.isIndexable(language) else { return }
 
-        bufferTask?.cancel()
-        bufferTaskURL = url.standardizedFileURL
+        let key = url.standardizedFileURL
+        bufferTasks.removeValue(forKey: key)?.cancel()
         let interval = bufferDebounce
-        bufferTask = Task { [weak self, model] in
+        bufferTasks[key] = Task { [weak self, model] in
             if !immediate {
                 try? await Task.sleep(for: interval)
                 if Task.isCancelled { return }
             }
             await model.reindexBuffer(url: url, text: text, language: language)
+            // The cancellation check is also what keeps this from clearing a
+            // *newer* task's slot: every replacement cancels the task it evicts,
+            // so a task that reaches here is still the one the entry names.
             guard let self, !Task.isCancelled else { return }
-            self.bufferTask = nil
-            self.bufferTaskURL = nil
+            self.bufferTasks[key] = nil
         }
     }
 
@@ -161,9 +166,8 @@ final class SymbolIndexController {
     /// cancelling here just avoids doing the work first. Call it in the same
     /// main-actor turn as `prepareForFolderChange(root:)`.
     func reset() {
-        bufferTask?.cancel()
-        bufferTask = nil
-        bufferTaskURL = nil
+        for task in bufferTasks.values { task.cancel() }
+        bufferTasks.removeAll()
         refreshTask?.cancel()
         refreshTask = nil
     }

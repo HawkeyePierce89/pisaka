@@ -113,21 +113,29 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     applies, because a build or an `npm i` produces bursts that outlive the
     watcher's own window. A tab open or switch (`noteBufferOpened`) bypasses the
     debounce entirely — the file being looked at must have symbols before the user
-    finishes reading it, and a tab switch is not a burst — while still superseding a
-    pending keystroke re-index, which by then describes the file being switched away
-    from. `noteBufferClosed` cancels the pending re-index *before* calling
-    `forgetBuffer`, which would otherwise re-mark the file buffer-sourced a moment
-    later and pin the index to text no editor holds — and the cancel bites whether
-    the work is still sleeping out the debounce or already inside the extractor,
-    because `reindexBuffer` re-checks cancellation after its parse (the reasoning
-    is written there, in `core-intelligence.md`). It fires only when
-    `bufferTaskURL` names the file being closed: one task slot serves every file,
-    so an unconditional cancel would throw away a pending re-index of *another*
-    tab whenever this one happened to be in flight. The URLs are compared
-    standardized rather than canonically — every caller hands over the URL its tab
-    already holds, and `SymbolIndex.fileKey(for:)` resolves symlinks, a
-    file-system round trip this would otherwise pay on the main actor on every
-    keystroke to tell apart spellings no tab produces. Nothing here is gated on the
+    finishes reading it, and a tab switch is not a burst. **The pending re-indexes
+    are held per file** (`bufferTasks`, keyed by URL) rather than in one slot, and
+    that is a correctness rule, not bookkeeping: with a single slot, the immediate
+    re-index a tab switch issues would cancel the *outgoing* file's still-sleeping
+    debounce — the only thing that would ever publish those keystrokes. Nothing
+    else picks them up, because that file is already buffer-sourced, so a refresh
+    neither re-extracts nor removes it and the entry stays frozen at its last
+    parse until the tab is re-selected or closed. A newer re-index of the *same*
+    file still supersedes the older one, which is all the debounce ever needed.
+    Each task clears its own entry when it finishes — safely, because every
+    replacement cancels the task it evicts, so a task that reaches the clear is
+    still the one the entry names — leaving the dictionary bounded by the number
+    of files being typed in at once. `noteBufferClosed` cancels this file's
+    pending re-index *before* calling `forgetBuffer`, which would otherwise
+    re-mark the file buffer-sourced a moment later and pin the index to text no
+    editor holds — and the cancel bites whether the work is still sleeping out the
+    debounce or already inside the extractor, because `reindexBuffer` re-checks
+    cancellation after its parse (the reasoning is written there, in
+    `core-intelligence.md`); keying by URL is what keeps it from being collateral
+    damage to another tab. The keys are standardized rather than canonical — every
+    caller hands over the URL its tab already holds, and `SymbolIndex.fileKey(for:)`
+    resolves symlinks, a file-system round trip this would otherwise pay on the
+    main actor on every keystroke to tell apart spellings no tab produces. Nothing here is gated on the
     autosave/revert bracket, deliberately: the index is a *reader*, so a refresh
     landing mid-revert costs at worst one stale entry the next refresh corrects.
     `reset()` drops both debounces and is called in the same main-actor turn as

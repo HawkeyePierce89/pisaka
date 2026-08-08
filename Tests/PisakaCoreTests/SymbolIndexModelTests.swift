@@ -400,6 +400,75 @@ final class SymbolIndexModelTests: XCTestCase {
         XCTAssertFalse(stub.readPaths.contains("a.swift"))
     }
 
+    func testAnOpenBufferOutsideTheWalkedRootIsStillIndexed() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
+        // A tab the traversal cannot produce: it names a file under the folder the
+        // user just left (or one this project's `.gitignore` excludes). The walk
+        // is the only thing that runs on a folder switch, and it clears the
+        // buffer marks first — so if it skipped this tab, the file the user is
+        // looking at would answer nothing until they switched away and back.
+        let outside = URL(fileURLWithPath: "/elsewhere/tool.swift")
+        let notes = URL(fileURLWithPath: "/elsewhere/notes.txt")
+        let extractor = RecordingExtractor()
+        let model = SymbolIndexModel(
+            fileService: stub,
+            openBuffers: { [outside: "sym typed\n", notes: "sym ignored\n"] },
+            extractSymbols: extractor.extract
+        )
+
+        await model.rebuild(root: root)
+
+        XCTAssertEqual(names(model, "typed"), ["typed"])
+        XCTAssertEqual(names(model, "alpha"), ["alpha"])
+        // The language gate still applies, and the buffer is never read from disk.
+        XCTAssertTrue(names(model, "ignored").isEmpty)
+        XCTAssertEqual(extractor.calls.sorted(), ["a.swift", "tool.swift"])
+        // Its text comes from the buffer, never from disk — which is what makes a
+        // candidate the traversal never produced safe to add.
+        XCTAssertEqual(stub.readPaths, ["a.swift"])
+
+        // And it is buffer-owned like any other tab: a later refresh neither
+        // re-parses it nor drops it for being outside the walk.
+        await model.refresh(root: root)
+        XCTAssertEqual(names(model, "typed"), ["typed"])
+        XCTAssertEqual(extractor.calls.sorted(), ["a.swift", "tool.swift"])
+    }
+
+    func testAWalkTimeBufferSnapshotDoesNotClobberANewerReindex() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym saved\n"])
+        let url = stub.url("a.swift")
+        let extractor = RecordingExtractor()
+        // The walk reads the workspace once, before it starts. The sibling test
+        // `testBufferEntrySurvivesAChunkThatReadDiskBeforeTheEdit` stages this
+        // window for a chunk that read *disk*; this one stages it for a chunk that
+        // took the walk-time *buffer* snapshot, which is text the user has since
+        // typed past. It carries a buffer's authority but not its freshness, so
+        // the `apply` guard has to tell the two apart.
+        let model = SymbolIndexModel(
+            fileService: stub,
+            openBuffers: { [url: "sym stale\n"] },
+            extractSymbols: extractor.extract
+        )
+
+        let gate = Gate()
+        stub.listingGate = gate
+        let walk = Task { await model.rebuild(root: root) }
+        await gate.waitUntilReached()
+
+        let reindex = Task {
+            await model.reindexBuffer(url: url, text: "sym typed\n", language: .swift)
+        }
+        // Let the re-index reach its own off-main hop, so it is queued behind the
+        // held traversal and ahead of the chunk that follows it.
+        await Task.yield()
+        gate.release()
+        await reindex.value
+        await walk.value
+
+        XCTAssertEqual(names(model, "typed"), ["typed"])
+        XCTAssertTrue(names(model, "stale").isEmpty)
+    }
+
     func testReindexBufferPublishesTheBuffersSymbols() async {
         let stub = StubFileTree(root: root, files: ["a.swift": "sym saved\n"])
         let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)

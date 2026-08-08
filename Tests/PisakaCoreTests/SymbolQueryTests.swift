@@ -29,8 +29,9 @@ import XCTest
 final class SymbolQueryTests: XCTestCase {
     // MARK: - Coverage
 
-    /// Every language the editor recognizes ships a symbols query — except
-    /// `.gitignore`, which is deliberately absent.
+    /// Every language the editor recognizes ships a symbols query — except the
+    /// ones `SymbolIndexModel.unindexableLanguages` names, which are deliberately
+    /// absent.
     ///
     /// Asserted as *set equality* against `SyntaxLanguage.allCases` in both
     /// directions, so adding a language to Core fails here until its query
@@ -38,17 +39,27 @@ final class SymbolQueryTests: XCTestCase {
     /// here too. A missing query is not a crash and not a build error — the file
     /// type simply stops contributing symbols — so this assertion is the only
     /// thing standing between "we added Rust" and "Rust files declare nothing".
-    func testEveryLanguageShipsASymbolsQueryExceptGitignore() throws {
+    ///
+    /// The exception set is **read from Core**, not spelled again here. That is
+    /// what makes the documented escape hatch real in both directions: a new
+    /// language is satisfied by shipping a query *or* by declaring it
+    /// unindexable, and moving an already-shipped language into
+    /// `unindexableLanguages` fails here until its now-dead query directory is
+    /// deleted. A second hard-coded copy of the rule could only drift from the
+    /// one the index actually consults.
+    func testEveryLanguageShipsASymbolsQueryExceptTheUnindexableOnes() throws {
         let directories = try shippedQueryDirectories()
-        let expected = Set(SyntaxLanguage.allCases.map(\.rawValue)).subtracting([
-            SyntaxLanguage.gitignore.rawValue
-        ])
+        let expected = Set(
+            SyntaxLanguage.allCases
+                .filter(SymbolIndexModel.isIndexable)
+                .map(\.rawValue)
+        )
 
         XCTAssertEqual(directories, expected, """
-            Resources/Queries must hold exactly one directory per SyntaxLanguage, minus \
-            .gitignore. A gitignore file declares nothing — its whole grammar is patterns — so \
-            it has no symbols query on purpose, and that absence is asserted rather than left \
-            to be rediscovered.
+            Resources/Queries must hold exactly one directory per SyntaxLanguage that \
+            SymbolIndexModel considers indexable. A language with no query must be listed in \
+            SymbolIndexModel.unindexableLanguages with its reason — today only .gitignore, \
+            whose whole grammar is patterns and which therefore declares nothing.
             """)
     }
 
@@ -63,12 +74,19 @@ final class SymbolQueryTests: XCTestCase {
         }
     }
 
-    /// `.gitignore` has no query *directory*, not merely an empty one — the
-    /// negative half of the coverage rule, spelled out so it reads as a decision
-    /// rather than as an omission.
-    func testGitignoreShipsNoSymbolsQuery() {
-        let directory = TestRepository.url(atRepositoryPath: "Resources/Queries/gitignore")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+    /// An unindexable language has no query *directory*, not merely an empty one
+    /// — the negative half of the coverage rule, spelled out so it reads as a
+    /// decision rather than as an omission. Which languages those are is pinned
+    /// by `SymbolIndexModelTests`; this asserts what their absence must look like
+    /// on disk.
+    func testUnindexableLanguagesShipNoSymbolsQuery() {
+        XCTAssertFalse(SymbolIndexModel.unindexableLanguages.isEmpty)
+        for language in SymbolIndexModel.unindexableLanguages {
+            let directory = TestRepository.url(
+                atRepositoryPath: "Resources/Queries/\(language.rawValue)")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path),
+                           "\(language.rawValue) is unindexable but ships a query directory")
+        }
     }
 
     // MARK: - Captures
@@ -257,9 +275,8 @@ final class SymbolQueryTests: XCTestCase {
 
     // MARK: - Reading the shipped queries
 
-    /// The languages that ship a query — every case but `.gitignore`, read off
-    /// the directory rather than hard-coded so the coverage test above is the one
-    /// place the rule lives.
+    /// The languages that ship a query — read off the directory rather than
+    /// hard-coded, so the coverage test above is the one place the rule lives.
     private func indexableLanguages() throws -> [SyntaxLanguage] {
         try shippedQueryDirectories().compactMap(SyntaxLanguage.init(rawValue:)).sorted {
             $0.rawValue < $1.rawValue
