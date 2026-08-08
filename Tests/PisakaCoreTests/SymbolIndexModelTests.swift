@@ -464,6 +464,66 @@ final class SymbolIndexModelTests: XCTestCase {
         XCTAssertEqual(stub.readPaths, ["a.swift"])
     }
 
+    func testARefreshDoesNotResurrectTheWalkTimeBufferSnapshot() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym saved\n"])
+        let extractor = RecordingExtractor()
+        let url = stub.url("a.swift")
+        // The workspace snapshot a walk reads *once*, before it starts — the tab's
+        // text as of that moment. Every other buffer test here leaves it empty,
+        // which is the one arrangement the app never wires.
+        let model = SymbolIndexModel(
+            fileService: stub,
+            openBuffers: { [url: "sym stale\n"] },
+            extractSymbols: extractor.extract
+        )
+        await model.rebuild(root: root)
+        XCTAssertEqual(names(model, "stale"), ["stale"])
+
+        // The user keeps typing; the debounced re-index publishes ahead of the
+        // snapshot, which nothing updates.
+        await model.reindexBuffer(url: url, text: "sym typed\n", language: .swift)
+
+        await model.refresh(root: root)
+
+        // The refresh must not republish the file from text that is now two edits
+        // old — and must not re-parse it to do so.
+        XCTAssertEqual(names(model, "typed"), ["typed"])
+        XCTAssertTrue(names(model, "stale").isEmpty)
+        XCTAssertEqual(extractor.calls, ["a.swift", "a.swift"])
+    }
+
+    func testReindexBufferCancelledMidFlightPublishesNothing() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym saved\n"])
+        let extractor = RecordingExtractor()
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: extractor.extract)
+        await model.rebuild(root: root)
+
+        let url = stub.url("a.swift")
+        let gate = Gate()
+        extractor.gateNextCall(gate)
+        let reindex = Task {
+            await model.reindexBuffer(url: url, text: "sym typed\n", language: .swift)
+        }
+        await gate.waitUntilReached()
+        // Exactly what a tab close does: cancel the in-flight re-index, then hand
+        // the entry back to disk. Without the cancellation re-check the parse
+        // would resume afterwards and re-mark the file buffer-sourced, pinning the
+        // index to text no editor holds any more.
+        reindex.cancel()
+        model.forgetBuffer(url: url)
+        gate.release()
+        await reindex.value
+
+        XCTAssertTrue(names(model, "typed").isEmpty)
+        XCTAssertEqual(names(model, "saved"), ["saved"])
+
+        // And the entry is disk-owned again rather than skipped forever: the file
+        // changing on disk now reaches the index.
+        stub.files["a.swift"] = "sym savedTwo\n"
+        await model.refresh(root: root)
+        XCTAssertEqual(names(model, "savedTwo"), ["savedTwo"])
+    }
+
     func testABufferSourcedFileTheWalkNeverSeesIsNotRemoved() async {
         let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
         let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)

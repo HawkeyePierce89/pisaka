@@ -40,6 +40,17 @@ final class SymbolIndexController {
     /// newer one lands, so a burst of keystrokes re-parses once.
     private var bufferTask: Task<Void, Never>?
 
+    /// Which file `bufferTask` is re-indexing, so `noteBufferClosed` can cancel
+    /// the pending work for *the file being closed* and leave another tab's
+    /// alone. One slot, matching `bufferTask`: a newer re-index supersedes the
+    /// older one regardless of file, so there is never more than one to name.
+    ///
+    /// Compared standardized rather than canonically: every caller hands over the
+    /// URL its tab already holds, and `SymbolIndex.fileKey(for:)` resolves
+    /// symlinks — a file-system round trip this would pay on the main actor on
+    /// every keystroke, to distinguish spellings no tab produces.
+    private var bufferTaskURL: URL?
+
     /// The in-flight project refresh; cancelled the same way, so an FSEvents burst
     /// re-walks once.
     private var refreshTask: Task<Void, Never>?
@@ -85,13 +96,22 @@ final class SymbolIndexController {
 
     /// A tab was closed: hand its entry back to disk.
     ///
-    /// A passthrough, but the one the debounce has to respect — so it cancels a
-    /// pending re-index first, which would otherwise re-mark the file
+    /// A passthrough, but the one the debounce has to respect — so it cancels
+    /// this file's in-flight re-index first, which would otherwise re-mark it
     /// buffer-sourced right after this un-marked it and pin the index to text no
-    /// editor holds any more.
+    /// editor holds any more. `reindexBuffer` re-checks cancellation after its
+    /// parse, so the cancel bites whether the work is still sleeping out the
+    /// debounce or already inside the extractor.
+    ///
+    /// The URL match is what keeps that cancel from being collateral damage:
+    /// closing tab A must not throw away a re-index of tab B that happens to be
+    /// the one in flight.
     func noteBufferClosed(url: URL) {
-        bufferTask?.cancel()
-        bufferTask = nil
+        if bufferTaskURL == url.standardizedFileURL {
+            bufferTask?.cancel()
+            bufferTask = nil
+            bufferTaskURL = nil
+        }
         model.forgetBuffer(url: url)
     }
 
@@ -99,6 +119,7 @@ final class SymbolIndexController {
         guard let language, SymbolIndexModel.isIndexable(language) else { return }
 
         bufferTask?.cancel()
+        bufferTaskURL = url.standardizedFileURL
         let interval = bufferDebounce
         bufferTask = Task { [weak self, model] in
             if !immediate {
@@ -108,6 +129,7 @@ final class SymbolIndexController {
             await model.reindexBuffer(url: url, text: text, language: language)
             guard let self, !Task.isCancelled else { return }
             self.bufferTask = nil
+            self.bufferTaskURL = nil
         }
     }
 
@@ -141,6 +163,7 @@ final class SymbolIndexController {
     func reset() {
         bufferTask?.cancel()
         bufferTask = nil
+        bufferTaskURL = nil
         refreshTask?.cancel()
         refreshTask = nil
     }

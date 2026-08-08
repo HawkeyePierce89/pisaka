@@ -117,7 +117,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     pending keystroke re-index, which by then describes the file being switched away
     from. `noteBufferClosed` cancels the pending re-index *before* calling
     `forgetBuffer`, which would otherwise re-mark the file buffer-sourced a moment
-    later and pin the index to text no editor holds. Nothing here is gated on the
+    later and pin the index to text no editor holds — and the cancel bites whether
+    the work is still sleeping out the debounce or already inside the extractor,
+    because `reindexBuffer` re-checks cancellation after its parse (the reasoning
+    is written there, in `core-intelligence.md`). It fires only when
+    `bufferTaskURL` names the file being closed: one task slot serves every file,
+    so an unconditional cancel would throw away a pending re-index of *another*
+    tab whenever this one happened to be in flight. The URLs are compared
+    standardized rather than canonically — every caller hands over the URL its tab
+    already holds, and `SymbolIndex.fileKey(for:)` resolves symlinks, a
+    file-system round trip this would otherwise pay on the main actor on every
+    keystroke to tell apart spellings no tab produces. Nothing here is gated on the
     autosave/revert bracket, deliberately: the index is a *reader*, so a refresh
     landing mid-revert costs at worst one stale entry the next refresh corrects.
     `reset()` drops both debounces and is called in the same main-actor turn as

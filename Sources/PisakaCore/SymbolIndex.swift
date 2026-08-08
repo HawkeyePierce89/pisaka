@@ -78,19 +78,36 @@ public struct SymbolIndex: Equatable, Sendable {
     /// Drop every bucket entry belonging to `fileKey`.
     ///
     /// Only the buckets the file actually contributed to are touched (its
-    /// symbols name them), so the cost is proportional to the file's own symbol
-    /// count and not to the size of the index.
+    /// symbols name them), so the cost is proportional to the *index's* share of
+    /// those buckets and not to the size of the whole index.
+    ///
+    /// **One sweep per distinct bucket, not per symbol.** `prefixBucket[initial]`
+    /// holds the entries of the entire project for that letter, so a per-symbol
+    /// loop would scan it end to end once for every symbol in the file — and, if
+    /// the entry were bound with `var` while the dictionary still referenced it,
+    /// copy it that many times too. A 500-symbol file touches at most a couple of
+    /// dozen distinct initials, so collecting the distinct names and initials
+    /// first turns a re-index (which fires every debounce tick while the user
+    /// types in that file) from hundreds of full-bucket passes into one each.
+    /// The removals go through `dict[key]?.removeAll` rather than a `var`
+    /// binding, which mutates the stored array in place instead of copying it.
     private mutating func purge(fileKey key: String) {
         guard let previous = files[key] else { return }
+
+        var names = Set<String>()
+        var initials = Set<Character>()
         for symbol in previous {
-            if var entries = nameBucket[symbol.name] {
-                entries.removeAll { $0.fileKey == key }
-                nameBucket[symbol.name] = entries.isEmpty ? nil : entries
-            }
-            if let initial = Self.initial(of: symbol.name), var entries = prefixBucket[initial] {
-                entries.removeAll { $0.fileKey == key }
-                prefixBucket[initial] = entries.isEmpty ? nil : entries
-            }
+            names.insert(symbol.name)
+            if let initial = Self.initial(of: symbol.name) { initials.insert(initial) }
+        }
+
+        for name in names {
+            nameBucket[name]?.removeAll { $0.fileKey == key }
+            if nameBucket[name]?.isEmpty == true { nameBucket[name] = nil }
+        }
+        for initial in initials {
+            prefixBucket[initial]?.removeAll { $0.fileKey == key }
+            if prefixBucket[initial]?.isEmpty == true { prefixBucket[initial] = nil }
         }
     }
 

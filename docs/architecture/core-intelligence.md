@@ -47,6 +47,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     symbols:)` is idempotent and *total* for that file (it purges the previous
     contribution from both buckets first), which is what makes re-indexing as
     often as the debounce fires safe; `remove(fileURL:)` erases a file from both.
+    That purge sweeps **one bucket per distinct name and initial**, not one per
+    symbol: `prefixBucket[initial]` holds the entries of the whole project for
+    that letter, so a per-symbol loop would rescan it end to end (and, bound with
+    `var` while the dictionary still referenced it, copy it) once per symbol in
+    the file — hundreds of full-bucket passes on every debounce tick while the
+    user types in a large file, for a set of buckets a couple of dozen wide. The
+    removals go through `dict[key]?.removeAll`, which mutates the stored array in
+    place rather than copying it.
     The prefix bucket is keyed by **lowercased first character only** — a
     deliberately coarse index: it turns a prefix query into a scan of one small
     slice instead of the whole project, at one array per distinct initial letter
@@ -184,12 +192,32 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     usually identical anyway), but the entry's owner changes and its stamp is
     cleared, so the next refresh re-extracts from disk unconditionally rather than
     concluding from an unchanged stamp that a buffer's version is current.
+    **Cancellation is honoured after the parse**, and that half is load-bearing
+    rather than a courtesy: `SymbolIndexController.noteBufferClosed` cancels the
+    in-flight re-index and then calls `forgetBuffer`, and without the re-check a
+    parse already past its debounce would resume afterwards and re-insert the file
+    into `bufferSourced` — pinning the index to text no editor holds, so every
+    later refresh would skip that file and `removeFiles` would go on exempting it,
+    leaving a since-deleted file answering go-to-definition until the folder was
+    reopened. The check and `apply` are one main-actor run with no suspension
+    between them, so a cancellation lands either before it (nothing is published)
+    or after the entry was applied (and `forgetBuffer` then clears it).
     **Buffer-over-disk precedence** is the rule that makes the two sources safe to
-    mix: a disk-sourced outcome for a file a buffer already wrote is dropped in
-    `apply`, because the chunk read that text *before* the edit and publishing it
-    would undo the re-index the user's keystroke just caused. The stamp snapshot is
-    taken per *chunk* rather than per walk for the same reason — a `reindexBuffer`
-    landing between two chunks must be visible to the next one. A file that throws
+    mix, and it is applied in *both* places the two can meet. In `apply`, a
+    disk-sourced outcome for a file a buffer already wrote is dropped, because the
+    chunk read that text *before* the edit and publishing it would undo the
+    re-index the user's keystroke just caused. In `extractChunk`, the
+    `bufferSourced` check runs **before** the walk's buffer snapshot is consulted,
+    not after: that snapshot was taken when the walk started, so for the file being
+    typed in it is already behind, and an outcome built from it carries
+    `fromBuffer: true` — which is exactly what `apply` has no grounds to reject. A
+    file the buffer already owns is therefore skipped entirely, without being read
+    or re-parsed, which is what the refresh rules above promise; a file with buffer
+    text that is *not* yet buffer-sourced is the first walk to see that tab, so its
+    text is indexed and takes ownership of the entry. The `bufferSourced` snapshot
+    is taken per *chunk* rather than per walk for the same reason as the stamps —
+    a `reindexBuffer` landing between two chunks must be visible to the next one.
+    A file that throws
     on read produces no outcome at all (it keeps whatever the index holds and is
     retried next refresh), while one the service declines to hand over — binary or
     oversize — is indexed as *empty*, so it is not re-read on every refresh only to
@@ -293,7 +321,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     and the rest path-then-line so a rebuilt index cannot reshuffle the menu under
     the user's cursor. An empty identifier yields nothing: it is what
     `IdentifierScanner` reports for a click on whitespace, and "no name" must beep
-    rather than open an empty menu. **Completions** merge the index's prefix
+    rather than open an empty menu. They are capped *after* ranking at
+    `defaultDefinitionLimit` 50, so what survives is the best of them rather than
+    an arbitrary slice: both surfaces build one UI element per candidate — an
+    `NSMenuItem` in `DefinitionPicker`, a `confirmationDialog` button on iOS — and
+    neither bounds the list itself, while the index is fed by more than tidy
+    declarations (`symbols.scm` also captures Markdown headings, top-level
+    JSON/YAML keys and CSS selectors), so a docs-heavy or multi-package project
+    really can hold hundreds of declarations of `name`, `id` or `Overview`. Past a
+    screenful the menu has stopped disambiguating anything, and on iPhone a
+    several-hundred-action sheet is a hang. **Completions** merge the index's prefix
     matches with the buffer's harvested words and rank by (1) case-sensitive prefix
     match before merely case-insensitive — the user's capitalization is a signal,
     so `arr` still surfaces `ArrayBuffer` but never above `arrayCount`; (2) current
@@ -310,7 +347,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     stops being a choice and the next keystroke narrows it anyway. The index is
     asked for **more than the cap** (`candidateLimit`) precisely because it orders
     by storage position: capping there would hand the ranking an arbitrary slice
-    and the best candidate could be missing entirely. Ranking facts are
+    and the best candidate could be missing entirely. A generous multiple still is
+    not a guarantee, and the one place that matters is the current file — storage
+    order is *by file key*, so in a project with more prefix matches than the
+    pre-cap every match in a path sorting after the cut is invisible, and whether
+    the file being typed in is one of them comes down to how its path happens to
+    sort. Ranking rule 2 would then fail exactly where it is most load-bearing, so
+    that file's own symbols are asked for separately (`symbols(inFile:)`, one
+    dictionary hit) and prefix-filtered in; the de-duplication above collapses the
+    overlap with whatever the bucket already returned. Ranking facts are
     precomputed per candidate (`Ranked`) so the comparator does no string work
     across `O(n log n)` calls, and canonical file keys are memoized
     (`FileKeyCache`) because `SymbolIndex.fileKey(for:)` resolves symlinks — i.e.

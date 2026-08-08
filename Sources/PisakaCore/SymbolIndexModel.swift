@@ -338,7 +338,8 @@ public final class SymbolIndexModel: ObservableObject {
 
             // Snapshotted per chunk rather than for the whole walk: a
             // `reindexBuffer` that lands between two chunks must be visible to
-            // the next one, or the buffer's file would be re-read from disk.
+            // the next one, or that chunk would republish the file from the
+            // walk-time text and undo the edit (see `extractChunk`).
             let knownStamps = stampGated ? stamps : [:]
             let skippable = bufferSourced
 
@@ -377,6 +378,18 @@ public final class SymbolIndexModel: ObservableObject {
     /// A language with no query is dropped before any work: it can declare
     /// nothing, so marking it buffer-sourced would only make a refresh skip a
     /// file that has no symbols either way.
+    ///
+    /// **Cancellation is honoured after the parse**, and that is load-bearing
+    /// rather than a courtesy. `SymbolIndexController.noteBufferClosed` cancels
+    /// the in-flight re-index and then calls `forgetBuffer`; without this check a
+    /// parse already past its debounce would resume afterwards and
+    /// `bufferSourced.insert` the file straight back, pinning the index to text
+    /// no editor holds any more — a refresh would then skip that file forever and
+    /// `removeFiles` would keep exempting it, so a since-deleted file would go on
+    /// answering go-to-definition until the folder was reopened. The check and
+    /// `apply` are one main-actor run with no suspension between them, so a
+    /// cancellation either lands before it (nothing is published) or after the
+    /// entry was applied (and `forgetBuffer` then clears it) — never in between.
     public func reindexBuffer(url: URL, text: String, language: SyntaxLanguage) async {
         guard Self.isIndexable(language) else { return }
 
@@ -395,7 +408,7 @@ public final class SymbolIndexModel: ObservableObject {
                 fromBuffer: true
             )
         }
-        guard token == rootGeneration else { return }
+        guard token == rootGeneration, !Task.isCancelled else { return }
 
         apply([outcome])
     }
@@ -534,8 +547,23 @@ public final class SymbolIndexModel: ObservableObject {
         var outcomes: [FileOutcome] = []
 
         for candidate in candidates {
-            // With no tabs open there is nothing to prefer, so the dictionary is
-            // not even consulted for the common fresh-project case.
+            // A file a buffer already wrote is left alone — **before** the buffer
+            // snapshot is consulted, not after. `buffers` was read once when the
+            // walk started, so for a file the user is typing in it is already
+            // behind: a `reindexBuffer` that has since published those keystrokes
+            // would be silently overwritten here by the text as it stood at walk
+            // time, and the outcome carries `fromBuffer: true` so `apply` has
+            // nothing left to reject it with. Skipping is also what this model
+            // documents a refresh does with a buffer-sourced file — entirely,
+            // without being read or re-parsed — and the parse was wasted either
+            // way, since the buffer owns the entry until `forgetBuffer`.
+            if bufferSourced.contains(candidate.key) { continue }
+
+            // Not yet buffer-sourced: this is the first walk that has seen the
+            // tab, so its text is the freshest thing available and indexing it
+            // both fills the entry and takes ownership of it. With no tabs open
+            // the dictionary is not even consulted, which is the common
+            // fresh-project case.
             if let text = buffers.isEmpty ? nil : buffers[candidate.key] {
                 outcomes.append(
                     FileOutcome(
@@ -547,11 +575,6 @@ public final class SymbolIndexModel: ObservableObject {
                 )
                 continue
             }
-
-            // A file a buffer already wrote is left alone even though this batch
-            // has no buffer text for it: the tab may have been opened after the
-            // snapshot was taken, and disk is behind it.
-            if bufferSourced.contains(candidate.key) { continue }
 
             let stamp = fileService.fileStamp(at: candidate.url)
             if let stamp, let known = knownStamps[candidate.key], known == stamp { continue }

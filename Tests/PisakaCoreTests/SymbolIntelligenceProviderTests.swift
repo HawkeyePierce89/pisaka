@@ -125,6 +125,38 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         )
     }
 
+    func testDefinitionsAreCappedAfterRanking() {
+        // `symbols.scm` captures Markdown headings and top-level JSON/YAML keys
+        // too, so one name really can be declared by hundreds of files — and both
+        // surfaces build one menu item or dialog button per candidate.
+        var groups: [String: [Symbol]] = [:]
+        for i in 0..<120 {
+            let file = String(format: "f%03d.md", i)
+            groups[file] = [symbol("Overview", kind: .type, in: file)]
+        }
+        // Sorts last by path, so it can only survive the cap by being ranked first.
+        groups["zzz.md"] = [symbol("Overview", kind: .type, in: "zzz.md")]
+        let store = index(groups)
+
+        let found = SymbolIntelligenceProvider.definitions(
+            for: definitionRequest("Overview", from: "zzz.md"),
+            in: store,
+            projectRoot: root
+        )
+        XCTAssertEqual(found.count, SymbolIntelligenceProvider.defaultDefinitionLimit)
+        XCTAssertEqual(found.first?.relativePath, "zzz.md")
+
+        XCTAssertEqual(
+            SymbolIntelligenceProvider.definitions(
+                for: definitionRequest("Overview"),
+                in: store,
+                projectRoot: root,
+                limit: 3
+            ).map(\.relativePath),
+            ["f000.md", "f001.md", "f002.md"]
+        )
+    }
+
     func testRelativePathDegradesToTheFileNameOutsideTheRoot() {
         let store = index(["a.swift": []])
         var outside = SymbolIndex()
@@ -347,6 +379,34 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
 
         XCTAssertEqual(items.count, 2)
         XCTAssertEqual(items.first?.text, "run")
+    }
+
+    func testCurrentFileSymbolsSurviveAPrefixMatchSetLargerThanThePreCap() {
+        // The index truncates prefix matches in *file-key* order, so in a project
+        // with more matches than the pre-cap the current file is included or not
+        // depending on how its path happens to sort. Here it sorts last and is
+        // pushed well past the cut, which is precisely the case where ranking rule
+        // 2 — current file first — matters most.
+        var groups: [String: [Symbol]] = [:]
+        for i in 0..<400 {
+            let file = String(format: "a%03d.swift", i)
+            groups[file] = [symbol("runnerNumber\(i)", in: file)]
+        }
+        groups["zzz.swift"] = [symbol("runnerLocal", kind: .property, in: "zzz.swift")]
+
+        let items = SymbolIntelligenceProvider.completions(
+            for: completionRequest("runner", from: "zzz.swift"),
+            in: index(groups),
+            limit: 5
+        )
+
+        XCTAssertEqual(items.first?.text, "runnerLocal")
+        XCTAssertEqual(items.first?.isFromCurrentFile, true)
+        // It arrives as the declaration it is, not as a bare harvested word — the
+        // buffer text is empty here, so nothing else could have supplied it.
+        XCTAssertEqual(items.first?.kind, .property)
+        // And it is not duplicated by the bucket's own copy of it.
+        XCTAssertEqual(items.filter { $0.text == "runnerLocal" }.count, 1)
     }
 
     func testAnEmptyPrefixYieldsNothing() {

@@ -93,6 +93,42 @@ final class SymbolIndexTests: XCTestCase {
         XCTAssertEqual(index.symbols(inFile: url(file)).count, 2)
     }
 
+    func testReplaceLeavesNoResidueWhenAFileDeclaresTheSameNameTwice() {
+        var index = SymbolIndex()
+        let file = "/tmp/pisaka-symbols/a.swift"
+        // Overloads, or a name declared once per `#if` branch: the purge sweeps
+        // each bucket once per *distinct* name, so a repeated one must still take
+        // all of its entries with it rather than the first sweep's worth.
+        index.replace(
+            fileURL: url(file),
+            symbols: [symbol("run", in: file), symbol("run", at: 10, in: file), symbol("stop", at: 20, in: file)]
+        )
+        XCTAssertEqual(index.symbols(named: "run").count, 2)
+
+        index.replace(fileURL: url(file), symbols: [symbol("run", in: file)])
+
+        XCTAssertEqual(index.symbols(named: "run").count, 1)
+        XCTAssertEqual(index.symbols(withPrefix: "r", limit: 10).count, 1)
+        XCTAssertTrue(index.symbols(named: "stop").isEmpty)
+        XCTAssertTrue(index.symbols(withPrefix: "s", limit: 10).isEmpty)
+    }
+
+    func testReplaceOnlyPurgesTheFileItRewrites() {
+        var index = SymbolIndex()
+        let a = "/tmp/pisaka-symbols/a.swift"
+        let b = "/tmp/pisaka-symbols/b.swift"
+        // Both files contribute to the same name and prefix buckets; rewriting one
+        // must leave the other's entries in both.
+        index.replace(fileURL: url(a), symbols: [symbol("run", in: a), symbol("rest", at: 10, in: a)])
+        index.replace(fileURL: url(b), symbols: [symbol("run", in: b), symbol("rise", at: 10, in: b)])
+
+        index.replace(fileURL: url(a), symbols: [])
+
+        XCTAssertEqual(index.symbols(named: "run").map(\.fileURL), [url(b)])
+        XCTAssertEqual(index.symbols(withPrefix: "r", limit: 10).map(\.name), ["run", "rise"])
+        XCTAssertTrue(index.symbols(named: "rest").isEmpty)
+    }
+
     func testReplaceWithNoSymbolsStillCountsTheFileAsIndexed() {
         var index = SymbolIndex()
         index.replace(fileURL: url("/tmp/pisaka-symbols/empty.swift"), symbols: [])

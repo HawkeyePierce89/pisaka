@@ -30,6 +30,19 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
     /// user's next keystroke narrows it anyway.
     public static let defaultCompletionLimit = 30
 
+    /// How many declarations a jump is allowed to disambiguate between.
+    ///
+    /// Both surfaces build one UI element per candidate — an `NSMenuItem` in
+    /// `DefinitionPicker`, a `confirmationDialog` button on iOS — and neither
+    /// bounds the list itself. The index is not only fed by languages with tidy
+    /// declarations: `symbols.scm` also captures Markdown headings, top-level
+    /// JSON/YAML keys and CSS selectors, so a docs-heavy or multi-package project
+    /// can hold hundreds of declarations of `name`, `id` or `Overview`. Past a
+    /// screenful the menu has stopped being a disambiguation anyway, and on iPhone
+    /// a several-hundred-action sheet is a hang. Applied *after* ranking, so what
+    /// survives is the best of them and not an arbitrary slice.
+    public static let defaultDefinitionLimit = 50
+
     /// How many distinct words are harvested from the buffer per request. High
     /// enough that no hand-written file is truncated, low enough that a minified
     /// bundle cannot turn a debounce tick into a large allocation.
@@ -122,13 +135,15 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
     ///
     /// An empty identifier yields nothing: it is what
     /// `IdentifierScanner.identifier(in:at:)` reports for a click on whitespace,
-    /// and "no name" must beep rather than open an empty menu.
+    /// and "no name" must beep rather than open an empty menu. More than `limit`
+    /// declarations are truncated after ranking — see `defaultDefinitionLimit`.
     public static func definitions(
         for request: DefinitionRequest,
         in index: SymbolIndex,
-        projectRoot: URL?
+        projectRoot: URL?,
+        limit: Int = SymbolIntelligenceProvider.defaultDefinitionLimit
     ) -> [DefinitionCandidate] {
-        guard !request.identifier.isEmpty else { return [] }
+        guard !request.identifier.isEmpty, limit > 0 else { return [] }
 
         var keys = FileKeyCache()
         let currentKey = request.fileURL.map { keys.key(for: $0) }
@@ -155,7 +170,7 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
                 return lhs.candidate.symbol.range.location < rhs.candidate.symbol.range.location
             }
             return lhs.candidate.symbol.name < rhs.candidate.symbol.name
-        }.map(\.candidate)
+        }.prefix(limit).map(\.candidate)
     }
 
     // MARK: - Completions (pure)
@@ -201,7 +216,20 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
         // The index is asked for more than the cap: it orders by storage
         // position, so capping *there* at `limit` would hand the ranking an
         // arbitrary slice and the best candidate could be missing entirely.
+        //
+        // A generous multiple still is not a guarantee, and the one place that
+        // matters is the current file: storage order is *by file key*, so in a
+        // project with more prefix matches than the pre-cap, every match living
+        // in a path sorting after the cut is invisible here — and whether the
+        // file the user is typing in is one of them comes down to how its path
+        // happens to sort. Ranking rule 2 (current file first) would then fail
+        // exactly where it is most load-bearing. Asking that one file for its own
+        // symbols costs a single dictionary hit and puts them back regardless of
+        // where the pre-cap fell; the de-duplication below collapses the overlap
+        // with whatever the bucket already returned.
         let symbols = index.symbols(withPrefix: request.prefix, limit: candidateLimit(for: limit))
+            + (request.fileURL.map { index.symbols(inFile: $0) } ?? [])
+                .filter { $0.name.lowercased().hasPrefix(lowered) }
         var ranked: [Ranked] = symbols.map { symbol in
             Ranked(
                 item: CompletionItem(
