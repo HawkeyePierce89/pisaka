@@ -133,28 +133,33 @@ dot is least likely to be a member access.
 - Create: `Sources/PisakaCore/FuzzyMatch.swift`
 - Create: `Tests/PisakaCoreTests/FuzzyMatchTests.swift`
 
-- [ ] Add `FuzzyMatch.wordBoundaryInitials(of:)`: the deduplicated, lowercased
+- [x] Add `FuzzyMatch.wordBoundaryInitials(of:)`: the deduplicated, lowercased
       set of characters that begin a "word" in a name — index 0, a camel hump
       (lower→upper, and the last upper of an upper run followed by a lower, so
       `URLSession` yields `s`), and the character after `_`, `-` or a
       digit/letter transition. Cap at 8 keys.
-- [ ] Add `FuzzyMatch.Quality`: `Comparable`, carrying `tier`
+- [x] Add `FuzzyMatch.Quality`: `Comparable`, carrying `tier`
       (0 case-sensitive prefix, 1 case-insensitive prefix, 2 fuzzy),
       `offBoundary` (matched characters that did not land on a word boundary),
       `span` (last matched index − first), `start` (first matched index).
       For a literal prefix match the three fuzzy sub-keys are constant, which is
       what keeps today's ordering intact.
-- [ ] Add `FuzzyMatch.quality(of candidate: String, matching query: String)
+- [x] Add `FuzzyMatch.quality(of candidate: String, matching query: String)
       -> Quality?`: `nil` when the query is not a case-insensitive subsequence
       of the candidate; a greedy left-to-right walk that prefers the next
       *boundary* occurrence of each query character and falls back to the next
       occurrence. Deterministic and documented; empty query yields `nil`.
-- [ ] Write tests: `aBu`/`arrBuf`/`buf` all match `ArrayBuffer`; `rray` does
+      The first matched character is additionally required to land on a word
+      boundary — stated in the matcher rather than left to `SymbolIndex`'s
+      bucket, so keywords and buffer words (which are not looked up through a
+      bucket) obey the same rule. A `matches(_:query:)` convenience wraps the
+      non-ranking filter call sites.
+- [x] Write tests: `aBu`/`arrBuf`/`buf` all match `ArrayBuffer`; `rray` does
       not (first character off a boundary); a boundary-hitting match orders
       before a scattered one; a tighter/earlier match orders before a looser
       one; exact-case prefix < case-insensitive prefix < fuzzy; `snake_case`
       and `URLSession` boundary sets; non-ASCII names are not split.
-- [ ] Run `swift test` — must pass before Task 2.
+- [x] Run `swift test` — must pass before Task 2.
 
 ### Task 2: Fuzzy and member lookups in `SymbolIndex`
 
