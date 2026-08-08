@@ -25,6 +25,24 @@ public protocol CodeIntelligenceProviding: AnyObject {
     /// Completion candidates for the prefix in `request`, best first, already
     /// capped by the provider.
     func completions(for request: CompletionRequest) async -> [CompletionItem]
+    /// The buffer edits `item` performs, for an item the provider deferred to a
+    /// second round trip (`CompletionItem.resolveHandle`).
+    ///
+    /// Defaulted to "nothing to add" because it is meaningful for exactly one
+    /// implementation: an LSP server may keep an item's `additionalTextEdits`
+    /// back until the client asks for them (D4's auto-import), and every other
+    /// provider hands out complete items the first time. The editor prefetches
+    /// this in the background while the popup is open, so the answer is in hand
+    /// before the user commits.
+    ///
+    /// An item the issuing provider does not recognise — a handle from a
+    /// superseded list, or an item from a different provider — answers `[]`,
+    /// which the caller reads as "insert the plain text and nothing else".
+    func resolveEdits(for item: CompletionItem) async -> [CompletionEdit]
+}
+
+public extension CodeIntelligenceProviding {
+    func resolveEdits(for item: CompletionItem) async -> [CompletionEdit] { [] }
 }
 
 // MARK: - Go to definition
@@ -103,6 +121,18 @@ public struct DefinitionCandidate: Equatable, Sendable {
     /// The declaring file's path below the project root, or its file name when
     /// it lives outside (or there is no root).
     public let relativePath: String
+    /// Whether the declaring file lives outside the opened folder — an SDK
+    /// interface, a dependency checkout, a generated header.
+    ///
+    /// Carried on the candidate rather than recomputed by the view because the
+    /// project root is the provider's knowledge (the same reason `relativePath`
+    /// is precomputed), and because it decides *where the jump lands*: D3 opens
+    /// an out-of-root target in a separate read-only window instead of a tab, so
+    /// that a jump into the SDK structurally cannot write outside the root.
+    ///
+    /// Always `false` for a tree-sitter candidate: the index only ever walks the
+    /// opened folder, so everything it can name is inside it.
+    public let isOutsideProjectRoot: Bool
 
     public init(
         name: String,
@@ -111,7 +141,8 @@ public struct DefinitionCandidate: Equatable, Sendable {
         fileURL: URL,
         range: NSRange,
         line: Int,
-        relativePath: String
+        relativePath: String,
+        isOutsideProjectRoot: Bool = false
     ) {
         self.name = name
         self.containerName = containerName
@@ -120,6 +151,7 @@ public struct DefinitionCandidate: Equatable, Sendable {
         self.range = range
         self.line = line
         self.relativePath = relativePath
+        self.isOutsideProjectRoot = isOutsideProjectRoot
     }
 
     /// The tree-sitter path's spelling: everything a candidate shows comes from
@@ -190,6 +222,22 @@ public struct CompletionRequest: Equatable, Sendable {
     /// minimum-length trigger gate. Non-`nil` is also the one state in which
     /// `prefix` may legitimately be empty — see `SymbolIntelligenceProvider`.
     public let member: IdentifierScanner.MemberContext?
+    /// The UTF-16 offset of the caret the request was made from — the end of
+    /// `prefix`, so the typed word occupies
+    /// `offset - prefix.utf16.count ..< offset`.
+    ///
+    /// `nil` means "the caller did not say where the caret is", which an LSP
+    /// provider treats as **unanswerable** rather than guessing: a completion
+    /// request is a question about a position, and there is no position here to
+    /// derive from a prefix and a buffer that may contain it a hundred times.
+    /// The tree-sitter provider ignores the field entirely — it matches names,
+    /// not places — so a call site that predates phase 2a keeps meaning exactly
+    /// what it meant, and only the LSP answer is given up.
+    ///
+    /// The same reasoning as `DefinitionRequest.text`, and the same hazard: both
+    /// editor call sites pass it, and the guard above is what keeps a forgotten
+    /// one from producing confidently wrong positions.
+    public let offset: Int?
 
     /// `language` and `member` are defaulted: they are what phase 1.5 added,
     /// and defaulting them keeps every construction site that predates member
@@ -206,13 +254,15 @@ public struct CompletionRequest: Equatable, Sendable {
         fileURL: URL?,
         text: String,
         language: SyntaxLanguage? = nil,
-        member: IdentifierScanner.MemberContext? = nil
+        member: IdentifierScanner.MemberContext? = nil,
+        offset: Int? = nil
     ) {
         self.prefix = prefix
         self.fileURL = fileURL
         self.text = text
         self.language = language
         self.member = member
+        self.offset = offset
     }
 }
 

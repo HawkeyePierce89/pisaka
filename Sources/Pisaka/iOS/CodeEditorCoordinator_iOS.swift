@@ -337,7 +337,11 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
             fileURL: fileURL,
             text: contents,
             language: language,
-            member: member
+            member: member,
+            // Carried on iOS too, where no language server runs: the field costs
+            // nothing to fill and a request that means the same thing on both
+            // platforms is one fewer difference to remember.
+            offset: offset
         )
         let interval = completionDebounce
         completionTask = Task { [weak self, weak textView] in

@@ -418,28 +418,61 @@ Turning protocol answers into seam values, with D6's ranking and D1's offsets.
 - Create: `Sources/PisakaCore/LSPIntelligenceProvider.swift`
 - Create: `Tests/PisakaCoreTests/LSPIntelligenceProviderTests.swift`
 
-- [ ] `definitions(for:)`: build the position from the request's text and offset, map
+- [x] `definitions(for:)`: build the position from the request's text and offset, map
       `Location`/`LocationLink` results to candidates, compute each target's display
       line and `relativePath` (file name when outside the root), and flag out-of-root
       targets so the app can route them to the read-only window (D3)
-- [ ] the D2 guard: a definition request whose `text` is empty while its `offset` is
+- [x] the D2 guard: a definition request whose `text` is empty while its `offset` is
       non-zero is unanswerable — return no answer (so routing falls back) instead of
       clamping the position to 0:0; no request is ever sent for it
-- [ ] `completions(for:)`: build the completion params (including the member trigger
+- [x] `completions(for:)`: build the completion params (including the member trigger
       as `triggerCharacter: "."`), rank and dedup per D6, convert each item's
       `textEdit`/`insertText` and `additionalTextEdits` into buffer-coordinate
       `CompletionEdit`s, and carry a resolve handle for items the server deferred
-- [ ] `resolveEdits(for:)` — the defaulted protocol extension point, implemented here
+- [x] `resolveEdits(for:)` — the defaulted protocol extension point, implemented here
       and a no-op everywhere else
-- [ ] tests against recorded transcripts: a cross-module definition, a definition
+- [x] tests against recorded transcripts: a cross-module definition, a definition
       returning `LocationLink[]`, an SDK target marked out-of-root, member completion
       after `.`, an item whose `textEdit` range is wider than the client prefix range,
       an item resolved into `additionalTextEdits`, server order preserved on
       `sortText` ties, typed-token/dedup/cap hygiene
-- [ ] test the D2 guard directly: empty text + non-zero offset yields no LSP answer
+- [x] test the D2 guard directly: empty text + non-zero offset yields no LSP answer
       and sends nothing to the scripted transport; empty text + offset 0 stays
       answerable
-- [ ] run `swift test` — must pass before task 7
+- [x] run `swift test` — must pass before task 7
+
+Four things the implementation settled that the plan had left open, all worth
+carrying into Task 13's `core-lsp.md`:
+
+- **A completion request had no caret in it.** `CompletionRequest` carried a
+  prefix, a buffer and a member context but no *position*, and a position is the
+  whole of what `textDocument/completion` asks about — a prefix cannot be located
+  in a buffer that contains it a hundred times. So the request gains
+  `offset: Int?`, defaulted to `nil` and read as **unanswerable** by the LSP
+  provider (never as 0), which is D2's guard applied to the other request kind;
+  both editor call sites pass the caret they already have, so only a future one
+  could hit the guard.
+- **The out-of-root flag lives on the candidate.** D3 routes a target outside the
+  opened folder to a read-only window, and which window is not something the view
+  can re-derive without knowing the project root — the same argument that already
+  precomputes `relativePath`. `DefinitionCandidate.isOutsideProjectRoot` is
+  defaulted `false`, so the tree-sitter path (which only ever walks the opened
+  folder) is untouched.
+- **The relative path is computed from canonical components, not lexically.**
+  `ProjectFileWalk.relativePath` strips a string prefix, which is right for paths
+  the project walk itself produced — but a server answers with the path *it*
+  resolved, and the recorded sourcekit-lsp really does report
+  `/private/tmp/lspfix/pkg/…` for a project opened as `/tmp/lspfix/pkg`. A lexical
+  strip reads that as "outside the root" and shows a bare file name, so the
+  containment test and the displayed path both go through `CanonicalPath`.
+- **An item carries edits only when applying them literally matters.** An item
+  that just replaces the typed word with its own text is exactly what AppKit's
+  stock insertion already does, so `edits` stays empty there and the editor keeps
+  its cheap path; edits appear when the item drags an `import` along (D4) or when
+  the server chose a range other than the one the client typed — the two cases
+  AppKit would get wrong. A target file that cannot be read is dropped for the
+  mirror-image reason: without its text there is no offset, and every consumer of
+  a candidate navigates by one.
 
 ### Task 7: Routing and silent fallback
 

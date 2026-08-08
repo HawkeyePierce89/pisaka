@@ -225,7 +225,11 @@ final class CompletionController {
             fileURL: fileURL,
             text: contents,
             language: language,
-            member: member
+            member: member,
+            // Where the question is being asked, which an LSP provider cannot
+            // answer without — see `CompletionRequest.offset`. The caret is the
+            // end of `prefixRange` by construction, so the two agree.
+            offset: caret.location
         )
         let interval = debounceInterval
         pendingTask = Task { [weak self] in
