@@ -125,7 +125,7 @@ struct CodeEditorView_iOS: UIViewRepresentable {
             contentReplaced: false
         )
         // Index the shown file from its *buffer* text at once: iOS has no watcher,
-        // so a tab open is one of the three moments the index moves forward at all,
+        // so a tab open is one of the few moments the index moves forward at all,
         // and the file may sit outside the walked folder (a standalone document
         // pick) where nothing else would ever reach it.
         context.coordinator.symbolIndex = symbolIndex

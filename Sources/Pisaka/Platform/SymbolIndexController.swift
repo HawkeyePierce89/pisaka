@@ -5,10 +5,11 @@ import PisakaCore
 /// Schedules the symbol index's incremental work: the buffer re-index behind a
 /// keystroke debounce, and the project refresh behind an FSEvents debounce.
 ///
-/// Lives in the non-gated `Platform/` layer because both destinations re-index an
-/// edited buffer; only the project refresh is macOS-only in practice, since iOS
-/// has no file-system watcher (there, the index moves forward on folder open, tab
-/// open and buffer edits alone — stated rather than worked around).
+/// Lives in the non-gated `Platform/` layer because both destinations drive both
+/// halves. The project refresh is *watcher*-driven only on macOS; iOS has none, so
+/// there it is driven by the working-tree rewrites the app performs itself (revert,
+/// merge apply, checkout — see `RootView_iOS.notifyIndexOfProjectFileChanges`), and
+/// a genuinely external change stays uncovered rather than worked around.
 ///
 /// Thin glue by design: every decision about *what* the index does on a re-index
 /// or a refresh — generations, stamp gating, buffer-over-disk precedence — lives

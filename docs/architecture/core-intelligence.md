@@ -182,15 +182,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     and a file the walk no longer produces (deleted, renamed, newly gitignored) is
     removed by set difference, unless a buffer owns it, since an open tab may
     legitimately name a file outside the walked root and removing its symbols would
-    break completion in the very file being typed in. A refresh for a *different*
-    root is a folder change wearing a refresh's clothes and runs as a `rebuild`: no
-    stamp from the previous project may gate a file in this one. A `nil` stamp
+    break completion in the very file being typed in. A `nil` stamp
     means "always re-extract" (see `FileStamp` in `core-workspace.md`), so a stub
     service degrades to correct-but-slower rather than to a stale index.
-    `refresh` takes no `request:` counterpart to `rebuild`'s: it is issued by the
-    watcher debounce for whatever root is current and never deferred across a
-    folder change, so the root check *is* the guard and a second, untested one
-    would be dead API.
+    **A refresh naming a root the model is not currently indexing is discarded**,
+    and that *is* its stale-token guard — which is why it takes no `request:`
+    counterpart to `rebuild`'s: the root is the token. A refresh is only ever
+    issued for a root someone is already watching, and a folder change always
+    issues its own `prepareForFolderChange` + `rebuild` in the switching turn, so a
+    refresh for another root can only be a callback from the folder the user just
+    left. Treating it as a folder change and rebuilding for it (what this used to
+    do) would clear the index the switch just filled and repopulate it from the
+    *previous* project, leaving every definition and completion answering out of a
+    folder that is no longer open with nothing to correct it until the next folder
+    change. That is reachable, not theoretical: the FSEvents callback hops to the
+    main actor with `DispatchQueue.main.async`, so a batch enqueued while
+    `openFolder` runs is delivered *after* it — with the previous root captured —
+    however promptly the watcher was re-subscribed
+    (`testARefreshForTheFolderTheUserJustLeftIsDiscarded`).
     **Two generation tokens, not one.** `generation` orders *walks* and is bumped
     by `prepareForFolderChange`, `rebuild` and `refresh`; `rootGeneration` is
     bumped only when the opened folder actually changes. The buffer re-index below
@@ -258,7 +267,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     per-chunk copy would decide nothing differently — while a second reference to
     the dictionary held across `apply`'s mutation forces a full copy of it per
     chunk, i.e. O(files²/32) element copies on the main actor for the pass whose
-    whole purpose is to avoid work.
+    whole purpose is to avoid work. `apply` and `removeFiles` avoid that same
+    trap on `index` itself by assembling the batch in a local and writing it back
+    **once**: `@Published` exposes only a get/set pair, so an `index.replace(…)`
+    per file would be a get-mutate-set that copies all of `SymbolIndex`'s
+    dictionaries every iteration — and would republish the whole index per file
+    rather than the per-chunk republication documented above.
     **A walk also indexes the open tabs it cannot reach.** `bufferCandidates`
     appends one candidate per open buffer the traversal did not produce — a tab on
     a file under the folder the user just left, or one this project's `.gitignore`

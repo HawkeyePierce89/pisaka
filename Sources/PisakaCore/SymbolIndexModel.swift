@@ -266,10 +266,10 @@ public final class SymbolIndexModel: ObservableObject {
     public func rebuild(root: URL, request: Int? = nil) async {
         if let request, request != generation { return }
 
-        // A rebuild reached without `prepareForFolderChange` (a refresh for an
-        // unknown root, or a direct call) is still a project change if the folder
-        // differs, and an in-flight buffer parse for the previous one must not
-        // publish into this index.
+        // A rebuild reached without `prepareForFolderChange` (a direct call, as
+        // Core's own tests make) is still a project change if the folder differs,
+        // and an in-flight buffer parse for the previous one must not publish
+        // into this index.
         if root != lastRoot { rootGeneration += 1 }
         lastRoot = root
         generation += 1
@@ -299,19 +299,23 @@ public final class SymbolIndexModel: ObservableObject {
     /// - a file the walk no longer produces (deleted, renamed, newly gitignored)
     ///   is removed from the index, unless a buffer owns it.
     ///
-    /// A refresh for a *different* root is a folder change wearing a refresh's
-    /// clothes, and runs as a `rebuild` — no stamp from the previous project may
-    /// gate a file in this one.
-    ///
-    /// No `request:` counterpart to `rebuild`'s: a refresh is issued by the
-    /// watcher debounce for whatever root is current, never deferred across a
-    /// folder change, so there is no stale token to reject. The root check below
-    /// is what stands in for one.
+    /// A refresh naming a root the model is **not** currently indexing is
+    /// discarded, and that is the whole stale-token defence: it takes no
+    /// `request:` counterpart to `rebuild`'s because the root *is* the token. A
+    /// refresh is only ever issued for a root someone is already watching, and a
+    /// folder change always issues its own `prepareForFolderChange` + `rebuild`
+    /// in the switching turn — so a refresh for another root can only be a
+    /// callback from the folder the user just left. Rebuilding for it (what this
+    /// used to do) would clear the index the switch just filled and repopulate it
+    /// from the *previous* project, leaving every definition and completion
+    /// answering out of a folder that is no longer open, with nothing to correct
+    /// it until the next folder change. That is reachable in practice: the
+    /// FSEvents callback hops to the main actor with `DispatchQueue.main.async`,
+    /// so a batch enqueued while `openFolder` is running is delivered afterwards
+    /// — with the previous root captured — however promptly the watcher was
+    /// re-subscribed.
     public func refresh(root: URL) async {
-        guard root == lastRoot else {
-            await rebuild(root: root)
-            return
-        }
+        guard root == lastRoot else { return }
 
         generation += 1
         let token = generation
@@ -481,7 +485,16 @@ public final class SymbolIndexModel: ObservableObject {
     /// buffer-owned afterwards, so no refresh would ever correct it. Only a
     /// `liveBuffer` outcome, which by construction carries the editor's current
     /// text, is allowed through.
+    ///
+    /// The batch is assembled in a local and written back to `index` **once**.
+    /// `@Published` exposes only a get/set pair, so `index.replace(…)` inside the
+    /// loop would be a get-mutate-set per file: every iteration holds a second
+    /// reference to the value while mutating it, forcing a copy-on-write of all
+    /// of `SymbolIndex`'s dictionaries — O(symbols²/chunk) element copies on the
+    /// main actor — and republishing the whole index per file rather than per
+    /// chunk. Same shape, and the same reason, as `walk`'s hoisted `knownStamps`.
     private func apply(_ outcomes: [FileOutcome]) {
+        var updated = index
         for outcome in outcomes {
             let key = outcome.candidate.key
             if outcome.source != .liveBuffer && bufferSourced.contains(key) { continue }
@@ -501,7 +514,7 @@ public final class SymbolIndexModel: ObservableObject {
             // derived one: `SymbolIndex.replace(fileKey:)` states both halves of
             // why (a symlink resolution per file on the main actor, and a key that
             // could diverge from the one `indexedFiles`/`stamps` track).
-            index.replace(fileKey: key, symbols: outcome.symbols)
+            updated.replace(fileKey: key, symbols: outcome.symbols)
             indexedFiles.insert(key)
 
             if source.isBuffer {
@@ -514,6 +527,7 @@ public final class SymbolIndexModel: ObservableObject {
                 stamps[key] = outcome.stamp
             }
         }
+        index = updated
     }
 
     /// Drop every indexed file the walk stopped producing.
@@ -525,12 +539,16 @@ public final class SymbolIndexModel: ObservableObject {
     /// Removed **by key**, not by URL: the file is by definition gone, so asking
     /// `SymbolIndex` to re-canonicalize its URL is both a syscall on the main
     /// actor and a chance to derive a key the entry was never stored under.
+    /// One write back to `index` for the whole set, for `apply`'s reason.
     private func removeFiles(missingFrom walked: Set<String>) {
         let gone = indexedFiles.subtracting(walked).subtracting(bufferSourced)
+        guard !gone.isEmpty else { return }
+        var updated = index
         for key in gone {
-            index.remove(fileKey: key)
+            updated.remove(fileKey: key)
             stamps[key] = nil
         }
+        index = updated
         indexedFiles.subtract(gone)
     }
 

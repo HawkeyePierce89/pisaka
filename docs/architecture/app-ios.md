@@ -145,9 +145,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     a folder was opened in) as the seam the editor surfaces ask through, rather than
     handing views the model itself: a view that could reach the model could also
     drive the index, and the model republishes after every chunk, which must stay
-    off a view's update path. Lives in `Platform/` because both destinations
-    re-index an edited buffer; only the project refresh is macOS-only in practice,
-    since iOS has no watcher.
+    off a view's update path. Lives in `Platform/` because both destinations drive
+    both halves; the project refresh is *watcher*-driven only on macOS, while on iOS
+    it is driven by the app's own working-tree rewrites.
   - `iOS/PisakaApp_iOS.swift` — the iOS `@main` App (the macOS `@main` is gated
     out under one-`@main`-per-platform `#if`). It also constructs the
     `SymbolIndexModel` + `SymbolIndexController` pair, the same way the macOS app
@@ -159,8 +159,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     index after *every chunk* of a walk, and subscribing this scene's `body` to that
     would rebuild the whole root view dozens of times while a project is indexed,
     for a value no view reads. iOS has **no file-system watcher**, so nothing
-    refreshes on an external change: the index moves forward on folder open, tab
-    open and buffer edits alone — stated rather than worked around.
+    refreshes on a genuinely *external* change (Files.app, a share extension) —
+    stated rather than worked around; the index moves forward on folder open, tab
+    open, buffer edits, and the working-tree rewrites the app performs itself
+    (`RootView_iOS.notifyIndexOfProjectFileChanges`).
   - `iOS/RootView_iOS.swift` — adaptive root: `NavigationSplitView` (iPad/regular
     width: project-tree sidebar + editor detail) vs `NavigationStack`
     (iPhone/compact: tree → pushed editor), plus the Local Changes / Git Log /
@@ -196,7 +198,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the dirty-close dialog) hands a tab's entry back to disk through
     `forgetIndexedBuffer`, a no-op while any tab still shows the file, so a cancelled
     close and the same file reached through two tabs leave the buffer mark alone —
-    the iOS peer of `PisakaApp.forgetIndexedBuffer`. A `@StateObject
+    the iOS peer of `PisakaApp.forgetIndexedBuffer`. **The three git resyncs
+    force-close tabs and so route through it too** (`revert`, `applyMerge`,
+    `resyncOpenTabsAfterCheckout`, capturing the URL before `close(id:force:)`),
+    exactly as their macOS peers do and for the reason stated there: a buffer-sourced
+    entry is exempt from both halves of a refresh, so a file a branch switch deleted
+    would go on answering lookups for the rest of the session. Those same three
+    operations end with `notifyIndexOfProjectFileChanges()`, the iOS peer of
+    `PisakaApp`'s: iOS has no file-system watcher, so *nothing* about a working-tree
+    rewrite reaches the index by itself, and a branch switch would otherwise leave Go
+    to Definition and completion answering out of the **previous branch** for the
+    rest of the session, with no user-reachable correction short of closing and
+    reopening the folder. These are the moments the app itself knows about, which is
+    what lets them stand in for the watcher iOS lacks; the genuinely out-of-band edit
+    (Files.app, another app's share extension) stays uncovered and stays a stated
+    Phase 1 limit. A `@StateObject
     DefinitionRoute_iOS` (rather than the plain `@State` a `MergeModel` gets, because
     this one is also *read* here) is given an `openFile` closure capturing only
     `model` — anything read from the view struct would be frozen at installation
@@ -238,8 +254,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     is what a preview gets; `reveal` is passed as a *value* so a candidate-list
     change cannot rebuild the editor).
     **Re-index triggers:** `makeUIView` and a `switchedFile`/`contentReplaced`
-    update call `reindexSymbols(immediate: true)` — on iOS a tab open is one of only
-    three moments the index moves forward at all, and the file may sit outside the
+    update call `reindexSymbols(immediate: true)` — on iOS a tab open is one of the
+    few moments the index moves forward at all, and the file may sit outside the
     walked folder (a standalone document pick) where nothing else would reach it —
     while `textViewDidChange` goes through the controller's 400 ms debounce. A
     buffer swap also clears the strip, whose candidates answer a word in the
@@ -339,8 +355,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `fileStamp(at:)` both default to `nil`, which every caller reads as "unknown,
     so do the work" — the oversize check in `readTextIfNotBinary` would then decode
     a whole file into memory before measuring it, and the symbol index's stamp gate
-    would re-read and re-parse the entire project on every refresh (latent today,
-    since iOS has no watcher and so never calls `refresh(root:)`).
+    would re-read and re-parse the entire project on every refresh — which iOS does
+    run, after each working-tree rewrite the app performs.
     `SecurityScopedFileService` also conforms to `SecurityScopeProviding` (a small
     `AnyObject` protocol vending `withSecurityScope(covering:_:)`): `LibGit2Service`
     touches the working tree/index directly via `FileManager`/libgit2 rather than

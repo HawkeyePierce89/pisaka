@@ -541,12 +541,18 @@ struct RootView_iOS: View {
             if fileExistsScoped(url) {
                 if !model.reloadFromDisk(id: id) {
                     model.close(id: id, force: true)
+                    forgetIndexedBuffer(url)
                     PlatformFeedback.warning()
                 }
             } else {
                 model.close(id: id, force: true)
+                forgetIndexedBuffer(url)
             }
         }
+        // libgit2 rewrote the working tree in this process, so every reverted file
+        // the user has no tab for is stale in the index (and a reverted *untracked*
+        // file is gone entirely). See `notifyIndexOfProjectFileChanges`.
+        notifyIndexOfProjectFileChanges()
     }
 
     /// `FileManager.fileExists` bracketed by the covering security scope. On a real
@@ -607,6 +613,9 @@ struct RootView_iOS: View {
             let requestGeneration = localChanges.currentRequestGeneration
             await localChanges.refresh(root: projectRoot, requestGeneration: requestGeneration)
         }
+        // The apply wrote the resolved file — which need not have a tab behind it,
+        // since the merge editor opens from Local Changes.
+        notifyIndexOfProjectFileChanges()
 
         guard let resolvedURL, let id = model.fileID(forURL: resolvedURL) else { return true }
         // Reload only when the tab holds no unsaved edits to lose.
@@ -619,10 +628,12 @@ struct RootView_iOS: View {
         if fileExistsScoped(resolvedURL) {
             if !model.reloadFromDisk(id: id) {
                 model.close(id: id, force: true)
+                forgetIndexedBuffer(resolvedURL)
                 PlatformFeedback.warning()
             }
         } else {
             model.close(id: id, force: true)
+            forgetIndexedBuffer(resolvedURL)
         }
         return true
     }
@@ -789,13 +800,19 @@ struct RootView_iOS: View {
             if let url = file.url, fileExistsScoped(url) {
                 if !model.reloadFromDisk(id: id) {
                     model.close(id: id, force: true)
+                    forgetIndexedBuffer(fileURL)
                     didPreserve = true
                 }
             } else {
                 model.close(id: id, force: true)
+                forgetIndexedBuffer(fileURL)
             }
         }
         if didPreserve { PlatformFeedback.warning() }
+        // The checkout rewrote the working tree in this process: files with no tab
+        // hold another branch's declarations, and files this branch does not have
+        // are gone. See `notifyIndexOfProjectFileChanges`.
+        notifyIndexOfProjectFileChanges()
     }
 
     /// Refresh Local Changes and Log after a branch change (same folder), each pinned
@@ -868,6 +885,25 @@ struct RootView_iOS: View {
     private func forgetIndexedBuffer(_ url: URL?) {
         guard let url, model.fileID(forURL: url) == nil else { return }
         symbolIndexController.noteBufferClosed(url: url)
+    }
+
+    /// Tell the symbol index that the project's files changed on disk — the iOS
+    /// peer of `PisakaApp.notifyIndexOfProjectFileChanges`.
+    ///
+    /// iOS has no file-system watcher, so *nothing* here is covered by one: the
+    /// index would otherwise move forward only on folder open, tab open and buffer
+    /// edits, and every git operation the app performs (revert, merge apply,
+    /// checkout) rewrites the working tree in-process with `projectRoot`
+    /// unchanged. Left unsaid, a branch switch would leave Go to Definition and
+    /// completion answering out of the *previous* branch for the rest of the
+    /// session, with no user-reachable way to correct it short of closing and
+    /// reopening the folder. These are the moments the app itself knows about,
+    /// which is precisely why they can stand in for the watcher it lacks — the
+    /// out-of-band edit (Files.app, another app's share extension) remains
+    /// uncovered, and stays a stated Phase 1 limit.
+    private func notifyIndexOfProjectFileChanges() {
+        guard let root = model.projectRoot else { return }
+        symbolIndexController.noteProjectFilesChanged(root: root)
     }
 
     private var closeConfirmationBinding: Binding<Bool> {

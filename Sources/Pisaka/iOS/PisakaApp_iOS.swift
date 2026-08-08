@@ -40,9 +40,11 @@ struct PisakaApp_iOS: App {
     /// and subscribing this scene's `body` to that would rebuild the whole root view
     /// dozens of times while a project is indexed, for a value no view reads.
     ///
-    /// iOS has **no file-system watcher**, so nothing here refreshes on an external
-    /// change: the index moves forward on folder open, tab open and buffer edits
-    /// alone. Stated rather than worked around.
+    /// iOS has **no file-system watcher**, so nothing here refreshes on a genuinely
+    /// *external* change (Files.app, another app's share extension) — stated rather
+    /// than worked around. The index moves forward on folder open, tab open, buffer
+    /// edits, and the working-tree rewrites the app performs itself, which it knows
+    /// about and reports through `RootView_iOS.notifyIndexOfProjectFileChanges`.
     private let symbolIndex: SymbolIndexModel
     private let symbolIndexController: SymbolIndexController
 

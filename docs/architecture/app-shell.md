@@ -396,7 +396,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     extracted from a half-rewritten file, which the next refresh corrects, while
     taking the writer gate would serialize the editor behind a background walk. The
     root is *captured* rather than read from the model, so the refresh always names
-    the folder this subscription was started for.
+    the folder this subscription was started for. **The index needs its own
+    counterpart to the explicit tree bumps below**, and gets it as
+    `notifyIndexOfProjectFileChanges()`: `IgnoreSelf` hides every write *this*
+    process performs, and the stamp-gated refresh is the only thing that re-extracts
+    a rewritten file and the only thing that removes a vanished one. Without the
+    call, a tree rename would leave the file answering Go to Definition under a path
+    that no longer exists, a delete would leave its declarations jumpable, and a
+    project-wide Replace All would keep serving the identifiers it just replaced —
+    until some unrelated *child* process happened to touch the tree. It is called
+    beside `bumpTreeRevision()` in `renameItem`, `deleteItem`, `saveAs(id:)`,
+    `revertChanges` and `replaceAllInProject`, and deliberately **not** in the
+    others: `newFile`/`newFolder` write an empty file (or none) and `newFile` opens
+    a tab for it, so the buffer re-index already covers it, while an ordinary save
+    and the autosave's recreating save rewrite a file a tab still owns — and a
+    buffer-sourced entry is precisely what a refresh declines to touch. The call is
+    cheap enough to leave ungated and unconditional: 500 ms debounce, a walk that
+    re-reads only what changed, and no writer gate.
     Because the watcher ignores self-generated events, `saveAs(id:)` bumps
     explicitly: after a successful `model.saveAs(url:for:)` it calls
     `model.bumpTreeRevision()` (next to `refreshLocalChanges()`) — Save As writes a

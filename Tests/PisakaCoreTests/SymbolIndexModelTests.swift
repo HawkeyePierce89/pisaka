@@ -389,20 +389,27 @@ final class SymbolIndexModelTests: XCTestCase {
         XCTAssertEqual(model.index.indexedFileCount, 1)
     }
 
-    func testRefreshForADifferentRootRebuilds() async {
+    func testARefreshForTheFolderTheUserJustLeftIsDiscarded() async {
         let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
         let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
         await model.rebuild(root: root)
 
+        // The folder switch, exactly as the app performs it: registered
+        // synchronously, then walked.
         stub.root = otherRoot
         stub.files = ["b.swift": "sym beta\n"]
-        // A refresh naming a folder this model was never indexing is a folder
-        // change wearing a refresh's clothes: no stamp from the old project may
-        // gate a file in the new one.
-        await model.refresh(root: otherRoot)
+        let request = model.prepareForFolderChange(root: otherRoot)
+        await model.rebuild(root: otherRoot, request: request)
+
+        // The watcher callback for the *previous* root, enqueued before the switch
+        // and delivered after it (`DispatchQueue.main.async`). Treating it as a
+        // folder change would clear the index the switch just filled and refill it
+        // from a folder that is no longer open.
+        await model.refresh(root: root)
 
         XCTAssertEqual(names(model, "beta"), ["beta"])
         XCTAssertTrue(names(model, "alpha").isEmpty)
+        XCTAssertEqual(model.index.indexedFileCount, 1)
     }
 
     // MARK: - Buffers

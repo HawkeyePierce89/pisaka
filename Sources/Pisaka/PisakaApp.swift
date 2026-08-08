@@ -1175,6 +1175,9 @@ struct PisakaApp: App {
         guard summary.filesChanged > 0 else { return summary }
         refreshLocalChanges()
         model.bumpTreeRevision()
+        // The batch rewrote files the user mostly has no tab for, so their symbols
+        // are stale until a stamp-gated refresh re-extracts them.
+        notifyIndexOfProjectFileChanges()
         return summary
     }
 
@@ -1241,6 +1244,9 @@ struct PisakaApp: App {
             // not change, so gating on containment would add a path check for no
             // benefit.
             model.bumpTreeRevision()
+            // The buffer was untitled until now, so nothing has ever indexed it
+            // under this path; the refresh picks the written file up from disk.
+            notifyIndexOfProjectFileChanges()
             refreshLocalChanges()
             return true
         } catch {
@@ -1340,6 +1346,12 @@ struct PisakaApp: App {
             // redundant bump for the subprocess cases costs nothing.
             if !reverted.isEmpty {
                 model.bumpTreeRevision()
+                // Same asymmetry as the bump above: the untracked-file branch is an
+                // in-process `unlinkat` the watcher never reports, so without this
+                // the deleted file's symbols would outlive it. Redundant for the
+                // subprocess branches, which the watcher does cover, and harmless
+                // there — the refresh re-reads only what changed.
+                notifyIndexOfProjectFileChanges()
             }
             for url in reverted {
                 guard let id = model.fileID(forURL: url) else { continue }
@@ -1917,6 +1929,9 @@ struct PisakaApp: App {
             // no longer exists, beside a second entry under the new one.
             forgetIndexedBuffer(url)
             model.bumpTreeRevision()
+            // The index still holds the entry filed under the old path; only the
+            // refresh's removal pass drops it, and only this call reaches it.
+            notifyIndexOfProjectFileChanges()
         } catch {
             reportFileOperationFailure(error)
         }
@@ -1947,6 +1962,9 @@ struct PisakaApp: App {
             // file's symbols would stay jumpable for the rest of the session.
             affectedURLs.forEach(forgetIndexedBuffer)
             model.bumpTreeRevision()
+            // Handing the entries back to disk is only half of it: what actually
+            // drops the deleted files' symbols is the refresh's removal pass.
+            notifyIndexOfProjectFileChanges()
         } catch {
             reportFileOperationFailure(error)
         }
@@ -2076,6 +2094,36 @@ struct PisakaApp: App {
     private func forgetIndexedBuffer(_ url: URL?) {
         guard let url, model.fileID(forURL: url) == nil else { return }
         symbolIndexController.noteBufferClosed(url: url)
+    }
+
+    /// Tell the symbol index that the project's files changed on disk — the
+    /// index's counterpart to `model.bumpTreeRevision()`, and called beside it.
+    ///
+    /// The watcher covers everything a *child* process writes (every
+    /// `GitCLIService` run, the embedded terminal), but
+    /// `kFSEventStreamCreateFlagIgnoreSelf` drops the app's own writes, so the
+    /// mutations this process performs itself have to say so — for the index for
+    /// exactly the reason `ProjectWatcher` already spells out for the tree. Without
+    /// it the stamp-gated refresh, which is the only thing that re-extracts a
+    /// rewritten file and the only thing that *removes* a vanished one, would never
+    /// run for a rename, a delete or a Replace All: a renamed file would go on
+    /// answering Go to Definition under a path that no longer exists, and a
+    /// project-wide replace would keep serving the identifiers it just replaced,
+    /// until some unrelated child process happened to touch the tree.
+    ///
+    /// Cheap enough to call unconditionally: it is debounced 500 ms, the walk that
+    /// follows re-reads only files whose stamp changed, and it takes no writer gate
+    /// (the index is a reader — see `SymbolIndexModel`).
+    ///
+    /// Not every `bumpTreeRevision()` needs one, which is why this is a separate
+    /// call rather than folded into that one: `newFile`/`newFolder` write an empty
+    /// file (or none at all) and `newFile` opens a tab for it, so the buffer
+    /// re-index already covers everything there is to index; an ordinary save and
+    /// the autosave's recreating save rewrite a file a tab still owns, and a
+    /// buffer-sourced entry is exactly what a refresh declines to touch.
+    private func notifyIndexOfProjectFileChanges() {
+        guard let root = model.projectRoot else { return }
+        symbolIndexController.noteProjectFilesChanged(root: root)
     }
 }
 
