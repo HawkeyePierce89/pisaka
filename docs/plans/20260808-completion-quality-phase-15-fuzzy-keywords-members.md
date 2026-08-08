@@ -438,19 +438,36 @@ dot is least likely to be a member access.
 
 ### Task 10: Verify acceptance criteria
 
-- [ ] `swift test` — full suite green.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
-      'platform=macOS' build` succeeds.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
-      'generic/platform=iOS' build` succeeds.
-- [ ] Re-read the ticket's acceptance list and confirm each named Core test
-      exists: `aBu` → `ArrayBuffer`; boundary beats scattered; exact prefix
-      beats everything; keywords below symbols and above words; keyword/word
-      dedup; `Worker.` members first; a dot after whitespace or `(` is not a
-      member position; deleting the dot restores ordinary completion;
-      definitions never contain keywords.
-- [ ] Confirm no dependency, pin, `project.yml`, `Package.resolved` or
-      `symbols.scm` file was touched.
+- [x] `swift test` — full suite green: 1782 tests, 0 failures.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+      'platform=macOS' build` succeeds — `** BUILD SUCCEEDED **`.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+      'generic/platform=iOS' build` succeeds — `** BUILD SUCCEEDED **`.
+- [x] Re-read the ticket's acceptance list and confirm each named Core test
+      exists: `aBu` → `ArrayBuffer`
+      (`SymbolIntelligenceProviderTests.testACamelCaseQueryReachesAHumpedName`,
+      which also pins the off-boundary `rray` miss, plus
+      `SymbolIndexTests` at the index layer); boundary beats scattered
+      (`testBoundaryHittingFuzzyMatchesOutrankScatteredOnes`, and
+      `FuzzyMatchTests.testBoundaryHittingMatchesBeatScatteredOnes` under it);
+      exact prefix beats everything
+      (`testAnExactCasePrefixOutranksAShorterFuzzyMatch`); keywords below
+      symbols and above words (`testKeywordsRankBelowSymbolsAndAboveBareBufferWords`,
+      with `testAKeywordOutranksASymbolDeclaredInAnotherFile` pinning the
+      documented current-file-wins conflict); keyword/word dedup
+      (`testAKeywordAlsoPresentInTheBufferAppearsOnce`); `Worker.` members first
+      (`testTheReceiversOwnContainerRanksFirst` +
+      `testAnIdenticallyNamedMemberResolvesToTheReceiversOwn`); a dot after
+      whitespace or `(` is not a member position
+      (`IdentifierScannerTests.testMemberContextIsNilWhereTheDotIsNotAMemberAccess`);
+      deleting the dot restores ordinary completion
+      (`testMemberContextIsNilOnceTheDotIsDeleted`); definitions never contain
+      keywords (`testDefinitionsNeverContainKeywords`).
+- [x] Confirm no dependency, pin, `project.yml`, `Package.resolved` or
+      `symbols.scm` file was touched — `git diff --name-only master...HEAD`
+      filtered for `project.yml`/`Package.resolved`/`Package.swift`/`Vendor/`/
+      `symbols.scm`/`licenses.json` returns nothing; the branch touches only
+      `Sources/`, `Tests/`, `docs/` and `README.md`/`CLAUDE.md`.
 
 ## Post-Completion (manual, on a developer machine)
 
