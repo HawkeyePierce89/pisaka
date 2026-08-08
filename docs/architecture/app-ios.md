@@ -324,7 +324,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     word anywhere there is no word at all, so the zero-length case additionally
     requires that this request *was* a member request and that the live caret is
     still after a dot hanging off the **same receiver** — otherwise a caret move
-    to any other dot in the buffer would inherit the previous one's list. `showCompletions` calls
+    to any other dot in the buffer would inherit the previous one's list. `showCompletions(_:answering:in:)` records that
+    member position as `answeredMember` so the *insertion* guard can make the same
+    comparison; it calls
     `reloadInputViews()` only when the strip's **presence** changes, not per
     candidate list, because it visibly re-lays the keyboard and per keystroke would
     read as a flicker; an empty list removes the bar rather than showing an empty
@@ -343,11 +345,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `ArrayBuffer` just ranked below `arrayCount`, and `arrBuf` offers it too), so
     any narrower guard — the `hasPrefix` test this replaced — would let the user
     tap a perfectly valid row and have nothing at all happen, with no feedback
-    explaining it. A **zero-length** range is accepted outright when the caret is
-    still in a member position: that is the bare typed `.`, where there is no typed
-    text to match against and the empty range at the caret is already the right
-    insertion point; everywhere else a zero-length range means the word the tap
-    answered has moved, and the tap is dropped. It
+    explaining it. A **zero-length** range is accepted when the caret is still in
+    the member position these rows answered: that is the bare typed `.`, where
+    there is no typed text to match against and the empty range at the caret is
+    already the right insertion point; everywhere else a zero-length range means
+    the word the tap answered has moved, and the tap is dropped. The position is
+    remembered as `answeredMember`, recorded by `showCompletions(_:answering:in:)`
+    alongside the rows it is showing (and cleared by an empty list and by
+    `tearDownCompletions(in:)`), so the test compares **receivers** the way the
+    strip's three other stale-state checks do rather than merely finding *a* dot —
+    every other dot in the buffer satisfies the weaker one. That matters here
+    because a caret move does not clear the strip synchronously:
+    `textViewDidChangeSelection` schedules the same 150 ms debounce a keystroke
+    does, so for that window the previous receiver's rows are still on screen, and
+    the weaker test would insert a member of `Worker` at the `other.` caret. It
     then clears the strip: `applyEdit` fires
     `textViewDidChange` synchronously, and offering longer names the instant a
     choice was made is how a completion strip turns into a treadmill.

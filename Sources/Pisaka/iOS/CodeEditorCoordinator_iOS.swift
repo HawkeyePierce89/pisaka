@@ -77,6 +77,21 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// that never triggers completion pays nothing for it.
     private var completionBar: CompletionBar_iOS?
 
+    /// The member position the strip's current items answer, or `nil` when they
+    /// answer an ordinary partial word.
+    ///
+    /// Carried — **receiver and all** — for exactly the reason the macOS
+    /// `CompletionController.Snapshot` carries it. `insertCompletion(_:)` accepts a
+    /// zero-length prefix range (the bare typed `.`) on the strength of the caret
+    /// still sitting in *a* member position, and every other dot in the buffer
+    /// satisfies that weaker test. A caret move does **not** clear the strip
+    /// synchronously — `textViewDidChangeSelection` schedules the same 150 ms
+    /// debounce a keystroke does — so for that window the previous receiver's rows
+    /// are still on screen, and without the receiver compare a tap landing in it
+    /// inserts a member of `Worker` at the `other.` caret. The strip's other three
+    /// stale-state checks all compare receivers; this is the fourth.
+    private var answeredMember: IdentifierScanner.MemberContext?
+
     /// The in-flight completion debounce/provider task; cancelled when a newer
     /// keystroke or caret move lands.
     private var completionTask: Task<Void, Never>?
@@ -366,7 +381,7 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
                     return
                 }
             }
-            self.showCompletions(items.map(\.text), in: textView)
+            self.showCompletions(items.map(\.text), answering: member, in: textView)
         }
     }
 
@@ -377,7 +392,17 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// visibly re-lays the keyboard, which per keystroke would read as a flicker.
     /// An empty list removes the bar rather than showing an empty one, so it never
     /// occupies space for nothing.
-    private func showCompletions(_ items: [String], in textView: UITextView) {
+    ///
+    /// `member` is the position these items answer, recorded alongside them so
+    /// `insertCompletion(_:)` can make the same still-in-*this*-member-position
+    /// test the post-await re-check above makes — see `answeredMember`. An empty
+    /// list clears it, so a dismissed strip can never leave a receiver behind.
+    private func showCompletions(
+        _ items: [String],
+        answering member: IdentifierScanner.MemberContext? = nil,
+        in textView: UITextView
+    ) {
+        answeredMember = items.isEmpty ? nil : member
         guard !items.isEmpty else {
             guard textView.inputAccessoryView != nil else { return }
             textView.inputAccessoryView = nil
@@ -416,11 +441,15 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// candidate and have nothing happen at all — a dead row on the strip, with
     /// no feedback explaining it.
     ///
-    /// A **zero-length** range is accepted outright when the caret is still in a
-    /// member position: that is the bare typed `.`, where there is no typed text
-    /// to match against and the empty range at the caret is already the correct
-    /// insertion point. Everywhere else a zero-length range means the word this
-    /// tap answered has moved, and the tap is dropped.
+    /// A **zero-length** range is accepted when the caret is still in the member
+    /// position these items answered: that is the bare typed `.`, where there is
+    /// no typed text to match against and the empty range at the caret is already
+    /// the correct insertion point. The comparison is against `answeredMember`'s
+    /// *receiver*, not merely "some dot is here" — every other dot in the buffer
+    /// satisfies the weaker test, so it would let a tap landing after the caret
+    /// moved to `other.` insert a member of `Worker`. Everywhere else a
+    /// zero-length range means the word this tap answered has moved, and the tap
+    /// is dropped.
     private func insertCompletion(_ item: String) {
         guard let textView,
               textView.markedTextRange == nil,
@@ -430,7 +459,10 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         let offset = textView.offset(from: textView.beginningOfDocument, to: caret.start)
         let range = IdentifierScanner.completionPrefixRange(in: nsText, at: offset)
         if range.length == 0 {
-            guard IdentifierScanner.memberContext(in: nsText, at: offset) != nil else { return }
+            guard let answered = answeredMember,
+                  let live = IdentifierScanner.memberContext(in: nsText, at: offset),
+                  live.receiver == answered.receiver
+            else { return }
         } else {
             guard FuzzyMatch.matches(item, query: nsText.substring(with: range)) else { return }
         }
@@ -473,6 +505,10 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         completionTask?.cancel()
         completionTask = nil
         completionGeneration += 1
+        // This path does not go through `showCompletions`, so the receiver the
+        // strip last answered has to be dropped here too; leaving it set would
+        // outlive the bar it belongs to.
+        answeredMember = nil
         if textView.inputAccessoryView === completionBar {
             textView.inputAccessoryView = nil
             // Paired with the detach exactly as in `showCompletions`: the accessory

@@ -820,7 +820,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     tick for as long as the caret sits after the dot — carries a query and is
     answered from the initial bucket instead of by a walk, which is what keeps the
     per-keystroke cost of member mode comparable to ordinary completion rather
-    than proportional to the size of the project. **The buffer-word fallback requires a non-empty member
+    than proportional to the size of the project. The one exception is the
+    promoted-container rescue: `SymbolIndex.members(inContainer:)` *is* a project
+    walk, because a container name is not a bucket key and the answer has to be
+    complete rather than capped. It fires only when the receiver spells a declared
+    type (`Worker.n`, not `worker.n`) and does no matching — a kind test and a
+    string compare per symbol — so it is left as a walk; a container bucket filed
+    in `replace` and swept in `purge` is what would remove it if it ever measured. **The buffer-word fallback requires a non-empty member
     prefix**: words are offered only when the user has typed at least one character
     after the dot *and* no member matched it — the case where the project simply
     has not indexed the receiver's type and a word is better than an empty popup.

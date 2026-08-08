@@ -36,10 +36,12 @@ import PisakaCore
 /// sitting after `receiver.`, per `IdentifierScanner.memberContext(in:at:)` —
 /// which opens the list on the typed `.` itself, with a prefix that is legally
 /// empty. A snapshot's `prefix` may therefore be `""`, and the checks that guard
-/// a stale snapshot are written to survive that: an empty prefix is accepted only
-/// while the caret is still after a dot hanging off the *same receiver*, so
-/// neither a caret that has since moved to open space (where the partial word is
-/// also empty) nor one moved to a different `other.` inherits the member list.
+/// a stale snapshot are written to survive that: matching the partial word is
+/// never enough on its own, so both guards additionally require the caret to be
+/// in the *same member state* the items were computed for — the same receiver, or
+/// no member position on either side. Neither a caret moved to open space (where
+/// the partial word is also empty) nor one moved to a different `other.` can
+/// inherit a member list, and an ordinary list cannot be served after a dot.
 @MainActor
 final class CompletionController {
 
@@ -124,21 +126,25 @@ final class CompletionController {
         guard nsText.substring(with: charRange) == snapshot.prefix else {
             return []
         }
-        // An empty partial word matches an empty (member) prefix *everywhere*, so
-        // the member list is served only while the caret is still after **the
-        // same receiver's** dot — the same extra condition
-        // `apply(prefix:member:items:)` opens under. This path is the one that
-        // needs it most: AppKit's stock ⌥⎋/F5 reaches the delegate directly,
-        // without going through `update(…)`, and a caret move does not refresh
-        // the snapshot — so without the receiver compare, ⌥⎋ after `other.` would
-        // be served the members of the `Worker.` typed before it, and ⌥⎋ in open
-        // space the last dot's list.
-        if charRange.length == 0 {
-            guard let member = snapshot.member,
-                  let live = IdentifierScanner.memberContext(in: nsText, at: charRange.location),
-                  live.receiver == member.receiver
-            else { return [] }
-        }
+        // The partial word matching is not enough on its own: a member list and an
+        // ordinary list answer the same typed characters with different candidate
+        // *sets* (a member list carries no keywords and no non-member symbols), so
+        // the caret must still be in the same member state the items were computed
+        // for — receiver and all — at **every** prefix length, not only the empty
+        // one. This path is the one that needs it most: AppKit's stock ⌥⎋/F5
+        // reaches the delegate directly, without going through `update(…)`, and a
+        // caret move does not refresh the snapshot. So without this, ⌥⎋ after
+        // `other.` would be served the members of the `Worker.` typed before it,
+        // ⌥⎋ in open space the last dot's list, and ⌥⎋ over an unrelated `na`
+        // the member-only list computed for `worker.na`.
+        //
+        // `map(\.receiver)` rather than `?.receiver`: the receiver is itself
+        // optional (a bracketed one — `f().` — names no type), and optional
+        // chaining would flatten "not a member position" into "a member position
+        // with an unnamed receiver" and let the two serve each other's lists.
+        guard IdentifierScanner.memberContext(in: nsText, at: charRange.location).map(\.receiver)
+                == snapshot.member.map(\.receiver)
+        else { return [] }
         return snapshot.items
     }
 
@@ -243,14 +249,16 @@ final class CompletionController {
     /// An empty result clears the snapshot and opens nothing — an empty popup is
     /// strictly worse than no popup.
     ///
-    /// `member` is what makes an *empty* prefix safe to re-check. The ordinary
-    /// re-check is "the partial word under the caret is still the one these items
-    /// answer", which an empty prefix satisfies everywhere there is no partial
-    /// word at all — in open space, after a `(`, at the start of a line. So the
-    /// empty case additionally demands that the caret still sits after a dot
-    /// hanging off **the same receiver**, the only position the empty prefix was
-    /// legitimate in to begin with: a bare "after some dot" test is satisfied by
-    /// every other dot in the buffer too.
+    /// `member` is the second half of the re-check, and it is demanded at every
+    /// prefix length rather than only at zero. The ordinary re-check is "the
+    /// partial word under the caret is still the one these items answer", and it
+    /// is not sufficient on its own: a member list and an ordinary list answer the
+    /// same characters with different candidate *sets*, so the caret must also
+    /// still be in the same member state — **receiver and all** — the items were
+    /// computed for. An *empty* prefix makes that most obvious (it satisfies the
+    /// word test everywhere there is no partial word at all: in open space, after
+    /// a `(`, at the start of a line, and after every other dot in the buffer),
+    /// but `worker.na`'s member-only list is just as wrong over an unrelated `na`.
     private func apply(prefix: String, member: IdentifierScanner.MemberContext?, items: [CompletionItem]) {
         let texts = items.map(\.text)
         guard !texts.isEmpty else {
@@ -271,12 +279,9 @@ final class CompletionController {
         guard caret.length == 0 else { return }
         let range = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
         guard nsText.substring(with: range) == prefix else { return }
-        if range.length == 0 {
-            guard let member,
-                  let live = IdentifierScanner.memberContext(in: nsText, at: caret.location),
-                  live.receiver == member.receiver
-            else { return }
-        }
+        guard IdentifierScanner.memberContext(in: nsText, at: caret.location).map(\.receiver)
+                == member.map(\.receiver)
+        else { return }
         textView.complete(nil)
     }
 

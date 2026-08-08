@@ -417,17 +417,25 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     word at a caret sitting in open space, after a `(`, or at the start of a line,
     so the ordinary "is this still the word these items answer" test passes
     everywhere and a member list would survive exactly the caret move it exists to
-    catch. The zero-length case therefore additionally demands that the caret still
-    sits after a dot hanging off the **same receiver** — and the same condition is
-    applied on the *serving* side (`completions(forPartialWordRange:in:)`, with the
-    whole `MemberContext` carried on `Snapshot` and its `receiver` compared; the
-    `prefixRange` is position-dependent, so only the receiver can be), so a stock
-    ⌥⎋ in open space gets nothing rather than the previous dot's members. Comparing
-    the receiver rather than merely finding *a* dot is what closes the serving
-    side specifically: ⌥⎋/F5 reaches the delegate **without** going through
-    `update(…)`, and a caret move alone never refreshes the snapshot, so the
-    weaker test would hand `Worker.`'s member list to a caret since moved after
-    `other.`. `rangeForUserCompletion`, `insertCompletion` and the
+    catch. Both re-checks therefore additionally demand that the caret still be in
+    the **same member state** the items were computed for — the same receiver, or
+    no member position on either side — and they demand it at **every** prefix
+    length rather than only at zero. The empty prefix is only the loudest case: a
+    member list and an ordinary list answer the same characters with different
+    candidate *sets* (no keywords, no non-member symbols after a dot), so
+    `worker.na`'s member-only list is just as wrong served over an unrelated `na`
+    as the bare dot's list is served in open space. The comparison is
+    `memberContext(…).map(\.receiver)` on both sides rather than `?.receiver`: the
+    receiver is itself optional — a bracketed one (`f().`) names no type — and
+    optional chaining would flatten "not a member position" into "a member position
+    with an unnamed receiver" and let the two serve each other's lists. Only the
+    receiver is compared, not the whole `MemberContext` carried on `Snapshot`; its
+    `prefixRange` is position-dependent by construction. The *serving* side
+    (`completions(forPartialWordRange:in:)`) is where this matters most: ⌥⎋/F5
+    reaches the delegate **without** going through `update(…)`, and a caret move
+    alone never refreshes the snapshot, so the weaker test would hand `Worker.`'s
+    member list to a caret since moved after `other.`, and a stock ⌥⎋ in open space
+    the previous dot's members. `rangeForUserCompletion`, `insertCompletion` and the
     programmatic-edit bracket are untouched: an empty range at the caret is already
     the correct insertion range for a member completion. Thin glue otherwise:
     `IdentifierScanner` says what is being typed and `SymbolIntelligenceProvider`

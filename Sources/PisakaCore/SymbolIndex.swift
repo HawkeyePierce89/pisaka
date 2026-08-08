@@ -280,6 +280,17 @@ public struct SymbolIndex: Equatable, Sendable {
     /// `symbols(named:)` is case-sensitive. Uncapped because one type's member
     /// list is small by construction, and truncating it is what would make the
     /// receiver's own members — the ones ranked first — go missing.
+    ///
+    /// **This one is a project walk**, and knowingly so: a container name is not
+    /// a bucket key (the buckets are keyed by name and by word-boundary initial,
+    /// neither of which answers "whose members are these"), and the answer must
+    /// be complete rather than capped, so there is nothing to stop the pass
+    /// early. It is reached only when the receiver *spells a type the project
+    /// declares* — `Worker.n`, not `worker.n` — so it is the one member-mode
+    /// lookup whose per-keystroke cost is proportional to the size of the
+    /// project. The pass does no matching, only a kind test and a string compare
+    /// per symbol; a container bucket filed in `replace` and swept in `purge` is
+    /// what would remove even that, should it ever measure.
     public func members(inContainer name: String) -> [Symbol] {
         guard !name.isEmpty else { return [] }
 
