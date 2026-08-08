@@ -690,16 +690,26 @@ struct CodeEditorView: NSViewRepresentable {
         /// editor, and offering dictionary words beside project symbols would bury
         /// the latter.
         ///
-        /// `indexOfSelectedItem` is left exactly as AppKit passed it in, so the
-        /// popup's initial selection stays the platform's stock behavior — the
-        /// same reason Decision 2 chose this machinery over a custom panel.
+        /// `indexOfSelectedItem` is forced to `-1` (nothing preselected), which is
+        /// **mandatory, not cosmetic**. AppKit's stock value is `0`, and a selected
+        /// row is not merely highlighted: `complete(_:)` immediately calls
+        /// `insertCompletion(…, isFinal: false)` for it, so opening the popup
+        /// *writes that candidate into the buffer* before the user has chosen
+        /// anything. With the as-you-type trigger that means every 150 ms pause
+        /// inside a ≥2-character identifier rewrites the word being typed —
+        /// `textDidChange` pushes it into `WorkspaceModel` (marking the tab dirty
+        /// and making it eligible for an idle autosave to write to the file) and
+        /// each preview registers its own undo step. `-1` opens the same popup with
+        /// no row selected and no insertion; arrow keys or the mouse pick a row,
+        /// Return inserts it, exactly as the feature is documented.
         func textView(
             _ textView: NSTextView,
             completions words: [String],
             forPartialWordRange charRange: NSRange,
             indexOfSelectedItem index: UnsafeMutablePointer<Int>?
         ) -> [String] {
-            completion.completions(forPartialWordRange: charRange, in: textView)
+            index?.pointee = -1
+            return completion.completions(forPartialWordRange: charRange, in: textView)
         }
 
         /// Raise/lower `isApplyingProgrammaticEdit` around AppKit's completion

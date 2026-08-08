@@ -1769,6 +1769,14 @@ struct PisakaApp: App {
         let applied = await mergeModel.apply()
         guard applied else { return false }
         refreshLocalChanges()
+        // `MergeModel.apply()` writes the resolved file through `fileService` — an
+        // in-process write `kFSEventStreamCreateFlagIgnoreSelf` drops — and the
+        // `git add` beside it touches only `.git`, which `TreeRefreshFilter` drops
+        // too. So no watcher callback follows, and the merge editor is normally
+        // opened from Local Changes on a file with no tab: without this the
+        // pre-merge symbols would answer lookups for the rest of the session. The
+        // iOS peer in `RootView_iOS` makes the same call for the same reason.
+        notifyIndexOfProjectFileChanges()
         guard let id = model.fileID(forURL: resolvedURL) else { return true }
         // Reload the tab to match the applied resolution only when its buffer holds
         // no unsaved edits to lose: it was clean at the snapshot *and* is provably
@@ -1919,15 +1927,23 @@ struct PisakaApp: App {
         // renames the target away that symlink dangles and would no longer match.
         // Apply the plan only after the move succeeds.
         let plan = model.planRename(from: url, to: destination)
+        // The paths the index still has those tabs' buffers filed under, captured
+        // alongside the plan and before the move for the same reason: once
+        // `applyRenamePlan` retargets a tab, its old url is no longer reachable from
+        // the model. A *folder* rename retargets every tab beneath it, so this is a
+        // list rather than just `url` — which alone would strand each of those files.
+        let retargetedURLs = plan.compactMap { retarget in
+            model.openFiles.first { $0.id == retarget.id }?.url
+        }
         do {
             try fileService.move(from: url, to: destination)
             model.applyRenamePlan(plan)
-            // The tabs now name the destination, so nothing holds a buffer for the
-            // old path any more. Without this its entry stays marked buffer-sourced
+            // The tabs now name their destinations, so nothing holds a buffer for the
+            // old paths any more. Without this each entry stays marked buffer-sourced
             // — which exempts it from both the refresh's re-extraction and its
             // removal — and the file would keep answering lookups under a name that
             // no longer exists, beside a second entry under the new one.
-            forgetIndexedBuffer(url)
+            retargetedURLs.forEach(forgetIndexedBuffer)
             model.bumpTreeRevision()
             // The index still holds the entry filed under the old path; only the
             // refresh's removal pass drops it, and only this call reaches it.

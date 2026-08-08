@@ -299,8 +299,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (`textView(_:completions:forPartialWordRange:indexOfSelectedItem:)`) serves the
     controller's snapshot, **ignoring AppKit's `words`** (the spell checker's
     guesses: this is a code editor, and dictionary words beside project symbols
-    would bury the latter) and leaving `indexOfSelectedItem` exactly as passed, so
-    the popup's initial selection stays stock behavior. `noteCompletionInsertion`
+    would bury the latter) and forcing `indexOfSelectedItem` to `-1`. That last one
+    is **mandatory, not cosmetic**: AppKit's stock `0` does not merely highlight a
+    row, it makes `complete(_:)` call `insertCompletion(…, isFinal: false)` for it,
+    so the popup *writes its top candidate into the buffer* before the user chooses
+    anything — once per 150 ms typing pause, each time pushed into `WorkspaceModel`
+    by `textDidChange` (dirtying the tab, so an idle autosave can write it to the
+    file) and each time registering its own undo step. `-1` opens the same popup
+    with nothing selected and nothing inserted; arrow keys or the mouse choose and
+    Return inserts, which is the contract README states. `noteCompletionInsertion`
     raising `isApplyingProgrammaticEdit` around AppKit's insertion is **mandatory,
     not defensive**: the insertion goes through the same edit path typing does, so a
     completion ending in `(` would otherwise be auto-closed by `AutoPairEngine` and

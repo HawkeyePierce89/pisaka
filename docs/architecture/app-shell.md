@@ -127,7 +127,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     never handed back pins a file into the index for the rest of the session.
     Those paths are `renameItem` (the tabs are retargeted to the destination, so the
     old path would otherwise answer lookups under a name that no longer exists,
-    beside a second entry under the new one), `deleteItem` (whose affected URLs are
+    beside a second entry under the new one — and because a *folder* rename retargets
+    every tab beneath it, the old URLs are collected from the whole `planRename`
+    plan, before the move and for the same dangling-symlink reason the plan is;
+    forgetting only the renamed item's own URL would strand every file inside it),
+    `deleteItem` (whose affected URLs are
     captured alongside the tab ids, before the removal, for the same
     dangling-symlink reason the ids are) and the three post-git resyncs — the revert
     loop, `resyncOpenTabs` and the merge-apply reload — wherever they force-close a
@@ -187,7 +191,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     over the resolution. It snapshots the open tab's buffer (`model.fileID(forURL:
     root/file.path)`, canonical match, so a tab opened via `projectRoot` resolves)
     *together with its dirty state* (`model.isDirty(for:)`)
-    before the `await` and, on success, refreshes Local Changes and resyncs the tab —
+    before the `await` and, on success, refreshes Local Changes, calls
+    `notifyIndexOfProjectFileChanges()` (the resolved file is written *in process*, so
+    `IgnoreSelf` drops it and the `git add` beside it produces only `.git` paths
+    `TreeRefreshFilter` drops — nothing else would ever tell the index, and this
+    editor is normally opened from Local Changes on a file with no tab at all) and
+    resyncs the tab —
     `model.reloadFromDisk(id:)` only when the buffer held no unsaved edits to lose: it
     was *clean at the snapshot* **and** is provably unchanged since (else
     `model.reconcileSavedBaseline(id:)` + beep, preserving the edit — whether it
@@ -406,7 +415,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     project-wide Replace All would keep serving the identifiers it just replaced —
     until some unrelated *child* process happened to touch the tree. It is called
     beside `bumpTreeRevision()` in `renameItem`, `deleteItem`, `saveAs(id:)`,
-    `revertChanges` and `replaceAllInProject`, and deliberately **not** in the
+    `revertChanges` and `replaceAllInProject` — and in `applyMerge`, which has no
+    tree bump to sit beside (the merge rewrites a file's *contents*, not the tree's
+    membership) yet needs it for the same reason — and deliberately **not** in the
     others: `newFile`/`newFolder` write an empty file (or none) and `newFile` opens
     a tab for it, so the buffer re-index already covers it, while an ordinary save
     and the autosave's recreating save rewrite a file a tab still owns — and a
