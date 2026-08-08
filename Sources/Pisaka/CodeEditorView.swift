@@ -654,10 +654,15 @@ struct CodeEditorView: NSViewRepresentable {
         /// The provider is re-read from the index controller on every call rather
         /// than stored: the controller hands out the model's latest snapshot, so a
         /// held reference would answer from the state a folder was opened in.
+        ///
+        /// `language` is the one the highlighter is attached to (`updateHighlighter`
+        /// owns it), so the keywords offered are always the ones being highlighted;
+        /// a plain-text buffer passes `nil` and gets none.
         private func updateCompletions(explicit: Bool) {
             completion.update(
                 provider: symbolIndex?.provider,
                 fileURL: fileURL,
+                language: language,
                 explicit: explicit
             )
         }

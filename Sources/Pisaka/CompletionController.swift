@@ -30,6 +30,16 @@ import PisakaCore
 /// flight. 150 ms, matching the minimap's tokenizer rather than the index's
 /// 400 ms: this asks a question of a snapshot already in memory, so the cost is
 /// a prefix scan and a sort, not a re-parse.
+///
+/// **Two triggers, not one.** The ordinary trigger is a partial word of at least
+/// `minimumPrefixLength` characters. The second is a *member position* — a caret
+/// sitting after `receiver.`, per `IdentifierScanner.memberContext(in:at:)` —
+/// which opens the list on the typed `.` itself, with a prefix that is legally
+/// empty. A snapshot's `prefix` may therefore be `""`, and the checks that guard
+/// a stale snapshot are written to survive that: an empty prefix is accepted only
+/// while the caret is still in a member position, so a caret that has since moved
+/// to open space (where the partial word is also empty) does not inherit the
+/// member list.
 @MainActor
 final class CompletionController {
 
@@ -38,7 +48,9 @@ final class CompletionController {
     /// One character matches far too much to be a choice, and an unbidden popup
     /// after the first letter of every identifier is the single most-complained-of
     /// behavior of as-you-type completion. An *explicit* invocation (⌃Space, ⌥⎋)
-    /// bypasses this — the user asked.
+    /// bypasses this — the user asked. So does a member position: the `.` is
+    /// itself the request, and waiting for two more characters would defeat the
+    /// point of member completion.
     private static let minimumPrefixLength = 2
 
     /// The text view being completed in. Held weakly: the view hierarchy owns it,
@@ -50,9 +62,15 @@ final class CompletionController {
     /// The prefix is stored *with* them because it is the only thing that makes an
     /// asynchronously-computed list safe to hand to a synchronous delegate: by the
     /// time AppKit asks, the user may have typed another character, and offering
-    /// completions for the previous word is worse than offering none.
+    /// completions for the previous word is worse than offering none. Since
+    /// phase 1.5 that prefix may be the empty string — the member list a bare `.`
+    /// opens answers no typed characters at all.
     private struct Snapshot {
         let prefix: String
+        /// Whether these answer a member position, i.e. whether an empty `prefix`
+        /// is meaningful. Carried so the delegate can apply the same
+        /// still-in-a-member-position test `apply(prefix:isMember:items:)` does.
+        let isMember: Bool
         let items: [String]
     }
 
@@ -101,6 +119,16 @@ final class CompletionController {
         guard nsText.substring(with: charRange) == snapshot.prefix else {
             return []
         }
+        // An empty partial word matches an empty (member) prefix *everywhere*, so
+        // the member list is served only while the caret is still after a dot —
+        // the same extra condition `apply(prefix:isMember:items:)` opens under. A
+        // stock ⌥⎋ in open space therefore gets nothing rather than the last dot's
+        // members.
+        if charRange.length == 0 {
+            guard snapshot.isMember,
+                  IdentifierScanner.memberContext(in: nsText, at: charRange.location) != nil
+            else { return [] }
+        }
         return snapshot.items
     }
 
@@ -113,11 +141,25 @@ final class CompletionController {
     /// two-character minimum, because the user asked for the list rather than
     /// having it offered. Everything else (a keystroke) is debounced and gated.
     ///
+    /// A **member position** skips the minimum too, explicit or not: the caret is
+    /// after `receiver.`, which is a request in itself, and the prefix it carries
+    /// is whatever has been typed since the dot — legitimately nothing. Explicit
+    /// invocation still works there; it only removes the debounce.
+    ///
+    /// `language` feeds the keyword source and nothing else; `nil` (an
+    /// unclassifiable buffer) means no keywords rather than some default
+    /// language's — see `CompletionRequest.language`.
+    ///
     /// The request is built here, on the main actor, from the live buffer — the
     /// text goes *into* the request rather than being read later, so the words the
     /// provider harvests are the ones on screen when the user paused, not the ones
     /// present when the task happened to resume.
-    func update(provider: CodeIntelligenceProviding?, fileURL: URL?, explicit: Bool) {
+    func update(
+        provider: CodeIntelligenceProviding?,
+        fileURL: URL?,
+        language: SyntaxLanguage?,
+        explicit: Bool
+    ) {
         pendingTask?.cancel()
         pendingTask = nil
         generation += 1
@@ -147,16 +189,27 @@ final class CompletionController {
         // and this runs on every keystroke that passes the gates above.
         let contents = textView.string
         let nsText = contents as NSString
-        let prefixRange = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
-        guard prefixRange.length >= (explicit ? 1 : Self.minimumPrefixLength) else {
-            snapshot = nil
-            return
+        // Ask about the member position *before* the length gate: it is the one
+        // state in which a zero- or one-character prefix is still worth a list,
+        // and `memberContext`'s own `prefixRange` is exactly what
+        // `completionPrefixRange` reports here, so the two agree by construction
+        // rather than by a second scan.
+        let member = IdentifierScanner.memberContext(in: nsText, at: caret.location)
+        let prefixRange = member?.prefixRange
+            ?? IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
+        if member == nil {
+            guard prefixRange.length >= (explicit ? 1 : Self.minimumPrefixLength) else {
+                snapshot = nil
+                return
+            }
         }
 
         let request = CompletionRequest(
             prefix: nsText.substring(with: prefixRange),
             fileURL: fileURL,
-            text: contents
+            text: contents,
+            language: language,
+            member: member
         )
         let interval = debounceInterval
         pendingTask = Task { [weak self] in
@@ -167,7 +220,7 @@ final class CompletionController {
             let items = await provider.completions(for: request)
             guard let self, !Task.isCancelled, token == self.generation else { return }
             self.pendingTask = nil
-            self.apply(prefix: request.prefix, items: items)
+            self.apply(prefix: request.prefix, isMember: member != nil, items: items)
         }
     }
 
@@ -179,13 +232,21 @@ final class CompletionController {
     /// the meantime moves the popup's anchor to a word these items do not answer.
     /// An empty result clears the snapshot and opens nothing — an empty popup is
     /// strictly worse than no popup.
-    private func apply(prefix: String, items: [CompletionItem]) {
+    ///
+    /// `isMember` is what makes an *empty* prefix safe to re-check. The ordinary
+    /// re-check is "the partial word under the caret is still the one these items
+    /// answer", which an empty prefix satisfies everywhere there is no partial
+    /// word at all — in open space, after a `(`, at the start of a line. So the
+    /// empty case additionally demands that the caret still sits in a member
+    /// position, which is the only place the empty prefix was legitimate to begin
+    /// with.
+    private func apply(prefix: String, isMember: Bool, items: [CompletionItem]) {
         let texts = items.map(\.text)
         guard !texts.isEmpty else {
             snapshot = nil
             return
         }
-        snapshot = Snapshot(prefix: prefix, items: texts)
+        snapshot = Snapshot(prefix: prefix, isMember: isMember, items: texts)
 
         guard let textView,
               !textView.hasMarkedText(),
@@ -198,7 +259,12 @@ final class CompletionController {
         let caret = textView.selectedRange()
         guard caret.length == 0 else { return }
         let range = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
-        guard range.length > 0, nsText.substring(with: range) == prefix else { return }
+        guard nsText.substring(with: range) == prefix else { return }
+        if range.length == 0 {
+            guard isMember,
+                  IdentifierScanner.memberContext(in: nsText, at: caret.location) != nil
+            else { return }
+        }
         textView.complete(nil)
     }
 

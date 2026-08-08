@@ -338,26 +338,35 @@ dot is least likely to be a member access.
 - Modify: `Sources/Pisaka/CompletionController.swift`
 - Modify: `Sources/Pisaka/CodeEditorView.swift`
 
-- [ ] Give `CompletionController.update(...)` a `language: SyntaxLanguage?`
+- [x] Give `CompletionController.update(...)` a `language: SyntaxLanguage?`
       parameter and pass the coordinator's `language` from
       `updateCompletions(explicit:)`.
-- [ ] Replace the length gate: compute
+- [x] Replace the length gate: compute
       `IdentifierScanner.memberContext(in:at:)` first; when it is non-nil, build
       the request with the member prefix (possibly empty) and the context, and
       skip the two-character minimum entirely. Otherwise keep today's gate
       exactly. Explicit invocation (⌃Space) keeps its one-character bypass and
       now also works in a member position.
-- [ ] Relax `apply(prefix:items:)`'s `range.length > 0` re-check so an empty
+- [x] Relax `apply(prefix:items:)`'s `range.length > 0` re-check so an empty
       member prefix still opens the popup, while a stale snapshot whose prefix
-      no longer matches the buffer is still discarded.
-- [ ] Leave `rangeForUserCompletion`, `insertCompletion` and the
+      no longer matches the buffer is still discarded. The relaxation needed one
+      guard the plan did not name, because dropping `range.length > 0` alone is
+      *too* permissive: an empty prefix compares equal to the (also empty)
+      partial word at a caret sitting in open space, after a `(`, or at the start
+      of a line, so a member list would survive a caret move that the ordinary
+      prefix comparison was supposed to catch. The zero-length case therefore
+      additionally requires `memberContext(in:at:)` to still be non-nil. The same
+      condition is applied on the *serving* side (`completions(forPartialWordRange:in:)`,
+      with the member-ness carried on `Snapshot`), so a stock ⌥⎋ in open space
+      gets nothing rather than the previous dot's members.
+- [x] Leave `rangeForUserCompletion`, `insertCompletion` and the
       programmatic-edit bracket untouched — an empty range at the caret is
       already the correct insertion range for a member completion.
-- [ ] Update the class doc comments to state the new trigger and that the
+- [x] Update the class doc comments to state the new trigger and that the
       snapshot's prefix may now be empty.
-- [ ] `swift test` must pass (Core is unaffected but the gate is), then build
+- [x] `swift test` must pass (Core is unaffected but the gate is), then build
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
-      'platform=macOS' build`.
+      'platform=macOS' build`. Both green: 1782 Core tests, `** BUILD SUCCEEDED **`.
 
 ### Task 8: iOS editor wiring
 
