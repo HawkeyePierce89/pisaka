@@ -484,12 +484,12 @@ any UI surface consumes it.
   the coordinator is weak, per the documented retain-cycle rule.
 - The iOS root does the same at its folder-open point and on tab open; it has no
   watcher, so refresh there comes only from buffer edits and saves.
-- [ ] own and construct the model on both platforms, passing the synchronous
+- [x] own and construct the model on both platforms, passing the synchronous
       `SymbolExtractor` function; wire folder open
-- [ ] wire the FSEvents refresh (macOS) and the buffer/tab-switch re-index
+- [x] wire the FSEvents refresh (macOS) and the buffer/tab-switch re-index
       (both)
-- [ ] verify with `xcodebuild` macOS + iOS that both destinations build
-- [ ] run `swift test` — must stay green
+- [x] verify with `xcodebuild` macOS + iOS that both destinations build
+- [x] run `swift test` — must stay green
 
 ### Task 7: Go to Definition on macOS
 

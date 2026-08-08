@@ -77,6 +77,14 @@ struct CodeEditorView: NSViewRepresentable {
     /// fresh state so a default-constructed view (previews/tests) still compiles.
     @ObservedObject var reveal: EditorRevealState = EditorRevealState()
 
+    /// Keeps the shown file's symbols current: an immediate re-index when the tab
+    /// is opened or switched to, a debounced one while typing. Owned by
+    /// `PisakaApp`; not observed here (it publishes nothing — see `ContentView`'s
+    /// note on why the index model must stay off this view's update path).
+    /// Defaults to a controller over a fresh, never-walked index so a
+    /// default-constructed view (previews/tests) still compiles.
+    var symbolIndex: SymbolIndexController = SymbolIndexController(model: SymbolIndexModel())
+
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text)
     }
@@ -252,6 +260,16 @@ struct CodeEditorView: NSViewRepresentable {
             diskRevision: diskRevision,
             contentReplaced: true
         )
+        // Index the file being shown from its *buffer* text, at once: the tab the
+        // user is looking at must have symbols before they finish reading it, and
+        // the disk walk may not have reached this file yet (or may be gone
+        // entirely, for a file outside the opened folder).
+        context.coordinator.symbolIndex = symbolIndex
+        context.coordinator.reindexSymbols(
+            text: text,
+            language: language,
+            immediate: true
+        )
         return container
     }
 
@@ -412,6 +430,19 @@ struct CodeEditorView: NSViewRepresentable {
             contentReplaced: contentReplaced
         )
 
+        // Re-index the shown file's symbols. Only on a tab switch or a wholesale
+        // buffer swap, and then immediately: ordinary keystrokes are covered by
+        // `textDidChange` (debounced), so scheduling here as well would re-parse
+        // the file twice per settled burst of typing.
+        context.coordinator.symbolIndex = symbolIndex
+        if switchedFile || contentReplaced {
+            context.coordinator.reindexSymbols(
+                text: textView.string,
+                language: language,
+                immediate: true
+            )
+        }
+
         // Consume a pending Find in Files activation. Deliberately *after* the
         // buffer swap above: when the activation opened the file, this very update
         // is the one that installs its contents, so selecting earlier would land
@@ -479,6 +510,12 @@ struct CodeEditorView: NSViewRepresentable {
         /// `git blame --porcelain` loads feeding `LineNumberRulerView`.
         private let blame = BlameController()
 
+        /// Schedules the symbol index's re-index of the shown file. Held *weakly*,
+        /// like `searchBarState`: the app owns it for its whole lifetime, and the
+        /// coordinator only asks it for work. A deallocated one simply means no
+        /// re-index, which is the same graceful nothing a preview gets.
+        weak var symbolIndex: SymbolIndexController?
+
         /// The displayed file's URL, as last seen by `syncBlame`. Kept so the
         /// gutter's context-menu action (which passes nothing) knows *what* to
         /// blame; `nil` for an untitled buffer.
@@ -532,6 +569,27 @@ struct CodeEditorView: NSViewRepresentable {
                     fileID: fileID,
                     immediate: false
                 )
+            }
+            // Keep this file's symbols in step with what is being typed, behind the
+            // controller's 400 ms debounce (a re-parse per keystroke would be felt).
+            reindexSymbols(text: textView.string, language: language, immediate: false)
+        }
+
+        // MARK: - Symbol index
+
+        /// Re-index the shown file from its live buffer text.
+        ///
+        /// `immediate` is the tab-switch / buffer-swap case; typing goes through the
+        /// debounce. An untitled buffer is skipped: the index is keyed by file URL,
+        /// so there is nothing to file it under. The language gate lives in the
+        /// controller, so a plain-text or unindexable file costs one call and no
+        /// task.
+        func reindexSymbols(text: String, language: SyntaxLanguage?, immediate: Bool) {
+            guard let symbolIndex, let fileURL else { return }
+            if immediate {
+                symbolIndex.noteBufferOpened(url: fileURL, text: text, language: language)
+            } else {
+                symbolIndex.noteBufferChanged(url: fileURL, text: text, language: language)
             }
         }
 

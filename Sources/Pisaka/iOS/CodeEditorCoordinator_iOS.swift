@@ -43,6 +43,15 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// steps on threshold crossings (see `handlePinch`).
     var pinchAccumulatedScale: CGFloat = 1
 
+    /// The shown file's on-disk location, or `nil` for an untitled buffer. Set by
+    /// the representable; read only by the symbol re-index, which keys files by URL.
+    var fileURL: URL?
+
+    /// Schedules the symbol index's re-index of the shown file. Held *weakly* —
+    /// the app owns it for its whole lifetime and this coordinator only asks it for
+    /// work; a deallocated one means no re-index, which is what a preview gets.
+    weak var symbolIndex: SymbolIndexController?
+
     /// The active Neon highlighter. It installs itself as the text storage's
     /// delegate; replacing it (or setting it to `nil`) detaches the old one.
     private var highlighter: TextViewHighlighter?
@@ -66,6 +75,25 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
 
     func textViewDidChange(_ textView: UITextView) {
         text.wrappedValue = textView.text
+        // Keep this file's symbols in step with what is being typed, behind the
+        // controller's 400 ms debounce (a re-parse per keystroke would be felt).
+        reindexSymbols(text: textView.text, language: language, immediate: false)
+    }
+
+    /// Re-index the shown file from its live buffer text — the peer of the macOS
+    /// coordinator's method, with the same two triggers.
+    ///
+    /// `immediate` is the tab-open / buffer-swap case; typing goes through the
+    /// debounce. An untitled buffer is skipped (the index is keyed by file URL), and
+    /// the language gate lives in the controller, so a plain-text or unindexable
+    /// file costs one call and no task.
+    func reindexSymbols(text: String, language: SyntaxLanguage?, immediate: Bool) {
+        guard let symbolIndex, let fileURL else { return }
+        if immediate {
+            symbolIndex.noteBufferOpened(url: fileURL, text: text, language: language)
+        } else {
+            symbolIndex.noteBufferChanged(url: fileURL, text: text, language: language)
+        }
     }
 
     /// Intercept single-character input, Return, and Backspace for auto-indent and

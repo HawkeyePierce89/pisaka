@@ -48,6 +48,14 @@ struct RootView_iOS: View {
     /// branch-switcher's fetch (a create-from-`origin/…` on a private HTTPS repo).
     let credentialStore: KeychainCredentialStore
 
+    /// The project-wide symbol index and the controller that schedules its
+    /// incremental work. Plain `let`s, never `@ObservedObject`: the model
+    /// republishes after every chunk of a walk and nothing in this view reads it —
+    /// observing it would rebuild the whole root on each chunk. The editor surfaces
+    /// ask their questions through `symbolIndex.provider`.
+    let symbolIndex: SymbolIndexModel
+    let symbolIndexController: SymbolIndexController
+
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     /// Which document picker (if any) is presented.
@@ -103,7 +111,18 @@ struct RootView_iOS: View {
             // their sheets' `.onAppear`; the branch widget is never dismissed, so it
             // needs this.)
             .onChange(of: model.projectRoot) { _, newRoot in
+                // The symbol index is registered here rather than in
+                // `synchronizeGitModels` precisely because *both* folder paths — a
+                // picker open and the launch-time bookmark restore — publish
+                // `projectRoot`, and an index that only existed after a manual pick
+                // would leave go-to-definition dead on every relaunch. Closing the
+                // folder (`nil`) still prepares, which clears the index: a symbol
+                // pointing into a folder the app can no longer read is worse than
+                // no symbol.
+                symbolIndexController.reset()
+                let symbolRequest = symbolIndex.prepareForFolderChange(root: newRoot)
                 guard let newRoot else { return }
+                Task { await symbolIndex.rebuild(root: newRoot, request: symbolRequest) }
                 let request = branchSwitcher.prepareForRefresh(root: newRoot)
                 Task { await branchSwitcher.refresh(root: newRoot, request: request) }
             }
@@ -284,9 +303,11 @@ struct RootView_iOS: View {
             CodeEditorView_iOS(
                 fileID: file.id,
                 fileName: file.displayName,
+                fileURL: file.url,
                 text: binding(for: file.id),
                 fontSize: settings.fontSize,
-                onStepFontSize: { settings.stepFontSize(by: $0) }
+                onStepFontSize: { settings.stepFontSize(by: $0) },
+                symbolIndex: symbolIndexController
             )
         } else {
             VStack(spacing: 8) {
@@ -764,12 +785,26 @@ struct RootView_iOS: View {
     /// Request to close a tab. A clean tab closes immediately; a dirty one defers
     /// to a confirmation dialog (Save / Discard / Cancel).
     private func requestClose(_ id: UUID) {
+        // Hand the tab's index entry back to disk once the close is settled;
+        // `forgetIndexedBuffer` no-ops while any tab still shows the file, so the
+        // deferred-confirmation branch leaves the buffer mark alone.
+        let closingURL = model.openFiles.first { $0.id == id }?.url
+        defer { forgetIndexedBuffer(closingURL) }
         if model.close(id: id) == .needsConfirmation {
             pendingCloseID = id
         } else if isCompact && model.openFiles.isEmpty {
             // Closing the last tab on the pushed editor screen returns to the tree.
             showingEditor = false
         }
+    }
+
+    /// Tell the symbol index that `url` no longer has an editor buffer behind it, so
+    /// the next walk re-extracts it from disk — the iOS peer of
+    /// `PisakaApp.forgetIndexedBuffer`, and a no-op while any tab still shows the
+    /// file (a cancelled close, or the same file reached through two tabs).
+    private func forgetIndexedBuffer(_ url: URL?) {
+        guard let url, model.fileID(forURL: url) == nil else { return }
+        symbolIndexController.noteBufferClosed(url: url)
     }
 
     private var closeConfirmationBinding: Binding<Bool> {
@@ -788,6 +823,7 @@ struct RootView_iOS: View {
                 do {
                     _ = try model.save(for: id)
                     model.close(id: id, force: true)
+                    forgetIndexedBuffer(file.url)
                 } catch {
                     PlatformFeedback.warning()
                 }
@@ -795,7 +831,9 @@ struct RootView_iOS: View {
             }
         }
         Button("Discard Changes", role: .destructive) {
+            let closingURL = model.openFiles.first { $0.id == id }?.url
             model.close(id: id, force: true)
+            forgetIndexedBuffer(closingURL)
             pendingCloseID = nil
             if isCompact && model.openFiles.isEmpty { showingEditor = false }
         }

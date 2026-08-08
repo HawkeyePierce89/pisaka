@@ -60,6 +60,15 @@ struct ContentView: View {
     /// exists — and threaded straight into `CodeEditorView`, which consumes it.
     /// Defaults to a fresh state so a default-constructed view compiles.
     @ObservedObject var reveal: EditorRevealState = EditorRevealState()
+    /// Schedules the symbol index's buffer re-index (debounced while typing,
+    /// immediate on a tab switch). Owned by `PisakaApp` and threaded straight into
+    /// `CodeEditorView`; deliberately **not** `@ObservedObject` — it publishes
+    /// nothing, and the index model behind it republishes after every chunk of a
+    /// walk, which is exactly the per-update cost `PathBarView.equatable()` and the
+    /// non-observed `commitDialog` exist to keep off this view. Defaults to a
+    /// controller over a fresh, never-walked index so a default-constructed view
+    /// (previews/tests) still compiles.
+    var symbolIndex: SymbolIndexController = SymbolIndexController(model: SymbolIndexModel())
     /// Which bottom dock panel is shown (`nil` = none), VS Code-style. Owned by
     /// `PisakaApp` and bound here; `.constant(nil)` keeps the default-constructed
     /// view (previews/tests) with no panel shown.
@@ -400,7 +409,8 @@ struct ContentView: View {
                     fontSize: settings.fontSize,
                     onStepFontSize: { settings.stepFontSize(by: $0) },
                     search: search,
-                    reveal: reveal
+                    reveal: reveal,
+                    symbolIndex: symbolIndex
                 )
             }
         } else {

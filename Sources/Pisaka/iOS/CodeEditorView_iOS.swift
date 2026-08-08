@@ -28,6 +28,12 @@ struct CodeEditorView_iOS: UIViewRepresentable {
     /// language; `"Untitled"` (and unknown extensions) resolve to plain text.
     let fileName: String
 
+    /// The selected file's on-disk location, or `nil` for an untitled buffer. Only
+    /// the symbol index reads it — it keys files by URL, so an untitled buffer has
+    /// nothing to be filed under and is skipped. Defaults to `nil` so a
+    /// default-constructed view compiles.
+    var fileURL: URL? = nil
+
     /// The editor contents. Edits are written back through this binding.
     @Binding var text: String
 
@@ -40,6 +46,12 @@ struct CodeEditorView_iOS: UIViewRepresentable {
     /// Cmd+scroll), plus the Preferences stepper. Called with `+1`/`-1`; the store
     /// clamps.
     let onStepFontSize: (Double) -> Void
+
+    /// Keeps the shown file's symbols current: an immediate re-index on tab open or
+    /// switch, a debounced one while typing — the same controller and the same two
+    /// triggers as macOS. Defaults to a controller over a fresh, never-walked index
+    /// so a default-constructed view (previews) still compiles.
+    var symbolIndex: SymbolIndexController = SymbolIndexController(model: SymbolIndexModel())
 
     func makeCoordinator() -> CodeEditorCoordinator_iOS {
         CodeEditorCoordinator_iOS(text: $text)
@@ -100,6 +112,13 @@ struct CodeEditorView_iOS: UIViewRepresentable {
             language: language,
             contentReplaced: false
         )
+        // Index the shown file from its *buffer* text at once: iOS has no watcher,
+        // so a tab open is one of the three moments the index moves forward at all,
+        // and the file may sit outside the walked folder (a standalone document
+        // pick) where nothing else would ever reach it.
+        context.coordinator.symbolIndex = symbolIndex
+        context.coordinator.fileURL = fileURL
+        context.coordinator.reindexSymbols(text: text, language: language, immediate: true)
         return textView
     }
 
@@ -145,6 +164,20 @@ struct CodeEditorView_iOS: UIViewRepresentable {
             language: language,
             contentReplaced: contentReplaced
         )
+
+        // Re-index the shown file's symbols, immediately, on a tab switch or a
+        // wholesale buffer swap only: ordinary keystrokes go through
+        // `textViewDidChange`'s debounced call, so doing it here too would re-parse
+        // the file twice per settled burst of typing.
+        context.coordinator.symbolIndex = symbolIndex
+        context.coordinator.fileURL = fileURL
+        if switchedFile || contentReplaced {
+            context.coordinator.reindexSymbols(
+                text: textView.text,
+                language: language,
+                immediate: true
+            )
+        }
     }
 
     /// Detach the highlighter when the view is torn down (e.g. a tab closed) so the
