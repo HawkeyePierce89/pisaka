@@ -615,12 +615,12 @@ every Core decision with macOS.
 
 ### Task 10: Verify acceptance criteria
 
-- [ ] run `swift test` — the full suite must pass
-- [ ] run `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj
+- [x] run `swift test` — the full suite must pass
+- [x] run `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj
       -scheme Pisaka -destination 'platform=macOS' build`
-- [ ] run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'platform=iOS Simulator,name=iPhone 17 Pro' build`
-- [ ] confirm every new Core type has a test file and that
+- [x] confirm every new Core type has a test file and that
       `CrossPlatformAuditTests` still passes (no forbidden imports leaked into
       Core)
 

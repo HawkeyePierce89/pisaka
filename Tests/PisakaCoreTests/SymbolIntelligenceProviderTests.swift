@@ -380,4 +380,25 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         let definitions = await provider.definitions(for: definitionRequest("run"))
         XCTAssertEqual(definitions.map(\.displayLabel), ["run — a.swift:3"])
     }
+
+    /// Both questions answered through the *existential*, which is how both
+    /// platform layers hold the provider. The point is substitutability rather
+    /// than the answers — phase 2 swaps an LSP-backed implementation in behind
+    /// this protocol, so a call that only ever type-checks against the concrete
+    /// type would not prove the seam carries the feature.
+    func testBothQuestionsAnswerThroughTheExistentialSeam() async {
+        let store = index(["a.swift": [symbol("Worker", kind: .type, in: "a.swift", line: 7)]])
+        let provider: any CodeIntelligenceProviding = SymbolIntelligenceProvider(
+            index: store,
+            projectRoot: root
+        )
+
+        let definitions = await provider.definitions(for: definitionRequest("Worker", from: "a.swift"))
+        XCTAssertEqual(definitions.map(\.displayLabel), ["Worker — a.swift:7"])
+
+        let completions = await provider.completions(
+            for: completionRequest("Wor", from: "a.swift", text: "Worker")
+        )
+        XCTAssertEqual(completions, [CompletionItem(text: "Worker", kind: .type, isFromCurrentFile: true)])
+    }
 }
