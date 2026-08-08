@@ -524,10 +524,10 @@ across files, reusing the Find-in-Files navigation path already proven.
 - Core carries every decision already (Task 2); this task adds no new testable
   logic. Any behavior that turns out to need a decision goes into Core with a
   test rather than into the view.
-- [ ] add the ⌘-click hit test and the coordinator entry point
-- [ ] add `DefinitionPicker` and the no-match beep
-- [ ] wire navigation through the existing reveal path and add the menu item
-- [ ] run `swift test` — must stay green
+- [x] add the ⌘-click hit test and the coordinator entry point
+- [x] add `DefinitionPicker` and the no-match beep
+- [x] wire navigation through the existing reveal path and add the menu item
+- [x] run `swift test` — must stay green
 
 ### Task 8: Autocompletion on macOS
 

@@ -85,6 +85,14 @@ struct CodeEditorView: NSViewRepresentable {
     /// default-constructed view (previews/tests) still compiles.
     var symbolIndex: SymbolIndexController = SymbolIndexController(model: SymbolIndexModel())
 
+    /// Open the file a chosen definition lives in and select the declaration's
+    /// name range. Wired to the very `PisakaApp.activateSearchMatch(url:range:)`
+    /// a Find in Files result goes through — opening the tab is the app's job, and
+    /// a definition in the *current* file deliberately takes the same route so the
+    /// caret move and the scroll are one code path. Default no-op so a
+    /// default-constructed view (previews/tests) still compiles.
+    var onGoToDefinition: (URL, NSRange) -> Void = { _, _ in }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text)
     }
@@ -136,6 +144,12 @@ struct CodeEditorView: NSViewRepresentable {
         // turns back into the stock behavior.
         textView.onCancelSearch = { [weak coordinator = context.coordinator] in
             coordinator?.closeSearchBar() ?? false
+        }
+        // ⌘-click / ⌃⌘J → the coordinator's go-to-definition entry point. Weakly
+        // captured for the same retain-cycle reason as the two closures above; a
+        // deallocated coordinator simply navigates nowhere.
+        textView.onGoToDefinition = { [weak coordinator = context.coordinator] tv, offset in
+            coordinator?.goToDefinition(in: tv, at: offset)
         }
 
         let scrollView = NSScrollView()
@@ -265,6 +279,7 @@ struct CodeEditorView: NSViewRepresentable {
         // the disk walk may not have reached this file yet (or may be gone
         // entirely, for a file outside the opened folder).
         context.coordinator.symbolIndex = symbolIndex
+        context.coordinator.navigateToDefinition = onGoToDefinition
         context.coordinator.reindexSymbols(
             text: text,
             language: language,
@@ -435,6 +450,10 @@ struct CodeEditorView: NSViewRepresentable {
         // `textDidChange` (debounced), so scheduling here as well would re-parse
         // the file twice per settled burst of typing.
         context.coordinator.symbolIndex = symbolIndex
+        // Keep the navigation closure current: it captures `PisakaApp`'s state, so
+        // a stale one from a previous update would open tabs through a torn-down
+        // scene's workspace.
+        context.coordinator.navigateToDefinition = onGoToDefinition
         if switchedFile || contentReplaced {
             context.coordinator.reindexSymbols(
                 text: textView.string,
@@ -590,6 +609,65 @@ struct CodeEditorView: NSViewRepresentable {
                 symbolIndex.noteBufferOpened(url: fileURL, text: text, language: language)
             } else {
                 symbolIndex.noteBufferChanged(url: fileURL, text: text, language: language)
+            }
+        }
+
+        // MARK: - Go to definition
+
+        /// Opens a chosen declaration's file and selects its name range. Assigned
+        /// from `CodeEditorView` on every update, because it captures the app's
+        /// scene state (see the property's note there).
+        var navigateToDefinition: (URL, NSRange) -> Void = { _, _ in }
+
+        /// Jump to the declaration of the identifier at `offset` — the single
+        /// entry point behind both ⌘-click and the ⌃⌘J menu item, so the two can
+        /// never disagree about what counts as an identifier or how a jump is made.
+        ///
+        /// Every decision here is Core's: `IdentifierScanner` says which word the
+        /// offset names, and the provider ranks the candidates. This method only
+        /// picks the surface — beep, jump, or picker — from how many came back.
+        ///
+        /// The lookup is `async` because the seam is (an LSP provider must await a
+        /// socket), so the answer arrives a turn later; the text view is
+        /// re-captured weakly for that hop, and the picker is anchored on the range
+        /// the question was asked about, which `DefinitionPicker` clamps against
+        /// the buffer as it is by then.
+        func goToDefinition(in textView: NSTextView, at offset: Int) {
+            guard let provider = symbolIndex?.provider,
+                  let match = IdentifierScanner.identifier(in: textView.string as NSString, at: offset)
+            else {
+                PlatformFeedback.warning()
+                return
+            }
+            let request = DefinitionRequest(
+                identifier: match.text,
+                fileURL: fileURL,
+                offset: match.range.location
+            )
+            Task { [weak self, weak textView] in
+                let candidates = await provider.definitions(for: request)
+                guard let self, let textView else { return }
+                switch candidates.count {
+                case 0:
+                    // Nothing declares that name in the indexed project — the
+                    // documented "no definition" outcome, and deliberately silent
+                    // beyond the beep: an alert for a mistyped ⌘-click would be
+                    // worse than the click itself.
+                    PlatformFeedback.warning()
+                case 1:
+                    self.navigateToDefinition(
+                        candidates[0].symbol.fileURL,
+                        candidates[0].symbol.range
+                    )
+                default:
+                    DefinitionPicker.present(
+                        candidates,
+                        in: textView,
+                        anchoredTo: match.range
+                    ) { [weak self] candidate in
+                        self?.navigateToDefinition(candidate.symbol.fileURL, candidate.symbol.range)
+                    }
+                }
             }
         }
 
@@ -1345,6 +1423,66 @@ final class EditorTextView: NSTextView {
     /// `CodeEditorView.makeNSView` to the coordinator's `closeSearchBar()`; `nil`
     /// until then.
     var onCancelSearch: (() -> Bool)?
+
+    /// Jumps to the declaration of the identifier at a UTF-16 offset (a ⌘-click's
+    /// character index, or the caret's for the ⌃⌘J menu item). Set by
+    /// `CodeEditorView.makeNSView` to the coordinator's
+    /// `goToDefinition(in:at:)`; `nil` until then.
+    var onGoToDefinition: ((NSTextView, Int) -> Void)?
+
+    /// Go to Definition from the caret — the Find menu's ⌃⌘J entry point, which
+    /// reaches this view as the key window's first responder rather than through
+    /// any editor-side state.
+    ///
+    /// The *start* of the selection is used, so the command behaves the same
+    /// whether the user placed a caret in a name or double-clicked to select it;
+    /// `IdentifierScanner` additionally resolves the word a caret sitting just
+    /// past its last character belongs to, which is where the caret lands after
+    /// typing one.
+    func goToDefinitionAtCaret() {
+        onGoToDefinition?(self, selectedRange().location)
+    }
+
+    /// A Command-held click navigates to the clicked identifier's declaration;
+    /// every other click keeps the stock behavior.
+    ///
+    /// **Command-*drag* must still select**, and AppKit gives no way to learn that
+    /// from the mouse-down alone: `super.mouseDown` runs its own modal tracking
+    /// loop until the button comes up, so a `mouseUp` override is never reached
+    /// during a drag-select. The events that follow this one are therefore peeked
+    /// at here — a mouse-up within the slop radius is the click, and the first
+    /// real movement hands the *original* event back to `super`, whose tracking
+    /// loop anchors on it and picks the drag up from the current mouse position.
+    /// Only a plain, single Command-click is claimed: ⌘⇧-click extends a selection
+    /// and ⌘⌥-click starts a rectangular one, both of which stay AppKit's.
+    override func mouseDown(with event: NSEvent) {
+        guard
+            event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command],
+            event.clickCount == 1,
+            let onGoToDefinition
+        else { return super.mouseDown(with: event) }
+
+        let anchor = event.locationInWindow
+        while let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
+            if next.type == .leftMouseUp {
+                let point = convert(event.locationInWindow, from: nil)
+                onGoToDefinition(self, characterIndexForInsertion(at: point))
+                return
+            }
+            let moved = hypot(
+                next.locationInWindow.x - anchor.x,
+                next.locationInWindow.y - anchor.y
+            )
+            if moved > Self.clickSlop { return super.mouseDown(with: event) }
+        }
+        super.mouseDown(with: event)
+    }
+
+    /// How far the mouse may travel between down and up and still count as a
+    /// click rather than the start of a Command-drag selection. Two points is the
+    /// usual hand-tremor allowance and less than one character cell, so a
+    /// tolerated wobble can never resolve a different word than the one clicked.
+    private static let clickSlop: CGFloat = 2
 
     /// Esc with the find bar open closes it (and drops the match highlight);
     /// otherwise the key falls through to the stock behavior.

@@ -246,6 +246,7 @@ struct PisakaApp: App {
                 search: search,
                 reveal: reveal,
                 symbolIndex: symbolIndexController,
+                onGoToDefinition: { url, range in activateSearchMatch(url: url, range: range) },
                 bottomPanel: $bottomPanel,
                 onTogglePanel: { togglePanel($0) },
                 onClose: { closeFile(id: $0) },
@@ -437,6 +438,19 @@ struct PisakaApp: App {
                 Button("Find in Files…") { openProjectSearch() }
                     .keyboardShortcut("f", modifiers: [.command, .shift])
                     .disabled(model.projectRoot == nil)
+
+                Divider()
+
+                // ⌃⌘J — Xcode's Jump to Definition binding, and free here (⌘J and
+                // ⌃⌘F are not, being AppKit's "center selection" and full screen).
+                // The keyboard peer of ⌘-clicking an identifier: both end up in the
+                // editor coordinator's one `goToDefinition(in:at:)`. Gated on a tab
+                // being open rather than on a project: a symbol declared in the
+                // buffer itself is indexed from that buffer, so a lone open file
+                // can still jump within itself.
+                Button("Go to Definition") { goToDefinitionAtCaret() }
+                    .keyboardShortcut("j", modifiers: [.control, .command])
+                    .disabled(model.selectedID == nil)
             }
 
             CommandMenu("Git") {
@@ -1067,10 +1081,35 @@ struct PisakaApp: App {
     /// the update that creates it is the one that installs the file's contents.
     /// A file that failed to open beeps in `openFile` and resolves to no tab, so
     /// nothing is revealed.
+    ///
+    /// Also the destination of **Go to Definition** (⌘-click / ⌃⌘J), which names a
+    /// declaration's file and name range instead of a search hit: the two want the
+    /// exact same three steps, and sharing them is what keeps a jump into the file
+    /// already being edited on the same code path as a jump across the project.
     private func activateSearchMatch(url: URL, range: NSRange) {
         openFile(url: url)
         guard let id = model.fileID(forURL: url) else { return }
         reveal.reveal(fileID: id, range: range)
+    }
+
+    // MARK: - Go to definition
+
+    /// The Find menu's "Go to Definition" (⌃⌘J): ask the focused editor to jump
+    /// from wherever its caret is.
+    ///
+    /// Routed through the first responder rather than through a window-scoped
+    /// state object (the `EditorSearchState` shape): this command carries no state
+    /// at all — no query, no toggles, nothing to survive a tab switch — so a
+    /// published object for it would be an empty mailbox between the menu and the
+    /// one view that can answer. The responder chain already names that view.
+    /// Anything else focused (the project tree, the terminal, a text field) has no
+    /// definition to go to and beeps.
+    private func goToDefinitionAtCaret() {
+        guard let editor = NSApp.keyWindow?.firstResponder as? EditorTextView else {
+            PlatformFeedback.warning()
+            return
+        }
+        editor.goToDefinitionAtCaret()
     }
 
     /// Run a project-wide Replace All under the same disk-writer coordination as

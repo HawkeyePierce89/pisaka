@@ -69,6 +69,11 @@ struct ContentView: View {
     /// controller over a fresh, never-walked index so a default-constructed view
     /// (previews/tests) still compiles.
     var symbolIndex: SymbolIndexController = SymbolIndexController(model: SymbolIndexModel())
+    /// Open the file a Go to Definition landed on and select the declaration's
+    /// name. Wired to the same `PisakaApp` entry point a Find in Files activation
+    /// uses — opening a tab is the app's job — and threaded straight into
+    /// `CodeEditorView`. Default no-op for previews/tests.
+    var onGoToDefinition: (URL, NSRange) -> Void = { _, _ in }
     /// Which bottom dock panel is shown (`nil` = none), VS Code-style. Owned by
     /// `PisakaApp` and bound here; `.constant(nil)` keeps the default-constructed
     /// view (previews/tests) with no panel shown.
@@ -410,7 +415,8 @@ struct ContentView: View {
                     onStepFontSize: { settings.stepFontSize(by: $0) },
                     search: search,
                     reveal: reveal,
-                    symbolIndex: symbolIndex
+                    symbolIndex: symbolIndex,
+                    onGoToDefinition: onGoToDefinition
                 )
             }
         } else {

@@ -51,6 +51,17 @@ final class SymbolIndexController {
         self.model = model
     }
 
+    /// The seam the editor surfaces ask their questions through.
+    ///
+    /// Exposed here rather than handing the *model* to the views: the views hold
+    /// this controller already (it is what they tell about a keystroke), the model
+    /// republishes after every chunk of a walk and so must stay off their update
+    /// path, and a view that could reach the model could also drive the index —
+    /// which is this class's job. Reading the property each time is deliberate:
+    /// the provider reads the model's latest snapshot on demand, so no caller can
+    /// end up answering from the state a folder was opened in.
+    var provider: CodeIntelligenceProviding { model.provider }
+
     // MARK: - Buffers
 
     /// The buffer for `url` changed: re-index it once the typing settles.
