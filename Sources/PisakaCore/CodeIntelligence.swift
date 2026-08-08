@@ -100,11 +100,50 @@ public struct CompletionRequest: Equatable, Sendable {
     /// completable. This is also what makes a language with no `symbols.scm`
     /// degrade to word completion instead of to nothing.
     public let text: String
+    /// The language of the file being typed in, or `nil` when the editor has
+    /// not resolved one (a url-less scratch buffer, a name no rule matches).
+    ///
+    /// Its only job is the keyword source: `nil` means *no keywords at all*
+    /// rather than some default language's, because offering Swift's `guard`
+    /// while typing in a file the editor could not classify is a worse answer
+    /// than offering nothing. A language that has no list
+    /// (`LanguageKeywords.languagesWithoutKeywords`) reaches the same outcome
+    /// through the list itself.
+    public let language: SyntaxLanguage?
+    /// The member position the caret sits in, from
+    /// `IdentifierScanner.memberContext(in:at:)`, or `nil` for ordinary
+    /// identifier completion.
+    ///
+    /// Carried on the request rather than re-derived by the provider because
+    /// the provider is given a prefix and a buffer, not a caret: the editor
+    /// layer is the only place that knows where the caret is, and it already
+    /// has to ask this question to decide whether to bypass its
+    /// minimum-length trigger gate. Non-`nil` is also the one state in which
+    /// `prefix` may legitimately be empty — see `SymbolIntelligenceProvider`.
+    public let member: IdentifierScanner.MemberContext?
 
-    public init(prefix: String, fileURL: URL?, text: String) {
+    /// `language` and `member` are defaulted: they are what phase 1.5 added,
+    /// and defaulting them keeps every construction site that predates member
+    /// completion — and every test that only cares about ranking — compiling
+    /// and meaning exactly what it meant before.
+    ///
+    /// Note that this grew the *request*, not `CodeIntelligenceProviding`: the
+    /// protocol still has the same two methods with the same shapes, so a
+    /// phase-2 LSP provider implements the same contract and simply maps these
+    /// two fields onto a completion-context parameter instead of onto an index
+    /// lookup.
+    public init(
+        prefix: String,
+        fileURL: URL?,
+        text: String,
+        language: SyntaxLanguage? = nil,
+        member: IdentifierScanner.MemberContext? = nil
+    ) {
         self.prefix = prefix
         self.fileURL = fileURL
         self.text = text
+        self.language = language
+        self.member = member
     }
 }
 

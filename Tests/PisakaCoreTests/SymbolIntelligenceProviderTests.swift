@@ -54,12 +54,15 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         DefinitionRequest(identifier: identifier, fileURL: file.map(fileURL), offset: 0)
     }
 
+    /// `language` defaults to `nil` — the state every pre-fuzzy test was written
+    /// in, and the one in which no keyword is offered.
     private func completionRequest(
         _ prefix: String,
         from file: String? = nil,
-        text: String = ""
+        text: String = "",
+        language: SyntaxLanguage? = nil
     ) -> CompletionRequest {
-        CompletionRequest(prefix: prefix, fileURL: file.map(fileURL), text: text)
+        CompletionRequest(prefix: prefix, fileURL: file.map(fileURL), text: text, language: language)
     }
 
     // MARK: - Definitions
@@ -310,6 +313,147 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(items.map(\.text), ["runA", "runB"])
     }
 
+    // MARK: - Completions: fuzzy matching
+
+    /// The headline of the phase: a camelCase query reaches a name it is not a
+    /// prefix of at all.
+    func testACamelCaseQueryReachesAHumpedName() {
+        let store = index(["a.swift": [symbol("ArrayBuffer", kind: .type, in: "a.swift")]])
+        for query in ["aBu", "arrBuf", "buf"] {
+            let items = SymbolIntelligenceProvider.completions(
+                for: completionRequest(query, from: "a.swift"),
+                in: store
+            )
+            XCTAssertEqual(items.map(\.text), ["ArrayBuffer"], "query \(query)")
+        }
+        // …and the rule that keeps the widened set intelligible: the first typed
+        // character has to land on a word boundary.
+        XCTAssertTrue(
+            SymbolIntelligenceProvider.completions(
+                for: completionRequest("rray", from: "a.swift"),
+                in: store
+            ).isEmpty
+        )
+    }
+
+    /// Both candidates are fuzzy, in the same file, from the same source, so only
+    /// the `offBoundary` sub-key can decide — and it puts the intentional-looking
+    /// match first even though the scattered one is *shorter*.
+    func testBoundaryHittingFuzzyMatchesOutrankScatteredOnes() {
+        let store = index([
+            "a.swift": [
+                symbol("aBigCat", kind: .type, in: "a.swift", at: 0),
+                symbol("aback", in: "a.swift", at: 40)
+            ]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: completionRequest("abc", from: "a.swift"),
+            in: store
+        )
+        XCTAssertEqual(items.map(\.text), ["aBigCat", "aback"])
+    }
+
+    /// Match quality is the *first* key, so a literal prefix wins over a fuzzy
+    /// match that every later tie-break would have preferred: the fuzzy candidate
+    /// here is shorter, alphabetically earlier, and equally local.
+    func testAnExactCasePrefixOutranksAShorterFuzzyMatch() {
+        let store = index([
+            "a.swift": [
+                symbol("arrayBuffer", in: "a.swift", at: 0),
+                symbol("aRowRef", in: "a.swift", at: 40)
+            ]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: completionRequest("arr", from: "a.swift"),
+            in: store
+        )
+        // `aRowRef` is a boundary-clean fuzzy match (a·R·R), shorter, and sorts
+        // first lexicographically — every later key prefers it, and it still loses.
+        XCTAssertEqual(items.map(\.text), ["arrayBuffer", "aRowRef"])
+    }
+
+    // MARK: - Completions: the keyword source
+
+    func testKeywordsOfTheRequestedLanguageAreOffered() {
+        let items = SymbolIntelligenceProvider.completions(
+            for: completionRequest("gua", from: "a.swift", language: .swift),
+            in: SymbolIndex()
+        )
+        XCTAssertEqual(items.map(\.text), ["guard"])
+        // A keyword is not a declaration — nothing to jump to, nothing to render
+        // an icon for.
+        XCTAssertEqual(items.first?.kind, nil)
+    }
+
+    /// Isolated from the current-file rule, which outranks the source rule: the
+    /// symbol, the keyword and the word all belong to the same file here, the way
+    /// `testSymbolsOutrankBareBufferWords` isolates its own rule.
+    func testKeywordsRankBelowSymbolsAndAboveBareBufferWords() {
+        let store = index(["a.swift": [symbol("gutter", kind: .property, in: "a.swift")]])
+        let items = SymbolIntelligenceProvider.completions(
+            for: completionRequest("gu", from: "a.swift", text: "gulp", language: .swift),
+            in: store
+        )
+        // Length runs the other way (gulp 4 < guard 5 < gutter 6), so only the
+        // source rule can produce this order.
+        XCTAssertEqual(items.map(\.text), ["gutter", "guard", "gulp"])
+        XCTAssertEqual(items.map(\.isFromCurrentFile), [true, true, true])
+    }
+
+    /// A symbol in *another* file loses to a keyword: rule 2 (current file)
+    /// outranks rule 3 (source), and a keyword is as local as the file's language.
+    func testAKeywordOutranksASymbolDeclaredInAnotherFile() {
+        let store = index(["z.swift": [symbol("guardian", kind: .type, in: "z.swift")]])
+        let items = SymbolIntelligenceProvider.completions(
+            for: completionRequest("guar", from: "a.swift", language: .swift),
+            in: store
+        )
+        XCTAssertEqual(items.map(\.text), ["guard", "guardian"])
+    }
+
+    func testAKeywordAlsoPresentInTheBufferAppearsOnce() {
+        let items = SymbolIntelligenceProvider.completions(
+            for: completionRequest("gua", from: "a.swift", text: "guard let x = y", language: .swift),
+            in: SymbolIndex()
+        )
+        XCTAssertEqual(items.map(\.text), ["guard"])
+    }
+
+    /// A language the editor could not resolve contributes no vocabulary at all —
+    /// Swift's `guard` while typing in an unclassified buffer is a worse answer
+    /// than nothing.
+    func testANilLanguageYieldsNoKeywords() {
+        XCTAssertTrue(
+            SymbolIntelligenceProvider.completions(
+                for: completionRequest("gua", from: "a.swift"),
+                in: SymbolIndex()
+            ).isEmpty
+        )
+        // The same holds for a language that deliberately has no list.
+        XCTAssertTrue(
+            SymbolIntelligenceProvider.completions(
+                for: completionRequest("tru", from: "a.json", language: .json),
+                in: SymbolIndex()
+            ).isEmpty
+        )
+    }
+
+    /// The separation the two features share a provider across: keywords feed
+    /// completion only, because a keyword has no declaration site to jump to.
+    func testDefinitionsNeverContainKeywords() {
+        let store = index(["a.swift": [symbol("guardian", kind: .type, in: "a.swift")]])
+        for spelling in ["guard", "func", "return"] {
+            XCTAssertTrue(
+                SymbolIntelligenceProvider.definitions(
+                    for: definitionRequest(spelling, from: "a.swift"),
+                    in: store,
+                    projectRoot: root
+                ).isEmpty,
+                "definitions for \(spelling)"
+            )
+        }
+    }
+
     // MARK: - Completions: dedup, caps, degradation
 
     func testDuplicateNamesCollapseToTheirBestRankedEntry() {
@@ -426,9 +570,12 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
             for: completionRequest("wor", from: "a.swift", text: "worker workshop wonder"),
             in: SymbolIndex()
         )
-        XCTAssertEqual(items.map(\.text), ["worker", "workshop"])
-        XCTAssertEqual(items.map(\.kind), [nil, nil])
-        XCTAssertEqual(items.map(\.isFromCurrentFile), [true, true])
+        // `wonder` is a *fuzzy* match for `wor` (w-o…r), so the widened matcher
+        // offers it too — but strictly behind both literal prefixes, because
+        // match quality is the first ranking key.
+        XCTAssertEqual(items.map(\.text), ["worker", "workshop", "wonder"])
+        XCTAssertEqual(items.map(\.kind), [nil, nil, nil])
+        XCTAssertEqual(items.map(\.isFromCurrentFile), [true, true, true])
     }
 
     func testBufferWordHarvestIsCappedIndependently() {

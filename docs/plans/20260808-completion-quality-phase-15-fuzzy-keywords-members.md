@@ -256,35 +256,43 @@ dot is least likely to be a member access.
 - Modify: `Sources/PisakaCore/SymbolIntelligenceProvider.swift`
 - Modify: `Tests/PisakaCoreTests/SymbolIntelligenceProviderTests.swift`
 
-- [ ] Grow `CompletionRequest` with `language: SyntaxLanguage?` and
+- [x] Grow `CompletionRequest` with `language: SyntaxLanguage?` and
       `member: IdentifierScanner.MemberContext?`, both defaulted to `nil` in the
       initializer so every existing call site and test compiles unchanged.
       Document on the seam that the protocol's shape is untouched, so a phase-2
       LSP provider implements the same contract.
-- [ ] Rewrite `Ranked` to carry `FuzzyMatch.Quality` as its first key and a
+- [x] Rewrite `Ranked` to carry `FuzzyMatch.Quality` as its first key and a
       three-valued `sourceRank` (symbol 0, keyword 1, word 2), leaving the
       current-file, length, lexicographic and kind keys and their order alone.
       Rewrite the `isOrderedBefore` comparator to match, and rewrite the
       method's doc comment so the documented ranking is the implemented one.
-- [ ] Feed the index through `symbols(matching:limit:)`; keep the "also ask the
+- [x] Feed the index through `symbols(matching:limit:)`; keep the "also ask the
       current file for its own symbols" mitigation and re-state its reasoning
       for the widened match set; filter buffer words by
       `FuzzyMatch.quality(...) != nil` instead of `hasPrefix`.
-- [ ] Add keywords as a third source: `LanguageKeywords.keywords(for:)` when
+- [x] Add keywords as a third source: `LanguageKeywords.keywords(for:)` when
       `request.language != nil`, filtered by the same matcher, emitted as
       `CompletionItem(text:kind: nil, isFromCurrentFile: true)`. Existing
       name-based de-duplication then collapses a keyword and an identical buffer
       word to one entry, best rank first.
-- [ ] Write tests: `aBu` surfaces `ArrayBuffer`; boundary-hitting fuzzy beats
+- [x] Write tests: `aBu` surfaces `ArrayBuffer`; boundary-hitting fuzzy beats
       scattered fuzzy; an exact-case prefix match still beats everything,
       including a shorter fuzzy match; `gua` in a Swift request offers `guard`;
       keywords rank below same-file symbols and above same-file buffer words;
       `guard` as both keyword and buffer word appears once; a `nil` language
       yields no keywords; go-to-definition for a keyword spelling returns
       nothing (**the pinned "definitions never contain keywords" test**).
-- [ ] Confirm every pre-existing completion and definition test still passes
-      **unedited**.
-- [ ] Run `swift test` — must pass before Task 6.
+- [x] Confirm every pre-existing completion and definition test still passes
+      **unedited** — with **one deliberate exception**, recorded here rather
+      than worked around: `testAnEmptyIndexStillOffersBufferWords` asserted the
+      full buffer-word list by equality (`["worker", "workshop"]`) for the query
+      `wor`, and `wonder` is a genuine subsequence match (w·o…r) that the
+      widened matcher now offers. The assertion was updated to
+      `["worker", "workshop", "wonder"]` — which additionally pins that the
+      fuzzy match ranks strictly *behind* both literal prefixes. No other
+      completion or definition test was touched; the plan's expectation that
+      literal-prefix ordering survives bit-for-bit held everywhere else.
+- [x] Run `swift test` — must pass before Task 6.
 
 ### Task 6: Member completion in the provider
 
