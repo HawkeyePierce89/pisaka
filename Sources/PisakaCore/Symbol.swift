@@ -39,7 +39,8 @@ public enum SymbolKind: String, CaseIterable, Equatable, Hashable, Sendable {
     case key
     /// A Dockerfile build stage (`FROM … AS name`).
     case stage
-    /// An HTML `id` attribute value.
+    /// A name another part of the document refers back to: an HTML `id`
+    /// attribute value, or a YAML anchor (`&name`, the target of a `*ref`).
     case anchor
 
     /// The capture-name prefix every `symbols.scm` capture carries.

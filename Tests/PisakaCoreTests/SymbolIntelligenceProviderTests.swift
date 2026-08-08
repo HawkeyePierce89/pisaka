@@ -1,6 +1,15 @@
 import XCTest
 @testable import PisakaCore
 
+/// A mutable, main-actor-isolated snapshot holder — the shape
+/// `SymbolIndexModel` presents to `SymbolIntelligenceProvider`'s index closure.
+@MainActor
+private final class IndexHolder {
+    var index: SymbolIndex
+
+    init(_ index: SymbolIndex) { self.index = index }
+}
+
 /// Pins every ranking rule the two editor surfaces depend on. The rules live in
 /// pure `static` functions precisely so each tie-break can be exercised in
 /// isolation with three symbols instead of a project — which is what these tests
@@ -321,6 +330,25 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         )
     }
 
+    func testTheBestCandidateSurvivesAPrefixMatchSetLargerThanTheCap() {
+        // The index orders prefix matches by storage position, so the shortest —
+        // and therefore best-ranked — name is deliberately put *last*. Asking the
+        // index for only `limit` matches would hand the ranking a slice that does
+        // not contain it, which is the whole reason `candidateLimit(for:)` asks
+        // for a generous multiple instead.
+        var symbols = (0..<20).map { symbol("runnerNumber\($0)", in: "a.swift", at: $0 * 100) }
+        symbols.append(symbol("run", in: "a.swift", at: 10_000))
+
+        let items = SymbolIntelligenceProvider.completions(
+            for: completionRequest("ru", from: "a.swift"),
+            in: index(["a.swift": symbols]),
+            limit: 2
+        )
+
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items.first?.text, "run")
+    }
+
     func testAnEmptyPrefixYieldsNothing() {
         let store = index(["a.swift": [symbol("run", in: "a.swift")]])
         XCTAssertTrue(
@@ -355,9 +383,15 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
 
     // MARK: - The async protocol shell
 
+    @MainActor
     func testTheProviderAnswersThroughTheProtocolFromTheCurrentSnapshot() async {
-        var store = index(["a.swift": [symbol("Worker", kind: .type, in: "a.swift", line: 7)]])
-        let provider = SymbolIntelligenceProvider(index: { store }, projectRoot: { self.root })
+        // The holder stands in for `SymbolIndexModel`'s published `index`, and is
+        // `@MainActor` for the same reason the model is: that is where the
+        // provider's closures read, so the ranking pass off-main can only ever see
+        // a copy.
+        let holder = IndexHolder(index(["a.swift": [symbol("Worker", kind: .type, in: "a.swift", line: 7)]]))
+        let root = self.root
+        let provider = SymbolIntelligenceProvider(index: { holder.index }, projectRoot: { root })
 
         let definitions = await provider.definitions(for: definitionRequest("Worker", from: "a.swift"))
         XCTAssertEqual(definitions.map(\.displayLabel), ["Worker — a.swift:7"])
@@ -369,7 +403,7 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
 
         // The snapshot is read per request, so a rebuilt index is picked up
         // without reconstructing the provider.
-        store = index(["a.swift": [symbol("Worker2", kind: .type, in: "a.swift")]])
+        holder.index = index(["a.swift": [symbol("Worker2", kind: .type, in: "a.swift")]])
         let afterRebuild = await provider.definitions(for: definitionRequest("Worker"))
         XCTAssertTrue(afterRebuild.isEmpty)
     }

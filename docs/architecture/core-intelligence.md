@@ -163,9 +163,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     stamp from the previous project may gate a file in this one. A `nil` stamp
     means "always re-extract" (see `FileStamp` in `core-workspace.md`), so a stub
     service degrades to correct-but-slower rather than to a stale index.
+    `refresh` takes no `request:` counterpart to `rebuild`'s: it is issued by the
+    watcher debounce for whatever root is current and never deferred across a
+    folder change, so the root check *is* the guard and a second, untested one
+    would be dead API.
+    **Two generation tokens, not one.** `generation` orders *walks* and is bumped
+    by `prepareForFolderChange`, `rebuild` and `refresh`; `rootGeneration` is
+    bumped only when the opened folder actually changes. The buffer re-index below
+    is gated on `rootGeneration` precisely because gating it on `generation`
+    conflates "the user left the project" with "a refresh started": an FSEvents
+    burst (a save, a build, an `npm i`) landing mid-parse would then discard the
+    very edits being typed, and nothing retries them until the next keystroke.
     **Buffers.** `reindexBuffer(url:text:language:)` re-extracts one file from live
     editor text — the extraction inside a one-file `offMain` block with a
-    generation re-check after it, so a folder switch landing mid-parse discards the
+    `rootGeneration` re-check after it, so a folder switch landing mid-parse
+    discards the
     result — and marks the entry buffer-sourced; an unindexable language is dropped
     before any work. `forgetBuffer(url:)` is what a tab close means: the symbols
     *stay* (they are still the best knowledge available, and the file on disk is
@@ -263,8 +275,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     three symbols instead of a project. The index is read through a **closure
     rather than stored**: the model publishes a fresh snapshot after every chunk,
     and a provider holding a copy would answer from the state the folder was
-    opened in; reading a value type through a closure is also what makes the read
-    lock-free, since the snapshot cannot change while a ranking pass walks it.
+    opened in. **The read is `@MainActor`; the ranking is not.** The two protocol
+    methods are `nonisolated async`, so (SE-0338) their bodies run on the
+    cooperative pool rather than on the caller's actor — while the closures reach
+    into a `@MainActor` model that republishes `index` after every chunk. Taking
+    both reads in one `MainActor.run` is what keeps a completion request typed
+    *during* an index build from walking the model's dictionaries while `apply`
+    mutates them; one hop rather than two so a request cannot straddle a chunk
+    publication and pair one walk's index with the next one's root. Only the read
+    hops — `SymbolIndex` is a value type, so the ranking pass that follows walks a
+    private copy off-main and nothing can change under it. (The closures are
+    therefore typed `@Sendable @MainActor`, which costs nothing: a `@MainActor`
+    class is itself `Sendable`.)
     **Definitions** are an exact, case-sensitive name match ordered current-file
     first, then by relative path, line, offset and name — current file first
     because a name declared in the file being read is nearly always the one meant,

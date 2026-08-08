@@ -340,6 +340,12 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// The prefix range is recomputed here rather than remembered from the
     /// provider call: the strip is a live view, and a tap can land after another
     /// keystroke has already moved the word it answers.
+    ///
+    /// The re-check is **case-insensitive**, matching how the candidates were
+    /// chosen: the provider deliberately keeps a merely case-insensitive prefix
+    /// match (typing `arr` still offers `ArrayBuffer`, just ranked below
+    /// `arrayCount`), so a case-sensitive guard here would let the user tap such
+    /// an item and have nothing happen at all.
     private func insertCompletion(_ item: String) {
         guard let textView,
               textView.markedTextRange == nil,
@@ -348,7 +354,9 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         let nsText = textView.text as NSString
         let offset = textView.offset(from: textView.beginningOfDocument, to: caret.start)
         let range = IdentifierScanner.completionPrefixRange(in: nsText, at: offset)
-        guard range.length > 0, item.hasPrefix(nsText.substring(with: range)) else { return }
+        guard range.length > 0,
+              item.lowercased().hasPrefix(nsText.substring(with: range).lowercased())
+        else { return }
 
         applyEdit(
             in: textView,

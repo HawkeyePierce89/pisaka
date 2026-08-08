@@ -121,6 +121,18 @@ public final class SymbolIndexModel: ObservableObject {
     /// commits published state only while its captured token is still the latest.
     private var generation = 0
 
+    /// Monotonically increasing token identifying the indexed **project**. Bumped
+    /// only when the opened folder actually changes.
+    ///
+    /// Separate from `generation` because the two answer different questions. A
+    /// walk uses `generation` to discard *its own* superseded results, and every
+    /// rebuild and refresh advances it. A buffer re-index must only be discarded
+    /// when the user has left the project — gating it on `generation` instead
+    /// means an FSEvents refresh landing mid-parse (a save, a build, an `npm i`)
+    /// throws away the very edits the user is typing, and nothing retries them
+    /// until the next keystroke.
+    private var rootGeneration = 0
+
     /// The folder last indexed or prepared for, so `prepareForFolderChange` can
     /// tell a genuine folder switch from a repeat call — and so `refresh` can
     /// tell a refresh from a folder change wearing its clothes.
@@ -206,6 +218,7 @@ public final class SymbolIndexModel: ObservableObject {
         guard root != lastRoot else { return generation }
         lastRoot = root
         generation += 1
+        rootGeneration += 1
         clearIndex()
         isIndexing = false
         return generation
@@ -233,6 +246,11 @@ public final class SymbolIndexModel: ObservableObject {
     public func rebuild(root: URL, request: Int? = nil) async {
         if let request, request != generation { return }
 
+        // A rebuild reached without `prepareForFolderChange` (a refresh for an
+        // unknown root, or a direct call) is still a project change if the folder
+        // differs, and an in-flight buffer parse for the previous one must not
+        // publish into this index.
+        if root != lastRoot { rootGeneration += 1 }
         lastRoot = root
         generation += 1
         let token = generation
@@ -264,10 +282,14 @@ public final class SymbolIndexModel: ObservableObject {
     /// A refresh for a *different* root is a folder change wearing a refresh's
     /// clothes, and runs as a `rebuild` — no stamp from the previous project may
     /// gate a file in this one.
-    public func refresh(root: URL, request: Int? = nil) async {
-        if let request, request != generation { return }
+    ///
+    /// No `request:` counterpart to `rebuild`'s: a refresh is issued by the
+    /// watcher debounce for whatever root is current, never deferred across a
+    /// folder change, so there is no stale token to reject. The root check below
+    /// is what stands in for one.
+    public func refresh(root: URL) async {
         guard root == lastRoot else {
-            await rebuild(root: root, request: request)
+            await rebuild(root: root)
             return
         }
 
@@ -346,9 +368,11 @@ public final class SymbolIndexModel: ObservableObject {
     ///
     /// Called immediately on tab open/switch and, debounced, while typing
     /// (`SymbolIndexController`). The extraction runs in a one-file `offMain`
-    /// block with a generation re-check after it, so a folder switch landing
+    /// block with a `rootGeneration` re-check after it, so a folder switch landing
     /// mid-parse discards the result instead of publishing the previous
-    /// project's symbols into the new index.
+    /// project's symbols into the new index. Deliberately *not* the walk's
+    /// `generation` (see that property's note): a refresh starting while the parse
+    /// is in flight must not throw the user's freshly typed symbols away.
     ///
     /// A language with no query is dropped before any work: it can declare
     /// nothing, so marking it buffer-sourced would only make a refresh skip a
@@ -356,7 +380,7 @@ public final class SymbolIndexModel: ObservableObject {
     public func reindexBuffer(url: URL, text: String, language: SyntaxLanguage) async {
         guard Self.isIndexable(language) else { return }
 
-        let token = generation
+        let token = rootGeneration
         let extract = extractSymbols
         let outcome = await offMain { () -> FileOutcome in
             let candidate = IndexCandidate(
@@ -371,7 +395,7 @@ public final class SymbolIndexModel: ObservableObject {
                 fromBuffer: true
             )
         }
-        guard token == generation else { return }
+        guard token == rootGeneration else { return }
 
         apply([outcome])
     }

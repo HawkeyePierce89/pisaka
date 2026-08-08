@@ -293,6 +293,14 @@ pattern for anything that ships in the bundle but has no Swift code behind it:
 these files have no compiler and no runtime check, so a static assertion is the
 only thing between a mistake and an App Store rejection.
 
+Shared test helpers live in `Tests/PisakaCoreTests/Support/`: `StubFileTree` (an
+in-memory `FileServicing` project tree, with hooks for unreadable files, absent
+stamps and stamp overrides), `Gate` (a blocking rendezvous that holds off-main
+work suspended while a test mutates model state on the main actor — how the
+folder-switch-mid-walk cases are staged) and `QueryScanner`'s `ParsedQuery`, the
+`.scm` scanner `VendoredGrammarQueryTests` and `SymbolQueryTests` share. Reach for
+these before writing a new stub.
+
 ## Commands
 
 ```sh
@@ -376,6 +384,21 @@ covering libgit2 linking) in parallel. No signing, secrets, or simulator.
   upstream's verbatim copy ends, and pinned by
   `testTextsCarryTheirBundledSubDependencyNotices`). Rationale in
   `docs/architecture/core-services.md`.
+- **Adding a language also ships its symbols query.** A new `SyntaxLanguage` case
+  needs `Resources/Queries/<raw value>/symbols.scm` under the shared capture
+  convention (the captured node is the *name* node, the capture name is the kind,
+  an optional `@container` names the enclosing type), or an entry in
+  `SymbolIndexModel.unindexableLanguages` with the reason. `SymbolQueryTests`
+  compares the query directories against `allCases` by set equality, so
+  `swift test` fails until one of the two exists. A broken symbols query is
+  quieter than a broken highlight query — an unindexed file looks exactly like a
+  file that declares nothing — so **every grammar update (a pin bump in
+  `project.yml` or a re-vendored `Vendor/` package) additionally requires opening
+  a file of that language in a DEBUG build** and confirming its declarations
+  answer ⌃⌘J; `SymbolQueryCatalog`'s DEBUG `assertionFailure` is what surfaces a
+  query that no longer compiles, since Core cannot link SwiftTreeSitter and so
+  cannot compile one in a test. Rationale in
+  `docs/architecture/core-intelligence.md`.
 - **Required-reason APIs are declared for the whole linked binary**, not just
   `Sources/`: libgit2 and the tree-sitter grammars compile from C source into the
   app and ship no privacy manifest of their own. Any new use of a required-reason

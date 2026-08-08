@@ -288,6 +288,54 @@ final class SymbolIndexModelTests: XCTestCase {
         XCTAssertEqual(names(model, "alpha"), ["alpha"])
     }
 
+    func testRefreshReExtractsASameSizeEditOnItsModificationDate() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
+        // A stamp the byte count alone cannot tell apart from the next one — the
+        // typo fix, the `let`→`var`, the equal-length rename. Only the date moves.
+        let first = Date(timeIntervalSince1970: 1_000)
+        stub.stampOverrides["a.swift"] = FileStamp(byteCount: 10, modificationDate: first)
+        let extractor = RecordingExtractor()
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: extractor.extract)
+
+        await model.rebuild(root: root)
+        XCTAssertEqual(extractor.calls, ["a.swift"])
+
+        stub.files["a.swift"] = "sym omega\n"
+        stub.stampOverrides["a.swift"] = FileStamp(
+            byteCount: 10,
+            modificationDate: first.addingTimeInterval(60)
+        )
+        await model.refresh(root: root)
+
+        XCTAssertEqual(extractor.calls, ["a.swift", "a.swift"])
+        XCTAssertEqual(names(model, "omega"), ["omega"])
+        XCTAssertTrue(names(model, "alpha").isEmpty)
+    }
+
+    func testAnUnreadableFileIsSkippedAndRetriedOnTheNextRefresh() async {
+        let stub = StubFileTree(root: root, files: [
+            "a.swift": "sym alpha\n",
+            "b.swift": "sym beta\n"
+        ])
+        stub.unreadableFiles = ["b.swift"]
+        let extractor = RecordingExtractor()
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: extractor.extract)
+
+        await model.rebuild(root: root)
+
+        // A throwing read produces no outcome at all, so no stamp is recorded for
+        // it — the half that matters, since a stamp would make every later refresh
+        // conclude the file was up to date and never look at it again.
+        XCTAssertEqual(extractor.calls, ["a.swift"])
+        XCTAssertTrue(names(model, "beta").isEmpty)
+
+        stub.unreadableFiles = []
+        await model.refresh(root: root)
+
+        XCTAssertEqual(extractor.calls.sorted(), ["a.swift", "b.swift"])
+        XCTAssertEqual(names(model, "beta"), ["beta"])
+    }
+
     func testRefreshReExtractsEverythingWhenStampsAreUnavailable() async {
         let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
         stub.stampsAreUnavailable = true
@@ -409,6 +457,55 @@ final class SymbolIndexModelTests: XCTestCase {
 
         XCTAssertEqual(names(model, "typed"), ["typed"])
         XCTAssertTrue(names(model, "savedTwo").isEmpty)
+        // Not merely "the result was dropped": the file is not read or parsed at
+        // all. Dropping it downstream would leave the file the user is typing in
+        // being re-read and re-parsed on every FSEvents burst for nothing.
+        XCTAssertEqual(extractor.calls, ["a.swift", "a.swift"])
+        XCTAssertEqual(stub.readPaths, ["a.swift"])
+    }
+
+    func testABufferSourcedFileTheWalkNeverSeesIsNotRemoved() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+        await model.rebuild(root: root)
+
+        // A tab on a file the traversal does not produce — outside the opened
+        // folder, or excluded by the project's `.gitignore`.
+        let outside = URL(fileURLWithPath: "/elsewhere/tool.swift")
+        await model.reindexBuffer(url: outside, text: "sym typed\n", language: .swift)
+
+        await model.refresh(root: root)
+
+        // Removing it would break completion in the very file being typed in.
+        XCTAssertEqual(names(model, "typed"), ["typed"])
+        XCTAssertEqual(names(model, "alpha"), ["alpha"])
+    }
+
+    func testABufferReindexSurvivesARefreshThatStartsMidParse() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
+        let extractor = RecordingExtractor()
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: extractor.extract)
+        await model.rebuild(root: root)
+
+        let gate = Gate()
+        extractor.gateNextCall(gate)
+        let reindex = Task {
+            await model.reindexBuffer(url: stub.url("a.swift"), text: "sym typed\n", language: .swift)
+        }
+        await gate.waitUntilReached()
+
+        // An FSEvents refresh (a save, a build, an `npm i`) starts while the
+        // buffer parse is still running. It advances the *walk* generation, which
+        // must not be read as "the user left the project" — the parse holds the
+        // only copy of what was just typed, and nothing retries it.
+        let refresh = Task { await model.refresh(root: root) }
+        while !model.isIndexing { await Task.yield() }
+        gate.release()
+        await reindex.value
+        await refresh.value
+
+        XCTAssertEqual(names(model, "typed"), ["typed"])
+        XCTAssertTrue(names(model, "alpha").isEmpty)
     }
 
     func testBufferEntrySurvivesAChunkThatReadDiskBeforeTheEdit() async {

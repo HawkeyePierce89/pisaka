@@ -11,9 +11,17 @@ import Foundation
 ///
 /// The index is read through a closure rather than stored: `SymbolIndexModel`
 /// publishes a fresh snapshot after every chunk, and a provider holding a stale
-/// copy would answer from the state the folder was opened in. Reading a value
-/// type through a closure is also what makes the read lock-free — the snapshot
-/// cannot change while a ranking pass walks it.
+/// copy would answer from the state the folder was opened in.
+///
+/// **The read itself is `@MainActor`, the ranking is not.** The two methods below
+/// are `nonisolated async`, so (SE-0338) their bodies run on the cooperative pool
+/// rather than on the caller's actor — while the closures reach into a
+/// `@MainActor` model that republishes `index` after every chunk of a walk.
+/// Taking the snapshot inside a `MainActor.run` is what keeps a completion
+/// request typed during an index build from reading the model's dictionaries
+/// while `apply(_:)` is mutating them. Only the read hops: `SymbolIndex` is a
+/// value type, so the ranking pass that follows walks a private copy off-main and
+/// nothing can change under it.
 public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
 
     /// How many completion items a caller is offered. AppKit's popup and the iOS
@@ -27,17 +35,22 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
     /// bundle cannot turn a debounce tick into a large allocation.
     public static let defaultBufferWordLimit = 5_000
 
-    private let index: () -> SymbolIndex
-    private let projectRoot: () -> URL?
+    /// Both reads are `@Sendable @MainActor`: they are called from a
+    /// `MainActor.run` inside a `nonisolated async` method, and the model they
+    /// read is a `@MainActor` class (hence itself `Sendable`), so the annotation
+    /// costs nothing and is what makes the hop expressible.
+    private let index: @Sendable @MainActor () -> SymbolIndex
+    private let projectRoot: @Sendable @MainActor () -> URL?
     private let completionLimit: Int
     private let bufferWordLimit: Int
 
     /// - Parameters:
-    ///   - index: the current published snapshot; called once per request.
+    ///   - index: the current published snapshot; called once per request, on the
+    ///     main actor.
     ///   - projectRoot: the opened folder, for the paths the picker shows.
     public init(
-        index: @escaping () -> SymbolIndex,
-        projectRoot: @escaping () -> URL?,
+        index: @escaping @Sendable @MainActor () -> SymbolIndex,
+        projectRoot: @escaping @Sendable @MainActor () -> URL?,
         completionLimit: Int = SymbolIntelligenceProvider.defaultCompletionLimit,
         bufferWordLimit: Int = SymbolIntelligenceProvider.defaultBufferWordLimit
     ) {
@@ -66,16 +79,33 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
     // MARK: - CodeIntelligenceProviding
 
     public func definitions(for request: DefinitionRequest) async -> [DefinitionCandidate] {
-        Self.definitions(for: request, in: index(), projectRoot: projectRoot())
+        let state = await snapshot()
+        return Self.definitions(for: request, in: state.index, projectRoot: state.projectRoot)
     }
 
     public func completions(for request: CompletionRequest) async -> [CompletionItem] {
-        Self.completions(
+        let state = await snapshot()
+        return Self.completions(
             for: request,
-            in: index(),
+            in: state.index,
             limit: completionLimit,
             bufferWordLimit: bufferWordLimit
         )
+    }
+
+    /// Both reads in one main-actor hop — see the type's note on why the read is
+    /// isolated and the ranking is not. One hop rather than two so a request
+    /// cannot straddle a chunk publication and pair one walk's index with the
+    /// next one's root.
+    private func snapshot() async -> Snapshot {
+        let readIndex = index
+        let readRoot = projectRoot
+        return await MainActor.run { Snapshot(index: readIndex(), projectRoot: readRoot()) }
+    }
+
+    private struct Snapshot: Sendable {
+        let index: SymbolIndex
+        let projectRoot: URL?
     }
 
     // MARK: - Definitions (pure)

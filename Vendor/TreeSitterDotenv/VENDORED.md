@@ -101,6 +101,21 @@ kinds are compared as separate sets, because spelling a named node `"like this"`
 or an anonymous token `(like this)` fails query compilation exactly as an unknown
 name does). If an update legitimately changes the set, update that expectation.
 
+## Symbol query
+
+`Resources/Queries/dotenv/symbols.scm` lives outside this directory but is pinned
+by *this* grammar: it captures
+`(document (assignment key: (identifier) @definition.variable))`, and
+`SymbolQueryTests` checks every node name and anonymous literal in it against
+this package's `src/node-types.json` under the matching `named` flag — the same
+check `VendoredGrammarQueryTests` runs on the highlight query, and possible for
+the same reason (dotenv is one of only two grammars whose sources are in-repo).
+
+Its failure mode is quieter than the highlight query's, which is why step 5 below
+covers both files: if an upstream rename touches the nodes the query names, the
+file still builds and still highlights — it just declares nothing, and a `.env`
+with no symbols is indistinguishable from one that genuinely has none.
+
 ## Update procedure
 
 1. Clone upstream, check out the new tag, and record its SHA and date.
@@ -117,7 +132,12 @@ name does). If an update legitimately changes the set, update that expectation.
 5. Re-derive the capture-name set from the updated `queries/highlights.scm` and
    reconcile the expectation in `VendoredGrammarQueryTests` (`swift test` reports
    the difference for you — it reads the file, so a stale expectation fails
-   rather than silently passing).
+   rather than silently passing). Do the same for
+   `Resources/Queries/dotenv/symbols.scm` against `SymbolQueryTests`, and open a
+   `.env` file in a DEBUG build to confirm its keys still answer ⌃⌘J: neither
+   suite can *compile* a query (Core does not link SwiftTreeSitter), so a query
+   that no longer compiles surfaces only as `SymbolQueryCatalog`'s DEBUG
+   `assertionFailure`.
 6. `swift build --package-path Vendor/TreeSitterDotenv`.
 7. `swift test` at the repo root, then the macOS and iOS builds — the iOS build is
    what catches a link regression on the other platform.

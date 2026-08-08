@@ -280,7 +280,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     settled burst of typing. `textDidChange` also refreshes the completion
     candidates behind their own shorter debounce, whose gates (bare caret, two typed
     characters, no marked text) mean an ordinary keystroke outside an identifier
-    costs one prefix scan and no task. The coordinator's `goToDefinition(in:at:)` is
+    costs one prefix scan and no task — but **not while
+    `isApplyingProgrammaticEdit` is up**. AppKit's own completion insertion fires
+    this notification synchronously (once per arrow-key preview as well as for the
+    accepted word), so refreshing there would schedule a request for the word just
+    completed and re-open the popup over it a debounce later; the iOS strip avoids
+    the same treadmill by clearing after an insertion. Auto-pair, the indented
+    newline and ⌘D take the same path and are equally not typing. The snapshot the
+    guard leaves standing is inert: `completions(forPartialWordRange:in:)`
+    re-validates it against the live buffer, and a popup only ever opens from
+    `apply` or ⌃Space. The coordinator's `goToDefinition(in:at:)` is
     the **single** entry point behind both ⌘-click and ⌃⌘J, so the two cannot
     disagree about what an identifier is or how a jump is made: `IdentifierScanner`
     names the word, the provider (re-read from the controller per call, never

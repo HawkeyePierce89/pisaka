@@ -620,7 +620,17 @@ struct CodeEditorView: NSViewRepresentable {
             // controller's own (shorter) debounce. Its gates — a bare caret, at
             // least two typed characters, no marked text — mean an ordinary
             // keystroke outside an identifier costs one prefix scan and no task.
-            updateCompletions(explicit: false)
+            //
+            // Not while a *programmatic* edit is being applied. AppKit's own
+            // completion insertion fires this notification synchronously (for each
+            // arrow-key preview as well as for the accepted word), so refreshing
+            // here would schedule a fresh request for the word just completed and
+            // re-open the popup over it a debounce later — the treadmill the iOS
+            // strip avoids by clearing after an insertion. Auto-pair and the
+            // indented newline take the same path and are equally not typing.
+            if !isApplyingProgrammaticEdit {
+                updateCompletions(explicit: false)
+            }
         }
 
         // MARK: - Completion

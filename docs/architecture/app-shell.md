@@ -121,7 +121,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     tab still shows the file — so the Cancel branch, and a file legitimately reached
     through two tabs (once by path, once through a symlink, since `fileID(forURL:)`
     matches canonically exactly as the index keys its files), leave the buffer mark
-    where it is. Two `Find` menu items reach the focused editor through the responder
+    where it is. **Every other path that stops a URL from having a buffer behind it
+    routes through it too**, and must: a buffer-sourced entry is exempt from *both*
+    halves of a refresh (it is neither re-extracted nor removed), so one that is
+    never handed back pins a file into the index for the rest of the session.
+    Those paths are `renameItem` (the tabs are retargeted to the destination, so the
+    old path would otherwise answer lookups under a name that no longer exists,
+    beside a second entry under the new one), `deleteItem` (whose affected URLs are
+    captured alongside the tab ids, before the removal, for the same
+    dangling-symlink reason the ids are) and the three post-git resyncs — the revert
+    loop, `resyncOpenTabs` and the merge-apply reload — wherever they force-close a
+    tab whose file the operation took away. Two `Find` menu items reach the focused editor through the responder
     chain rather than through any window-scoped state, because neither command
     carries state to survive a tab switch: "Go to Definition" at **⌃⌘J** (Xcode's
     binding, and free here — ⌘J and ⌃⌘F are AppKit's "center selection" and full

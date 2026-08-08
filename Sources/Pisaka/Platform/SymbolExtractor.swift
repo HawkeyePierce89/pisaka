@@ -46,7 +46,14 @@ enum SymbolExtractor {
     /// `fileURL` is carried into each `Symbol` unchanged — as the traversal (or
     /// the open tab) spelled it, never canonicalized here; `SymbolIndex` owns that
     /// normalization.
-    nonisolated static func symbols(
+    ///
+    /// `@Sendable` because this is handed to `SymbolIndexModel.extractSymbols` as a
+    /// bare function reference, and that parameter is `@Sendable` — without the
+    /// annotation the conversion is an unchecked one the compiler warns about.
+    /// Sound for the reason the type's note gives: parser and cursor are built per
+    /// call, and the only shared state touched is the lock-guarded grammar/query
+    /// caches, read-only.
+    @Sendable nonisolated static func symbols(
         in text: String,
         language: SyntaxLanguage,
         fileURL: URL

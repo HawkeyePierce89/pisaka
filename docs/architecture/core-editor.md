@@ -92,7 +92,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `Makefile`, `Dockerfile`); lowercased extension lookup; fallback →
     `doc`/`.gray`. `FileIconColor` is a semantic enum so the library stays free
     of any SwiftUI/AppKit dependency.
-  - `SyntaxLanguage.swift` — pure, testable `String`/`CaseIterable`/`Equatable`
+  - `SyntaxLanguage.swift` — pure, testable
+    `String`/`CaseIterable`/`Equatable`/`Hashable`/`Sendable`
     enum of supported languages (swift, javascript, typescript, json, markdown,
     python, html, css, yaml, dockerfile, dotenv, gitignore) with
     `init?(fileExtension:)` and `init?(forFileName:)`, backed by a lowercased
@@ -131,6 +132,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `.markdown` rather than to `.gitignore`. `testEveryCaseIsReachableByFileName`
     covers every `allCases` through a file *name* (not an extension), so a future
     case added with no resolution rule fails the suite.
+    **Adding a case has two obligations beyond the map**: a grammar in
+    `project.yml`/`SyntaxLanguageConfiguration` for highlighting, and a
+    `Resources/Queries/<raw value>/symbols.scm` for the symbol index — or an
+    explicit listing in `SymbolIndexModel.unindexableLanguages` with the reason
+    (`.gitignore` sits there: it declares nothing a jump could land on).
+    `SymbolQueryTests` compares the shipped query directories against `allCases`
+    by *set equality*, so `swift test` fails until one of the two is done — the
+    point being that a language can never silently index to nothing. The
+    `Hashable`/`Sendable` conformances are load-bearing for that layer rather
+    than decorative: `SymbolQueryCatalog`'s compiled-query cache keys on this
+    enum, and it crosses the `@Sendable` extractor seam
+    (`docs/architecture/core-intelligence.md`).
   - `MinimapGeometry.swift` — pure, testable scroll/viewport math for the
     VS Code-style *proportional* minimap (CoreGraphics/Foundation only). A
     `public struct MinimapGeometry: Equatable` built from `documentHeight`/

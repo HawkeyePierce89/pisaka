@@ -1373,10 +1373,15 @@ struct PisakaApp: App {
                         // would write back over the revert, so close it rather than
                         // leave that trap open.
                         model.close(id: id, force: true)
+                        forgetIndexedBuffer(url)
                         PlatformFeedback.warning()
                     }
                 } else {
                     model.close(id: id, force: true)
+                    // The revert deleted the file. Hand its index entry back to disk
+                    // so the next refresh can drop it: a buffer-sourced entry is
+                    // exempt from that removal and would stay jumpable forever.
+                    forgetIndexedBuffer(url)
                 }
             }
         }
@@ -1618,10 +1623,15 @@ struct PisakaApp: App {
             if FileManager.default.fileExists(atPath: url.path) {
                 if !model.reloadFromDisk(id: id) {
                     model.close(id: id, force: true)
+                    forgetIndexedBuffer(url)
                     didPreserve = true
                 }
             } else if mayRemoveFiles {
                 model.close(id: id, force: true)
+                // Same rule as the revert resync: a closed tab's entry must stop
+                // being buffer-sourced, or the refresh can neither re-extract nor
+                // remove the file the branch switch took away.
+                forgetIndexedBuffer(url)
             }
         }
         if didPreserve { PlatformFeedback.warning() }
@@ -1766,10 +1776,13 @@ struct PisakaApp: App {
         if FileManager.default.fileExists(atPath: resolvedURL.path) {
             if !model.reloadFromDisk(id: id) {
                 model.close(id: id, force: true)
+                forgetIndexedBuffer(resolvedURL)
                 PlatformFeedback.warning()
             }
         } else {
             model.close(id: id, force: true)
+            // Resolved to the deleted side: same rule as the other resync paths.
+            forgetIndexedBuffer(resolvedURL)
         }
         return true
     }
@@ -1897,6 +1910,12 @@ struct PisakaApp: App {
         do {
             try fileService.move(from: url, to: destination)
             model.applyRenamePlan(plan)
+            // The tabs now name the destination, so nothing holds a buffer for the
+            // old path any more. Without this its entry stays marked buffer-sourced
+            // — which exempts it from both the refresh's re-extraction and its
+            // removal — and the file would keep answering lookups under a name that
+            // no longer exists, beside a second entry under the new one.
+            forgetIndexedBuffer(url)
             model.bumpTreeRevision()
         } catch {
             reportFileOperationFailure(error)
@@ -1915,9 +1934,18 @@ struct PisakaApp: App {
         // the item is gone that symlink dangles and would no longer match. Close
         // them only after the removal succeeds.
         let affectedIDs = model.tabIDs(under: url)
+        // Captured alongside the ids and for the same reason: once the item is gone
+        // the tabs are closed and their URLs are no longer reachable from the model.
+        let affectedURLs = affectedIDs.compactMap { id in
+            model.openFiles.first { $0.id == id }?.url
+        }
         do {
             try fileService.removeItem(at: url)
             model.closeFiles(ids: affectedIDs)
+            // Hand every closed tab's entry back to disk. A buffer-sourced entry is
+            // exempt from the refresh's removal pass, so without this a deleted
+            // file's symbols would stay jumpable for the rest of the session.
+            affectedURLs.forEach(forgetIndexedBuffer)
             model.bumpTreeRevision()
         } catch {
             reportFileOperationFailure(error)

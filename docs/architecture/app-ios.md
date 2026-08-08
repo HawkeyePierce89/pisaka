@@ -65,8 +65,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
   - `Platform/SymbolExtractor.swift` — turns a file's text into the `[Symbol]`
     array the index stores: the one piece of the feature that cannot live in
     `PisakaCore`, because it is the only piece that needs tree-sitter. **Not an
-    actor and not `@MainActor`** — a caseless enum with one `nonisolated static
-    func symbols(in:language:fileURL:)`, the `MinimapTokenizer.computeModel` shape.
+    actor and not `@MainActor`** — a caseless enum with one `@Sendable nonisolated
+    static func symbols(in:language:fileURL:)`, the
+    `MinimapTokenizer.computeModel` shape. (`@Sendable` because the function is
+    handed over as a bare reference to `SymbolIndexModel.extractSymbols`, whose
+    parameter is `@Sendable`; without it the conversion is an unchecked one the
+    compiler warns about at both `@main` sites.)
     `SymbolIndexModel` calls it only from inside its own private serial queue (the
     seam is deliberately synchronous — plan Decision 7, recorded in
     `core-intelligence.md`), so that queue *is* the serialization and an actor here
@@ -249,7 +253,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     undo step and passes the programmatic-edit guard — a candidate ending in `(`
     cannot fall into `AutoPairEngine` and collect a closer it never asked for — and
     it recomputes the prefix range at tap time rather than trusting the one the
-    provider answered, then clears the strip: `applyEdit` fires
+    provider answered — **case-insensitively**, matching how the candidates were
+    chosen, since the provider deliberately keeps a merely case-insensitive prefix
+    match (`arr` still offers `ArrayBuffer`, just ranked below `arrayCount`) and a
+    case-sensitive re-check would let the user tap such an item and have nothing at
+    all happen — then clears the strip: `applyEdit` fires
     `textViewDidChange` synchronously, and offering longer names the instant a
     choice was made is how a completion strip turns into a treadmill.
     `dismantleUIView` tears the strip down alongside the highlighter, since an

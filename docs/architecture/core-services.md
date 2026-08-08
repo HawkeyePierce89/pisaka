@@ -298,12 +298,18 @@ run in `swift test` rather than needing an Xcode build.
         `modificationDate`/`attributesOfItem`) — **used**, so
         `NSPrivacyAccessedAPICategoryFileTimestamp` / **`3B52.1`**: timestamps of
         files and directories the *user specifically granted access to*, via the
-        macOS open panel or the iOS document picker. Four real call sites, all
-        `lstat`-into-a-`stat` existence/identity probes:
+        macOS open panel or the iOS document picker. Five real call sites. Four
+        are `lstat`-into-a-`stat` existence/identity probes:
         `GitCLIService.swift:627` (same-inode comparison),
         `GitCLIService.swift:787` and `LibGit2Service.swift:914` (does anything,
         including a dangling symlink, occupy this path), and
-        `GitCLIService.swift:1186` (the file's git mode). The remaining `lstat`
+        `GitCLIService.swift:1186` (the file's git mode). The fifth is the symbol
+        index's change gate, `FileService.fileStamp(at:)`, which reads
+        `(.size, .modificationDate)` through one `FileManager.attributesOfItem`
+        call per walked file on every index refresh — the first call site that
+        reads a timestamp *value* rather than merely probing existence, and the
+        reason this bullet lists `attributesOfItem`/`modificationDate` above.
+        The remaining `lstat`
         hits in `Sources/` are prose in comments. `3B52.1`, **not `DDA9.1`**:
         `DDA9.1` is for displaying a file timestamp to the user, and this app
         never does — the dates in the blame column come from git's own
@@ -322,8 +328,9 @@ run in `swift test` rather than needing an Xcode build.
       - Disk space (`statfs`/`volumeAvailableCapacity`/`systemFreeSize`/
         `volumeTotalCapacity`) — **no hits** in `Sources/` and no matching symbol
         in either binary, not declared. `FileService`'s
-        `.fileSizeKey` probe (the oversize-file guard) is a *per-file* size, which
-        is not on Apple's disk-space list; `.isDirectoryKey`,
+        `.fileSizeKey` probe (the oversize-file guard) and `fileStamp(at:)`'s
+        `.size` read are *per-file* sizes, which
+        are not on Apple's disk-space list; `.isDirectoryKey`,
         `.fileResourceIdentifierKey` and
         `.volumeSupportsCaseSensitiveNamesKey` are likewise not required-reason
         APIs.
