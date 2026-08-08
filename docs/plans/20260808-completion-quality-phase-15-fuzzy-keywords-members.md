@@ -167,35 +167,35 @@ dot is least likely to be a member access.
 - Modify: `Sources/PisakaCore/SymbolIndex.swift`
 - Modify: `Tests/PisakaCoreTests/SymbolIndexTests.swift`
 
-- [ ] Replace `prefixBucket` with `initialBucket`, filed under
+- [x] Replace `prefixBucket` with `initialBucket`, filed under
       `FuzzyMatch.wordBoundaryInitials(of:)` instead of the single first
       character; update `replace(fileKey:symbols:)` and `purge(fileKey:)` so a
       re-index still leaves no residue (the purge stays one sweep per distinct
       bucket, not one per symbol).
-- [ ] Replace `symbols(withPrefix:limit:)` with
+- [x] Replace `symbols(withPrefix:limit:)` with
       `symbols(matching query: String, limit: Int)`: one bucket lookup for the
       query's first character, filtered by `FuzzyMatch.quality(...) != nil`,
       returned in the documented stable order and capped after ordering. Empty
       query still yields nothing. Keep the existing prefix assertions in the
       tests — this is a superset, not a replacement of behavior.
-- [ ] Add `members(matching query: String, limit: Int) -> [Symbol]`: an ordered
+- [x] Add `members(matching query: String, limit: Int) -> [Symbol]`: an ordered
       pass over the per-file storage (files by key, symbols in extraction
       order), keeping `.method`/`.property`/`.constant` symbols that carry a
       non-empty `containerName` and match `query` fuzzily (an **empty query
       matches every member**, which is the typed-dot case), stopping at `limit`.
-- [ ] Add `members(inContainer name: String) -> [Symbol]` — the same filter
+- [x] Add `members(inContainer name: String) -> [Symbol]` — the same filter
       restricted to one container name, case-sensitive, uncapped.
-- [ ] Add `declaresType(named:) -> Bool` over `nameBucket` — the receiver
+- [x] Add `declaresType(named:) -> Bool` over `nameBucket` — the receiver
       heuristic's one question.
-- [ ] Document in the type's header that it still **ranks nothing**: these
+- [x] Document in the type's header that it still **ranks nothing**: these
       methods filter and order, they do not score.
-- [ ] Write/extend tests: bucket purge leaves no residue after a hump-keyed
+- [x] Write/extend tests: bucket purge leaves no residue after a hump-keyed
       re-index; `symbols(matching:)` finds `ArrayBuffer` for `aBu` and still
       finds it for `arr`; cap applies after ordering; `members(matching:"")`
       returns every container-carrying member and excludes free functions,
       types and container-less symbols; `members(inContainer:)` is
       case-sensitive; `declaresType(named:)` is false for a same-named function.
-- [ ] Run `swift test` — must pass before Task 3.
+- [x] Run `swift test` — must pass before Task 3.
 
 ### Task 3: Language keywords
 

@@ -227,9 +227,15 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
         // symbols costs a single dictionary hit and puts them back regardless of
         // where the pre-cap fell; the de-duplication below collapses the overlap
         // with whatever the bucket already returned.
-        let symbols = index.symbols(withPrefix: request.prefix, limit: candidateLimit(for: limit))
-            + (request.fileURL.map { index.symbols(inFile: $0) } ?? [])
-                .filter { $0.name.lowercased().hasPrefix(lowered) }
+        //
+        // The index answers a *superset* of a literal prefix — it matches
+        // fuzzily — while the ranking below still knows only two match qualities
+        // (typed case or not). Narrowing the widened set back down here keeps
+        // the two in step: a candidate this ranking cannot place is a candidate
+        // the user should not be shown yet.
+        let symbols = (index.symbols(matching: request.prefix, limit: candidateLimit(for: limit))
+            + (request.fileURL.map { index.symbols(inFile: $0) } ?? []))
+            .filter { $0.name.lowercased().hasPrefix(lowered) }
         var ranked: [Ranked] = symbols.map { symbol in
             Ranked(
                 item: CompletionItem(
