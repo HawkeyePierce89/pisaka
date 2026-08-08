@@ -441,10 +441,10 @@ platforms, and the debounce that keeps an edited buffer's symbols current.
 - All three live in `Sources/Pisaka/Platform/` and are compiled on both
   destinations, like `LicenseCatalogLoader`. No Core test changes — these files
   hold no decisions; the decisions are already in Core and tested there.
-- [ ] add `SymbolQueryCatalog` with the debug-only compile guard
-- [ ] add `SymbolExtractor` as a `nonisolated static` function (parser per call)
-- [ ] add `SymbolIndexController` with the two debounces
-- [ ] run `swift test` — must stay green
+- [x] add `SymbolQueryCatalog` with the debug-only compile guard
+- [x] add `SymbolExtractor` as a `nonisolated static` function (parser per call)
+- [x] add `SymbolIndexController` with the two debounces
+- [x] run `swift test` — must stay green
 
 ### Task 6: Index lifecycle wiring on both platforms
 
