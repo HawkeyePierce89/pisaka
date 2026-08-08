@@ -267,16 +267,11 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
 
     /// `url`'s path below `root` — what the definition picker shows.
     ///
-    /// A lexical strip, the same rule (and the same degradation to the last path
-    /// component) as `ProjectSearchModel.relativePath(of:under:)`: the URLs come
-    /// from the traversal, which builds them by appending components to the
-    /// root, so no `CanonicalPath` round trip is needed. Task 3 of the plan moves
-    /// that helper into `ProjectFileWalk`, at which point both callers share one
-    /// copy.
+    /// `ProjectFileWalk.relativePath(of:under:)`, the very helper Find in Files
+    /// labels its result groups with: the URLs come from that same traversal, so
+    /// a lexical strip is exact, and sharing the function is what keeps a
+    /// definition row and a search row from spelling one file two ways.
     static func relativePath(of url: URL, under root: URL?) -> String {
-        guard let root else { return url.lastPathComponent }
-        let base = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        guard url.path.hasPrefix(base) else { return url.lastPathComponent }
-        return String(url.path.dropFirst(base.count))
+        ProjectFileWalk.relativePath(of: url, under: root)
     }
 }

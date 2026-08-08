@@ -317,14 +317,14 @@ extractor invocations); a deleted file leaving the index on refresh; per-chunk
 incremental availability (symbols answerable before the walk finishes);
 unindexable languages never reaching the extractor.
 
-- [ ] extract `ProjectFileWalk` and repoint `ProjectSearchModel` (no behavior
+- [x] extract `ProjectFileWalk` and repoint `ProjectSearchModel` (no behavior
       change)
-- [ ] add `FileStamp` + `fileStamp(at:)` with the defaulted protocol requirement
-- [ ] add `SymbolIndexModel` with the generation scheme, chunked walk,
+- [x] add `FileStamp` + `fileStamp(at:)` with the defaulted protocol requirement
+- [x] add `SymbolIndexModel` with the generation scheme, chunked walk,
       stamp-gated refresh, buffer precedence and the off-main buffer re-index
-- [ ] move the traversal tests, add `SymbolIndexModelTests`, extend
+- [x] move the traversal tests, add `SymbolIndexModelTests`, extend
       `FileServiceTests`
-- [ ] run `swift test` — must pass before Task 4
+- [x] run `swift test` — must pass before Task 4
 
 ### Task 4: The `symbols.scm` query resources and their static verification
 

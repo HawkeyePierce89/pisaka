@@ -1,0 +1,478 @@
+import XCTest
+@testable import PisakaCore
+
+/// A stand-in for the app layer's tree-sitter extractor: every line spelled
+/// `sym <name>` declares one symbol, and every call is recorded.
+///
+/// Counting calls is the point — most of what this suite asserts is *work not
+/// done* (a stamp-unchanged file not re-parsed, an unindexable language never
+/// reaching the extractor at all), which no amount of inspecting the resulting
+/// index can show.
+private final class RecordingExtractor: @unchecked Sendable {
+    private let lock = NSLock()
+    private var callsStorage: [String] = []
+    private var gateStorage: Gate?
+
+    /// The file names handed to the extractor, in call order.
+    var calls: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return callsStorage
+    }
+
+    /// Held on the *next* extraction, so a test can stage a folder switch
+    /// landing mid-parse.
+    func gateNextCall(_ gate: Gate) {
+        lock.lock()
+        gateStorage = gate
+        lock.unlock()
+    }
+
+    /// The closure `SymbolIndexModel` is constructed with — synchronous, exactly
+    /// as the seam demands.
+    var extract: @Sendable (String, SyntaxLanguage, URL) -> [Symbol] {
+        { [self] text, _, url in symbols(in: text, fileURL: url) }
+    }
+
+    private func symbols(in text: String, fileURL: URL) -> [Symbol] {
+        lock.lock()
+        callsStorage.append(fileURL.lastPathComponent)
+        let gate = gateStorage
+        gateStorage = nil
+        lock.unlock()
+        gate?.wait()
+
+        var found: [Symbol] = []
+        var offset = 0
+        for (number, line) in text.components(separatedBy: "\n").enumerated() {
+            if line.hasPrefix("sym ") {
+                let name = String(line.dropFirst(4))
+                if !name.isEmpty {
+                    found.append(
+                        Symbol(
+                            name: name,
+                            kind: .function,
+                            range: NSRange(location: offset + 4, length: (name as NSString).length),
+                            fileURL: fileURL,
+                            line: number + 1
+                        )
+                    )
+                }
+            }
+            offset += (line as NSString).length + 1
+        }
+        return found
+    }
+}
+
+@MainActor
+final class SymbolIndexModelTests: XCTestCase {
+    private let root = URL(fileURLWithPath: "/project")
+    private let otherRoot = URL(fileURLWithPath: "/other")
+
+    private func names(_ model: SymbolIndexModel, _ name: String) -> [String] {
+        model.index.symbols(named: name).map(\.name)
+    }
+
+    // MARK: - What gets indexed
+
+    func testRebuildIndexesEveryIndexableFile() async {
+        let stub = StubFileTree(root: root, files: [
+            "a.swift": "sym alpha\n",
+            "sub/b.py": "sym beta\n",
+            "notes.txt": "sym gamma\n"
+        ])
+        let extractor = RecordingExtractor()
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: extractor.extract)
+
+        await model.rebuild(root: root)
+
+        XCTAssertEqual(extractor.calls.sorted(), ["a.swift", "b.py"])
+        XCTAssertEqual(names(model, "alpha"), ["alpha"])
+        XCTAssertEqual(names(model, "beta"), ["beta"])
+        // An unknown extension resolves to no language at all, so it is dropped
+        // before it is even read.
+        XCTAssertTrue(names(model, "gamma").isEmpty)
+        XCTAssertFalse(stub.readPaths.contains("notes.txt"))
+        XCTAssertEqual(model.index.indexedFileCount, 2)
+        XCTAssertFalse(model.isIndexing)
+    }
+
+    func testUnindexableLanguagesNeverReachTheExtractor() async {
+        let stub = StubFileTree(root: root, files: [
+            "a.swift": "sym alpha\n",
+            ".gitignore": "sym ignored\n"
+        ])
+        let extractor = RecordingExtractor()
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: extractor.extract)
+
+        await model.rebuild(root: root)
+
+        // The traversal reads `.gitignore` for its rules, but the *index* never
+        // parses it: it ships no `symbols.scm`, so it can declare nothing.
+        XCTAssertEqual(extractor.calls, ["a.swift"])
+        XCTAssertTrue(names(model, "ignored").isEmpty)
+    }
+
+    func testUnindexableLanguagesAreExactlyTheOnesShippingNoQuery() {
+        XCTAssertEqual(SymbolIndexModel.unindexableLanguages, [.gitignore])
+        for language in SyntaxLanguage.allCases where language != .gitignore {
+            XCTAssertTrue(SymbolIndexModel.isIndexable(language), "\(language) should be indexable")
+        }
+        XCTAssertFalse(SymbolIndexModel.isIndexable(.gitignore))
+        XCTAssertEqual(SymbolIndexModel.indexableLanguage(forFileName: "a.swift"), .swift)
+        XCTAssertNil(SymbolIndexModel.indexableLanguage(forFileName: ".gitignore"))
+        XCTAssertNil(SymbolIndexModel.indexableLanguage(forFileName: "a.unknownext"))
+    }
+
+    func testBinaryOrOversizeFileIsIndexedAsEmptyRatherThanReReadForever() async {
+        let stub = StubFileTree(root: root, files: ["big.swift": "sym huge\n"])
+        stub.skippedFiles = ["big.swift"]
+        let extractor = RecordingExtractor()
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: extractor.extract)
+
+        await model.rebuild(root: root)
+        await model.refresh(root: root)
+
+        XCTAssertTrue(extractor.calls.isEmpty)
+        // Indexed (so its unchanged stamp is recorded) but empty.
+        XCTAssertEqual(model.index.indexedFileCount, 1)
+        XCTAssertTrue(model.index.symbols(inFile: stub.url("big.swift")).isEmpty)
+    }
+
+    func testTheModelNeverWritesToDisk() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+
+        await model.rebuild(root: root)
+        await model.reindexBuffer(url: stub.url("a.swift"), text: "sym typed\n", language: .swift)
+        await model.refresh(root: root)
+
+        XCTAssertTrue(stub.writtenPaths.isEmpty)
+    }
+
+    // MARK: - Incremental availability
+
+    func testSymbolsAreAnswerableBeforeTheWalkFinishes() async {
+        var files: [String: String] = [:]
+        for number in 0..<40 {
+            files[String(format: "f%02d.swift", number)] = "sym s\(number)\n"
+        }
+        let stub = StubFileTree(root: root, files: files)
+        let gate = Gate()
+        // The first file of the *second* chunk: reaching it proves the first
+        // chunk has already been published.
+        stub.readGate = (path: "f32.swift", gate: gate)
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+
+        let walk = Task { await model.rebuild(root: root) }
+        await gate.waitUntilReached()
+
+        XCTAssertEqual(model.index.indexedFileCount, SymbolIndexModel.chunkSize)
+        XCTAssertEqual(names(model, "s0"), ["s0"])
+        XCTAssertTrue(names(model, "s39").isEmpty)
+        XCTAssertTrue(model.isIndexing)
+
+        gate.release()
+        await walk.value
+
+        XCTAssertEqual(model.index.indexedFileCount, 40)
+        XCTAssertEqual(names(model, "s39"), ["s39"])
+        XCTAssertFalse(model.isIndexing)
+    }
+
+    // MARK: - Generation
+
+    func testPrepareForFolderChangeClearsTheIndexSynchronously() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+        await model.rebuild(root: root)
+        XCTAssertFalse(model.index.isEmpty)
+
+        let before = model.currentRequestGeneration
+        let generation = model.prepareForFolderChange(root: otherRoot)
+
+        // Cleared in the same turn as the call, with no `Task` hop in between:
+        // a stale symbol must never be jumpable to while the new project loads.
+        XCTAssertTrue(model.index.isEmpty)
+        XCTAssertGreaterThan(generation, before)
+        XCTAssertEqual(model.currentRequestGeneration, generation)
+    }
+
+    func testPrepareForTheSameFolderIsANoOp() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+        await model.rebuild(root: root)
+        let generation = model.currentRequestGeneration
+
+        XCTAssertEqual(model.prepareForFolderChange(root: root), generation)
+        XCTAssertFalse(model.index.isEmpty)
+    }
+
+    func testRebuildRejectsASupersededRequestGeneration() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+
+        let stale = model.prepareForFolderChange(root: root)
+        _ = model.prepareForFolderChange(root: otherRoot)
+
+        // Two rapid folder opens: the deferred rebuild for the first must not
+        // run at all, since `Task`s are not guaranteed to start in creation
+        // order.
+        await model.rebuild(root: root, request: stale)
+
+        XCTAssertTrue(model.index.isEmpty)
+        XCTAssertTrue(stub.readPaths.isEmpty)
+    }
+
+    func testSupersededRebuildPublishesNothing() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
+        let gate = Gate()
+        stub.listingGate = gate
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+
+        let walk = Task { await model.rebuild(root: root) }
+        await gate.waitUntilReached()
+        _ = model.prepareForFolderChange(root: otherRoot)
+        gate.release()
+        await walk.value
+
+        XCTAssertTrue(model.index.isEmpty)
+    }
+
+    func testTwoRapidFolderChangesSettleOnTheNewerOne() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
+        let gate = Gate()
+        stub.listingGate = gate
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+
+        let first = Task { await model.rebuild(root: root) }
+        await gate.waitUntilReached()
+
+        // The second project takes the stub over while the first walk is held.
+        stub.root = otherRoot
+        stub.files = ["b.swift": "sym beta\n"]
+        let generation = model.prepareForFolderChange(root: otherRoot)
+        gate.release()
+        await first.value
+        await model.rebuild(root: otherRoot, request: generation)
+
+        XCTAssertEqual(names(model, "beta"), ["beta"])
+        XCTAssertTrue(names(model, "alpha").isEmpty)
+    }
+
+    // MARK: - Stamp-gated refresh
+
+    func testRefreshOnlyReExtractsFilesWhoseStampChanged() async {
+        let stub = StubFileTree(root: root, files: [
+            "a.swift": "sym alpha\n",
+            "b.swift": "sym beta\n"
+        ])
+        let extractor = RecordingExtractor()
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: extractor.extract)
+
+        await model.rebuild(root: root)
+        XCTAssertEqual(extractor.calls.sorted(), ["a.swift", "b.swift"])
+
+        await model.refresh(root: root)
+        // Nothing changed on disk, so nothing is re-read and nothing is
+        // re-parsed — the property that keeps an `npm i` cheap.
+        XCTAssertEqual(extractor.calls.sorted(), ["a.swift", "b.swift"])
+
+        stub.files["b.swift"] = "sym betaTwo\n"
+        await model.refresh(root: root)
+
+        XCTAssertEqual(extractor.calls.sorted(), ["a.swift", "b.swift", "b.swift"])
+        XCTAssertEqual(names(model, "betaTwo"), ["betaTwo"])
+        XCTAssertTrue(names(model, "beta").isEmpty)
+        XCTAssertEqual(names(model, "alpha"), ["alpha"])
+    }
+
+    func testRefreshReExtractsEverythingWhenStampsAreUnavailable() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
+        stub.stampsAreUnavailable = true
+        let extractor = RecordingExtractor()
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: extractor.extract)
+
+        await model.rebuild(root: root)
+        await model.refresh(root: root)
+
+        // "Unknown" means "re-read it": a service that reports no stamps degrades
+        // to correct-but-slower, never to stale.
+        XCTAssertEqual(extractor.calls, ["a.swift", "a.swift"])
+    }
+
+    func testRefreshDropsAFileTheWalkNoLongerSees() async {
+        let stub = StubFileTree(root: root, files: [
+            "a.swift": "sym alpha\n",
+            "b.swift": "sym beta\n"
+        ])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+        await model.rebuild(root: root)
+
+        stub.files["b.swift"] = nil
+        await model.refresh(root: root)
+
+        XCTAssertTrue(names(model, "beta").isEmpty)
+        XCTAssertEqual(names(model, "alpha"), ["alpha"])
+        XCTAssertEqual(model.index.indexedFileCount, 1)
+    }
+
+    func testRefreshForADifferentRootRebuilds() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+        await model.rebuild(root: root)
+
+        stub.root = otherRoot
+        stub.files = ["b.swift": "sym beta\n"]
+        // A refresh naming a folder this model was never indexing is a folder
+        // change wearing a refresh's clothes: no stamp from the old project may
+        // gate a file in the new one.
+        await model.refresh(root: otherRoot)
+
+        XCTAssertEqual(names(model, "beta"), ["beta"])
+        XCTAssertTrue(names(model, "alpha").isEmpty)
+    }
+
+    // MARK: - Buffers
+
+    func testOpenBuffersAreIndexedInsteadOfDiskContents() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym saved\n"])
+        let url = stub.url("a.swift")
+        let model = SymbolIndexModel(
+            fileService: stub,
+            openBuffers: { [url: "sym typed\n"] },
+            extractSymbols: RecordingExtractor().extract
+        )
+
+        await model.rebuild(root: root)
+
+        XCTAssertEqual(names(model, "typed"), ["typed"])
+        XCTAssertTrue(names(model, "saved").isEmpty)
+        XCTAssertFalse(stub.readPaths.contains("a.swift"))
+    }
+
+    func testReindexBufferPublishesTheBuffersSymbols() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym saved\n"])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+        await model.rebuild(root: root)
+
+        await model.reindexBuffer(url: stub.url("a.swift"), text: "sym typed\n", language: .swift)
+
+        XCTAssertEqual(names(model, "typed"), ["typed"])
+        XCTAssertTrue(names(model, "saved").isEmpty)
+    }
+
+    func testReindexBufferSkipsAnUnindexableLanguage() async {
+        let stub = StubFileTree(root: root, files: [:])
+        let extractor = RecordingExtractor()
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: extractor.extract)
+
+        await model.reindexBuffer(url: stub.url(".gitignore"), text: "sym ignored\n", language: .gitignore)
+
+        XCTAssertTrue(extractor.calls.isEmpty)
+        XCTAssertTrue(model.index.isEmpty)
+    }
+
+    func testReindexBufferSupersededMidFlightPublishesNothing() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym saved\n"])
+        let extractor = RecordingExtractor()
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: extractor.extract)
+        await model.rebuild(root: root)
+
+        let gate = Gate()
+        extractor.gateNextCall(gate)
+        let reindex = Task {
+            await model.reindexBuffer(url: stub.url("a.swift"), text: "sym typed\n", language: .swift)
+        }
+        await gate.waitUntilReached()
+        _ = model.prepareForFolderChange(root: otherRoot)
+        gate.release()
+        await reindex.value
+
+        // The parse finished for a project the user has already left, so its
+        // result is discarded rather than published into the new one's index.
+        XCTAssertTrue(model.index.isEmpty)
+    }
+
+    func testARefreshDoesNotClobberABufferSourcedEntry() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym saved\n"])
+        let extractor = RecordingExtractor()
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: extractor.extract)
+        await model.rebuild(root: root)
+        await model.reindexBuffer(url: stub.url("a.swift"), text: "sym typed\n", language: .swift)
+
+        // The file changes on disk (a `git checkout` of it, say) while the tab
+        // still holds the user's text.
+        stub.files["a.swift"] = "sym savedTwo\n"
+        await model.refresh(root: root)
+
+        XCTAssertEqual(names(model, "typed"), ["typed"])
+        XCTAssertTrue(names(model, "savedTwo").isEmpty)
+    }
+
+    func testBufferEntrySurvivesAChunkThatReadDiskBeforeTheEdit() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym saved\n"])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+        await model.rebuild(root: root)
+
+        // Stage the exact window the buffer-over-disk rule exists for: the file
+        // changed on disk, so the refresh *will* read it, and the tab is
+        // re-indexed after the walk took its buffer snapshot but before the
+        // chunk's result is applied.
+        stub.files["a.swift"] = "sym savedTwo\n"
+        let gate = Gate()
+        stub.listingGate = gate
+        let refresh = Task { await model.refresh(root: root) }
+        await gate.waitUntilReached()
+
+        let reindex = Task {
+            await model.reindexBuffer(url: stub.url("a.swift"), text: "sym typed\n", language: .swift)
+        }
+        // Let the re-index reach its own off-main hop, so it is queued behind the
+        // held traversal and ahead of the chunk that follows it.
+        await Task.yield()
+        gate.release()
+        await reindex.value
+        await refresh.value
+
+        XCTAssertEqual(names(model, "typed"), ["typed"])
+        XCTAssertTrue(names(model, "savedTwo").isEmpty)
+    }
+
+    func testForgetBufferLetsTheNextRefreshTakeTheDiskVersion() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym saved\n"])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+        await model.rebuild(root: root)
+        await model.reindexBuffer(url: stub.url("a.swift"), text: "sym typed\n", language: .swift)
+
+        model.forgetBuffer(url: stub.url("a.swift"))
+        // The stamp went with the mark, so the file is re-extracted even though
+        // disk has not changed since the rebuild.
+        await model.refresh(root: root)
+
+        XCTAssertEqual(names(model, "saved"), ["saved"])
+        XCTAssertTrue(names(model, "typed").isEmpty)
+    }
+
+    // MARK: - Provider
+
+    func testProviderAnswersFromTheModelsLatestSnapshot() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+        let provider = model.provider
+
+        let beforeWalk = await provider.definitions(
+            for: DefinitionRequest(identifier: "alpha", fileURL: nil, offset: 0)
+        )
+        XCTAssertTrue(beforeWalk.isEmpty)
+
+        await model.rebuild(root: root)
+
+        let candidates = await provider.definitions(
+            for: DefinitionRequest(identifier: "alpha", fileURL: nil, offset: 0)
+        )
+        XCTAssertEqual(candidates.map(\.relativePath), ["a.swift"])
+        XCTAssertEqual(candidates.first?.symbol.line, 1)
+    }
+}

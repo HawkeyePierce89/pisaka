@@ -149,8 +149,15 @@ final class ProjectSearchModelTests: XCTestCase {
     }
 
     // MARK: - Traversal
+    //
+    // The traversal *rules* — `.git`/`.DS_Store`, the gitignore stack, symlinks,
+    // ordering, the mask — moved to `ProjectFileWalkTests` when `collectFiles`
+    // left this model for the shared `ProjectFileWalk`. What stays here is the
+    // end-to-end proof that a search still goes through that walk, so a repoint
+    // that silently stopped applying it fails a search test and not only a
+    // traversal one.
 
-    func testTraversalSkipsGitDirectoryAndHonorsNestedGitignore() async {
+    func testSearchGoesThroughTheSharedTraversal() async {
         let stub = StubFiles(root: root, files: [
             ".gitignore": "build/\n*.log\n",
             "a.swift": "needle here",
@@ -170,50 +177,6 @@ final class ProjectSearchModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
         XCTAssertFalse(model.isSearching)
         XCTAssertFalse(model.truncated)
-    }
-
-    func testTraversalDoesNotDescendIntoSymlinkedDirectory() async {
-        let stub = StubFiles(root: root, files: [
-            "a.swift": "needle",
-            "link/looped.swift": "needle"
-        ])
-        stub.symlinks = ["link"]
-        let model = ProjectSearchModel(fileService: stub)
-
-        await model.search(root: root, query: SearchQuery(pattern: "needle"), mask: "")
-
-        XCTAssertEqual(paths(model), ["a.swift"])
-    }
-
-    func testTraversalSkipsSymlinkedFiles() async {
-        let stub = StubFiles(root: root, files: [
-            "real.swift": "needle",
-            "link.swift": "needle"
-        ])
-        // A symlink to a *file* dereferences to `isDirectory == false`, so it is
-        // indistinguishable from an ordinary entry in the listing: without the
-        // explicit probe it would be searched (duplicating its target's matches)
-        // and, on Replace All, overwritten with a regular file.
-        stub.symlinks = ["link.swift"]
-        let model = ProjectSearchModel(fileService: stub)
-
-        await model.search(root: root, query: SearchQuery(pattern: "needle"), mask: "")
-
-        XCTAssertEqual(paths(model), ["real.swift"])
-    }
-
-    func testUnreadableDirectoryIsSkippedRatherThanFailingTheSearch() async {
-        let stub = StubFiles(root: root, files: [
-            "a.swift": "needle",
-            "secret/b.swift": "needle"
-        ])
-        stub.unreadableDirectories = ["secret"]
-        let model = ProjectSearchModel(fileService: stub)
-
-        await model.search(root: root, query: SearchQuery(pattern: "needle"), mask: "")
-
-        XCTAssertEqual(paths(model), ["a.swift"])
-        XCTAssertNil(model.errorMessage)
     }
 
     // MARK: - File mask
