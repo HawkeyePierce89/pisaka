@@ -447,6 +447,36 @@ final class SymbolIndexTests: XCTestCase {
         XCTAssertTrue(index.members(matching: "zzz", limit: 10).isEmpty)
     }
 
+    /// The member cut takes the same split its sibling does: a **literal prefix**
+    /// match survives ahead of a fuzzy one.
+    ///
+    /// The argument is the one `symbols(matching:limit:)` spells out, and the kind
+    /// filter does not weaken it — `setUp()` is an exact prefix match for `se` and
+    /// lives in the last-sorting file, behind more fuzzy-only members than the cap
+    /// allows. Neither of the provider's two rescues reaches it (the receiver here
+    /// spells no declared type, and the file is not the one being typed in), so a
+    /// flat cut in file-key order would drop it for good.
+    func testTheMemberLimitEvictsFuzzyMatchesBeforeLiteralPrefixMatches() {
+        var index = SymbolIndex()
+        let early = "/tmp/pisaka-symbols/aaa.swift"
+        let late = "/tmp/pisaka-symbols/zzz.swift"
+        // Fuzzy-only members for `se`: an `s` word boundary, an `e` later on.
+        index.replace(
+            fileURL: url(early),
+            symbols: (0..<10).map {
+                symbol("sharedState\($0)", kind: .property, at: $0 * 20, in: early, container: "Store")
+            }
+        )
+        index.replace(
+            fileURL: url(late),
+            symbols: [symbol("setUp", kind: .method, at: 0, in: late, container: "Case")]
+        )
+
+        let found = index.members(matching: "se", limit: 3).map(\.name)
+        XCTAssertTrue(found.contains("setUp"), "\(found)")
+        XCTAssertEqual(found, ["sharedState0", "sharedState1", "setUp"])
+    }
+
     /// Case-sensitive, for the same reason `symbols(named:)` is: the receiver's
     /// spelling *is* the question being asked.
     func testMembersInContainerAreCaseSensitive() {

@@ -210,7 +210,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `symbols(matching:limit:)` does, by the same argument (the matcher anchors the
     first matched character on a word boundary and every boundary is a bucket key,
     so that one bucket already holds every member that could match), with only the
-    `.method`/`.property`/`.constant`-with-a-container filter applied on top. That
+    `.method`/`.property`/`.constant`-with-a-container filter applied on top, and
+    it takes the same split cut through the one shared `cut(prefixes:fuzzy:limit:)`
+    — the rule is a property of "fuzzy matching widened the set while the cap did
+    not", which is as true of the member path as of its sibling, and two copies of
+    it were free to drift, as they had. That
     routing is what keeps the member path off a project-wide scan while the user
     types, which is the case that would otherwise walk every symbol in the project
     once per keystroke and never reach its cap. The linear pass over the per-file
@@ -809,7 +813,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     not cover that case — it fires only when the receiver spells a declared type,
     while `worker.`, the common case, promotes nothing. Both extra lookups are
     re-matched like every other source, so being unfiltered cannot widen what
-    counts as a candidate, and `assemble` collapses the overlap.
+    counts as a candidate, and `assemble` collapses the overlap. The *third* way
+    the pre-cap can lose a candidate — a literal prefix match evicted by unrelated
+    fuzzy matches from earlier-sorting files — is not repairable here either, and
+    is handled at the cut for the same reason and by the same shared rule the
+    ordinary path uses: `members(matching:limit:)` fills the cap from the prefix
+    matches first. Neither rescue above covers it, since a member of an
+    un-promoted receiver declared in some third file is reached by neither.
     `memberCandidateLimit` 400 is a flat number rather than a multiple of the
     visible cap the way `candidateLimit(for:)` is, because that one slices a set
     the *query* already narrowed while a bare dot has no query at all — a few

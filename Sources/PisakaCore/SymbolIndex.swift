@@ -213,12 +213,7 @@ public struct SymbolIndex: Equatable, Sendable {
             guard let quality = FuzzyMatch.quality(of: entry.symbol.name, matching: query) else { continue }
             if quality.isPrefixMatch { prefixMatches.append(entry) } else { fuzzyMatches.append(entry) }
         }
-        guard prefixMatches.count + fuzzyMatches.count > limit else {
-            return Self.ordered(prefixMatches + fuzzyMatches)
-        }
-        let keptPrefixes = Self.sorted(prefixMatches).prefix(limit)
-        let keptFuzzy = Self.sorted(fuzzyMatches).prefix(limit - keptPrefixes.count)
-        return Self.ordered(Array(keptPrefixes) + Array(keptFuzzy))
+        return Self.cut(prefixes: prefixMatches, fuzzy: fuzzyMatches, limit: limit)
     }
 
     /// Every *member* — a `.method`, `.property` or `.constant` that names an
@@ -242,6 +237,20 @@ public struct SymbolIndex: Equatable, Sendable {
     /// names already holds every member that could match. Only the kind filter is
     /// applied on top.
     ///
+    /// It also takes the same **split cut** — a literal prefix match survives the
+    /// truncation ahead of a fuzzy one — through the shared `cut(prefixes:fuzzy:limit:)`.
+    /// The kind filter narrows the set but does not change the argument
+    /// `symbols(matching:limit:)` spells out: fuzzy matching widened the matched
+    /// set by one to two orders of magnitude while the cap did not, so a flat cut
+    /// in file-key order would decide *which* matches the provider ever ranks by
+    /// how paths happen to sort, and a `setUp` in `zzTests/` — an exact prefix
+    /// match — could fall past the cut while unrelated fuzzy matches from
+    /// early-sorting paths survive. The provider's `members(inFile:)` and
+    /// `members(inContainer:)` rescues do not cover it: neither reaches a member
+    /// of an un-promoted receiver declared in some third file. Eviction order is
+    /// the one property the caller cannot repair, because by then the candidate
+    /// is simply absent.
+    ///
     /// That routing is what keeps the member path off a project-wide scan. The
     /// linear pass below is reached only by the **empty** query — the bare typed
     /// dot — where there is no first character to look a bucket up by. It is
@@ -256,10 +265,15 @@ public struct SymbolIndex: Equatable, Sendable {
 
         if !query.isEmpty {
             guard let initial = Self.initial(of: query) else { return [] }
-            let matches = (initialBucket[initial] ?? []).filter {
-                Self.isMember($0.symbol) && FuzzyMatch.matches($0.symbol.name, query: query)
+            var prefixMatches: [Entry] = []
+            var fuzzyMatches: [Entry] = []
+            for entry in initialBucket[initial] ?? [] {
+                guard Self.isMember(entry.symbol),
+                      let quality = FuzzyMatch.quality(of: entry.symbol.name, matching: query)
+                else { continue }
+                if quality.isPrefixMatch { prefixMatches.append(entry) } else { fuzzyMatches.append(entry) }
             }
-            return Array(Self.ordered(matches).prefix(limit))
+            return Self.cut(prefixes: prefixMatches, fuzzy: fuzzyMatches, limit: limit)
         }
 
         var found: [Symbol] = []
@@ -382,9 +396,29 @@ public struct SymbolIndex: Equatable, Sendable {
         sorted(entries).map(\.symbol)
     }
 
+    /// Truncate a matched set to `limit` so that **a literal prefix match
+    /// survives the cut ahead of a fuzzy one**, and return it in the one
+    /// documented order.
+    ///
+    /// Shared by `symbols(matching:limit:)` and `members(matching:limit:)`
+    /// deliberately: the rule is a property of "fuzzy matching widened the set
+    /// but the cap did not", which is true of both lookups, and two copies of it
+    /// would be free to drift — as they did, the member path having been written
+    /// with a flat cut. The rule is a *truncation* rule and not a ranking one:
+    /// both halves come back merged into the single file-key/position/name order
+    /// the type documents, and the caller still ranks what it is handed.
+    private static func cut(prefixes: [Entry], fuzzy: [Entry], limit: Int) -> [Symbol] {
+        guard prefixes.count + fuzzy.count > limit else {
+            return Self.ordered(prefixes + fuzzy)
+        }
+        let keptPrefixes = Self.sorted(prefixes).prefix(limit)
+        let keptFuzzy = Self.sorted(fuzzy).prefix(limit - keptPrefixes.count)
+        return Self.ordered(Array(keptPrefixes) + Array(keptFuzzy))
+    }
+
     /// The same order, still as entries — what a lookup that has to *select*
-    /// before it projects (the split cut in `symbols(matching:limit:)`) needs, so
-    /// both halves are truncated by the one documented order rather than by
+    /// before it projects (the split cut in `cut(prefixes:fuzzy:limit:)`) needs,
+    /// so both halves are truncated by the one documented order rather than by
     /// storage position.
     private static func sorted(_ entries: [Entry]) -> [Entry] {
         entries.sorted { lhs, rhs in

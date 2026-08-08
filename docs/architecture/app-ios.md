@@ -319,12 +319,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     carries the member context and the file's `language` (the keyword source, `nil`
     meaning no keywords rather than some default language's). The caret is re-read
     *after* the await
-    for the same reason macOS does it, and the re-check needed the same relaxation
-    macOS's did: an empty (member) prefix compares equal to the also-empty partial
-    word anywhere there is no word at all, so the zero-length case additionally
-    requires that this request *was* a member request and that the live caret is
-    still after a dot hanging off the **same receiver** — otherwise a caret move
-    to any other dot in the buffer would inherit the previous one's list. `showCompletions(_:answering:in:)` records that
+    for the same reason macOS does it, and it carries the same second half macOS
+    carries: matching the live partial word is not enough at **any** prefix length,
+    because a member-only list and an ordinary list answer the same typed
+    characters with different candidate *sets*, so the caret must still be in the
+    same member state — **receiver and all** — the rows were computed for
+    (`memberContext(…).map(\.receiver) == member.map(\.receiver)`, `map` rather
+    than `?.` so "not a member position" cannot flatten into "a member position
+    with an unnamed receiver"). The empty prefix makes that most obvious — it
+    compares equal to the also-empty partial word anywhere there is no word at all,
+    so any other dot in the buffer would inherit the previous one's list — but
+    `worker.na`'s member-only list is just as wrong over an unrelated `na`, which is
+    why the compare is not nested in the zero-length case. `showCompletions(_:answering:in:)` records that
     member position as `answeredMember` so the *insertion* guard can make the same
     comparison; it calls
     `reloadInputViews()` only when the strip's **presence** changes, not per
@@ -345,20 +351,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `ArrayBuffer` just ranked below `arrayCount`, and `arrBuf` offers it too), so
     any narrower guard — the `hasPrefix` test this replaced — would let the user
     tap a perfectly valid row and have nothing at all happen, with no feedback
-    explaining it. A **zero-length** range is accepted when the caret is still in
-    the member position these rows answered: that is the bare typed `.`, where
-    there is no typed text to match against and the empty range at the caret is
-    already the right insertion point; everywhere else a zero-length range means
-    the word the tap answered has moved, and the tap is dropped. The position is
-    remembered as `answeredMember`, recorded by `showCompletions(_:answering:in:)`
-    alongside the rows it is showing (and cleared by an empty list and by
-    `tearDownCompletions(in:)`), so the test compares **receivers** the way the
-    strip's three other stale-state checks do rather than merely finding *a* dot —
-    every other dot in the buffer satisfies the weaker one. That matters here
+    explaining it. That matcher test is the *second* guard. The first is the same
+    member-state compare the post-await re-check makes, made here at every prefix
+    length too: the position the rows answered is remembered as `answeredMember`
+    (recorded by `showCompletions(_:answering:in:)` alongside the rows it is
+    showing, cleared by an empty list and by `tearDownCompletions(in:)`), and its
+    **receiver** — not merely "some dot is here" — must equal the live one. Only
+    then is a **zero-length** range accepted, as the bare typed `.`, where there is
+    no typed text to match against and the empty range at the caret is already the
+    right insertion point; everywhere else a zero-length range means the word the
+    tap answered has moved, and the tap is dropped. All of this matters
     because a caret move does not clear the strip synchronously:
     `textViewDidChangeSelection` schedules the same 150 ms debounce a keystroke
-    does, so for that window the previous receiver's rows are still on screen, and
-    the weaker test would insert a member of `Worker` at the `other.` caret. It
+    does, so for that window the previous receiver's rows are still on screen — and
+    without the compare a tap in it inserts a member of `Worker` at the `other.`
+    caret, or one of `worker.na`'s members over an unrelated `na` that happens to
+    fuzzy-match. It
     then clears the strip: `applyEdit` fires
     `textViewDidChange` synchronously, and offering longer names the instant a
     choice was made is how a completion strip turns into a treadmill.

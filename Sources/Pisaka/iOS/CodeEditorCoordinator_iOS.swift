@@ -81,15 +81,15 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// answer an ordinary partial word.
     ///
     /// Carried — **receiver and all** — for exactly the reason the macOS
-    /// `CompletionController.Snapshot` carries it. `insertCompletion(_:)` accepts a
-    /// zero-length prefix range (the bare typed `.`) on the strength of the caret
-    /// still sitting in *a* member position, and every other dot in the buffer
-    /// satisfies that weaker test. A caret move does **not** clear the strip
+    /// `CompletionController.Snapshot` carries it, and compared at **every** prefix
+    /// length rather than only at zero. A caret move does **not** clear the strip
     /// synchronously — `textViewDidChangeSelection` schedules the same 150 ms
     /// debounce a keystroke does — so for that window the previous receiver's rows
-    /// are still on screen, and without the receiver compare a tap landing in it
-    /// inserts a member of `Worker` at the `other.` caret. The strip's other three
-    /// stale-state checks all compare receivers; this is the fourth.
+    /// are still on screen. Without the compare, a tap landing in that window
+    /// inserts a member of `Worker` at the `other.` caret (the zero-length case:
+    /// "still after *a* dot" is satisfied by every other dot in the buffer), and
+    /// equally inserts one of `worker.na`'s members over an unrelated `na`, which
+    /// a fuzzy-match test of the typed characters alone waves through.
     private var answeredMember: IdentifierScanner.MemberContext?
 
     /// The in-flight completion debounce/provider task; cancelled when a newer
@@ -363,23 +363,28 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
                 self.showCompletions([], in: textView)
                 return
             }
-            // An empty partial word compares equal to an empty (member) prefix
-            // *everywhere* there is no word at all — in open space, after a `(`,
-            // at the start of a line — so the zero-length case additionally
-            // demands that the caret still sits after a dot hanging off the
-            // **same receiver**, the only position in which the empty prefix was
-            // legitimate. Comparing receivers rather than merely finding *a* dot
-            // is what keeps a tap moved to `other.` from inheriting the member
-            // list `Worker.` was asked for; every other dot in the buffer would
-            // satisfy the weaker test.
-            if range.length == 0 {
-                guard let member,
-                      let live = IdentifierScanner.memberContext(in: liveText, at: offset),
-                      live.receiver == member.receiver
-                else {
-                    self.showCompletions([], in: textView)
-                    return
-                }
+            // Matching the partial word is not enough on its own, at **any**
+            // prefix length: a member list and an ordinary list answer the same
+            // typed characters with different candidate *sets* (a member list
+            // carries no keywords and no non-member symbols), so the caret must
+            // still be in the same member state these items were computed for —
+            // receiver and all. The empty prefix makes that most obvious (it
+            // compares equal everywhere there is no word at all: in open space,
+            // after a `(`, at the start of a line, and after every other dot in
+            // the buffer), but `worker.na`'s member-only list is just as wrong
+            // over an unrelated `na` — which is why this is not nested in the
+            // zero-length case, matching the macOS `CompletionController`.
+            //
+            // `map(\.receiver)` rather than `?.receiver`: the receiver is itself
+            // optional (a bracketed one — `f().` — names no type), and optional
+            // chaining would flatten "not a member position" into "a member
+            // position with an unnamed receiver" and let the two serve each
+            // other's lists.
+            guard IdentifierScanner.memberContext(in: liveText, at: offset).map(\.receiver)
+                    == member.map(\.receiver)
+            else {
+                self.showCompletions([], in: textView)
+                return
             }
             self.showCompletions(items.map(\.text), answering: member, in: textView)
         }
@@ -441,15 +446,19 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// candidate and have nothing happen at all — a dead row on the strip, with
     /// no feedback explaining it.
     ///
-    /// A **zero-length** range is accepted when the caret is still in the member
-    /// position these items answered: that is the bare typed `.`, where there is
-    /// no typed text to match against and the empty range at the caret is already
-    /// the correct insertion point. The comparison is against `answeredMember`'s
-    /// *receiver*, not merely "some dot is here" — every other dot in the buffer
-    /// satisfies the weaker test, so it would let a tap landing after the caret
-    /// moved to `other.` insert a member of `Worker`. Everywhere else a
-    /// zero-length range means the word this tap answered has moved, and the tap
-    /// is dropped.
+    /// That matcher test is the second guard, not the only one. The first is that
+    /// the caret is still in the **same member state** these items answered —
+    /// `answeredMember`'s *receiver*, not merely "some dot is here" — and it is
+    /// demanded at every prefix length, exactly as macOS demands it: a member-only
+    /// list and an ordinary list answer the same typed characters with different
+    /// candidate sets, so `worker.na`'s members are as wrong over an unrelated
+    /// `na` as they are after a caret moved to `other.`.
+    ///
+    /// A **zero-length** range is then accepted only in that member position: it is
+    /// the bare typed `.`, where there is no typed text to match against and the
+    /// empty range at the caret is already the correct insertion point. Everywhere
+    /// else a zero-length range means the word this tap answered has moved, and the
+    /// tap is dropped.
     private func insertCompletion(_ item: String) {
         guard let textView,
               textView.markedTextRange == nil,
@@ -458,11 +467,15 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         let nsText = textView.text as NSString
         let offset = textView.offset(from: textView.beginningOfDocument, to: caret.start)
         let range = IdentifierScanner.completionPrefixRange(in: nsText, at: offset)
+        guard IdentifierScanner.memberContext(in: nsText, at: offset).map(\.receiver)
+                == answeredMember.map(\.receiver)
+        else { return }
         if range.length == 0 {
-            guard let answered = answeredMember,
-                  let live = IdentifierScanner.memberContext(in: nsText, at: offset),
-                  live.receiver == answered.receiver
-            else { return }
+            // The bare typed `.`, whose member position the compare above has
+            // already confirmed is still the one these items answered. Everywhere
+            // else a zero-length range means the word this tap answered has moved,
+            // and the tap is dropped.
+            guard answeredMember != nil else { return }
         } else {
             guard FuzzyMatch.matches(item, query: nsText.substring(with: range)) else { return }
         }
