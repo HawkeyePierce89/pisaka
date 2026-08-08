@@ -533,19 +533,67 @@ The only new app-side machinery, thin and `#if os(macOS)`-gated.
 - Create: `Sources/Pisaka/LSPProcessTransport.swift`, `Sources/Pisaka/LSPToolchain.swift`
 - Create: `Tests/PisakaCoreTests/LSPSourceGatingTests.swift`
 
-- [ ] `LSPProcessTransport`: `Process` + three pipes on a dedicated serial queue (the
+- [x] `LSPProcessTransport`: `Process` + three pipes on a dedicated serial queue (the
       `GitCLIService` idiom), stdout fed into `LSPFraming.Decoder` and published as
       the transport's `AsyncStream`, stderr drained and discarded, environment
       inherited, `terminate()` sending SIGTERM then reaping — and a `deinit`/
       termination path as deliberate as `TerminalSession.terminate()`, so no
       `sourcekit-lsp` ever outlives the app
-- [ ] `LSPToolchain`: `xcrun --find sourcekit-lsp` honouring `DEVELOPER_DIR`, result
+- [x] `LSPToolchain`: `xcrun --find sourcekit-lsp` honouring `DEVELOPER_DIR`, result
       (including "not found") cached per app run, nothing bundled or downloaded
-- [ ] `LSPSourceGatingTests` (repo-file suite, `#filePath` + Foundation): every new
+- [x] `LSPSourceGatingTests` (repo-file suite, `#filePath` + Foundation): every new
       `Sources/Pisaka` LSP file is wrapped in `#if os(macOS)`, and no
       `Sources/PisakaCore/LSP*.swift` mentions `Process`, `AppKit`, `UIKit` or
       `SwiftTreeSitter`
-- [ ] run `swift test` — must pass before task 9
+- [x] run `swift test` — must pass before task 9
+
+Five things the implementation settled that the plan had left open, all worth
+carrying into Task 13's `core-lsp.md` (and, for the first three, into
+`app-editor.md`):
+
+- **The transport publishes raw chunks, not payloads.** The checkbox above says
+  "stdout fed into `LSPFraming.Decoder` and published as the transport's
+  `AsyncStream`", but `LSPSession` already owns a decoder and Task 3's
+  `LSPTransport` states the contract outright — the stream carries "the bytes the
+  server wrote, in whatever chunks the pipe delivered them". A decoder here would
+  be a second one framing already-framed bytes. So the transport hands `availableData`
+  straight through, and the one framing decoder in the client stays where the
+  terminal-vs-recoverable distinction is (Task 3's "a framing error is terminal, a
+  bad payload is not").
+- **`SIGPIPE` would kill the app, not the write.** A server that crashes between
+  two `didChange`s leaves a pipe with no reader, and the default disposition of
+  `SIGPIPE` terminates the *writing* process — Pisaka. The write end is therefore
+  put in `F_SETNOSIGPIPE` mode, per file descriptor rather than by ignoring the
+  signal process-wide, so `write(2)` returns `EPIPE`, `FileHandle` throws it, and
+  the failure joins the ordinary death path. This is the one thing on the whole
+  transport that could take the app down, and it is invisible until a server
+  crashes at exactly the wrong moment.
+- **A failed write is reported as EOF, because there is nobody to report it to.**
+  `send` returns as soon as the bytes are queued (the protocol says so: waiting
+  would park the session's actor behind a pipe a busy server has not drained, and
+  a `didChange` carrying a large file exceeds the buffer). So a write that fails
+  afterwards finishes the byte stream instead of throwing — the one signal the
+  session already knows how to act on. `notRunning` is thrown only for a send
+  after the transport has stopped.
+- **`weak self` in the readability handler is load-bearing twice.** A `FileHandle`
+  retains its handler, the handle is retained by the pipe, and the pipe by the
+  transport — a strong capture is a cycle, so `deinit` never runs and the
+  `deinit`-kills-the-process guarantee silently evaporates. It also makes "a
+  transport nobody references stops reading" true, matching Task 3's contract
+  about the session's own read task. The `terminationHandler` is the backstop for
+  the EOF that never comes (a server whose child inherited stdout), which
+  otherwise leaves a crash unnoticed and every request falling back until the
+  folder is closed.
+- **The gating suite's scanner strips comments before it matches anything**, and
+  that is not a refinement — it is the only way the check can exist.
+  `LSPWorkspace`'s documentation opens with "**`Process` is not in this file, and
+  cannot be**", `LSPTransport` says the app owns "a `Process` and three pipes",
+  and `LSPIntelligenceProvider` discusses "AppKit's stock insertion". A substring
+  search fails on all three, and rewording the documentation to appease a test is
+  the wrong direction. `Process` is additionally matched as a whole token so
+  `ProcessInfo`/`processIdentifier` are not false positives, and the scanner is
+  pinned by its own test — a stripper that returned the empty string would pass
+  every "does not contain" assertion and check nothing.
 
 ### Task 9: App wiring — composition and lifecycle
 
