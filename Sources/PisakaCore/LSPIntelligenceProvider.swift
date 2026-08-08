@@ -442,6 +442,19 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     }
 }
 
+/// The router's one extra question (task 7).
+///
+/// In this file because the answer is the workspace's, and the workspace is
+/// private to the provider — deliberately, so nothing above the seam can reach
+/// past it to start, stop or interrogate a server.
+extension LSPIntelligenceProvider: LSPIntelligenceSource {
+    /// Whether a server for `language` is running or startable for the open
+    /// folder — `LSPWorkspace.canServe`, which starts nothing.
+    public func canServe(_ language: SyntaxLanguage) async -> Bool {
+        await workspace.canServe(language)
+    }
+}
+
 extension LSPCompletionItemKind {
     /// The editor's declaration kind for an LSP completion kind, or `nil` when
     /// there is no honest equivalent.

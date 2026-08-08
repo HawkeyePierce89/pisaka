@@ -482,21 +482,48 @@ The one provider the UI holds, composing LSP with tree-sitter.
 - Create: `Sources/PisakaCore/RoutingIntelligenceProvider.swift`
 - Create: `Tests/PisakaCoreTests/RoutingIntelligenceProviderTests.swift`
 
-- [ ] implement `CodeIntelligenceProviding` by asking the LSP source when the
+- [x] implement `CodeIntelligenceProviding` by asking the LSP source when the
       request's language has a live (or startable) server, within D7's budget, and
       falling back to the wrapped `SymbolIntelligenceProvider` on timeout, transport
       error, unavailability, or an empty/unusable answer where tree-sitter has one
-- [ ] fallback is per request and silent: no state is marked, nothing is logged to
+- [x] fallback is per request and silent: no state is marked, nothing is logged to
       the user, and a slow answer degrades exactly one question
-- [ ] tests: live server → LSP answer; timeout → tree-sitter answer and the LSP
+- [x] tests: live server → LSP answer; timeout → tree-sitter answer and the LSP
       request is cancelled; dead/unavailable server → tree-sitter with no launch
       attempt; **no server registered for the language → byte-identical output to the
       bare `SymbolIntelligenceProvider`, asserted by equality on both request kinds**;
       empty LSP completion with a non-empty tree-sitter list falls back; empty LSP
       definition with an empty tree-sitter list still beeps once
-- [ ] test that a definition request tripping the D2 guard (empty text, non-zero
+- [x] test that a definition request tripping the D2 guard (empty text, non-zero
       offset) routes to the tree-sitter answer rather than producing an LSP one
-- [ ] run `swift test` — must pass before task 8
+- [x] run `swift test` — must pass before task 8
+
+Three things the implementation settled that the plan had left open, all worth
+carrying into Task 13's `core-lsp.md`:
+
+- **Two budgets over two different spans, both D7's numbers.**
+  `LSPSession.Budgets` bounds the *server's* part of one exchange — it starts when
+  the request is written. `RoutingIntelligenceProvider.Budgets` bounds the whole
+  attempt: resolving the language, starting the process, waiting out the handshake,
+  flushing the buffer, and only then asking. Nothing else can bound the first of
+  those, and a first ⌘-click in a cold project would otherwise block for the 20 s
+  sourcekit-lsp is allowed to resolve a build system in. So the cold-start
+  behaviour is stated rather than accidental: the first jump answers from
+  tree-sitter while the server finishes starting *behind* it (the launch is an
+  unstructured task `LSPWorkspace` owns, so abandoning the attempt does not abandon
+  the launch), and the next one is semantic.
+- **The router is the LSP source's only extra question.** Composing needed one
+  thing `CodeIntelligenceProviding` does not have — *is it worth asking you* — so
+  `LSPIntelligenceSource` refines the seam with `canServe(_:)` (delegating to
+  `LSPWorkspace.canServe`, which starts nothing) and adds `Sendable`, which the
+  deadline race requires because it puts the call in a child task. The workspace
+  stays private to `LSPIntelligenceProvider`: nothing above the seam can reach past
+  it to start, stop or interrogate a server.
+- **D2's guard is not repeated in the router**, deliberately. A `DefinitionRequest`
+  with no text is unanswerable *by a language server* specifically — the index
+  looks names up and does not care — so the rule stays in `LSPIntelligenceProvider`
+  and the router needs no special case, because "no answer" already routes to
+  tree-sitter. The routed *outcome* is pinned by its own test all the same.
 
 ### Task 8: macOS transport and sourcekit-lsp discovery
 
