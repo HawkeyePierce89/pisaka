@@ -93,14 +93,14 @@ final class DefinitionRoute_iOS: ObservableObject {
     /// and a cross-file one are one code path, exactly as on macOS.
     func navigate(to candidate: DefinitionCandidate) {
         choices = []
-        guard let openFile, let id = openFile(candidate.symbol.fileURL) else {
+        guard let openFile, let id = openFile(candidate.fileURL) else {
             // The index named a file the workspace cannot open — it was deleted or
             // moved since the last walk. Nothing to reveal.
             PlatformFeedback.warning()
             return
         }
         nextToken += 1
-        reveal = Reveal(fileID: id, range: candidate.symbol.range, token: nextToken)
+        reveal = Reveal(fileID: id, range: candidate.range, token: nextToken)
     }
 
     /// Retire the reveal an editor has just applied.

@@ -363,24 +363,52 @@ also a mechanical accessor sweep across every `candidate.symbol.*` read.
   `.symbol.name`/`.symbol.line` → the direct fields; assertions keep asserting the
   same values)
 
-- [ ] `DefinitionCandidate` per D8 — direct fields, optional `kind`, unchanged
+- [x] `DefinitionCandidate` per D8 — direct fields, optional `kind`, unchanged
       `displayLabel`, retained `init(symbol:relativePath:)`; update every
       `candidate.symbol.*` accessor in Core, both app layers and the two test suites
-- [ ] `DefinitionRequest` gains `text: String` (defaulted, so no call site breaks)
+- [x] `DefinitionRequest` gains `text: String` (defaulted, so no call site breaks)
       and `CompletionItem` gains `edits: [CompletionEdit]` plus an opaque
       `resolveHandle: Int?`, both defaulted so the tree-sitter provider and the iOS
       surfaces are untouched
-- [ ] update the macOS `goToDefinition(in:at:)` call site in `CodeEditorView.swift`
+- [x] update the macOS `goToDefinition(in:at:)` call site in `CodeEditorView.swift`
       to pass the live buffer text into `DefinitionRequest` — the defaulted field is
       never left to default on a path the LSP provider can see (D2)
-- [ ] `CompletionEditPlan`: given a buffer, a set of `CompletionEdit`s and the
+- [x] `CompletionEditPlan`: given a buffer, a set of `CompletionEdit`s and the
       partial-word range, produce the ordered (last-to-first) application list, the
       resulting caret offset, and a rejection for overlapping or out-of-range edits
-- [ ] tests: an import inserted *before* the completion point leaves the caret after
+- [x] tests: an import inserted *before* the completion point leaves the caret after
       the inserted symbol; an edit after it; multiple additional edits; overlapping
       edits rejected; empty edit list; edits against a buffer that changed since the
       request are rejected rather than misapplied
-- [ ] run `swift test` — must pass before task 6
+- [x] run `swift test` — must pass before task 6
+
+Four things the implementation settled that the plan had left open, all worth
+carrying into Task 13's `core-lsp.md`:
+
+- **An edit says what it is *for*, because the geometry cannot.** `CompletionEdit`
+  carries a `role` (`.primary` / `.additional`) rather than letting the plan infer
+  which edit is the completion from the ranges: an `import` inserted at offset 0
+  and a symbol completed at offset 0 of an empty file are geometrically
+  identical, and D4's "caret after the symbol, never at the import" needs to tell
+  them apart. Exactly one `.primary` per plan; zero or two is a rejection.
+- **Staleness is checked against the buffer, not assumed.** `make` takes the typed
+  word's range *and* what that range contained when the request was made, and
+  compares. A completion list is computed behind a debounce and committed a
+  keystroke later, so typing, deleting and undoing between the two are ordinary —
+  and all three produce offsets that now name someone else's characters. One
+  substring catches every one of them, the same per-item re-check
+  `ProjectSearchModel` does before it replaces.
+- **The primary edit must *cover* the typed word.** A server is free to answer
+  with a range wider than the client's prefix (Task 6's stated case), but one that
+  reaches less far would leave the typed characters in the buffer with the
+  completion appended — `GreGreeter` — so it is refused. Rejection is safe: the
+  editor falls back to AppKit's own insertion of the plain text and loses only the
+  auto-import.
+- **Two edits starting at the same offset are refused even when neither covers a
+  character.** They do not overlap geometrically, but nothing in the spec says
+  which comes first, and a zero-length insertion at the start of a replaced range
+  could land on either side of it. An insertion at the *end* of a replaced range
+  has a defined order and is allowed — both cases have a test.
 
 ### Task 6: The LSP intelligence provider
 

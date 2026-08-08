@@ -774,16 +774,23 @@ struct CodeEditorView: NSViewRepresentable {
         /// the question was asked about, which `DefinitionPicker` clamps against
         /// the buffer as it is by then.
         func goToDefinition(in textView: NSTextView, at offset: Int) {
+            let text = textView.string
             guard let provider = symbolIndex?.provider,
-                  let match = IdentifierScanner.identifier(in: textView.string as NSString, at: offset)
+                  let match = IdentifierScanner.identifier(in: text as NSString, at: offset)
             else {
                 PlatformFeedback.warning()
                 return
             }
+            // The buffer travels with the question (D2): an LSP provider has to
+            // tell the server the current text before it can ask about an offset
+            // in it, and this is the one macOS path that reaches one. Leaving
+            // `text` to its default here would not fail to compile — it would
+            // quietly ask about offset N in an empty document.
             let request = DefinitionRequest(
                 identifier: match.text,
                 fileURL: fileURL,
-                offset: match.range.location
+                offset: match.range.location,
+                text: text
             )
             Task { [weak self, weak textView] in
                 let candidates = await provider.definitions(for: request)
@@ -797,8 +804,8 @@ struct CodeEditorView: NSViewRepresentable {
                     PlatformFeedback.warning()
                 case 1:
                     self.navigateToDefinition(
-                        candidates[0].symbol.fileURL,
-                        candidates[0].symbol.range
+                        candidates[0].fileURL,
+                        candidates[0].range
                     )
                 default:
                     DefinitionPicker.present(
@@ -806,7 +813,7 @@ struct CodeEditorView: NSViewRepresentable {
                         in: textView,
                         anchoredTo: match.range
                     ) { [weak self] candidate in
-                        self?.navigateToDefinition(candidate.symbol.fileURL, candidate.symbol.range)
+                        self?.navigateToDefinition(candidate.fileURL, candidate.range)
                     }
                 }
             }

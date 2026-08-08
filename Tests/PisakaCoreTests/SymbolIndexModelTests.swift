@@ -960,6 +960,6 @@ final class SymbolIndexModelTests: XCTestCase {
             for: DefinitionRequest(identifier: "alpha", fileURL: nil, offset: 0)
         )
         XCTAssertEqual(candidates.map(\.relativePath), ["a.swift"])
-        XCTAssertEqual(candidates.first?.symbol.line, 1)
+        XCTAssertEqual(candidates.first?.line, 1)
     }
 }

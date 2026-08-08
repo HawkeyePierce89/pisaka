@@ -48,11 +48,24 @@ public struct DefinitionRequest: Equatable, Sendable {
     /// piece of context an LSP `textDocument/definition` request cannot be built
     /// without, and adding it later would change every call site.
     public let offset: Int
+    /// The buffer's *live* text, which an LSP provider must give the server
+    /// before it can ask anything about `offset` (D2: document sync is
+    /// request-driven, so the text travels with the question).
+    ///
+    /// Defaulted to `""` so no call site written before phase 2a breaks — which
+    /// makes a *forgotten* call site the real hazard, since an empty buffer
+    /// would clamp every position to `0:0` and answer confidently wrong. The
+    /// LSP provider therefore treats "empty text, non-zero offset" as
+    /// unanswerable and falls back rather than clamping (pinned by
+    /// `LSPIntelligenceProviderTests`); the tree-sitter provider ignores the
+    /// field entirely, since it looks names up in the index.
+    public let text: String
 
-    public init(identifier: String, fileURL: URL?, offset: Int) {
+    public init(identifier: String, fileURL: URL?, offset: Int, text: String = "") {
         self.identifier = identifier
         self.fileURL = fileURL
         self.offset = offset
+        self.text = text
     }
 }
 
@@ -61,23 +74,79 @@ public struct DefinitionRequest: Equatable, Sendable {
 /// `relativePath` is precomputed rather than derived by the view: the picker
 /// shows it, both platforms show the *same* string, and the project root is the
 /// provider's knowledge, not the text view's.
+///
+/// **It stores what it displays and navigates by, not a `Symbol`** (D8). An LSP
+/// `textDocument/definition` answer is a *location*: a file, a range and nothing
+/// else — no declaration kind, because the server was asked "where", not "what".
+/// Wrapping a `Symbol` would force one of two bad options: invent a synthetic
+/// `SymbolKind` case for "the server did not say", which `SymbolQueryTests`
+/// compares by set equality against the shipped queries and would fail, or lie
+/// with an existing case. So `kind` is optional and the rest of the fields are
+/// flat. `init(symbol:relativePath:)` is retained so every *construction* site —
+/// the tree-sitter provider's included — is unchanged, and `displayLabel` is
+/// byte-identical to what it produced before.
 public struct DefinitionCandidate: Equatable, Sendable {
-    /// The declaration itself — `range` is the name node, so the jump lands on
-    /// the identifier (see `Symbol`).
-    public let symbol: Symbol
+    /// The declared identifier, as the source spells it.
+    public let name: String
+    /// The enclosing type's name, when the answer carried one.
+    public let containerName: String?
+    /// What kind of declaration this is, or `nil` when the answer did not say —
+    /// which is every LSP location. Ranking must therefore never *require* it.
+    public let kind: SymbolKind?
+    /// The declaring file.
+    public let fileURL: URL
+    /// UTF-16 range of the *name* within that file, so the jump lands the caret
+    /// on the identifier rather than on the `func` keyword above it.
+    public let range: NSRange
+    /// 1-based display line of `range`, for the picker.
+    public let line: Int
     /// The declaring file's path below the project root, or its file name when
     /// it lives outside (or there is no root).
     public let relativePath: String
 
-    public init(symbol: Symbol, relativePath: String) {
-        self.symbol = symbol
+    public init(
+        name: String,
+        containerName: String? = nil,
+        kind: SymbolKind? = nil,
+        fileURL: URL,
+        range: NSRange,
+        line: Int,
+        relativePath: String
+    ) {
+        self.name = name
+        self.containerName = containerName
+        self.kind = kind
+        self.fileURL = fileURL
+        self.range = range
+        self.line = line
         self.relativePath = relativePath
+    }
+
+    /// The tree-sitter path's spelling: everything a candidate shows comes from
+    /// the indexed declaration.
+    public init(symbol: Symbol, relativePath: String) {
+        self.init(
+            name: symbol.name,
+            containerName: symbol.containerName,
+            kind: symbol.kind,
+            fileURL: symbol.fileURL,
+            range: symbol.range,
+            line: symbol.line,
+            relativePath: relativePath
+        )
+    }
+
+    /// `Container.name` when there is a container, the bare name otherwise —
+    /// the same rule as `Symbol.qualifiedName`, which this used to borrow.
+    public var qualifiedName: String {
+        guard let containerName, !containerName.isEmpty else { return name }
+        return containerName + "." + name
     }
 
     /// The row the macOS `NSMenu` and the iOS list show:
     /// `Container.name — src/Worker.swift:42`.
     public var displayLabel: String {
-        "\(symbol.qualifiedName) — \(relativePath):\(symbol.line)"
+        "\(qualifiedName) — \(relativePath):\(line)"
     }
 }
 
@@ -162,10 +231,35 @@ public struct CompletionItem: Equatable, Hashable, Sendable {
     public let kind: SymbolKind?
     /// Whether this came from the file being edited.
     public let isFromCurrentFile: Bool
+    /// Every buffer edit committing this item performs, in buffer (UTF-16)
+    /// coordinates — the primary replacement plus any auto-import (D4).
+    ///
+    /// Empty for a tree-sitter item, which is *only* `text` replacing the typed
+    /// prefix and so is inserted by AppKit's own machinery. A non-empty list is
+    /// the editor's signal to apply the item itself, through
+    /// `CompletionEditPlan`, in one undo group.
+    public let edits: [CompletionEdit]
+    /// An opaque token identifying an item the server deferred to
+    /// `completionItem/resolve`, or `nil` when the item is already complete.
+    ///
+    /// Opaque on purpose: the seam must not leak an `LSPCompletionItem` (Core's
+    /// LSP types stay behind the provider), and the editor never interprets the
+    /// number — it hands it straight back to the provider that issued it.
+    public let resolveHandle: Int?
 
-    public init(text: String, kind: SymbolKind?, isFromCurrentFile: Bool) {
+    /// `edits` and `resolveHandle` are defaulted so the tree-sitter provider and
+    /// both iOS surfaces are untouched by phase 2a.
+    public init(
+        text: String,
+        kind: SymbolKind?,
+        isFromCurrentFile: Bool,
+        edits: [CompletionEdit] = [],
+        resolveHandle: Int? = nil
+    ) {
         self.text = text
         self.kind = kind
         self.isFromCurrentFile = isFromCurrentFile
+        self.edits = edits
+        self.resolveHandle = resolveHandle
     }
 }
