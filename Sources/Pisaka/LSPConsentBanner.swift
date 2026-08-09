@@ -33,6 +33,18 @@ struct LSPConsentBanner: View {
     /// answer rather than the file.
     let language: SyntaxLanguage?
 
+    /// Whether a project folder is open.
+    ///
+    /// Nothing this banner offers is reachable without one: `LSPWorkspace.prepare`
+    /// and `canServe` both open with `guard let root = currentRoot`, and the root
+    /// is set by opening a *folder* — a `.ts` file opened on its own with ⌘O leaves
+    /// it `nil`. Offering a 52 MB download there would spend the one-shot,
+    /// permanent consent (D15 — the banner has no dismiss, so `unasked` is asked
+    /// exactly once) in the one state where accepting demonstrably changes nothing.
+    /// The question keeps until there is a project, and re-asks itself the moment
+    /// one is opened, because this flag is part of the `.task` id below.
+    let hasProjectRoot: Bool
+
     var body: some View {
         // A `Group` with an empty branch renders nothing and takes no space, so
         // the common case — every language that is not TypeScript, JavaScript or
@@ -56,14 +68,26 @@ struct LSPConsentBanner: View {
         // no cancellation checks, so an install already in flight runs to
         // completion and publishes its registry regardless of which tab is on
         // screen — which is what the user asked for.
-        .task(id: language) {
-            guard let language else { return }
+        //
+        // Keyed on the project root as well as the language, so opening a folder
+        // while a `.ts` file is already on screen re-runs this — without that, the
+        // silent half would wait for the *language* to change before it noticed
+        // there was finally something to serve.
+        .task(id: Trigger(language: language, hasProjectRoot: hasProjectRoot)) {
+            guard hasProjectRoot, let language else { return }
             await provisioning.prepareForOpening(language)
         }
     }
 
+    /// What the silent half re-runs on: the selected tab's language and whether
+    /// there is a project to serve.
+    private struct Trigger: Equatable {
+        let language: SyntaxLanguage?
+        let hasProjectRoot: Bool
+    }
+
     private var prompt: LSPConsentPrompt? {
-        guard let language else { return nil }
+        guard hasProjectRoot, let language else { return nil }
         return provisioning.consentPrompt(forOpening: language)
     }
 

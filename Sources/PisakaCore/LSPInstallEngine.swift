@@ -342,7 +342,7 @@ public final class LSPInstallEngine {
                 // Before the unpack, always: the alternative is writing code of
                 // unknown provenance into a directory and deleting it afterwards,
                 // which is a very different promise.
-                guard SHA256.hexadecimalDigest(of: archive) == artifact.sha256 else {
+                guard await LSPInstallEngine.digest(of: archive) == artifact.sha256 else {
                     throw LSPInstallError.checksumMismatch(
                         component: component.id,
                         url: artifact.url
@@ -396,6 +396,21 @@ public final class LSPInstallEngine {
             )
         }
         removeOtherVersions(of: component)
+    }
+
+    /// The artifact's digest, computed off the main actor.
+    ///
+    /// `nonisolated static` and `async` on purpose: this engine is `@MainActor`,
+    /// and a plain call to `SHA256.hexadecimalDigest(of:)` from `perform(_:)` would
+    /// hash all 53 MB of the Node tarball *on the main thread* — a fifth of a
+    /// second of frozen editor on Apple silicon, more on an Intel Mac, once per
+    /// artifact. A `nonisolated async` function does not inherit its caller's
+    /// executor, so the loop lands on the cooperative pool and only the comparison
+    /// comes back — which is what makes this class's "nothing here holds the main
+    /// actor while 53 MB moves" true of the digest as well as the download and the
+    /// unpack.
+    private nonisolated static func digest(of archive: Data) async -> String {
+        SHA256.hexadecimalDigest(of: archive)
     }
 
     private func removeOtherVersions(of component: LSPComponent) {

@@ -356,8 +356,19 @@ public final class LSPWorkspace {
         var inflight: [ServerKey: PendingLaunch] = [:]
         var open: [String: DocumentState] = [:]
         for key in dead {
-            if let session = sessions.removeValue(forKey: key) { live[key] = session }
-            transports[key] = nil
+            if let session = sessions.removeValue(forKey: key) {
+                live[key] = session
+                // Only alongside the session it belongs to. A key that is *only* a
+                // pending launch has a transport registered before its handshake
+                // (see `launch`) precisely so `terminateNow()` can reach a process
+                // that is still starting, and this method then `await`s that launch
+                // below — the slowest thing this layer does. Dropping the transport
+                // here would leave that live process unreachable for the whole
+                // window, so a quit inside it orphans exactly what `terminateNow()`
+                // exists to kill. The inflight loop clears it instead, once the
+                // launch has finished and under the same identity guard.
+                transports[key] = nil
+            }
             if let pending = pendingLaunches.removeValue(forKey: key) { inflight[key] = pending }
         }
         for (uri, state) in documents where dead.contains(state.serverKey) {

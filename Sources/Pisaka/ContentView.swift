@@ -418,10 +418,11 @@ struct ContentView: View {
                 // the selected tab's language has an unanswered, uninstalled
                 // downloadable server, and it is also where an *already*
                 // accepted server is installed on first use — both keyed on this
-                // one language.
+                // one language and on there being a project to serve.
                 LSPConsentBanner(
                     provisioning: provisioning,
-                    language: SyntaxLanguage(forFileName: file.displayName)
+                    language: SyntaxLanguage(forFileName: file.displayName),
+                    hasProjectRoot: model.projectRoot != nil
                 )
                 // The find/replace bar sits between the breadcrumb and the editor,
                 // so it covers both tab orientations at once (in `.horizontal` it

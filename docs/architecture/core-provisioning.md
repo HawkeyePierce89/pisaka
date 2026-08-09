@@ -169,8 +169,21 @@ carries. D1–D10 are in `core-lsp.md`.
     verify.
     `@MainActor` like every other model here, because the in-flight table is read
     synchronously by the surfaces in the turn they are drawn; the expensive parts
-    all happen inside `await`s on `nonisolated` seams, so nothing holds the main
-    actor while 53 MB moves. **A reader of the project, a writer only of its own
+    all happen inside `await`s off the main actor, so nothing holds it while
+    53 MB moves. The download and the unpack are `nonisolated` seams; the digest
+    is not a seam and so gets the same treatment explicitly, as a `nonisolated
+    static` `async` helper — a plain call to `SHA256.hexadecimalDigest(of:)` from
+    `perform(_:)` would hash all 53 MB of the Node tarball on the main thread,
+    which measures about a fifth of a second of frozen editor on Apple silicon
+    and more on Intel, once per artifact. A `nonisolated async` function does not
+    inherit its caller's executor, so only the comparison comes back.
+    Deletion is the one expensive thing that *does* run on the main actor, and
+    deliberately: `FileServicing` is not `Sendable`, and the whole layer (plus
+    `StubFileTree`) is built around it being touched from the main actor only.
+    The cost is bounded by user-initiated removals and the launch sweep, and is
+    recorded as a known limit below rather than paid for with a threading
+    contract this layer cannot safely change on its own.
+    **A reader of the project, a writer only of its own
     directory** — it takes no `autosave.suspend()`/`localChanges.beginRevert()`
     gate and is not gated by one, the rule the symbol index and the rest of the
     LSP layer already follow.
@@ -223,12 +236,26 @@ carries. D1–D10 are in `core-lsp.md`.
     moments the answer can change, so it is both cheaper and the same answer the
     Settings surface is showing.
     `prepareForOpening(_:)` is the silent half of D15: an *already accepted*
-    server whose files are missing installs on first use without asking again.
+    server whose files are missing installs on first use without asking again —
+    **once per app run**. A failed attempt leaves the server `absent`, so the
+    method's guard consults `failures` as well as the state: without it, every
+    switch back to a `.ts` tab would restart the same ~52 MB download (the
+    machine is offline, or a proxy is serving something that fails the digest,
+    and neither changes because a tab did) *and* wipe the row's
+    `failureMessage`, which `install(_:)` clears before each attempt — so the one
+    place D15 reports the failure would be erased by the very tab switch that
+    re-triggered it. The Settings row's Retry stays unconditional, and so does
+    the next launch: the record lives in the model, not on disk.
     The model keeps its own per-*server* attempt table beside the engine's
     per-*component* one, so a row reads "installing…" from the moment the user
     says yes — including while it waits on a shared `node` another server is
     already fetching — while a server nobody asked about does **not** inherit
-    `installing` from that shared download.
+    `installing` from that shared download. Each attempt carries an id and
+    releases its own slot *from inside the task body*, the engine's rule for the
+    engine's reason: a finished task left sitting in the slot until the awaiting
+    owner's continuation ran would be adopted by a Retry landing in that window,
+    which would return immediately and install nothing while the row updated as
+    though it had.
     `install(_:)` records `accepted` first (installing *is* consent) and absorbs
     every failure into the row's `failureMessage`, which is the entire failure
     surface of this feature. `remove(_:)` sets consent to `declined` — the only
@@ -253,6 +280,11 @@ carries. D1–D10 are in `core-lsp.md`.
     back as `unasked`, and `unasked` is stored as *absence* rather than as a
     value, so the default and the erased state are the same thing. `private(set)`
     with `setConsent(_:for:)` as the only writer, in the store's existing mould.
+    An answer equal to the recorded one writes nothing: the dictionary is
+    `@Published` and `ContentView` observes this store, so a no-op consent write
+    would re-evaluate the project tree, the tab list and the editor — and
+    `install(_:)` records `accepted` on every call, including the
+    already-accepted ones the silent half makes on tab opens.
     Full entry in `core-services.md`.
 
   - `LSPWorkspace.swift` (modified) — gains `updateRegistry(_:)` (D16). Full
@@ -317,10 +349,17 @@ carries. D1–D10 are in `core-lsp.md`.
     **Non-modal on purpose**: the file is open, editable and already answering
     from the index; this is an offer to make those answers better, not a
     precondition for working.
-    It also carries the silent half of D15 — a `.task(id: language)` calling
+    It also carries the silent half of D15 — a `.task` calling
     `prepareForOpening`, so both halves of "what happens when this file is
     opened" live in one place. Download is unawaited: the install runs for
     minutes and the banner must go away the moment the answer is recorded.
+    **Both halves are gated on a project folder being open**, and the `.task` id
+    is `(language, hasProjectRoot)` rather than the language alone so that
+    opening a folder re-runs them. `LSPWorkspace.prepare` and `canServe` both
+    open with `guard let root = currentRoot`, and the root is set by opening a
+    *folder* — a `.ts` file opened on its own with ⌘O leaves it `nil`. Offering
+    52 MB there would spend the one-shot, permanent consent in the one state
+    where accepting demonstrably changes nothing.
     `size(_:)` formats through `ByteCountFormatter`, so "52.2 MB" here means what
     it means in the Finder.
 
@@ -558,6 +597,14 @@ checks at the end of the plan re-validate that the server actually answers.
   way, and enforcing a ceiling would need the byte count threaded through the
   seam plus a chunked read for a case that requires a compromised TLS endpoint
   at `nodejs.org` or `registry.npmjs.org` to reach.
+- **Deleting an install tree blocks the main actor.** `FileServicing` is
+  synchronous and not `Sendable`, so the four `removeItem` sites — Settings →
+  Remove, the post-upgrade sweep of older versions, the staging discard on a
+  failed attempt, and `sweepStaging()` at launch — run on the main actor. Node's
+  unpacked tree is ~110 MB across thousands of files, so a removal is a visible
+  pause. Accepted rather than fixed: every one of them is either user-initiated
+  or a launch-time sweep that normally finds nothing, and moving them off would
+  mean making the file-service protocol `Sendable` across the whole app.
 - **No proxy, mirror or registry configuration.** The URLs are the manifest's
   and nothing overrides them. A corporate TLS-intercepting proxy fails as an
   ordinary download failure (or, if it serves something else, as a checksum

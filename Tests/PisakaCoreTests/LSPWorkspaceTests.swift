@@ -1349,6 +1349,40 @@ final class LSPWorkspaceTests: XCTestCase {
         XCTAssertTrue(live2.isTerminated, "the reinstalled server was left running with nothing pointing at it")
     }
 
+    /// The quit lands *inside* a removal, while the withdrawn server is still
+    /// handshaking. `updateRegistry` parks on that launch — the slowest thing this
+    /// layer does — so the window is wide, and the process is alive for all of it.
+    /// `terminateNow()` reads nothing but `transports`, so a removal that dropped
+    /// the pending launch's transport on its way past would leave that process with
+    /// nothing pointing at it: the orphan the method exists to kill, in the one
+    /// moment (`willTerminateNotification`) with no further run-loop turn to catch
+    /// it.
+    func testAQuitDuringARemovalStillKillsTheServerThatWasHandshaking() async throws {
+        let harness = ServerHarness()
+        harness.initializeDelay = 0.5
+        let workspace = makeWorkspace(
+            harness: harness,
+            registry: LSPServerRegistry([.sourcekitLSP, downloaded()])
+        )
+
+        async let request = workspace.prepare(url: appFile, language: .typescript, text: "a")
+        await waitFor("the launch to start") { harness.launches.count == 1 }
+        let transport = try XCTUnwrap(harness.firstTransport(of: "typescript-language-server"))
+
+        async let removal: Void = workspace.updateRegistry(.standard)
+        await waitFor("the removal to swap the registry") { !workspace.canServe(.typescript) }
+        XCTAssertFalse(transport.isTerminated, "the launch finished before the quit could land in the window")
+
+        workspace.terminateNow()
+        XCTAssertTrue(
+            transport.isTerminated,
+            "a launch withdrawn by a registry update was left out of terminateNow()'s reach"
+        )
+
+        _ = await request
+        await removal
+    }
+
     /// `reachableDescriptions` is keyed off what the registry *routes to*, not off
     /// everything it holds: first registration wins per language, so a description
     /// that has been shadowed for every language it claims can never be launched

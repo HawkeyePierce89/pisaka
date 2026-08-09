@@ -572,7 +572,18 @@ document, together with the limits they carry.
     session, the transport and the documents only while they are still the ones it
     is retiring. Clearing them unconditionally would drop the live server's
     transport out of `terminateNow()`'s reach — precisely the orphan this method
-    exists to prevent, reintroduced by the method itself. Neither generation moves either: a registry update is
+    exists to prevent, reintroduced by the method itself.
+    **A key that is only a pending launch keeps its transport for the whole
+    wait**, for the same reason and against a nearer case. `launch` registers the
+    transport *before* the handshake precisely so a quit can reach a process that
+    is still starting, and this method then `await`s that launch — the slowest
+    thing this layer does, so the window is wide and the process is alive for all
+    of it. Dropping the transport on the way past would leave a quit inside that
+    window (`willTerminateNotification`, with no further run-loop turn to catch
+    it) with nothing to terminate. So the transport is cleared only alongside the
+    session it belongs to, and otherwise by the in-flight loop once the launch has
+    finished, under the identity guard above.
+    Neither generation moves either: a registry update is
     not a folder change, and a request in flight for a server that survived is
     still a request about the folder it was asked under. Every map is emptied
     *before* the first hop, `shutdownAll()`'s ordering applied to a subset. An

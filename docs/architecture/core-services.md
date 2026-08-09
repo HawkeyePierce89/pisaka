@@ -129,8 +129,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     stored as **absence** rather than as a value, so "never asked" and "erased"
     are the same state on disk. `consent(for:)` answers `unasked` for anything
     unseen, which is what makes a fresh install prompt exactly once per server.
+    Recording an answer equal to the one already stored is a **no-op**: the
+    dictionary is `@Published` and `ContentView` observes this store, so a
+    redundant write would republish it — re-evaluating the project tree, the tab
+    list and the editor — and the provisioning model records `accepted` on every
+    install call, including the ones its silent half makes on tab opens.
     The rules built on it are D15 in `core-provisioning.md`; `SettingsStoreTests`
-    covers the round trip across a rebuilt store and the lenient read.
+    covers the round trip across a rebuilt store, the lenient read, and that an
+    unchanged answer publishes nothing.
   - `EditorSession.swift` — the persisted editor session behind launch-time
     session restore and "Untitled" hot exit (macOS today; the iOS variant is a
     follow-up over this same model). Foundation-only: the value types, the pure

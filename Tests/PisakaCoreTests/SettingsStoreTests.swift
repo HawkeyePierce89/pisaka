@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import PisakaCore
 
@@ -186,6 +187,34 @@ final class SettingsStoreTests: XCTestCase {
 
         XCTAssertEqual(first.lspServerConsent, [:], "unasked was stored rather than forgotten")
         XCTAssertEqual(SettingsStore(defaults: defaults).consent(for: LSPDownloadableServer.python.id), .unasked)
+    }
+
+    /// `ContentView` observes this store, so republishing it re-evaluates the tree,
+    /// the tab list and the editor. `LSPProvisioningModel.install(_:)` records
+    /// `.accepted` on every call — including the already-accepted ones D15's silent
+    /// half makes on tab opens — so an unchanged answer has to be a no-op rather
+    /// than a write.
+    func testRecordingTheSameConsentTwicePublishesNothingTheSecondTime() {
+        let store = SettingsStore(defaults: makeDefaults())
+        var notifications = 0
+        let subscription = store.objectWillChange.sink { _ in notifications += 1 }
+        defer { subscription.cancel() }
+
+        store.setConsent(.accepted, for: LSPDownloadableServer.typescript.id)
+        XCTAssertEqual(notifications, 1)
+
+        store.setConsent(.accepted, for: LSPDownloadableServer.typescript.id)
+        store.setConsent(.accepted, for: LSPDownloadableServer.typescript.id)
+        XCTAssertEqual(notifications, 1, "an unchanged consent republished the whole store")
+
+        // An answer that really changed still lands, in both directions.
+        store.setConsent(.declined, for: LSPDownloadableServer.typescript.id)
+        XCTAssertEqual(notifications, 2)
+        store.setConsent(.unasked, for: LSPDownloadableServer.typescript.id)
+        XCTAssertEqual(notifications, 3)
+        store.setConsent(.unasked, for: LSPDownloadableServer.typescript.id)
+        XCTAssertEqual(notifications, 3, "forgetting an already-absent entry republished the store")
+        XCTAssertEqual(store.lspServerConsent, [:])
     }
 
     func testAnUnreadableStoredConsentCostsThatServerAndNoOther() {

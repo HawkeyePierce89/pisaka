@@ -113,7 +113,16 @@ public final class SettingsStore: ObservableObject {
 
     /// Record an answer. `unasked` *forgets* the entry rather than storing the
     /// word, so the persisted dictionary only ever holds real answers.
+    ///
+    /// An answer equal to the one already recorded writes nothing. Assigning into
+    /// the `@Published` dictionary would republish the whole store and re-run the
+    /// `didSet` that writes `UserDefaults` — and this store *is* observed by
+    /// `ContentView`, so a no-op consent write re-evaluates the project tree, the
+    /// tab list and the editor. `LSPProvisioningModel.install(_:)` records
+    /// `.accepted` on every call, including the already-accepted ones that D15's
+    /// silent half makes on tab opens, which is exactly where that cost would land.
     public func setConsent(_ consent: LSPServerConsent, for serverID: String) {
+        guard self.consent(for: serverID) != consent else { return }
         lspServerConsent[serverID] = consent == .unasked ? nil : consent
     }
 

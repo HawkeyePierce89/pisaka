@@ -463,6 +463,57 @@ final class LSPProvisioningModelTests: XCTestCase {
         XCTAssertEqual(harness.downloader.requestCount(for: Fixture.nodeARM), 1)
     }
 
+    /// The silent half installs *once* per app run. A failed attempt leaves the
+    /// server `absent`, so without the failure gate every switch back to a `.ts`
+    /// tab would start the same download again — and clear, on the way past, the
+    /// row that is the only place the failure is reported.
+    func testAFailedInstallIsNotRetriedByOpeningTheLanguageAgain() async {
+        let harness = makeHarness()
+        harness.downloader.fail(Fixture.tsServer)
+        await harness.model.accept(.typescript)
+
+        let message = harness.model.row(for: .typescript)?.failureMessage
+        XCTAssertNotNil(message)
+        let downloads = harness.downloader.requestedURLs.count
+
+        // Every way a tab open reaches this: the same language, and the other one
+        // the same server serves.
+        await harness.model.prepareForOpening(.typescript)
+        await harness.model.prepareForOpening(.javascript)
+
+        XCTAssertEqual(
+            harness.downloader.requestedURLs.count,
+            downloads,
+            "a tab open re-attempted an install that already failed this app run"
+        )
+        XCTAssertEqual(
+            harness.model.row(for: .typescript)?.failureMessage,
+            message,
+            "a tab open wiped the failure the Settings row exists to show"
+        )
+
+        // The explicit Retry is unconditional, and so is the next launch.
+        harness.downloader.serve(Fixture.tsServer)
+        await harness.model.install(.typescript)
+        XCTAssertEqual(harness.state(of: .typescript), .installed(version: "5.3.0"))
+    }
+
+    /// The gate is per app run, not per disk: the failure lives in the model, so a
+    /// relaunch offers the accepted server its next attempt.
+    func testARelaunchRetriesAnInstallThatFailedInThePreviousRun() async {
+        let harness = makeHarness()
+        harness.downloader.fail(Fixture.tsServer)
+        await harness.model.accept(.typescript)
+        XCTAssertNotNil(harness.model.row(for: .typescript)?.failureMessage)
+
+        harness.downloader.serve(Fixture.tsServer)
+        harness.rebuild()
+        await harness.model.refresh()
+        await harness.model.prepareForOpening(.typescript)
+
+        XCTAssertEqual(harness.state(of: .typescript), .installed(version: "5.3.0"))
+    }
+
     /// A mirror serving something other than what the manifest pinned is the one
     /// failure that must never be papered over: it fails, and the language stays
     /// on tree-sitter.

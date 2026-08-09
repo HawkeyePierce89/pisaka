@@ -155,12 +155,21 @@ public final class LSPProvisioningModel: ObservableObject {
     private let settings: SettingsStore
     private let baseRegistry: LSPServerRegistry
 
+    /// An attempt in flight, with an id so the task that finishes clears its own
+    /// slot and never a newer one's — the engine's `PendingInstall`, for the same
+    /// reason.
+    private struct PendingAttempt {
+        let id: Int
+        let task: Task<Void, Never>
+    }
+
     /// Attempts this model started, keyed by server. Distinct from the engine's
     /// own in-flight table, which is per *component*: a row must read
     /// "installing…" from the moment the user says yes, including the window
     /// before the engine has claimed anything, and must keep reading it while a
     /// shared `node` that another server is already fetching is waited on.
-    private var attempts: [LSPDownloadableServer: Task<Void, Never>] = [:]
+    private var attempts: [LSPDownloadableServer: PendingAttempt] = [:]
+    private var attemptCounter = 0
     private var failures: [LSPDownloadableServer: String] = [:]
     /// Servers whose files are being deleted right now — excluded from the
     /// registry so the pre-deletion push is a registry without them.
@@ -232,10 +241,22 @@ public final class LSPProvisioningModel: ObservableObject {
     /// overwhelmingly common cases — no downloadable server for this language,
     /// already installed, declined, or not yet asked (which is the banner's
     /// business, not this method's).
+    ///
+    /// **An attempt that already failed this app run is not retried here**, and
+    /// that guard is the whole difference between "installs on first use" and a
+    /// retry loop. A failed install leaves the server `absent`, so without it every
+    /// switch back to a `.ts` tab would start the same ~52 MB download again — the
+    /// machine is offline, or a proxy is serving something that fails the digest,
+    /// and neither of those changes because a tab did. Worse, `install(_:)` clears
+    /// the row's `failureMessage` before each attempt, so the one place D15 reports
+    /// the failure would be wiped by the very tab switch that re-triggered it. The
+    /// budget is therefore "once per app run, automatically": the Settings row's
+    /// Retry stays unconditional, and so does the next launch.
     public func prepareForOpening(_ language: SyntaxLanguage) async {
         guard
             let server = LSPDownloadableServer.serving(language),
             settings.consent(for: server.id) == .accepted,
+            failures[server] == nil,
             state(of: server) == .absent
         else { return }
         await install(server)
@@ -274,26 +295,32 @@ public final class LSPProvisioningModel: ObservableObject {
         // server must produce one attempt *and* one `.installing` row, and the
         // claim is made synchronously between the check and the store.
         let task: Task<Void, Never>
-        let isOwner: Bool
         if let existing = attempts[server] {
-            task = existing
-            isOwner = false
+            task = existing.task
         } else {
             failures[server] = nil
+            attemptCounter += 1
+            let id = attemptCounter
             task = Task { @MainActor [engine] in
                 do {
                     try await engine.install(server)
                 } catch {
                     self.failures[server] = error.localizedDescription
                 }
+                // Released from inside the task body, and only while it is still
+                // ours — the engine's rule (`LSPInstallEngine.install`), for the
+                // same reason. Clearing it in the awaiting owner below instead
+                // would leave a *finished* task sitting in the slot until that
+                // continuation ran, and a Retry landing in that window would adopt
+                // it, return immediately and install nothing while the row updated
+                // as though it had.
+                if self.attempts[server]?.id == id { self.attempts[server] = nil }
             }
-            attempts[server] = task
-            isOwner = true
+            attempts[server] = PendingAttempt(id: id, task: task)
             updateRows()
         }
 
         await task.value
-        if isOwner { attempts[server] = nil }
         updateRows()
         await publishRegistry()
     }
