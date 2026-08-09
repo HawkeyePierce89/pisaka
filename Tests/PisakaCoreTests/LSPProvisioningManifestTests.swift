@@ -23,8 +23,14 @@ final class LSPProvisioningManifestTests: XCTestCase {
     /// flight, but it proves nothing about whether a pin was pointed at somebody's
     /// mirror in the first place, and "official sources only" is a claim that has
     /// to be enforced somewhere.
+    /// `github.com` is on the list for rust-analyzer alone, and it is the project's
+    /// own releases path rather than a mirror. GitHub answers a release asset with
+    /// a redirect to `objects.githubusercontent.com`, which `URLSession` follows and
+    /// nothing here pins — deliberately: what makes an unpinned redirect target safe
+    /// is the SHA-256 the bytes are checked against, exactly as it is for the two
+    /// hosts that do not redirect.
     func testEveryArtifactIsFetchedOverHTTPSFromAnOfficialHost() {
-        let allowedHosts: Set<String> = ["nodejs.org", "registry.npmjs.org"]
+        let allowedHosts: Set<String> = ["nodejs.org", "registry.npmjs.org", "github.com"]
         for artifact in allArtifacts {
             XCTAssertEqual(artifact.url.scheme, "https", "\(artifact.url) is not HTTPS")
             XCTAssertNotNil(artifact.url.host, "\(artifact.url) has no host — not an absolute URL")
@@ -94,25 +100,46 @@ final class LSPProvisioningManifestTests: XCTestCase {
 
     // MARK: - Architecture coverage
 
-    /// Node ships per-architecture and must cover both; every npm tarball is
+    /// The two components that ship native code — `node` and `rust-analyzer` —
+    /// must pin exactly one artifact per architecture; every npm tarball is
     /// architecture-independent and must claim none. An npm artifact that
     /// accidentally carried `.arm64` would leave Intel Macs unable to install a
-    /// server for no reason anyone would find quickly.
-    func testNodeCoversBothArchitecturesAndTheNPMArtifactsCoverNone() throws {
-        let node = try XCTUnwrap(manifest.component("node"))
-        XCTAssertEqual(
-            Set(node.artifacts.compactMap(\.architecture)), Set(LSPHostArchitecture.allCases),
-            "node must pin one artifact per architecture"
+    /// server for no reason anyone would find quickly; a native one that carried
+    /// `nil` would hand every Mac both slices and install the wrong one over the
+    /// right one.
+    ///
+    /// The native set is written out by hand rather than derived from "declares an
+    /// architecture", which would make this assertion true of whatever the manifest
+    /// happened to say.
+    func testTheNativeComponentsCoverBothArchitecturesAndTheNPMArtifactsCoverNone() {
+        let native: Set<String> = ["node", "rust-analyzer"]
+        XCTAssertTrue(
+            native.isSubset(of: Set(manifest.components.map(\.id))),
+            "a component named here is no longer in the manifest"
         )
-        XCTAssertEqual(node.artifacts.count, LSPHostArchitecture.allCases.count)
 
-        for component in manifest.components where component.id != "node" {
-            for artifact in component.artifacts {
-                XCTAssertNil(
-                    artifact.architecture,
-                    "\(artifact.url.lastPathComponent) is an npm tarball and is architecture-independent"
+        for component in manifest.components {
+            guard native.contains(component.id) else {
+                for artifact in component.artifacts {
+                    XCTAssertNil(
+                        artifact.architecture,
+                        "\(artifact.url.lastPathComponent) is an npm tarball and is architecture-independent"
+                    )
+                    XCTAssertTrue(LSPHostArchitecture.allCases.allSatisfy(artifact.applies(to:)))
+                }
+                continue
+            }
+
+            XCTAssertEqual(
+                Set(component.artifacts.compactMap(\.architecture)), Set(LSPHostArchitecture.allCases),
+                "\(component.id) must pin one artifact per architecture"
+            )
+            XCTAssertEqual(component.artifacts.count, LSPHostArchitecture.allCases.count)
+            for architecture in LSPHostArchitecture.allCases {
+                XCTAssertEqual(
+                    component.artifacts(for: architecture).count, 1,
+                    "\(component.id) fetches more than one artifact on \(architecture.rawValue)"
                 )
-                XCTAssertTrue(LSPHostArchitecture.allCases.allSatisfy(artifact.applies(to:)))
             }
         }
     }
@@ -208,6 +235,30 @@ final class LSPProvisioningManifestTests: XCTestCase {
         }
     }
 
+    /// A `.gzip` artifact names its file twice — once in the format's payload
+    /// (what the unpacker creates, and what the engine's pre-commit gate then asks
+    /// about) and once inside the component's `executableSubpath` (what the
+    /// registry launches). Nothing at runtime compares the two: a mismatch
+    /// downloads, verifies, unpacks, passes the executable gate on the file it did
+    /// write, commits, and produces a server that dies with `ENOENT` on every
+    /// start. Both spellings are pinned data, so the check belongs here.
+    func testEveryGzipArtifactUnpacksToTheExecutableItsComponentNames() {
+        for component in manifest.components {
+            for artifact in component.artifacts {
+                guard case let .gzip(fileName) = artifact.format else { continue }
+                XCTAssertFalse(fileName.isEmpty, "\(component.id): a gzip artifact must name its file")
+                XCTAssertFalse(fileName.contains("/"), "\(component.id): “\(fileName)” is a path, not a file name")
+                let unpacked = artifact.destinationSubpath.isEmpty
+                    ? fileName
+                    : artifact.destinationSubpath + "/" + fileName
+                XCTAssertEqual(
+                    component.executableSubpath, unpacked,
+                    "\(component.id) launches a path its gzip artifact does not unpack into"
+                )
+            }
+        }
+    }
+
     // MARK: - Requirements
 
     func testEveryRequirementResolvesAndNothingRequiresItself() {
@@ -262,16 +313,37 @@ final class LSPProvisioningManifestTests: XCTestCase {
     /// package-granular comparison is a floor rather than the whole check.
     func testEveryComponentDeclaresALicenseItActuallyShips() {
         let known: Set<String> = ["MIT", "Apache-2.0"]
+
+        // The one component whose installed tree contains no license text at all,
+        // pinned by id so a second one cannot appear by accident. A bare `.gz`
+        // holds one executable and nothing beside it (D24), so there is nothing
+        // for `LSPInstalledLicenses` to read; every other component here must
+        // ship its notices from inside its own tree.
+        let shipsNoLicenseText: Set<String> = ["rust-analyzer"]
+
         for component in manifest.components {
             // `licenseSPDX` is an *expression*, so the operands are validated
             // rather than the whole string: a set of whole strings would reject
             // the honest `MIT AND Apache-2.0` and quietly reward labelling
             // pyright's two-licensed tree with whichever single id was already
-            // listed here.
-            let operands = component.licenseSPDX.components(separatedBy: " AND ")
+            // listed here. Both operators appear — `AND` when the tree really is
+            // under two licenses at once (pyright), `OR` when upstream offers a
+            // choice (rust-analyzer) — and the ids have to be recognisable either
+            // way.
+            let operands = component.licenseSPDX
+                .components(separatedBy: " AND ")
+                .flatMap { $0.components(separatedBy: " OR ") }
             XCTAssertFalse(component.licenseSPDX.isEmpty, "\(component.id): no SPDX expression")
             for operand in operands {
                 XCTAssertTrue(known.contains(operand), "\(component.id): unrecognised SPDX id “\(operand)”")
+            }
+
+            guard !shipsNoLicenseText.contains(component.id) else {
+                XCTAssertTrue(
+                    component.licenseFileSubpaths.isEmpty,
+                    "\(component.id) now ships a license text — say so here rather than leaving it unread"
+                )
+                continue
             }
             XCTAssertFalse(component.licenseFileSubpaths.isEmpty, "\(component.id) ships no license text")
 
@@ -326,6 +398,105 @@ final class LSPProvisioningManifestTests: XCTestCase {
         XCTAssertEqual(
             try XCTUnwrap(manifest.component("typescript-language-server")).licenseSPDX,
             "Apache-2.0"
+        )
+    }
+
+    // MARK: - rust-analyzer
+
+    /// The first component that is a standalone program rather than a Node
+    /// argument, and so the first that exercises every field the other three leave
+    /// at its default: a second archive format, no leading components to strip, a
+    /// destination subdirectory, no requirements, and a version that is a date.
+    ///
+    /// Pinned by value rather than by shape. Each of these is one character wide in
+    /// the source, none of them has a compiler or a runtime check behind it, and a
+    /// wrong one produces an install that succeeds and a server that never starts.
+    func testTheRustAnalyzerComponentIsOneGzippedBinaryPerArchitecture() throws {
+        let component = try XCTUnwrap(manifest.component("rust-analyzer"))
+
+        XCTAssertEqual(component.version, "2026-08-03", "the version is upstream's release date, not a semver")
+        XCTAssertEqual(component.executableSubpath, "bin/rust-analyzer")
+        XCTAssertEqual(component.requires, [], "nothing runs rust-analyzer but the kernel")
+        XCTAssertEqual(
+            manifest.installationOrder(for: "rust-analyzer").map(\.id), ["rust-analyzer"],
+            "requiring nothing, it installs alone — no runtime is fetched on its behalf"
+        )
+
+        let expected: [LSPHostArchitecture: (String, String, Int)] = [
+            .arm64: (
+                "rust-analyzer-aarch64-apple-darwin.gz",
+                "bba6cd8209643cd781f3ee5474fa232d3ee1b77a57f2e77982806e3c80a65207",
+                13_873_448
+            ),
+            .x64: (
+                "rust-analyzer-x86_64-apple-darwin.gz",
+                "8966f9429085c243817b9d13afa76e98920668c07a9b432901daaf047397c6cb",
+                14_576_027
+            ),
+        ]
+
+        for architecture in LSPHostArchitecture.allCases {
+            let slice = component.artifacts(for: architecture)
+            XCTAssertEqual(slice.count, 1, "\(architecture.rawValue) must fetch exactly one file")
+            let artifact = try XCTUnwrap(slice.first)
+            let (fileName, sha256, byteCount) = try XCTUnwrap(expected[architecture])
+
+            XCTAssertEqual(artifact.url.lastPathComponent, fileName)
+            XCTAssertEqual(
+                artifact.url.deletingLastPathComponent().lastPathComponent, component.version,
+                "the asset must come from the release the version pins"
+            )
+            XCTAssertEqual(artifact.sha256, sha256)
+            XCTAssertEqual(artifact.byteCount, byteCount)
+            XCTAssertEqual(artifact.format, .gzip(fileName: "rust-analyzer"))
+            XCTAssertEqual(artifact.stripComponents, 0)
+            XCTAssertEqual(artifact.destinationSubpath, "bin")
+            XCTAssertEqual(
+                component.downloadByteCount(for: architecture), byteCount,
+                "the size the prompt shows is one slice, never the sum of both"
+            )
+        }
+
+        XCTAssertNotEqual(
+            component.downloadByteCount(for: .arm64), component.downloadByteCount(for: .x64),
+            "the two slices are the same size — one architecture's pin was pasted over the other"
+        )
+        XCTAssertEqual(
+            layout.executable(of: component)?.path,
+            "/tmp/pisaka-servers/rust-analyzer/2026-08-03/bin/rust-analyzer",
+            "the binary the unpacker writes and the path the registry launches are the same file"
+        )
+    }
+
+    /// The empty `licenseFileSubpaths` is a decision (D24), so it is asserted as
+    /// one: a `.gz` of a single binary carries no notice, `LSPInstalledLicenses`
+    /// therefore has nothing to print, and the substitute is the Settings row's
+    /// sentence naming the origin and the dual license. Left implicit, it would be
+    /// indistinguishable from a subpath somebody forgot — which is the failure this
+    /// layer's license checks exist to catch everywhere else.
+    func testRustAnalyzerShipsNoLicenseTextAndSaysWhichLicensesItIsUnder() throws {
+        let component = try XCTUnwrap(manifest.component("rust-analyzer"))
+        XCTAssertEqual(component.licenseSPDX, "Apache-2.0 OR MIT", "upstream offers a choice; the heading says so")
+        XCTAssertTrue(component.licenseFileSubpaths.isEmpty)
+        XCTAssertTrue(
+            layout.licenseFiles(of: component).isEmpty,
+            "the Acknowledgements surface must be handed nothing to read rather than a path that is not there"
+        )
+    }
+
+    /// Rust reuses the manifest and the engine, not `LSPProvisioningModel` (D21):
+    /// its row has a toolchain gate and a discovered-copy state that no 2b row can
+    /// express. So the downloadable-server enum stays exactly what it was, and this
+    /// is the assertion that adding a component did not quietly widen it.
+    func testTheDownloadableServerSetIsUnchangedByTheRustComponent() {
+        XCTAssertEqual(Set(LSPDownloadableServer.allCases.map(\.rawValue)), ["typescript", "python"])
+        XCTAssertFalse(
+            LSPDownloadableServer.allCases.map(\.serverComponentID).contains("rust-analyzer"),
+            "rust-analyzer is not a 2b server; its lifecycle lives in the Rust model"
+        )
+        XCTAssertNotNil(
+            manifest.component("rust-analyzer"),
+            "…and yet the component is pinned here, which is the whole of what Rust reuses"
         )
     }
 

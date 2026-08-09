@@ -667,7 +667,7 @@ the deliverable.
 - Modify: `Sources/PisakaCore/LSPProvisioningManifest.swift`
 - Modify: `Tests/PisakaCoreTests/LSPProvisioningManifestTests.swift`
 
-- [ ] add `LSPComponent.rustAnalyzer` — id `rust-analyzer`, version `2026-08-03`,
+- [x] add `LSPComponent.rustAnalyzer` — id `rust-analyzer`, version `2026-08-03`,
       `licenseSPDX: "Apache-2.0 OR MIT"`, **empty** `licenseFileSubpaths` with the
       reason on it (a bare `.gz` ships no licence file; the Settings row's sentence
       is the substitute), `requires: []`, `executableSubpath: "bin/rust-analyzer"`,
@@ -675,16 +675,39 @@ the deliverable.
       counts and unpacked sizes from the table above,
       `format: .gzip(fileName: "rust-analyzer")`, `stripComponents: 0`,
       `destinationSubpath: "bin"`
-- [ ] add it to `LSPProvisioningManifest.standard`, and record in the manifest's
+- [x] add it to `LSPProvisioningManifest.standard`, and record in the manifest's
       by-hand update procedure how these numbers were obtained (download,
       `shasum -a 256`, `gunzip` + `ls -l`) — the procedure this component's *dated*
       version makes people re-run more often than the others
-- [ ] tests: the component resolves, its two artifacts split cleanly by
+      *(A third recipe beside Node's and npm's, with `curl -o` rather than a pipe
+      stated as the point: the URL redirects to `objects.githubusercontent.com`,
+      so both the digest and the byte count have to come from the bytes that
+      actually arrive. `unpackedByteCount` is exact here rather than rounded — one
+      file, nothing for `du` to round to a block size. The two by-hand
+      confirmations no test can make are named: `file` must report the slice the
+      `architecture:` claims, and the published binary is `adhoc, linker-signed`,
+      so a future unsigned release would pass the executable gate and die at
+      `exec` — worth a `--version` before shipping a pin. `standard`'s own doc now
+      records why the component is there with no `LSPDownloadableServer` case.)*
+- [x] tests: the component resolves, its two artifacts split cleanly by
       architecture (exactly one per slice), `installationOrder` is the single
       component (nothing required), the digests are 64 lowercase hex, the URLs are
       HTTPS and name the pinned release, and the empty `licenseFileSubpaths` is
       asserted **as a decision** rather than passing by accident
-- [ ] run `swift test`
+      *(Four new tests; three existing ones extended rather than weakened. The
+      arch test's "everything that is not node is an npm tarball" rule became a
+      hand-written native set (`node`, `rust-analyzer`) checked both ways, so a
+      native artifact carrying `nil` fails as loudly as an npm one carrying
+      `.arm64`. The licence test learned `OR` beside `AND` — the operands are what
+      it validates, and the first `OR` expression must not read as unrecognised —
+      and pins the empty-subpath exemption by id. A fourth test the plan did not
+      list closes the gap `.gzip` opens: the file name is spelled twice, in the
+      format's payload and inside `executableSubpath`, and nothing at runtime
+      compares them, so a mismatch installs cleanly and `ENOENT`s on every start.
+      `LSPDownloadableServer`'s set equality is asserted **unchanged** in the same
+      suite, which is D21 stated as a test.)*
+- [x] run `swift test`
+      *(2235 tests, 0 failures.)*
 
 ### Task 8: Core — the Rust toolchain and rust-analyzer domain
 

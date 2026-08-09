@@ -712,20 +712,50 @@ budget. `canServe` therefore flips both ways without a restart, and
 
 ## The pinned manifest
 
-One shared Node runtime plus one component per server. Sources are official
-only: `nodejs.org/dist` (checksums verified against the release's own
-`SHASUMS256.txt`) and `registry.npmjs.org` tarball URLs.
+One shared Node runtime plus one component per server, and one standalone binary
+that needs no runtime at all. Sources are official only: `nodejs.org/dist`
+(checksums verified against the release's own `SHASUMS256.txt`),
+`registry.npmjs.org` tarball URLs, and the `rust-lang/rust-analyzer` GitHub
+release assets.
 
 | component | version | license | artifacts (sha256 · download bytes) |
 |---|---|---|---|
 | `node` | 24.19.0 | MIT | `node-v24.19.0-darwin-arm64.tar.gz` `8294b7aa9b03997481c06babf1e8b270c859358f27da57a11509afe537ac381d` · 52 234 372<br>`node-v24.19.0-darwin-x64.tar.gz` `d1b5e999db158c62fe8f7267a4476b035d8bd93b1a605bac24a3f0dd166e3316` · 53 439 583 |
 | `typescript-language-server` | 5.3.0 | Apache-2.0 | `typescript-language-server-5.3.0.tgz` `398cacc17fff2108652e7b4050e3182008d17063246b3fea7dcf5fae2ce1560e` · 501 633<br>`typescript-5.9.3.tgz` `10e108c9cf7d5f2879053dff18515fb405abf2ccef63eaaf017d9c571687a1d3` · 4 377 468 |
 | `pyright` | 1.1.411 | MIT | `pyright-1.1.411.tgz` `bd5c488fc20fa237a944279bf32cae2f986cf10d5d5d9e8705819859daeb2f4a` · 4 139 958<br>`fsevents-2.3.3.tgz` `c77e7a5d5ff31dd7acea7c44d4a0455e0528cdacbd24a8cb6c82b66d239b587e` · 22 808 |
+| `rust-analyzer` | 2026-08-03 | Apache-2.0 OR MIT | `rust-analyzer-aarch64-apple-darwin.gz` `bba6cd8209643cd781f3ee5474fa232d3ee1b77a57f2e77982806e3c80a65207` · 13 873 448<br>`rust-analyzer-x86_64-apple-darwin.gz` `8966f9429085c243817b9d13afa76e98920668c07a9b432901daaf047397c6cb` · 14 576 027 |
 
 `fsevents` is macOS-only, optional and prebuilt; it costs 22 KB and avoids the
 resolution warning its absence produces. There is nothing else transitive —
 which is why this whole layer needs no `npm`, no lockfile and no dependency
 solver.
+
+`rust-analyzer` is the odd row, in four ways that are each a decision rather than
+an accident:
+
+- It is the only `.gzip` artifact — a bare `.gz` of one Mach-O executable, so
+  `stripComponents` is 0, the file's name lives in the format's payload
+  (`.gzip(fileName: "rust-analyzer")`, D22) because the archive carries none, and
+  the engine verifies the executable bit before it commits.
+- It **requires nothing**. Every other component here is Node or a Node argument;
+  this one is run by the kernel, so `installationOrder` for it is the single
+  component and accepting Rust downloads ~13 MB rather than ~66.
+- Its `licenseFileSubpaths` is **empty**, and that is D24: the archive holds one
+  binary and no notice, so `LSPInstalledLicenses` has nothing to read and
+  `licenses.json` covers nothing (this app bundles none of its bytes). The
+  substitute is one sentence in the Settings row naming the origin and the
+  `Apache-2.0 OR MIT` dual license. `licenseSPDX` uses `OR` for the first time —
+  the other expressions here use `AND`, which says the tree is under both at once;
+  `OR` says upstream offers a choice.
+- Its **version is a date**, because that is what upstream ships. It sorts
+  correctly lexicographically, which is the one property `state(of:)` asks of a
+  version string, and it is the reason the procedure below gets re-run more often
+  for this component than for any other.
+
+It also has **no `LSPDownloadableServer` case** (D21): what Rust reuses from this
+layer is the pinned component and the engine that installs it, not
+`LSPProvisioningModel` — a 2b row cannot say "no Rust toolchain", and Rust's
+lifecycle therefore lives in its own Core model beside gopls's.
 
 ### Updating a pin, by hand
 
@@ -787,6 +817,43 @@ du -sk "$D" | awk '{ print $1 * 1024 }'    # → unpackedByteCount, then round
 rm -rf "$D"
 ```
 
+A GitHub release asset — rust-analyzer, and the reason this section has a third
+recipe. It is also the one that is run most often, because the pin is a *date*
+and upstream cuts a release every week; the numbers below are the whole of a
+bump, since there is no license path and no entry point to re-check inside an
+archive of one file.
+
+```sh
+V=2026-08-03
+for A in aarch64 x86_64; do
+  URL="https://github.com/rust-lang/rust-analyzer/releases/download/$V/rust-analyzer-$A-apple-darwin.gz"
+  curl -fsSL "$URL" -o /tmp/ra.gz
+  shasum -a 256 /tmp/ra.gz                 # → sha256
+  wc -c < /tmp/ra.gz                       # → byteCount
+  gunzip -c /tmp/ra.gz > /tmp/ra           # the whole unpack: one file, no layout
+  wc -c < /tmp/ra                          # → unpackedByteCount (exact, not rounded)
+  file /tmp/ra                             # → confirm the slice: Mach-O arm64 / x86_64
+  rm -f /tmp/ra.gz /tmp/ra
+done
+```
+
+`curl -o` rather than a pipe, because the URL redirects to
+`objects.githubusercontent.com` and both the digest and the byte count must be
+taken from the bytes that actually arrive. `unpackedByteCount` is exact here
+rather than rounded: it is one file, so `du` has nothing to round up to a block
+size that `wc -c` does not already say precisely.
+
+Two things worth confirming by hand on a bump, neither of which any test can see.
+`file` must report the architecture the artifact's `architecture:` claims — the
+two URLs differ by one word and a swap installs a binary that cannot execute on
+either Mac. And the binary is `adhoc, linker-signed` as published, so it launches
+on Apple silicon with no signing step of ours; bytes written by `URLSession` carry
+no `com.apple.quarantine`, exactly as the Node binaries this layer already
+installs do not. If a future release ships unsigned, the executable gate would
+still pass and the process would die at `exec` — which surfaces as D7's silent
+fallback to tree-sitter, so it is worth a `/tmp/ra --version` before shipping the
+pin.
+
 After a bump, re-check the two things that are not mechanical: that the license
 subpaths in `licenseFileSubpaths` still exist inside the new tarball (the
 Acknowledgements section silently drops a component whose texts it cannot read),
@@ -808,7 +875,11 @@ tar tzf "$P-$V.tgz" | grep -iE 'licen|copying|notice|third.?party'
 `dist/typeshed-fallback/LICENSE` inside its own MIT tree. Both are listed in
 `licenseFileSubpaths` and appended below a separator by `LSPInstalledLicenses`.
 Run that `grep` on every artifact of a bumped pin; a notice that appears and is
-not listed ships unacknowledged, and nothing in `swift test` can see it.
+not listed ships unacknowledged, and nothing in `swift test` can see it. There is
+nothing to run it against for `rust-analyzer` — a `.gz` has one member and it is
+the binary — which is why that component's `licenseFileSubpaths` is empty and why
+`LSPProvisioningManifestTests` pins the emptiness by id rather than letting it
+read as an omission.
 
 A second notice may also move the component's **`licenseSPDX`**, which is an
 SPDX *expression* (`MIT AND Apache-2.0` for pyright) rather than a bare id, and
