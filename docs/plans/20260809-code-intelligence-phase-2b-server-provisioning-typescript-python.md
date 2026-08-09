@@ -260,22 +260,26 @@ in `PisakaApp` and extending the gating suite's per-side lists.
 - Modify: `Sources/Pisaka/PisakaApp.swift`
 - Modify: `Tests/PisakaCoreTests/LSPSourceGatingTests.swift`
 
-- [ ] `LSPDownloadService`: an ephemeral `URLSession` with caching off and stated timeouts,
+- [x] `LSPDownloadService`: an ephemeral `URLSession` with caching off and stated timeouts,
       answering `Data` and mapping a transport error or a non-200 response to
-      `LSPInstallError.downloadFailed`
-- [ ] `LSPArchiveUnpacker`: `/usr/bin/tar -xz --strip-components=<n> -C <dir>` with the
+      `LSPInstallError.downloadFailed` (the mapping is completed by the engine, which
+      attributes the failure to the component it is installing; the seam throws bare reason
+      phrases so the surfaced sentence is not two attributions of one failure — the shape
+      `ScriptedDownloader.Failure` already established)
+- [x] `LSPArchiveUnpacker`: `/usr/bin/tar -xz --strip-components=<n> -C <dir>` with the
       archive written to the child's stdin and both other pipes drained before waiting
       (`GitCLIService`/`LSPToolchain`'s deadlock rule), `F_SETNOSIGPIPE`-equivalent care on
       the write side, and a non-zero exit mapped to `unpackFailed`
-- [ ] wire in `PisakaApp.init`: install root under `Application Support`, host architecture
+- [x] wire in `PisakaApp.init`: install root under `Application Support`, host architecture
       from `#if arch(arm64)`, engine + model built once, `onRegistryChange` pushing into
       `lspWorkspace.updateRegistry(_:)`, a launch-time `sweepStaging()` + `refresh()`, and
-      the model published to the views
-- [ ] extend `LSPSourceGatingTests`' `expectedAppFiles` and `expectedCoreFiles` with every
+      the model held as a stable stored reference for the task-7 surfaces to observe
+- [x] extend `LSPSourceGatingTests`' `expectedAppFiles` and `expectedCoreFiles` with every
       new file of this phase (the app-side ones must open with `#if os(macOS)`; the Core-side
       ones must import Foundation and nothing else, and mention neither `Process` nor a
-      platform framework)
-- [ ] run `swift test` — must pass before task 7
+      platform framework) — `SHA256` joins `coreFilePrefixes` so the import assertion is what
+      forbids a later `import CryptoKit`
+- [x] run `swift test` — must pass before task 7
 
 ### Task 7: The consent banner, the Settings surface and Acknowledgements
 
