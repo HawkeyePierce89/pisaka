@@ -520,20 +520,33 @@ and ⌘U works.
 - Modify: `Sources/PisakaCore/LanguageKeywords.swift`
 - Modify: `Tests/PisakaCoreTests/LanguageKeywordsTests.swift`
 
-- [ ] add the 56-entry Rust list per the stated rule, sorted and duplicate-free,
+- [x] add the 56-entry Rust list per the stated rule, sorted and duplicate-free,
       with the rule and both lines it draws written on the property (reserved-but-
       unusable words out; `union` in and `macro_rules` out, with the Python soft-
       keyword precedent named; the prelude out); note that `Self` sorts first
-- [ ] replace the Task 2 placeholder with `case .rust: return rust`; leave
+      *(The property states the primitives' inclusion under Go's rule verbatim —
+      an identifier belongs here when no source file can ever declare it — and
+      draws **three** lines rather than two, the third being the unstable
+      `f16`/`f128` and `_`, which the plan had recorded as an aside rather than
+      as a line.)*
+- [x] replace the Task 2 placeholder with `case .rust: return rust`; leave
       `languagesWithoutKeywords` alone
-- [ ] extend `LanguageKeywordsTests` with the content pins the shape invites — the
+- [x] extend `LanguageKeywordsTests` with the content pins the shape invites — the
       38 strict keywords in full, a representative of each primitive family
       (`i32`, `u128`, `usize`, `f64`, `bool`, `char`, `str`), `union` present, and
       the line the list must not cross: `abstract`, `virtual`, `yield`, `Option`,
       `Some`, `Vec`, `macro_rules` all absent, and no entry containing `!`, `:` or
       a dot. `testTheDocumentedLanguagesAreTheOnesWithLists` gains `.rust` by
       extension, still set equality
-- [ ] run `swift test` — full suite green again
+      *(Pinned by **set equality** against the union of the three families, Go's
+      precedent, rather than by the representative subset alone — a subset check
+      is what a hand edit slips through. The representatives are asserted too, so
+      a family lost wholesale is named rather than read out of a set diff, and
+      the count is pinned at 56 so a duplicate fails. `Self` leading the sorted
+      list is asserted as its own line.)*
+- [x] run `swift test` — full suite green again
+      *(2223 tests, 0 failures — the last of the two set-equality failures Task 2
+      deliberately left is now closed.)*
 
 ### Task 5: Run and test commands for Rust
 

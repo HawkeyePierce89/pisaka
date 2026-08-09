@@ -41,11 +41,7 @@ public enum LanguageKeywords {
         case .python: return python
         case .dockerfile: return dockerfile
         case .go: return go
-        // Placeholder: Rust *does* get a list — it is written in the next task,
-        // and this line is deliberately not a `languagesWithoutKeywords` entry,
-        // which would be a decision rather than a step. `LanguageKeywordsTests`
-        // fails on the empty list until it is replaced.
-        case .rust: return []
+        case .rust: return rust
         case .json, .markdown, .html, .css, .yaml, .dotenv, .gitignore: return []
         }
     }
@@ -229,5 +225,56 @@ public enum LanguageKeywords {
         "true", "type",
         "uint", "uint16", "uint32", "uint64", "uint8", "uintptr",
         "var",
+    ]
+
+    /// Rust: the **38 strict keywords** of the 2021 edition, the **17 primitive
+    /// type names**, and the one contextual keyword `union`. 56 entries.
+    ///
+    /// The primitives are in for Go's rule, which is the sharper form of the
+    /// TypeScript list's: **an identifier belongs on a keyword list when no
+    /// source file can ever declare it.** `i32` and `usize` are declared in no
+    /// crate anywhere — not in `core`, not in a stub — so the symbol index cannot
+    /// hold them and the buffer-word harvest only has them once they are typed.
+    ///
+    /// Three lines are drawn, and each is a decision rather than an oversight:
+    ///
+    /// - **Reserved-but-unusable words are out** (`abstract`, `become`, `box`,
+    ///   `do`, `final`, `gen`, `macro`, `override`, `priv`, `try`, `typeof`,
+    ///   `unsized`, `virtual`, `yield`). They are reserved precisely so that no
+    ///   program may use them, so completing to one can only ever produce a
+    ///   compile error — the opposite of the rule's purpose, which is to offer
+    ///   what nothing else can.
+    /// - **`union` is in, `macro_rules` is out.** `union` is contextual, and the
+    ///   precedent is already set by Python's soft keywords `match`/`case`, which
+    ///   are on that list: a word the parser only treats specially in position is
+    ///   still a word the writer types. `macro_rules` is out because the token a
+    ///   person actually types is `macro_rules!`, and a bare identifier that
+    ///   completes to half of it is worse than offering nothing — the harvested
+    ///   buffer words pick it up the moment a file declares one.
+    /// - **The prelude stays out** (`Option`, `Result`, `Some`, `None`, `Ok`,
+    ///   `Err`, `String`, `Vec`, `Box`), for the reason `fmt.Println` stayed out
+    ///   of Go's: they *are* declarations in a crate, so rust-analyzer or the
+    ///   symbol index is what should offer them.
+    ///
+    /// `f16`/`f128` are excluded as unstable, and `_` per Go's precedent —
+    /// punctuation the user types directly. `Self` sorts first, uppercase before
+    /// lowercase, exactly as Python's list opens with `False`/`None`/`True`.
+    private static let rust: [String] = [
+        "Self",
+        "as", "async", "await",
+        "bool", "break",
+        "char", "const", "continue", "crate",
+        "dyn",
+        "else", "enum", "extern",
+        "f32", "f64", "false", "fn", "for",
+        "i128", "i16", "i32", "i64", "i8", "if", "impl", "in", "isize",
+        "let", "loop",
+        "match", "mod", "move", "mut",
+        "pub",
+        "ref", "return",
+        "self", "static", "str", "struct", "super",
+        "trait", "true", "type",
+        "u128", "u16", "u32", "u64", "u8", "union", "unsafe", "use", "usize",
+        "where", "while",
     ]
 }
