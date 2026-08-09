@@ -695,7 +695,9 @@ and iPhone. The feature scope landed so far:
   no rename, no status indicator and no log, and nothing about them is
   configurable: no per-project server, no extra options or arguments, and no
   version picker (the versions are pinned in the app and change only when you
-  update it — an installed server is never upgraded behind your back). Offline,
+  update it — and when an update does move a pin, the next TypeScript or Python
+  file you open re-downloads the server at the new version without asking again,
+  replacing the old copy, because you already agreed to install it). Offline,
   behind a proxy that intercepts TLS, or on a network that blocks `nodejs.org` /
   `registry.npmjs.org`, the download simply fails: the Settings row says "not
   installed", there is a Retry button, and the language keeps using the built-in

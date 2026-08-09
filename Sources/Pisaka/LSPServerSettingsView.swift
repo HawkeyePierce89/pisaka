@@ -25,7 +25,29 @@ import PisakaCore
 struct LSPServerSettingsView: View {
     @ObservedObject var provisioning: LSPProvisioningModel
 
+    /// The pane scrolls rather than sizing to its content, and that is about the
+    /// failure messages rather than about the rows.
+    ///
+    /// Two rows, their states and the footer fit the fixed 480×300 with room to
+    /// spare — but `failureMessage` is unbounded in a way nothing here controls:
+    /// `LSPArchiveUnpacker` reports up to 200 characters of `tar`'s last line, and
+    /// a `URLError` adds a whole sentence to the engine's own prefix, each of
+    /// which wraps to several `.caption` lines inside the row's narrow text
+    /// column. Both servers failing therefore overflows the frame, and since a
+    /// plain `VStack` neither clips nor scrolls, the overflow would simply draw
+    /// past the frame — losing the bottom of the very sentence the user opened
+    /// this tab to read, because D15 makes this row the *only* place an install
+    /// failure is ever surfaced. Dropping the fixed height instead would fix the
+    /// clipping and resize the Preferences window when a message arrived, since
+    /// `TabView` sizes to its largest tab.
     var body: some View {
+        ScrollView {
+            content
+        }
+        .frame(width: 480, height: 300)
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(
                 "Pisaka can download a language server for these files. "
@@ -56,11 +78,9 @@ struct LSPServerSettingsView: View {
             Text("Installed under ~/Library/Application Support/Pisaka/\(LSPInstallLayout.directoryName).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-
-            Spacer(minLength: 0)
         }
         .padding(20)
-        .frame(width: 480, height: 300, alignment: .topLeading)
+        .frame(width: 480, alignment: .topLeading)
     }
 
     private func row(_ row: LSPServerRow) -> some View {

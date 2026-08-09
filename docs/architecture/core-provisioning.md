@@ -739,11 +739,22 @@ checks at the end of the plan re-validate that the server actually answers.
   bytes as they arrive; the installed tree is not re-hashed at launch and there
   is no code signature or notarization check on what was unpacked. A user who
   edits the install root gets what they wrote.
-- **The manifest is fixed at ship time.** A published version with a security
-  fix reaches users only in a new app version — there is no update channel, and
-  an installed server is never upgraded behind the user's back. What a pin bump
-  *does* do is make the old tree un-servable (paths name the version), so the row
-  offers a fresh install and the stale directory stays removable.
+- **The manifest is fixed at ship time, and a pin bump re-downloads.** A
+  published version with a security fix reaches users only in a new app version:
+  there is no update channel, and nothing checks for one. What a pin bump *does*
+  do is make the old tree un-servable — every path names the version — so the
+  component reads `absent` at the pinned version even though its predecessor is
+  still on disk. For an `accepted` server that is by design the silent path
+  (D15): the next `.ts`/`.py` tab opened after the app update runs
+  `prepareForOpening`, which re-installs at the new pin without a banner and
+  without asking, and `commit` then deletes the superseded tree
+  (`removeOtherVersions`). So an app update whose pin moved costs the accepted
+  user another ~52 MB on next use, unannounced except by the Settings row —
+  which is the price of "accepted means keep it working" and the reason
+  `LSPServerConsent.accepted` is worded as it is. Offline at that moment, the
+  silent install fails, `failures` suppresses further attempts for the app run,
+  and the language falls back to tree-sitter until Retry or the next launch. The
+  stale directory stays removable either way.
 - **One version at a time, and no per-project override.** A project needing a
   different `typescript` gets the workspace copy through D11's resolution order
   (which is what `fallbackPath` buys), but nothing else here is configurable: no

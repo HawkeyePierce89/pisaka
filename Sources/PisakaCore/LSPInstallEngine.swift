@@ -189,7 +189,7 @@ public final class LSPInstallEngine {
     public func state(of componentID: String) -> LSPInstallState {
         if installs[componentID] != nil { return .installing }
         let versions = installedVersions(of: componentID)
-        guard let newest = versions.last else { return .absent }
+        guard let stranded = versions.last else { return .absent }
         // The pinned version wins when it is there, so the common answer is the
         // one the registry entries are built from. Any *other* version is still
         // reported as installed — it is a real tree taking up real disk, left by
@@ -198,7 +198,14 @@ public final class LSPInstallEngine {
         if let pinned = manifest.component(componentID)?.version, versions.contains(pinned) {
             return .installed(version: pinned)
         }
-        return .installed(version: newest)
+        // `last` of a *lexicographic* sort, deliberately not "the newest": the
+        // versions here are dotted strings, so `1.1.9` sorts after `1.1.10`, and
+        // nothing in this layer knows a version scheme to compare them properly.
+        // It costs nothing to be wrong, because this branch only ever names a
+        // tree for the Settings row to offer removing — a successful install
+        // leaves exactly one version behind (`removeOtherVersions`), so more than
+        // one is already the rare case, and no path serves what it reports.
+        return .installed(version: stranded)
     }
 
     public func state(of component: LSPComponent) -> LSPInstallState {
