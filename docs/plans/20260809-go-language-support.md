@@ -728,13 +728,43 @@ on *this* Mac, and what running `go install` means here.
 
 ### Task 10: Verify acceptance criteria
 
-- [ ] `swift test` — full suite green, every set-equality suite extended rather
+- [x] `swift test` — full suite green, every set-equality suite extended rather
       than weakened
-- [ ] both destination builds succeed
-- [ ] confirm no test was made more permissive: `SymbolQueryTests`,
+      — 2213 tests, 0 failures.
+- [x] both destination builds succeed
+      — both `** BUILD SUCCEEDED **`, run with CI's own flags (Xcode 16.4's
+      invocation: relative `-clonedSourcePackagesDirPath`/`-derivedDataPath`,
+      `CODE_SIGNING_ALLOWED=NO`), so the local run is the run CI makes.
+      `TreeSitterGo_TreeSitterGo.bundle` appears in the `-scanforprivacyfile`
+      list of *both* Info.plist steps, which is the observable proof the new
+      grammar's C compiled and its resource bundle shipped for the iOS device
+      arch as well as macOS. The committed `Package.resolved` came through the
+      pair byte-identical again (SHA-256 `db8ef756…` before and after): the
+      v1-schema downgrade Task 1 recorded is provoked by a *resolve*, not by a
+      build over an already-resolved `SourcePackages`.
+- [x] confirm no test was made more permissive: `SymbolQueryTests`,
       `LanguageKeywordsTests`, `SyntaxTokenKindTests`, `LicenseCoverageTests`,
       `DependencyPinTests`, `ReleaseMetadataTests`, `LSPSourceGatingTests` all
       still assert by set equality
+      — audited as a diff against `master`, not merely re-run green, since a
+      weakened assertion passes either way. `DependencyPinTests` and
+      `ReleaseMetadataTests` are **untouched** — the Go pin and the unchanged
+      privacy manifest satisfy them as written. The other five changed only by
+      gaining table rows: `SymbolQueryTests` keeps both its
+      `XCTAssertEqual(directories, expected)` coverage sweep over
+      `allCases.filter(SymbolIndexModel.isIndexable)` and the
+      `Set(pinnedNodeNames.keys).union([.dotenv]) == indexableLanguages()`
+      check that makes an unpinned new language impossible, plus a `.go` entry;
+      `LanguageKeywordsTests`' `testTheDocumentedLanguagesAreTheOnesWithLists`
+      is still equality against a literal set, with `.go` added to it;
+      `LicenseCoverageTests` gained a `tree-sitter-go` copyright-holder row;
+      `LSPSourceGatingTests` gained one app and two Core file names to sets it
+      still compares by equality; `SyntaxTokenKindTests` gained a whole new
+      hand-pinned capture table rather than relaxing an existing one. No
+      assertion anywhere in the branch turned into `contains`/`isSubset`, and
+      the only genuinely new *looser* assertions are the two Go keyword
+      content tests, which add `XCTAssertTrue(contains:)`/`XCTAssertFalse`
+      checks *beside* the set equality rather than in place of it.
 
 ### Task 11: Update documentation
 
