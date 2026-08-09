@@ -895,24 +895,53 @@ seam the app fills in. TDD.
 **Files:**
 - Modify: `docs/architecture/core-services.md` (the audit record)
 
-- [ ] `xcodegen generate`, then build macOS and iOS (device arch,
+- [x] `xcodegen generate`, then build macOS and iOS (device arch,
       `generic/platform=iOS`, CI's own flags) — the iOS build is the link-time
       proof that the grammar's **external scanner** compiled and linked, the dotenv
       failure mode this grammar was checked for
-- [ ] confirm `TreeSitterRust_TreeSitterRust.bundle` appears in the
+      *(Both BUILD SUCCEEDED. The proof is sharper than "it linked": all five
+      `_tree_sitter_rust_external_scanner_{create,destroy,serialize,deserialize,scan}`
+      symbols are **defined** (`T`) in both binaries, so the dotenv shape — five
+      undefined externals at the consuming app's link step — is ruled out by the
+      linker rather than by reading upstream's `sources:`.)*
+- [x] confirm `TreeSitterRust_TreeSitterRust.bundle` appears in the
       `-scanforprivacyfile` list of both Info.plist steps, and that the committed
       `Package.resolved` came through the pair byte-identical
-- [ ] re-run the recorded `nm -u` audit over both built binaries — including the
+      *(Present in both, in each case exactly once and beside the same 15 other
+      grammar bundles — 16 per destination. `Package.resolved` hashes
+      `db2ab036ee37f9a758e483ff78162e8d103823fbce35f57e935d456bf961f33a` before
+      and after the `xcodegen generate` + two builds, and the worktree is clean,
+      so neither the generate nor the resolves rewrote it.)*
+- [x] re-run the recorded `nm -u` audit over both built binaries — including the
       check that the scanned files are non-trivial and that `_tree_sitter_rust` is
       **defined** in each — and update the record with the date, the grammar added
       and the result; sweep `Sources/` for new required-reason call sites from
       Tasks 6 and 9 (`isExecutableFile`, the discovery probes) and name them in the
       record either way
-- [ ] update `Resources/PrivacyInfo.xcprivacy` **only if** the audit found
+      *(2184 undefined symbols on iOS and 2308 on macOS, so neither scan was the
+      launch-stub trap; `_tree_sitter_rust` defined `T` in both. The same four
+      symbols as the 2026-08-09 record — `_stat`, `_lstat`, `_fstat`,
+      `_mach_absolute_time` — and nothing else. The `Sources/` sweep found no new
+      category at all: no disk-space, boot-time or keyboard hit, and no new
+      timestamp call site. What it did find is that the record's one named
+      `isExecutableFile` call site is now a family of five, including the first
+      one in **Core** — `FileServicing.isExecutableFile(at:)` behind
+      `LSPInstallEngine`'s `.gzip` gate — so the record names the family and says
+      why a permission question is still nothing to declare.)*
+- [x] update `Resources/PrivacyInfo.xcprivacy` **only if** the audit found
       something; `ReleaseMetadataTests`' set equality is the gate either way
-- [ ] correct the dependency and licence-directory counts in the same doc, which
+      *(The audit found nothing, so the manifest is untouched and its three
+      category/reason pairs still pass `ReleaseMetadataTests`' set equality —
+      which is the assertion that would have failed had the audit and the file
+      disagreed in either direction.)*
+- [x] correct the dependency and licence-directory counts in the same doc, which
       Task 1 makes stale
-- [ ] run `swift test`
+      *(Both 19s become 20, and they were the same 20 all along: 19 resolved
+      checkouts minus the `excluded` `swift-argument-parser`, plus the two
+      `Vendor/` grammars, equals the 20 `notices` in `licenses.json` and the 20
+      `.txt` files beside it.)*
+- [x] run `swift test`
+      *(2254 tests, 0 failures.)*
 
 ### Task 12: Verify acceptance criteria
 

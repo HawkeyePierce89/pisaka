@@ -279,9 +279,13 @@ run in `swift test` rather than needing an Xcode build.
 
     **Required-reason API audit.** The unit of audit is the **linked binary**,
     not `Sources/`: libgit2 and every tree-sitter grammar compile from C source
-    *into* the app, and none of the 19 dependencies ships a
+    *into* the app, and none of the 20 dependencies ships a
     `PrivacyInfo.xcprivacy` of its own (`find DerivedData/SourcePackages/checkouts
-    -name '*.xcprivacy'` returns nothing), so their required-reason calls must be
+    -name '*.xcprivacy'` returns nothing; the build would surface one if it ever
+    appeared, since every grammar's resource bundle is handed to *both*
+    destinations' `ProcessInfoPlistFile` step as a `-scanforprivacyfile`
+    argument — 16 bundles today, `TreeSitterRust_TreeSitterRust.bundle` among
+    them), so their required-reason calls must be
     declared by this manifest. A `Sources/`-only grep misses them — that is how
     the boot-time entry below was originally missed. Re-run the audit as a grep
     over `Sources/` **plus** a symbol check on the built binary:
@@ -303,29 +307,43 @@ run in `swift test` rather than needing an Xcode build.
     Confirm the file you scanned is non-trivial (`nm -u` on it should list
     hundreds of symbols) before believing an empty match.
 
-    **Last re-run: 2026-08-09**, over both destinations' Debug dylibs
+    **Last re-run: 2026-08-10**, over both destinations' Debug dylibs
     (`Debug-iphoneos/Pisaka.app/Pisaka.debug.dylib`, 2184 undefined symbols, and
-    `Debug/Pisaka.app/Contents/MacOS/Pisaka.debug.dylib`, 2306), after adding the
-    `tree-sitter-go` grammar — the Go language work's one change to what is
-    *linked*, and so the reason a re-run was owed: a grammar is C compiled into
-    the app, exactly the half a `Sources/` grep cannot see. Both binaries
-    answered the same four symbols the record below already explains — `_stat`,
-    `_lstat`, `_fstat`, `_mach_absolute_time` — with no disk-space and no
-    keyboard symbol, so `PrivacyInfo.xcprivacy` is unchanged and
+    `Debug/Pisaka.app/Contents/MacOS/Pisaka.debug.dylib`, 2308), after adding the
+    `tree-sitter-rust` grammar — the Rust language work's one change to what is
+    *linked* (rust-analyzer is neither linked nor bundled; it arrives over the
+    network or not at all), and so the reason a re-run was owed: a grammar is C
+    compiled into the app, exactly the half a `Sources/` grep cannot see. Both
+    binaries answered the same four symbols the record below already explains —
+    `_stat`, `_lstat`, `_fstat`, `_mach_absolute_time` — with no disk-space and
+    no keyboard symbol, so `PrivacyInfo.xcprivacy` is unchanged and
     `ReleaseMetadataTests`' set equality still passes. That the new grammar was
     really inside what was scanned is confirmed rather than assumed: `nm` finds
-    `_tree_sitter_go` **defined** (`T`) in both, beside the grammars that were
+    `_tree_sitter_rust` **defined** (`T`) in both, beside the grammars that were
     there before — the same "check the right binary" trap one level down, since a
     grammar that had linked as its own dynamic framework would keep its C calls
     out of this grep.
 
-    The `Sources/` half turned up one new call site worth naming, because the
-    next reader will meet it and wonder: `LSPGoToolchainService`'s discovery
-    probes candidate `go`/`gopls` paths with
-    `FileManager.isExecutableFile(atPath:)`. That asks a *permission* question
-    and reads no timestamp, and is not one of the file-timestamp APIs Apple's
-    list names, so it adds nothing to declare — the five timestamp call sites
-    below are still all of them.
+    This grammar earns a second confirmation the others did not need, and it is
+    the one the iOS device build exists to make: all five
+    `_tree_sitter_rust_external_scanner_*` symbols are **defined** in both
+    binaries too. `tree-sitter-rust`'s manifest lists `src/scanner.c` in its
+    `sources:`, which is why nothing is vendored for it — and the
+    `TreeSitterDotenv` failure mode is precisely a manifest that omits that line,
+    compiles cleanly, and leaves those five undefined until the consuming app
+    links. Reading upstream's manifest predicts the answer; the link *is* it.
+
+    The `Sources/` half turned up no new *category*, and one call site that has
+    since become a family, because the next reader will meet it and wonder:
+    `FileManager.isExecutableFile(atPath:)`. It was `LSPGoToolchainService`'s
+    `go`/`gopls` discovery probe alone; there are now also `LSPToolchain`'s and
+    `LSPRustToolchainService`'s probes, `LSPArchiveUnpacker`'s check on what it
+    just gunzipped, and — the first time this question is asked from *Core* —
+    `FileServicing.isExecutableFile(at:)`, which `LSPInstallEngine` puts between
+    a `.gzip` unpack and its commit rename. Every one of them asks a
+    *permission* question and reads no timestamp, and none is one of the
+    file-timestamp APIs Apple's list names, so the family adds nothing to
+    declare — the five timestamp call sites below are still all of them.
 
     A later audit should be a diff against this record, not a rediscovery:
 
@@ -380,7 +398,7 @@ run in `swift test` rather than needing an Xcode build.
         `Sources/` and no matching symbol in either binary, not declared.
 
   - `Resources/Licenses/` — `licenses.json` plus one verbatim `<id>.txt` per
-    shipped dependency (19 today). Declared in `project.yml` as a **folder
+    shipped dependency (20 today). Declared in `project.yml` as a **folder
     reference** (`type: folder`), so the whole directory is copied into the
     bundle as `Licenses/` and adding a future text needs no project
     regeneration. That convenience is exactly why the directory's *contents* are
