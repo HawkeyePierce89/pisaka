@@ -61,6 +61,7 @@ final class LSPSourceGatingTests: XCTestCase {
     private static let expectedCoreFiles: Set<String> = [
         "CompletionEditPlan.swift",
         "LSPFraming.swift",
+        "LSPInstallEngine.swift",
         "LSPInstallLayout.swift",
         "LSPIntelligenceProvider.swift",
         "LSPMessage.swift",

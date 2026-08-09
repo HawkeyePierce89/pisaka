@@ -168,23 +168,23 @@ replacement, coalescing, and state derived from the file system.
 - Modify: `Tests/PisakaCoreTests/Support/StubFileTree.swift` (as needed for
   nested-directory listing and for the fake unpacker to materialise entries into it)
 
-- [ ] define `LSPArtifactDownloading` (`Data` for a `URL`, `async throws`) and
+- [x] define `LSPArtifactDownloading` (`Data` for a `URL`, `async throws`) and
       `LSPArchiveUnpacking` (`Data` + destination + strip depth, `async throws`), and the
       typed `LSPInstallError` (`checksumMismatch`, `downloadFailed`, `unpackFailed`,
       `unsupportedArchitecture`, `fileSystemFailed`) with user-facing descriptions in
       `GitError`'s voice
-- [ ] implement `@MainActor LSPInstallEngine` over manifest + layout + `FileServicing` +
+- [x] implement `@MainActor LSPInstallEngine` over manifest + layout + `FileServicing` +
       the two seams + a host architecture: `state(of:)` (`absent` / `installing` /
       `installed(version)`, read from the version directories plus the in-flight table),
       `install(_:)` with per-component coalescing and requirement-first ordering,
       `remove(_:)`, and `sweepStaging()`
-- [ ] the install sequence exactly as D13 states it — verify before unpack, one `move`
+- [x] the install sequence exactly as D13 states it — verify before unpack, one `move`
       onto the version directory, old versions deleted only after, staging removed on every
       failure path, and a mismatch reported without retrying
-- [ ] scripted fakes: a downloader answering canned bytes (or an error, or blocking on a
+- [x] scripted fakes: a downloader answering canned bytes (or an error, or blocking on a
       `Gate`) per URL and counting calls, and an unpacker that writes a canned tree into the
       `StubFileTree` (or fails on demand)
-- [ ] engine tests: no-op reinstall performs zero downloads; checksum mismatch leaves
+- [x] engine tests: no-op reinstall performs zero downloads; checksum mismatch leaves
       nothing behind and does not re-download; failure injected at download, checksum,
       unpack and move each leaves the previous install byte-for-byte or leaves nothing; a
       version bump installs beside and then removes the old version, and a failed bump keeps
@@ -192,7 +192,7 @@ replacement, coalescing, and state derived from the file system.
       download and both see the same result; `state(of:)` reports `installing` between the
       two; `sweepStaging()` removes a leftover staging tree and nothing else; requirement
       ordering installs the runtime first and a runtime failure aborts the server install
-- [ ] run `swift test` — must pass before task 4
+- [x] run `swift test` — must pass before task 4
 
 ### Task 4: Dynamic registration in `LSPWorkspace`
 
