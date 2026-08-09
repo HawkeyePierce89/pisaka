@@ -597,10 +597,72 @@ final class LSPInstallEngineTests: XCTestCase {
         )
     }
 
-    func testSweepingAnEmptyOrAbsentStagingRootDoesNothing() {
+    /// A launch on a machine that has provisioned servers and crashed on none of
+    /// them. Both shapes have to be no-ops over an installed tree rather than an
+    /// error or a deletion: the staging root absent (nothing was ever installed on
+    /// this volume, so the listing throws) and the staging root present but empty
+    /// (what every successful install leaves behind, since the tree it built was
+    /// renamed out of it).
+    func testSweepingAnEmptyOrAbsentStagingRootLeavesEveryInstallAlone() async throws {
+        let absent = Harness()
+        XCTAssertFalse(absent.tree.hasDirectory("LanguageServers/.staging"))
+        absent.engine.sweepStaging()
+        XCTAssertEqual(absent.tree.removedPaths, [])
+
         let harness = Harness()
+        try await harness.engine.install("server")
+        let installed = harness.tree.filePaths(under: "LanguageServers")
+        XCTAssertTrue(harness.tree.hasDirectory("LanguageServers/.staging"))
+        XCTAssertEqual(harness.stagingEntries, [], "the install left its staging tree behind")
+
         harness.engine.sweepStaging()
+
         XCTAssertEqual(harness.tree.removedPaths, [])
+        XCTAssertEqual(harness.tree.filePaths(under: "LanguageServers"), installed)
+        XCTAssertEqual(harness.engine.state(of: "server"), .installed(version: "2.0.0"))
+        XCTAssertEqual(harness.engine.state(of: "runtime"), .installed(version: "1.0.0"))
+    }
+
+    // MARK: - Containment
+
+    /// Every deletion this engine makes is asserted to be inside `layout.base`
+    /// first, and the assertions are not decoration: the ids they guard come from
+    /// a manifest, and a manifest is data that can be hand-edited. A component id
+    /// that walks out of the install root must delete *nothing* — not the user's
+    /// files, and not the install root itself.
+    func testNothingOutsideTheInstallRootIsEverDeleted() async throws {
+        let harness = Harness()
+        try await harness.engine.install("server")
+        harness.tree.files["Documents/notes.txt"] = "the user's"
+        let before = harness.tree.filePaths(under: "")
+
+        for escaping in ["../..", "../../Documents", "..", "../LanguageServers"] {
+            try harness.engine.remove(escaping)
+        }
+
+        XCTAssertEqual(harness.tree.removedPaths, [], "a deletion escaped the install root")
+        XCTAssertEqual(harness.tree.filePaths(under: ""), before)
+        XCTAssertEqual(harness.engine.state(of: "server"), .installed(version: "2.0.0"))
+    }
+
+    /// The same guard on the sweep, which is the one place the engine deletes
+    /// something it did not compute the path of: the entries come from a listing,
+    /// and an entry that resolves outside the root is skipped rather than removed.
+    func testTheSweepSkipsAnythingThatResolvesOutsideTheInstallRoot() async throws {
+        let harness = Harness()
+        try await harness.engine.install("server")
+        harness.tree.files["Documents/notes.txt"] = "the user's"
+
+        // A `.staging` entry whose name walks back out of the root — what a
+        // symlink or a hand-made directory would produce in a listing.
+        harness.tree.files["LanguageServers/.staging/../../Documents/planted.txt"] = "planted"
+        harness.tree.files["LanguageServers/.staging/real-1.0.0-1/payload"] = "leftover"
+
+        harness.engine.sweepStaging()
+
+        XCTAssertEqual(harness.tree.removedPaths, ["LanguageServers/.staging/real-1.0.0-1"])
+        XCTAssertEqual(harness.tree.files["Documents/notes.txt"], "the user's")
+        XCTAssertEqual(harness.engine.state(of: "server"), .installed(version: "2.0.0"))
     }
 
     // MARK: - The error messages

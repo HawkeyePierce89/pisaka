@@ -94,7 +94,9 @@ carries. D1–D10 are in `core-lsp.md`.
     `serverDescription(manifest:layout:)` is the bridge to 2a: it composes the
     `LSPServerDescription` an installed server becomes — node as the executable,
     the server's entry `.mjs`/`.js` plus `--stdio` as arguments, D11's
-    `tsserver.path` as `initializationOptions` for the TypeScript one. Pure path
+    `tsserver.fallbackPath` as `initializationOptions` for the TypeScript one
+    (`fallbackPath` rather than `path` so a project's own `node_modules/typescript`
+    still wins — see D11). Pure path
     math that checks nothing on disk, so it is testable without a file system;
     `nil` for a manifest that does not describe the server, which keeps malformed
     data a *missing* server (tree-sitter, silently) rather than a trap.
@@ -126,8 +128,13 @@ carries. D1–D10 are in `core-lsp.md`.
     defines it. The staging directory begins with a dot so it can never collide
     with a component id, and `stagingDirectory(…, token:)` takes a per-attempt
     token so a retry cannot adopt a half-written tree a previous attempt left.
-    `contains(_:)` is the assertion behind every deletion: the engine only ever
-    removes paths inside its own root.
+    `contains(_:)` is the containment predicate behind every deletion, and it
+    counts the root itself — it answers "inside", and the sweep reads that
+    directory. The engine narrows it to `mayDelete(_:)`, which additionally
+    refuses the root: every path it deletes is built from a component id or read
+    out of a listing, and one that resolved back to the root (a hand-edited
+    manifest with `..` in an id, a `.staging` entry that walks out) would take
+    every provisioned server with it in a single `removeItem`.
 
   - `LSPInstallEngine.swift` — the whole of D12–D14: the two seams, the typed
     `LSPInstallError`, `state(of:)`, `install(_:)`, `remove(_:)` and
@@ -170,6 +177,10 @@ carries. D1–D10 are in `core-lsp.md`.
     `sweepStaging()` runs once at launch, before anything can be installed, so
     what it finds is by definition unreachable garbage; it never throws, because
     a launch must not fail over a directory nobody will look in.
+    `remove(_:)` reports `removeFailed` rather than `fileSystemFailed`, purely so
+    the sentence a Settings row shows describes what the user asked for: a
+    removal that reads "could not install" names a different failure than the one
+    that happened.
     `LSPInstallEngineTests` drives all of it through `ScriptedInstallSeams`: a
     no-op reinstall performing zero downloads, a mismatch leaving nothing behind
     and not re-downloading, injected failures at download/checksum/unpack/move
@@ -203,7 +214,14 @@ carries. D1–D10 are in `core-lsp.md`.
     later refactor kill running servers on a timer.
     `consentPrompt(forOpening:)` is a pure rule over three facts (a downloadable
     language, consent `unasked`, nothing installed or installing), which is how a
-    banner with no dismiss button nonetheless never appears twice.
+    banner with no dismiss button nonetheless never appears twice. It reads those
+    facts off the published `rows` rather than re-deriving them from the engine,
+    and that is load-bearing rather than tidy: the banner calls it from its
+    `body`, so an engine-backed version would run five synchronous directory
+    listings on the main thread on every editor re-render — every keystroke, for
+    as long as the question stayed open. `rows` is recomputed at exactly the
+    moments the answer can change, so it is both cheaper and the same answer the
+    Settings surface is showing.
     `prepareForOpening(_:)` is the silent half of D15: an *already accepted*
     server whose files are missing installs on first use without asking again.
     The model keeps its own per-*server* attempt table beside the engine's
@@ -217,8 +235,13 @@ carries. D1–D10 are in `core-lsp.md`.
     answer that describes what just happened, since leaving it `accepted` would
     silently re-download on the next `.ts` file and `unasked` would re-prompt —
     and drops the shared runtime only when no other server has *any* files on
-    disk, so a server stranded by a pin bump is not turned into a full
-    re-download.
+    disk **or an attempt this model is holding**, so a server stranded by a pin
+    bump is not turned into a full re-download and neither is one whose download
+    the user has just accepted. A deletion that *fails* becomes the row's
+    `failureMessage` like any other failure, and it has to: the files are still
+    there, so the very next `publishRegistry()` re-registers the server and
+    restarts the process the push just stopped — a Remove that visibly undoes
+    itself with nothing anywhere saying why.
     `LSPProvisioningModelTests` pins the rules over the task-3 fakes, including
     the ones about what must *not* change: installing pyright leaves a TypeScript
     answer byte-identical, installing the TypeScript server leaves a Python one,
@@ -375,10 +398,20 @@ artifact of the same component, unpacked beside it:
 `.../typescript-language-server/5.3.0/node_modules/{typescript-language-server,typescript}`.
 Node's own resolution finds it by walking up from `cli.mjs`, and the registry
 entry additionally passes
-`initializationOptions = {"tsserver": {"path": "<…>/node_modules/typescript/lib/tsserver.js"}}`
-so the lookup never depends on the walk. A project with its own
-`node_modules/typescript` still wins — the server prefers the workspace copy,
-which is the behavior people expect. One component rather than two, because the
+`initializationOptions = {"tsserver": {"fallbackPath": "<…>/node_modules/typescript/lib/tsserver.js"}}`
+so the lookup never depends on the walk.
+
+**`fallbackPath`, not `path`, and the distinction is the whole decision.**
+`typescript-language-server` resolves in a fixed order: `tsserver.path`, then the
+workspace's own `node_modules/typescript/lib`, then `tsserver.fallbackPath`, then
+whatever `require.resolve('typescript')` finds from its own install. Naming the
+pinned copy under `path` would put it *ahead* of the workspace, so a repository
+pinned to TypeScript 4.x — or to a nightly — would be analysed by 5.9.3 with no
+way to say otherwise. Under `fallbackPath` the pinned copy is what a project
+without one gets, and a project with its own `node_modules/typescript` still
+wins, which is the behavior people expect from every other editor.
+
+One component rather than two, because the
 pair is only ever installed and removed together. `typescript` is pinned at
 **5.9.3**, not the `latest` 7.x: 7.0 is the native rewrite and no longer ships
 the `lib/tsserver.js` this server drives.
@@ -472,8 +505,12 @@ curl -fsSL "$URL" | shasum -a 256          # → sha256
 curl -fsSL "$URL" | wc -c                  # → byteCount
 ```
 
-`unpackedByteCount` is measured once and rounded — nothing at runtime compares
-against it, it exists for disk-space messaging:
+`unpackedByteCount` is measured once and rounded. **Nothing reads it at runtime**
+— no surface shows a disk figure and nothing checks for free space before an
+unpack (a full volume surfaces as `unpackFailed`, which discards the staging tree
+and leaves the previous install alone, so the outcome is already right). It is
+recorded because whoever bumps a pin has to know what they are shipping, and
+`LSPProvisioningManifestTests` keeps it from drifting into nonsense:
 
 ```sh
 D=$(mktemp -d); curl -fsSL "$URL" | tar -xz --strip-components=1 -C "$D"
@@ -485,6 +522,24 @@ After a bump, re-check the two things that are not mechanical: that the license
 subpaths in `licenseFileSubpaths` still exist inside the new tarball (the
 Acknowledgements section silently drops a component whose texts it cannot read),
 and that `executableSubpath` still names the entry point the package ships.
+
+The first of those is more than a path check, and it is the step most likely to
+be skipped. **A package's own LICENSE is not automatically the whole
+obligation** — the repository's rule for the bundled texts in
+`Resources/Licenses/` (libgit2's LGPL `deps/xdiff`, tree-sitter's ICU-licensed
+`lib/src/unicode`) applies here for the same reason. Two of these components
+already carry a second notice found exactly this way:
+
+```sh
+tar tzf "$P-$V.tgz" | grep -iE 'licen|copying|notice|third.?party'
+```
+
+`typescript` ships `ThirdPartyNoticeText.txt` beside its Apache-2.0
+`LICENSE.txt`, and `pyright` ships the Apache-2.0 typeshed stub library under
+`dist/typeshed-fallback/LICENSE` inside its own MIT tree. Both are listed in
+`licenseFileSubpaths` and appended below a separator by `LSPInstalledLicenses`.
+Run that `grep` on every artifact of a bumped pin; a notice that appears and is
+not listed ships unacknowledged, and nothing in `swift test` can see it.
 `swift test` then re-validates the shape of everything else, and the manual
 checks at the end of the plan re-validate that the server actually answers.
 
@@ -494,6 +549,15 @@ checks at the end of the plan re-validate that the server actually answers.
   largest artifact — ~53 MB for Node, once, during a first install. There is no
   streaming, no progress reporting and no resume: a download interrupted at 90%
   starts again from zero when Retry is pressed.
+- **Nothing caps the size of a response.** The manifest's `byteCount` is a
+  *size shown to the user*, not a limit — nothing compares a response against it,
+  and no ceiling is imposed on the body. An endpoint that streamed indefinitely
+  would grow the app's memory until `URLSession`'s 20-minute resource timeout cut
+  it off. Deliberate: a length check is strictly weaker than the SHA-256 that
+  already gates the unpack, so a body of the wrong size installs nothing either
+  way, and enforcing a ceiling would need the byte count threaded through the
+  seam plus a chunked read for a case that requires a compromised TLS endpoint
+  at `nodejs.org` or `registry.npmjs.org` to reach.
 - **No proxy, mirror or registry configuration.** The URLs are the manifest's
   and nothing overrides them. A corporate TLS-intercepting proxy fails as an
   ordinary download failure (or, if it serves something else, as a checksum
@@ -522,9 +586,9 @@ checks at the end of the plan re-validate that the server actually answers.
   *does* do is make the old tree un-servable (paths name the version), so the row
   offers a fresh install and the stale directory stays removable.
 - **One version at a time, and no per-project override.** A project needing a
-  different `typescript` gets the workspace copy through D11's resolution order,
-  but nothing else here is configurable: no per-project server, no extra
-  initialization options, no arguments.
+  different `typescript` gets the workspace copy through D11's resolution order
+  (which is what `fallbackPath` buys), but nothing else here is configurable: no
+  per-project server, no extra initialization options, no arguments.
 
 ## Tests
 

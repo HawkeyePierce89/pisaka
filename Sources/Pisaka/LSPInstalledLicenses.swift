@@ -98,34 +98,30 @@ enum LSPInstalledLicenses {
         )
     }
 
-    /// The line between one package's verbatim text and the next's, naming what
-    /// follows. Worded like the appended notices in `Resources/Licenses/`, so a
-    /// reader who has seen one recognizes the other.
+    /// The line between one verbatim text and the next, naming what follows.
+    /// Worded like the appended notices in `Resources/Licenses/`, so a reader who
+    /// has seen one recognizes the other.
+    ///
+    /// It names the *file*, not the package. A component's extra notices are not
+    /// all second packages — `typescript`'s `ThirdPartyNoticeText.txt` and
+    /// pyright's `dist/typeshed-fallback/LICENSE` are both further notices inside
+    /// a package already named above — so a package name here would either repeat
+    /// the heading or attribute the text to the wrong project. The path is
+    /// unambiguous in every case and is exactly where the reader would look to
+    /// check it.
     private static func separator(before subpath: String) -> String {
         """
 
 
         ----------------------------------------------------------------------
 
-        Everything above this line is the verbatim license of the package named \
-        at the top of this entry. The section below is the verbatim license of \
-        “\(packageName(in: subpath))”, which is installed alongside it and \
-        distributed with it as part of the same component.
+        Everything above this line is the verbatim text of the file named at the \
+        top of this entry. The section below is the verbatim text of \
+        “\(subpath)”, installed as part of the same component and distributed \
+        with it.
 
 
         """
-    }
-
-    /// The npm package a license subpath belongs to —
-    /// `node_modules/typescript/LICENSE.txt` → `typescript`. A subpath with no
-    /// `node_modules` segment (Node's own `LICENSE`) answers the subpath itself,
-    /// which never reaches the separator because such components carry one file.
-    private static func packageName(in subpath: String) -> String {
-        let components = subpath.split(separator: "/").map(String.init)
-        guard let index = components.firstIndex(of: "node_modules"),
-              components.indices.contains(index + 1)
-        else { return subpath }
-        return components[index + 1]
     }
 }
 

@@ -53,9 +53,17 @@ final class LSPInstallLayoutTests: XCTestCase {
             base.path + "/pyright/1.1.411/node_modules/pyright/dist/pyright-langserver.js"
         )
         XCTAssertEqual(layout.licenseFiles(of: .node).map(\.path), [base.path + "/node/24.19.0/LICENSE"])
+        // In manifest order, and one entry per *notice* rather than per package:
+        // `typescript` carries a separate third-party notice beside its license.
         XCTAssertEqual(layout.licenseFiles(of: .typescriptLanguageServer).map(\.path), [
             base.path + "/typescript-language-server/5.3.0/node_modules/typescript-language-server/LICENSE",
             base.path + "/typescript-language-server/5.3.0/node_modules/typescript/LICENSE.txt",
+            base.path + "/typescript-language-server/5.3.0/node_modules/typescript/ThirdPartyNoticeText.txt",
+        ])
+        XCTAssertEqual(layout.licenseFiles(of: .pyright).map(\.path), [
+            base.path + "/pyright/1.1.411/node_modules/pyright/LICENSE.txt",
+            base.path + "/pyright/1.1.411/node_modules/pyright/dist/typeshed-fallback/LICENSE",
+            base.path + "/pyright/1.1.411/node_modules/fsevents/LICENSE",
         ])
 
         // A component with nothing to run answers nothing rather than a path into

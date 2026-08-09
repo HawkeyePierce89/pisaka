@@ -414,7 +414,11 @@ verifiable rather than merely plausible.
 
 **The coverage invariant.** `LicenseCoverageTests` is the guard against the one
 failure this design cannot express in code — a dependency added to `project.yml`
-whose license nobody copied. In the `VendoredGrammarQueryTests` style it reads
+whose license nobody copied. It covers what the app *ships*; a second, runtime
+source of `LicenseDocument`s exists for the language servers a user chooses to
+download, is read out of the installed tree rather than the bundle, and is
+deliberately outside this invariant — see `LSPInstalledLicenses` in
+`core-provisioning.md`. In the `VendoredGrammarQueryTests` style it reads
 repository files through `#filePath` (Foundation only; Core links no YAML parser
 and must not start, so `project.yml` is read by a deliberately tiny,
 shape-specific line scanner) and asserts:

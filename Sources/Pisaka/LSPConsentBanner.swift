@@ -103,10 +103,16 @@ struct LSPConsentBanner: View {
             // away the moment the answer is recorded, which `accept` does
             // synchronously before its first hop. Progress is the Settings
             // row's business, not this strip's.
+            //
+            // **No `.keyboardShortcut(.defaultAction)`**, deliberately. This
+            // strip lives in the main editor window, not in a sheet: a default
+            // button there takes Return through the window's key-equivalent pass
+            // *before* the first responder ever sees it, so every newline typed
+            // in the file behind the banner would start a 52 MB download and
+            // record consent for it. Both answers stay pointer-only.
             Button("Download") {
                 Task { await provisioning.accept(prompt.server) }
             }
-            .keyboardShortcut(.defaultAction)
 
             Button("No Thanks") {
                 provisioning.decline(prompt.server)

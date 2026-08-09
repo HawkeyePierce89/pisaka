@@ -89,10 +89,13 @@ public enum LSPArchiveFormat: String, Equatable, Sendable {
 
 /// One downloadable file, and everything needed to verify and place it.
 ///
-/// Byte counts are part of the pin, not decoration: `byteCount` is what the
-/// consent prompt shows before anything is fetched (D15 — "sized"), and a
-/// response whose length disagrees is a download that already went wrong before
-/// the digest is computed.
+/// The byte counts are *sizes shown to the user*, not checks. `byteCount` is what
+/// the consent prompt and the Settings row put in front of someone before anything
+/// is fetched (D15 — "sized"); nothing compares a response against it, because a
+/// length check is strictly weaker than the SHA-256 that already gates the unpack
+/// and adding one would suggest a second guarantee that is not there. The single
+/// thing standing between the manifest and whatever the network hands over is the
+/// digest.
 public struct LSPArtifact: Equatable, Sendable {
     public let url: URL
 
@@ -104,9 +107,17 @@ public struct LSPArtifact: Equatable, Sendable {
     /// Compressed size, as served. Shown to the user; never trusted as a limit.
     public let byteCount: Int
 
-    /// Approximate size on disk after unpacking, used only for disk-space
-    /// messaging. Rounded on purpose — it is measured by unpacking once and
-    /// reading `du -sk`, and nothing at runtime compares against it.
+    /// Approximate size on disk after unpacking. Rounded on purpose — it is
+    /// measured by unpacking once and reading `du -sk`.
+    ///
+    /// **Nothing reads this at runtime**, and that is the honest description of
+    /// it: no surface shows a disk figure and no path checks for free space
+    /// before an unpack (a full volume surfaces as `unpackFailed`, which discards
+    /// the staging tree and leaves the previous install alone, so the outcome is
+    /// already correct). It is here as the recorded result of the manifest's
+    /// by-hand update procedure — the number someone bumping a pin has to measure
+    /// anyway to know what they are shipping — and `LSPProvisioningManifestTests`
+    /// is what keeps it from drifting into nonsense.
     public let unpackedByteCount: Int
 
     public let format: LSPArchiveFormat
@@ -262,9 +273,16 @@ extension LSPComponent {
         id: "typescript-language-server",
         version: "5.3.0",
         licenseSPDXID: "Apache-2.0",
+        // `ThirdPartyNoticeText.txt` is not decoration: TypeScript's own
+        // `LICENSE.txt` is Apache-2.0 for Microsoft's code, and that file is the
+        // separate notice for the third-party material incorporated into the
+        // `tsserver.js` this component installs and runs. Same obligation, and
+        // the same reason, as the `deps/xdiff` and `lib/src/unicode` notices
+        // appended to the bundled texts in `Resources/Licenses/`.
         licenseFileSubpaths: [
             "node_modules/typescript-language-server/LICENSE",
             "node_modules/typescript/LICENSE.txt",
+            "node_modules/typescript/ThirdPartyNoticeText.txt",
         ],
         artifacts: [
             LSPArtifact(
@@ -297,8 +315,15 @@ extension LSPComponent {
         id: "pyright",
         version: "1.1.411",
         licenseSPDXID: "MIT",
+        // pyright's own `LICENSE.txt` is MIT and covers its code. It also ships
+        // `dist/typeshed-fallback/` — the typeshed stub library it reads to
+        // answer anything about the standard library — which is Apache-2.0 under
+        // its own `LICENSE`, a different license from a different project. The
+        // repository's package-granular rule is that a package's own LICENSE is
+        // not automatically the whole obligation; this is that case.
         licenseFileSubpaths: [
             "node_modules/pyright/LICENSE.txt",
+            "node_modules/pyright/dist/typeshed-fallback/LICENSE",
             "node_modules/fsevents/LICENSE",
         ],
         artifacts: [
@@ -381,9 +406,20 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
     /// when told to; the default for both is a socket.
     public var arguments: [String] { ["--stdio"] }
 
-    /// D11: the `typescript` copy this server should drive, relative to the
-    /// server component's version directory. `nil` for a server with nothing to
-    /// point at.
+    /// D11: the `typescript` copy this server should drive *when the project has
+    /// none of its own*, relative to the server component's version directory.
+    /// `nil` for a server with nothing to point at.
+    ///
+    /// It becomes `initializationOptions.tsserver.fallbackPath`, and the choice of
+    /// key is the whole of D11's "a project with its own `node_modules/typescript`
+    /// still wins". `typescript-language-server` resolves in a fixed order —
+    /// `tsserver.path`, then the workspace's `node_modules/typescript/lib`, then
+    /// `tsserver.fallbackPath`, then whatever `require.resolve('typescript')`
+    /// finds from its own install — so naming the pinned copy under `path` would
+    /// override the workspace copy for every project, and a repository pinned to
+    /// TypeScript 4.x would be analysed by 5.9.3 with no way to say otherwise.
+    /// Under `fallbackPath` the pinned copy is what a project without one gets,
+    /// which is what it is for.
     public var tsserverSubpath: String? {
         switch self {
         case .typescript: return "node_modules/typescript/lib/tsserver.js"
@@ -420,7 +456,7 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
         var options: JSONValue?
         if let tsserverSubpath {
             options = .object([
-                "tsserver": .object(["path": .string(layout.file(tsserverSubpath, of: server).path)])
+                "tsserver": .object(["fallbackPath": .string(layout.file(tsserverSubpath, of: server).path)])
             ])
         }
 

@@ -203,19 +203,24 @@ public final class LSPProvisioningModel: ObservableObject {
     /// installed or installing. Anything else — declined, already accepted,
     /// already there, in flight — answers `nil`, which is how a banner that has
     /// no dismiss button nonetheless never appears twice.
+    ///
+    /// Read off the published `rows` rather than re-derived from the engine, and
+    /// that is not a shortcut: the banner calls this from its `body`, so a version
+    /// that asked the engine would run five synchronous directory listings on the
+    /// main thread every time the editor re-rendered — on every keystroke, for as
+    /// long as the question stays open. `rows` is recomputed at exactly the
+    /// moments the answer can change (a decline, an install starting or finishing,
+    /// a removal, the launch `refresh()`), so reading it is both cheaper and the
+    /// same answer the Settings surface is showing.
     public func consentPrompt(forOpening language: SyntaxLanguage) -> LSPConsentPrompt? {
         guard let server = LSPDownloadableServer.serving(language) else { return nil }
-        guard settings.consent(for: server.id) == .unasked else { return nil }
-        guard state(of: server) == .absent else { return nil }
+        guard let row = row(for: server) else { return nil }
+        guard row.consent == .unasked, row.state == .absent else { return nil }
         return LSPConsentPrompt(
             server: server,
-            displayName: server.displayName,
-            downloadByteCount: engine.pendingDownloadByteCount(for: server)
+            displayName: row.displayName,
+            downloadByteCount: row.pendingDownloadByteCount
         )
-    }
-
-    public func consent(for server: LSPDownloadableServer) -> LSPServerConsent {
-        settings.consent(for: server.id)
     }
 
     // MARK: - Answering
@@ -305,16 +310,27 @@ public final class LSPProvisioningModel: ObservableObject {
     /// server the user just removed; resetting it to `unasked` would re-prompt
     /// for it, which is the same interruption wearing a question mark. The
     /// Settings row is where it is turned around, and it says so.
+    ///
+    /// A failed deletion is the row's `failureMessage`, exactly as a failed
+    /// install is. Swallowing it would be the one genuinely confusing outcome
+    /// this surface can produce: the files are still there, so the very next
+    /// `publishRegistry()` re-registers the server and restarts the process the
+    /// push just stopped — a Remove that visibly undoes itself with nothing
+    /// anywhere saying why.
     public func remove(_ server: LSPDownloadableServer) async {
         removals.insert(server)
         updateRows()
         await publishRegistry()
 
-        try? engine.remove(server.serverComponentID)
-        removeRuntimeIfUnused(after: server)
+        do {
+            try engine.remove(server.serverComponentID)
+            try removeRuntimeIfUnused(after: server)
+            failures[server] = nil
+        } catch {
+            failures[server] = error.localizedDescription
+        }
 
         removals.remove(server)
-        failures[server] = nil
         settings.setConsent(.declined, for: server.id)
         updateRows()
         await publishRegistry()
@@ -326,15 +342,24 @@ public final class LSPProvisioningModel: ObservableObject {
     /// a server left stranded by a pin bump is one accepted install away from
     /// being current again, and deleting 50 MB of Node out from under it would
     /// turn that into a full re-download.
-    private func removeRuntimeIfUnused(after server: LSPDownloadableServer) {
+    ///
+    /// An attempt this model is holding counts as needing it too. In practice the
+    /// engine's own in-flight table already answers `installing` for anything
+    /// being fetched, so this clause covers only the sliver between `install`
+    /// claiming `attempts[server]` and the engine claiming the component — but
+    /// "does a server still need the runtime" is this model's question, and
+    /// answering it purely out of the engine's table makes the answer depend on
+    /// which of two tasks the scheduler ran first. The attempts are what this
+    /// model knows; they belong in the rule.
+    private func removeRuntimeIfUnused(after server: LSPDownloadableServer) throws {
         let runtime = server.runtimeComponentID
         let stillNeeded = LSPDownloadableServer.allCases.contains { other in
             other != server
                 && other.runtimeComponentID == runtime
-                && engine.state(of: other.serverComponentID) != .absent
+                && (attempts[other] != nil || engine.state(of: other.serverComponentID) != .absent)
         }
         guard !stillNeeded else { return }
-        try? engine.remove(runtime)
+        try engine.remove(runtime)
     }
 
     // MARK: - Deriving

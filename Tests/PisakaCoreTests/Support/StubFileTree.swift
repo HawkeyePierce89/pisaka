@@ -80,6 +80,10 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
     /// source is a staging directory whose name carries an attempt counter no
     /// test should have to predict.
     var moveFailures: Set<String> = []
+    /// Root-relative paths whose `removeItem` throws — a directory the volume
+    /// will not let go of, which is the one way a Remove can fail after the
+    /// registry push that stopped the server has already happened.
+    var removeFailures: Set<String> = []
     /// Held on the *first* directory listing, if set.
     var listingGate: Gate?
     /// Held on the read of this exact root-relative path, once.
@@ -263,6 +267,7 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
 
     func removeItem(at url: URL) throws {
         guard let path = relativeIfInside(url), !path.isEmpty else { throw StubError.missing }
+        guard !removeFailures.contains(path) else { throw StubError.denied }
         guard exists(path) else { throw StubError.missing }
         let prefix = path + "/"
         for key in files.keys where key == path || key.hasPrefix(prefix) {

@@ -1302,6 +1302,83 @@ final class LSPWorkspaceTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(harness.firstTransport(of: "typescript-language-server")).isTerminated)
     }
 
+    /// Remove, then Install again from the Settings surface, fast enough that the
+    /// first server is still handshaking when the second one starts. Two processes
+    /// exist for one key, and the *newer* one is the one everything must point at:
+    /// the launch that was withdrawn resumes on a main-actor turn arbitrarily
+    /// later, and if it registers itself over the newer session — or if the
+    /// removal's own cleanup clears the newer transport — the live process is left
+    /// with nothing pointing at it, which is precisely the orphan `pgrep` finds
+    /// after the app quits.
+    func testAReinstallThatOverlapsARemovalLeavesTheNewProcessReachable() async throws {
+        let harness = ServerHarness()
+        harness.initializeDelay = 0.5
+        let live = LSPServerRegistry([.sourcekitLSP, downloaded()])
+        let workspace = makeWorkspace(harness: harness, registry: live)
+
+        async let firstRequest = workspace.prepare(url: appFile, language: .typescript, text: "a")
+        await waitFor("the first launch to start") { harness.launches.count == 1 }
+        let first = try XCTUnwrap(harness.firstTransport(of: "typescript-language-server"))
+
+        // Removed while it is still handshaking: this parks on the in-flight
+        // launch, having already swapped the registry.
+        async let removal: Void = workspace.updateRegistry(.standard)
+        await waitFor("the removal to swap the registry") { !workspace.canServe(.typescript) }
+
+        // …and reinstalled, with a request that starts a second process — all
+        // before the first handshake returns.
+        harness.initializeDelay = 0
+        await workspace.updateRegistry(live)
+        let second = await workspace.prepare(url: appFile, language: .typescript, text: "a")
+        XCTAssertNotNil(second, "the reinstalled server did not start")
+        XCTAssertEqual(harness.launches.count, 2)
+        let live2 = try XCTUnwrap(harness.transports.last)
+        XCTAssertFalse(live2 === first)
+
+        _ = await firstRequest
+        await removal
+
+        // The withdrawn launch stood down without touching the newer server.
+        XCTAssertTrue(first.isTerminated)
+        XCTAssertFalse(live2.isTerminated)
+        XCTAssertEqual(workspace.liveServerCount, 1)
+        XCTAssertEqual(workspace.openDocumentURIs, [LSPWorkspace.documentURI(for: appFile)])
+
+        // And the one thing all of this bookkeeping is for: a quit reaches it.
+        workspace.terminateNow()
+        XCTAssertTrue(live2.isTerminated, "the reinstalled server was left running with nothing pointing at it")
+    }
+
+    /// `reachableDescriptions` is keyed off what the registry *routes to*, not off
+    /// everything it holds: first registration wins per language, so a description
+    /// that has been shadowed for every language it claims can never be launched
+    /// again and its process has to go with it.
+    func testAServerShadowedForEveryLanguageItServesIsShutDown() async throws {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(
+            harness: harness,
+            registry: LSPServerRegistry([.sourcekitLSP, downloaded()])
+        )
+
+        _ = await workspace.prepare(url: appFile, language: .typescript, text: "a")
+        let shadowed = try XCTUnwrap(harness.firstTransport(of: "typescript-language-server"))
+        XCTAssertEqual(workspace.liveServerCount, 1)
+
+        // A hand-registered override for both of its languages, registered first.
+        // The old description is still *in* the registry and still resolves for
+        // nothing.
+        await workspace.updateRegistry(
+            LSPServerRegistry([.sourcekitLSP, downloaded(id: "override"), downloaded()])
+        )
+
+        XCTAssertTrue(shadowed.isTerminated, "a server nothing can route to was left running")
+        XCTAssertEqual(workspace.liveServerCount, 0)
+        XCTAssertTrue(workspace.openDocumentURIs.isEmpty)
+
+        let prepared = await workspace.prepare(url: appFile, language: .typescript, text: "a")
+        XCTAssertEqual(prepared?.description.id, "override")
+    }
+
     // MARK: - Paths
 
     func testTheSameFolderSpelledTwoWaysIsOneServer() async {

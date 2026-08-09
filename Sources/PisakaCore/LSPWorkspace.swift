@@ -377,11 +377,19 @@ public final class LSPWorkspace {
         // flight, including the ones for servers this update left untouched, and
         // killing a healthy server's handshake because an unrelated one was
         // installed is the opposite of what this method is for. So the launch runs
-        // to completion, registers itself as it always does, and is unregistered and
-        // shut down here afterwards.
+        // to completion and is unregistered and shut down here afterwards.
+        //
+        // Every one of those three unregistrations is guarded by the same identity
+        // check, and the guard is the point: this loop awaits, so a second
+        // `updateRegistry` (remove then reinstall from the Settings surface) can have
+        // re-registered the *same* key with a live session, a live transport and open
+        // documents before we wake. Clearing them unconditionally would drop the new
+        // server's transport out of `terminateNow()`'s reach — the orphan process this
+        // whole method exists to prevent — and forget documents it has open.
         for (key, pending) in inflight {
             guard let orphan = await pending.task.value else { continue }
-            if sessions[key] === orphan { sessions[key] = nil }
+            guard sessions[key] === orphan else { await orphan.shutdown(); continue }
+            sessions[key] = nil
             transports[key] = nil
             documents = documents.filter { $0.value.serverKey != key }
             await orphan.shutdown()
@@ -873,6 +881,22 @@ public final class LSPWorkspace {
                 await session.terminate()
                 forget(transport, for: key)
                 unavailable.insert(key)
+                return nil
+            }
+            guard sessions[key] == nil else {
+                // Someone else is already filed under this key. Normally
+                // impossible — `liveSession` reuses a live session and
+                // `pendingLaunches` coalesces concurrent starts — but D16's
+                // `updateRegistry` takes a launch *out* of `pendingLaunches`
+                // without stopping it, so a remove-then-reinstall can start a
+                // second process for the same key while this one is still
+                // handshaking. Registering over it would leave that newer
+                // process running with nothing pointing at it: the orphan
+                // `terminateNow()` could not reach. The epoch cannot express
+                // this — it is deliberately not bumped by a registry update —
+                // so the check is identity, like every other one here.
+                await session.terminate()
+                forget(transport, for: key)
                 return nil
             }
             sessions[key] = session

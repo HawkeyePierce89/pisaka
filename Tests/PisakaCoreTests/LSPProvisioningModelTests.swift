@@ -346,7 +346,7 @@ final class LSPProvisioningModelTests: XCTestCase {
             description?.initializationOptions,
             .object([
                 "tsserver": .object([
-                    "path": .string(
+                    "fallbackPath": .string(
                         "/Pisaka-tests/LanguageServers/typescript-language-server/5.3.0"
                             + "/node_modules/typescript/lib/tsserver.js"
                     )
@@ -597,6 +597,96 @@ final class LSPProvisioningModelTests: XCTestCase {
         await harness.model.install(.typescript)
         XCTAssertEqual(harness.state(of: .typescript), .installed(version: "5.3.0"))
         XCTAssertEqual(harness.model.row(for: .typescript)?.consent, .accepted)
+    }
+
+    /// The one Remove that can go wrong after the point of no return: the push
+    /// that stopped the process has already happened, so a deletion that fails
+    /// leaves the files there and the very next push puts the server straight
+    /// back. That is a Remove visibly undoing itself, and it must say why.
+    func testAFailedRemovalSaysSoInsteadOfSilentlyReinstatingTheServer() async {
+        let harness = makeHarness()
+        await harness.model.accept(.typescript)
+        harness.tree.removeFailures = ["LanguageServers/typescript-language-server"]
+
+        await harness.model.remove(.typescript)
+
+        let row = harness.model.row(for: .typescript)
+        XCTAssertEqual(
+            row?.failureMessage,
+            LSPInstallError.removeFailed(
+                component: "typescript-language-server",
+                reason: StubFileTree.StubError.denied.localizedDescription
+            ).localizedDescription
+        )
+        // The files are still there, so the model reports what is true rather
+        // than what was asked for — and the server is servable again, which is
+        // exactly why the message has to exist.
+        XCTAssertEqual(row?.state, .installed(version: "5.3.0"))
+        XCTAssertEqual(row?.canRemove, true, "a failed removal left no way to try again")
+        XCTAssertTrue(harness.model.registry.servesLanguage(.typescript))
+        XCTAssertTrue(harness.tree.hasDirectory("LanguageServers/typescript-language-server/5.3.0"))
+
+        // The runtime is untouched: the server that needs it is still installed.
+        XCTAssertTrue(harness.tree.hasDirectory("LanguageServers/node/24.19.0"))
+
+        // Retrying once the volume cooperates finishes the job and clears the
+        // message.
+        harness.tree.removeFailures = []
+        await harness.model.remove(.typescript)
+        XCTAssertNil(harness.model.row(for: .typescript)?.failureMessage)
+        XCTAssertEqual(harness.state(of: .typescript), .absent)
+    }
+
+    /// A runtime that could not be deleted is reported too, even though the
+    /// server it belonged to is gone: the disk is the state, and 52 MB that
+    /// silently stayed behind is the one thing "delete the directory to
+    /// de-provision" would not explain.
+    func testAFailedRuntimeRemovalIsReportedOnTheRowThatAskedForIt() async {
+        let harness = makeHarness()
+        await harness.model.accept(.python)
+        harness.tree.removeFailures = ["LanguageServers/node"]
+
+        await harness.model.remove(.python)
+
+        XCTAssertEqual(harness.state(of: .python), .absent)
+        XCTAssertTrue(harness.tree.hasDirectory("LanguageServers/node/24.19.0"))
+        XCTAssertEqual(
+            harness.model.row(for: .python)?.failureMessage,
+            LSPInstallError.removeFailed(
+                component: "node",
+                reason: StubFileTree.StubError.denied.localizedDescription
+            ).localizedDescription
+        )
+    }
+
+    /// Removing one server while the other's install is in flight must leave the
+    /// shared runtime alone — the accepted download would otherwise land on a
+    /// server whose `node` had been deleted underneath it, servable by nothing
+    /// and reported installed by the row.
+    func testRemovingOneServerKeepsTheRuntimeAnInFlightInstallIsWaitingOn() async {
+        let harness = makeHarness()
+        await harness.model.accept(.typescript)
+
+        // Python's install is held at its own artifact: `node` is already there,
+        // so what is in flight is the thing that would make the runtime needed.
+        let gate = Gate()
+        harness.downloader.hold(Fixture.pyright, on: gate)
+        let install = Task { await harness.model.install(.python) }
+        await gate.waitUntilReached()
+        XCTAssertEqual(harness.state(of: .python), .installing)
+
+        await harness.model.remove(.typescript)
+
+        XCTAssertTrue(
+            harness.tree.hasDirectory("LanguageServers/node/24.19.0"),
+            "the runtime an accepted install is waiting on was deleted"
+        )
+        XCTAssertNil(harness.model.row(for: .typescript)?.failureMessage)
+
+        gate.release()
+        await install.value
+        XCTAssertEqual(harness.state(of: .python), .installed(version: "1.1.411"))
+        XCTAssertTrue(harness.model.registry.servesLanguage(.python))
     }
 
     func testRemovingSomethingThatIsNotInstalledChangesNothing() async {

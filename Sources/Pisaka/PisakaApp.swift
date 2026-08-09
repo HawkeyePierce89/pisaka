@@ -262,9 +262,11 @@ struct PisakaApp: App {
     /// that caller alone; `init` passes the store the whole app shares, because
     /// consent is persisted through it.
     ///
-    /// Building one costs nothing on its own: the engine touches the disk only
-    /// when asked a question, and `URLSession` opens no connection until a
-    /// request is made.
+    /// Building one opens no connection — `URLSession` does nothing until a
+    /// request is made — but it is not free: `LSPProvisioningModel.init` derives
+    /// its rows, which lists the install root's component directories. That is one
+    /// pass over a directory that normally does not exist, and it is why the
+    /// default argument exists at all rather than a lazily-built stack.
     static func makeProvisioning(
         settings: SettingsStore = SettingsStore()
     ) -> (engine: LSPInstallEngine, model: LSPProvisioningModel) {

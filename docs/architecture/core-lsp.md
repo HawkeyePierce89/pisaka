@@ -282,17 +282,22 @@ document, together with the limits they carry.
     appended descriptions leave the Swift path byte-identical.
     `Launch` is a *description*, not a resolution — `.toolchainTool(name:)` for a
     tool inside the active Xcode toolchain (resolved by the app with `xcrun --find`,
-    honouring `DEVELOPER_DIR`) or `.executable(path:)` for what 2b will use — which
+    honouring `DEVELOPER_DIR`) or `.executable(path:)`, which is what 2b's
+    provisioned servers are — which
     keeps the value type comparable and testable without an Xcode installation
     anywhere in sight. `id` is half of the `(server, root)` key D7's failures are
     counted against; `languages` is a `Set` because a real server often serves
     several; `initializationOptions` is an opaque `JSONValue` passed through
     verbatim, since it is *that server's* configuration and Core has no business
     having an opinion about its shape.
-    `sourcekitLSP` is the one server this phase ships, with **no**
+    `sourcekitLSP` is the only entry `.standard` holds, with **no**
     `initializationOptions`: it discovers the build system from the root it is
     initialized with, and a project it cannot make sense of answers nothing — which
-    is exactly the case the routing provider falls back for.
+    is exactly the case the routing provider falls back for. It is no longer the
+    only entry the *workspace* ever sees: `LSPProvisioningModel` appends one per
+    installed server and pushes the result through `updateRegistry(_:)` (D16),
+    always after the base entries, so first-registration-wins keeps this one
+    winning for `.swift`.
     `LSPServerRegistry` maps language → description, resolved once at construction
     so the request-path lookup is a single dictionary hit. **First registration
     wins** on a conflict: arbitrary but stated, and it makes composition order
@@ -556,8 +561,18 @@ document, together with the limits they carry.
     flight, including ones for servers this update left untouched, and killing a
     healthy server's handshake because an unrelated one was installed is the
     opposite of what this method is for. A launch already running therefore
-    completes and registers itself as it always does, and is unregistered and shut
-    down afterwards, by id. Neither generation moves either: a registry update is
+    completes and is unregistered and shut down afterwards, by id.
+    **Every step of that cleanup is guarded by an identity check**, and so is the
+    launch's own registration, because this is the one place two processes can
+    exist for one key. Taking a launch out of `pendingLaunches` without stopping it
+    means a Remove followed quickly by an Install can start a second server while
+    the first is still handshaking; the *newer* one is the one everything must
+    point at. So a finishing launch stands down rather than registering over a
+    session that is already filed under its key, and the cleanup clears the
+    session, the transport and the documents only while they are still the ones it
+    is retiring. Clearing them unconditionally would drop the live server's
+    transport out of `terminateNow()`'s reach — precisely the orphan this method
+    exists to prevent, reintroduced by the method itself. Neither generation moves either: a registry update is
     not a folder change, and a request in flight for a server that survived is
     still a request about the folder it was asked under. Every map is emptied
     *before* the first hop, `shutdownAll()`'s ordering applied to a subset. An
@@ -931,14 +946,18 @@ questions; it writes nothing to disk.
   mapping directions clamp it to the line's content end.
 - **Late auto-import is a second undo step** (D4), and is skipped entirely if the
   buffer changed between the insertion and the resolve landing.
-- **D4's auto-import cannot be observed against the one server this phase ships.**
+- **D4's auto-import was unobservable in 2a, and is not any more.**
   sourcekit-lsp offers no unimported symbols, so nothing it sends — resolved or
   not — has ever carried `additionalTextEdits` (recorded in the fixtures'
   `README.md`, which is why `completion-auto-import.json` is authored to the spec
-  rather than captured). The rule and its geometry are pinned by
-  `CompletionEditPlanTests` and `LSPIntelligenceProviderTests`; the manual check
-  "completing a symbol that needs an import inserts the import line" has no way to
-  fire on macOS today, and an import that does not appear is not a regression.
+  rather than captured), and the rule and its geometry are pinned by
+  `CompletionEditPlanTests` and `LSPIntelligenceProviderTests` alone. **Phase 2b
+  changes that**: both `typescript-language-server` and `pyright` return
+  auto-import completions carrying `additionalTextEdits`, so with either
+  provisioned this path fires for real and is the primary way it is exercised. The
+  manual check "completing a symbol that needs an import inserts the import line"
+  therefore belongs with the provisioning checks, and an import that does not
+  appear *is* a regression.
 - **sourcekit-lsp answers for projects it can build.** It resolves a build system
   from the root it is initialized with — a `Package.swift`, a
   `compile_commands.json`, an `.xcodeproj` through the build server protocol. A

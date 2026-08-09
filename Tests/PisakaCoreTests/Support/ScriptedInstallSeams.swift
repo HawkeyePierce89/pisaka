@@ -103,14 +103,12 @@ final class ScriptedDownloader: LSPArtifactDownloading, @unchecked Sendable {
     }
 
     func data(from url: URL) async throws -> Data {
-        lock.lock()
-        requested.append(url)
-        let gate = gates[url]
-        let answer = answers[url]
-        lock.unlock()
-
         // Recorded before the wait, so a test can see the request has arrived
-        // while it is still being held.
+        // while it is still being held. The locking is factored into a
+        // synchronous method rather than written inline: `lock()`/`unlock()` in
+        // an `async` body is a hard error under the Swift 6 language mode, and
+        // there is no suspension point between the two here anyway.
+        let (gate, answer) = claim(url)
         gate?.wait()
 
         switch answer {
@@ -118,6 +116,13 @@ final class ScriptedDownloader: LSPArtifactDownloading, @unchecked Sendable {
         case .failure(let error): throw error
         case nil: throw Failure.notStubbed
         }
+    }
+
+    private func claim(_ url: URL) -> (Gate?, Answer?) {
+        lock.lock()
+        defer { lock.unlock() }
+        requested.append(url)
+        return (gates[url], answers[url])
     }
 }
 
@@ -171,14 +176,21 @@ final class ScriptedUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
         return recorded
     }
 
+    private func record(_ call: Call) -> ([String: String]?, Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        recorded.append(call)
+        return (trees[call.archive], failures.contains(call.archive))
+    }
+
     func unpack(
         _ archive: Data,
         format: LSPArchiveFormat,
         into destination: URL,
         stripComponents: Int
     ) async throws {
-        lock.lock()
-        recorded.append(
+        // Synchronous, for the reason `ScriptedDownloader.claim(_:)` states.
+        let (entries, fails) = record(
             Call(
                 archive: archive,
                 format: format,
@@ -186,9 +198,6 @@ final class ScriptedUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
                 stripComponents: stripComponents
             )
         )
-        let entries = trees[archive]
-        let fails = failures.contains(archive)
-        lock.unlock()
 
         if fails { throw Failure.corrupt }
 
@@ -196,11 +205,26 @@ final class ScriptedUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
         // does not care what is inside a component still gets a directory that
         // exists — which is what `state(of:)` reads.
         let contents = entries ?? ["payload": String(decoding: archive, as: UTF8.self)]
-        for (subpath, text) in contents.sorted(by: { $0.key < $1.key }) {
-            let url = subpath
-                .split(separator: "/")
-                .reduce(destination) { $0.appendingPathComponent(String($1)) }
-            try tree.write(text, to: url)
+
+        // The writes hop to the main actor, and they have to. This method is a
+        // `nonisolated async` protocol requirement, so it runs on the cooperative
+        // pool — that is the whole point of the seam, and it is what keeps the
+        // engine from holding the main actor while 53 MB moves. But `StubFileTree`
+        // is a plain dictionary with no synchronisation over its contents, and the
+        // engine reads it *from the main actor* (`state(of:)` is a directory
+        // listing) while another component's install is unpacking. Writing from
+        // this thread is then two threads in one `Dictionary`, which is not a
+        // flaky assertion but a corrupted hash table — it showed up as an
+        // intermittent SIGSEGV in whichever test happened to overlap two installs.
+        // Only the tree mutation hops; the recording above stays here, under the
+        // lock, so "which archive was unpacked where" is still observed off-actor.
+        try await MainActor.run {
+            for (subpath, text) in contents.sorted(by: { $0.key < $1.key }) {
+                let url = subpath
+                    .split(separator: "/")
+                    .reduce(destination) { $0.appendingPathComponent(String($1)) }
+                try tree.write(text, to: url)
+            }
         }
     }
 }

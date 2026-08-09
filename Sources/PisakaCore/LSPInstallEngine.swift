@@ -14,7 +14,15 @@ import Foundation
 /// while it is verified and unpacked. A streaming seam would trade that for a
 /// file the engine would have to create, verify, unpack *and* clean up on every
 /// failure path — four more things to get wrong for a peak that a machine running
-/// an IDE already has. Recorded as a known limit in
+/// an IDE already has.
+///
+/// The peak is bounded by what the *server* sends, not by the manifest: nothing
+/// caps a response, so an endpoint that streamed indefinitely would grow the
+/// app's memory until the session's resource timeout cut it off. That is
+/// deliberate rather than overlooked — capping it needs the byte count at the
+/// seam and a chunked read, and it would buy nothing against the threat that
+/// matters, since a body of the wrong size still fails the digest and installs
+/// nothing. Both are recorded as known limits in
 /// `docs/architecture/core-provisioning.md`.
 public protocol LSPArtifactDownloading: Sendable {
     /// The bytes at `url`, or a thrown error for anything that went wrong —
@@ -56,8 +64,13 @@ public enum LSPInstallError: Error, Equatable, LocalizedError {
     case unpackFailed(component: String, reason: String)
     /// The component ships nothing for the slice this app is running as.
     case unsupportedArchitecture(component: String, architecture: LSPHostArchitecture)
-    /// A directory could not be created, renamed or deleted.
+    /// A directory could not be created or renamed while installing.
     case fileSystemFailed(component: String, reason: String)
+    /// An installed component's directory could not be deleted. Distinct from
+    /// `fileSystemFailed` only so the sentence the Settings row shows describes
+    /// what the user actually asked for — a removal that reports "could not
+    /// install" reads as a different failure than the one that happened.
+    case removeFailed(component: String, reason: String)
 
     public var errorDescription: String? {
         switch self {
@@ -71,6 +84,8 @@ public enum LSPInstallError: Error, Equatable, LocalizedError {
             return "“\(component)” is not available for this Mac (\(architecture.rawValue))."
         case let .fileSystemFailed(component, reason):
             return "Could not install “\(component)”. \(reason)"
+        case let .removeFailed(component, reason):
+            return "Could not remove “\(component)”. \(reason)"
         }
     }
 }
@@ -386,9 +401,22 @@ public final class LSPInstallEngine {
     private func removeOtherVersions(of component: LSPComponent) {
         for version in installedVersions(of: component.id) where version != component.version {
             let directory = layout.versionDirectory(componentID: component.id, version: version)
-            guard layout.contains(directory) else { continue }
+            guard mayDelete(directory) else { continue }
             try? fileService.removeItem(at: directory)
         }
+    }
+
+    /// Whether this engine may delete `url`.
+    ///
+    /// `layout.contains(_:)` answers "inside the install root", and deliberately
+    /// counts the root itself — it is a containment predicate, and the sweep reads
+    /// that directory. Nothing here may ever *delete* it: every path below is
+    /// built from a component id or read out of a listing, and one that resolves
+    /// back to the root (a hand-edited manifest with `..` in an id, a `.staging`
+    /// entry that walks out through a symlink) would take every provisioned server
+    /// with it in a single `removeItem`. So the delete sites ask this instead.
+    private func mayDelete(_ url: URL) -> Bool {
+        layout.contains(url) && url.standardizedFileURL.path != layout.base.standardizedFileURL.path
     }
 
     private func ensureDirectory(_ url: URL, of component: LSPComponent) throws {
@@ -406,7 +434,7 @@ public final class LSPInstallEngine {
     /// that is *already* failing, and the sweep at the next launch is what makes
     /// leftovers a disk-space question rather than a correctness one.
     private func discard(_ staging: URL) {
-        guard layout.contains(staging) else { return }
+        guard mayDelete(staging) else { return }
         try? fileService.removeItem(at: staging)
     }
 
@@ -424,11 +452,11 @@ public final class LSPInstallEngine {
     /// release check greps for.
     public func remove(_ componentID: String) throws {
         let directory = layout.componentDirectory(componentID)
-        guard layout.contains(directory), !installedVersions(of: componentID).isEmpty else { return }
+        guard mayDelete(directory), !installedVersions(of: componentID).isEmpty else { return }
         do {
             try fileService.removeItem(at: directory)
         } catch {
-            throw LSPInstallError.fileSystemFailed(
+            throw LSPInstallError.removeFailed(
                 component: componentID,
                 reason: error.localizedDescription
             )
@@ -447,7 +475,7 @@ public final class LSPInstallEngine {
         guard let entries = try? fileService.contentsOfDirectory(at: layout.stagingRoot) else {
             return
         }
-        for entry in entries where layout.contains(entry.url) {
+        for entry in entries where mayDelete(entry.url) {
             try? fileService.removeItem(at: entry.url)
         }
     }

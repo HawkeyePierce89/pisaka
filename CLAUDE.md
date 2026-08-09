@@ -348,13 +348,22 @@ way, and must be listed in the test target's `exclude:` (why, in `core-lsp.md`).
 
 Shared test helpers live in `Tests/PisakaCoreTests/Support/`: `StubFileTree` (an
 in-memory `FileServicing` project tree, with hooks for unreadable files, absent
-stamps and stamp overrides), `Gate` (a blocking rendezvous that holds off-main
-work suspended while a test mutates model state on the main actor — how the
-folder-switch-mid-walk cases are staged), `QueryScanner`'s `ParsedQuery`, the
-`.scm` scanner `VendoredGrammarQueryTests` and `SymbolQueryTests` share, and
+stamps and stamp overrides, **plus a mutable half** — empty directories,
+`createDirectory`/`ensureDirectory`/`move`/`remove`, `moveFailures`/`removeFailures`
+injection points and a `removedPaths` call log — which is what makes the install
+engine's atomicity rules assertable), `Gate` (a blocking rendezvous that holds
+off-main work suspended while a test mutates model state on the main actor — how
+the folder-switch-mid-walk cases are staged), `QueryScanner`'s `ParsedQuery`, the
+`.scm` scanner `VendoredGrammarQueryTests` and `SymbolQueryTests` share,
 `ScriptedLSPTransport`, the deterministic `LSPTransport` fake the session and
-workspace suites drive a whole conversation through. Reach for
-these before writing a new stub.
+workspace suites drive a whole conversation through, and `ScriptedInstallSeams`
+(`ScriptedDownloader`/`ScriptedUnpacker`, the canned download-and-unpack pair the
+provisioning suites drive). Reach for
+these before writing a new stub. A fake standing in for a `nonisolated async`
+seam runs on the cooperative pool, so anything it writes into a `StubFileTree`
+must hop to the main actor first — the engine reads that tree *from* the main
+actor while another install is unpacking, and two threads in one `Dictionary` is
+a corrupted hash table rather than a flaky assertion.
 
 ## Commands
 
@@ -385,7 +394,15 @@ covering libgit2 linking) in parallel. No signing, secrets, or simulator.
 - Every behavioral change must come with new/updated `PisakaCore` tests, and the
   full suite must pass before moving on.
 - External dependencies are confined to the `Pisaka` app target only, declared
-  and pinned in `project.yml` (the SwiftPM manifest stays dependency-free):
+  and pinned in `project.yml` (the SwiftPM manifest stays dependency-free).
+  There is a **second, differently-shaped pin set** that deliberately lives
+  nowhere near these: the downloadable language servers in
+  `Sources/PisakaCore/LSPProvisioningManifest.swift`, pinned by URL + SHA-256 +
+  byte count rather than by version/revision, guarded by
+  `LSPProvisioningManifestTests`, and bumped by the by-hand procedure in
+  `docs/architecture/core-provisioning.md`. They are not in
+  `project.yml`/`Package.resolved` because nothing links them — they arrive over
+  the network at the user's request or not at all. The remote ones here are:
   ChimeHQ's Neon (which brings in `SwiftTreeSitter`/`Rearrange`) plus one
   tree-sitter grammar package per supported language, for syntax highlighting on
   all platforms; SwiftTerm (migueldeicaza/SwiftTerm, the PTY-backed
@@ -431,7 +448,14 @@ covering libgit2 linking) in parallel. No signing, secrets, or simulator.
   package resolves but is not linked, an `excluded` entry with the reason.
   `LicenseCoverageTests` compares the manifest's id set against `project.yml`'s
   linked packages and each `revision` against `Package.resolved`, so `swift test`
-  fails until this is done. That comparison is *package*-granular, so **a
+  fails until this is done. **Provisioned language servers are the exception**:
+  Node, `typescript-language-server`, `typescript`, `pyright` and `fsevents` ship
+  inside nothing, so their notices are read at display time out of the installed
+  tree (`LSPInstalledLicenses`, from `LSPComponent.licenseFileSubpaths`) and are
+  deliberately *not* in `licenses.json`. Nothing in `swift test` can see them; a
+  manifest pin bump must re-verify those subpaths by hand against the new tarball
+  (procedure in `docs/architecture/core-provisioning.md`), because a wrong one
+  silently drops the component from Acknowledgements. That comparison is *package*-granular, so **a
   package's own LICENSE is not automatically the whole obligation**: read its
   manifest's `sources:`/`exclude:` for third-party trees it vendors and compiles
   in (libgit2's `deps/xdiff` is LGPL-2.1, tree-sitter's `lib/src/unicode` is

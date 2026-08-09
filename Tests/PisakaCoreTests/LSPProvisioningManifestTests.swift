@@ -167,10 +167,22 @@ final class LSPProvisioningManifestTests: XCTestCase {
         }
     }
 
+    /// The strip depth deserves its own pin, because it is the one field in this
+    /// record that **no test can otherwise reach**: `ScriptedUnpacker` records the
+    /// depth it was handed and writes a canned tree regardless, since a fake with
+    /// no real archive has nothing to strip. A wrong depth therefore passes the
+    /// whole suite and produces a server whose entry point is not where the
+    /// registry says it is — an install that succeeds and a process that dies on
+    /// start, for every user. Every artifact here is 1 (a Node tarball wraps
+    /// everything in `node-v…-darwin-arm64/`, an npm tarball in `package/`), so a
+    /// different value is a deliberate change that has to be made here too.
     func testEveryDestinationAndStripDepthIsSane() {
         for component in manifest.components {
             for artifact in component.artifacts {
-                XCTAssertGreaterThanOrEqual(artifact.stripComponents, 0)
+                XCTAssertEqual(
+                    artifact.stripComponents, 1,
+                    "\(artifact.url.lastPathComponent): every archive here wraps its contents in one directory"
+                )
                 XCTAssertFalse(artifact.destinationSubpath.hasPrefix("/"), "destinations are relative")
                 XCTAssertFalse(
                     artifact.destinationSubpath.split(separator: "/").contains(".."),
@@ -227,15 +239,49 @@ final class LSPProvisioningManifestTests: XCTestCase {
     /// under a recognised SPDX id. The Acknowledgements section reads exactly
     /// these paths, so a component with none would install code the app then
     /// displays no notice for.
+    ///
+    /// The rule is **at least one notice per artifact**, deliberately not exactly
+    /// one: a package's own LICENSE is not automatically the whole obligation.
+    /// `typescript` ships a separate `ThirdPartyNoticeText.txt` for the material
+    /// incorporated into `tsserver.js`, and pyright ships the Apache-2.0 typeshed
+    /// stub library under its own MIT tree — the same shape as the `deps/xdiff`
+    /// and `lib/src/unicode` notices appended to the bundled texts in
+    /// `Resources/Licenses/`, and the reason `LicenseCoverageTests` says the
+    /// package-granular comparison is a floor rather than the whole check.
     func testEveryComponentDeclaresALicenseItActuallyShips() {
         let known: Set<String> = ["MIT", "Apache-2.0"]
         for component in manifest.components {
             XCTAssertTrue(known.contains(component.licenseSPDXID), "\(component.id): unrecognised SPDX id")
             XCTAssertFalse(component.licenseFileSubpaths.isEmpty, "\(component.id) ships no license text")
-            XCTAssertEqual(
-                component.licenseFileSubpaths.count, component.artifacts(for: .arm64).count,
-                "\(component.id): one license text per installed artifact"
-            )
+
+            func isUnder(_ subpath: String, _ destination: String) -> Bool {
+                destination.isEmpty || subpath == destination || subpath.hasPrefix(destination + "/")
+            }
+
+            // Nothing lands unacknowledged…
+            for architecture in LSPHostArchitecture.allCases {
+                for artifact in component.artifacts(for: architecture) {
+                    XCTAssertTrue(
+                        component.licenseFileSubpaths.contains { isUnder($0, artifact.destinationSubpath) },
+                        "\(component.id): nothing acknowledges what lands at “\(artifact.destinationSubpath)”"
+                    )
+                }
+            }
+
+            // …and nothing is acknowledged that no artifact installs, which is
+            // what a mistyped subpath looks like. It has no static check of its
+            // own — a wrong path is skipped silently at display time — so this is
+            // the closest one available without the tarballs.
+            let destinations = LSPHostArchitecture.allCases
+                .flatMap { component.artifacts(for: $0) }
+                .map(\.destinationSubpath)
+            for subpath in component.licenseFileSubpaths {
+                XCTAssertTrue(
+                    destinations.contains { isUnder(subpath, $0) },
+                    "\(component.id): “\(subpath)” is not inside anything this component installs"
+                )
+            }
+
             for url in layout.licenseFiles(of: component) {
                 XCTAssertTrue(layout.contains(url), "\(component.id)'s license text is outside the install root")
             }
@@ -291,9 +337,13 @@ final class LSPProvisioningManifestTests: XCTestCase {
         XCTAssertEqual(
             description.initializationOptions,
             .object(["tsserver": .object([
-                "path": .string("\(base)/typescript-language-server/5.3.0/node_modules/typescript/lib/tsserver.js")
+                "fallbackPath": .string("\(base)/typescript-language-server/5.3.0/node_modules/typescript/lib/tsserver.js")
             ])]),
-            "D11: the tsserver path must be passed outright, not left to Node's upward walk"
+            """
+            D11: the pinned tsserver is named outright rather than left to Node's upward walk, \
+            and under `fallbackPath` rather than `path` — `path` would override a project's own \
+            node_modules/typescript, which the server prefers and which D11 says still wins.
+            """
         )
     }
 

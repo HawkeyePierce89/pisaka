@@ -348,7 +348,7 @@ involved.
   What arrives is `typescript-language-server` (with the `typescript` it drives)
   or `pyright`, plus one shared Node runtime the two of them use. The first
   acceptance is about **57 MB** (Node is most of it); the second server, whichever
-  it is, costs about **5 MB** because the runtime is already there. The size the
+  it is, costs about **4 MB** because the runtime is already there. The size the
   prompt shows is always what is still missing, not the total. Every file is
   checked against a checksum built into the app before it is unpacked, comes from
   `nodejs.org` or `registry.npmjs.org`, and is installed under
@@ -360,7 +360,11 @@ involved.
   with the same typed completion, real members and cross-file jumps Swift gets
   above. **Preferences → Language Servers** shows each server's state and offers
   Install, Retry and Remove; removing one stops its process at once and the
-  language falls straight back to the built-in index. Declining is remembered
+  language falls straight back to the built-in index. **Removing also answers
+  "no"** — the banner will not offer that language again, and reinstalling is a
+  button on that same screen. Disk comes back the same way it was spent: removing
+  one of two servers frees only its own few MB, because the ~52 MB Node runtime
+  they share goes away with the *last* one. Declining is remembered
   across launches and is turned around from that same screen. To de-provision
   everything by hand, quit the app and delete the `LanguageServers` folder above.
   Acknowledgements (Preferences) grows a *Language Servers* section listing what is
@@ -698,7 +702,7 @@ and iPhone. The feature scope landed so far:
   index — the same thing that happens if you decline. There is no progress bar,
   no resume (an interrupted download restarts from zero) and no mirror or proxy
   setting, and each file is held in memory while it is verified, so a first
-  install peaks around 55 MB of RAM for a few seconds. A Rosetta-translated app
+  install peaks around 53 MB of RAM for a few seconds. A Rosetta-translated app
   installs the Intel build of Node. `pyright` with no Python interpreter it can
   find still answers, but only from its own bundled type stubs — it will not know
   about the packages in your virtualenv. And what is installed is verified once,
@@ -753,3 +757,10 @@ Acknowledgements** on macOS and **Settings → About → Acknowledgements** on i
 libgit2 is used under GPL-2.0 with its linking exception (its bundled `xdiff`
 code is LGPL-2.1). Adding a dependency means adding its license there too —
 `swift test` fails until you do (`LicenseCoverageTests`).
+
+Language servers you choose to download are not in that directory and are not
+covered by that test, because they ship inside nothing: their verbatim notices
+are read out of the tree that was actually installed, so the notice and the code
+it covers are always the same bytes. They appear in the *Language Servers*
+section of Acknowledgements while they are installed and disappear when you
+remove them.
