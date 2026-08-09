@@ -692,16 +692,39 @@ on *this* Mac, and what running `go install` means here.
 **Files:**
 - Modify: `docs/architecture/core-services.md` (the audit record)
 
-- [ ] `xcodegen generate`, then build macOS and iOS (device arch,
+- [x] `xcodegen generate`, then build macOS and iOS (device arch,
       `generic/platform=iOS`) — the iOS build is what proves the new C compiles
       for every destination
-- [ ] re-run the recorded `nm -u` audit over both built binaries and update the
+      — both succeed, with `CODE_SIGNING_ALLOWED=NO` and CI's relative
+      `-clonedSourcePackagesDirPath`/`-derivedDataPath`, so the local run is the
+      same run CI makes. The committed `Package.resolved` came through the pair
+      **byte-identical** (same SHA-256 before and after), the v1 downgrade Task 1
+      warned about not having been provoked by a build over an already-resolved
+      `SourcePackages`.
+- [x] re-run the recorded `nm -u` audit over both built binaries and update the
       record with the date, the grammar that was added and the result
-- [ ] update `Resources/PrivacyInfo.xcprivacy` **only if** the audit found
+      — unchanged: both dylibs answer `_stat`, `_lstat`, `_fstat` and
+      `_mach_absolute_time` and nothing else in the pattern, so the three
+      declared categories are still exactly right. Two things were verified
+      rather than assumed, and both are now written into the record: that the
+      scanned files are non-trivial (2184 / 2306 undefined symbols), and that
+      `_tree_sitter_go` is **defined** in each — a grammar linked as its own
+      dynamic framework would have kept its C out of the grep and made the audit
+      pass without auditing anything. The `Sources/` half found one new call
+      site, `LSPGoToolchainService`'s `isExecutableFile(atPath:)` probe, which
+      asks a permission question rather than reading a timestamp and so is not on
+      Apple's list; naming it in the record is what stops the next reader
+      re-deriving that.
+- [x] update `Resources/PrivacyInfo.xcprivacy` **only if** the audit found
       something; the expectation is that a tree-sitter parser adds no
       required-reason API, and `ReleaseMetadataTests`' set equality is the gate
       either way
-- [ ] run `swift test`
+      — the expectation held; the manifest is untouched. Two stale counts in the
+      same doc were corrected in passing, both made wrong by Task 1 rather than
+      by this task: the audit paragraph's "18 dependencies" and the licence
+      directory's "18 today" are 19 now that `tree-sitter-go` ships a notice.
+- [x] run `swift test`
+      — 2213 tests, 0 failures.
 
 ### Task 10: Verify acceptance criteria
 

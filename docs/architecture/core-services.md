@@ -279,7 +279,7 @@ run in `swift test` rather than needing an Xcode build.
 
     **Required-reason API audit.** The unit of audit is the **linked binary**,
     not `Sources/`: libgit2 and every tree-sitter grammar compile from C source
-    *into* the app, and none of the 18 dependencies ships a
+    *into* the app, and none of the 19 dependencies ships a
     `PrivacyInfo.xcprivacy` of its own (`find DerivedData/SourcePackages/checkouts
     -name '*.xcprivacy'` returns nothing), so their required-reason calls must be
     declared by this manifest. A `Sources/`-only grep misses them — that is how
@@ -302,6 +302,30 @@ run in `swift test` rather than needing an Xcode build.
     required-reason APIs are used" — the conclusion this record exists to prevent.
     Confirm the file you scanned is non-trivial (`nm -u` on it should list
     hundreds of symbols) before believing an empty match.
+
+    **Last re-run: 2026-08-09**, over both destinations' Debug dylibs
+    (`Debug-iphoneos/Pisaka.app/Pisaka.debug.dylib`, 2184 undefined symbols, and
+    `Debug/Pisaka.app/Contents/MacOS/Pisaka.debug.dylib`, 2306), after adding the
+    `tree-sitter-go` grammar — the Go language work's one change to what is
+    *linked*, and so the reason a re-run was owed: a grammar is C compiled into
+    the app, exactly the half a `Sources/` grep cannot see. Both binaries
+    answered the same four symbols the record below already explains — `_stat`,
+    `_lstat`, `_fstat`, `_mach_absolute_time` — with no disk-space and no
+    keyboard symbol, so `PrivacyInfo.xcprivacy` is unchanged and
+    `ReleaseMetadataTests`' set equality still passes. That the new grammar was
+    really inside what was scanned is confirmed rather than assumed: `nm` finds
+    `_tree_sitter_go` **defined** (`T`) in both, beside the grammars that were
+    there before — the same "check the right binary" trap one level down, since a
+    grammar that had linked as its own dynamic framework would keep its C calls
+    out of this grep.
+
+    The `Sources/` half turned up one new call site worth naming, because the
+    next reader will meet it and wonder: `LSPGoToolchainService`'s discovery
+    probes candidate `go`/`gopls` paths with
+    `FileManager.isExecutableFile(atPath:)`. That asks a *permission* question
+    and reads no timestamp, and is not one of the file-timestamp APIs Apple's
+    list names, so it adds nothing to declare — the five timestamp call sites
+    below are still all of them.
 
     A later audit should be a diff against this record, not a rediscovery:
 
@@ -356,7 +380,7 @@ run in `swift test` rather than needing an Xcode build.
         `Sources/` and no matching symbol in either binary, not declared.
 
   - `Resources/Licenses/` — `licenses.json` plus one verbatim `<id>.txt` per
-    shipped dependency (18 today). Declared in `project.yml` as a **folder
+    shipped dependency (19 today). Declared in `project.yml` as a **folder
     reference** (`type: folder`), so the whole directory is copied into the
     bundle as `Licenses/` and adding a future text needs no project
     regeneration. That convenience is exactly why the directory's *contents* are
