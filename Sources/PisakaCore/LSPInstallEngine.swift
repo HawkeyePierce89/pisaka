@@ -184,8 +184,12 @@ public final class LSPInstallEngine {
 
     /// What the disk (plus the in-flight table) says about `componentID`.
     ///
-    /// A component the manifest does not describe is `absent`: this answers what
-    /// is installed, not what could be.
+    /// Answers what is on disk, not what the manifest describes — and
+    /// deliberately so: an id the manifest no longer carries (a component dropped
+    /// by a pin bump) still has a real tree taking up real disk, and reporting it
+    /// `absent` would hide it from the one surface that can offer removing it.
+    /// Such a tree reports `installed` at whatever version directory it has, with
+    /// `isInstalled(_:)` — which does consult the manifest — answering `false`.
     public func state(of componentID: String) -> LSPInstallState {
         if installs[componentID] != nil { return .installing }
         let versions = installedVersions(of: componentID)

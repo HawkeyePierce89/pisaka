@@ -55,8 +55,18 @@ enum LSPInstalledLicenses {
     /// point of this screen is the verbatim text, and "we could not find it" is
     /// better said by its absence from a list than by a placeholder that reads
     /// like a license. It cannot happen for an install this app performed — the
-    /// files come out of the same verified tarball as the code — so the only way
-    /// here is a hand-edited install root.
+    /// files come out of the same verified tarball as the code — so the ways here
+    /// are a hand-edited install root and a `licenseFileSubpaths` entry a pin bump
+    /// left stale (the by-hand check `core-provisioning.md` describes).
+    ///
+    /// The header names the first subpath that was *actually read*, not
+    /// `licenseFileSubpaths.first`. They are the same whenever every file is
+    /// there, and when the first one is not, deriving the name from the list
+    /// would caption the second file's text with the first file's path — and the
+    /// separator below it says in so many words that the text above is the file
+    /// named at the top, so the mislabel would compound rather than stay local.
+    /// On the one screen whose entire purpose is exactness, a notice must never
+    /// name a file it is not showing.
     @MainActor
     private static func document(
         for component: LSPComponent,
@@ -64,14 +74,16 @@ enum LSPInstalledLicenses {
         architecture: LSPHostArchitecture
     ) -> LicenseDocument? {
         var sections: [String] = []
+        var shownSubpaths: [String] = []
         for subpath in component.licenseFileSubpaths {
             let url = layout.file(subpath, of: component)
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            sections.append(sections.isEmpty ? text : separator(before: subpath) + text)
+            sections.append(shownSubpaths.isEmpty ? text : separator(before: subpath) + text)
+            shownSubpaths.append(subpath)
         }
 
         guard
-            !sections.isEmpty,
+            let heading = shownSubpaths.first,
             // The artifact for the slice this app is *running as* — the x64 Node
             // tarball on a Rosetta-translated build — so the digest below names
             // the bytes that were actually verified and installed.
@@ -92,7 +104,7 @@ enum LSPInstalledLicenses {
                 // 64 hex characters there would read as a git object id.
                 revision: "sha256:\(primary.sha256)",
                 spdx: component.licenseSPDXID,
-                file: component.licenseFileSubpaths.first ?? ""
+                file: heading
             ),
             text: sections.joined(separator: "\n")
         )

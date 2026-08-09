@@ -493,7 +493,15 @@ carries. D1–D10 are in `core-lsp.md`.
     git object id. "Installed" here is `isInstalled(_:)` — the pinned version —
     since acknowledging software the app is not running would be noise in the one
     screen that must be exact. An unreadable text is skipped rather than
-    substituted; it cannot happen for an install this app performed.
+    substituted; it cannot happen for an install this app performed, so the ways
+    there are a hand-edited install root and a `licenseFileSubpaths` entry a pin
+    bump left stale. Because of that skip, the notice's `file` field names the
+    first subpath **actually read**, not `licenseFileSubpaths.first`: the two
+    differ exactly when the first file is missing, and taking the name from the
+    list would caption the second file's text with the first file's path — which
+    the separator line ("everything above this line is the verbatim text of the
+    file named at the top of this entry") would then restate, compounding the
+    mislabel instead of containing it.
 
   - `PisakaApp.swift` (modified) — composes the layer exactly once in `init`:
     the install root (`~/Library/Application Support/Pisaka/LanguageServers` —
