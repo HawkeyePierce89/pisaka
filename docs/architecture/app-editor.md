@@ -657,6 +657,62 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     both pipes are drained before `waitUntilExit`, for `GitCLIService.runBlocking`'s
     deadlock reason; stderr is captured and dropped, since "unable to find utility" is
     an ordinary answer here and not something to show anyone (D7: no alerts, ever).
+  - `LSPGoToolchainService.swift` — the same question as `LSPToolchain` for a
+    toolchain `xcrun` knows nothing about, plus the one thing this app ever
+    *builds*: where `go` and `gopls` are on **this** Mac (D18), and what
+    `go install` means here (D20). Both Core seams
+    (`LSPGoToolchainDiscovering`, `LSPGoModuleInstalling`) are implemented in one
+    file, unlike 2b's `LSPDownloadService`/`LSPArchiveUnpacker` pair, because they
+    are not two technologies — both are "run the user's `go` and read what it
+    says", and splitting them would duplicate the process plumbing to keep two
+    short functions apart. Untested by convention, like every seam of this shape,
+    so it is kept to the decisions it actually makes.
+    **The search order is the decision.** The inherited `PATH` first, because a
+    Pisaka started from a terminal should use the `go` that terminal would have
+    run; then three well-known directories (`/usr/local/go/bin` and Homebrew's two
+    prefixes — three `stat`s, covering the official installer and both
+    architectures), because a Finder-launched app inherits `launchd`'s `PATH` and
+    that contains no `go` on any machine; then the **login shell last**, because
+    it is the only step that costs a subprocess and the only one that can find a
+    version-manager shim (`asdf`, `mise`, `goenv`). It is asked for `$PATH` rather
+    than `command -v go`, so a shell *function* named `go` answers with something
+    this file then fails to `stat` instead of producing a launch error minutes
+    later; `-l` and not `-i`, so the profile files where `PATH` is assembled are
+    read and the rc files where a prompt framework might print or block are not.
+    `GOBIN`/`GOPATH` come from `go env` rather than the environment, because both
+    can be set by `go env -w`'s config file and `GOPATH` has a default (`~/go`)
+    that is never in the environment at all. **A `go` that cannot answer `go env`
+    is reported as no toolchain**, not as one with an unknown `GOBIN`: it will not
+    build anything either, and reporting it present would offer an Install that
+    cannot work. The whole answer is cached per app run **including the negative
+    one** (`LSPToolchain`'s discipline and reason), resolved off the main thread,
+    and deadlined — 5 s for the login shell, 10 s for `go env` — because on a Mac
+    with no Go at all this runs at every launch.
+    The install adds exactly one environment variable, `GOBIN`, pointed at the
+    staging directory the model owns; everything else is inherited untouched,
+    which is the whole of "nothing global is touched" — the user's `GOMODCACHE`,
+    `GOPROXY` and proxy settings all keep working. It runs *from* the staging
+    tree, which is inside no module, so nothing depends on the app's launch
+    directory not being a Go module. Its deadline is 30 minutes: the model keeps
+    the row `.installing` and refuses Remove until this returns, so a build that
+    never finishes is not a slow install but a dead one for the rest of the app
+    run — far above any real duration, and far below "never", which is the only
+    number it competes with. The failure sentence a Settings row shows is the last
+    **three** lines of stderr rather than one, because `go`'s actual reason is
+    regularly the line above the last (`# golang.org/x/tools/gopls` heads a
+    block). Both pipes are drained on their own queues before the exit is waited
+    for (`GitCLIService.runBlocking`'s deadlock rule, a real volume here rather
+    than a theoretical one — `go build` writes a line per package), stdin is
+    `/dev/null`, and teardown is `SIGTERM`→`SIGKILL`.
+    **Every child is registered, not just the install's**, so `terminateNow()`
+    ends a login shell mid-`PATH`-print as well as a build; the app's terminate
+    observer calls it beside `LSPWorkspace.terminateNow()`. It is idempotent and
+    **permanent** — a torn-down service refuses to launch anything else — which
+    closes the window between the observer firing and a `.go` tab open landing on
+    `prepareForOpening`. A `go` compiling gopls has a whole tree of children
+    beneath it, all of which go with it; the release check
+    (`pgrep -f 'gopls|go install'` empty after a quit) is what that is written
+    against.
   - `DefinitionPicker.swift` — the "which one did you mean?" surface of Go to
     Definition: an `NSMenu` popped up under the identifier, one item per candidate
     (plan Decision 3). A menu rather than a custom `NSPanel` because AppKit gives

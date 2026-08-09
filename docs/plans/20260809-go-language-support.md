@@ -773,25 +773,59 @@ on *this* Mac, and what running `go install` means here.
   `docs/architecture/core-provisioning.md`, `docs/architecture/app-editor.md`,
   `docs/architecture/core-services.md`, `CLAUDE.md`, `README.md`
 
-- [ ] `core-intelligence.md`: the Go symbols query, its four decisions, and the
+- [x] `core-intelligence.md`: the Go symbols query, its four decisions, and the
       confirmed capture table from the runtime check
-- [ ] `core-lsp.md`: D17–D20 in full, the two new Core files' entries, and the
+      — written in Task 3, when the runtime check produced the table; re-read
+      here rather than rewritten, since documenting a capture table from memory
+      a task later is how a doc stops describing what actually ran.
+- [x] `core-lsp.md`: D17–D20 in full, the two new Core files' entries, and the
       known limits (shared `GOMODCACHE`/`GOCACHE`, `GOTOOLCHAIN=auto` possibly
       fetching a toolchain, no gopls on iOS ever)
-- [ ] `core-provisioning.md`: a short cross-reference stating what gopls reuses
+      — plus a header paragraph saying why gopls is documented *here* rather
+      than in `core-provisioning.md` (it is a second registry contributor, not a
+      second provisioning layer), and four further limits the implementation
+      earned: no offer without a toolchain (including a `go` that cannot answer
+      `go env`), a discovered gopls used at whatever version it is and never
+      replaced, and discovery being per app run rather than per folder. D19's
+      state names are the strings the row actually renders, not the plan's
+      paraphrase.
+- [x] `core-provisioning.md`: a short cross-reference stating what gopls reuses
       (layout, remove, consent, banner, tab) and what it deliberately does not
       (manifest, download, digest, unpack) — so the next reader does not go
       looking for a gopls artifact
-- [ ] `app-editor.md` / `core-services.md`: the grammar registry entry, the new
+      — and, because this document owns those files' entries, the five that
+      changed: the banner's Go branch and its stated precedence, the Settings
+      tab's Go row plus the two sentences a *built* server made untrue, why
+      `LSPInstalledLicenses` deliberately has nothing of gopls, the shared
+      engine and two-closure registry merge in `PisakaApp`, and `ContentView`
+      handing the banner both contributors.
+- [x] `app-editor.md` / `core-services.md`: the grammar registry entry, the new
       app seam file, the refreshed audit record
-- [ ] `CLAUDE.md`: index lines for the new Core and app files only — no essays
-- [ ] `README.md`: Go in the highlighting, indexing and keyword lists; gopls in
+      — the grammar entry belongs in `app-editor-overlays.md`, which is where
+      `SyntaxLanguageConfiguration` is documented (`CLAUDE.md`'s index says so;
+      the plan named the wrong file). It records the Go branch, the default
+      `TreeSitterGo_TreeSitterGo` bundle derivation and the `@escape` capture
+      gap. `LSPGoToolchainService`'s entry went to `app-editor.md` beside
+      `LSPToolchain.swift`, whose discipline it follows. The audit record in
+      `core-services.md` was written in Task 9 and is unchanged here.
+- [x] `CLAUDE.md`: index lines for the new Core and app files only — no essays
+      — three index lines, plus one clause on the *Provisioned servers*
+      invariant, which claimed every install is a verified download and was
+      therefore no longer true as written. Worth noting for the next reader:
+      the file was already 44.1 kB on `master`, over the 40 kB the repo hook
+      warns at, and these four additions are ~0.9 kB of it — trimming it is its
+      own job, not this branch's.
+- [x] `README.md`: Go in the highlighting, indexing and keyword lists; gopls in
       the semantic-intelligence section with the acquisition story stated plainly
       (used if already on your Mac; otherwise offered once and built by *your* Go
       toolchain; a Go toolchain is required either way, and nothing is downloaded
       by Pisaka), Go added to the run/test list with the single-file `go run`
       limit, and the de-provisioning paragraph noting that Remove and deleting the
       LanguageServers directory apply to the app-installed copy only
+      — plus a Prerequisites entry (a Go toolchain is optional, and is what the
+      whole feature hinges on), a Limitations bullet in the shape the two
+      neighbouring server bullets use, and a License-section paragraph saying
+      why gopls appears in neither `Resources/Licenses/` nor Acknowledgements.
 
 ## Post-Completion Checks (manual)
 

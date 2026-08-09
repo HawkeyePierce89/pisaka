@@ -380,7 +380,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     **no** explicit `bundleName:` — all three resource bundles come out as
     `TreeSitter<name>_TreeSitter<name>`, the default derivation, including the two
     *local* packages (verified against the built `Pisaka.app`), so the
-    `markdown_inline` override stays the only one. The dockerfile header declares
+    `markdown_inline` override stays the only one. `.go` is a fourth such branch
+    (`LanguageConfiguration(tree_sitter_go(), name: "Go")`): upstream's package
+    and target are both named `TreeSitterGo`, so its bundle is
+    `TreeSitterGo_TreeSitterGo` — the default derivation `name:` already expects —
+    and it needs no `bundleName:` either. Its `highlights.scm` is the one place a
+    capture-name gap showed up: tree-sitter-go spells escape sequences `@escape`
+    rather than `@string.escape`, which resolved to `.plain` until
+    `SyntaxTokenKind.nameMap` gained the entry, so every `\n` in a Go string
+    rendered default-colored. The dockerfile header declares
     a non-`const` `TSLanguage *` return with no `void` parameter list, which
     needed no cast — it imports as `OpaquePointer!` like every other grammar.
   - `SyntaxTheme.swift` — built-in (not user-configurable) `SyntaxTokenKind →

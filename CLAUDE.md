@@ -117,7 +117,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `CodeIntelligence.swift` — the async `CodeIntelligenceProviding` seam + its request/result value types (incl. the request's `language`/`member`).
 - `SymbolIntelligenceProvider.swift` — index-backed provider and the home of every definition/completion ranking rule, incl. fuzzy quality, the keyword source and the member branch.
 
-`docs/architecture/core-lsp.md` — the LSP client (phase 2a: Swift via sourcekit-lsp), incl. decisions D1–D10 and the known limits:
+`docs/architecture/core-lsp.md` — the LSP client (phase 2a: Swift via sourcekit-lsp; gopls for Go), incl. decisions D1–D10 + D17–D20 and the known limits:
 - `LSPMessage.swift` — JSON-RPC envelopes; `JSONValue`, `LSPRequestID`, `LSPErrorCode`; `null` vs. absent.
 - `LSPFraming.swift` — `Content-Length` framing + the incremental `Decoder`; a framing error is terminal.
 - `LSPProtocolTypes.swift` — the bodies this phase uses; decode leniently, encode exactly; the closed capability tree.
@@ -129,6 +129,8 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `CompletionEditPlan.swift` — the pure auto-import rule: roles, last-to-first order, the staleness gate, `shifted(…)`.
 - `LSPIntelligenceProvider.swift` — protocol answers as seam values: D6 ranking, D2's guards, out-of-root flagging, resolve.
 - `RoutingIntelligenceProvider.swift` — LSP first, tree-sitter otherwise; `LSPIntelligenceSource`, the whole-attempt budget.
+- `LSPGoToolchain.swift` — the gopls pin as data, the discovery report, the installation kinds, the prompt and the Settings row (D17–D19).
+- `LSPGoplsProvisioning.swift` — the two Go seams + the model: discovery, consent, `go install`, removal, the second registry contributor (D18–D20).
 
 `docs/architecture/core-provisioning.md` — server provisioning (phase 2b: TS/JS + Python), incl. decisions D11–D16, the pinned manifest, its by-hand update procedure and the known limits:
 - `SHA256.swift` — FIPS 180-4 digest in Foundation alone (Core may not import CryptoKit); `update`/`finalize`.
@@ -248,6 +250,7 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `DefinitionPicker.swift` — the multi-candidate `NSMenu` popped up under the identifier.
 - `LSPProcessTransport.swift` — the real `LSPTransport`: one process, three pipes, `F_SETNOSIGPIPE`, SIGTERM→SIGKILL teardown; publishes raw chunks.
 - `LSPToolchain.swift` — `xcrun --find` per launch description, cached (including "not found") per app run.
+- `LSPGoToolchainService.swift` — both Go seams: where `go`/`gopls` are on this Mac, `go install` with `GOBIN` staged, `terminateNow()`.
 - `ProjectSearchView.swift` / `ProjectSearchWindowController.swift` — Find in Files window (debounce, `resultsMatchControls` gate; single window).
 
 `docs/architecture/app-editor-overlays.md` — editor overlays (macOS):
@@ -304,7 +307,13 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   `$PATH`, no package manager — so deleting that directory de-provisions
   completely and the disk *is* the state. Core never fetches or unpacks (the two
   seams are macOS-gated app files), and the whole layer is a **reader**, like the
-  index and the rest of the LSP client.
+  index and the rest of the LSP client. **gopls is the one exception, and it is a
+  second registry contributor rather than a second layer** (D17–D20 in
+  `core-lsp.md`): it has no official prebuilt binaries, so it is discovered if the
+  user has it and otherwise built once, on consent, by the user's own `go` — no
+  URL, no digest, nothing unpacked — but it lands in the same install root by the
+  same stage-then-one-rename, records consent under the same id, and is removed by
+  the same `engine.remove`.
 - **Open-tab resync** after an operation rewrites the worktree: buffers are
   snapshotted before the hop; a clean, unchanged tab gets `reloadFromDisk`, an
   edited one `reconcileSavedBaseline` + beep, a deleted file force-closes

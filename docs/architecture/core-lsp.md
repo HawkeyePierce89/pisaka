@@ -25,6 +25,16 @@ below still holds for those servers: routing is per request, fallback to
 tree-sitter is silent, and a language whose server is absent, declined or failed
 is indistinguishable from one that never had a server at all.
 
+**What the Go language work added, and why it is here rather than there.** Go
+gets semantic intelligence on macOS through **gopls**, which cannot use 2b's
+artifact path at all: gopls ships no official prebuilt binaries, so there is no
+URL to pin, no digest to verify and nothing to unpack. It is *discovered* if the
+user already has it, and otherwise built once — on consent — by the user's own Go
+toolchain, into this app's own install root. That makes it a second **registry
+contributor** rather than a second provisioning layer, and it lives in this
+document, under decisions D17–D20, with entries for `LSPGoToolchain.swift` and
+`LSPGoplsProvisioning.swift` at the end of the file list.
+
 **Where the platform boundary is.** All of it is in `PisakaCore` except one
 thing: the `Process` and its three pipes, which live macOS-gated in
 `Sources/Pisaka/LSPProcessTransport.swift` behind the `LSPTransport` protocol.
@@ -919,6 +929,106 @@ document, together with the limits they carry.
     list, so the language question was settled when it was published, and an item
     from the other provider resolves to `[]` there anyway.
 
+### gopls (D17–D20)
+
+Two Core files and one macOS-gated app file, which together are the *second*
+registry contributor beside phase 2b's. They are documented here rather than in
+`core-provisioning.md` because nothing about them is about bytes: there is no
+manifest entry, no pinned digest, nothing downloaded and nothing unpacked. What
+they share with 2b is stated in that document's own cross-reference.
+
+  - `LSPGoToolchain.swift` — the value types, and nothing that acts. `LSPGopls`
+    is the pin *as data*: component id (`"gopls"`, the one string the consent
+    dictionary, the install root's directory and `LSPInstallEngine.remove(_:)`
+    all key off), module path, version, the `v`-prefixed spelling `go install`
+    wants (derived from the same constant rather than written twice), and the
+    origin/SPDX pair the Settings row's sentence is built from.
+    `executableSubpath` is a **constant** (`bin/gopls`) rather than whatever the
+    build reported back, and that is load-bearing: D12 says the disk is the
+    state, so where the binary sits inside its version directory has to be
+    derivable from a directory listing after a relaunch, not a fact only the
+    installing run remembered. The build's answer is therefore *checked* against
+    it rather than trusted.
+    `LSPGoToolchainReport` is what crosses the discovery seam — `.missing`, or
+    `.found(goPath:goplsPath:)`. **A gopls path without a `go` path is
+    unrepresentable on purpose**: gopls with no toolchain behind it would start
+    and answer nothing, and "no Go toolchain" is the one sentence the row can say
+    truthfully there.
+    `LSPGoplsInstallation` keeps `.discovered(path:)` and
+    `.appInstalled(version:path:)` apart as two cases rather than one "installed"
+    with a flag, because Remove may only ever touch the second — a rule in the
+    type instead of a check every view has to remember. `LSPGoConsentPrompt` is
+    `LSPConsentPrompt`'s shape minus the byte count (nothing is downloaded) plus
+    the `go` path, so the banner can name *whose* toolchain is about to do the
+    work. `LSPGoServerRow` carries D19's states and makes every button's
+    availability a property (`canInstall`, `canRemove`), so both surfaces stay
+    thin; its `Status` has a **sixth** case beside D19's five, `pending`, for
+    `LSPToolchain.Resolution.pending`'s reason — discovery shells out to `go`, so
+    it cannot answer inside the turn that draws the row, and a row that guessed
+    "no Go toolchain" for that first moment would say something false and then
+    quietly correct itself.
+
+  - `LSPGoplsProvisioning.swift` — the two seams, the typed error and the
+    `@MainActor` model that owns everything decision-shaped.
+    `LSPGoToolchainDiscovering` answers a *report*, not a search (D18);
+    `LSPGoModuleInstalling` is deliberately generic — module, version, the `go`
+    to build with, the bin directory to build into — rather than a
+    `func installGopls()`, so the seam describes what `go install` *is* and the
+    pin stays data in `LSPGopls`. `LSPGoInstallError` has no `checksumMismatch`
+    case, and that absence is D17: nothing is downloaded here, so there is
+    nothing to hash.
+    `LSPGoplsProvisioningModel` is `LSPProvisioningModel`'s shape over different
+    facts. Lifecycle: `pending` until `discover()` answers (called once at launch
+    from `PisakaApp.init`, and joined rather than repeated by any later caller,
+    so the answer — **including the negative one** — is a per-app-run fact on
+    Core's side too, not only inside whatever cache the seam keeps).
+    `installation` implements D19's preference directly: the app's own copy is
+    read off the install root and **wins**, the discovered one is the fallback.
+    `consentPrompt(forOpening:)` is the banner's whole rule and is read off the
+    published `row` rather than re-derived from the disk, for
+    `LSPProvisioningModel.consentPrompt(forOpening:)`'s reason — the banner asks
+    it from its `body`.
+    Three rules are worth reading as decisions. **`install()` with no toolchain
+    does nothing at all** — not a recorded failure, not a recorded consent:
+    there is nothing to build with, and a row reading "no Go toolchain" beside a
+    sentence about a build that did not happen would describe an attempt nobody
+    made. **`prepareForOpening` does not retry a failed attempt this app run**,
+    which is the whole difference between "installs on first use" and a retry
+    loop — a failed build leaves nothing installed, so without the guard every
+    switch back to a `.go` tab would start another `go install`, and since
+    `install()` clears `failureMessage` before each attempt, the one place D15
+    reports the failure would be wiped by the very tab switch that re-triggered
+    it. The budget is "once per app run, automatically"; the Settings row's Retry
+    stays unconditional, and so does the next launch. And **`remove()` falls back
+    to a user-installed gopls** where one exists: it records `declined`, which
+    describes what happened operationally (the next `.go` file must not silently
+    rebuild what was just removed), but that consent gates *building* and nothing
+    else — this app neither put the other binary there nor was asked about it.
+    The install is D13 reused rather than reimplemented: stage under the layout's
+    staging directory, point `GOBIN` at it, check the executable landed where
+    `executableSubpath` says, one `move`, then drop older versions best-effort.
+    Every failure before the `move` discards the staging tree and rethrows, so
+    "whatever was installed before is exactly as it was" needs no rollback to be
+    true. The staging path is discarded before it is created, because
+    `stagingCounter` restarts at zero every launch and `ensureDirectory` succeeds
+    on a directory that already exists — which would adopt a half-written tree
+    from a previous run rather than refuse it. Removal is D16's push-then-delete,
+    with re-entrant calls and calls during an install returning immediately.
+    `makeDescriptions()` requires a toolchain **even for a discovered gopls**,
+    since gopls shells out to `go list` and without one would start, answer
+    nothing, and spend D7's restart budget per request; the entry itself is a
+    plain `.executable(path:)` with no arguments (gopls speaks LSP over stdio by
+    default), so Core learns no paths and gains no launch kind.
+    A **reader**, like the rest of this layer: it walks its own install root and
+    touches nothing of the user's, so it takes no writer gate and is not gated by
+    one.
+
+  - `Sources/Pisaka/LSPGoToolchainService.swift` (macOS) — the app's whole
+    contribution: both seams in one file, because they are not two technologies
+    (unlike 2b's `URLSession`/`tar` pair, both of these are "run the user's `go`
+    and read what it says"). Full entry in `app-editor.md`, beside
+    `LSPToolchain.swift` whose discipline it follows.
+
 ## Decisions
 
 **D1 — Position mapping and line separators.** `LSPPositionMap` scans line starts
@@ -1020,6 +1130,62 @@ descriptions composed from a pinned manifest, and no client code moved. See
 same rule already written for the symbol index. It reads buffers and answers
 questions; it writes nothing to disk.
 
+**D17 — gopls is discovered, never downloaded, and 2b is not touched.** There are
+no official prebuilt gopls binaries; it is distributed as source and installed
+with `go install`. So the manifest gains nothing:
+`LSPProvisioningManifest`, `LSPInstallEngine`'s *install* path and
+`LSPDownloadableServer` are all untouched, and there is no `LSPComponent` for
+gopls. What is reused, because it is pure or generic, is the `LSPInstallLayout`
+path math (`versionDirectory`/`stagingDirectory`/`contains` are string-keyed and
+need no `LSPComponent`) and `LSPInstallEngine.remove(_:)`, which deletes any
+component directory on disk whether or not the manifest describes it. So Remove,
+the staging sweep and "delete the `LanguageServers` directory to de-provision
+completely" all keep working with **zero engine changes**.
+
+**D18 — No new `Launch` case; the app reports a path, Core composes a
+description.** The obvious move — a third `LSPServerDescription.Launch` beside
+`.toolchainTool`/`.executable` — is the wrong one: everything gopls discovery
+knows (`$GOBIN`, `$GOPATH/bin`, `~/go/bin`, the login `PATH`, `/usr/local/go/bin`,
+Homebrew) is machine-specific knowledge of exactly the kind D9 keeps out of Core.
+Instead the app *does* the search and hands Core a value — "no Go toolchain", or
+"`go` at `<path>`, gopls at `<path>` / not found" — and Core turns a found gopls
+into a plain `.executable(path:)` registry entry, `id: "gopls"`,
+`languages: [.go]`, no arguments (gopls speaks LSP over stdio by default). Core
+learns no paths and gains no launch kind. Discovery follows the `LSPToolchain`
+discipline exactly: non-blocking, off-main, cached per app run **including the
+negative answer**, `pending` while unresolved.
+
+**D19 — What is preferred, and the row's two "installed" states.** When both a
+user-installed gopls and an app-installed one exist, **the app's own copy wins**:
+it is the version this app pinned and the only one Remove may touch, and
+preferring the other would make Remove delete a copy that was not in use. The
+Settings row therefore reports *no Go toolchain* / *not installed* / *building…*
+/ *installed · found on this Mac* / *installed by Pisaka · version 0.23.0* — plus the
+`pending` state the lifecycle actually starts in — and offers **Remove only for
+the app-installed one**, never for a binary in `~/go/bin` that the app did not put
+there. Consent is the existing `LSPServerConsent` under id `"gopls"` in the same
+`SettingsStore` dictionary, so declining persists and is reversible from the same
+tab, per D15.
+
+**D20 — The install, and where it lands.** Accepting runs
+`go install golang.org/x/tools/gopls@v0.23.0` with `GOBIN` pointed at a staging
+directory under the app's own install root, then one `move` onto
+`…/LanguageServers/gopls/0.23.0/bin/gopls` — D13's atomicity, reused rather than
+reimplemented. Nothing global is touched: no `$PATH`, no `~/go/bin`, no `sudo`, no
+package manager. Module integrity is Go's own checksum database (`sum.golang.org`,
+verified by the toolchain doing the build), their equivalent of 2b's pinned
+SHA-256s, so this app hashes nothing itself. Failure philosophy is 2b's verbatim:
+silent per-request fallback to tree-sitter, no alert ever, the failure visible
+only as the Settings row's sentence plus Retry. Two honest costs come with using
+the user's own toolchain and are written down as limits below.
+
+**Two registry contributors now exist**, and the app composes them:
+`LSPServerRegistry(provisioning.registry.descriptions + gopls.descriptions)`,
+awaited through `LSPWorkspace.updateRegistry(_:)`, base entries first so a
+hand-registered override still wins, and preserving D16's push-then-delete
+ordering for both. That is glue; every *rule* about when gopls contributes a
+description lives in the Core model and is unit-tested there.
+
 ## Known limits
 
 - **NEL / U+2028 / U+2029 line separators.** In a file delimited by those, the
@@ -1057,6 +1223,35 @@ questions; it writes nothing to disk.
 - **No Xcode, no server.** `xcrun --find` answering nothing is an ordinary
   outcome: one restart is spent, the negative result is cached for the app run,
   and Swift files behave exactly as they did before this phase.
+- **gopls needs a Go toolchain, and there is no offer without one** (D18). On a
+  Mac with no `go`, nothing is prompted, nothing is installed and no description
+  is contributed — Go files highlight, index, complete and jump from the
+  tree-sitter index exactly as they do for a user who declined. The same is true
+  of a `go` that cannot answer `go env`: it is reported as *no* toolchain rather
+  than as one with an unknown `GOBIN`, since it will not build anything either.
+- **The build writes into the user's `GOMODCACHE`/`GOCACHE`** (D20). That is what
+  `go install` *is*; only `GOBIN` is redirected. The alternative — a private
+  `GOPATH` under the install root — would re-download and rebuild the module
+  world for no benefit, and would then be invisible to `go clean -modcache`. So
+  the installed *binary* is entirely this app's, while the intermediates are the
+  user's, and Remove deletes the first and leaves the second.
+- **`GOTOOLCHAIN=auto` may fetch a newer toolchain to build with.** That is Go's
+  default behaviour, not something this app asks for: if the module requires a
+  newer Go than the one discovered, the discovered one downloads it. The install
+  therefore is not strictly "no network beyond Go's module proxy" on such a
+  machine, and it is stated rather than papered over.
+- **A user-installed gopls is used at whatever version it is.** It is discovered,
+  not measured: no version is read, none is required, and none is shown beyond
+  "found on this Mac". A stale one answers as well as it answers, which is the
+  same contract every language server here has — and it is never replaced,
+  because the app's own copy would then be the one Remove deletes while the other
+  went on running.
+- **Discovery is per app run, not per folder** (D18). A Go toolchain installed
+  while Pisaka is running is picked up at the next launch. Stated rather than
+  papered over with invalidation logic for an event nobody has hit.
+- **No gopls on iOS, ever.** iOS has no subprocess, so there is neither a `go` to
+  discover nor a server to run — the same reason phase 2a is macOS-only, and it
+  is structural rather than a phase boundary.
 
 ## Test fixtures
 
