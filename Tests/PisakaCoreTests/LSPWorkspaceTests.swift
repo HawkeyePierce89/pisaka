@@ -799,6 +799,34 @@ final class LSPWorkspaceTests: XCTestCase {
         XCTAssertEqual(workspace.liveServerCount, 0)
     }
 
+    /// The folder switch runs `shutdownAll()` from a detached `Task`, so a quit can
+    /// land while it is parked on a server's goodbye. `terminateNow()` reaches a
+    /// process only through `transports`, and the process is alive until that
+    /// goodbye returns — so the map has to keep holding it until then, exactly as
+    /// the registry-update path does.
+    func testTerminateNowKillsAServerAFolderSwitchIsStillShuttingDown() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        let transport = harness.latest
+        transport.script(LSPMethod.shutdown, .reply(.null, after: 0.5))
+
+        async let teardown: Void = workspace.shutdownAll()
+        await waitFor("the switch to reach the shutdown") {
+            !transport.requests(for: LSPMethod.shutdown).isEmpty
+        }
+        XCTAssertFalse(transport.isTerminated, "the shutdown answered before the quit could land")
+
+        workspace.terminateNow()
+        XCTAssertTrue(
+            transport.isTerminated,
+            "a server a folder switch was still stopping was left out of terminateNow()'s reach"
+        )
+
+        await teardown
+    }
+
     func testTerminateNowIsIdempotentAndSurvivesHavingNothingToDo() async {
         let harness = ServerHarness()
         let workspace = makeWorkspace(harness: harness)
@@ -1422,6 +1450,40 @@ final class LSPWorkspaceTests: XCTestCase {
         )
 
         _ = await request
+        await removal
+    }
+
+    /// The same quit, in the other half of the same window: the withdrawn server
+    /// finished its handshake, so `updateRegistry` is parked on `session.shutdown()`
+    /// rather than on a launch. That wait runs a whole request budget against a
+    /// process that is still very much alive, and `terminateNow()` reads nothing but
+    /// `transports` — so dropping the live session's transport on the way past
+    /// leaves the same orphan the pending-launch branch is careful not to.
+    func testAQuitWhileARemovedServerIsShuttingDownStillKillsIt() async throws {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(
+            harness: harness,
+            registry: LSPServerRegistry([.sourcekitLSP, downloaded()])
+        )
+
+        _ = await workspace.prepare(url: appFile, language: .typescript, text: "a")
+        let transport = try XCTUnwrap(harness.firstTransport(of: "typescript-language-server"))
+
+        // A goodbye the server takes its time over — the window a quit lands in.
+        transport.script(LSPMethod.shutdown, .reply(.null, after: 0.5))
+
+        async let removal: Void = workspace.updateRegistry(.standard)
+        await waitFor("the removal to reach the shutdown") {
+            !transport.requests(for: LSPMethod.shutdown).isEmpty
+        }
+        XCTAssertFalse(transport.isTerminated, "the shutdown answered before the quit could land")
+
+        workspace.terminateNow()
+        XCTAssertTrue(
+            transport.isTerminated,
+            "a session withdrawn by a registry update was left out of terminateNow()'s reach"
+        )
+
         await removal
     }
 

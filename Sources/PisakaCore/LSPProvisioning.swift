@@ -343,19 +343,30 @@ public final class LSPProvisioningModel: ObservableObject {
     /// running session down (D16); only once it has returned may the files it
     /// was running from go away.
     ///
-    /// On success consent becomes `declined`, which is the only answer that
-    /// describes what just happened operationally — "do not install this, and do
-    /// not ask me". Leaving it `accepted` would have the next `.ts` file silently
-    /// download the server the user just removed; resetting it to `unasked` would
-    /// re-prompt for it, which is the same interruption wearing a question mark.
-    /// The Settings row is where it is turned around, and it says so. A *failed*
-    /// deletion records nothing: the files are still there and the push below
-    /// re-registers them, so the server goes on serving, and "declined" is the one
-    /// thing an installed, registered, actively-answering server is not.
+    /// Consent becomes `declined`, which is the only answer that describes what
+    /// just happened operationally — "do not install this, and do not ask me".
+    /// Leaving it `accepted` would have the next `.ts` file silently download the
+    /// server the user just removed; resetting it to `unasked` would re-prompt for
+    /// it, which is the same interruption wearing a question mark. The Settings
+    /// row is where it is turned around, and it says so.
     ///
-    /// A failed deletion is the row's `failureMessage`, exactly as a failed
-    /// install is. Swallowing it would be the one genuinely confusing outcome
-    /// this surface can produce: the files are still there, so the very next
+    /// It is recorded **between the two deletions**, and that placement is the
+    /// whole rule rather than a detail of ordering. Consent describes the server,
+    /// so it must follow the fate of the server's own component and nothing else.
+    /// A failed `engine.remove(serverComponentID)` records nothing: the files are
+    /// still there and the push below re-registers them, so the server goes on
+    /// serving, and "declined" is the one thing an installed, registered,
+    /// actively-answering server is not. But once that call has returned, the
+    /// server *is* gone — `makeRegistry()` will not re-register it and the row
+    /// reads `.absent` — so a shared runtime that then refuses to delete must not
+    /// roll the answer back with it. It would leave `accepted` describing a server
+    /// with no files, and the next launch's `prepareForOpening` would silently
+    /// re-download the ~52 MB the user just asked to be rid of, while this run's
+    /// row offered a button labelled Retry that installs.
+    ///
+    /// Either failure is the row's `failureMessage`, exactly as a failed install
+    /// is. Swallowing the first would be the one genuinely confusing outcome this
+    /// surface can produce: the files are still there, so the very next
     /// `publishRegistry()` re-registers the server and restarts the process the
     /// push just stopped — a Remove that visibly undoes itself with nothing
     /// anywhere saying why.
@@ -377,9 +388,9 @@ public final class LSPProvisioningModel: ObservableObject {
 
         do {
             try engine.remove(server.serverComponentID)
-            try removeRuntimeIfUnused(after: server)
             failures[server] = nil
             settings.setConsent(.declined, for: server.id)
+            try removeRuntimeIfUnused(after: server)
         } catch {
             failures[server] = error.localizedDescription
         }

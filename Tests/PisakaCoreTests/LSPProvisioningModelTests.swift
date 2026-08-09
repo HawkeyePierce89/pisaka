@@ -814,7 +814,14 @@ final class LSPProvisioningModelTests: XCTestCase {
     /// server it belonged to is gone: the disk is the state, and 52 MB that
     /// silently stayed behind is the one thing "delete the directory to
     /// de-provision" would not explain.
-    func testAFailedRuntimeRemovalIsReportedOnTheRowThatAskedForIt() async {
+    ///
+    /// The decline is recorded all the same, and that is the half a message alone
+    /// would get wrong. Consent describes the *server*, whose own deletion
+    /// succeeded — the row reads `.absent`, the registry no longer serves the
+    /// language — so leaving it `accepted` because a shared directory would not go
+    /// away has the next launch silently re-download the server the user just
+    /// removed, under a row offering "Retry" for a removal.
+    func testAFailedRuntimeRemovalIsReportedButStillDeclinesTheServerItRemoved() async {
         let harness = makeHarness()
         await harness.model.accept(.python)
         harness.tree.removeFailures = ["LanguageServers/node"]
@@ -830,6 +837,19 @@ final class LSPProvisioningModelTests: XCTestCase {
                 reason: StubFileTree.StubError.denied.localizedDescription
             ).localizedDescription
         )
+
+        XCTAssertEqual(harness.model.row(for: .python)?.consent, .declined)
+        XCTAssertFalse(harness.model.registry.servesLanguage(.python))
+
+        // Which is what makes the removal survive the relaunch: `prepareForOpening`
+        // reads consent off the store, so an `accepted` left behind here would fetch
+        // pyright again the first time a `.py` tab opened — the runtime it needs
+        // being exactly the directory that would not go away.
+        harness.rebuild()
+        await harness.model.refresh()
+        await harness.model.prepareForOpening(.python)
+        XCTAssertEqual(harness.state(of: .python), .absent, "the removed server re-downloaded itself")
+        XCTAssertNil(harness.model.consentPrompt(forOpening: .python))
     }
 
     /// Removing one server while the other's install is in flight must leave the

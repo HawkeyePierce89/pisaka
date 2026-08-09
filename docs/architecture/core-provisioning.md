@@ -258,19 +258,31 @@ carries. D1–D10 are in `core-lsp.md`.
     though it had.
     `install(_:)` records `accepted` first (installing *is* consent) and absorbs
     every failure into the row's `failureMessage`, which is the entire failure
-    surface of this feature. `remove(_:)` sets consent to `declined` **on success**
-    — the only answer that describes what just happened, since leaving it
-    `accepted` would silently re-download on the next `.ts` file and `unasked`
-    would re-prompt — and drops the shared runtime only when no other server has
-    *any* files on disk **or an attempt this model is holding**, so a server
-    stranded by a pin bump is not turned into a full re-download and neither is
-    one whose download the user has just accepted. A deletion that *fails*
-    becomes the row's `failureMessage` like any other failure, and it has to: the
-    files are still there, so the very next `publishRegistry()` re-registers the
-    server and restarts the process the push just stopped — a Remove that visibly
-    undoes itself with nothing anywhere saying why. That path records **no**
-    consent: the server is installed, registered and answering requests, which is
-    the one state `declined` may not describe.
+    surface of this feature. `remove(_:)` sets consent to `declined` — the only
+    answer that describes what just happened, since leaving it `accepted` would
+    silently re-download on the next `.ts` file and `unasked` would re-prompt —
+    and drops the shared runtime only when no other server has *any* files on disk
+    **or an attempt this model is holding**, so a server stranded by a pin bump is
+    not turned into a full re-download and neither is one whose download the user
+    has just accepted. A deletion that *fails* becomes the row's `failureMessage`
+    like any other failure, and it has to: the files are still there, so the very
+    next `publishRegistry()` re-registers the server and restarts the process the
+    push just stopped — a Remove that visibly undoes itself with nothing anywhere
+    saying why.
+    **The decline is recorded between the two deletions**, and that placement is a
+    rule rather than an ordering detail: consent describes the *server*, so it
+    follows the fate of the server's own component and of nothing else. A failed
+    `engine.remove(serverComponentID)` records **no** consent — that server is
+    installed, registered and answering requests, which is the one state
+    `declined` may not describe. But once that call returns, the server *is* gone
+    (`makeRegistry()` will not re-register it, the row reads `.absent`), so a
+    shared runtime that then refuses to delete must not roll the answer back with
+    it: `accepted` describing a server with no files has the next launch's
+    `prepareForOpening` silently re-download the ~52 MB the user just removed,
+    while this run's row offers a button labelled Retry that installs. The runtime
+    failure is still the row's message; it is just not the server's answer.
+    `testAFailedRuntimeRemovalIsReportedButStillDeclinesTheServerItRemoved` pins
+    both halves, through a rebuilt model over the same disk and defaults.
     A removal in flight is a state of its own. The push is awaited (it is what
     stops the process), so the model sits inside `onRegistryChange` for as long as
     the shutdown budget allows, and the row publishes `isRemoving` for that whole

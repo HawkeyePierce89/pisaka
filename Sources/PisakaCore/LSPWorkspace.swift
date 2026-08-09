@@ -241,16 +241,27 @@ public final class LSPWorkspace {
         let live = sessions
         let inflight = pendingLaunches
         let open = documents
+        let liveTransports = transports
         sessions = [:]
-        transports = [:]
         pendingLaunches = [:]
         documents = [:]
 
+        // `transports` is deliberately *not* emptied alongside the other three. It
+        // is the only map `terminateNow()` reads, and every process below stays
+        // alive until the `await` that stops it returns — so clearing it here would
+        // make each one unreachable for exactly the window in which a quit is most
+        // likely to land, and a quit inside that window leaves the orphan
+        // `terminateNow()` exists to kill. Each entry is dropped instead once its
+        // process is actually dead, under `forget`'s identity guard so a launch that
+        // registered a *newer* transport for the same key in the meantime keeps it.
+        // The inflight transports need no entry here at all: a superseded launch
+        // sees the epoch mismatch, terminates what it built and `forget`s it itself.
         for (key, session) in live {
             for (uri, state) in open where state.serverKey == key {
                 try? await session.didClose(LSPDidCloseTextDocumentParams(uri: uri))
             }
             await session.shutdown()
+            if let transport = liveTransports[key] { forget(transport, for: key) }
         }
 
         // A launch that had not finished when the epoch moved returns `nil` and has
@@ -349,25 +360,30 @@ public final class LSPWorkspace {
         let dead = Set(sessions.keys).union(pendingLaunches.keys).filter { isStale($0.serverID) }
         guard !dead.isEmpty else { return }
 
-        // Every map is emptied *before* the first hop, so a `prepare` racing this
-        // call finds nothing to hand out rather than a session that is on its way
-        // to being shut down — `shutdownAll()`'s ordering, applied to a subset.
+        // Every map a `prepare` reads is emptied *before* the first hop, so one
+        // racing this call finds nothing to hand out rather than a session that is
+        // on its way to being shut down — `shutdownAll()`'s ordering, applied to a
+        // subset. `transports` is the exception, for the reason spelled out below;
+        // no reader consults it, so leaving it populated hands nothing out.
         var live: [ServerKey: LSPSession] = [:]
+        var liveTransports: [ServerKey: LSPTransport] = [:]
         var inflight: [ServerKey: PendingLaunch] = [:]
         var open: [String: DocumentState] = [:]
         for key in dead {
             if let session = sessions.removeValue(forKey: key) {
                 live[key] = session
-                // Only alongside the session it belongs to. A key that is *only* a
-                // pending launch has a transport registered before its handshake
-                // (see `launch`) precisely so `terminateNow()` can reach a process
-                // that is still starting, and this method then `await`s that launch
-                // below — the slowest thing this layer does. Dropping the transport
-                // here would leave that live process unreachable for the whole
-                // window, so a quit inside it orphans exactly what `terminateNow()`
-                // exists to kill. The inflight loop clears it instead, once the
-                // launch has finished and under the same identity guard.
-                transports[key] = nil
+                // Every transport stays in `transports` for now — the session's, and
+                // a pending launch's alike. A transport registered there is the only
+                // thing `terminateNow()` can reach a process through, and a process
+                // here is alive until the `await` that stops it returns: the
+                // handshake this method waits out for a pending launch is the slowest
+                // thing this layer does, and the shutdown it waits out for a live
+                // session runs a whole request budget. Dropping either one now would
+                // leave a live process unreachable for that whole window, so a quit
+                // inside it orphans exactly what `terminateNow()` exists to kill.
+                // Both loops below clear their own, once the process is actually
+                // dead and under the same identity guard.
+                liveTransports[key] = transports[key]
             }
             if let pending = pendingLaunches.removeValue(forKey: key) { inflight[key] = pending }
         }
@@ -381,6 +397,7 @@ public final class LSPWorkspace {
                 try? await session.didClose(LSPDidCloseTextDocumentParams(uri: uri))
             }
             await session.shutdown()
+            if let transport = liveTransports[key] { forget(transport, for: key) }
         }
 
         // A launch that had not finished when the registry moved. The epoch is

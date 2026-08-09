@@ -525,10 +525,14 @@ document, together with the limits they carry.
     whose `terminate()` is synchronous and idempotent by contract. That is why the
     workspace holds the transport beside each session, registered **before** the
     handshake — so a quit also kills a server still resolving a build system, which
-    is the state a quit is likeliest to land in. `forget(_:for:)` guards that map
-    with an identity check for `pendingLaunches`' reason: a launch that gives up
-    resumes arbitrarily later and must not clear a *newer* transport filed under the
-    same key.
+    is the state a quit is likeliest to land in. For the same reason `shutdownAll()`
+    does *not* empty `transports` alongside the maps it clears up front: each entry
+    is dropped after that server's goodbye returns, so a quit landing while the
+    folder switch is still politely stopping a server can still kill it. (Detail
+    under `updateRegistry(_:)`, which shares the invariant.) `forget(_:for:)` guards
+    that map with an identity check for `pendingLaunches`' reason: a launch that
+    gives up resumes arbitrarily later and must not clear a *newer* transport filed
+    under the same key.
     **`Process` is not in this file, and cannot be.** Transports arrive through
     `transportFactory`, which the app supplies and every test supplies as a scripted
     fake — the same seam `SymbolIndexModel` makes for tree-sitter extraction, for the
@@ -587,21 +591,31 @@ document, together with the limits they carry.
     is retiring. Clearing them unconditionally would drop the live server's
     transport out of `terminateNow()`'s reach — precisely the orphan this method
     exists to prevent, reintroduced by the method itself.
-    **A key that is only a pending launch keeps its transport for the whole
-    wait**, for the same reason and against a nearer case. `launch` registers the
-    transport *before* the handshake precisely so a quit can reach a process that
-    is still starting, and this method then `await`s that launch — the slowest
-    thing this layer does, so the window is wide and the process is alive for all
-    of it. Dropping the transport on the way past would leave a quit inside that
-    window (`willTerminateNotification`, with no further run-loop turn to catch
-    it) with nothing to terminate. So the transport is cleared only alongside the
-    session it belongs to, and otherwise by the in-flight loop once the launch has
-    finished, under the identity guard above.
+    **A transport stays in `transports` until the process behind it is actually
+    dead** — that is the invariant, and it holds for a live session and a pending
+    launch alike, in `updateRegistry(_:)` and in `shutdownAll()`. `transports` is
+    the only map `terminateNow()` reads, and both of the things this teardown
+    `await`s run against a process that is still alive: the handshake it waits out
+    for a pending launch is the slowest thing this layer does, and the goodbye it
+    waits out for a live session runs a whole request budget. Emptying the map on
+    the way past would leave a quit inside either window
+    (`willTerminateNotification`, with no further run-loop turn to catch it) with
+    nothing to terminate — the exact orphan both methods exist to prevent,
+    reintroduced by them. So each entry is dropped after its own `await` returns,
+    through `forget(_:for:)` so a launch that registered a *newer* transport under
+    the same key keeps it. `shutdownAll()` needs no more than that for its
+    in-flight launches: a superseded launch sees the epoch mismatch, terminates
+    what it built and `forget`s it itself.
+    `testAQuitDuringARemovalStillKillsTheServerThatWasHandshaking`,
+    `testAQuitWhileARemovedServerIsShuttingDownStillKillsIt` and
+    `testTerminateNowKillsAServerAFolderSwitchIsStillShuttingDown` stage a quit
+    inside each of the three windows.
     Neither generation moves either: a registry update is
     not a folder change, and a request in flight for a server that survived is
-    still a request about the folder it was asked under. Every map is emptied
-    *before* the first hop, `shutdownAll()`'s ordering applied to a subset. An
-    equal registry returns immediately.
+    still a request about the folder it was asked under. Every map a `prepare`
+    reads is emptied *before* the first hop, `shutdownAll()`'s ordering applied to
+    a subset — `transports` excepted, for the reason above, and harmlessly so
+    since no reader consults it. An equal registry returns immediately.
     **A reader, never a writer** (D10).
 
   - `CompletionEditPlan.swift` — the pure rule auto-import is applied by, so the
