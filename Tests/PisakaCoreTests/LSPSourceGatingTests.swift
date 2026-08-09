@@ -38,6 +38,7 @@ final class LSPSourceGatingTests: XCTestCase {
         "LSPGoToolchainService.swift",
         "LSPInstalledLicenses.swift",
         "LSPProcessTransport.swift",
+        "LSPRustToolchainService.swift",
         "LSPServerSettingsView.swift",
         "LSPToolchain.swift",
         "SourceViewerContent.swift",

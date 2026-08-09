@@ -791,7 +791,7 @@ seam the app fills in. TDD.
 - Create: `Sources/Pisaka/LSPRustToolchainService.swift`
 - Modify: `Tests/PisakaCoreTests/LSPSourceGatingTests.swift`
 
-- [ ] discovery, in `LSPGoToolchainService`'s search order and with its discipline:
+- [x] discovery, in `LSPGoToolchainService`'s search order and with its discipline:
       the inherited `PATH` first, then `~/.cargo/bin` (where rustup puts both
       `cargo` and the `rust-analyzer` proxy — this is the common case and the
       reason the ticket says discovery first), then Homebrew's prefixes, then the
@@ -801,13 +801,36 @@ seam the app fills in. TDD.
       `cargo --version` is reported as **no toolchain**; deadlines on both the
       login shell and the probe, because this runs at every launch on a Mac with no
       Rust at all
-- [ ] cache the whole answer per app run **including the negative one**, resolve
+      *(The `--version` probe is applied to a **discovered rust-analyzer too**,
+      which the plan did not list and which the `~/.cargo/bin` bullet is the reason
+      for: rustup installs a `rust-analyzer` proxy there whether or not the
+      component behind it was ever added, so on the single most common Rust setup
+      an unprobed search finds an executable file that exits non-zero the instant
+      anything asks it anything — a Settings row reading "installed (found on this
+      Mac)" over Rust files that silently answer from the tree-sitter index, D23's
+      failure with a different first cause. One subprocess, and only on machines
+      that have a candidate. Both probes run under the `PATH` that found the
+      `cargo` and inherit everything else — `RUSTUP_HOME`, `CARGO_HOME`,
+      `RUSTUP_TOOLCHAIN`, proxy settings — so the probe's answer is the answer for
+      the real thing rather than for a program run in an environment nothing else
+      uses.)*
+- [x] cache the whole answer per app run **including the negative one**, resolve
       off the main thread, never block a caller; a child registry that covers every
       process this file spawns, so `terminateNow()` leaves no login shell behind
-- [ ] add the file to `LSPSourceGatingTests.expectedAppFiles`; `#if os(macOS)` from
+      *(Cancellation is what the registry is really written for here, and the login
+      shell is the child that has it: it is the only one that can outlive a quit,
+      since a profile slow enough to hang is exactly why it has a deadline. A
+      child killed by `cancel()` throws `.cancelled` rather than reporting its
+      non-zero status, so a quit cannot become a cached "no Rust toolchain".)*
+- [x] add the file to `LSPSourceGatingTests.expectedAppFiles`; `#if os(macOS)` from
       its first significant line to its last
-- [ ] run `swift test`, then the macOS build (the seam itself is untested by
+- [x] run `swift test`, then the macOS build (the seam itself is untested by
       convention, like `LSPDownloadService`)
+      *(2254 tests, 0 failures — the file is app-side, so the suite's own change is
+      `testTheDiscoveredAppFilesAreExactlyTheExpectedOnes` and
+      `testEveryAppLSPFileIsGatedToMacOS` picking it up.
+      `xcodegen generate` + `xcodebuild -destination 'platform=macOS'`
+      BUILD SUCCEEDED; `Package.resolved` untouched.)*
 
 ### Task 10: App — wiring, the banner branch and the Settings row
 
