@@ -460,20 +460,32 @@ and ⌘U works.
 - Create: `Resources/Queries/rust/symbols.scm`
 - Modify: `Tests/PisakaCoreTests/SymbolQueryTests.swift`
 
-- [ ] write `symbols.scm` as drafted above, with a header comment stating the
+- [x] write `symbols.scm` as drafted above, with a header comment stating the
       shared capture convention and the six decisions (the implementing type as
       container for both impl forms, stepping through `generic_type` rather than
       alternating, `mod_item body:` anchored beside `source_file` while
       `impl`/`trait` bodies are not, `const`→constant / `static`→variable, and
       what is deliberately not indexed)
-- [ ] add Rust to `SymbolQueryTests.pinnedNodeNames` with its 22 named nodes, its
+      *(Written as drafted. The sixth decision the header states as its own is
+      the trait pair — provided methods are `function_item`, required ones
+      `function_signature_item` — with the not-indexed list beside it.)*
+- [x] add Rust to `SymbolQueryTests.pinnedNodeNames` with its 22 named nodes, its
       empty anonymous-literal set and its three fields (`name`, `body`, `type`) —
       the coverage, capture-vocabulary and predicate-free assertions then cover it
       automatically
-- [ ] re-verify every pinned name against the *resolved* checkout's
+      *(The pin's comment records what the empty anonymous set hides: every
+      distinction this query draws is drawn by a named node or a field, and
+      `generic_type`/`scoped_type_identifier` appear only to be stepped through.
+      The suite's "eleven remote grammars" doc comment became twelve.)*
+- [x] re-verify every pinned name against the *resolved* checkout's
       `src/node-types.json` under the matching `named` flag, and confirm the
       checkout revision is `77a3747266…`
-- [ ] runtime half of the documented recipe: compile the query against the grammar
+      *(Checkout revision confirmed `77a3747266f4d621d0757825e6b11edcbf991ca5`.
+      All 22 node names are declared with `named: true`; no name the query uses
+      is an anonymous token; and each of `name`/`body`/`type` is declared on the
+      node the query hangs it off — checked pair by pair, not merely as a global
+      field set.)*
+- [x] runtime half of the documented recipe: compile the query against the grammar
       and run it over a fixture `.rs` file exercising every pattern — a struct with
       fields, a tuple struct, an enum with variants, a union, a trait with both a
       provided and a required method, a type alias, `impl Worker`,
@@ -484,7 +496,23 @@ and ⌘U works.
       `docs/architecture/core-intelligence.md`, including the `impl` case proving
       methods file under the bare type name with generics stripped and the enum
       case proving variants file under the enum
-- [ ] run `swift test` — `SymbolQueryTests` green
+      *(No `tree-sitter` CLI on this Mac and none needed: the runtime was
+      compiled from the resolved `tree-sitter` checkout together with the
+      grammar's `parser.c` **and `scanner.c`** into a throwaway
+      `ts_query_new`/`ts_query_cursor` harness — which also exercises the
+      external scanner outside Xcode. The query compiled to 18 patterns /
+      7 captures and **all 18 fired**. Confirmed: `impl<T> Holder<T>` files
+      `get` under `Holder` with no `<T>`; `impl fmt::Display for Worker` files
+      `fmt` under `Worker`, not `Display`; `impl deep::Nested` files under
+      `Nested`; `State`'s three variants file under `State`. The negatives held
+      too — locals in `new`/`main_entry`, `macro_rules!`, the `use … as` alias,
+      tuple-struct and union fields, the trait's associated `const`/`type`, and
+      a struct-variant's own fields — the last of which the plan had not listed
+      and is now recorded in the not-indexed set on both the query and the doc.)*
+- [x] run `swift test` — `SymbolQueryTests` green
+      *(`SymbolQueryTests` 9 tests, 0 failures. The suite's one remaining
+      failure is `LanguageKeywordsTests`, which is Task 4's — Task 2 left
+      `case .rust: return []` as the placeholder it names.)*
 
 ### Task 4: Rust keywords
 
