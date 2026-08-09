@@ -290,24 +290,38 @@ gate.
   `Tests/PisakaCoreTests/LicenseCoverageTests.swift` (only if either spells a
   package count or list that must grow)
 
-- [ ] add the `tree-sitter-go` package (`exactVersion: "0.25.0"`) and the
+- [x] add the `tree-sitter-go` package (`exactVersion: "0.25.0"`) and the
       `TreeSitterGo` product dependency to `project.yml`, in the position the
       existing grammar list uses
-- [ ] regenerate the workspace `Package.resolved` via `xcodegen generate` +
+- [x] regenerate the workspace `Package.resolved` via `xcodegen generate` +
       `xcodebuild -resolvePackageDependencies`, and confirm it gained **exactly
       one** pin (identity `tree-sitter-go`, revision
       `1547678a9da59885853f5f5cc8a99cc203fa2e2c`, version `0.25.0`) in the v2
       schema — a diff that rewrites the whole file is format churn and must be
       regenerated rather than committed
-- [ ] copy the verbatim `LICENSE` from the checkout at the pinned revision to
+      — the resolve confirmed exactly that pin, but **Xcode 26.6 rewrote the
+      whole file into the legacy v1 schema** (`object.pins`/`repositoryURL`),
+      because SwiftPM picks the resolved-file format from the lowest root
+      tools-version and the two `Vendor/` path packages are
+      `swift-tools-version:5.3`. That is the format churn this bullet forbids, so
+      the churn was discarded and the one new pin written into the committed v2
+      file in place. CI's Xcode 16.4 keeps writing v2; a local Xcode build will
+      downgrade the file again, and that rewrite must be discarded, never
+      committed.
+- [x] copy the verbatim `LICENSE` from the checkout at the pinned revision to
       `Resources/Licenses/tree-sitter-go.txt`, and add the `licenses.json` entry
       (id/name `tree-sitter-go`, origin, version `0.25.0`, that revision, spdx
       `MIT`)
-- [ ] record in the plan's docs pass that the vendored-subtree read found nothing
+- [x] record in the plan's docs pass that the vendored-subtree read found nothing
       beyond `src/tree_sitter/parser.h`, already covered by the `tree-sitter`
       entry — so unlike libgit2 and tree-sitter itself, this text needs no
       appended sub-dependency notice
-- [ ] run `swift test`, confirming `DependencyPinTests` (requirement↔pin
+      — recorded in `docs/architecture/core-services.md` beside the libgit2 and
+      tree-sitter appendices. One correction to the plan-time reading: `src/`
+      holds `tree_sitter/alloc.h` and `array.h` as well as `parser.h`, all three
+      tree-sitter's own MIT headers and all three already covered by the same
+      entry, so the conclusion is unchanged.
+- [x] run `swift test`, confirming `DependencyPinTests` (requirement↔pin
       agreement, 40-hex revisions, `swifttreesitter` still the only branch pin)
       and `LicenseCoverageTests` (id set vs. `project.yml`, revision vs.
       `Package.resolved`) are green

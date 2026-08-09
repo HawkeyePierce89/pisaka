@@ -90,6 +90,18 @@ packages:
   tree-sitter-dockerfile:
     url: https://github.com/camdencheek/tree-sitter-dockerfile
     exactVersion: "0.2.0"
+  # Go's grammar needs no vendoring and no manifest fix: upstream ships a SwiftPM
+  # manifest whose package *and* target are both named `TreeSitterGo` (so the
+  # resource bundle is the `TreeSitterGo_TreeSitterGo` that
+  # `LanguageConfiguration(…, name: "Go")` expects), a `bindings/swift` header and
+  # `queries/highlights.scm`. Its `sources:` is `["src/parser.c"]` alone — no
+  # external scanner, so none of the TreeSitterDotenv link-time trouble. Its
+  # manifest names SwiftTreeSitter, but only from its *test* target, and SwiftPM
+  # prunes a non-root package's test-only dependencies, so this adds exactly one
+  # pin and does not collide with ChimeHQ's SwiftTreeSitter above.
+  tree-sitter-go:
+    url: https://github.com/tree-sitter/tree-sitter-go
+    exactVersion: "0.25.0"
   # dotenv is vendored for a different reason than gitignore below: upstream
   # (pnx/tree-sitter-dotenv v1.1.1) *does* ship a SwiftPM manifest, but its
   # `sources:` omits `src/scanner.c` while the grammar declares an external
@@ -264,6 +276,8 @@ targets:
         product: TreeSitterYAML
       - package: tree-sitter-dockerfile
         product: TreeSitterDockerfile
+      - package: tree-sitter-go
+        product: TreeSitterGo
       - package: TreeSitterDotenv
         product: TreeSitterDotenv
       - package: TreeSitterGitignore

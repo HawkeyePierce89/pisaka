@@ -517,6 +517,18 @@ upstream's verbatim text ends and this repository's addition begins, and
 `testTextsCarryTheirBundledSubDependencyNotices` pins both — otherwise bumping
 the pin and pasting upstream's file over ours would drop them in silence.
 
+**Recording a read that found nothing.** The same check was run over
+`tree-sitter-go` when it was added (pin `0.25.0`, revision `1547678a`): its
+manifest compiles `src/parser.c` alone — the conditional `src/scanner.c` append
+does not fire, because the grammar declares no external scanner — and the only
+other thing under `src/` is tree-sitter's own `src/tree_sitter/` (`parser.h`,
+`alloc.h`, `array.h`), the MIT headers every generated grammar in this repository
+carries and that the `tree-sitter` entry already covers. So there is no second
+license and no appendix, and `tree-sitter-go.txt` is upstream's `LICENSE`
+verbatim. That is worth writing down rather than leaving implicit: an absent
+appendix is indistinguishable from a read nobody performed, and the next grammar
+addition should be able to see which of the two this was.
+
 The general rule this leaves behind: **a package's own LICENSE is not
 automatically the whole obligation.** When adding a dependency, read its
 manifest's `sources:`/`exclude:` for vendored trees before assuming one text

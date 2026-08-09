@@ -333,11 +333,11 @@ final class LicenseCoverageTests: XCTestCase {
     /// year — which is precisely the part that carries the attribution
     /// obligation. So pin that line.
     ///
-    /// Three grammar texts (`tree-sitter-html/-javascript/-json`) are genuinely
-    /// byte-identical upstream — same holder, same year — so no content check
-    /// can tell those three apart from one another. That is harmless: they
-    /// carry the same grant from the same holder. Every other pair is
-    /// distinguishable, and this table distinguishes them.
+    /// Four grammar texts (`tree-sitter-go/-html/-javascript/-json`) are
+    /// genuinely byte-identical upstream — same holder, same year — so no
+    /// content check can tell those four apart from one another. That is
+    /// harmless: they carry the same grant from the same holder. Every other
+    /// pair is distinguishable, and this table distinguishes them.
     private static let expectedCopyrightHolders: [String: String] = [
         "libgit2": "libgit2 is Copyright (C) the libgit2 contributors",
         "Neon": "Copyright (c) 2022, Chime",
@@ -347,6 +347,7 @@ final class LicenseCoverageTests: XCTestCase {
         "tree-sitter": "Copyright (c) 2018-2024 Max Brunsfeld",
         "tree-sitter-css": "Copyright (c) 2018 Max Brunsfeld",
         "tree-sitter-dockerfile": "Copyright (c) 2021 Camden Cheek",
+        "tree-sitter-go": "Copyright (c) 2014 Max Brunsfeld",
         "tree-sitter-html": "Copyright (c) 2014 Max Brunsfeld",
         "tree-sitter-javascript": "Copyright (c) 2014 Max Brunsfeld",
         "tree-sitter-json": "Copyright (c) 2014 Max Brunsfeld",
