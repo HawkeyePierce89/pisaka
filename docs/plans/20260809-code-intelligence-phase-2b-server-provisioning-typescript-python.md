@@ -341,7 +341,7 @@ Acknowledgements section that exists only when something is installed.
 - Modify: `CLAUDE.md`
 - Modify: `README.md`
 
-- [ ] `core-provisioning.md`: a full entry per new file (Core and app), D11–D16 with their
+- [x] `core-provisioning.md`: a full entry per new file (Core and app), D11–D16 with their
       reasoning, the pinned manifest table, the by-hand update procedure as copy-pasteable
       commands (nodejs.org `SHASUMS256.txt`; `curl … | shasum -a 256` per npm tarball; how to
       record unpacked sizes), the license-surfacing decision, and the known limits: the
@@ -349,14 +349,14 @@ Acknowledgements section that exists only when something is installed.
       from the build slice (a Rosetta-translated app provisions x64 Node), corporate TLS
       interception and air-gapped installs fail as an ordinary silent download failure,
       pyright without a Python interpreter analyses against bundled typeshed only, macOS only
-- [ ] `core-lsp.md`: point D9 at the dynamic registry, document `updateRegistry(_:)` on the
+- [x] `core-lsp.md`: point D9 at the dynamic registry, document `updateRegistry(_:)` on the
       `LSPWorkspace` entry, and cross-link the new doc
-- [ ] `CLAUDE.md`: index lines for every new file, and the new invariant — nothing downloads
+- [x] `CLAUDE.md`: index lines for every new file, and the new invariant — nothing downloads
       without consent; installs are atomic under Application Support and touch nothing
       global; the manifest is pinned data in Core changed only by shipping a new app version;
       Core never fetches or unpacks; the provisioning layer is a reader like the rest of the
       LSP layer
-- [ ] `README.md`: which languages download a server and roughly how large, the consent
+- [x] `README.md`: which languages download a server and roughly how large, the consent
       flow, where the files live and how to de-provision, and the offline/declined behavior
       in the Known Limitations voice
 

@@ -12,6 +12,19 @@ every other language, and every failure mode — keeps the index's answers,
 silently and per request. No dependency ships with it: JSON-RPC is written here,
 so nothing new enters the bundle and no pin or license changes.
 
+**What phase 2b added, and where it is documented.** The client below is
+unchanged except for one method — `LSPWorkspace.updateRegistry(_:)` (D16) — and
+that one exists because 2b lets the app *provision* servers for itself:
+`typescript-language-server` and `pyright`, downloaded on consent, verified
+against a pinned SHA-256 and installed under Application Support, become
+`.executable(path:)` registry entries the moment they land. All of that — the
+manifest, the digest, the install engine, the consent rules, the two macOS-gated
+seams and the Preferences surface — lives in
+`docs/architecture/core-provisioning.md`, with decisions D11–D16. Every rule
+below still holds for those servers: routing is per request, fallback to
+tree-sitter is silent, and a language whose server is absent, declined or failed
+is indistinguishable from one that never had a server at all.
+
 **Where the platform boundary is.** All of it is in `PisakaCore` except one
 thing: the `Process` and its three pipes, which live macOS-gated in
 `Sources/Pisaka/LSPProcessTransport.swift` behind the `LSPTransport` protocol.
@@ -261,10 +274,12 @@ document, together with the limits they carry.
 
   - `LSPServerDescription.swift` — everything the app needs to *start* one server,
     and nothing about how to talk to it (D9). The whole point is that adding a
-    server is a **data** change: phase 2b adds TypeScript and Python by appending
-    two of these, and no client code moves, because nothing above this file knows
-    the word "sourcekit". `LSPWorkspaceTests` pins that promise by serving a second,
-    entirely fictional server through configuration alone.
+    server is a **data** change: phase 2b added TypeScript and Python by composing
+    two of these from a pinned manifest, and no client code moved, because nothing
+    above this file knows the word "sourcekit". `LSPWorkspaceTests` pins that
+    promise by serving a second, entirely fictional server through configuration
+    alone, and `LSPProvisioningModelTests` pins the other half — that the two
+    appended descriptions leave the Swift path byte-identical.
     `Launch` is a *description*, not a resolution — `.toolchainTool(name:)` for a
     tool inside the active Xcode toolchain (resolved by the app with `xcrun --find`,
     honouring `DEVELOPER_DIR`) or `.executable(path:)` for what 2b will use — which
@@ -511,6 +526,42 @@ document, together with the limits they carry.
     server must be told the path the user opened; `rootKey` *is* canonical, so two
     spellings of one folder share one server; `path(of:isUnder:)` compares whole
     components through `CanonicalPath`.
+    **`updateRegistry(_:)` swaps the registry while the app runs** (2b's D16), and
+    is the one change that phase made to this machinery. 2a's registry was a `let`
+    fixed at construction, which was enough while the only server was one `xcrun`
+    finds; 2b installs servers *from Preferences*, and the whole promise of that
+    feature is that opening a `.ts` file, accepting the download and getting
+    semantic completion is one uninterrupted sequence — so `canServe` has to flip
+    from `false` to `true` without a restart.
+    It has to flip **both ways**, and that is the half with teeth: a description
+    that is merely forgotten leaves its process running against a root nobody will
+    ever ask it about again — the orphan `pgrep -fl node` finds after quitting. So
+    a server that is gone *or changed* is shut down here, where "changed" is "not
+    identical to what it was" (id, launch, arguments or initialization options)
+    rather than "absent now", because a version bump is the same id pointing at a
+    new executable path whose old directory the installer is about to delete. Its
+    documents are `didClose`d first (D2) exactly as a folder switch does, its
+    transport is dropped and its document state forgotten.
+    Staleness is computed over **reachable** descriptions — the ones
+    `description(for:)` actually answers, keyed by id — not over `descriptions`,
+    because a description shadowed for every language it claims can never be
+    launched again and its process should go with it.
+    **Its D7 bookkeeping is cleared with it**, so a re-added server starts with a
+    fresh budget of three restarts. "Never reset within a root" is about a server
+    that keeps crashing on the same project; one the user has just removed and
+    reinstalled is a *new* server on that project, and making someone relaunch the
+    app to get a second chance after a bad download would be the silent failure D7
+    exists to avoid rather than the one it prevents.
+    **The epoch is deliberately not bumped.** That token supersedes every launch in
+    flight, including ones for servers this update left untouched, and killing a
+    healthy server's handshake because an unrelated one was installed is the
+    opposite of what this method is for. A launch already running therefore
+    completes and registers itself as it always does, and is unregistered and shut
+    down afterwards, by id. Neither generation moves either: a registry update is
+    not a folder change, and a request in flight for a server that survived is
+    still a request about the folder it was asked under. Every map is emptied
+    *before* the first hop, `shutdownAll()`'s ordering applied to a subset. An
+    equal registry returns immediately.
     **A reader, never a writer** (D10).
 
   - `CompletionEditPlan.swift` — the pure rule auto-import is applied by, so the
@@ -853,6 +904,14 @@ edit.
 `.toolchainTool(name:)` (resolved by the app through `xcrun --find`, honouring
 `DEVELOPER_DIR`, cached per app run) or `.executable(path:)`. `LSPServerRegistry`
 maps language → description. Adding a server is one registry entry.
+**The registry is no longer fixed at construction** (2b's D16): `LSPWorkspace`
+holds it as a `var` and `updateRegistry(_:)` swaps it while the app runs, which
+is what lets a server installed from Preferences start serving without a restart
+— and what stops one that was removed. Phase 2b took that route rather than
+touching anything above this file, exactly as this decision promised:
+`typescript-language-server` and `pyright` are two `.executable(path:)`
+descriptions composed from a pinned manifest, and no client code moved. See
+`docs/architecture/core-provisioning.md`.
 
 **D10 — Reader, not writer.** The LSP layer never raises
 `autosave.suspend()`/`localChanges.beginRevert()` and is never gated by them — the

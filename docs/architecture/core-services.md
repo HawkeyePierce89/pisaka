@@ -119,6 +119,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `+1`/`-1`). Fully unit-tested in `SettingsStoreTests` (defaults, clamping at
     both bounds, the step helper staying clamped, a persistence round-trip across
     two instances over one suite, and the enums' raw-value stability).
+    Phase 2b adds a fourth persisted value, `lspServerConsent`: one dictionary of
+    server id → `LSPServerConsent.rawValue` under `Keys.lspServerConsent`, read
+    **leniently** (a value the current app does not recognise reads back as
+    `unasked`, so a downgrade cannot be poisoned by a newer build's answer) and
+    written through `setConsent(_:for:)` alone — `private(set)`, because a
+    dictionary bound directly into a view would let a surface record an answer
+    without going through the model that owns what an answer *means*. `unasked` is
+    stored as **absence** rather than as a value, so "never asked" and "erased"
+    are the same state on disk. `consent(for:)` answers `unasked` for anything
+    unseen, which is what makes a fresh install prompt exactly once per server.
+    The rules built on it are D15 in `core-provisioning.md`; `SettingsStoreTests`
+    covers the round trip across a rebuilt store and the lenient read.
   - `EditorSession.swift` — the persisted editor session behind launch-time
     session restore and "Untitled" hot exit (macOS today; the iOS variant is a
     follow-up over this same model). Foundation-only: the value types, the pure
