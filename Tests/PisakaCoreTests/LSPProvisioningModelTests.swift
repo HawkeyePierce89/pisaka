@@ -852,6 +852,74 @@ final class LSPProvisioningModelTests: XCTestCase {
         XCTAssertNil(harness.model.consentPrompt(forOpening: .python))
     }
 
+    /// …and the runtime it could not delete stays reclaimable, which the decline
+    /// must not take away with it.
+    ///
+    /// This is the one state where the two halves of `remove(_:)` disagree: the
+    /// server component is gone (so the row reads `.absent` and consent is
+    /// `declined`), while ~110 MB of unpacked Node is still on disk and needed by
+    /// nothing. Deriving `hasFilesOnDisk`'s runtime branch from `accepted` made
+    /// that state terminal — no Remove on any row, under a message saying the
+    /// removal failed — so the rule is "answered about", not "accepted".
+    func testTheRuntimeAFailedRemovalStrandedStaysReclaimable() async {
+        let harness = makeHarness()
+        await harness.model.accept(.python)
+        harness.tree.removeFailures = ["LanguageServers/node"]
+
+        await harness.model.remove(.python)
+
+        let row = harness.model.row(for: .python)
+        XCTAssertEqual(row?.state, .absent)
+        XCTAssertEqual(row?.consent, .declined)
+        XCTAssertEqual(row?.canRemove, true, "a declined row could not reclaim the runtime it stranded")
+        // Still not offered under the row nobody has answered for, which is what
+        // the gate is actually for.
+        XCTAssertEqual(harness.model.row(for: .typescript)?.canRemove, false)
+
+        // It survives the relaunch, because both halves of the answer are read
+        // off the disk rather than off an in-memory note of what went wrong.
+        harness.rebuild()
+        await harness.model.refresh()
+        XCTAssertEqual(harness.model.row(for: .python)?.canRemove, true)
+
+        harness.tree.removeFailures = []
+        await harness.model.remove(.python)
+
+        XCTAssertFalse(
+            harness.tree.hasDirectory("LanguageServers/node"),
+            "the second Remove left the stranded runtime on disk"
+        )
+        XCTAssertNil(harness.model.row(for: .python)?.failureMessage)
+        XCTAssertEqual(harness.model.row(for: .python)?.canRemove, false)
+    }
+
+    /// The install button on that row says "Install", not "Retry".
+    ///
+    /// Same row, same visible message — but the message is about a directory this
+    /// button would not touch, and the action it performs is a fresh ~52 MB
+    /// download of the server the user just removed. "Retry" beside a sentence
+    /// beginning "Could not remove" reads as retrying the removal.
+    func testTheInstallButtonDoesNotOfferToRetryAFailedRemoval() async {
+        let harness = makeHarness()
+        await harness.model.accept(.python)
+        harness.tree.removeFailures = ["LanguageServers/node"]
+
+        await harness.model.remove(.python)
+
+        let removed = harness.model.row(for: .python)
+        XCTAssertNotNil(removed?.failureMessage)
+        XCTAssertEqual(removed?.canInstall, true)
+        XCTAssertEqual(removed?.failureWasRemoval, true)
+
+        // A failed *install* is the case the "Retry" label exists for, and it is
+        // unchanged.
+        harness.downloader.fail(Fixture.tsServer)
+        await harness.model.accept(.typescript)
+        let failedInstall = harness.model.row(for: .typescript)
+        XCTAssertNotNil(failedInstall?.failureMessage)
+        XCTAssertEqual(failedInstall?.failureWasRemoval, false)
+    }
+
     /// Removing one server while the other's install is in flight must leave the
     /// shared runtime alone — the accepted download would otherwise land on a
     /// server whose `node` had been deleted underneath it, servable by nothing

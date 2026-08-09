@@ -93,11 +93,14 @@ struct LSPServerSettingsView: View {
             }
 
             if row.canInstall {
-                // "Retry" only after a failure: the same action either way, but a
-                // button that says Install on a row explaining why the last
-                // install failed reads as if the failure were about something
-                // else.
-                Button(row.failureMessage == nil ? "Install" : "Retry") {
+                // "Retry" only after a failed *install*: the same action either
+                // way, but a button that says Install on a row explaining why the
+                // last install failed reads as if the failure were about something
+                // else. A failed *removal* is the opposite case — the message
+                // there is about files this button would not touch, and "Retry"
+                // beside it would read as retrying the removal while starting a
+                // ~52 MB download.
+                Button(row.failureMessage == nil || row.failureWasRemoval ? "Install" : "Retry") {
                     Task { await provisioning.install(row.server) }
                 }
             }

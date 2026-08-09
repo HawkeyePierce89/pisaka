@@ -302,10 +302,25 @@ carries. D1–D10 are in `core-lsp.md`.
     false on every row in that state, with the Finder as the only way out. The
     runtime is deliberately *kept* rather than swept — the retry then costs 4 MB
     and not 56 — so this makes it reclaimable, not automatic. The clause is gated
-    on `accepted` and on nothing else needing the runtime (`removeRuntimeIfUnused`'s
-    own rule), so the orphan is offered under the row of the server the user asked
-    for rather than under an untouched one that merely shares the runtime, and a
-    row never offers a Remove that would reclaim nothing.
+    on the row having been **answered about** (consent is anything but `unasked`)
+    and on nothing else needing the runtime (`removeRuntimeIfUnused`'s own rule),
+    so the orphan is offered under a row the user has actually acted on rather
+    than under an untouched one that merely shares the runtime, and a row never
+    offers a Remove that would reclaim nothing. `declined` has to count, and that
+    is the second state this clause exists for: the decline is recorded *between*
+    the two deletions, so a `removeRuntimeIfUnused` that throws lands on a row that
+    is already `declined`, and requiring `accepted` made that state terminal —
+    ~110 MB of Node on disk, `canRemove` false on every row, the Finder the only
+    way out, under a row whose own message says the removal failed. Both halves
+    are read off the disk and the defaults, so it survives the relaunch too
+    (`testTheRuntimeAFailedRemovalStrandedStaysReclaimable`).
+    The row also publishes `failureWasRemoval` beside the message, for one reason:
+    that same state is `.absent`, so `canInstall` is true, and the install button
+    is labelled "Retry" after a failure. "Retry" beside a sentence beginning
+    "Could not remove" reads as retrying the removal while actually starting a
+    fresh ~52 MB download of the server the user just removed, so a removal
+    failure labels it "Install"
+    (`testTheInstallButtonDoesNotOfferToRetryAFailedRemoval`).
     `LSPProvisioningModelTests` pins the rules over the task-3 fakes, including
     the ones about what must *not* change: installing pyright leaves a TypeScript
     answer byte-identical, installing the TypeScript server leaves a Python one,
@@ -423,6 +438,10 @@ carries. D1–D10 are in `core-lsp.md`.
     way to add a server that is not in it. This is where a "no" is turned around,
     which is what makes the banner's forced choice reasonable, and the only place
     an install failure is ever surfaced: a sentence and a Retry, never an alert.
+    "Retry" is the label only after a failed *install* — `row.failureWasRemoval`
+    puts "Install" back on a row whose message is about a removal, because the
+    action there is a fresh download rather than a second attempt at what the
+    message describes.
     A thin view in the `GeneralSettingsView` mould — every rule (which actions
     apply, what the state is, what it costs) is a property of `LSPServerRow` and
     is unit-tested in Core.

@@ -65,6 +65,17 @@ public struct LSPServerRow: Equatable, Identifiable, Sendable {
     /// what the editor does — the language was answering from tree-sitter before
     /// the attempt and still is.
     public let failureMessage: String?
+    /// Whether `failureMessage` describes a failed *removal* rather than a failed
+    /// install.
+    ///
+    /// One field rather than two message slots, because there is only ever one
+    /// message: each attempt replaces the previous outcome. What it is for is the
+    /// install button's label. A removal that deleted the server component and
+    /// then failed on the shared runtime leaves the row `.absent` — installable,
+    /// legitimately — beside a sentence about a directory that would not go away,
+    /// and "Retry" on that button would offer to retry the removal while actually
+    /// starting a ~52 MB download of the thing the user just asked to be rid of.
+    public let failureWasRemoval: Bool
     /// Whether Remove would reclaim anything for this row — any version of this
     /// server's component, including one a pin bump has left stranded (servable
     /// by nothing, still occupying real disk), and the shared runtime when this
@@ -105,7 +116,8 @@ public struct LSPServerRow: Equatable, Identifiable, Sendable {
         pendingDownloadByteCount: Int,
         failureMessage: String?,
         hasFilesOnDisk: Bool,
-        isRemoving: Bool = false
+        isRemoving: Bool = false,
+        failureWasRemoval: Bool = false
     ) {
         self.server = server
         self.displayName = displayName
@@ -116,6 +128,7 @@ public struct LSPServerRow: Equatable, Identifiable, Sendable {
         self.failureMessage = failureMessage
         self.hasFilesOnDisk = hasFilesOnDisk
         self.isRemoving = isRemoving
+        self.failureWasRemoval = failureWasRemoval
     }
 }
 
@@ -182,7 +195,15 @@ public final class LSPProvisioningModel: ObservableObject {
     /// shared `node` that another server is already fetching is waited on.
     private var attempts: [LSPDownloadableServer: PendingAttempt] = [:]
     private var attemptCounter = 0
-    private var failures: [LSPDownloadableServer: String] = [:]
+
+    /// The last attempt's outcome, when it failed — carrying *which* attempt it
+    /// was, because the row's install button is labelled off it (`failureWasRemoval`).
+    private struct Failure {
+        let message: String
+        let wasRemoval: Bool
+    }
+
+    private var failures: [LSPDownloadableServer: Failure] = [:]
     /// Servers whose files are being deleted right now — excluded from the
     /// registry so the pre-deletion push is a registry without them.
     private var removals: Set<LSPDownloadableServer> = []
@@ -317,7 +338,10 @@ public final class LSPProvisioningModel: ObservableObject {
                 do {
                     try await engine.install(server)
                 } catch {
-                    self.failures[server] = error.localizedDescription
+                    self.failures[server] = Failure(
+                        message: error.localizedDescription,
+                        wasRemoval: false
+                    )
                 }
                 // Released from inside the task body, and only while it is still
                 // ours — the engine's rule (`LSPInstallEngine.install`), for the
@@ -392,7 +416,7 @@ public final class LSPProvisioningModel: ObservableObject {
             settings.setConsent(.declined, for: server.id)
             try removeRuntimeIfUnused(after: server)
         } catch {
-            failures[server] = error.localizedDescription
+            failures[server] = Failure(message: error.localizedDescription, wasRemoval: true)
         }
 
         removals.remove(server)
@@ -462,9 +486,10 @@ public final class LSPProvisioningModel: ObservableObject {
                 consent: settings.consent(for: server.id),
                 state: state(of: server),
                 pendingDownloadByteCount: engine.pendingDownloadByteCount(for: server),
-                failureMessage: failures[server],
+                failureMessage: failures[server]?.message,
                 hasFilesOnDisk: hasReclaimableFiles(server),
-                isRemoving: removals.contains(server)
+                isRemoving: removals.contains(server),
+                failureWasRemoval: failures[server]?.wasRemoval ?? false
             )
         }
     }
@@ -485,13 +510,30 @@ public final class LSPProvisioningModel: ObservableObject {
     /// right. The runtime is deliberately *kept* rather than swept, so the retry
     /// costs 4 MB and not 56; this makes it reclaimable, not automatic.
     ///
-    /// Gated on `accepted` so the orphan is offered under the row of the server
-    /// the user asked for, and not under an untouched one that merely shares the
-    /// runtime — and on nothing else needing it, which is `removeRuntimeIfUnused`'s
-    /// own rule, so a row never offers a Remove that would reclaim nothing.
+    /// Gated on the server having been *answered about* — `accepted` or
+    /// `declined`, i.e. anything but `unasked` — so the orphan is offered under a
+    /// row the user has actually acted on and not under an untouched one that
+    /// merely shares the runtime, and on nothing else needing it, which is
+    /// `removeRuntimeIfUnused`'s own rule, so a row never offers a Remove that
+    /// would reclaim nothing.
+    ///
+    /// **`declined` has to count, and that is not a widening for its own sake.**
+    /// `remove(_:)` records the decline *between* the two deletions, so the one
+    /// state that strands the runtime with no server left to explain it — the
+    /// server component deleted, `removeRuntimeIfUnused` then throwing — is
+    /// reached with consent already `declined`. Requiring `accepted` here made
+    /// that state terminal: ~110 MB of unpacked Node on disk, `canRemove` false on
+    /// every row, and the only way out the Finder — under a row whose own message
+    /// says the removal failed. It survives relaunch too, because both halves of
+    /// the answer are read off the disk (D12) rather than off an in-memory note of
+    /// what went wrong.
+    ///
+    /// A row that was declined without ever being installed is unaffected: the
+    /// runtime can only exist because something else fetched it, and
+    /// `runtimeIsNeeded(byAnythingOtherThan:)` answers for that.
     private func hasReclaimableFiles(_ server: LSPDownloadableServer) -> Bool {
         if engine.state(of: server.serverComponentID) != .absent { return true }
-        guard settings.consent(for: server.id) == .accepted else { return false }
+        guard settings.consent(for: server.id) != .unasked else { return false }
         return engine.state(of: server.runtimeComponentID) != .absent
             && !runtimeIsNeeded(byAnythingOtherThan: server)
     }
