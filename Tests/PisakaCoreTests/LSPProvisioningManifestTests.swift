@@ -1,0 +1,356 @@
+import XCTest
+@testable import PisakaCore
+
+/// The manifest is data, so it is checked the way `DependencyPinTests` checks the
+/// other pinned data in this repository: by asserting the *shape* every record
+/// must have rather than by restating the records.
+///
+/// There is no compiler and no runtime check between a mistyped SHA-256 and a
+/// user whose download silently refuses to install — and, worse, no check at all
+/// between an `http://` URL and an unverified binary being executed. Both are one
+/// character wide in the source and neither shows up in any build. That is what
+/// this suite is for.
+final class LSPProvisioningManifestTests: XCTestCase {
+    private let manifest = LSPProvisioningManifest.standard
+    private let layout = LSPInstallLayout(base: URL(fileURLWithPath: "/tmp/pisaka-servers"))
+
+    private var allArtifacts: [LSPArtifact] { manifest.components.flatMap(\.artifacts) }
+
+    // MARK: - Where the bytes come from
+
+    /// HTTPS, an absolute URL, and one of two hosts. The host allow-list is the
+    /// substantive half: a checksum proves the bytes were not tampered with in
+    /// flight, but it proves nothing about whether a pin was pointed at somebody's
+    /// mirror in the first place, and "official sources only" is a claim that has
+    /// to be enforced somewhere.
+    func testEveryArtifactIsFetchedOverHTTPSFromAnOfficialHost() {
+        let allowedHosts: Set<String> = ["nodejs.org", "registry.npmjs.org"]
+        for artifact in allArtifacts {
+            XCTAssertEqual(artifact.url.scheme, "https", "\(artifact.url) is not HTTPS")
+            XCTAssertNotNil(artifact.url.host, "\(artifact.url) has no host — not an absolute URL")
+            XCTAssertTrue(
+                allowedHosts.contains(artifact.url.host ?? ""),
+                "\(artifact.url.host ?? "-") is not an official source; sources are \(allowedHosts.sorted())"
+            )
+            XCTAssertFalse(artifact.url.lastPathComponent.isEmpty, "\(artifact.url) names no file")
+        }
+    }
+
+    func testNoArtifactIsListedTwice() {
+        let urls = allArtifacts.map(\.url)
+        XCTAssertEqual(Set(urls).count, urls.count, "the same URL is pinned twice")
+    }
+
+    // MARK: - The checksums
+
+    /// 64 lowercase hexadecimal characters. Lowercase specifically: the engine
+    /// compares against `SHA256.hexadecimalDigest(of:)`, which emits lowercase, so
+    /// an uppercase pin is a checksum that can never match — an install that fails
+    /// forever for a reason no message would explain.
+    func testEveryChecksumIsSixtyFourLowercaseHexCharacters() {
+        let hex = CharacterSet(charactersIn: "0123456789abcdef")
+        for artifact in allArtifacts {
+            XCTAssertEqual(
+                artifact.sha256.count, 64,
+                "\(artifact.url.lastPathComponent): a SHA-256 is 64 characters, this one is \(artifact.sha256.count)"
+            )
+            XCTAssertTrue(
+                artifact.sha256.unicodeScalars.allSatisfy(hex.contains),
+                "\(artifact.url.lastPathComponent): \(artifact.sha256) is not lowercase hexadecimal"
+            )
+        }
+    }
+
+    func testNoTwoArtifactsShareAChecksum() {
+        let digests = allArtifacts.map(\.sha256)
+        XCTAssertEqual(Set(digests).count, digests.count, "two artifacts carry the same digest — one was copy-pasted")
+    }
+
+    // MARK: - The sizes
+
+    func testEverySizeIsPositiveAndUnpackedExceedsCompressed() {
+        for artifact in allArtifacts {
+            XCTAssertGreaterThan(artifact.byteCount, 0, "\(artifact.url.lastPathComponent) has no download size")
+            XCTAssertGreaterThan(
+                artifact.unpackedByteCount, artifact.byteCount,
+                "\(artifact.url.lastPathComponent) unpacks smaller than it downloads — the two are swapped"
+            )
+        }
+    }
+
+    /// The number the consent prompt shows is per architecture, and it must not
+    /// be the sum of both Node slices.
+    func testTheDownloadSizeOfNodeIsOneSliceNotBoth() throws {
+        let node = try XCTUnwrap(manifest.component("node"))
+        for architecture in LSPHostArchitecture.allCases {
+            XCTAssertEqual(node.artifacts(for: architecture).count, 1)
+            XCTAssertEqual(node.downloadByteCount(for: architecture), node.artifacts(for: architecture)[0].byteCount)
+        }
+        XCTAssertNotEqual(
+            node.downloadByteCount(for: .arm64), node.downloadByteCount(for: .x64),
+            "the two slices are the same size — one architecture's pin was pasted over the other"
+        )
+    }
+
+    // MARK: - Architecture coverage
+
+    /// Node ships per-architecture and must cover both; every npm tarball is
+    /// architecture-independent and must claim none. An npm artifact that
+    /// accidentally carried `.arm64` would leave Intel Macs unable to install a
+    /// server for no reason anyone would find quickly.
+    func testNodeCoversBothArchitecturesAndTheNPMArtifactsCoverNone() throws {
+        let node = try XCTUnwrap(manifest.component("node"))
+        XCTAssertEqual(
+            Set(node.artifacts.compactMap(\.architecture)), Set(LSPHostArchitecture.allCases),
+            "node must pin one artifact per architecture"
+        )
+        XCTAssertEqual(node.artifacts.count, LSPHostArchitecture.allCases.count)
+
+        for component in manifest.components where component.id != "node" {
+            for artifact in component.artifacts {
+                XCTAssertNil(
+                    artifact.architecture,
+                    "\(artifact.url.lastPathComponent) is an npm tarball and is architecture-independent"
+                )
+                XCTAssertTrue(LSPHostArchitecture.allCases.allSatisfy(artifact.applies(to:)))
+            }
+        }
+    }
+
+    func testEveryComponentHasSomethingToInstallOnEveryArchitecture() {
+        for component in manifest.components {
+            for architecture in LSPHostArchitecture.allCases {
+                XCTAssertFalse(
+                    component.artifacts(for: architecture).isEmpty,
+                    "\(component.id) installs nothing on \(architecture.rawValue)"
+                )
+            }
+        }
+    }
+
+    // MARK: - Identity and placement
+
+    func testComponentIDsAreUniqueAndUsableAsDirectoryNames() {
+        let ids = manifest.components.map(\.id)
+        XCTAssertEqual(Set(ids).count, ids.count, "two components share an id")
+        for id in ids {
+            XCTAssertFalse(id.isEmpty)
+            XCTAssertFalse(id.contains("/"), "\(id) is a path, not a directory name")
+            XCTAssertNotEqual(id, ".", "\(id) is not a directory name")
+            XCTAssertNotEqual(id, "..", "\(id) is not a directory name")
+            XCTAssertNotEqual(
+                id, LSPInstallLayout.stagingDirectoryName,
+                "a component may not be named after the staging directory"
+            )
+        }
+        for component in manifest.components {
+            XCTAssertFalse(component.version.isEmpty)
+            XCTAssertFalse(component.version.contains("/"), "\(component.id)'s version is not a directory name")
+        }
+    }
+
+    /// Within one component, two artifacts that are both fetched on the same
+    /// architecture must unpack to different places — otherwise the second
+    /// silently overwrites the first, and the missing half only shows up when the
+    /// server fails to start. Node's two artifacts *do* share a destination (the
+    /// version directory itself) and are correct precisely because only one of
+    /// them is ever fetched, so the check is per architecture rather than global.
+    func testArtifactDestinationsAreUniquePerComponentAndArchitecture() {
+        for component in manifest.components {
+            for architecture in LSPHostArchitecture.allCases {
+                let destinations = component.artifacts(for: architecture).map(\.destinationSubpath)
+                XCTAssertEqual(
+                    Set(destinations).count, destinations.count,
+                    "\(component.id) unpacks two \(architecture.rawValue) artifacts into the same place"
+                )
+            }
+        }
+    }
+
+    func testEveryDestinationAndStripDepthIsSane() {
+        for component in manifest.components {
+            for artifact in component.artifacts {
+                XCTAssertGreaterThanOrEqual(artifact.stripComponents, 0)
+                XCTAssertFalse(artifact.destinationSubpath.hasPrefix("/"), "destinations are relative")
+                XCTAssertFalse(
+                    artifact.destinationSubpath.split(separator: "/").contains(".."),
+                    "\(artifact.url.lastPathComponent) escapes its component directory"
+                )
+                XCTAssertTrue(
+                    layout.contains(layout.destination(of: artifact, unpackingInto: layout.versionDirectory(for: component))),
+                    "\(artifact.url.lastPathComponent) lands outside the install root"
+                )
+            }
+        }
+    }
+
+    // MARK: - Requirements
+
+    func testEveryRequirementResolvesAndNothingRequiresItself() {
+        for component in manifest.components {
+            for requirement in component.requires {
+                XCTAssertNotNil(manifest.component(requirement), "\(component.id) requires unknown \(requirement)")
+                XCTAssertNotEqual(requirement, component.id, "\(component.id) requires itself")
+            }
+        }
+    }
+
+    /// Requirements first, each component once — what the engine installs in.
+    func testInstallationOrderPutsTheRuntimeFirst() {
+        for server in LSPDownloadableServer.allCases {
+            let order = manifest.installationOrder(for: server.serverComponentID).map(\.id)
+            XCTAssertEqual(order, ["node", server.serverComponentID], "\(server.rawValue) installs out of order")
+        }
+        XCTAssertEqual(manifest.installationOrder(for: "node").map(\.id), ["node"])
+        XCTAssertEqual(manifest.installationOrder(for: "nonexistent"), [])
+    }
+
+    /// A hand-edited cycle must terminate rather than hang the installer. Built
+    /// here rather than in `.standard`, which has none.
+    func testInstallationOrderTerminatesOnACycle() {
+        let artifact = LSPArtifact(
+            url: URL(string: "https://nodejs.org/dist/x.tar.gz")!,
+            sha256: String(repeating: "0", count: 64),
+            byteCount: 1,
+            unpackedByteCount: 2
+        )
+        let cyclic = LSPProvisioningManifest(components: [
+            LSPComponent(id: "a", version: "1", licenseSPDXID: "MIT", licenseFileSubpaths: [], artifacts: [artifact], requires: ["b"]),
+            LSPComponent(id: "b", version: "1", licenseSPDXID: "MIT", licenseFileSubpaths: [], artifacts: [artifact], requires: ["a"]),
+        ])
+        XCTAssertEqual(cyclic.installationOrder(for: "a").map(\.id), ["b", "a"])
+    }
+
+    // MARK: - Licenses
+
+    /// Every component ships a license text from inside its own installed tree,
+    /// under a recognised SPDX id. The Acknowledgements section reads exactly
+    /// these paths, so a component with none would install code the app then
+    /// displays no notice for.
+    func testEveryComponentDeclaresALicenseItActuallyShips() {
+        let known: Set<String> = ["MIT", "Apache-2.0"]
+        for component in manifest.components {
+            XCTAssertTrue(known.contains(component.licenseSPDXID), "\(component.id): unrecognised SPDX id")
+            XCTAssertFalse(component.licenseFileSubpaths.isEmpty, "\(component.id) ships no license text")
+            XCTAssertEqual(
+                component.licenseFileSubpaths.count, component.artifacts(for: .arm64).count,
+                "\(component.id): one license text per installed artifact"
+            )
+            for url in layout.licenseFiles(of: component) {
+                XCTAssertTrue(layout.contains(url), "\(component.id)'s license text is outside the install root")
+            }
+        }
+    }
+
+    // MARK: - The servers
+
+    func testEveryServerResolvesInsideTheManifest() throws {
+        for server in LSPDownloadableServer.allCases {
+            let component = try XCTUnwrap(
+                manifest.component(server.serverComponentID),
+                "\(server.rawValue)'s server component is not in the manifest"
+            )
+            XCTAssertNotNil(manifest.component(server.runtimeComponentID), "\(server.rawValue)'s runtime is missing")
+            XCTAssertTrue(
+                component.requires.contains(server.runtimeComponentID),
+                "\(component.id) does not require the runtime \(server.rawValue) says it runs on"
+            )
+            XCTAssertNotNil(component.executableSubpath, "\(component.id) declares no entry point")
+            XCTAssertFalse(server.displayName.isEmpty)
+            XCTAssertEqual(server.serverID, component.id)
+        }
+    }
+
+    /// The one rule this whole phase must not break: nothing downloadable claims
+    /// Swift, and no two servers claim the same language (`LSPServerRegistry` is
+    /// first-registration-wins, so an overlap would silently disable one of them).
+    func testTheServedLanguagesAreDisjointAndNeverSwift() {
+        var seen: Set<SyntaxLanguage> = []
+        for server in LSPDownloadableServer.allCases {
+            XCTAssertFalse(server.languages.isEmpty, "\(server.rawValue) serves nothing")
+            XCTAssertFalse(server.languages.contains(.swift), "\(server.rawValue) claims Swift; sourcekit-lsp owns it")
+            XCTAssertTrue(seen.isDisjoint(with: server.languages), "\(server.rawValue) overlaps another server")
+            seen.formUnion(server.languages)
+        }
+        XCTAssertEqual(seen, [.typescript, .javascript, .python], "the served language set changed")
+    }
+
+    // MARK: - The registry entries
+
+    func testTheTypeScriptEntryRunsNodeOnTheServerEntryPointAndNamesTSServer() throws {
+        let description = try XCTUnwrap(LSPDownloadableServer.typescript.serverDescription(manifest: manifest, layout: layout))
+        let base = "/tmp/pisaka-servers"
+
+        XCTAssertEqual(description.id, "typescript-language-server")
+        XCTAssertEqual(description.languages, [.typescript, .javascript])
+        XCTAssertEqual(description.launch, .executable(path: "\(base)/node/24.19.0/bin/node"))
+        XCTAssertEqual(description.arguments, [
+            "\(base)/typescript-language-server/5.3.0/node_modules/typescript-language-server/lib/cli.mjs",
+            "--stdio",
+        ])
+        XCTAssertEqual(
+            description.initializationOptions,
+            .object(["tsserver": .object([
+                "path": .string("\(base)/typescript-language-server/5.3.0/node_modules/typescript/lib/tsserver.js")
+            ])]),
+            "D11: the tsserver path must be passed outright, not left to Node's upward walk"
+        )
+    }
+
+    func testThePythonEntryRunsNodeOnPyrightAndConfiguresNothing() throws {
+        let description = try XCTUnwrap(LSPDownloadableServer.python.serverDescription(manifest: manifest, layout: layout))
+        let base = "/tmp/pisaka-servers"
+
+        XCTAssertEqual(description.id, "pyright")
+        XCTAssertEqual(description.languages, [.python])
+        XCTAssertEqual(description.launch, .executable(path: "\(base)/node/24.19.0/bin/node"))
+        XCTAssertEqual(description.arguments, [
+            "\(base)/pyright/1.1.411/node_modules/pyright/dist/pyright-langserver.js",
+            "--stdio",
+        ])
+        XCTAssertNil(description.initializationOptions)
+    }
+
+    /// Every entry point and executable a description names has to be inside the
+    /// component the engine actually installs — a description pointing at a path
+    /// nothing unpacks into is a server that fails to start with `ENOENT`.
+    func testEveryEntryPointLandsUnderOneOfItsComponentsArtifacts() throws {
+        for server in LSPDownloadableServer.allCases {
+            let component = try XCTUnwrap(manifest.component(server.serverComponentID))
+            let entry = try XCTUnwrap(component.executableSubpath)
+            let destinations = component.artifacts.map(\.destinationSubpath)
+            XCTAssertTrue(
+                destinations.contains { !$0.isEmpty && entry.hasPrefix($0 + "/") },
+                "\(component.id)'s entry point \(entry) is not inside anything it unpacks"
+            )
+            if let tsserver = server.tsserverSubpath {
+                XCTAssertTrue(
+                    destinations.contains { !$0.isEmpty && tsserver.hasPrefix($0 + "/") },
+                    "\(component.id)'s tsserver path is not inside anything it unpacks"
+                )
+            }
+            for subpath in component.licenseFileSubpaths where !destinations.contains("") {
+                XCTAssertTrue(
+                    destinations.contains { !$0.isEmpty && subpath.hasPrefix($0 + "/") },
+                    "\(component.id)'s license text \(subpath) is not inside anything it unpacks"
+                )
+            }
+        }
+        let node = try XCTUnwrap(manifest.component("node"))
+        XCTAssertEqual(node.executableSubpath, "bin/node")
+        XCTAssertEqual(node.artifacts.map(\.destinationSubpath), ["", ""], "node unpacks into its version directory")
+    }
+
+    /// A manifest that does not describe a server answers `nil` rather than
+    /// trapping — the language then falls back to tree-sitter, which is what every
+    /// other failure in this layer does.
+    func testAServerMissingFromTheManifestHasNoRegistryEntry() {
+        let empty = LSPProvisioningManifest(components: [])
+        for server in LSPDownloadableServer.allCases {
+            XCTAssertNil(server.serverDescription(manifest: empty, layout: layout))
+        }
+
+        let runtimeless = LSPProvisioningManifest(components: [.typescriptLanguageServer])
+        XCTAssertNil(LSPDownloadableServer.typescript.serverDescription(manifest: runtimeless, layout: layout))
+    }
+}

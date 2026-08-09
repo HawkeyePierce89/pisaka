@@ -134,27 +134,27 @@ mould.
 - Create: `Tests/PisakaCoreTests/LSPProvisioningManifestTests.swift`
 - Create: `Tests/PisakaCoreTests/LSPInstallLayoutTests.swift`
 
-- [ ] model `LSPHostArchitecture` (`arm64`/`x64`), `LSPArtifact` (url, sha256,
+- [x] model `LSPHostArchitecture` (`arm64`/`x64`), `LSPArtifact` (url, sha256,
       `byteCount`, `unpackedByteCount`, format, `stripComponents`, destination subpath,
       optional architecture), `LSPComponent` (id, version, SPDX license id, license file
       subpaths, artifacts, required component ids) and `LSPProvisioningManifest` with the
       `.standard` value carrying the three pinned components from the table above
-- [ ] model `LSPDownloadableServer` (`typescript`, `python`): display name, served
+- [x] model `LSPDownloadableServer` (`typescript`, `python`): display name, served
       languages, server component, runtime component, and the `LSPServerDescription`
       factory that turns an install root into a live registry entry — node binary as the
       executable, the server's entry `.mjs`/`.js` plus `--stdio` as arguments, D11's
       `tsserver.path` as `initializationOptions` for the TypeScript one
-- [ ] implement `LSPInstallLayout`: base → component dir, version dir, staging root and
+- [x] implement `LSPInstallLayout`: base → component dir, version dir, staging root and
       staging dir, artifact destination, plus the per-server executable/entry paths; a pure
       value type over a base `URL` with no file system access
-- [ ] manifest tests: every URL is absolute HTTPS on an allowed host; every checksum is 64
+- [x] manifest tests: every URL is absolute HTTPS on an allowed host; every checksum is 64
       lowercase hex characters; sizes are positive; `node` covers both architectures and the
       npm artifacts none; every `requires` id and every downloadable server's component
       resolve inside the manifest; component ids and artifact destinations are unique; the
       served-language sets are disjoint and none of them is `.swift`
-- [ ] layout tests: paths compose as documented, are contained in the base, and a
+- [x] layout tests: paths compose as documented, are contained in the base, and a
       component/version/token round-trips into a distinct staging directory
-- [ ] run `swift test` — must pass before task 3
+- [x] run `swift test` — must pass before task 3
 
 ### Task 3: The install engine
 
