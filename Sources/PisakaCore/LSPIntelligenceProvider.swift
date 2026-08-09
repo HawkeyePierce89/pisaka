@@ -93,6 +93,18 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     /// published — so a handle can only ever name an item from the list the popup
     /// is actually showing, and the table cannot grow with the session.
     private var pendingResolves: [Int: PendingResolve] = [:]
+    /// The request-ordering token of the list `pendingResolves` belongs to, and
+    /// the one behind the next request — the generation-token discipline, applied
+    /// to the one piece of state a completion leaves behind.
+    ///
+    /// Two completion requests overlap as a matter of course: the router abandons
+    /// one at its deadline and it keeps running, the next keystroke asks again.
+    /// Without an order, the table is whichever *finished* last rather than
+    /// whichever the editor is showing, so an older answer landing late would wipe
+    /// the displayed list's handles and take D4's auto-import with them —
+    /// silently, since a missing handle reads exactly like a superseded one.
+    private var nextListToken = 0
+    private var publishedListToken = 0
 
     public init(
         workspace: LSPWorkspace,
@@ -244,6 +256,9 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     /// committed to a member access — and the editor has already decided which
     /// this is, in the one place that can see the caret.
     public func completions(for request: CompletionRequest) async -> [CompletionItem] {
+        // Claimed before the first hop, so the table below is ordered by when the
+        // question was *asked* rather than by when it happened to be answered.
+        let listToken = claimListToken()
         guard let offset = request.offset,
               let fileURL = request.fileURL,
               let language = request.language,
@@ -288,7 +303,8 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             typedWord: typedWord,
             in: source,
             session: prepared.session,
-            serverResolves: resolves
+            serverResolves: resolves,
+            listToken: listToken
         )
     }
 
@@ -300,7 +316,8 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         typedWord: NSRange,
         in text: NSString,
         session: LSPSession,
-        serverResolves: Bool
+        serverResolves: Bool,
+        listToken: Int
     ) -> [CompletionItem] {
         // `sorted(by:)` is not documented as stable, and the server's array order
         // is meaningful on a tie (it is the order it decided to send them in), so
@@ -352,7 +369,10 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             if results.count == completionLimit { break }
         }
 
-        replacePendingResolves(with: deferred)
+        // The items are returned either way — a superseded list still answers the
+        // caller that asked for it, and that caller discards it on its own
+        // generation token. Only the *shared* table is refused to an older list.
+        replacePendingResolves(with: deferred, listToken: listToken)
         return results
     }
 
@@ -422,10 +442,23 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         return pendingResolves[handle]
     }
 
-    private func replacePendingResolves(with deferred: [Int: PendingResolve]) {
+    /// Hand the table to `listToken`'s list, unless a *newer* request has already
+    /// published over it — see `publishedListToken`.
+    private func replacePendingResolves(with deferred: [Int: PendingResolve], listToken: Int) {
         lock.lock()
+        defer { lock.unlock() }
+        guard listToken > publishedListToken else { return }
+        publishedListToken = listToken
         pendingResolves = deferred
-        lock.unlock()
+    }
+
+    /// The next request's ordering token. Monotonic and never reused, like the
+    /// handles.
+    private func claimListToken() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        nextListToken += 1
+        return nextListToken
     }
 
     /// Reserve a contiguous block of handles for one list.

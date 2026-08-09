@@ -621,6 +621,43 @@ final class LSPWorkspaceTests: XCTestCase {
         )
     }
 
+    /// A request *waiting on somebody else's launch* when the folder changes is
+    /// answered by that launch's refusal and starts nothing of its own.
+    ///
+    /// The waiter is the second way into `liveSession`'s fall-through to a launch
+    /// (the first is a session that turned out to be dead), and it is the one that
+    /// resumes *after* the switch by construction: the launch it waits on runs to
+    /// the end of its handshake first. Nothing may be started for the abandoned
+    /// root at that point — a server filed into the maps `shutdownAll()` has just
+    /// emptied is one nothing tears down until the next switch or the quit.
+    func testAFolderSwitchWhileARequestWaitsOnALaunchStartsNothingForTheOldRoot() async {
+        let harness = ServerHarness()
+        harness.initializeDelay = 0.2
+        let workspace = makeWorkspace(harness: harness)
+
+        let first = Task { await workspace.prepare(url: mainFile, language: .swift, text: "a") }
+        await waitFor("the launch to start") { harness.launches.count == 1 }
+
+        // The second request finds that launch in flight and waits on it. It does
+        // nothing observable while it waits, so the sync point is the main actor
+        // being handed over: this task is already queued on it, and the sleep
+        // below is many turns more than it needs to reach the wait.
+        let second = Task { await workspace.prepare(url: greeterFile, language: .swift, text: "b") }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        workspace.prepareForFolderChange(root: otherRoot)
+        let answers = await [first.value, second.value]
+
+        XCTAssertTrue(answers.compactMap { $0 }.isEmpty, "neither request survives the switch")
+        XCTAssertEqual(
+            harness.launches.count, 1,
+            "the waiter must not launch a server for the root the switch left"
+        )
+        XCTAssertEqual(workspace.liveServerCount, 0)
+        XCTAssertTrue(harness.latest.isTerminated)
+        XCTAssertTrue(recordedDelays.isEmpty, "superseded is not failed")
+    }
+
     // MARK: - Crash, backoff, giving up (D7)
 
     func testThreeCrashesRestartAndTheFourthMarksTheServerUnavailable() async {

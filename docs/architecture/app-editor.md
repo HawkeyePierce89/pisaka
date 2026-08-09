@@ -497,10 +497,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     with no offset arithmetic; the explicit `beginUndoGrouping` pair is what still
     makes them a single ⌘Z and what keeps them from coalescing into the user's
     preceding typing.
-    **Deferred items are prefetched, and a late one re-applies the whole edit set.**
+    **The top of the list is prefetched, and a late one re-applies the whole edit set.**
     `prefetchResolves` fires one task per deferred item the moment the list is shown
     (one per item rather than one for the batch, so a single slow resolve holds back
-    neither the others nor the follow-up path that awaits one). **An empty resolve
+    neither the others nor the follow-up path that awaits one) — but only
+    `prefetchResolveLimit` (5) of them. The bound is not tuning: LSP's only wire
+    signal that a server kept something back is `data`, and sourcekit-lsp attaches
+    `data` to **every** item it sends, so "prefetch everything deferred" is 30
+    type-checking round trips per 150 ms debounce, on every keystroke, each batch
+    cancelled by the next — sustained load on the very server the next completion is
+    waiting on, for a feature that fires approximately never. The rows a user commits
+    are the ones at the top of a list they can see (the popup's selection starts on
+    the first), so the rest are resolved only if one is actually chosen:
+    `scheduleFollowUp` starts the round trip itself when there is none in flight,
+    which lands the import on D4's own stated race — a second undo step — rather than
+    losing it. That is also why `resolveSource` (the provider the current list came
+    from) is *not* cleared with the list: `update` forgets the list before the new
+    answer arrives, and the old snapshot keeps serving the popup in between, so an
+    item committed in that window must still be able to ask. **An empty resolve
     is not an answer**: `resolveEdits` returns `[]` for a timeout, a dead session and
     a superseded handle alike, so the commit path falls back to the edits the item
     was *published* with rather than reading `[]` as "this item turned out to have
@@ -525,7 +539,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     against the word under the caret when the delegate is asked, and an item's edits
     against the text they were computed over when one is committed, so cancelling a
     prefetch on a caret move would only throw away the resolve for a list still on
-    screen.
+    screen. A resolve started late by `scheduleFollowUp` is filed in the same
+    `resolveTasks` table, so it is cancelled by the same two events.
   - `LSPProcessTransport.swift` — the real `LSPTransport`: one language-server
     process, three pipes, and no opinion whatsoever about what the bytes mean. The
     entire macOS half of the LSP client, written in `GitCLIService`'s idiom for the

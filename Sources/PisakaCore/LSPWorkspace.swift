@@ -539,6 +539,17 @@ public final class LSPWorkspace {
     ) async -> LSPSession? {
         if unavailable.contains(key) { return nil }
 
+        // The supersession token, pinned **before the first hop** rather than
+        // beside the launch below. Everything between here and there suspends —
+        // the liveness check on a session that turned out to be dead, the death
+        // booking, the wait on somebody else's launch — and a folder switch fits
+        // through any of them. A launch that read `epoch` afterwards would read
+        // the value the switch had already bumped, pass its own guard, and file a
+        // server into the maps `shutdownAll()` had just emptied: a live
+        // `sourcekit-lsp` for a root nobody is looking at, which nothing tears
+        // down until the *next* switch or the quit.
+        let token = epoch
+
         if let existing = sessions[key] {
             if await existing.isRunning { return existing }
             // The server crashed, exited, or was killed. This is where a crash is
@@ -567,19 +578,23 @@ public final class LSPWorkspace {
         // and "once".
         if let pending = pendingLaunches[key] { return await pending.task.value }
 
+        // Nothing is started for a workspace that has moved on since this call
+        // began — see the token above. The same guard `launch` applies after D7's
+        // backoff, applied to the hops that happen *before* it.
+        guard token == epoch else { return nil }
+
         launchCounter += 1
         let id = launchCounter
-        // The supersession token is pinned **here**, synchronously, before the task
-        // exists — the `prepareForFolderChange` discipline, applied to the one token
-        // `launch` checks. Reading `epoch` inside `launch` instead would read it
-        // after two suspension points a folder switch fits through comfortably: the
+        // The token travels into the task rather than being re-read inside it: the
+        // `prepareForFolderChange` discipline, applied to the one token `launch`
+        // checks. Reading `epoch` inside `launch` instead would read it after two
+        // more suspension points a folder switch fits through comfortably: the
         // task's own scheduling, and D7's backoff, which is up to four seconds long.
         // A launch that pinned the *already bumped* epoch passes its own guard and
         // files a session into maps `shutdownAll()` has just emptied, where the next
         // visit to that folder finds a corpse and charges its death against D7's
         // budget — four folder round-trips and a healthy server is unavailable for
         // the rest of the app run.
-        let token = epoch
         let task = Task { @MainActor [weak self] () -> LSPSession? in
             guard let self else { return nil }
             return await self.launch(description: description, root: root, key: key, epoch: token)

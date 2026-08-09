@@ -380,8 +380,8 @@ document, together with the limits they carry.
     both models — *and* a private `epoch`. `shutdownAll()` and `terminateNow()` bump
     only the epoch. A launch terminates the server it just started if the epoch no
     longer matches, which is what makes "a folder switch supersedes in-flight work"
-    true. **The token is pinned by `liveSession`, synchronously, before the launch
-    task exists** — the `prepareForFolderChange` discipline applied to the token
+    true. **The token is pinned by `liveSession` on entry, before its first
+    suspension point** — the `prepareForFolderChange` discipline applied to the token
     `launch` itself checks. Reading `epoch` inside `launch` would read it after two
     suspension points a folder switch fits through comfortably: the task's own
     scheduling, and D7's backoff, which is up to four seconds long. A launch that
@@ -393,7 +393,17 @@ document, together with the limits they carry.
     of the app run. The token is checked a second time immediately after the backoff,
     so a switch during the wait launches nothing at all.
     `LSPWorkspaceTests.testAFolderSwitchDuringTheBackoffSupersedesTheRestart` stages
-    exactly that, through an injected wait. One token could not do both jobs:
+    exactly that, through an injected wait. The pin sits at the *entry* rather than
+    beside the launch because `liveSession` reaches its launch after up to two hops
+    of its own — the liveness check on a session that turned out to be dead, and the
+    death booking that follows it — and a switch landing in either of those windows
+    would otherwise be read as "no switch happened": a live `sourcekit-lsp` started
+    for a root nobody is looking at, which nothing reaps until the next switch or the
+    quit. That window is microseconds wide and has no injectable seam, so it is
+    guarded rather than staged; the *other* way into the fall-through — a request
+    waiting on a launch the switch superseded — is deterministic and pinned by
+    `testAFolderSwitchWhileARequestWaitsOnALaunchStartsNothingForTheOldRoot`.
+    One token could not do both jobs:
     a `shutdownAll()` in the same turn would invalidate the very token the caller had
     just pinned.
     **Two teardowns, because a quit cannot `await`.** `shutdownAll()` is the polite
@@ -558,6 +568,16 @@ document, together with the limits they carry.
     list resolves to nothing rather than to whatever now sits at that number. The
     session is captured with the item, because a resolve is only meaningful to the
     process that produced the list.
+    **The table is ordered by request, not by arrival.** Every `completions(for:)`
+    claims a monotonic list token synchronously, before its first hop, and a publish
+    whose token is older than the one already published keeps its items but does not
+    touch the table — the generation-token discipline, applied to the one piece of
+    state a completion leaves behind. Two completion requests overlap as a matter of
+    course (the router abandons one at its deadline and it keeps running; the next
+    keystroke asks again), and without the order the table belongs to whichever
+    *finished* last: an older answer landing late would wipe the displayed list's
+    handles and take D4's auto-import with them, silently, because a missing handle
+    reads exactly like a superseded one.
     `LSPCompletionItemKind.symbolKind` maps to the editor's closed `SymbolKind` and
     answers `nil` where there is no honest equivalent (`.module`, `.snippet`,
     `.color`): `SymbolKind` is pinned by set equality against the shipped
@@ -742,6 +762,14 @@ questions; it writes nothing to disk.
   mapping directions clamp it to the line's content end.
 - **Late auto-import is a second undo step** (D4), and is skipped entirely if the
   buffer changed between the insertion and the resolve landing.
+- **D4's auto-import cannot be observed against the one server this phase ships.**
+  sourcekit-lsp offers no unimported symbols, so nothing it sends — resolved or
+  not — has ever carried `additionalTextEdits` (recorded in the fixtures'
+  `README.md`, which is why `completion-auto-import.json` is authored to the spec
+  rather than captured). The rule and its geometry are pinned by
+  `CompletionEditPlanTests` and `LSPIntelligenceProviderTests`; the manual check
+  "completing a symbol that needs an import inserts the import line" has no way to
+  fire on macOS today, and an import that does not appear is not a regression.
 - **sourcekit-lsp answers for projects it can build.** It resolves a build system
   from the root it is initialized with — a `Package.swift`, a
   `compile_commands.json`, an `.xcodeproj` through the build server protocol. A

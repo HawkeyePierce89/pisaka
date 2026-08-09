@@ -64,6 +64,23 @@ final class CompletionController {
     /// point of member completion.
     private static let minimumPrefixLength = 2
 
+    /// How many of a list's deferred items are resolved up front.
+    ///
+    /// D4 wants an item's edits in hand *before* it is picked, and the pick is
+    /// hundreds of milliseconds away — but "everything the server deferred" is
+    /// not a small set. `completionItem/resolve` is only offered where the
+    /// server kept something back, and sourcekit-lsp signals that by attaching
+    /// `data` to **every** item it sends, so prefetching the whole list is 30
+    /// type-checking round trips per debounce, on every keystroke, each one
+    /// cancelled by the next — sustained load on the very server the next
+    /// completion is waiting on.
+    ///
+    /// The rows a user commits are the ones at the top of a list they can see
+    /// (the popup's own selection starts on the first), so those are prefetched
+    /// and the rest are resolved only if one is actually chosen — D4's stated
+    /// race, which `scheduleFollowUp` already handles, rather than a lost import.
+    private static let prefetchResolveLimit = 5
+
     /// The text view being completed in. Held weakly: the view hierarchy owns it,
     /// exactly as the `Coordinator` holds it.
     private weak var textView: NSTextView?
@@ -111,6 +128,17 @@ final class CompletionController {
     /// awaited if the user commits before one lands, and so all of them can be
     /// cancelled when the list they belong to is superseded.
     private var resolveTasks: [String: Task<[CompletionEdit], Never>] = [:]
+
+    /// The provider the current list came from, so an item past
+    /// `prefetchResolveLimit` can still be resolved when it is the one being
+    /// inserted.
+    ///
+    /// Deliberately *not* cleared with the list: `update` forgets the list before
+    /// the new answer arrives, and the old snapshot keeps serving the popup in
+    /// between — an item committed in that window must still be able to ask. The
+    /// provider is a long-lived app object that holds no reference back here, so
+    /// there is no cycle to weaken against.
+    private var resolveSource: CodeIntelligenceProviding?
 
     /// The late auto-import D4 allows: applied when its resolve arrives after
     /// the insertion has already happened.
@@ -369,7 +397,8 @@ final class CompletionController {
 
     // MARK: - Resolving deferred items
 
-    /// Ask the provider for the edits of every item it deferred, all at once.
+    /// Ask the provider for the edits of the deferred items most likely to be
+    /// picked — `prefetchResolveLimit` of them, in the provider's own order.
     ///
     /// One task per item rather than one for the batch, so a single slow resolve
     /// does not hold back the others and so each can be awaited on its own by
@@ -379,15 +408,31 @@ final class CompletionController {
         provider: CodeIntelligenceProviding,
         token: Int
     ) {
+        resolveSource = provider
+        var remaining = Self.prefetchResolveLimit
         for item in items where item.resolveHandle != nil {
-            let text = item.text
-            resolveTasks[text] = Task { [weak self] in
-                let edits = await provider.resolveEdits(for: item)
-                guard let self, !Task.isCancelled, token == self.generation else { return edits }
-                self.resolved[text] = edits
-                return edits
-            }
+            guard remaining > 0 else { break }
+            remaining -= 1
+            startResolve(for: item, provider: provider, token: token)
         }
+    }
+
+    /// One background resolve, filed under the text it inserts.
+    @discardableResult
+    private func startResolve(
+        for item: CompletionItem,
+        provider: CodeIntelligenceProviding,
+        token: Int
+    ) -> Task<[CompletionEdit], Never> {
+        let text = item.text
+        let task = Task { [weak self] in
+            let edits = await provider.resolveEdits(for: item)
+            guard let self, !Task.isCancelled, token == self.generation else { return edits }
+            self.resolved[text] = edits
+            return edits
+        }
+        resolveTasks[text] = task
+        return task
     }
 
     // MARK: - Inserting a chosen item
@@ -468,7 +513,7 @@ final class CompletionController {
 
         preview = word
         if item.resolveHandle != nil, resolved[word] == nil {
-            scheduleFollowUp(for: word, replacing: typedWord, in: textView)
+            scheduleFollowUp(for: item, replacing: typedWord, in: textView)
         }
         return false
     }
@@ -531,9 +576,26 @@ final class CompletionController {
     /// runs a main-actor turn *after* `insertCompletion` returned, so by then
     /// AppKit's own insertion is in the buffer and there is a real "before" to
     /// compare against.
-    private func scheduleFollowUp(for word: String, replacing typedWord: NSRange, in textView: NSTextView) {
-        guard let task = resolveTasks[word] else { return }
+    ///
+    /// An item past `prefetchResolveLimit` has no resolve in flight, so this is
+    /// also where one is started: it is worth a round trip now that it is the row
+    /// the user chose, and the answer takes exactly the path a prefetched one
+    /// that lost the race takes.
+    private func scheduleFollowUp(
+        for item: CompletionItem,
+        replacing typedWord: NSRange,
+        in textView: NSTextView
+    ) {
+        let word = item.text
         let token = generation
+        let task: Task<[CompletionEdit], Never>
+        if let inFlight = resolveTasks[word] {
+            task = inFlight
+        } else if let provider = resolveSource {
+            task = startResolve(for: item, provider: provider, token: token)
+        } else {
+            return
+        }
         followUpTask = Task { [weak self, weak textView] in
             guard let before = textView?.string else { return }
             let edits = await task.value

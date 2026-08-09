@@ -707,6 +707,43 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertTrue(transport.requests(for: LSPMethod.resolveCompletionItem).isEmpty)
     }
 
+    /// A list that finished *late* must not take the handles of the list that
+    /// superseded it.
+    ///
+    /// Two completion requests overlap as a matter of course — the router abandons
+    /// one at its deadline and it keeps running, the next keystroke asks again —
+    /// so the table has to be ordered by when each was *asked*, not by which
+    /// happened to answer last. Ordered the other way, the older answer wipes the
+    /// displayed list's handles on its way out and every one of its items resolves
+    /// to nothing: D4's auto-import, lost silently, in the one case that looks
+    /// exactly like a superseded handle.
+    func testAnOlderListFinishingLateDoesNotTakeTheCurrentListsHandles() async throws {
+        let list = try fixtureResult("completion-identifier.json")
+        transport.script(LSPMethod.completion, [.reply(list, after: 0.2), .reply(list)])
+        let resolved = try fixtureResult("completion-auto-import.json")["items"]?[0]
+        transport.script(LSPMethod.resolveCompletionItem, .reply(try XCTUnwrap(resolved)))
+        let provider = makeProvider()
+
+        let slow = Task {
+            await provider.completions(for: self.completionRequest(prefix: "Gree", offset: self.identifierCaret))
+        }
+        // The slow request has flushed its buffer and is waiting on its answer;
+        // this is the keystroke behind it, asking the same question of the same
+        // text (so no `didChange` moves the document under either of them).
+        try await Task.sleep(nanoseconds: 40_000_000)
+        let current = await provider.completions(
+            for: completionRequest(prefix: "Gree", offset: identifierCaret)
+        )
+        let superseded = await slow.value
+
+        XCTAssertFalse(current.isEmpty)
+        XCTAssertFalse(superseded.isEmpty, "a superseded list is still returned to its own caller")
+        let item = try XCTUnwrap(current.first)
+        let edits = await provider.resolveEdits(for: item)
+        XCTAssertEqual(edits.map(\.role), [.primary, .additional])
+        XCTAssertEqual(edits.last?.newText, "import Core\n")
+    }
+
     /// An item that never came from this provider — a tree-sitter one, say —
     /// resolves to nothing rather than to whatever sits at that number.
     func testAnItemWithNoHandleResolvesToNothing() async {
