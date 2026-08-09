@@ -365,28 +365,44 @@ and ⌘U works.
 - Create: `Resources/Licenses/tree-sitter-rust.txt`
 - Modify: `Tests/PisakaCoreTests/LicenseCoverageTests.swift`
 
-- [ ] add the `tree-sitter-rust` package (`exactVersion: "0.24.2"`) and the
+- [x] add the `tree-sitter-rust` package (`exactVersion: "0.24.2"`) and the
       `TreeSitterRust` product to `project.yml`, in the grammar list's existing
       position, with a comment recording the two facts that matter for this
       grammar: its `sources:` **does** compile `src/scanner.c` (so no vendoring),
       and its test-only ChimeHQ/SwiftTreeSitter dependency is pruned exactly as
       `tree-sitter-python`'s and `tree-sitter-css`'s already are
-- [ ] regenerate the workspace `Package.resolved` and confirm it gained **exactly
+- [x] regenerate the workspace `Package.resolved` and confirm it gained **exactly
       one** pin (identity `tree-sitter-rust`, revision
       `77a3747266f4d621d0757825e6b11edcbf991ca5`, version `0.24.2`) in the v2
       schema — a diff that rewrites the whole file into the legacy v1 shape is the
       Xcode-26 format churn Go's Task 1 recorded, and must be discarded rather
       than committed
-- [ ] copy the verbatim MIT `LICENSE` from the checkout at the pinned revision to
+      *(Confirmed: `xcodebuild -resolvePackageDependencies` resolved
+      `TreeSitterRust @ 0.24.2` at exactly the planned revision and then rewrote
+      the whole file into the v1 `object.pins`/`repositoryURL` shape — discarded,
+      as Go's Task 1 recorded, and the one pin hand-inserted in v2 form. The
+      committed diff is +9 lines, nothing else touched.)*
+- [x] copy the verbatim MIT `LICENSE` from the checkout at the pinned revision to
       `Resources/Licenses/tree-sitter-rust.txt` and add the `licenses.json` entry
       (id/name `tree-sitter-rust`, origin, version `0.24.2`, that revision, spdx
       `MIT`), extending `LicenseCoverageTests`' hand-pinned copyright-holder table
       with © 2017 Maxim Sokolov
-- [ ] read the pinned checkout for vendored third-party trees and record the
+- [x] read the pinned checkout for vendored third-party trees and record the
       finding either way — the expectation is nothing beyond
       `src/tree_sitter/{alloc,array,parser}.h`, already covered by the
       `tree-sitter` entry, so no appended sub-dependency notice
-- [ ] run `swift test` — `DependencyPinTests` and `LicenseCoverageTests` green
+      *(Finding, as expected and now recorded in
+      `testTextsCarryTheirBundledSubDependencyNotices`: `src/` holds only
+      `parser.c`, `scanner.c`, the two generated JSON files and
+      `tree_sitter/{alloc,array,parser}.h`; no copyright or licence string
+      appears anywhere under `src/` or `bindings/`. `scanner.c` is upstream's own
+      code under upstream's own MIT, so the shipped text is `LICENSE` verbatim
+      with no appendix. The manifest was also read at the pinned revision and
+      confirms both planning findings: `sources:` is
+      `["src/parser.c", "src/scanner.c"]`, and SwiftTreeSitter is named only by
+      the test target.)*
+- [x] run `swift test` — `DependencyPinTests` and `LicenseCoverageTests` green
+      *(full suite: 2218 tests, 0 failures)*
 
 ### Task 2: The language case, its icon, its grammar and its capture vocabulary
 

@@ -353,6 +353,7 @@ final class LicenseCoverageTests: XCTestCase {
         "tree-sitter-json": "Copyright (c) 2014 Max Brunsfeld",
         "tree-sitter-markdown": "Copyright (c) 2021 Matthias Deiml",
         "tree-sitter-python": "Copyright (c) 2016 Max Brunsfeld",
+        "tree-sitter-rust": "Copyright (c) 2017 Maxim Sokolov",
         "tree-sitter-swift": "Copyright (c) 2021 alex-pinkus",
         "tree-sitter-typescript": "Copyright (c) 2017 Max Brunsfeld",
         "tree-sitter-yaml": "Copyright (c) 2024 tree-sitter-grammars contributors",
@@ -438,6 +439,15 @@ final class LicenseCoverageTests: XCTestCase {
             upstream's MIT LICENSE. The package's `sources: ["src"]` compiles those headers into \
             the app while its `exclude:` drops the notice, so nothing else ships it.
             """)
+
+        // Checked and found clean, recorded here because "nothing was found" is
+        // otherwise indistinguishable from "nobody looked": tree-sitter-rust
+        // 0.24.2 compiles `src/parser.c` + `src/scanner.c`, both upstream's own
+        // code under upstream's own MIT, and the only other tree under `src/` is
+        // `src/tree_sitter/{alloc,array,parser}.h` — tree-sitter's own MIT
+        // headers, already covered by the `tree-sitter` entry above. So its text
+        // is upstream's LICENSE verbatim with no appendix, and there is
+        // deliberately no assertion for it here.
     }
 
     /// End to end over the real resources: what `LicenseCatalogLoader` will do at
