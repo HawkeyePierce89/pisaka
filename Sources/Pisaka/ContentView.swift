@@ -82,6 +82,12 @@ struct ContentView: View {
     /// `GitCLIService()` defaults above. A model nobody asks anything of
     /// downloads nothing.
     var provisioning: LSPProvisioningModel = PisakaApp.makeProvisioning().model
+    /// Whether Go has a language server on this Mac, and how it would get one.
+    /// Threaded through to the same consent banner and non-observed here for the
+    /// same reason as `provisioning` above — the banner observes it itself. Owned
+    /// by `PisakaApp`; the default builds a throwaway stack that searches for
+    /// nothing until something calls `discover()`.
+    var gopls: LSPGoplsProvisioningModel = PisakaApp.makeGopls().model
     /// Open the file a Go to Definition landed on and select the declaration's
     /// name. Wired to the same `PisakaApp` entry point a Find in Files activation
     /// uses — opening a tab is the app's job — and threaded straight into
@@ -416,11 +422,13 @@ struct ContentView: View {
                 // bar so it is the topmost thing in the editor zone without
                 // covering the file's own path. It renders nothing at all unless
                 // the selected tab's language has an unanswered, uninstalled
-                // downloadable server, and it is also where an *already*
+                // server this app can provision — downloaded, or built by the
+                // user's own Go toolchain — and it is also where an *already*
                 // accepted server is installed on first use — both keyed on this
                 // one language and on there being a project to serve.
                 LSPConsentBanner(
                     provisioning: provisioning,
+                    gopls: gopls,
                     language: SyntaxLanguage(forFileName: file.displayName),
                     hasProjectRoot: model.projectRoot != nil
                 )

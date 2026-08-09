@@ -138,6 +138,22 @@ struct PisakaApp: App {
     /// themselves.
     private let lspProvisioning: LSPProvisioningModel
 
+    /// Where `go` and `gopls` are on this Mac, and what `go install` means here —
+    /// the app's whole contribution to gopls (D18/D20), exactly as
+    /// `LSPDownloadService`/`LSPArchiveUnpacker` are its whole contribution to the
+    /// downloadable servers.
+    ///
+    /// Held here rather than only inside the model because it owns the live
+    /// children: the terminate observer calls its `terminateNow()` beside
+    /// `lspWorkspace`'s, so a quit during a first-launch build leaves no `go`.
+    private let lspGoToolchain: LSPGoToolchainService
+
+    /// The second registry contributor (D17): whether Go has a language server,
+    /// how it got one, and what the Settings row may do about it. A plain stored
+    /// reference for `lspProvisioning`'s reason — nothing in this scene's `body`
+    /// reads it, and the two surfaces that show it observe it themselves.
+    private let lspGopls: LSPGoplsProvisioningModel
+
     /// Wire the workspace, the project-search model and the symbol index together.
     ///
     /// `ProjectSearchModel`'s buffer closures are `let`s taken at construction, and
@@ -217,19 +233,52 @@ struct PisakaApp: App {
         _settings = StateObject(wrappedValue: settings)
         let (installEngine, provisioning) = PisakaApp.makeProvisioning(settings: settings)
         self.lspInstallEngine = installEngine
-        // The whole of D16's wiring: whenever the set of installed servers changes,
-        // the workspace is handed a new registry and shuts down whatever the change
-        // un-registered. Awaited by the model on purpose — a removal publishes the
-        // registry *before* deleting the files, so the process is gone before its
-        // executable is (see `LSPProvisioningModel.onRegistryChange`).
+
+        // gopls (D17), composed beside the pair above and over the *same* install
+        // engine: it is not downloaded, but it lives under the same install root,
+        // is removed by the same `engine.remove`, and records its consent in the
+        // same `SettingsStore` dictionary. What it does not share is anything about
+        // bytes — no manifest entry, no pinned digest, nothing to unpack.
+        let (goToolchain, gopls) = PisakaApp.makeGopls(engine: installEngine, settings: settings)
+        self.lspGoToolchain = goToolchain
+        self.lspGopls = gopls
+
+        // The whole of D16's wiring, now with **two** registry contributors: whenever
+        // either set of installed servers changes, the workspace is handed one merged
+        // registry and shuts down whatever the change un-registered. Awaited by both
+        // models on purpose — a removal publishes the registry *before* deleting the
+        // files, so the process is gone before its executable is (see
+        // `LSPProvisioningModel.onRegistryChange` and its gopls counterpart).
         //
-        // `lspWorkspace` is captured directly rather than through `self`: this runs
-        // during `init`, and the closure must outlive it holding the workspace, not
-        // a half-built `PisakaApp` value.
-        provisioning.onRegistryChange = { [lspWorkspace] registry in
-            await lspWorkspace.updateRegistry(registry)
+        // Each callback takes its own contributor's new value as a parameter and
+        // reads the other's published one, which is what makes the merge see the
+        // change that is being pushed rather than the state before it. Base entries
+        // first (`provisioning.registry` already opens with them), so a
+        // hand-registered override still wins — `LSPServerRegistry`'s
+        // first-registration-wins rule.
+        //
+        // `lspWorkspace` and the models are captured directly rather than through
+        // `self`: this runs during `init`, and the closures must outlive it holding
+        // those objects, not a half-built `PisakaApp` value.
+        provisioning.onRegistryChange = { @MainActor [lspWorkspace, gopls] registry in
+            await lspWorkspace.updateRegistry(
+                LSPServerRegistry(registry.descriptions + gopls.descriptions)
+            )
+        }
+        gopls.onDescriptionsChange = { @MainActor [lspWorkspace, provisioning] descriptions in
+            await lspWorkspace.updateRegistry(
+                LSPServerRegistry(provisioning.registry.descriptions + descriptions)
+            )
         }
         self.lspProvisioning = provisioning
+
+        // Find the Go toolchain now, off the main thread — `LSPToolchain.prewarm()`'s
+        // position and its reasoning, one step further: the row that reports this is
+        // `pending` until it answers, and the silent half of D15 (a gopls the user
+        // already accepted, built when a `.go` file is opened) can only run once the
+        // answer is in. Unawaited, so a machine with no `go` spends its login-shell
+        // search entirely off the launch path.
+        Task { await gopls.discover() }
 
         _projectSearch = StateObject(
             wrappedValue: ProjectSearchModel(
@@ -278,6 +327,36 @@ struct PisakaApp: App {
             architecture: PisakaApp.hostArchitecture
         )
         return (engine, LSPProvisioningModel(engine: engine, settings: settings))
+    }
+
+    /// The gopls pair — the machine-knowledge seams and the model over them —
+    /// composed the one way this app composes them.
+    ///
+    /// A factory for `makeProvisioning`'s reason, and it takes the *same* engine
+    /// the downloadable servers use rather than building a second one: the install
+    /// root is one directory, `sweepStaging()` sweeps all of it, and two layouts
+    /// over one path is how a Remove ends up looking somewhere nothing was ever
+    /// written. The defaults exist for the default-constructed `ContentView`
+    /// (previews/tests) alone.
+    ///
+    /// Building one searches for nothing: `LSPGoToolchainService` resolves lazily
+    /// on first `discover()`, and the model derives its row from a `pending`
+    /// report until that answers.
+    static func makeGopls(
+        engine: LSPInstallEngine = PisakaApp.makeProvisioning().engine,
+        settings: SettingsStore = SettingsStore()
+    ) -> (service: LSPGoToolchainService, model: LSPGoplsProvisioningModel) {
+        let service = LSPGoToolchainService()
+        return (
+            service,
+            LSPGoplsProvisioningModel(
+                discovery: service,
+                installer: service,
+                engine: engine,
+                fileService: FileService(),
+                settings: settings
+            )
+        )
     }
 
     /// Where provisioned language servers live: `~/Library/Application
@@ -424,6 +503,7 @@ struct PisakaApp: App {
                 reveal: reveal,
                 symbolIndex: symbolIndexController,
                 provisioning: lspProvisioning,
+                gopls: lspGopls,
                 onGoToDefinition: { url, range in activateSearchMatch(url: url, range: range) },
                 onViewDefinitionOutsideProject: { url, range in
                     viewDefinitionOutsideProject(url: url, range: range)
@@ -539,6 +619,15 @@ struct PisakaApp: App {
                         // wrapping the `async` teardown would never be picked up;
                         // see the method's own note.
                         lspWorkspace.terminateNow()
+                        // And whatever the Go seams have running — a `go install`
+                        // in flight, or a login shell still printing its `PATH`.
+                        // A build left behind is worse than an orphan server: it
+                        // has a compiler and a linker of its own beneath it, and
+                        // it is writing into a staging directory nothing will
+                        // finish. Permanent as well as immediate, so a `.go` tab
+                        // open arriving after this observer cannot start another
+                        // one (see `LSPGoToolchainService.terminateNow()`).
+                        lspGoToolchain.terminateNow()
                     }
                     // Tear the FSEvents subscription down too, so no stream
                     // outlives the app. `stop()` is idempotent (and a no-op when
@@ -729,6 +818,7 @@ struct PisakaApp: App {
             SettingsView(
                 settings: settings,
                 provisioning: lspProvisioning,
+                gopls: lspGopls,
                 installEngine: lspInstallEngine
             )
         }

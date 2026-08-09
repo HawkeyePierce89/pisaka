@@ -635,26 +635,57 @@ on *this* Mac, and what running `go install` means here.
   `Sources/Pisaka/LSPConsentBanner.swift`,
   `Sources/Pisaka/LSPServerSettingsView.swift`
 
-- [ ] compose the model once in `PisakaApp.init` beside the provisioning pair,
+- [x] compose the model once in `PisakaApp.init` beside the provisioning pair,
       kick off discovery there (the `LSPToolchain.prewarm()` position), and merge
       the two registry contributors into one awaited
       `LSPWorkspace.updateRegistry(_:)` push, base entries first so a
       hand-registered override still wins
-- [ ] extend the terminate observer so an in-flight `go install` is torn down with
+      — composed through a new `makeGopls(engine:settings:)` factory that takes
+      the *same* `LSPInstallEngine` the downloadable servers use, rather than
+      building a second one: the install root is one directory and
+      `sweepStaging()` sweeps all of it, so two layouts over one path is how a
+      Remove ends up looking where nothing was written. The merge is two
+      `@MainActor` closures rather than one shared function — each takes its own
+      contributor's *new* value as a parameter and reads the other's published
+      one, which is what makes the push see the change being made rather than the
+      state before it.
+- [x] extend the terminate observer so an in-flight `go install` is torn down with
       the rest — no orphan `go` (or `gopls`) after quit
-- [ ] give the banner a Go branch: same strip, same two actions and no dismiss,
+      — `lspGoToolchain.terminateNow()` beside `lspWorkspace.terminateNow()` in
+      the `MainActor.assumeIsolated` block. The service is held by `PisakaApp`
+      rather than only by the model for exactly this: the teardown is permanent as
+      well as immediate, so a `.go` tab open arriving after the observer cannot
+      start another build.
+- [x] give the banner a Go branch: same strip, same two actions and no dismiss,
       copy that says what actually happens ("Install gopls with your Go
       toolchain?" — built from source by your own `go`, nothing downloaded by
       Pisaka), and the same `.task(id:)` silent half calling the model's
       prepare-on-open; the download branch keeps precedence if both ever apply
-- [ ] give the Settings tab a Go row rendering D19's five states, with
+      — `strip` became generic over its content so the two rows share the bottom
+      rule; the Go row carries a hammer rather than a download arrow and no size,
+      because there is no download. The download branch is checked first and the
+      precedence is stated even though the two contributors serve disjoint
+      languages and cannot collide today.
+- [x] give the Settings tab a Go row rendering D19's five states, with
       Install/Retry and a Remove that appears only for the app-installed copy,
       plus one sentence naming gopls's origin and BSD-3-Clause licence — gopls
       ships no licence file into `GOBIN`, so there is nothing for
       `LSPInstalledLicenses` to read and nothing for `licenses.json` to cover
       (this app bundles no gopls bytes); the sentence is the honest substitute,
       and the decision is written down rather than left as an omission
-- [ ] run `swift test`
+      — six states, not five: `pending` is drawn as "Looking for a Go toolchain…"
+      for the reason Task 6 gave it a case at all. Two further sentences on the
+      tab changed with it, both because a row that is built rather than downloaded
+      makes them untrue as written: the header now says "download or build", and
+      the install-root footer says "anything Pisaka installs" lives there — a
+      gopls found in `~/go/bin` is used from where it is and is no more affected
+      by deleting that directory than by the Remove button that does not appear
+      for it.
+- [x] run `swift test`
+      — 2213 tests, 0 failures. `swift test` compiles `PisakaCore` alone and so
+      cannot see any of this task's code, so the macOS build was run here too
+      (Task 7's precedent): it succeeds, with no new warnings in the five touched
+      files.
 
 ### Task 9: Build both destinations and re-run the required-reason audit
 

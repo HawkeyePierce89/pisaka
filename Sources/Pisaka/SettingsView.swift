@@ -17,6 +17,11 @@ struct SettingsView: View {
     /// Acknowledgements section for what is installed — rather than each of them
     /// building its own view of the install root.
     @ObservedObject var provisioning: LSPProvisioningModel
+    /// The second registry contributor, read by the Language Servers tab alone:
+    /// gopls ships no licence file into its install (D17), so unlike the
+    /// downloadable servers there is nothing here for Acknowledgements to show —
+    /// the Go row's own sentence names its origin and licence instead.
+    @ObservedObject var gopls: LSPGoplsProvisioningModel
     let installEngine: LSPInstallEngine
 
     var body: some View {
@@ -24,7 +29,7 @@ struct SettingsView: View {
             GeneralSettingsView(settings: settings)
                 .tabItem { Label("General", systemImage: "gearshape") }
 
-            LSPServerSettingsView(provisioning: provisioning)
+            LSPServerSettingsView(provisioning: provisioning, gopls: gopls)
                 .tabItem { Label("Language Servers", systemImage: "arrow.down.circle") }
 
             AcknowledgementsView(provisioning: provisioning, installEngine: installEngine)
