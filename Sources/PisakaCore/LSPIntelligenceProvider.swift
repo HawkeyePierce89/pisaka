@@ -137,6 +137,15 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         guard let response = try? await prepared.session.definition(
             LSPTextDocumentPositionParams(uri: prepared.uri, position: position)
         ) else { return [] }
+        // The flush guaranteed the server's text when `prepare` returned, not while
+        // the question was outstanding — see `LSPWorkspace.holdsVersion`. An answer
+        // computed against a document some other request talked the server out of
+        // underneath this one is dropped rather than mapped, for this file's first
+        // rule: no answer is better than a guessed one, and a jump is the one place
+        // a guess is indistinguishable from knowledge.
+        guard await workspace.holdsVersion(prepared.version, for: prepared.uri) else {
+            return []
+        }
 
         let root = await workspace.root
         // One text per file rather than one per target: a cross-module jump
@@ -254,6 +263,13 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
                 context: request.member == nil ? .invoked : .dot
             )
         ) else { return [] }
+        // The same staleness gate the definition path applies, and for the sharper
+        // consequence: a completion list is not merely displayed, its items carry
+        // *edits* in buffer coordinates, and edits derived from a document the
+        // server was talked out of would be applied to the file.
+        guard await workspace.holdsVersion(prepared.version, for: prepared.uri) else {
+            return []
+        }
 
         // A member context already carries the range a completion replaces, and
         // it is the same range the ordinary path reconstructs — see

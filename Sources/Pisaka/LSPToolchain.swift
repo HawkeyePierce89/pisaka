@@ -11,10 +11,15 @@ import PisakaCore
 /// and it is exactly one shell-out.
 ///
 /// **Nothing is bundled and nothing is downloaded.** If the machine has no Xcode,
-/// `xcrun --find` answers nothing, this type answers `nil`, the transport factory
-/// throws `launchFailed`, and `LSPWorkspace` spends one restart on the failure —
-/// which is why the answer is *cached, including the negative one*: without that,
-/// a machine with no toolchain would fork `xcrun` once per keystroke forever.
+/// `xcrun --find` answers nothing, this type answers `.missing`, the transport
+/// factory throws `launchFailed`, and `LSPWorkspace` spends one restart on the
+/// failure — which is why the answer is *cached, including the negative one*:
+/// without that, a machine with no toolchain would fork `xcrun` once per keystroke
+/// forever.
+///
+/// **Nothing here blocks its caller.** The one caller is a `@MainActor` transport
+/// factory, so the lookup runs on a background queue and the answer is whatever is
+/// already recorded — see `Resolution`.
 ///
 /// The cache is per app run, not per folder: `DEVELOPER_DIR` is read from the
 /// environment the app was launched with and cannot change under a running
@@ -22,53 +27,59 @@ import PisakaCore
 /// toolchain until the next launch. Stated rather than papered over — the
 /// alternative is invalidation logic for an event nobody has ever hit.
 enum LSPToolchain {
+    /// What is known about a launch description right now — **without running
+    /// anything**.
+    ///
+    /// `pending` is the case that makes this type worth having. There is no
+    /// blocking lookup in this file's API, deliberately: the only caller is
+    /// `LSPWorkspace`'s transport factory, which is `@MainActor` and called
+    /// synchronously inside the launch turn, so a `waitUntilExit` reachable from
+    /// there is a main-thread stall of however long a cold `xcrun` takes — the one
+    /// thing D7's whole "answer from tree-sitter and start the server behind it"
+    /// shape exists to prevent. So an unresolved tool answers `pending`, the
+    /// factory refuses *without* spending restart budget, that one request falls
+    /// back, and the background lookup this starts makes every later one a
+    /// dictionary hit.
+    enum Resolution: Equatable {
+        case found(String)
+        /// Looked up and not on this machine (no Xcode, no command line tools, a
+        /// `DEVELOPER_DIR` pointing at nothing, `xcrun` itself missing). Recorded,
+        /// so it is never looked up again.
+        case missing
+        /// Not looked up yet. A lookup is now running.
+        case pending
+    }
+
     /// Resolved paths, keyed by tool name. The value is itself optional, so a
     /// *recorded* "not found" is distinguishable from "not looked up yet" and is
     /// never re-run.
     private static let lock = NSLock()
     private static var resolved: [String: String?] = [:]
+    /// Tools whose lookup is running right now, so two callers arriving before the
+    /// first answer starts one `xcrun`, not two.
+    private static var inFlight: Set<String> = []
 
-    /// The absolute path to `name` inside the active toolchain, or `nil` when the
-    /// lookup fails for any reason (no Xcode, no command line tools, a
-    /// `DEVELOPER_DIR` pointing at nothing, `xcrun` itself missing).
-    ///
-    /// Blocking, and deliberately so: it is one `xcrun` per tool per app run, and
-    /// making it `async` would push a `Task` hop into `LSPWorkspace`'s transport
-    /// factory — which is synchronous precisely because launching a process is
-    /// something the main-actor turn that decided to launch it can just do. Call
-    /// `prewarm()` at startup and the first real lookup is a dictionary hit.
-    static func toolPath(named name: String) -> String? {
-        lock.lock()
-        if let cached = resolved[name] {
-            lock.unlock()
-            return cached
-        }
-        lock.unlock()
-
-        let found = locate(name)
-
-        lock.lock()
-        // Last writer wins. Two concurrent lookups of the same tool run `xcrun`
-        // twice and agree on the answer; a lock held across the subprocess would
-        // block whoever asked for a *different* tool behind it.
-        resolved[name] = found
-        lock.unlock()
-        return found
-    }
-
-    /// Resolve `launch` to an executable path, or `nil` when there is nothing to
-    /// run.
+    /// What is known about `launch`, and — for a toolchain tool nothing has looked
+    /// up yet — a background lookup started on the way out.
     ///
     /// `.executable(path:)` — what phase 2b's node-based servers will use — is
-    /// checked for existence and the executable bit here rather than being handed
-    /// to `Process` to fail on, so both launch kinds report "not on this machine"
-    /// the same way and `LSPWorkspace` sees one failure shape.
-    static func executablePath(for launch: LSPServerDescription.Launch) -> String? {
+    /// answered from a `stat` rather than deferred: there is no subprocess to wait
+    /// for, so there is nothing to be `pending` about.
+    static func resolution(for launch: LSPServerDescription.Launch) -> Resolution {
         switch launch {
         case .toolchainTool(let name):
-            return toolPath(named: name)
+            lock.lock()
+            let cached = resolved[name]
+            lock.unlock()
+            switch cached {
+            case .some(.some(let path)): return .found(path)
+            case .some(.none): return .missing
+            case .none:
+                startResolution(of: name)
+                return .pending
+            }
         case .executable(let path):
-            return FileManager.default.isExecutableFile(atPath: path) ? path : nil
+            return FileManager.default.isExecutableFile(atPath: path) ? .found(path) : .missing
         }
     }
 
@@ -76,18 +87,35 @@ enum LSPToolchain {
     ///
     /// `xcrun` is fast when the toolchain is warm and takes a noticeable moment
     /// when it is not, and the first ⌘-click in a cold project is exactly when it
-    /// would otherwise run — on the main actor, inside the launch turn. Called
-    /// from app startup, this moves that cost to a background queue before anyone
-    /// asks. Purely an optimisation: correctness does not depend on it, and a
-    /// lookup that arrives first simply fills the same cache.
+    /// would otherwise be wanted. Called from app startup, this has the answer
+    /// cached before anyone asks; without it, the first request answers from
+    /// tree-sitter and the second is semantic.
     static func prewarm(_ registry: LSPServerRegistry = .standard) {
-        let names: [String] = registry.descriptions.compactMap { description in
-            guard case .toolchainTool(let name) = description.launch else { return nil }
-            return name
+        for description in registry.descriptions {
+            guard case .toolchainTool(let name) = description.launch else { continue }
+            startResolution(of: name)
         }
-        guard !names.isEmpty else { return }
-        DispatchQueue.global(qos: .utility).async {
-            for name in names { _ = toolPath(named: name) }
+    }
+
+    /// Run one `xcrun` for `name` on a background queue, unless the answer is
+    /// already recorded or a lookup is already running for it.
+    private static func startResolution(of name: String) {
+        lock.lock()
+        guard resolved[name] == nil, inFlight.insert(name).inserted else {
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+
+        // `.userInitiated` rather than `.utility`: the prewarm is speculative, but
+        // a lookup started by `resolution(for:)` has a user waiting on the *next*
+        // request being semantic instead of falling back again.
+        DispatchQueue.global(qos: .userInitiated).async {
+            let found = locate(name)
+            lock.lock()
+            resolved[name] = found
+            inFlight.remove(name)
+            lock.unlock()
         }
     }
 

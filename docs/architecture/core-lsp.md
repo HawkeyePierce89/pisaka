@@ -185,9 +185,12 @@ document, together with the limits they carry.
     and a second `for await` would silently split the message stream in two.
     `terminate()` must be idempotent (the session calls it on every terminal path)
     and must finish `incomingBytes`, because a stream that never ends is a read task
-    that never exits. `LSPTransportError` names the three ways bytes fail to move
-    and is deliberately **not** `LocalizedError`: nothing on this path is ever shown
-    to anyone (D7).
+    that never exits. `LSPTransportError` names the ways bytes fail to move and is
+    deliberately **not** `LocalizedError`: nothing on this path is ever shown to
+    anyone (D7). Three of its cases are failures (`launchFailed`, `notRunning`,
+    `writeFailed`); `notReady` is not one — it says the factory declined to answer
+    *yet* rather than block the main-actor turn it was called on, and `LSPWorkspace`
+    spends no restart budget on it (see `LSPToolchain`).
 
   - `LSPSession.swift` — one live conversation with one server process: the
     handshake, the id counter, the pending-request table, and the rules for every
@@ -308,6 +311,31 @@ document, together with the limits they carry.
     file, silently, until the buffer changes again. The "text unchanged" answer is
     given before the claim, so a second request at the same keystroke still costs
     nothing.
+    **`didClose(url:)` takes the same claim**, and must. Closing a tab is one of the
+    things that supersedes a completion, so a close landing while a `didChange` for
+    that file is in flight is the common shape rather than an exotic one — and
+    without the claim the two interleave in the one way that does lasting damage:
+    the close drops `documents[uri]`, and the notification already on its way stores
+    it *back*, leaving a document the server has been told is closed recorded here as
+    open with exactly the text it holds. The next request reads that as "nothing to
+    send", never re-`didOpen`s, and asks about a document the server dropped —
+    silently, for the rest of the app run, since only another close or a crash clears
+    the entry. `LSPWorkspaceTests`
+    `.testATabClosedWhileTheBufferIsFlushingDoesNotLeaveTheDocumentRecordedAsOpen`
+    stages it by holding the writer inside the `didChange` while the main actor runs
+    the close.
+    **The claim is released before the request is sent, so `holdsVersion(_:for:)`
+    exists.** `prepare` guarantees the server's text at *prepare* time, not for the
+    life of the question: a second request carrying different text — one queued
+    behind a launch, one the router abandoned at its deadline and then resumed —
+    flushes in between, and the answer that comes back is about a document the
+    caller's buffer no longer describes. `LSPIntelligenceProvider` asks this before
+    reading any response and treats `false` as no answer at all, because a wrong jump
+    *is* an answer and so never falls back. Checking after the fact rather than
+    holding the claim across the request is deliberate: the request would otherwise
+    serialise every other question about that file behind a server that is allowed to
+    take seconds, and the cost of the conservative answer is one tree-sitter fallback
+    in a case where the buffer had moved on anyway.
     **When to give up** (D7): three restarts with 1 s / 2 s / 4 s of backoff — the
     `backoffDelays` array's length *is* the budget — and the fourth failure marks
     that `(server, root)` unavailable for the rest of the app run. The budget is per
@@ -317,6 +345,12 @@ document, together with the limits they carry.
     the fifth. **A launch failure spends it exactly like a crash** — a factory that
     throws (no Xcode, `xcrun --find` empty) must stop the retries, or a machine with
     no toolchain would attempt a process launch once per keystroke forever.
+    **`LSPTransportError.notReady` is the one throw that costs nothing**, because
+    nothing was attempted: the factory is `@MainActor` and called inside the launch
+    turn, so the app's cannot block on `xcrun --find` and answers "not yet" while the
+    lookup runs on a background queue (`LSPToolchain`). Counting it would let three
+    ⌘-clicks in the first second after launch retire a perfectly good server for the
+    whole app run.
     **Two failures are terminal rather than countable** and are marked unavailable
     immediately: a server that answers `positionEncoding: utf-8` (every offset in
     this codebase is UTF-16, and it will answer the same on every restart), and — the
@@ -474,7 +508,15 @@ document, together with the limits they carry.
     empty while its `offset` is non-zero was built by a call site that forgot to
     pass the buffer, and clamping its position to `0:0` would ask a confidently
     wrong question and get a confidently wrong *answer* — which never falls back,
-    because it **is** an answer. So nothing is sent at all. Candidates come back in
+    because it **is** an answer. So nothing is sent at all. **The same rule is
+    applied to the response, through `LSPWorkspace.holdsVersion(_:for:)`**: the flush
+    guarantees the server's text when `prepare` returns, not for the life of the
+    question, so a second request that talked the server into different text while
+    this one was outstanding leaves an answer about a document the caller's buffer no
+    longer describes. Both request methods check before reading a response and drop it
+    if the version moved — a definition would otherwise be a plausible, wrong jump,
+    and a completion's items carry *edits* in buffer coordinates that would then be
+    applied to the file. Candidates come back in
     the server's order, which is the answer's own order (sourcekit-lsp answers a
     type reference with the type *and* its memberwise initializer, and which the
     user meant is not something a sort key here could know better than the compiler
@@ -732,4 +774,9 @@ off as recordings.
 
 `Tests/PisakaCoreTests/Support/ScriptedLSPTransport.swift` is the deterministic
 fake every session and workspace test drives: a script of replies, delays, drops
-and stream closures, with no real process anywhere.
+and stream closures, with no real process anywhere. `onSend(_:)` is its one
+*interleaving* seam — called synchronously from `send`, on the session's writer
+thread, so a test that blocks in it holds the writer inside a notification while
+the main actor is free to run something else. That is the only way to stage the
+window `flush`/`didClose` claim a document against deterministically (`Gate`'s
+principle, one layer down).

@@ -446,11 +446,62 @@ public final class LSPWorkspace {
     /// `SymbolIndexModel.forgetBuffer(url:)`. A file nobody opened, or one whose
     /// server has since died, is a no-op: the state is dropped either way, so the
     /// next request re-opens rather than assuming the server still has it.
+    ///
+    /// Runs under the same per-document claim `flush` takes, and must: a tab closed
+    /// while a request is flushing is ordinary (the close *is* what supersedes the
+    /// request), and without the claim the two interleave in the one way that does
+    /// lasting damage. `send` is a read-modify-write over `documents[uri]` with an
+    /// `await` in the middle, so a `didClose` landing inside that window drops the
+    /// state and then has it *written back* by the notification that was already in
+    /// flight — leaving a document the server has been told is closed recorded here
+    /// as open, with exactly the text it was told. The next request reads that as
+    /// "nothing to send", never re-`didOpen`s, and asks about a document the server
+    /// dropped — silently, for the rest of the app run, since only another close or
+    /// a crash clears the entry.
     public func didClose(url: URL) async {
         let uri = LSPWorkspace.documentURI(for: url)
+        // Wait out whatever is flushing this document — `flush`'s loop, for
+        // `flush`'s reason, and it terminates for the same one: the running task
+        // clears its own slot from inside its body.
+        while let inFlight = flushes[uri] { _ = await inFlight.task.value }
+
         guard let state = documents.removeValue(forKey: uri) else { return }
         guard let session = sessions[state.serverKey] else { return }
-        try? await session.didClose(LSPDidCloseTextDocumentParams(uri: uri))
+
+        // Claimed like a flush, so a request that arrives while the notification is
+        // being written waits rather than re-opening the document underneath it.
+        // There is no suspension point between the loop above and this line, so the
+        // claim is exactly the one this call put there.
+        flushCounter += 1
+        let id = flushCounter
+        let task = Task { @MainActor [self] () -> Result<Int, Error> in
+            do {
+                try await session.didClose(LSPDidCloseTextDocumentParams(uri: uri))
+            } catch {
+                // The pipe is gone, which the next request rediscovers on its own.
+                // The state is already dropped, which is the part that matters.
+            }
+            if flushes[uri]?.id == id { flushes[uri] = nil }
+            return .success(state.version)
+        }
+        flushes[uri] = PendingFlush(id: id, task: task)
+        _ = await task.value
+    }
+
+    /// Whether the server still holds exactly the version a request was prepared
+    /// against — the check that keeps an answer from being read in coordinates the
+    /// server has since been talked out of.
+    ///
+    /// `prepare` releases the document's flush claim before it returns, so a
+    /// *second* request carrying older text (one queued behind a launch, or one the
+    /// router abandoned at its deadline and then resumed) can `didChange` the server
+    /// backwards between the flush and the request that followed it. The answer that
+    /// comes back is then about a document whose offsets the caller's buffer does not
+    /// describe — a confidently wrong jump, which never falls back, because it *is*
+    /// an answer. Callers ask this before reading a response and treat `false` as no
+    /// answer at all.
+    public func holdsVersion(_ version: Int, for uri: String) -> Bool {
+        documents[uri]?.version == version
     }
 
     // MARK: - Sessions
@@ -566,6 +617,14 @@ public final class LSPWorkspace {
         let transport: LSPTransport
         do {
             transport = try transportFactory(description, root)
+        } catch LSPTransportError.notReady {
+            // Not a failure: the factory declined to answer *yet* rather than
+            // blocking the turn it was called on (the toolchain lookup is still
+            // running). Nothing was attempted, so nothing is counted — charging
+            // D7's budget for it would let three ⌘-clicks in the first second
+            // after launch retire a perfectly good server for the app run. This
+            // request falls back; the next one launches.
+            return nil
         } catch {
             // No toolchain, no executable, no pipe. Counted like a crash: a
             // machine with no Xcode must stop trying, not retry per keystroke.

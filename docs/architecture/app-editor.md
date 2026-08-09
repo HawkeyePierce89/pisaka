@@ -587,14 +587,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `LSPWorkspace.transportFactory` is handed, and it **throws** rather than returning
     `nil` when the executable cannot be found, because the workspace already treats a
     throwing factory exactly like a crash — one spent restart, then silence — and a
-    machine with no Xcode must not retry a process launch once per keystroke.
+    machine with no Xcode must not retry a process launch once per keystroke. It also
+    **never waits for the toolchain lookup**: a tool nothing has resolved yet throws
+    `notReady`, which costs no restart budget, rather than stalling the main thread
+    inside the launch turn (`LSPToolchain`).
   - `LSPToolchain.swift` — where a language server's executable actually is on
     *this* machine, in exactly one shell-out: `xcrun --find <name>`. Resolution is the
     app's job because Core cannot run `xcrun` (D9), and hard-coding
     `/Applications/Xcode.app/…/sourcekit-lsp` would break the moment someone runs
     `xcode-select`, installs a beta alongside a release, or exports `DEVELOPER_DIR`.
     **Nothing is bundled and nothing is downloaded**: no Xcode means `xcrun --find`
-    answers nothing, this answers `nil`, the transport factory throws `launchFailed`,
+    answers nothing, this answers `.missing`, the transport factory throws
+    `launchFailed`,
     and `LSPWorkspace` spends one restart on it — which is why the answer is cached
     **including the negative one** (`[String: String?]`, so a recorded "not found" is
     distinguishable from "not looked up yet"), or a machine with no toolchain would
@@ -603,12 +607,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     change under a running process, so someone who runs `xcode-select` mid-session
     gets the old toolchain until the next launch — stated rather than papered over,
     since the alternative is invalidation logic for an event nobody has ever hit.
-    Blocking and deliberately so: making it `async` would push a `Task` hop into the
-    workspace's transport factory, which is synchronous precisely because launching a
-    process is something the main-actor turn that decided to launch it can just do.
-    `prewarm(_:)` moves the first lookup to a background queue at app startup so the
-    first ⌘-click in a cold project does not pay for it inside the launch turn —
-    purely an optimisation, since correctness does not depend on it. `.executable(path:)`
+    **Nothing here blocks its caller**, and that is the whole shape of the API: the
+    one caller is a `@MainActor` transport factory called inside the launch turn, so
+    a `waitUntilExit` reachable from there is a main-thread stall of however long a
+    cold `xcrun` takes — the one thing D7's "answer from tree-sitter and start the
+    server behind it" arrangement exists to prevent. `resolution(for:)` therefore
+    answers only from what is already recorded, and a tool nobody has looked up yet
+    is `.pending`: the factory throws `LSPTransportError.notReady`, that request falls
+    back, **no restart budget is spent** (nothing was attempted), and the background
+    lookup this starts makes every later request a dictionary hit. `prewarm(_:)` runs
+    the same lookups at app startup, so in practice `.pending` is only ever reached by
+    a request that beat it; `startResolution(of:)` de-duplicates in-flight lookups, so
+    a request racing the prewarm joins it instead of forking a second `xcrun`.
+    `.executable(path:)`
     is checked for existence and the executable bit here rather than being handed to
     `Process` to fail on, so both launch kinds report "not on this machine" the same
     way and the workspace sees one failure shape. Run through `/usr/bin/xcrun`

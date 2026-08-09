@@ -286,9 +286,23 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
     /// than returning `nil`, because the workspace already treats a throwing
     /// factory exactly like a crash — one spent restart, then silence — and a
     /// machine with no Xcode must not retry a process launch once per keystroke.
+    ///
+    /// **Called on the main actor, so it never waits for the lookup.** A toolchain
+    /// tool nobody has resolved yet answers `.pending` and this throws `notReady`,
+    /// which costs no restart budget: the request behind it falls back to
+    /// tree-sitter for the moment it takes the background `xcrun` to answer, rather
+    /// than the main thread stalling on one inside the launch turn. In practice the
+    /// startup `prewarm()` means this is only ever reached by a request that beat
+    /// it.
     static func make(for description: LSPServerDescription, root: URL) throws -> LSPProcessTransport {
-        guard let path = LSPToolchain.executablePath(for: description.launch) else {
+        let path: String
+        switch LSPToolchain.resolution(for: description.launch) {
+        case .found(let resolved):
+            path = resolved
+        case .missing:
             throw LSPTransportError.launchFailed("\(description.id): not found on this machine")
+        case .pending:
+            throw LSPTransportError.notReady
         }
         return try LSPProcessTransport(
             executable: URL(fileURLWithPath: path),

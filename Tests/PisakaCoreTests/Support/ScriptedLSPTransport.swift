@@ -59,6 +59,15 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
 
     private let lock = NSLock()
     private var scripts: [String: [Step]] = [:]
+    /// Called from `send`, synchronously, on whatever thread the session writes
+    /// from — which is never the main one.
+    ///
+    /// The seam an *interleaving* is staged through, and the only thing that can
+    /// stage one deterministically: blocking in here holds the writer inside its
+    /// notification while the main actor is free to run something else, which is
+    /// exactly the window `LSPWorkspace.flush` claims a document against. `Gate`'s
+    /// principle, applied one layer down.
+    private var onSend: (@Sendable (String) -> Void)?
     private var received: [LSPIncomingMessage] = []
     private var framing = LSPFraming.Decoder()
     private var streamIsFinished = false
@@ -84,6 +93,13 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
 
     func script(_ method: String, _ step: Step) {
         script(method, [step])
+    }
+
+    /// Install the write hook — see `onSend`.
+    func onSend(_ hook: (@Sendable (String) -> Void)?) {
+        lock.lock()
+        onSend = hook
+        lock.unlock()
     }
 
     /// The stock `initialize` answer: a server that does definitions, completions
@@ -151,7 +167,20 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
         let payloads = (try? framing.append(data)) ?? []
         let messages = payloads.compactMap { try? LSPIncomingMessage.decode($0) }
         received.append(contentsOf: messages)
+        let hook = onSend
         lock.unlock()
+
+        // Outside the lock, and before the reaction: a hook that blocks must hold
+        // only the writer, not every reader of the recording.
+        if let hook {
+            for message in messages {
+                switch message {
+                case .serverRequest(let request): hook(request.method)
+                case .notification(let notification): hook(notification.method)
+                case .response: break
+                }
+            }
+        }
 
         for message in messages { react(to: message) }
     }

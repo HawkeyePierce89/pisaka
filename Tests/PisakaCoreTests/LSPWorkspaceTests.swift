@@ -379,6 +379,68 @@ final class LSPWorkspaceTests: XCTestCase {
         XCTAssertEqual(harness.latest.notifications(for: LSPMethod.didOpen).count, 2)
     }
 
+    /// A tab closed **while the buffer is being flushed** must not leave the
+    /// document recorded as open.
+    ///
+    /// The two are ordinary neighbours, not an exotic pair: closing a tab is one of
+    /// the things that supersedes a completion, so a `didClose` landing while a
+    /// `didChange` for the same file is in flight is the common shape. `send` is a
+    /// read-modify-write over `documents[uri]` with an `await` in the middle, so a
+    /// close that took no claim would drop the state and then have it written *back*
+    /// by the notification already on its way — leaving a document the server has
+    /// been told is closed recorded here as open, with exactly the text it holds.
+    /// The next request reads that as "nothing to send", never re-`didOpen`s, and
+    /// asks about a document the server dropped — silently, for the rest of the app
+    /// run.
+    func testATabClosedWhileTheBufferIsFlushingDoesNotLeaveTheDocumentRecordedAsOpen() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1")
+
+        // Hold the writer inside the `didChange`, which leaves the main actor free
+        // — the window a close would otherwise interleave into.
+        let reached = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        harness.latest.onSend { method in
+            guard method == LSPMethod.didChange else { return }
+            reached.signal()
+            release.wait()
+        }
+
+        let flushing = Task { await workspace.prepare(url: mainFile, language: .swift, text: "let a = 2") }
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                reached.wait()
+                continuation.resume()
+            }
+        }
+
+        let closing = Task { await workspace.didClose(url: mainFile) }
+        // Let the close reach the point where it either takes the claim (and waits)
+        // or walks straight into the middle of the flush.
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        release.signal()
+        _ = await flushing.value
+        await closing.value
+        harness.latest.onSend(nil)
+
+        XCTAssertTrue(
+            workspace.openDocumentURIs.isEmpty,
+            "the close is the last word: nothing may be re-recorded behind it"
+        )
+        XCTAssertEqual(harness.latest.notifications(for: LSPMethod.didClose).count, 1)
+        XCTAssertEqual(
+            harness.latest.sentMethods.last, LSPMethod.didClose,
+            "and it is the last thing the server was told about the document"
+        )
+
+        // The proof that the record and the server still agree: the next request
+        // opens the document afresh rather than assuming it is still there.
+        let reopened = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 2")
+        XCTAssertEqual(reopened?.version, 1)
+        XCTAssertEqual(harness.latest.notifications(for: LSPMethod.didOpen).count, 2)
+    }
+
     // MARK: - Folder switch
 
     func testAFolderSwitchClosesEveryDocumentAndShutsEveryServerDown() async throws {
@@ -673,6 +735,37 @@ final class LSPWorkspaceTests: XCTestCase {
         _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
         XCTAssertEqual(harness.launches.count, 4)
         XCTAssertEqual(recordedDelays, LSPWorkspace.backoffDelays)
+    }
+
+    /// A factory that declines to answer *yet* is not a failure.
+    ///
+    /// The transport factory is `@MainActor` and called inside the launch turn, so
+    /// the app's one cannot block on `xcrun --find`: an unresolved toolchain answers
+    /// `notReady` and the lookup runs on a background queue. Charging that against
+    /// D7's budget would let three ⌘-clicks in the first second after launch retire
+    /// a perfectly good server for the whole app run — silently, and with nothing to
+    /// undo it.
+    func testAFactoryThatIsNotReadyYetCostsNoRestartBudget() async {
+        let harness = ServerHarness()
+        harness.launchError = .notReady
+        let workspace = makeWorkspace(harness: harness)
+
+        for _ in 1...5 {
+            let prepared = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+            XCTAssertNil(prepared, "the request falls back to tree-sitter")
+        }
+
+        XCTAssertEqual(harness.launches.count, 5, "every request may try again")
+        XCTAssertFalse(workspace.isUnavailable(.swift))
+        XCTAssertTrue(workspace.canServe(.swift))
+        XCTAssertTrue(recordedDelays.isEmpty, "nothing failed, so nothing is backed off from")
+
+        // And the moment the lookup lands, the next request starts the server with
+        // its budget untouched.
+        harness.launchError = nil
+        let prepared = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        XCTAssertNotNil(prepared)
+        XCTAssertTrue(recordedDelays.isEmpty)
     }
 
     func testAHandshakeThatNeverAnswersCountsAsAFailure() async {

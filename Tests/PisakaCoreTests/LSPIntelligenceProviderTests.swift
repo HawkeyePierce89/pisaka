@@ -134,9 +134,16 @@ final class LSPIntelligenceProviderTests: XCTestCase {
 
     private var transport: ScriptedLSPTransport { harness.transport }
 
+    /// The workspace the last `makeProvider` built. The provider keeps its own
+    /// private — deliberately, so nothing above the seam can reach past it — which
+    /// leaves a test no other way to stage a *second* request against the same
+    /// document while the first one's question is outstanding.
+    private var lastWorkspace: LSPWorkspace?
+
     override func setUp() {
         super.setUp()
         harness = Harness()
+        lastWorkspace = nil
     }
 
     private func makeWorkspace(root: URL? = nil) -> LSPWorkspace {
@@ -167,8 +174,10 @@ final class LSPIntelligenceProviderTests: XCTestCase {
             files.map { (CanonicalPath.canonical(URL(fileURLWithPath: $0.key)).path, $0.value) },
             uniquingKeysWith: { first, _ in first }
         )
+        let workspace = makeWorkspace(root: root)
+        lastWorkspace = workspace
         return LSPIntelligenceProvider(
-            workspace: makeWorkspace(root: root),
+            workspace: workspace,
             completionLimit: completionLimit,
             loadText: { canonical[CanonicalPath.canonical($0).path] }
         )
@@ -226,6 +235,52 @@ final class LSPIntelligenceProviderTests: XCTestCase {
             "Greeter — Sources/Core/Greeter.swift:2",
             "Greeter — Sources/Core/Greeter.swift:5"
         ])
+    }
+
+    /// An answer computed against a document the server was talked *out of* while
+    /// the question was outstanding is dropped, not mapped.
+    ///
+    /// `LSPWorkspace.prepare` releases the document's flush claim before it returns,
+    /// so the flush guarantees the server's text at *prepare* time, not while the
+    /// request is in flight. A second request carrying different text — one queued
+    /// behind a launch, or one the router abandoned at its deadline and then resumed
+    /// — sends its own `didChange` in between, and the locations that come back are
+    /// then about a file the caller's buffer does not describe. That is the one
+    /// failure this layer cannot afford to paper over: a wrong jump *is* an answer,
+    /// so it never falls back, and the user lands somewhere plausible and wrong.
+    func testAnAnswerIsDroppedWhenAnotherRequestChangedTheServersDocumentUnderIt() async throws {
+        transport.script(
+            LSPMethod.definition,
+            .reply(try fixtureResult("definition-cross-module.json"), after: 0.2)
+        )
+        let provider = makeProvider(files: [greeterFile.path: greeterSource])
+        let workspace = try XCTUnwrap(lastWorkspace)
+
+        let jumping = Task {
+            await provider.definitions(
+                for: DefinitionRequest(
+                    identifier: "Greeter",
+                    fileURL: mainFile,
+                    offset: greeterReference,
+                    text: mainSource
+                )
+            )
+        }
+        // The jump has flushed its buffer and is waiting on the answer; this is the
+        // other request arriving with a different one.
+        try await Task.sleep(nanoseconds: 40_000_000)
+        let interleaved = await workspace.prepare(
+            url: mainFile,
+            language: .swift,
+            text: "// the document the server now holds\n"
+        )
+        XCTAssertEqual(interleaved?.version, 2, "the staging itself must have moved the server")
+
+        let candidates = await jumping.value
+        XCTAssertTrue(
+            candidates.isEmpty,
+            "an answer about a version the server no longer holds is no answer"
+        )
     }
 
     /// The `LocationLink[]` shape: the jump lands on `targetSelectionRange` (the

@@ -53,6 +53,12 @@ public enum LSPTransportError: Error, Equatable, Hashable, Sendable {
     /// The server executable could not be started — missing, not executable, or
     /// the toolchain lookup found nothing.
     case launchFailed(String)
+    /// Nothing is wrong yet: the factory cannot say where the executable is
+    /// *without blocking*, and refuses rather than stall the turn it was called on
+    /// (`LSPToolchain.Resolution.pending`). Distinct from `launchFailed` because
+    /// `LSPWorkspace` must not spend restart budget on it — no attempt was made, and
+    /// the answer that would let one be made is on its way.
+    case notReady
     /// A write was attempted after the process ended.
     case notRunning
     /// The pipe rejected the write (most often a broken pipe: the server died

@@ -218,7 +218,14 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         let request = DefinitionRequest(
             identifier: match.text,
             fileURL: fileURL,
-            offset: match.range.location
+            offset: match.range.location,
+            // Carried on iOS too, where no language server runs, for the reason
+            // stated on the field: the default exists so phase-1 call sites still
+            // compile, which makes a *forgotten* one the hazard — an offset with no
+            // buffer behind it is exactly the shape `LSPIntelligenceProvider`
+            // refuses to send. The tree-sitter provider ignores it, so filling it in
+            // changes nothing today and cannot be wrong later.
+            text: textView.text ?? ""
         )
         Task { [weak self] in
             let candidates = await provider.definitions(for: request)
