@@ -22,6 +22,13 @@ struct SettingsView: View {
     /// downloadable servers there is nothing here for Acknowledgements to show —
     /// the Go row's own sentence names its origin and licence instead.
     @ObservedObject var gopls: LSPGoplsProvisioningModel
+    /// The third registry contributor, read by the Language Servers tab alone for
+    /// the Go row's reason and a second one of its own: the archive is a bare
+    /// `.gz` holding one binary, so nothing is unpacked that
+    /// `LSPInstalledLicenses` could read and there is nothing here for
+    /// Acknowledgements to show (D24). The Rust row's own sentence names its
+    /// origin and licence instead.
+    @ObservedObject var rust: LSPRustProvisioningModel
     let installEngine: LSPInstallEngine
 
     var body: some View {
@@ -29,7 +36,7 @@ struct SettingsView: View {
             GeneralSettingsView(settings: settings)
                 .tabItem { Label("General", systemImage: "gearshape") }
 
-            LSPServerSettingsView(provisioning: provisioning, gopls: gopls)
+            LSPServerSettingsView(provisioning: provisioning, gopls: gopls, rust: rust)
                 .tabItem { Label("Language Servers", systemImage: "arrow.down.circle") }
 
             AcknowledgementsView(provisioning: provisioning, installEngine: installEngine)

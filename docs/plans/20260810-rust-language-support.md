@@ -839,25 +839,56 @@ seam the app fills in. TDD.
   `Sources/Pisaka/LSPConsentBanner.swift`,
   `Sources/Pisaka/LSPServerSettingsView.swift`
 
-- [ ] compose the Rust model once in `PisakaApp.init` beside the other two, sharing
+- [x] compose the Rust model once in `PisakaApp.init` beside the other two, sharing
       the **same** `LSPInstallEngine` (one install root, one `sweepStaging()`),
       kick off discovery there, and merge the three registry contributors into one
       awaited `updateRegistry(_:)` push — each closure taking its own contributor's
       *new* value and reading the other two's published ones
-- [ ] extend the terminate observer so `lspRustToolchain.terminateNow()` runs
+      *(`makeRust(engine:settings:)` beside `makeGopls`, with the same defaulted
+      arguments for the default-constructed `ContentView`. The unawaited
+      `Task { await rust.discover() }` sits beside gopls's and carries the extra
+      reason this one has: the banner's `.task` awaits discovery before it can
+      silently install an already-accepted rust-analyzer, so it must join this
+      task rather than start a second search.)*
+- [x] extend the terminate observer so `lspRustToolchain.terminateNow()` runs
       beside the other two — no orphan process after quit, and permanently, so a
       `.rs` tab opening after the observer starts nothing
-- [ ] give the banner a Rust branch: same strip, same two actions, no dismiss, the
+      *(The note records what this call is **not** for: the rust-analyzer download
+      is `URLSession` bytes into a staging tree, which the process exit ends and
+      the next launch's `sweepStaging()` reclaims — unlike gopls's `go install`,
+      which has a compiler beneath it and is exactly what its `terminateNow()`
+      exists to stop.)*
+- [x] give the banner a Rust branch: same strip, same two actions, no dismiss, the
       download arrow and the **size** (it is a download), copy that says what
       actually happens; state the precedence between the three branches even though
       the contributors serve disjoint languages today
-- [ ] give the Settings tab a Rust row beside the Go row rendering D24's seven
+      *(Precedence stated as 2b → Go → Rust: the composition order, and the order
+      the Settings tab lists them. Two things the copy deliberately does and does
+      not say are written on `rustRow`: the version is named because it is a
+      *date*, which is the one version string worth showing before someone agrees
+      to a download; the toolchain is not mentioned at all, because D23 means this
+      prompt cannot appear without a `cargo`, so the sentence would only ever be
+      read by someone who already has one.)*
+- [x] give the Settings tab a Rust row beside the Go row rendering D24's seven
       states, with Install/Retry, a Remove that appears only for the app-installed
       copy, and one sentence naming rust-analyzer's origin and its
       `Apache-2.0 OR MIT` dual licence — `LSPInstalledLicenses` deliberately has
       nothing to read, and that decision is written down rather than left as an
       omission
-- [ ] run `swift test`, then the macOS build
+      *(The two toolchain-gated rows now form their own tail of the list, in the
+      order that reads best: Go's row is never a download and Rust's always is.
+      The licence sentence reads its SPDX expression off `rust.row`, which reads
+      the manifest, so the text in the view cannot drift from the pin — and it
+      states the gopls sentence's point arrived at from the opposite direction:
+      this one *is* downloaded, but a bare `.gz` holding one binary unpacks no
+      licence file for `LSPInstalledLicenses` to read. The `noToolchain` sentence
+      carries three halves rather than Go's two, naming `cargo` explicitly, since
+      "no Rust toolchain" beside a row titled Rust reads as if Rust itself were
+      the thing Pisaka could not find.)*
+- [x] run `swift test`, then the macOS build
+      *(2254 tests, 0 failures — the four files are app-side, so the suite is
+      unchanged by design; `xcodebuild -destination 'platform=macOS'`
+      BUILD SUCCEEDED.)*
 
 ### Task 11: Build both destinations and re-run the required-reason audit
 

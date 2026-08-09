@@ -31,15 +31,22 @@ struct LSPServerSettingsView: View {
     /// the row rather than a reason to look somewhere else for it.
     @ObservedObject var gopls: LSPGoplsProvisioningModel
 
+    /// The Rust row's model. A third contributor beside the Go one and for the
+    /// same reason, in the same toolchain-gated part of the list: what these two
+    /// rows have in common is that they can report *no toolchain*, which is a
+    /// state no downloadable row can reach and the reason Rust reuses 2b's engine
+    /// without reusing its row (D21).
+    @ObservedObject var rust: LSPRustProvisioningModel
+
     /// The pane scrolls rather than sizing to its content, and that is about the
     /// failure messages rather than about the rows.
     ///
-    /// Two rows, their states and the footer fit the fixed 480×300 with room to
+    /// Three rows, their states and the footer fit the fixed 480×300 with room to
     /// spare — but `failureMessage` is unbounded in a way nothing here controls:
     /// `LSPArchiveUnpacker` reports up to 200 characters of `tar`'s last line, and
     /// a `URLError` adds a whole sentence to the engine's own prefix, each of
     /// which wraps to several `.caption` lines inside the row's narrow text
-    /// column. Both servers failing therefore overflows the frame, and since a
+    /// column. Two of the servers failing therefore overflows the frame, and since a
     /// plain `VStack` neither clips nor scrolls, the overflow would simply draw
     /// past the frame — losing the bottom of the very sentence the user opened
     /// this tab to read, because D15 makes this row the *only* place an install
@@ -77,8 +84,15 @@ struct LSPServerSettingsView: View {
                 // servers are a fixed, stated list (`LSPDownloadableServer.allCases`)
                 // and appending to it keeps that order visible rather than
                 // interleaving a row that obeys different rules.
+                //
+                // The two toolchain-gated rows then follow in the order they were
+                // added, which is also the order they read best in: Go's row is
+                // never a download and Rust's always is, so the section runs from
+                // the row least like the ones above it to the one most like them.
                 Divider()
                 goRow(gopls.row)
+                Divider()
+                rustRow(rust.row)
             }
             .background(Color(NSColor.textBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -113,6 +127,25 @@ struct LSPServerSettingsView: View {
                 + "\(LSPGopls.licenseSPDX). Pisaka bundles none of it: it is built from source "
                 + "by your own Go toolchain, which verifies the module against Go's checksum "
                 + "database."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            // rust-analyzer's whole licence surface, for gopls's reason arrived at
+            // from the opposite direction (D24): this one *is* downloaded, but the
+            // archive is a bare `.gz` holding a single binary, so there is no
+            // licence file in the installed tree for `LSPInstalledLicenses` to
+            // read — and nothing for `licenses.json` either, this app bundling no
+            // rust-analyzer bytes at all. Naming the origin and the dual licence
+            // here is the honest substitute, and it is stated rather than left as
+            // an omission. Both fields are read off the row, which reads the
+            // *manifest*, so the expression here cannot drift from the pin.
+            Text(
+                "\(LSPRustAnalyzer.displayName) comes from \(LSPRustAnalyzer.origin) and is "
+                + "licensed under \(rust.row.licenseSPDX). Pisaka bundles none of it: the "
+                + "official release binary is downloaded on request and checked against a "
+                + "pinned checksum before it is used."
             )
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -232,6 +265,62 @@ struct LSPServerSettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The Rust row — the Go row's shape over a model that answers one more
+    /// question (D21/D24).
+    ///
+    /// The same two rules as Go's, both the model's: Install needs a `cargo` for
+    /// the server to drive (`canInstall` is false without one, and false for a
+    /// rust-analyzer already on the machine, which already answers), and Remove
+    /// appears **only** for files under this app's own install root — never for
+    /// the binary rustup put in `~/.cargo/bin`. The one difference is the download
+    /// size, which this row shows and Go's has none of; it too is the model's
+    /// field, read from the manifest.
+    private func rustRow(_ row: LSPRustServerRow) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Rust")
+                Text(LSPRustAnalyzer.componentID)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(status(of: row))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let failure = row.failureMessage {
+                    Text(failure)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            if row.status == .installing || row.isRemoving {
+                ProgressView()
+                    .controlSize(.small)
+                    .progressViewStyle(.circular)
+            }
+
+            if row.canInstall {
+                // The other rows' rule verbatim: "Retry" only after a failed
+                // *install*, never after a failed removal, whose message is about
+                // files this button would not touch.
+                Button(row.failureMessage == nil || row.failureWasRemoval ? "Install" : "Retry") {
+                    Task { await rust.install() }
+                }
+            }
+
+            if row.canRemove {
+                Button("Remove") {
+                    Task { await rust.remove() }
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     /// The row's state as one sentence.
     ///
     /// `declined` is a *consent* state rather than an install state, so it is
@@ -290,6 +379,46 @@ struct LSPServerSettingsView: View {
             return "Not installed · declined"
         case .notInstalled:
             return "Not installed · built from source by your Go toolchain"
+        }
+    }
+
+    /// The Rust row's state as one sentence — D24's seven.
+    ///
+    /// The Go row's sentences with the one field it has no use for folded in:
+    /// what is *not installed* here has a size, because Install downloads a pinned
+    /// artifact rather than building one. The declined case keeps saying only
+    /// "declined", deliberately — a size beside a "no" reads as an argument
+    /// against it, and the Install button standing right there is what turns it
+    /// around.
+    ///
+    /// The version is a *date*, which is what upstream ships, so it is printed
+    /// bare rather than behind the word "version" the download rows use.
+    private func status(of row: LSPRustServerRow) -> String {
+        // Ahead of the status for the other rows' reason: a removal keeps reading
+        // `installed` right up until the files go, and that wait is a live server
+        // being stopped (D16).
+        if row.isRemoving { return "Removing…" }
+        switch row.status {
+        case .pending:
+            return "Looking for a Rust toolchain…"
+        case .noToolchain:
+            // No Install button accompanies this, so the sentence carries all
+            // three halves: why nothing is offered, that it is Rust itself that
+            // is missing rather than the server, and that `.rs` files are not
+            // broken by it (D23).
+            return "No Rust toolchain found · rust-analyzer needs cargo · "
+                + "Rust files use the built-in index"
+        case .installing:
+            return "Downloading…"
+        case .discovered:
+            return "Installed · found on this Mac"
+        case .appInstalled(let version):
+            return "Installed by Pisaka · \(version)"
+        case .notInstalled where row.consent == .declined:
+            return "Not installed · declined"
+        case .notInstalled:
+            return "Not installed · "
+                + "\(LSPConsentBanner.size(row.pendingDownloadByteCount)) download"
         }
     }
 }
