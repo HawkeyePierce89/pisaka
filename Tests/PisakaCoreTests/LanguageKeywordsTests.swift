@@ -27,7 +27,7 @@ final class LanguageKeywordsTests: XCTestCase {
 
     func testTheDocumentedLanguagesAreTheOnesWithLists() {
         let withKeywords = Set(SyntaxLanguage.allCases.filter { !LanguageKeywords.keywords(for: $0).isEmpty })
-        XCTAssertEqual(withKeywords, [.swift, .javascript, .typescript, .python, .dockerfile])
+        XCTAssertEqual(withKeywords, [.swift, .javascript, .typescript, .python, .dockerfile, .go])
     }
 
     // MARK: - Shape
@@ -133,6 +133,61 @@ final class LanguageKeywordsTests: XCTestCase {
         XCTAssertFalse(dockerfile.contains("from"))
         for keyword in dockerfile {
             XCTAssertEqual(keyword, keyword.uppercased(), keyword)
+        }
+    }
+
+    /// Go's list is the one that deliberately reaches past the reserved words
+    /// into the universe block, so what it pins is *content*: the shape
+    /// invariants (sorted, unique, insertable, reachable) already come free from
+    /// the per-language sweeps above.
+    ///
+    /// The four families are asserted separately because they are four different
+    /// arguments for inclusion — a reserved word, a predeclared constant, a
+    /// predeclared type and a built-in function — and dropping any one of them
+    /// would leave that family uncompletable in a Go project with no other source
+    /// able to offer it.
+    func testGoListCoversTheReservedWordsAndTheUniverseBlock() {
+        let go = LanguageKeywords.keywords(for: .go)
+
+        // All 25 reserved words, in full: the list's floor.
+        let reserved = [
+            "break", "case", "chan", "const", "continue", "default", "defer",
+            "else", "fallthrough", "for", "func", "go", "goto", "if", "import",
+            "interface", "map", "package", "range", "return", "select",
+            "struct", "switch", "type", "var",
+        ]
+        XCTAssertEqual(reserved.count, 25)
+        for keyword in reserved {
+            XCTAssertTrue(go.contains(keyword), keyword)
+        }
+
+        // The universe block, one representative per family plus the spellings
+        // most easily lost to a hand edit (`iota`, the sized numeric types).
+        for keyword in ["true", "false", "nil", "iota"] {
+            XCTAssertTrue(go.contains(keyword), keyword)
+        }
+        for keyword in ["any", "bool", "byte", "comparable", "error", "rune", "string",
+                        "int", "int64", "uint8", "uintptr", "float64", "complex128"] {
+            XCTAssertTrue(go.contains(keyword), keyword)
+        }
+        for keyword in ["append", "cap", "clear", "copy", "delete", "len", "make",
+                        "max", "min", "new", "panic", "recover"] {
+            XCTAssertTrue(go.contains(keyword), keyword)
+        }
+    }
+
+    /// The line the list must not cross: a package's declarations are the symbol
+    /// index's job, not the keyword source's. `fmt.Println` is the canonical
+    /// temptation — it is what a Go file types first — and it is a declaration in
+    /// a package, so it stays out, along with any other dotted or qualified name.
+    func testGoListIsNotAStandardLibraryIndex() {
+        let go = LanguageKeywords.keywords(for: .go)
+
+        for keyword in ["fmt.Println", "fmt", "Println", "errors", "context", "Sprintf"] {
+            XCTAssertFalse(go.contains(keyword), keyword)
+        }
+        for keyword in go {
+            XCTAssertFalse(keyword.contains("."), keyword)
         }
     }
 }

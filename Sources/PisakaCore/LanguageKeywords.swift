@@ -40,13 +40,7 @@ public enum LanguageKeywords {
         case .typescript: return typeScript
         case .python: return python
         case .dockerfile: return dockerfile
-        // Go's list has not been written yet. Returning an empty list for a
-        // language that is *not* in `languagesWithoutKeywords` is precisely the
-        // state the set-equality sweep below exists to fail on, so this line is
-        // the placeholder that keeps the package compiling while that failure
-        // stands — it is replaced by the real list, not by a `languagesWithout…`
-        // entry.
-        case .go: return []
+        case .go: return go
         case .json, .markdown, .html, .css, .yaml, .dotenv, .gitignore: return []
         }
     }
@@ -190,5 +184,45 @@ public enum LanguageKeywords {
         "ADD", "ARG", "CMD", "COPY", "ENTRYPOINT", "ENV", "EXPOSE", "FROM",
         "HEALTHCHECK", "LABEL", "MAINTAINER", "ONBUILD", "RUN", "SHELL",
         "STOPSIGNAL", "USER", "VOLUME", "WORKDIR",
+    ]
+
+    /// Go: the 25 reserved words **plus the whole universe block** — its 22
+    /// predeclared type names, its 4 constants (`true`, `false`, `iota` and the
+    /// zero value `nil`) and its 18 built-in functions. 69 entries.
+    ///
+    /// The universe block is in here under a sharper form of the rule the
+    /// TypeScript list already follows (`string`, `number`, `never` are keywords
+    /// in type position, not declarations anything could jump to): **an
+    /// identifier belongs on a keyword list when no source file can ever declare
+    /// it.** Go's predeclared identifiers are declared in *no* file anywhere —
+    /// not in the standard library, not in a stub — so no other completion
+    /// source can offer them: the symbol index only holds what the project
+    /// declares, and the harvested buffer words only hold what the user has
+    /// already typed. Leaving them out would make `len`, `error` and `nil`
+    /// uncompletable in a Go project forever.
+    ///
+    /// It does not reopen the "not a standard-library index" line the type's
+    /// note draws, either: `fmt.Println` *is* a declaration in a package, so it
+    /// stays out along with the rest of the standard library.
+    private static let go: [String] = [
+        "any", "append",
+        "bool", "break", "byte",
+        "cap", "case", "chan", "clear", "close", "comparable",
+        "complex", "complex128", "complex64", "const", "continue", "copy",
+        "default", "defer", "delete",
+        "else", "error",
+        "fallthrough", "false", "float32", "float64", "for", "func",
+        "go", "goto",
+        "if", "imag", "import",
+        "int", "int16", "int32", "int64", "int8", "interface", "iota",
+        "len",
+        "make", "map", "max", "min",
+        "new", "nil",
+        "package", "panic", "print", "println",
+        "range", "real", "recover", "return", "rune",
+        "select", "string", "struct", "switch",
+        "true", "type",
+        "uint", "uint16", "uint32", "uint64", "uint8", "uintptr",
+        "var",
     ]
 }

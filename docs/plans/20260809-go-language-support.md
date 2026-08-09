@@ -434,18 +434,40 @@ repository's recipe requires for every grammar change.
 - Modify: `Sources/PisakaCore/LanguageKeywords.swift`
 - Modify: `Tests/PisakaCoreTests/LanguageKeywordsTests.swift`
 
-- [ ] add the 70-entry Go list per the stated rule, sorted and duplicate-free,
+- [x] add the 70-entry Go list per the stated rule, sorted and duplicate-free,
       with the rule itself written on the property — reserved words plus the
       universe block, because those are the identifiers no file can declare and
       therefore no other source can offer
-- [ ] wire `keywords(for: .go)`; leave `languagesWithoutKeywords` alone (Go is
+      — the list is **69** entries, not 70: the plan's total is an arithmetic
+      slip, not a missing entry. Its own composition adds up to 69 (25 reserved
+      words + 22 predeclared types + 4 constants + 18 built-in functions), and
+      every identifier the plan enumerated is present. The count is written on
+      the property beside that breakdown so it stays derivable rather than
+      asserted. Go's universe block holds one further name, the blank identifier
+      `_`, deliberately left out: it is punctuation the user types directly, and
+      offering it would mean a popup entry that completes to nothing readable.
+- [x] wire `keywords(for: .go)`; leave `languagesWithoutKeywords` alone (Go is
       code)
-- [ ] extend `LanguageKeywordsTests` with the Go-specific assertions its shape
+      — the Task 2 placeholder comment goes with it; `case .go: return go` is
+      now an ordinary arm.
+- [x] extend `LanguageKeywordsTests` with the Go-specific assertions its shape
       invites: the sorted/unique/non-empty invariants come free from the existing
       per-language sweep, so add the ones that pin *content* — that `nil`, `iota`,
       `error` and `len` are present and that no dotted or package-qualified name
       (`fmt.Println`) crept in
-- [ ] run `swift test`
+      — two suites: one asserting all 25 reserved words in full plus a
+      representative of each universe-block family (the four arguments for
+      inclusion are different arguments, so a dropped family is its own
+      regression), and one pinning the line the list must not cross —
+      `fmt.Println`, `fmt`, `Sprintf` absent, and no entry containing a dot.
+      `testTheDocumentedLanguagesAreTheOnesWithLists` gained `.go` by extension,
+      not by weakening: it is still set equality.
+- [x] run `swift test`
+      — 2194 tests, 0 failures. The whole suite is green again; the sorted,
+      duplicate-free, single-insertable-token and boundary-reachability sweeps
+      all cover the new list automatically, including its digit-carrying entries
+      (`complex128`, `uint8`), which reach the matcher through the
+      digit/letter-transition boundary.
 
 ### Task 5: Run and test commands for Go
 
