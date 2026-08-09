@@ -17,6 +17,7 @@ final class SyntaxLanguageTests: XCTestCase {
             "md": .markdown,
             "markdown": .markdown,
             "py": .python,
+            "go": .go,
             "html": .html,
             "htm": .html,
             "css": .css,
@@ -43,7 +44,6 @@ final class SyntaxLanguageTests: XCTestCase {
 
     func testUnknownExtensionReturnsNil() {
         XCTAssertNil(SyntaxLanguage(fileExtension: "rs"))
-        XCTAssertNil(SyntaxLanguage(fileExtension: "go"))
         XCTAssertNil(SyntaxLanguage(fileExtension: ""))
         XCTAssertNil(SyntaxLanguage(fileExtension: "xyz"))
     }
@@ -126,6 +126,27 @@ final class SyntaxLanguageTests: XCTestCase {
         XCTAssertNil(SyntaxLanguage(forFileName: ".ignored"))
     }
 
+    // MARK: - Go
+
+    func testGoNamesResolve() {
+        // Go is an ordinary extension language: it resolves in phase 2 and no
+        // later, looser phase may claim or re-claim it.
+        XCTAssertEqual(SyntaxLanguage(forFileName: "main.go"), .go)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "MAIN.GO"), .go)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "handler_test.go"), .go)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "cmd/server/main.go"), .go)
+    }
+
+    func testGoLookalikesDoNotResolveToGo() {
+        // A bare `go` is the toolchain's name, not a source file: there is no
+        // exact-name rule for it, and with no extension it reaches no phase.
+        XCTAssertNil(SyntaxLanguage(forFileName: "go"))
+        XCTAssertNil(SyntaxLanguage(forFileName: "go.work"))
+        // `.goignore` is a dot-file ending in "ignore" with no `go` extension, so
+        // the shape rule claims it — the extension phase must not.
+        XCTAssertEqual(SyntaxLanguage(forFileName: ".goignore"), .gitignore)
+    }
+
     // MARK: - Rule precedence
 
     func testExtensionWinsOverDotIgnoreShapeAndPrefix() {
@@ -171,6 +192,10 @@ final class SyntaxLanguageTests: XCTestCase {
     func testRawValuesAreStable() {
         // Raw values are consumed by `configuration(forInjectionName:)` for fenced
         // code blocks, so renaming one is a behavior change, not a refactor.
+        // Go's raw value is also the fence info string Markdown code blocks use
+        // (```go), so injection resolution reaches it through the raw value alone.
+        XCTAssertEqual(SyntaxLanguage(rawValue: "go"), .go)
+        XCTAssertEqual(SyntaxLanguage.go.rawValue, "go")
         XCTAssertEqual(SyntaxLanguage(rawValue: "dockerfile"), .dockerfile)
         XCTAssertEqual(SyntaxLanguage(rawValue: "dotenv"), .dotenv)
         XCTAssertEqual(SyntaxLanguage(rawValue: "gitignore"), .gitignore)
@@ -189,7 +214,7 @@ final class SyntaxLanguageTests: XCTestCase {
         let knownFileNames = [
             "Main.swift", "app.js", "app.jsx", "app.mjs", "app.cjs",
             "app.ts", "app.tsx", "data.json", "README.md", "README.markdown",
-            "main.py", "index.html", "index.htm", "style.css",
+            "main.py", "main.go", "index.html", "index.htm", "style.css",
             "config.yml", "config.yaml",
             "Dockerfile", ".env", ".gitignore",
         ]

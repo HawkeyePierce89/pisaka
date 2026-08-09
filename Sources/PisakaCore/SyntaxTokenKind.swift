@@ -54,6 +54,12 @@ public enum SyntaxTokenKind: Equatable {
     private static let nameMap: [String: SyntaxTokenKind] = [
         "keyword": .keyword,
         "string": .string,
+        // Escape sequences inside a string literal. Most grammars spell these
+        // `@string.escape`, which the `string` prefix already catches; the Go
+        // grammar spells them bare `@escape`, with no broader mapped prefix — so
+        // without this entry every `\n` in a Go string would render
+        // default-colored, punching a hole through the string's coloring.
+        "escape": .string,
         "comment": .comment,
         "number": .number,
         "float": .number,

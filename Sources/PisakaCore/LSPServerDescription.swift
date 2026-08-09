@@ -141,6 +141,7 @@ extension SyntaxLanguage {
         case .json: return "json"
         case .markdown: return "markdown"
         case .python: return "python"
+        case .go: return "go"
         case .html: return "html"
         case .css: return "css"
         case .yaml: return "yaml"

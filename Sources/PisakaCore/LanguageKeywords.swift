@@ -40,6 +40,13 @@ public enum LanguageKeywords {
         case .typescript: return typeScript
         case .python: return python
         case .dockerfile: return dockerfile
+        // Go's list has not been written yet. Returning an empty list for a
+        // language that is *not* in `languagesWithoutKeywords` is precisely the
+        // state the set-equality sweep below exists to fail on, so this line is
+        // the placeholder that keeps the package compiling while that failure
+        // stands — it is replaced by the real list, not by a `languagesWithout…`
+        // entry.
+        case .go: return []
         case .json, .markdown, .html, .css, .yaml, .dotenv, .gitignore: return []
         }
     }

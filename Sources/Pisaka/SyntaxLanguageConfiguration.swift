@@ -12,6 +12,7 @@ import TreeSitterJSON
 import TreeSitterJavaScript
 import TreeSitterTypeScript
 import TreeSitterPython
+import TreeSitterGo
 import TreeSitterHTML
 import TreeSitterCSS
 import TreeSitterMarkdown
@@ -84,6 +85,8 @@ enum SyntaxLanguageConfiguration {
             return try LanguageConfiguration(tree_sitter_markdown(), name: "Markdown")
         case .python:
             return try LanguageConfiguration(tree_sitter_python(), name: "Python")
+        case .go:
+            return try LanguageConfiguration(tree_sitter_go(), name: "Go")
         case .html:
             return try LanguageConfiguration(tree_sitter_html(), name: "HTML")
         case .css:

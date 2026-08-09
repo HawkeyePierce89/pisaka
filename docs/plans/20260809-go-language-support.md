@@ -341,23 +341,35 @@ capture-name gap.
   `Tests/PisakaCoreTests/FileIconTests.swift`,
   `Tests/PisakaCoreTests/SyntaxTokenKindTests.swift`
 
-- [ ] add `case go` and the `"go"` extension mapping; confirm the four-phase
+- [x] add `case go` and the `"go"` extension mapping; confirm the four-phase
       resolution still behaves (`main.go` → `.go`, and no prefix/dot-ignore rule
       can claim it)
-- [ ] `FileIcon` already maps the `go` extension — assert it rather than add it,
+      — `testGoNamesResolve`/`testGoLookalikesDoNotResolveToGo` pin it, including
+      that `.goignore` (a dot-file with no `go` extension) still belongs to the
+      shape rule and that a bare `go`/`go.work` resolves to nothing. The raw value
+      is pinned too, since `configuration(forInjectionName:)` reaches Go through it
+      for ```` ```go ```` fences.
+- [x] `FileIcon` already maps the `go` extension — assert it rather than add it,
       and give Go the `lspLanguageID` `"go"` (the `switch` is total, so the
       compiler asks)
-- [ ] add `"escape": .string` to `SyntaxTokenKind.nameMap` with the reasoning on
+- [x] add `"escape": .string` to `SyntaxTokenKind.nameMap` with the reasoning on
       it (tree-sitter-go spells escape sequences `@escape`, not `@string.escape`;
       without this every `\n` in a Go string renders default-colored)
-- [ ] load the grammar in `SyntaxLanguageConfiguration` —
+- [x] load the grammar in `SyntaxLanguageConfiguration` —
       `LanguageConfiguration(tree_sitter_go(), name: "Go")` plus the
       `import TreeSitterGo`
-- [ ] pin the highlight query's thirteen capture names by hand in
+- [x] pin the highlight query's thirteen capture names by hand in
       `SyntaxTokenKindTests`, the dockerfile precedent, asserting each resolves to
       its expected kind **and** that none resolves to `.plain`
-- [ ] run `swift test` — expect `SymbolQueryTests` and `LanguageKeywordsTests` to
+      — re-read from the resolved checkout at the pinned revision
+      (`1547678a…`); the thirteen are exactly the vocabulary the plan recorded.
+- [x] run `swift test` — expect `SymbolQueryTests` and `LanguageKeywordsTests` to
       fail on the new case; that is the next two tasks
+      — confirmed: 2192 tests, exactly those two failures and no others.
+      `LanguageKeywords.keywords(for:)` is a *total* switch, so it could not be
+      left unhandled; `case .go: return []` is the placeholder that keeps the
+      package compiling while the set-equality sweep goes red, and Task 4 replaces
+      it with the real list (never with a `languagesWithoutKeywords` entry).
 
 ### Task 3: The symbols query
 
