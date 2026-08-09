@@ -67,6 +67,10 @@ public final class LSPWorkspace {
         /// The version the server now holds — the number a `$/cancelRequest`-era
         /// race would be diagnosed by, and what the tests assert the flush did.
         public let version: Int
+        /// The request generation this document was prepared under, so the answer
+        /// that comes back can be checked against the folder that asked for it —
+        /// see `stillHolds(_:)`. Pinned before the launch, not read afterwards.
+        public let generation: Int
     }
 
     /// D7's backoff, in order. Its length *is* the restart budget: three delays,
@@ -340,12 +344,28 @@ public final class LSPWorkspace {
             documents[uri] = nil
             return nil
         }
+        // The same guard as above, applied to the flush's hop — and it is not the
+        // one the flush already makes. `send`'s `isCurrent` check catches a
+        // *teardown*: `shutdownAll()` empties `sessions`, so a notification
+        // resuming after it throws `serverReplaced` and the `catch` above answers
+        // `nil`. But a folder switch is two steps, and only the first is
+        // synchronous — `prepareForFolderChange` bumps the generation in the
+        // editor's turn, and the `shutdownAll()` it schedules runs a turn later. A
+        // flush resuming inside that window still finds its session filed under
+        // its key, succeeds, and would hand back a document for the root the user
+        // has just left. The provider would then ask the old project's server a
+        // question and publish an answer naming a file under a folder nobody is
+        // looking at — a confident jump, which never falls back, because it *is*
+        // an answer. The document state `send` recorded is left alone: it is a
+        // true record of what that server was told, and the teardown drops it.
+        guard token == generation else { return nil }
 
         return PreparedDocument(
             session: session,
             description: description,
             uri: uri,
-            version: version
+            version: version,
+            generation: token
         )
     }
 
@@ -518,20 +538,37 @@ public final class LSPWorkspace {
         _ = await task.value
     }
 
-    /// Whether the server still holds exactly the version a request was prepared
-    /// against — the check that keeps an answer from being read in coordinates the
-    /// server has since been talked out of.
+    /// Whether an answer prepared against `prepared` may still be read — the folder
+    /// it was asked about is still the open one, *and* the server still holds
+    /// exactly the version the question was built against.
     ///
-    /// `prepare` releases the document's flush claim before it returns, so a
-    /// *second* request carrying older text (one queued behind a launch, or one the
-    /// router abandoned at its deadline and then resumed) can `didChange` the server
-    /// backwards between the flush and the request that followed it. The answer that
-    /// comes back is then about a document whose offsets the caller's buffer does not
-    /// describe — a confidently wrong jump, which never falls back, because it *is*
-    /// an answer. Callers ask this before reading a response and treat `false` as no
-    /// answer at all.
-    public func holdsVersion(_ version: Int, for uri: String) -> Bool {
-        documents[uri]?.version == version
+    /// **The version half.** `prepare` releases the document's flush claim before it
+    /// returns, so a *second* request carrying older text (one queued behind a
+    /// launch, or one the router abandoned at its deadline and then resumed) can
+    /// `didChange` the server backwards between the flush and the request that
+    /// followed it. The answer that comes back is then about a document whose offsets
+    /// the caller's buffer does not describe.
+    ///
+    /// **The generation half**, and it is not the version check wearing another hat:
+    /// a request is outstanding for as long as the server takes to answer, which is
+    /// the widest window in the whole layer, and a folder switch inside it leaves
+    /// `documents` untouched until the `shutdownAll()` it *schedules* runs a turn
+    /// later. The version therefore still matches, and the answer — computed by a
+    /// server initialized for the root the user has just left — would name a file
+    /// under a closed folder. That is the same window `prepare` closes on both sides
+    /// of the flush (see the guards there), reaching past `prepare` to cover the
+    /// request itself; nothing downstream can close it, because a jump *is* an
+    /// answer and so never falls back.
+    ///
+    /// Callers ask this before reading a response and treat `false` as no answer at
+    /// all. Checking after the fact rather than holding the flush claim across the
+    /// request is deliberate: the claim would serialise every other question about
+    /// that file behind a server allowed to take seconds, and the cost of the
+    /// conservative answer is one tree-sitter fallback in a case where the world had
+    /// moved on anyway.
+    public func stillHolds(_ prepared: PreparedDocument) -> Bool {
+        guard prepared.generation == generation else { return false }
+        return documents[prepared.uri]?.version == prepared.version
     }
 
     // MARK: - Sessions

@@ -394,6 +394,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     conflates "the user left the project" with "a refresh started": an FSEvents
     burst (a save, a build, an `npm i`) landing mid-parse would then discard the
     very edits being typed, and nothing retries them until the next keystroke.
+    `rootGeneration` is also published as `currentRootGeneration`, for a reader
+    *outside* the model: a definition surface pins it synchronously before its
+    `Task` hop and drops the answer if it moved. That guard exists because neither
+    provider's own staleness gate can reach past its own `return` — clearing the
+    index here, and `LSPWorkspace.stillHolds(_:)` there, both stop an answer being
+    *computed* for a folder the user has left, but the candidates cross one more
+    main-actor hop before a surface opens them, and `openFolder` runs in a single
+    synchronous turn that can land inside it. The published token is the *project*
+    one, not `currentRequestGeneration`, for the reason above worn the other way
+    round: a jump pinned to the request token would cancel itself whenever a
+    refresh happened to start while the user waited for the answer
+    (`testRootGenerationMovesOnlyWhenTheFolderActuallyChanges`).
     **Buffers.** `reindexBuffer(url:text:language:)` re-extracts one file from live
     editor text — the extraction inside a one-file `offMain` block with a
     `rootGeneration` re-check after it, so a folder switch landing mid-parse

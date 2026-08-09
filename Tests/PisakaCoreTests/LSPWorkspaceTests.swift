@@ -578,6 +578,118 @@ final class LSPWorkspaceTests: XCTestCase {
         XCTAssertEqual(harness.launches.last?.root, otherRoot)
     }
 
+    /// The window *before* the teardown, which the case above deliberately steps
+    /// over: a flush that resumes after `prepareForFolderChange` but before the
+    /// `shutdownAll()` it scheduled.
+    ///
+    /// The switch is two steps and only the first is synchronous, so this window
+    /// is not exotic — it is every folder switch, for as long as one main-actor
+    /// turn lasts. Inside it the flush's own defences all pass: the session is
+    /// still filed under its key, so `isCurrent` is true and the notification is
+    /// recorded rather than rejected. Without a second generation check the
+    /// request would be handed a document for the root the user has just left and
+    /// would go on to ask the *old* project's server where a symbol is declared —
+    /// an answer naming a file under a closed folder, which nothing downstream can
+    /// tell from a good one.
+    func testAFlushFinishingBetweenTheSwitchAndTheTeardownAnswersNothing() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1")
+
+        // Held inside the `didChange`, exactly as the shutdown case above — the
+        // difference is entirely in what happens while the writer is held.
+        let first = harness.latest
+        let reached = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        first.onSend { method in
+            guard method == LSPMethod.didChange else { return }
+            reached.signal()
+            release.wait()
+        }
+
+        let flushing = Task { await workspace.prepare(url: mainFile, language: .swift, text: "let a = 2") }
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                reached.wait()
+                continuation.resume()
+            }
+        }
+
+        // The switch, and *nothing else*: no `shutdownAll()`, so the session is
+        // still live and still filed under its key when the flush resumes.
+        workspace.prepareForFolderChange(root: otherRoot)
+        release.signal()
+        let prepared = await flushing.value
+        first.onSend(nil)
+
+        XCTAssertNil(
+            prepared,
+            "a request pinned to the folder the user left may not be handed a document"
+        )
+        XCTAssertEqual(workspace.liveServerCount, 1, "the teardown is the caller's, not this method's")
+    }
+
+    // MARK: - Answer validity
+
+    /// The same window one layer later: a request that was *already* prepared when
+    /// the switch happened.
+    ///
+    /// `prepare`'s two guards cover the hops it makes itself; they cannot cover the
+    /// request, which is the widest wait in the layer — a server is allowed to take
+    /// seconds to answer where a flush takes a write. A folder switch inside it
+    /// leaves `documents` exactly as it was until the scheduled `shutdownAll()`
+    /// runs, so the version alone still matches and the answer — from a server
+    /// initialized for the folder the user left — would publish.
+    func testADocumentPreparedBeforeAFolderSwitchIsNoLongerCurrentAfterIt() async throws {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+        let answer = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1")
+        let prepared = try XCTUnwrap(answer)
+        XCTAssertTrue(workspace.stillHolds(prepared))
+
+        // The switch, and *nothing else*: the teardown it schedules runs a turn
+        // later, which is the whole of the window being staged.
+        workspace.prepareForFolderChange(root: otherRoot)
+
+        XCTAssertTrue(
+            workspace.openDocumentURIs.contains(prepared.uri),
+            "the staging is only meaningful while the version half still matches"
+        )
+        XCTAssertFalse(
+            workspace.stillHolds(prepared),
+            "an answer from the server of a folder the user has left is no answer"
+        )
+    }
+
+    /// Re-opening the same folder is not a switch, so nothing in flight is
+    /// invalidated by it — the no-op path `prepareForFolderChange` shares with
+    /// `SymbolIndexModel`.
+    func testAPreparedDocumentSurvivesAPreparationForTheSameFolder() async throws {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+        let answer = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1")
+        let prepared = try XCTUnwrap(answer)
+
+        workspace.prepareForFolderChange(root: root)
+
+        XCTAssertTrue(workspace.stillHolds(prepared))
+    }
+
+    /// The version half, unchanged by the generation half: a second request that
+    /// talked the server into different text invalidates the first one's answer.
+    func testADocumentIsNoLongerCurrentOnceAnotherRequestChangedTheServersText() async throws {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+        let firstAnswer = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1")
+        let secondAnswer = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 2")
+        let first = try XCTUnwrap(firstAnswer)
+        let second = try XCTUnwrap(secondAnswer)
+
+        XCTAssertEqual(second.version, first.version + 1)
+        XCTAssertFalse(workspace.stillHolds(first))
+        XCTAssertTrue(workspace.stillHolds(second))
+    }
+
     // MARK: - Termination
 
     func testTerminateNowStopsEveryServerWithoutAwaitingAnything() async {

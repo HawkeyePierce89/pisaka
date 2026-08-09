@@ -48,6 +48,8 @@ final class LSPIntelligenceProviderTests: XCTestCase {
     /// it — `/private/tmp`, resolved out of `/tmp`, which is exactly the case a
     /// lexical relative-path strip gets wrong.
     private let root = URL(fileURLWithPath: "/private/tmp/lspfix/pkg", isDirectory: true)
+    /// The folder the user switches to mid-request.
+    private let otherRoot = URL(fileURLWithPath: "/private/tmp/lspfix/other", isDirectory: true)
 
     private var mainFile: URL { root.appendingPathComponent("Sources/App/main.swift") }
     private var greeterFile: URL { root.appendingPathComponent("Sources/Core/Greeter.swift") }
@@ -281,6 +283,70 @@ final class LSPIntelligenceProviderTests: XCTestCase {
             candidates.isEmpty,
             "an answer about a version the server no longer holds is no answer"
         )
+    }
+
+    /// A folder switch while the question is outstanding drops the answer too —
+    /// the same gate, for the wider window.
+    ///
+    /// `LSPWorkspace.prepare` guards both sides of its flush, but the request that
+    /// follows is the longest wait in the layer: a server is allowed to take seconds
+    /// where a flush takes a write. A switch inside it leaves the document table
+    /// untouched until the `shutdownAll()` it *schedules* runs, so the version still
+    /// matches and this jump — computed by a server initialized for the folder the
+    /// user has just left — would land the user in a closed project.
+    func testAnAnswerIsDroppedWhenTheFolderChangedWhileTheQuestionWasOutstanding() async throws {
+        transport.script(
+            LSPMethod.definition,
+            .reply(try fixtureResult("definition-cross-module.json"), after: 0.2)
+        )
+        let provider = makeProvider(files: [greeterFile.path: greeterSource])
+        let workspace = try XCTUnwrap(lastWorkspace)
+
+        let jumping = Task {
+            await provider.definitions(
+                for: DefinitionRequest(
+                    identifier: "Greeter",
+                    fileURL: mainFile,
+                    offset: greeterReference,
+                    text: mainSource
+                )
+            )
+        }
+        // The jump has flushed its buffer and is waiting on the answer; this is the
+        // user opening another folder. Deliberately without the `shutdownAll()` the
+        // app schedules alongside it — that teardown is a turn later, and this
+        // window is the turns before it.
+        try await Task.sleep(nanoseconds: 40_000_000)
+        workspace.prepareForFolderChange(root: otherRoot)
+
+        let candidates = await jumping.value
+        XCTAssertTrue(
+            candidates.isEmpty,
+            "a jump into the folder the user just left is worse than no jump"
+        )
+    }
+
+    /// The completion half of the same window, and the sharper one: a list's items
+    /// carry *edits* in buffer coordinates, so an answer from the previous project's
+    /// server does not merely display — it is applied to a file.
+    func testACompletionListIsDroppedWhenTheFolderChangedWhileItWasOutstanding() async throws {
+        transport.script(
+            LSPMethod.completion,
+            .reply(try fixtureResult("completion-identifier.json"), after: 0.2)
+        )
+        let provider = makeProvider()
+        let workspace = try XCTUnwrap(lastWorkspace)
+
+        let completing = Task {
+            await provider.completions(
+                for: self.completionRequest(prefix: "Gree", offset: self.identifierCaret)
+            )
+        }
+        try await Task.sleep(nanoseconds: 40_000_000)
+        workspace.prepareForFolderChange(root: otherRoot)
+
+        let items = await completing.value
+        XCTAssertTrue(items.isEmpty, "edits from a closed project may not reach the buffer")
     }
 
     /// The `LocationLink[]` shape: the jump lands on `targetSelectionRange` (the

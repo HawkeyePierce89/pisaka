@@ -20,7 +20,17 @@ framing, correlation, budgets, position mapping, restart policy and ranking all
 stay testable in a target that cannot spawn a process. `LSPSourceGatingTests`
 enforces the split statically: no `Sources/PisakaCore` file of this layer may
 mention `Process`, `AppKit`, `UIKit` or `SwiftTreeSitter`, and every app-side file
-of it must be wrapped in `#if os(macOS)`.
+of it must be wrapped in `#if os(macOS)`. Files are *discovered* by a per-side
+prefix list (`LSP`, plus `SourceViewer` in the app and
+`CompletionEditPlan`/`RoutingIntelligenceProvider` in Core — the layer's members
+that are named for what they decide rather than for the protocol), and the
+discovered set is then pinned by **set equality against a named list on both
+sides**, in the `SymbolQueryTests` mould. Both halves need it, for slightly
+different reasons: a rename that empties a prefix leaves a suite that passes while
+checking less and less — and on the Core side every assertion is *negative* ("does
+not mention `Process`"), which a shrinking set cannot be told apart from — while a
+new file matching a prefix is one somebody has to have looked at, and the list is
+what the next reader consults to know what this layer put where.
 
 **The stack, bottom to top.** `LSPFraming` (bytes) → `LSPMessage` (JSON-RPC
 envelopes) → `LSPProtocolTypes` (LSP bodies) + `LSPPositionMap` (offsets ↔
@@ -342,18 +352,54 @@ document, together with the limits they carry.
     answers from tree-sitter for the life of the server. `LSPWorkspaceTests`
     `.testAFolderSwitchWhileTheBufferIsFlushingDoesNotLeaveTheDocumentRecordedAsOpen`
     stages it the same way the close case is staged.
-    **The claim is released before the request is sent, so `holdsVersion(_:for:)`
-    exists.** `prepare` guarantees the server's text at *prepare* time, not for the
-    life of the question: a second request carrying different text — one queued
+    **The generation is checked on *both* sides of the flush**, and the second
+    check is not the identity check above wearing another hat. That one catches the
+    *teardown*: once `shutdownAll()` has emptied `sessions`, the notification's
+    write-back throws and `prepare` answers `nil`. But a folder switch is two steps
+    and only the first is synchronous — `prepareForFolderChange` bumps the
+    generation in the editor's turn, and the `shutdownAll()` it schedules runs a
+    turn later. A flush resuming inside that window finds its session still filed
+    under its key, so every defence in `send` passes, and `prepare` would hand back
+    a `PreparedDocument` for the root the user has just left; the provider then asks
+    the old project's server where a symbol is declared and publishes an answer
+    naming a file under a closed folder. Downstream cannot tell that from a good
+    answer — the document table is untouched until the teardown clears it, and a jump
+    that *is* an answer never falls back — so the window is closed where the token
+    lives. `LSPWorkspaceTests`
+    `.testAFlushFinishingBetweenTheSwitchAndTheTeardownAnswersNothing` stages it by
+    holding the writer inside the `didChange` and running the switch *without* the
+    teardown. The document state `send` recorded is deliberately left in place: it
+    is a true record of what that server was told, and the teardown drops it.
+    **The claim is released before the request is sent, so `stillHolds(_:)`
+    exists** — and it checks *both* halves of what `prepare` guaranteed, because
+    `prepare` guaranteed them at prepare time and not for the life of the question.
+    The **version** half: a second request carrying different text — one queued
     behind a launch, one the router abandoned at its deadline and then resumed —
     flushes in between, and the answer that comes back is about a document the
-    caller's buffer no longer describes. `LSPIntelligenceProvider` asks this before
-    reading any response and treats `false` as no answer at all, because a wrong jump
-    *is* an answer and so never falls back. Checking after the fact rather than
+    caller's buffer no longer describes. The **generation** half is the same
+    two-step-switch window as the paragraph above, reaching past `prepare` to cover
+    the request itself — and that is the *wider* window of the two, since a server is
+    allowed to take seconds to answer where a flush takes a write. `prepare`'s guards
+    cannot see it: they run before the question is asked, the switch leaves
+    `documents` exactly as it was until its scheduled `shutdownAll()`, so the version
+    still matches and only the generation carried in `PreparedDocument` can tell that
+    the answer belongs to a folder nobody is looking at. `LSPIntelligenceProvider`
+    asks this before reading any response — for definitions *and* completions, whose
+    items carry edits that are written to the file — and treats `false` as no answer
+    at all, because a wrong jump *is* an answer and so never falls back.
+    `LSPWorkspaceTests`
+    `.testADocumentPreparedBeforeAFolderSwitchIsNoLongerCurrentAfterIt` pins the
+    generation half against a document table that still holds the version, and
+    `LSPIntelligenceProviderTests`
+    `.testAnAnswerIsDroppedWhenTheFolderChangedWhileTheQuestionWasOutstanding` /
+    `.testACompletionListIsDroppedWhenTheFolderChangedWhileItWasOutstanding` stage the
+    switch while the scripted server is deliberately slow to reply. Re-opening the
+    *same* folder is not a switch and invalidates nothing, since
+    `prepareForFolderChange` takes its no-op path. Checking after the fact rather than
     holding the claim across the request is deliberate: the request would otherwise
     serialise every other question about that file behind a server that is allowed to
     take seconds, and the cost of the conservative answer is one tree-sitter fallback
-    in a case where the buffer had moved on anyway.
+    in a case where the world had moved on anyway.
     **When to give up** (D7): three restarts with 1 s / 2 s / 4 s of backoff — the
     `backoffDelays` array's length *is* the budget — and the fourth failure marks
     that `(server, root)` unavailable for the rest of the app run. The budget is per
@@ -562,14 +608,20 @@ document, together with the limits they carry.
     pass the buffer, and clamping its position to `0:0` would ask a confidently
     wrong question and get a confidently wrong *answer* — which never falls back,
     because it **is** an answer. So nothing is sent at all. **The same rule is
-    applied to the response, through `LSPWorkspace.holdsVersion(_:for:)`**: the flush
-    guarantees the server's text when `prepare` returns, not for the life of the
-    question, so a second request that talked the server into different text while
-    this one was outstanding leaves an answer about a document the caller's buffer no
-    longer describes. Both request methods check before reading a response and drop it
-    if the version moved — a definition would otherwise be a plausible, wrong jump,
-    and a completion's items carry *edits* in buffer coordinates that would then be
-    applied to the file. Candidates come back in
+    applied to the response, through `LSPWorkspace.stillHolds(_:)`**: `prepare`
+    guarantees the server's text *and* the open folder when it returns, not for the
+    life of the question, so a second request that talked the server into different
+    text — or a folder switch — while this one was outstanding leaves an answer about
+    a document the caller's buffer no longer describes, or one from a project the user
+    has left. Both request methods check before reading a response and drop it if
+    either moved — a definition would otherwise be a plausible, wrong jump, and a
+    completion's items carry *edits* in buffer coordinates that would then be
+    applied to the file. That check is the last one this layer *can* make: the
+    candidates it returns still cross a main-actor hop before a surface opens them,
+    and closing that hop is the surface's own job, which both definition call sites
+    do by pinning `SymbolIndexController.currentRootGeneration` before the hop (see
+    `app-editor.md` and `app-ios.md`) — the same rule this file applies to the
+    response, applied once more where the response is finally read. Candidates come back in
     the server's order, which is the answer's own order (sourcekit-lsp answers a
     type reference with the type *and* its memberwise initializer, and which the
     user meant is not something a sort key here could know better than the compiler

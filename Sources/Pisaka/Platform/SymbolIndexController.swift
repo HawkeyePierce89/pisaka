@@ -105,6 +105,17 @@ final class SymbolIndexController {
         composedProvider = provider
     }
 
+    /// The index's **project** token, forwarded so a definition surface can pin it
+    /// synchronously before its `Task` hop and drop an answer the user has since
+    /// left the folder for — see `SymbolIndexModel.currentRootGeneration` for why
+    /// the providers' own gates cannot close that last hop themselves.
+    ///
+    /// The one thing of the model's the views may read. It is not "driving the
+    /// index" (the reason the model itself stays private): it is a token, it moves
+    /// only when the app registers a folder switch, and reading it cannot make the
+    /// controller do anything.
+    var currentRootGeneration: Int { model.currentRootGeneration }
+
     // MARK: - Buffers
 
     /// The buffer for `url` changed: re-index it once the typing settles.

@@ -53,6 +53,25 @@ final class LSPSourceGatingTests: XCTestCase {
     /// about the whole of it.
     private static let coreFilePrefixes = ["LSP", "CompletionEditPlan", "RoutingIntelligenceProvider"]
 
+    /// The Core-side files, named for the same reason the app-side ones are: the
+    /// prefix sweep is what *finds* them, and the list is what says the sweep
+    /// found what it was supposed to. A rename that empties one of the prefixes
+    /// leaves a suite that still passes every "does not contain" assertion below
+    /// while checking a shorter and shorter list of files.
+    private static let expectedCoreFiles: Set<String> = [
+        "CompletionEditPlan.swift",
+        "LSPFraming.swift",
+        "LSPIntelligenceProvider.swift",
+        "LSPMessage.swift",
+        "LSPPositionMap.swift",
+        "LSPProtocolTypes.swift",
+        "LSPServerDescription.swift",
+        "LSPSession.swift",
+        "LSPTransport.swift",
+        "LSPWorkspace.swift",
+        "RoutingIntelligenceProvider.swift",
+    ]
+
     /// Identifiers that must not appear in Core's LSP files. `Process` is matched
     /// as a whole token, so `ProcessInfo` and `processIdentifier` — both of which
     /// `LSPWorkspace` legitimately uses — are not false positives; what is being
@@ -123,6 +142,21 @@ final class LSPSourceGatingTests: XCTestCase {
                 "\(url.lastPathComponent) imports \(imports) — Core's LSP layer is Foundation-only"
             )
         }
+    }
+
+    /// Set equality, for the app side's reason and with one of its own: the Core
+    /// half's assertions are all *negative* ("does not mention `Process`", "imports
+    /// nothing but Foundation"), and a negative assertion over a set that quietly
+    /// shrank is indistinguishable from a passing one. Pinning the set is what
+    /// makes "the whole layer was checked" a claim the suite can fail on — and,
+    /// like the app-side list, it is what the next reader consults to know what
+    /// this layer put in Core.
+    func testTheDiscoveredCoreFilesAreExactlyTheExpectedOnes() throws {
+        let found = Set(try coreLSPFiles().map(\.lastPathComponent))
+        XCTAssertEqual(
+            found, Self.expectedCoreFiles,
+            "the Core-side file set changed; if a file was added or renamed, update expectedCoreFiles"
+        )
     }
 
     func testNoCoreLSPFileCarriesAPlatformConditional() throws {

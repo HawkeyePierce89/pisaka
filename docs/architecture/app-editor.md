@@ -309,7 +309,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     offset in it, and this is the one macOS path that reaches one. Leaving the
     defaulted field to default here would not fail to compile — it would quietly ask
     about offset *N* in an empty document, which is why the LSP provider treats
-    "empty text, non-zero offset" as unanswerable rather than clamping. Where a
+    "empty text, non-zero offset" as unanswerable rather than clamping. **The
+    folder is pinned too**, as `symbolIndex.currentRootGeneration` captured
+    synchronously before the `Task` and re-checked when the candidates come back —
+    the generation-token rule applied where an answer is *read* rather than where it
+    is computed. Both providers already refuse to answer for a folder the user has
+    left (the index is cleared by `prepareForFolderChange`; the LSP workspace's
+    `stillHolds(_:)` drops a response whose root no longer matches), but neither
+    gate reaches past its own `return`: the candidates cross one more main-actor hop
+    to get here, ⌘⇧O registers a switch in a single synchronous turn, and a switch
+    landing inside that hop would leave this task opening a file from the previous
+    project — the one outcome all of those gates exist to prevent. Superseded means
+    *silence*, not a beep: the user asked for a different folder, and a warning sound
+    for an answer they are no longer waiting on is noise. Where a
     chosen candidate *lands* is the coordinator's `navigate(to:)`, and the fork is
     the candidate's own `isOutsideProjectRoot` — the provider knows the project
     root, this view does not: an in-root target goes through today's

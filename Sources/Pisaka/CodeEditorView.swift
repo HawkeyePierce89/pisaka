@@ -858,9 +858,25 @@ struct CodeEditorView: NSViewRepresentable {
                 offset: match.range.location,
                 text: text
             )
+            // The folder this question is being asked in, pinned *synchronously*
+            // before the hop — the generation-token rule, applied at the point an
+            // answer is finally read rather than where it is computed.
+            //
+            // Both providers already refuse to answer for a folder the user has
+            // left (the index is cleared by `prepareForFolderChange`;
+            // `LSPWorkspace.stillHolds(_:)` drops a response its root no longer
+            // matches), but neither gate reaches past its own `return`: the
+            // candidates cross one more main-actor hop to get here, and ⌘⇧O lands
+            // in a single synchronous turn, so a switch scheduled inside that hop
+            // would leave this task opening a file from the previous project — the
+            // one outcome every one of those gates exists to prevent. Silently,
+            // with no beep: the user asked for a different folder, and a warning
+            // sound for an answer they are no longer waiting on is noise.
+            let rootGeneration = symbolIndex?.currentRootGeneration
             Task { [weak self, weak textView] in
                 let candidates = await provider.definitions(for: request)
                 guard let self, let textView else { return }
+                guard self.symbolIndex?.currentRootGeneration == rootGeneration else { return }
                 switch candidates.count {
                 case 0:
                     // Nothing declares that name in the indexed project — the
