@@ -18,6 +18,17 @@ public final class SettingsStore: ObservableObject {
         public static let tabOrientation = "settings.tabOrientation"
         public static let themePreference = "settings.themePreference"
         public static let fontSize = "settings.fontSize"
+        /// Per-server provisioning consent (D15), as one dictionary of
+        /// server id → `LSPServerConsent.rawValue`.
+        ///
+        /// One key holding a dictionary rather than one key per server, because
+        /// the set of servers is *data* (`LSPDownloadableServer`, and the
+        /// manifest behind it) and changes when the app ships a new one: a
+        /// key-per-server scheme spreads that data across the defaults domain
+        /// and leaves a key behind for every server ever removed, while this
+        /// shape lets an id that no longer exists be read, ignored and
+        /// eventually written back out of existence.
+        public static let lspServerConsent = "settings.lspServerConsent"
     }
 
     public static let minFontSize: Double = 8
@@ -52,6 +63,20 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    /// What the user has answered about each downloadable language server
+    /// (D15), keyed by `LSPDownloadableServer.id`. An id with no entry is
+    /// `unasked` — which is why `.unasked` is never *stored*: absence already
+    /// spells it, and writing it would be a second spelling of the same fact.
+    ///
+    /// Published so the Settings surface redraws when a banner answer lands, and
+    /// `private(set)` so every write goes through `setConsent(_:for:)` and the
+    /// "asked once" invariant lives in one method.
+    @Published public private(set) var lspServerConsent: [String: LSPServerConsent] {
+        didSet {
+            defaults.set(lspServerConsent.mapValues(\.rawValue), forKey: Keys.lspServerConsent)
+        }
+    }
+
     private let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) {
@@ -64,10 +89,32 @@ public final class SettingsStore: ObservableObject {
         // `object(forKey:)` distinguishes "unset" (nil → default) from a stored 0.
         let storedFont = (defaults.object(forKey: Keys.fontSize) as? Double)
             .map(SettingsStore.clampFontSize) ?? SettingsStore.defaultFontSize
+        // Read entry by entry rather than as a whole `[String: String]` cast: a
+        // single value of the wrong type — or a raw value this app version does
+        // not know — must cost that one server its answer and nothing else. A
+        // whole-dictionary cast would fail outright and silently re-ask about
+        // every server the user has already answered for.
+        let storedConsent = (defaults.dictionary(forKey: Keys.lspServerConsent) ?? [:])
+            .compactMapValues { ($0 as? String).flatMap(LSPServerConsent.init(rawValue:)) }
 
         self.tabOrientation = orientation
         self.themePreference = theme
         self.fontSize = storedFont
+        self.lspServerConsent = storedConsent
+    }
+
+    /// The answer recorded for `serverID`. Never asked, an id this app version
+    /// does not ship, and a stored value it cannot parse all answer `unasked` —
+    /// the state in which the banner is allowed to ask and nothing installs on
+    /// its own.
+    public func consent(for serverID: String) -> LSPServerConsent {
+        lspServerConsent[serverID] ?? .unasked
+    }
+
+    /// Record an answer. `unasked` *forgets* the entry rather than storing the
+    /// word, so the persisted dictionary only ever holds real answers.
+    public func setConsent(_ consent: LSPServerConsent, for serverID: String) {
+        lspServerConsent[serverID] = consent == .unasked ? nil : consent
     }
 
     /// Step the font size by `delta` whole steps (positive = larger), clamped to

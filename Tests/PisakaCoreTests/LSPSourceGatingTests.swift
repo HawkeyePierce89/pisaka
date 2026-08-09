@@ -67,6 +67,7 @@ final class LSPSourceGatingTests: XCTestCase {
         "LSPMessage.swift",
         "LSPPositionMap.swift",
         "LSPProtocolTypes.swift",
+        "LSPProvisioning.swift",
         "LSPProvisioningManifest.swift",
         "LSPServerDescription.swift",
         "LSPSession.swift",

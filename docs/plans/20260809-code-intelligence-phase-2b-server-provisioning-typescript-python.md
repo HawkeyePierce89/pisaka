@@ -228,26 +228,26 @@ and the Settings surface read.
 - Modify: `Tests/PisakaCoreTests/SettingsStoreTests.swift`
 - Create: `Tests/PisakaCoreTests/LSPProvisioningModelTests.swift`
 
-- [ ] `SettingsStore`: `LSPServerConsent` (`unasked`/`accepted`/`declined`) persisted per
+- [x] `SettingsStore`: `LSPServerConsent` (`unasked`/`accepted`/`declined`) persisted per
       server id under a stable key, read leniently (an unknown stored value is `unasked`),
       with round-trip tests across a fresh store instance
-- [ ] `@MainActor LSPProvisioningModel`: per-server rows (display name, languages, state,
+- [x] `@MainActor LSPProvisioningModel`: per-server rows (display name, languages, state,
       pending download size), `consentPrompt(forOpening:)` as a pure rule (a downloadable
       language, consent `unasked`, nothing installed), `accept`/`decline`/`install`/`remove`,
       a `refresh()` that derives everything from the engine at launch, and a published
       `registry` (`.standard` plus every installed server) pushed through an
       `onRegistryChange` callback whenever it changes
-- [ ] the silent rules: an accepted-but-absent server installs on first use without asking
+- [x] the silent rules: an accepted-but-absent server installs on first use without asking
       again; a failed install returns the row to "not installed" with a retry available and
       raises nothing anywhere else; a declined server never prompts and never installs;
       removing a server also removes the runtime when no installed server still needs it
-- [ ] model tests over the engine with the task-3 fakes: prompt fires once and never after
+- [x] model tests over the engine with the task-3 fakes: prompt fires once and never after
       either answer, including across a rebuilt store; accept installs runtime + server and
       publishes a registry whose `canServe` covers TS *and* JS; decline publishes nothing
       and downloads nothing; install failure leaves consent accepted, state not-installed
       and the registry unchanged; remove publishes a registry without the server and drops
       the runtime only when unused; the published registry always keeps sourcekit-lsp first
-- [ ] run `swift test` — must pass before task 6
+- [x] run `swift test` — must pass before task 6
 
 ### Task 6: The app-side seams and the wiring
 
