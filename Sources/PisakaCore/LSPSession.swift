@@ -153,6 +153,7 @@ public actor LSPSession {
     public func start(
         processID: Int?,
         rootURI: String?,
+        rootPath: String? = nil,
         clientInfo: LSPClientInfo? = LSPClientInfo(name: "Pisaka", version: PisakaCore.version),
         initializationOptions: JSONValue? = nil
     ) async throws -> LSPServerCapabilities {
@@ -175,6 +176,7 @@ public actor LSPSession {
                 processId: processID,
                 clientInfo: clientInfo,
                 rootUri: rootURI,
+                rootPath: rootPath,
                 initializationOptions: initializationOptions
             )
             let result = try await perform(

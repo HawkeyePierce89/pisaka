@@ -662,6 +662,33 @@ public struct LSPInitializeParams: Equatable, Hashable, Sendable, Encodable {
     public var processId: Int?
     public var clientInfo: LSPClientInfo?
     public var rootUri: String?
+    /// The same root as `rootUri`, spelled as a file-system path.
+    ///
+    /// Deprecated by the spec since 3.6 and redundant on paper — which is exactly
+    /// why phase 2a omitted it, and exactly why the Python half of phase 2b did
+    /// not work. **pyright never reads `rootUri`.** Its `WorkspaceFactory`
+    /// registers workspaces from `workspaceFolders` if present and from
+    /// `rootPath` otherwise, and from nothing else; with neither key it registers
+    /// no workspace at all and every request falls to its rootless `<default>`
+    /// workspace — no project root, no `pyrightconfig.json`/`pyproject.toml`, no
+    /// execution environments, no venv or `extraPaths` discovery. The visible
+    /// symptom is not an error but a silence: `textDocument/definition` answers
+    /// `null` for any import that is not resolvable from the open file's own
+    /// directory, `RoutingIntelligenceProvider` reads that as "the server found
+    /// nothing", and Python quietly never improves on the tree-sitter index.
+    ///
+    /// So the deprecated key is sent *in addition to* `rootUri`, not instead of
+    /// it: sourcekit-lsp and typescript-language-server read `rootUri` and ignore
+    /// this, pyright reads this and ignores `rootUri`, and one field satisfies
+    /// both. The alternative — `workspaceFolders`, which pyright checks first —
+    /// would work equally well but is only legal alongside a
+    /// `workspace.workspaceFolders: true` capability, and that is a promise to
+    /// implement `workspace/didChangeWorkspaceFolders` and to answer the
+    /// `workspace/workspaceFolders` request. This client does neither (the root
+    /// cannot change within a session — a new root is a new `(server, root)` key
+    /// and a new process), so claiming it would put a lie in the closed
+    /// capability tree to gain nothing this field does not already give.
+    public var rootPath: String?
     public var capabilities: LSPClientCapabilities
     /// Per-server extra configuration from `LSPServerDescription` (D9).
     public var initializationOptions: JSONValue?
@@ -670,23 +697,27 @@ public struct LSPInitializeParams: Equatable, Hashable, Sendable, Encodable {
         processId: Int?,
         clientInfo: LSPClientInfo? = nil,
         rootUri: String?,
+        rootPath: String? = nil,
         capabilities: LSPClientCapabilities = LSPClientCapabilities(),
         initializationOptions: JSONValue? = nil
     ) {
         self.processId = processId
         self.clientInfo = clientInfo
         self.rootUri = rootUri
+        self.rootPath = rootPath
         self.capabilities = capabilities
         self.initializationOptions = initializationOptions
     }
 
     private enum CodingKeys: String, CodingKey {
-        case processId, clientInfo, rootUri, capabilities, initializationOptions
+        case processId, clientInfo, rootUri, rootPath, capabilities, initializationOptions
     }
 
-    /// `processId` and `rootUri` are written even when nil — the spec types them
-    /// `integer | null` and `string | null`, and a server is entitled to reject a
-    /// request that omits them outright.
+    /// `processId`, `rootUri` and `rootPath` are written even when nil — the spec
+    /// types them `integer | null` and `string | null`, and a server is entitled
+    /// to reject a request that omits them outright. An explicit `null` is also
+    /// what a rootless session must send pyright: the falsy value is what routes
+    /// it to its `<default>` workspace deliberately rather than by omission.
     public func encode(to encoder: Swift.Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         if let processId {
@@ -699,6 +730,11 @@ public struct LSPInitializeParams: Equatable, Hashable, Sendable, Encodable {
             try container.encode(rootUri, forKey: .rootUri)
         } else {
             try container.encodeNil(forKey: .rootUri)
+        }
+        if let rootPath {
+            try container.encode(rootPath, forKey: .rootPath)
+        } else {
+            try container.encodeNil(forKey: .rootPath)
         }
         try container.encode(capabilities, forKey: .capabilities)
         if let initializationOptions {

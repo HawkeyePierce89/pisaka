@@ -166,11 +166,16 @@ final class LSPWorkspaceTests: XCTestCase {
         XCTAssertEqual(document["text"]?.stringValue, "let a = 1\n")
 
         // The root the server was initialized with is the folder that is open,
-        // spelled as a directory URI.
+        // spelled as a directory URI *and* as the deprecated path — the second is
+        // the only one pyright reads, and the two must name the same directory.
         let initialize = try XCTUnwrap(harness.latest.requests(for: LSPMethod.initialize).first)
         XCTAssertEqual(
             initialize.params?["rootUri"]?.stringValue,
             "file:///tmp/PisakaLSPWorkspace/"
+        )
+        XCTAssertEqual(
+            initialize.params?["rootPath"]?.stringValue,
+            "/tmp/PisakaLSPWorkspace"
         )
         XCTAssertEqual(initialize.params?["processId"]?.intValue, 4242)
     }

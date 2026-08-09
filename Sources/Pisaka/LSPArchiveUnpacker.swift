@@ -41,6 +41,29 @@ final class LSPArchiveUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
         attributes: .concurrent
     )
 
+    /// How long `tar` gets before it is killed.
+    ///
+    /// The download seam is bounded on both axes (60 s request, 20 min resource)
+    /// and this half was not, which made it the one unbounded operation in an
+    /// install. That asymmetry is not survivable here: `LSPInstallEngine` keeps
+    /// the component in `installs` and `LSPProvisioningModel` keeps the server in
+    /// `attempts` until this returns, and *both* are what report `.installing` —
+    /// so a continuation that never resumes leaves the row spinning with
+    /// `canInstall` and `canRemove` false and `remove(_:)` refusing on its
+    /// `attempts[server] == nil` guard. Not a slow install: a dead one, for the
+    /// rest of the app run, with nothing said and no way back but quitting.
+    ///
+    /// Ten minutes is chosen the way the resource timeout was — far above any
+    /// real duration (the largest component is 53 MB and unpacks in seconds, so
+    /// this is two orders of magnitude of headroom) and far below "never", which
+    /// is the only number it is really competing with. A timeout throws, the
+    /// engine's existing `catch` discards the staging tree, and the row lands on
+    /// the same "not installed + Retry" state every other failure produces.
+    private static let deadline: DispatchTimeInterval = .seconds(10 * 60)
+
+    /// How long a killed `tar` gets to actually die, and its drains to finish.
+    private static let teardownGrace: DispatchTimeInterval = .seconds(5)
+
     /// Why an unpack did not happen.
     ///
     /// Bare reason phrases, for the reason `LSPDownloadService.Failure` states at
@@ -53,6 +76,8 @@ final class LSPArchiveUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
         /// It ran and refused: a truncated archive, an unreadable member, a
         /// destination that vanished.
         case extractionFailed(status: Int32, message: String)
+        /// It ran and never finished, so it was killed (see `deadline`).
+        case timedOut
 
         var errorDescription: String? {
             switch self {
@@ -60,7 +85,33 @@ final class LSPArchiveUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
                 return "The system archive tool could not be run. \(reason)"
             case let .extractionFailed(status, message):
                 return message.isEmpty ? "The archive tool exited with status \(status)." : message
+            case .timedOut:
+                return "The archive tool did not finish and was stopped."
             }
+        }
+    }
+
+    /// `tar`'s stderr, written by one queue and read by another.
+    ///
+    /// An ordinary local would do if the drain were always joined before the
+    /// read — which is exactly what stops being true once the join is bounded:
+    /// on the timeout path the deadline can expire while the drain thread is
+    /// still inside `readDataToEndOfFile`, and reading the same storage from two
+    /// threads is a data race whatever the timing usually is.
+    private final class Diagnostics: @unchecked Sendable {
+        private let lock = NSLock()
+        private var data = Data()
+
+        func store(_ value: Data) {
+            lock.lock()
+            defer { lock.unlock() }
+            data = value
+        }
+
+        var value: Data {
+            lock.lock()
+            defer { lock.unlock() }
+            return data
         }
     }
 
@@ -143,6 +194,12 @@ final class LSPArchiveUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
         // below fails harmlessly, and the exit status is what reports the failure.
         _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, Int32(1))
 
+        // Assigned before `run()`, which is the only order in which it is
+        // guaranteed to fire: a small archive can be extracted and exited from
+        // before the next statement on this thread runs.
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+
         do {
             try process.run()
         } catch {
@@ -154,12 +211,13 @@ final class LSPArchiveUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
         // than anywhere else in the app: the archive is far larger than any pipe
         // buffer, so a write that is not concurrent with the drains blocks
         // forever the moment `tar` writes more diagnostics than its own buffer
-        // holds. So stdin is written on one queue, stdout is drained on another,
-        // and stderr is read to EOF on this thread — which is also what makes
-        // `diagnostics` an ordinary local rather than shared mutable state.
+        // holds. So stdin is written on one queue and each output stream is
+        // drained on its own — including stderr, which used to be read on this
+        // thread and now cannot be, because this thread has a deadline to keep.
+        let streams = DispatchGroup()
         let writeQueue = DispatchQueue(label: "LSPArchiveUnpacker.stdin")
         let stdin = input.fileHandleForWriting
-        writeQueue.async {
+        writeQueue.async(group: streams) {
             try? stdin.write(contentsOf: archive)
             // Closing is what tells `tar` the archive is complete; without it a
             // successful extraction would sit waiting for more input.
@@ -167,20 +225,49 @@ final class LSPArchiveUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
         }
 
         let outputQueue = DispatchQueue(label: "LSPArchiveUnpacker.stdout")
-        outputQueue.async { _ = output.fileHandleForReading.readDataToEndOfFile() }
+        outputQueue.async(group: streams) { _ = output.fileHandleForReading.readDataToEndOfFile() }
 
-        let diagnostics = errors.fileHandleForReading.readDataToEndOfFile()
+        let diagnostics = Diagnostics()
+        let errorQueue = DispatchQueue(label: "LSPArchiveUnpacker.stderr")
+        errorQueue.async(group: streams) {
+            diagnostics.store(errors.fileHandleForReading.readDataToEndOfFile())
+        }
 
-        outputQueue.sync {}
-        writeQueue.sync {}
+        // The exit is waited for rather than the drains, because the drains are
+        // the thing that can outlive it: a pipe stays readable while any
+        // descriptor for its write end is open, and the process ending is the
+        // event that says whether this install worked.
+        if exited.wait(timeout: .now() + deadline) == .timedOut {
+            kill(process, waitingOn: exited)
+            _ = streams.wait(timeout: .now() + teardownGrace)
+            throw Failure.timedOut
+        }
+
+        // Bounded for the same reason the exit wait is: `tar` is gone, but a
+        // drain blocked on a descriptor something else inherited would otherwise
+        // reinstate exactly the unbounded wait this method exists to avoid. The
+        // status below is what decides the outcome; the drains only decorate it,
+        // so an unfinished one costs a diagnostic line, not correctness.
+        _ = streams.wait(timeout: .now() + teardownGrace)
         process.waitUntilExit()
 
         guard process.terminationStatus == 0 else {
             throw Failure.extractionFailed(
                 status: process.terminationStatus,
-                message: lastLine(of: diagnostics)
+                message: lastLine(of: diagnostics.value)
             )
         }
+    }
+
+    /// SIGTERM, a grace period, then SIGKILL — `LSPProcessTransport`'s teardown,
+    /// for its reason: a process wedged badly enough to miss the deadline is one
+    /// that may also ignore a polite signal, and leaving it holding a staging
+    /// directory that is about to be deleted is worse than killing it.
+    private static func kill(_ process: Process, waitingOn exited: DispatchSemaphore) {
+        process.terminate()
+        guard exited.wait(timeout: .now() + teardownGrace) == .timedOut else { return }
+        Darwin.kill(process.processIdentifier, SIGKILL)
+        _ = exited.wait(timeout: .now() + teardownGrace)
     }
 
     /// The last thing `tar` complained about, trimmed and capped.

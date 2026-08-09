@@ -178,13 +178,14 @@ final class LSPProtocolTypesTests: XCTestCase {
         )
     }
 
-    func testInitializeParamsWriteNullRatherThanOmittingProcessIdAndRootUri() throws {
-        // Both are `T | null` in the spec, and a server may reject a request that
-        // omits them outright — `encodeIfPresent` would do exactly that.
+    func testInitializeParamsWriteNullRatherThanOmittingProcessIdAndTheTwoRoots() throws {
+        // All three are `T | null` in the spec, and a server may reject a request
+        // that omits them outright — `encodeIfPresent` would do exactly that.
         let params = LSPInitializeParams(processId: nil, rootUri: nil)
         let encoded = try json(params)
         XCTAssertTrue(encoded.contains(#""processId":null"#), encoded)
         XCTAssertTrue(encoded.contains(#""rootUri":null"#), encoded)
+        XCTAssertTrue(encoded.contains(#""rootPath":null"#), encoded)
         XCTAssertFalse(encoded.contains("initializationOptions"), encoded)
     }
 
@@ -200,6 +201,20 @@ final class LSPProtocolTypesTests: XCTestCase {
         XCTAssertTrue(encoded.contains(#""clientInfo":{"name":"Pisaka","version":"1.0"}"#), encoded)
         XCTAssertTrue(encoded.contains(#""rootUri":"\#(Self.recordedRoot)""#), encoded)
         XCTAssertTrue(encoded.contains(#""initializationOptions":{"backgroundIndexing":true}"#), encoded)
+    }
+
+    /// The deprecated key is sent *as well as* `rootUri`, never instead of it:
+    /// pyright reads only this one, sourcekit-lsp and typescript-language-server
+    /// only the other. Dropping either half silently disables one of them.
+    func testInitializeParamsCarryTheRootAsAPathBesideTheURI() throws {
+        let params = LSPInitializeParams(
+            processId: 4242,
+            rootUri: Self.recordedRoot,
+            rootPath: "/tmp/Project"
+        )
+        let encoded = try json(params)
+        XCTAssertTrue(encoded.contains(#""rootUri":"\#(Self.recordedRoot)""#), encoded)
+        XCTAssertTrue(encoded.contains(#""rootPath":"/tmp/Project""#), encoded)
     }
 
     // MARK: - Document sync (D2)

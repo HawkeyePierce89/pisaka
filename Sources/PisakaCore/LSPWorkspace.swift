@@ -910,6 +910,7 @@ public final class LSPWorkspace {
             let capabilities = try await session.start(
                 processID: processID,
                 rootURI: LSPWorkspace.rootURI(for: root),
+                rootPath: LSPWorkspace.rootPath(for: root),
                 initializationOptions: description.initializationOptions
             )
             guard token == epoch else {
@@ -1014,6 +1015,18 @@ public final class LSPWorkspace {
     /// The root's URI, always with the trailing slash a directory URI carries.
     nonisolated static func rootURI(for root: URL) -> String {
         URL(fileURLWithPath: root.standardizedFileURL.path, isDirectory: true).absoluteString
+    }
+
+    /// The same root as a file-system path, for the servers that read the
+    /// deprecated `rootPath` and nothing else (`LSPInitializeParams.rootPath`
+    /// carries the whole reason). Standardized like `rootURI` and *not*
+    /// symlink-resolved for `documentURI`'s reason — the two must name the same
+    /// directory, or a server would resolve imports under one spelling and be
+    /// handed documents under another. No trailing slash: this is a path, and
+    /// pyright hands it to `Uri.file` where a trailing separator would become an
+    /// empty last component.
+    nonisolated static func rootPath(for root: URL) -> String {
+        root.standardizedFileURL.path
     }
 
     /// The `(server, root)` key's root half: canonical, so two spellings of the

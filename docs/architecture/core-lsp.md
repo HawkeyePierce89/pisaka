@@ -152,6 +152,37 @@ document, together with the limits they carry.
     will happily switch if asked), definition with `linkSupport`, completion with
     `contextSupport` and `resolveSupport` for `additionalTextEdits`/`detail`, and
     **no** `snippetSupport` (D5).
+    `LSPInitializeParams` sends the project root **twice** — as `rootUri` and as
+    the spec-deprecated `rootPath` — and the redundancy is load-bearing rather
+    than belt-and-braces. Phase 2a sent only `rootUri`, which is what
+    sourcekit-lsp and typescript-language-server read; **pyright reads neither
+    that nor anything derived from it.** Its `WorkspaceFactory.handleInitialize`
+    registers workspaces from `workspaceFolders` when present and from `rootPath`
+    otherwise, and from nothing else, so an initialize carrying only `rootUri`
+    leaves it with *no* workspace at all: every request falls to its rootless
+    `<default>` workspace, with no project root, no
+    `pyrightconfig.json`/`pyproject.toml`, no execution environments and no
+    venv/`extraPaths` discovery. That failure is silent in both directions —
+    pyright answers `null` rather than erroring, and `RoutingIntelligenceProvider`
+    reads `null` as "the server found nothing" and falls back — so the symptom is
+    not a broken Python server but a Python server that never beats the
+    tree-sitter index on any import that is not resolvable from the open file's
+    own directory. Confirmed against the pinned pyright 1.1.411 bundle: the same
+    cross-file `textDocument/definition` answers `null` with `rootUri` alone and
+    the correct location with `rootPath` added.
+    `workspaceFolders` — the key pyright checks *first* — would work equally well
+    and is the non-deprecated spelling, but the spec only permits sending it
+    alongside a `workspace.workspaceFolders: true` capability, which is a promise
+    to implement `workspace/didChangeWorkspaceFolders` and to answer the
+    `workspace/workspaceFolders` request. This client does neither, and never
+    needs to: a root cannot change within a session, because a different root is a
+    different `(server, root)` key and therefore a different process. Sending the
+    deprecated field costs one line and no promise; advertising the capability
+    would put a lie in the closed tree below to buy nothing. `LSPWorkspace.rootPath(for:)`
+    derives it from the same standardized, *unresolved* URL as `rootURI(for:)`, so
+    the two always name one directory — a server resolving imports under one
+    spelling while being handed documents under another is exactly the bug this
+    pairing must not introduce.
     `LSPServerCapabilities` models only what this phase acts on; everything else a
     server advertises is ignored rather than typed, since twenty providers we never
     call are not information. `definitionProvider`/`completionProvider` are

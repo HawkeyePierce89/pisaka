@@ -412,6 +412,32 @@ carries. D1–D10 are in `core-lsp.md`.
     *app*. A non-zero exit becomes `Failure.extractionFailed` carrying the last
     diagnostic line, trimmed and capped — what ends up in a Settings row should
     be a sentence, not a log.
+    **`tar` has ten minutes, and is killed when it misses them.** The download
+    seam is bounded on both axes (60 s request, 20 min resource); this half was
+    not, which made it the one unbounded operation in an install and the only one
+    whose failure had no bottom. The state proves it: `LSPInstallEngine` holds the
+    component in `installs` and `LSPProvisioningModel` holds the server in
+    `attempts` until this call returns, and *both* of those are what report
+    `.installing` — so a continuation that never resumes leaves the row spinning
+    with `canInstall` and `canRemove` false and `remove(_:)` refusing on its own
+    `attempts[server] == nil` guard. Not a slow install but a dead one, for the
+    rest of the app run, with nothing said and no way back but quitting. Ten
+    minutes is picked the way the resource timeout was — two orders of magnitude
+    above the seconds the largest (53 MB) component really takes, and far below
+    the "never" it is actually competing with. Missing it is SIGTERM, a grace
+    period, then SIGKILL (`LSPProcessTransport`'s teardown, for its reason: a
+    process wedged past the deadline may also ignore a polite signal, and it is
+    holding a staging directory that is about to be deleted), and then
+    `Failure.timedOut` — which the engine's existing `catch` turns into the same
+    discarded staging tree and "not installed + Retry" row as every other failure.
+    The deadline is also why stderr moved off the calling thread onto a third
+    queue and why the drains are joined with a bounded `DispatchGroup.wait`
+    instead of `sync {}`: a thread that must enforce a timeout cannot be parked in
+    `readDataToEndOfFile`, and a join that can block forever would reinstate the
+    unbounded wait from the other side. Because the timeout path can expire while
+    that drain is still running, the collected stderr lives behind a small lock
+    rather than in a local — the drains only decorate the outcome the exit status
+    already decided, so an unfinished one costs a diagnostic line, not correctness.
 
   - `LSPConsentBanner.swift` — the one place this app asks to download something
     (D15). A non-modal strip between the breadcrumb and the find bar, shown only
