@@ -722,7 +722,7 @@ seam the app fills in. TDD.
 - Modify: `Tests/PisakaCoreTests/Support/ScriptedInstallSeams.swift`,
   `Tests/PisakaCoreTests/LSPSourceGatingTests.swift`
 
-- [ ] value types: `LSPRustAnalyzer` (the pin as data — component id, display name,
+- [x] value types: `LSPRustAnalyzer` (the pin as data — component id, display name,
       executable name/subpath, origin, licence SPDX — deriving what it can from
       the manifest component rather than restating it), `LSPRustToolchainReport`
       (`.missing` / `.found(cargoPath:searchPath:rustAnalyzerPath:)`, with
@@ -732,10 +732,18 @@ seam the app fills in. TDD.
       `LSPRustServerRow` with `canInstall`/`canRemove`/status as properties so the
       views hold no logic — including the `pending` state, for the reason the Go
       row has one
-- [ ] the one seam: a discovery protocol answering the report — `Sendable`,
+      *(The "deriving what it can" clause was taken further than the plan drafted:
+      `LSPRustAnalyzer` carries **only** what a manifest record has no field for —
+      id, display name, origin — plus `component(in:)`. The version, the licence
+      expression and the executable subpath are read *through* that from whichever
+      manifest the engine was built over, so there is exactly one spelling of each
+      and the tests can drive the model with a fixture pin. `LSPRustServerRow`
+      gained `licenseSPDX` and `pendingDownloadByteCount` for the same reason: the
+      view holds no logic, so the row is where both reach it.)*
+- [x] the one seam: a discovery protocol answering the report — `Sendable`,
       `async`, never mentioning `Process`. There is deliberately no install seam:
       the install is `engine.install(LSPRustAnalyzer.componentID)`
-- [ ] the `@MainActor` model: pending-until-discovered lifecycle; **no toolchain →
+- [x] the `@MainActor` model: pending-until-discovered lifecycle; **no toolchain →
       no prompt, no consent written, no description, and `install()` does nothing
       at all** (D23, and Go's "a row reading *no toolchain* beside a sentence about
       a failed attempt nobody made"); D24's app-copy-wins preference; consent under
@@ -745,7 +753,14 @@ seam the app fills in. TDD.
       `LSPInstallEngine` with D16's push-then-delete ordering; the published
       description as `.executable(path:)` with the discovered `PATH` as its
       `environment` overlay; and an awaited change callback
-- [ ] tests: no toolchain → never prompts, never installs, contributes no
+      *(The model takes no `FileServicing` at all, unlike the gopls one: every
+      disk question — is it installed, where is the executable, are there files to
+      reclaim, how many bytes are still to fetch — is already an engine method,
+      because unlike gopls this server *is* a manifest component. `status()` reads
+      this model's own attempt before the engine's, so the row says "installing…"
+      from the moment the user says yes rather than from the moment the engine
+      claims the component.)*
+- [x] tests: no toolchain → never prompts, never installs, contributes no
       description, even with a rust-analyzer discovered; discovered rust-analyzer +
       toolchain → used silently, no prompt, no Remove; accept → one install, a
       description appears, consent persists; decline → persists across a rebuilt
@@ -755,8 +770,20 @@ seam the app fills in. TDD.
       the discovered copy afterwards; a coalesced double-accept → one install; the
       negative discovery answer cached per app run; the prompt's byte count comes
       from `pendingDownloadByteCount` and is zero once installed
-- [ ] register both new Core files in `LSPSourceGatingTests.expectedCoreFiles`
-- [ ] run `swift test`
+      *(Sixteen tests over a fixture manifest whose version is deliberately **not**
+      the shipped `2026-08-03`, so a model that hard-coded the pin would fail here
+      rather than pass by coincidence; one further test pins the two facts the
+      shipped record has to state for the model's path math to work. The plan's
+      "even with a rust-analyzer discovered" case turned out to be unrepresentable
+      — `.missing` carries no path, which is D23 stated in the type — so the
+      sharper case is staged instead: a Mac this app installed a copy on whose
+      toolchain has since gone, where the row reads "no Rust toolchain", nothing is
+      registered, and Remove is still offered for the files. A test the plan did
+      not list covers the `.gzip` gate from up here: an unpack that forgets the
+      executable bit installs nothing and the row says so.)*
+- [x] register both new Core files in `LSPSourceGatingTests.expectedCoreFiles`
+- [x] run `swift test`
+      *(2254 tests, 0 failures.)*
 
 ### Task 9: App — the Rust toolchain discovery seam
 

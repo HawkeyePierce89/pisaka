@@ -90,6 +90,8 @@ final class LSPSourceGatingTests: XCTestCase {
         "LSPProtocolTypes.swift",
         "LSPProvisioning.swift",
         "LSPProvisioningManifest.swift",
+        "LSPRustProvisioning.swift",
+        "LSPRustToolchain.swift",
         "LSPServerDescription.swift",
         "LSPSession.swift",
         "LSPTransport.swift",
