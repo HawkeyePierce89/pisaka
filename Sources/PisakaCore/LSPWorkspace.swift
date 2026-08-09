@@ -115,7 +115,12 @@ public final class LSPWorkspace {
         case serverReplaced
     }
 
-    private let registry: LSPServerRegistry
+    /// Which server answers for which language — a `var` since 2b (D16), because a
+    /// server the app has just finished installing must become servable in the
+    /// turn it lands rather than at the next launch. Swapped only through
+    /// `updateRegistry(_:)`, which is what makes "un-registered means stopped"
+    /// true rather than hopeful.
+    private var registry: LSPServerRegistry
     private let transportFactory: TransportFactory
     private let budgets: LSPSession.Budgets
     /// The backoff wait, injectable so the restart tests assert D7's delays
@@ -236,16 +241,27 @@ public final class LSPWorkspace {
         let live = sessions
         let inflight = pendingLaunches
         let open = documents
+        let liveTransports = transports
         sessions = [:]
-        transports = [:]
         pendingLaunches = [:]
         documents = [:]
 
+        // `transports` is deliberately *not* emptied alongside the other three. It
+        // is the only map `terminateNow()` reads, and every process below stays
+        // alive until the `await` that stops it returns — so clearing it here would
+        // make each one unreachable for exactly the window in which a quit is most
+        // likely to land, and a quit inside that window leaves the orphan
+        // `terminateNow()` exists to kill. Each entry is dropped instead once its
+        // process is actually dead, under `forget`'s identity guard so a launch that
+        // registered a *newer* transport for the same key in the meantime keeps it.
+        // The inflight transports need no entry here at all: a superseded launch
+        // sees the epoch mismatch, terminates what it built and `forget`s it itself.
         for (key, session) in live {
             for (uri, state) in open where state.serverKey == key {
                 try? await session.didClose(LSPDidCloseTextDocumentParams(uri: uri))
             }
             await session.shutdown()
+            if let transport = liveTransports[key] { forget(transport, for: key) }
         }
 
         // A launch that had not finished when the epoch moved returns `nil` and has
@@ -288,6 +304,159 @@ public final class LSPWorkspace {
         documents = [:]
 
         for transport in live.values { transport.terminate() }
+    }
+
+    // MARK: - Registration
+
+    /// Swap the registry, and stop every server the swap un-registered or changed
+    /// (D16).
+    ///
+    /// 2a fixed the registry at construction, which was enough while the only
+    /// server was one `xcrun` finds. 2b installs servers *while the app runs*, and
+    /// the whole promise of that feature is that opening a `.ts` file, accepting the
+    /// download and getting semantic completion is one uninterrupted sequence — so
+    /// `canServe` has to flip from `false` to `true` without a restart, which means
+    /// the registry has to move.
+    ///
+    /// It has to flip **both ways**, and that is the half with teeth. Removing a
+    /// server in Settings un-registers it, and a description that is merely
+    /// forgotten leaves its process running against a root nobody will ever ask it
+    /// about again: the orphan `pgrep -fl node` finds after quitting. So an
+    /// un-registered — or *changed*, which for a launch description means a
+    /// different id, executable, argument list or initialization options — server is
+    /// shut down politely here, its documents `didClose`d first (D2) exactly as a
+    /// folder switch does, its transport dropped and its documents forgotten.
+    ///
+    /// Its D7 bookkeeping is cleared with it, so a re-added server starts with a
+    /// fresh budget of three restarts. The rule "never reset within a root" is about
+    /// a server that keeps crashing on the same project; a server the user has just
+    /// removed and reinstalled is a *new* server on that project, and making someone
+    /// relaunch the app to get a second chance after a bad download would be the
+    /// silent failure D7 exists to avoid, not the one it prevents.
+    ///
+    /// Everything the swap left alone is left alone: an unchanged server keeps its
+    /// session, its open documents and its failure count, and neither generation
+    /// token moves — a registry update is not a folder change, and a request in
+    /// flight for a server that survived is still a request about the folder it was
+    /// asked under.
+    public func updateRegistry(_ registry: LSPServerRegistry) async {
+        guard registry != self.registry else { return }
+        let before = LSPWorkspace.reachableDescriptions(in: self.registry)
+        let after = LSPWorkspace.reachableDescriptions(in: registry)
+        self.registry = registry
+
+        // Gone, shadowed, or launched differently. Written as "not identical to
+        // what it was" rather than "absent now" so a version bump — same id, new
+        // executable path under a new version directory — is torn down too: the
+        // running process is the *old* install, whose directory the engine is about
+        // to delete.
+        func isStale(_ serverID: String) -> Bool {
+            after[serverID] == nil || after[serverID] != before[serverID]
+        }
+
+        failures = failures.filter { !isStale($0.key.serverID) }
+        unavailable = unavailable.filter { !isStale($0.serverID) }
+
+        let dead = Set(sessions.keys).union(pendingLaunches.keys).filter { isStale($0.serverID) }
+        guard !dead.isEmpty else { return }
+
+        // Every map a `prepare` reads is emptied *before* the first hop, so one
+        // racing this call finds nothing to hand out rather than a session that is
+        // on its way to being shut down — `shutdownAll()`'s ordering, applied to a
+        // subset. `transports` is the exception, for the reason spelled out below;
+        // no reader consults it, so leaving it populated hands nothing out.
+        var live: [ServerKey: LSPSession] = [:]
+        var liveTransports: [ServerKey: LSPTransport] = [:]
+        var inflight: [ServerKey: PendingLaunch] = [:]
+        var open: [String: DocumentState] = [:]
+        for key in dead {
+            if let session = sessions.removeValue(forKey: key) {
+                live[key] = session
+                // Every transport stays in `transports` for now — the session's, and
+                // a pending launch's alike. A transport registered there is the only
+                // thing `terminateNow()` can reach a process through, and a process
+                // here is alive until the `await` that stops it returns: the
+                // handshake this method waits out for a pending launch is the slowest
+                // thing this layer does, and the shutdown it waits out for a live
+                // session runs a whole request budget. Dropping either one now would
+                // leave a live process unreachable for that whole window, so a quit
+                // inside it orphans exactly what `terminateNow()` exists to kill.
+                // Both loops below clear their own, once the process is actually
+                // dead and under the same identity guard.
+                liveTransports[key] = transports[key]
+            }
+            if let pending = pendingLaunches.removeValue(forKey: key) { inflight[key] = pending }
+        }
+        for (uri, state) in documents where dead.contains(state.serverKey) {
+            open[uri] = state
+            documents[uri] = nil
+        }
+
+        for (key, session) in live {
+            for (uri, state) in open where state.serverKey == key {
+                try? await session.didClose(LSPDidCloseTextDocumentParams(uri: uri))
+            }
+            await session.shutdown()
+            if let transport = liveTransports[key] { forget(transport, for: key) }
+        }
+
+        // A launch that had not finished when the registry moved. The epoch is
+        // deliberately *not* bumped for it — that token supersedes every launch in
+        // flight, including the ones for servers this update left untouched, and
+        // killing a healthy server's handshake because an unrelated one was
+        // installed is the opposite of what this method is for. So the launch runs
+        // to completion and is unregistered and shut down here afterwards.
+        //
+        // Every one of those three unregistrations is guarded by an identity check,
+        // and the guard is the point: this loop awaits, so a second `updateRegistry`
+        // (remove then reinstall from the Settings surface) can have re-registered the
+        // *same* key with a live session, a live transport and open documents before we
+        // wake. Clearing them unconditionally would drop the new server's transport out
+        // of `terminateNow()`'s reach — the orphan process this whole method exists to
+        // prevent — and forget documents it has open.
+        //
+        // The transport takes `forget`'s check rather than the session's, because the
+        // two can disagree. Taking a launch out of `pendingLaunches` above is what lets
+        // a second launch start for the same key, and a transport is registered
+        // *before* its handshake while a session is filed only after: the second launch
+        // can therefore own `transports[key]` while `sessions[key]` is still the first
+        // one's — the one moment `sessions[key] === orphan` is true and the entry is
+        // somebody else's. Clearing it there leaves the second server serving requests
+        // with nothing for a quit to reach, which is the same orphan by a longer route.
+        for (key, pending) in inflight {
+            guard let orphan = await pending.task.value else { continue }
+            guard sessions[key] === orphan else { await orphan.shutdown(); continue }
+            sessions[key] = nil
+            documents = documents.filter { $0.value.serverKey != key }
+            // The transport is cleared *after* the goodbye, not before it, for the
+            // reason the collection loop above states and the live-session loop
+            // already obeys: `shutdown()` waits out a whole request budget against
+            // a process that is still running, and `transports` is the only map
+            // `terminateNow()` reads. Unregistering here — the obvious place,
+            // beside the other two — would leave this launch alive and unreachable
+            // for that entire window, which is the orphan the branch exists to
+            // prevent, reached by the one path that had finished handshaking.
+            await orphan.shutdown()
+            forget(orphan.transport, for: key)
+        }
+    }
+
+    /// The descriptions a registry can actually route to, by id.
+    ///
+    /// Keyed off `servedLanguages` rather than `descriptions` because the registry
+    /// resolves first-registration-wins per language: a description that is shadowed
+    /// for *every* language it claims can never be launched again, so for the
+    /// purposes of "is this still the server?" it is gone, and its process should go
+    /// with it.
+    private static func reachableDescriptions(
+        in registry: LSPServerRegistry
+    ) -> [String: LSPServerDescription] {
+        var map: [String: LSPServerDescription] = [:]
+        for language in registry.servedLanguages {
+            guard let description = registry.description(for: language) else { continue }
+            map[description.id] = description
+        }
+        return map
     }
 
     // MARK: - Documents
@@ -334,7 +503,10 @@ public final class LSPWorkspace {
             version = try await flush(
                 uri: uri,
                 text: text,
-                language: language,
+                // Resolved from the *file*, not the language: `.tsx` and `.jsx`
+                // share a `SyntaxLanguage` case with their plain counterparts but
+                // not an LSP id (see `lspLanguageID(forFileNamed:)`).
+                languageID: language.lspLanguageID(forFileNamed: url.lastPathComponent),
                 session: session,
                 key: key
             )
@@ -376,7 +548,7 @@ public final class LSPWorkspace {
     private func flush(
         uri: String,
         text: String,
-        language: SyntaxLanguage,
+        languageID: String,
         session: LSPSession,
         key: ServerKey
     ) async throws -> Int {
@@ -410,7 +582,7 @@ public final class LSPWorkspace {
                     try await send(
                         uri: uri,
                         text: text,
-                        language: language,
+                        languageID: languageID,
                         session: session,
                         key: key
                     )
@@ -435,7 +607,7 @@ public final class LSPWorkspace {
     private func send(
         uri: String,
         text: String,
-        language: SyntaxLanguage,
+        languageID: String,
         session: LSPSession,
         key: ServerKey
     ) async throws -> Int {
@@ -458,7 +630,7 @@ public final class LSPWorkspace {
             LSPDidOpenTextDocumentParams(
                 textDocument: LSPTextDocumentItem(
                     uri: uri,
-                    languageId: language.lspLanguageID,
+                    languageId: languageID,
                     version: 1,
                     text: text
                 )
@@ -738,6 +910,7 @@ public final class LSPWorkspace {
             let capabilities = try await session.start(
                 processID: processID,
                 rootURI: LSPWorkspace.rootURI(for: root),
+                rootPath: LSPWorkspace.rootPath(for: root),
                 initializationOptions: description.initializationOptions
             )
             guard token == epoch else {
@@ -757,6 +930,22 @@ public final class LSPWorkspace {
                 await session.terminate()
                 forget(transport, for: key)
                 unavailable.insert(key)
+                return nil
+            }
+            guard sessions[key] == nil else {
+                // Someone else is already filed under this key. Normally
+                // impossible — `liveSession` reuses a live session and
+                // `pendingLaunches` coalesces concurrent starts — but D16's
+                // `updateRegistry` takes a launch *out* of `pendingLaunches`
+                // without stopping it, so a remove-then-reinstall can start a
+                // second process for the same key while this one is still
+                // handshaking. Registering over it would leave that newer
+                // process running with nothing pointing at it: the orphan
+                // `terminateNow()` could not reach. The epoch cannot express
+                // this — it is deliberately not bumped by a registry update —
+                // so the check is identity, like every other one here.
+                await session.terminate()
+                forget(transport, for: key)
                 return nil
             }
             sessions[key] = session
@@ -826,6 +1015,18 @@ public final class LSPWorkspace {
     /// The root's URI, always with the trailing slash a directory URI carries.
     nonisolated static func rootURI(for root: URL) -> String {
         URL(fileURLWithPath: root.standardizedFileURL.path, isDirectory: true).absoluteString
+    }
+
+    /// The same root as a file-system path, for the servers that read the
+    /// deprecated `rootPath` and nothing else (`LSPInitializeParams.rootPath`
+    /// carries the whole reason). Standardized like `rootURI` and *not*
+    /// symlink-resolved for `documentURI`'s reason — the two must name the same
+    /// directory, or a server would resolve imports under one spelling and be
+    /// handed documents under another. No trailing slash: this is a path, and
+    /// pyright hands it to `Uri.file` where a trailing separator would become an
+    /// empty last component.
+    nonisolated static func rootPath(for root: URL) -> String {
+        root.standardizedFileURL.path
     }
 
     /// The `(server, root)` key's root half: canonical, so two spellings of the

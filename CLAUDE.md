@@ -125,10 +125,17 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LSPTransport.swift` — the macOS/Core boundary: bytes out, bytes in, stop; EOF reports a crash.
 - `LSPSession.swift` — one conversation: handshake, ids, pending table, budgets, cancel, terminal-on-EOF.
 - `LSPServerDescription.swift` — description + registry (D9); `SyntaxLanguage.lspLanguageID`.
-- `LSPWorkspace.swift` — one server per `(server, root)`: lazy start, the D2 flush, D7 backoff, `shutdownAll()`/`terminateNow()`.
+- `LSPWorkspace.swift` — one server per `(server, root)`: lazy start, the D2 flush, D7 backoff, `updateRegistry(_:)` (D16), `shutdownAll()`/`terminateNow()`.
 - `CompletionEditPlan.swift` — the pure auto-import rule: roles, last-to-first order, the staleness gate, `shifted(…)`.
 - `LSPIntelligenceProvider.swift` — protocol answers as seam values: D6 ranking, D2's guards, out-of-root flagging, resolve.
 - `RoutingIntelligenceProvider.swift` — LSP first, tree-sitter otherwise; `LSPIntelligenceSource`, the whole-attempt budget.
+
+`docs/architecture/core-provisioning.md` — server provisioning (phase 2b: TS/JS + Python), incl. decisions D11–D16, the pinned manifest, its by-hand update procedure and the known limits:
+- `SHA256.swift` — FIPS 180-4 digest in Foundation alone (Core may not import CryptoKit); `update`/`finalize`.
+- `LSPProvisioningManifest.swift` — the pinned components/artifacts, `LSPDownloadableServer` and the registry-entry factory (D11).
+- `LSPInstallLayout.swift` — pure path math over the install root: version dirs, staging, containment (D12/D13).
+- `LSPInstallEngine.swift` — download → verify → unpack → one rename; state from the disk, coalescing, `sweepStaging()` (D12–D14).
+- `LSPProvisioning.swift` — `LSPServerConsent`, the row/prompt values, and `LSPProvisioningModel` (consent, installs, the published registry).
 
 `docs/architecture/core-git.md` — git protocol, status & blame:
 - `GitError.swift` — typed `GitServicing` failures with user-facing `errorDescription`.
@@ -174,7 +181,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `BottomPanel.swift` — bottom-dock panel toggle state.
 - `DiffWindowTitle.swift` — diff-window titles (short hash).
 - `TabOrientation.swift` / `ThemePreference.swift` — persisted preference enums.
-- `SettingsStore.swift` — persisted preferences with clamped font size.
+- `SettingsStore.swift` — persisted preferences with clamped font size; per-server LSP consent (D15, entry in `core-provisioning.md`).
 - `EditorSession.swift` — session persistence (forward-compatible `SessionTab`, snapshot rules, `SessionStore`).
 - `ScopedFileAccess.swift` — iOS security-scope helpers + `BookmarkStore`; `path(_:isWithin:)`.
 - `TabLayout.swift` — iOS tab-presentation decision.
@@ -213,8 +220,12 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `ProjectWatcher.swift` — FSEvents subscription (realpath'd root, `IgnoreSelf`, dir-level events).
 - `AutosaveController.swift` — idle/tab-switch/focus-loss/termination autosave; two suspension counters.
 - `SessionController.swift` — debounced session writer (`dropFirst`/`lastWritten` rules).
-- `SettingsView.swift` — Preferences: the General/Acknowledgements tab host + the settings form.
-- `AcknowledgementsView.swift` — Preferences Acknowledgements tab (dependency list + verbatim license text).
+- `SettingsView.swift` — Preferences: the General/Language Servers/Acknowledgements tab host + the settings form.
+- `AcknowledgementsView.swift` — Preferences Acknowledgements tab (bundled dependencies + the installed-server section, verbatim license text).
+
+`docs/architecture/core-provisioning.md` — the macOS provisioning surfaces (same doc as the Core half above):
+- `LSPDownloadService.swift` / `LSPArchiveUnpacker.swift` — the two app-side seams: ephemeral uncached `URLSession` bytes; `/usr/bin/tar -xz` fed on stdin.
+- `LSPConsentBanner.swift` / `LSPServerSettingsView.swift` / `LSPInstalledLicenses.swift` — the consent strip (two actions, no dismiss), the Preferences tab, the installed components' license texts.
 
 `docs/architecture/app-window.md` — window chrome (macOS):
 - `ContentView.swift` — window layout: splits, bottom dock, path bar, sheet wiring, deliberately non-observed `commitDialog`.
@@ -283,7 +294,17 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   unavailable for the app run. A **reader**, like the index: never takes the writer
   gate, never gated by it. `Process` lives only in `Sources/Pisaka` behind
   `LSPTransport` — `LSPSourceGatingTests` asserts that by set equality over both
-  sides.
+  sides. Registration is dynamic (`updateRegistry(_:)`): un-registering a server
+  shuts its process down, so no removal leaves an orphan.
+- **Provisioned servers**: nothing downloads without per-server consent; the
+  manifest of what *may* be downloaded is pinned data in Core (URL + SHA-256 +
+  size), changed only by shipping a new app version. Every install is verified
+  before it is unpacked and lands as one rename inside
+  `~/Library/Application Support/Pisaka/LanguageServers` — nothing global, no
+  `$PATH`, no package manager — so deleting that directory de-provisions
+  completely and the disk *is* the state. Core never fetches or unpacks (the two
+  seams are macOS-gated app files), and the whole layer is a **reader**, like the
+  index and the rest of the LSP client.
 - **Open-tab resync** after an operation rewrites the worktree: buffers are
   snapshotted before the hop; a clean, unchanged tab gets `reloadFromDisk`, an
   edited one `reconcileSavedBaseline` + beep, a deleted file force-closes
@@ -327,13 +348,22 @@ way, and must be listed in the test target's `exclude:` (why, in `core-lsp.md`).
 
 Shared test helpers live in `Tests/PisakaCoreTests/Support/`: `StubFileTree` (an
 in-memory `FileServicing` project tree, with hooks for unreadable files, absent
-stamps and stamp overrides), `Gate` (a blocking rendezvous that holds off-main
-work suspended while a test mutates model state on the main actor — how the
-folder-switch-mid-walk cases are staged), `QueryScanner`'s `ParsedQuery`, the
-`.scm` scanner `VendoredGrammarQueryTests` and `SymbolQueryTests` share, and
+stamps and stamp overrides, **plus a mutable half** — empty directories,
+`createDirectory`/`ensureDirectory`/`move`/`remove`, `moveFailures`/`removeFailures`
+injection points and a `removedPaths` call log — which is what makes the install
+engine's atomicity rules assertable), `Gate` (a blocking rendezvous that holds
+off-main work suspended while a test mutates model state on the main actor — how
+the folder-switch-mid-walk cases are staged), `QueryScanner`'s `ParsedQuery`, the
+`.scm` scanner `VendoredGrammarQueryTests` and `SymbolQueryTests` share,
 `ScriptedLSPTransport`, the deterministic `LSPTransport` fake the session and
-workspace suites drive a whole conversation through. Reach for
-these before writing a new stub.
+workspace suites drive a whole conversation through, and `ScriptedInstallSeams`
+(`ScriptedDownloader`/`ScriptedUnpacker`, the canned download-and-unpack pair the
+provisioning suites drive). Reach for
+these before writing a new stub. A fake standing in for a `nonisolated async`
+seam runs on the cooperative pool, so anything it writes into a `StubFileTree`
+must hop to the main actor first — the engine reads that tree *from* the main
+actor while another install is unpacking, and two threads in one `Dictionary` is
+a corrupted hash table rather than a flaky assertion.
 
 ## Commands
 
@@ -364,7 +394,15 @@ covering libgit2 linking) in parallel. No signing, secrets, or simulator.
 - Every behavioral change must come with new/updated `PisakaCore` tests, and the
   full suite must pass before moving on.
 - External dependencies are confined to the `Pisaka` app target only, declared
-  and pinned in `project.yml` (the SwiftPM manifest stays dependency-free):
+  and pinned in `project.yml` (the SwiftPM manifest stays dependency-free).
+  There is a **second, differently-shaped pin set** that deliberately lives
+  nowhere near these: the downloadable language servers in
+  `Sources/PisakaCore/LSPProvisioningManifest.swift`, pinned by URL + SHA-256 +
+  byte count rather than by version/revision, guarded by
+  `LSPProvisioningManifestTests`, and bumped by the by-hand procedure in
+  `docs/architecture/core-provisioning.md`. They are not in
+  `project.yml`/`Package.resolved` because nothing links them — they arrive over
+  the network at the user's request or not at all. The remote ones here are:
   ChimeHQ's Neon (which brings in `SwiftTreeSitter`/`Rearrange`) plus one
   tree-sitter grammar package per supported language, for syntax highlighting on
   all platforms; SwiftTerm (migueldeicaza/SwiftTerm, the PTY-backed
@@ -410,7 +448,14 @@ covering libgit2 linking) in parallel. No signing, secrets, or simulator.
   package resolves but is not linked, an `excluded` entry with the reason.
   `LicenseCoverageTests` compares the manifest's id set against `project.yml`'s
   linked packages and each `revision` against `Package.resolved`, so `swift test`
-  fails until this is done. That comparison is *package*-granular, so **a
+  fails until this is done. **Provisioned language servers are the exception**:
+  Node, `typescript-language-server`, `typescript`, `pyright` and `fsevents` ship
+  inside nothing, so their notices are read at display time out of the installed
+  tree (`LSPInstalledLicenses`, from `LSPComponent.licenseFileSubpaths`) and are
+  deliberately *not* in `licenses.json`. Nothing in `swift test` can see them; a
+  manifest pin bump must re-verify those subpaths by hand against the new tarball
+  (procedure in `docs/architecture/core-provisioning.md`), because a wrong one
+  silently drops the component from Acknowledgements. That comparison is *package*-granular, so **a
   package's own LICENSE is not automatically the whole obligation**: read its
   manifest's `sources:`/`exclude:` for third-party trees it vendors and compiles
   in (libgit2's `deps/xdiff` is LGPL-2.1, tree-sitter's `lib/src/unicode` is

@@ -49,6 +49,14 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
     /// how the folder-switch tests give the *new* project real files to find.
     var root: URL
     var files: [String: String]
+    /// Root-relative directory paths that exist in their own right.
+    ///
+    /// A tree derived from file paths alone cannot represent an *empty*
+    /// directory, and the install engine creates several before it writes
+    /// anything into them (a staging tree, an artifact's destination) — so
+    /// `ensureDirectory`/`createDirectory` record them here and the listing reads
+    /// both halves.
+    var directories: Set<String> = []
     /// Root-relative paths reported as symbolic links.
     var symlinks: Set<String> = []
     /// Root-relative directory paths whose listing throws (`""` for the root).
@@ -63,6 +71,19 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
     /// When set, `fileStamp(at:)` reports "unknown" for every file — the
     /// degradation a partial stub or an uncooperative volume produces.
     var stampsAreUnavailable = false
+    /// Root-relative *destination* paths whose `move` throws — the injection
+    /// point for "the rename failed", which is the one install step that has
+    /// already produced a complete tree by the time it can go wrong.
+    ///
+    /// Keyed by destination rather than by source on purpose: the destination is
+    /// the version directory, which the manifest determines completely, while the
+    /// source is a staging directory whose name carries an attempt counter no
+    /// test should have to predict.
+    var moveFailures: Set<String> = []
+    /// Root-relative paths whose `removeItem` throws — a directory the volume
+    /// will not let go of, which is the one way a Remove can fail after the
+    /// registry push that stopped the server has already happened.
+    var removeFailures: Set<String> = []
     /// Held on the *first* directory listing, if set.
     var listingGate: Gate?
     /// Held on the read of this exact root-relative path, once.
@@ -72,6 +93,7 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
     private var readPathsStorage: [String] = []
     private var stampPathsStorage: [String] = []
     private var writtenPathsStorage: [String] = []
+    private var removedPathsStorage: [String] = []
 
     /// The root-relative paths whose contents were read, in call order.
     var readPaths: [String] {
@@ -93,6 +115,14 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return stampPathsStorage
+    }
+
+    /// The root-relative paths deleted, in call order — how "the staging tree was
+    /// removed and nothing else was" is asserted.
+    var removedPaths: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return removedPathsStorage
     }
 
     init(root: URL, files: [String: String]) {
@@ -164,6 +194,16 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
             let isDirectory = components.count > prefix.count + 1
             names[name] = (names[name] ?? false) || isDirectory
         }
+        // The explicitly created directories, including the ones that hold no
+        // file — a version directory whose contents are all deeper, an empty
+        // staging tree.
+        for path in directories {
+            let components = path.split(separator: "/").map(String.init)
+            guard components.count > prefix.count,
+                  Array(components.prefix(prefix.count)) == prefix
+            else { continue }
+            names[components[prefix.count]] = true
+        }
         return names
             .map { DirectoryEntry(url: url.appendingPathComponent($0.key), isDirectory: $0.value) }
             .sorted { lhs, rhs in
@@ -175,6 +215,98 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
 
     func symbolicLinkDestination(at url: URL) -> String? {
         symlinks.contains(relative(url)) ? "elsewhere" : nil
+    }
+
+    // MARK: - Mutating the tree
+    //
+    // Enough of a file system for the install engine's atomicity rules to mean
+    // something: a directory can exist while empty, a rename moves a whole
+    // subtree in one step, a delete takes the subtree with it, and none of them
+    // clobbers or reaches outside the root. Everything is compared by
+    // root-relative path — there is no inode, no case folding and no symlink
+    // resolution, none of which the engine depends on.
+
+    func createDirectory(at url: URL) throws {
+        guard let path = relativeIfInside(url), !path.isEmpty else { throw StubError.missing }
+        guard !exists(path) else { throw FileServiceError.alreadyExists }
+        let parent = parentPath(path)
+        guard parent.isEmpty || hasDirectory(parent) else { throw StubError.missing }
+        directories.insert(path)
+    }
+
+    func ensureDirectory(at url: URL) throws {
+        guard var path = relativeIfInside(url) else { throw StubError.missing }
+        while !path.isEmpty {
+            guard files[path] == nil else {
+                throw FileServiceError.notADirectory(name: path.split(separator: "/").last.map(String.init) ?? path)
+            }
+            directories.insert(path)
+            path = parentPath(path)
+        }
+    }
+
+    func move(from source: URL, to destination: URL) throws {
+        guard let from = relativeIfInside(source), !from.isEmpty,
+              let to = relativeIfInside(destination), !to.isEmpty
+        else { throw StubError.missing }
+        guard !moveFailures.contains(to) else { throw StubError.denied }
+        guard exists(from) else { throw StubError.missing }
+        guard !exists(to) else { throw FileServiceError.alreadyExists }
+        let parent = parentPath(to)
+        guard parent.isEmpty || hasDirectory(parent) else { throw StubError.missing }
+
+        let prefix = from + "/"
+        for key in files.keys where key == from || key.hasPrefix(prefix) {
+            files[to + key.dropFirst(from.count)] = files.removeValue(forKey: key)
+        }
+        for directory in directories where directory == from || directory.hasPrefix(prefix) {
+            directories.remove(directory)
+            directories.insert(to + directory.dropFirst(from.count))
+        }
+    }
+
+    func removeItem(at url: URL) throws {
+        guard let path = relativeIfInside(url), !path.isEmpty else { throw StubError.missing }
+        guard !removeFailures.contains(path) else { throw StubError.denied }
+        guard exists(path) else { throw StubError.missing }
+        let prefix = path + "/"
+        for key in files.keys where key == path || key.hasPrefix(prefix) {
+            files[key] = nil
+        }
+        for directory in directories where directory == path || directory.hasPrefix(prefix) {
+            directories.remove(directory)
+        }
+        lock.lock()
+        removedPathsStorage.append(path)
+        lock.unlock()
+    }
+
+    /// Whether anything at all occupies this root-relative path.
+    func exists(_ path: String) -> Bool {
+        files[path] != nil || hasDirectory(path)
+    }
+
+    /// Whether `path` is a directory — recorded as one, or implied by something
+    /// living under it.
+    func hasDirectory(_ path: String) -> Bool {
+        guard !path.isEmpty else { return true }
+        if directories.contains(path) { return true }
+        let prefix = path + "/"
+        return files.keys.contains { $0.hasPrefix(prefix) } || directories.contains { $0.hasPrefix(prefix) }
+    }
+
+    /// The root-relative paths of every file under `path`, sorted — what "left
+    /// byte-for-byte" is asserted against.
+    func filePaths(under path: String) -> [String] {
+        let prefix = path.isEmpty ? "" : path + "/"
+        return files.keys.filter { $0.hasPrefix(prefix) }.sorted()
+    }
+
+    private func parentPath(_ path: String) -> String {
+        var components = path.split(separator: "/").map(String.init)
+        guard !components.isEmpty else { return "" }
+        components.removeLast()
+        return components.joined(separator: "/")
     }
 
     /// Size-derived by default, so "the file changed" and "the stamp changed"
@@ -191,8 +323,19 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
     }
 
     private func relative(_ url: URL) -> String {
+        relativeIfInside(url) ?? ""
+    }
+
+    /// The root-relative path, or `nil` when `url` is not inside the tree at all.
+    ///
+    /// The distinction `relative(_:)` cannot make: it answers `""` both for the
+    /// root itself and for something outside it, which is harmless for a read and
+    /// catastrophic for a delete. Every mutating operation goes through this one.
+    private func relativeIfInside(_ url: URL) -> String? {
+        let path = url.standardizedFileURL.path
+        if path == root.standardizedFileURL.path { return "" }
         let base = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        guard url.path.hasPrefix(base) else { return "" }
-        return String(url.path.dropFirst(base.count))
+        guard path.hasPrefix(base) else { return nil }
+        return String(path.dropFirst(base.count))
     }
 }

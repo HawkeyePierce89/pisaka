@@ -59,7 +59,12 @@ struct PisakaApp: App {
     /// size). Created once for the app's lifetime; hosted by the `Settings` scene
     /// below (the standard ⌘, Preferences window) and threaded into `ContentView`
     /// so downstream views can read each setting.
-    @StateObject private var settings = SettingsStore()
+    ///
+    /// Built in `init()` rather than inline because the provisioning model persists
+    /// its per-server consent through this very store (D15), and "asked once" is
+    /// only true if the banner, the Settings surface and the model are all reading
+    /// the same instance.
+    @StateObject private var settings: SettingsStore
     /// The editor find/replace bar's state (⌘F). Owned here rather than by the
     /// editor because the bar is *window*-scoped: its pattern, template and
     /// toggles survive a tab switch, while `CodeEditorView`'s coordinator is
@@ -107,6 +112,31 @@ struct PisakaApp: App {
     /// is gated by them — the rule already written for the symbol index, and for the
     /// same reason.
     private let lspWorkspace: LSPWorkspace
+
+    /// Downloads, verifies and installs the language servers this app can provision
+    /// itself (phase 2b). A plain stored reference like `lspWorkspace`, and for the
+    /// same reason: the `@main` App is created once, and the engine's in-flight
+    /// table is what makes two accepts one download.
+    ///
+    /// Given the *concrete* seams here and nowhere else — `LSPDownloadService` and
+    /// `LSPArchiveUnpacker` are the app's whole contribution to provisioning (D14),
+    /// exactly as `LSPProcessTransport` is its whole contribution to running a
+    /// server. Everything else — what may be downloaded, what makes it acceptable,
+    /// what happens when it is not — is Core's and is unit-tested.
+    private let lspInstallEngine: LSPInstallEngine
+
+    /// Which downloadable servers exist, what state each is in, and what the
+    /// registry should therefore look like right now — the one thing the consent
+    /// banner and the Settings surface both read.
+    ///
+    /// A plain stored reference rather than a `@StateObject`, the `symbolIndex`
+    /// precedent: this scene's `body` reads nothing published on it, and
+    /// subscribing the App to a model that republishes its rows on every install
+    /// transition would put `ContentView` — and with it the project tree, the tab
+    /// list and `CodeEditorView.updateNSView` — back on that path for a value
+    /// nothing in this scene shows. The surfaces that *do* show it observe it
+    /// themselves.
+    private let lspProvisioning: LSPProvisioningModel
 
     /// Wire the workspace, the project-search model and the symbol index together.
     ///
@@ -179,6 +209,28 @@ struct PisakaApp: App {
         // optimisation — the lookup is cached either way (see `LSPToolchain`).
         LSPToolchain.prewarm()
 
+        // Provisioning (phase 2b), composed exactly once. The two concrete seams
+        // appear here and nowhere else: everything above them — the pinned
+        // manifest, the digest, the staging/rename sequence, the consent rules — is
+        // Core's and is unit-tested without a network or a `tar`.
+        let settings = SettingsStore()
+        _settings = StateObject(wrappedValue: settings)
+        let (installEngine, provisioning) = PisakaApp.makeProvisioning(settings: settings)
+        self.lspInstallEngine = installEngine
+        // The whole of D16's wiring: whenever the set of installed servers changes,
+        // the workspace is handed a new registry and shuts down whatever the change
+        // un-registered. Awaited by the model on purpose — a removal publishes the
+        // registry *before* deleting the files, so the process is gone before its
+        // executable is (see `LSPProvisioningModel.onRegistryChange`).
+        //
+        // `lspWorkspace` is captured directly rather than through `self`: this runs
+        // during `init`, and the closure must outlive it holding the workspace, not
+        // a half-built `PisakaApp` value.
+        provisioning.onRegistryChange = { [lspWorkspace] registry in
+            await lspWorkspace.updateRegistry(registry)
+        }
+        self.lspProvisioning = provisioning
+
         _projectSearch = StateObject(
             wrappedValue: ProjectSearchModel(
                 fileService: FileService(),
@@ -197,6 +249,74 @@ struct PisakaApp: App {
                 }
             )
         )
+    }
+
+    /// The provisioning pair — the engine and the model over it — composed the
+    /// one way this app composes them.
+    ///
+    /// A factory rather than two inline expressions in `init` because the
+    /// default-constructed `ContentView` (previews/tests, the `GitCLIService()`
+    /// defaults' reason) needs the same stack and must not spell the install root
+    /// a second time: two spellings of one directory is how a preview ends up
+    /// reading somewhere the real app never writes. The `settings` default is for
+    /// that caller alone; `init` passes the store the whole app shares, because
+    /// consent is persisted through it.
+    ///
+    /// Building one opens no connection — `URLSession` does nothing until a
+    /// request is made — but it is not free: `LSPProvisioningModel.init` derives
+    /// its rows, which lists the install root's component directories. That is one
+    /// pass over a directory that normally does not exist, and it is why the
+    /// default argument exists at all rather than a lazily-built stack.
+    static func makeProvisioning(
+        settings: SettingsStore = SettingsStore()
+    ) -> (engine: LSPInstallEngine, model: LSPProvisioningModel) {
+        let engine = LSPInstallEngine(
+            layout: LSPInstallLayout(base: PisakaApp.languageServerInstallRoot),
+            fileService: FileService(),
+            downloader: LSPDownloadService(),
+            unpacker: LSPArchiveUnpacker(),
+            architecture: PisakaApp.hostArchitecture
+        )
+        return (engine, LSPProvisioningModel(engine: engine, settings: settings))
+    }
+
+    /// Where provisioned language servers live: `~/Library/Application
+    /// Support/Pisaka/LanguageServers` (D12).
+    ///
+    /// Application Support rather than Caches, because these are not
+    /// reconstructible on demand: a purged cache would silently un-provision every
+    /// language the user accepted, and the next `.ts` file would download 56 MB
+    /// again without asking. Under the app's own directory, so
+    /// `LSPInstallLayout.directoryName` is the only path component this layer adds
+    /// and deleting that one directory de-provisions completely — which is what
+    /// `README.md` tells people to do.
+    ///
+    /// The fallback spelling is unreachable in practice (a Mac always has an
+    /// Application Support directory) and exists so this is a `URL` rather than an
+    /// optional threaded through the engine, the layout and the model.
+    private static var languageServerInstallRoot: URL {
+        let base = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory())
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return base
+            .appendingPathComponent("Pisaka", isDirectory: true)
+            .appendingPathComponent(LSPInstallLayout.directoryName, isDirectory: true)
+    }
+
+    /// The slice this app is *running as*, not what the machine is.
+    ///
+    /// A Rosetta-translated build reports `x64` and provisions the x64 Node, which
+    /// is the right answer: the server process it spawns inherits the translation,
+    /// so an arm64 Node under a translated parent is the arrangement that would not
+    /// work. Stated as a known limit rather than worked around — see
+    /// `LSPHostArchitecture`.
+    private static var hostArchitecture: LSPHostArchitecture {
+        #if arch(arm64)
+        return .arm64
+        #else
+        return .x64
+        #endif
     }
 
     /// Which bottom dock panel is shown (`nil` = none), VS Code-style. Owned here
@@ -303,6 +423,7 @@ struct PisakaApp: App {
                 search: search,
                 reveal: reveal,
                 symbolIndex: symbolIndexController,
+                provisioning: lspProvisioning,
                 onGoToDefinition: { url, range in activateSearchMatch(url: url, range: range) },
                 onViewDefinitionOutsideProject: { url, range in
                     viewDefinitionOutsideProject(url: url, range: range)
@@ -351,6 +472,27 @@ struct PisakaApp: App {
                 if !didRestoreSession {
                     didRestoreSession = true
                     restoreLastSession()
+
+                    // Provisioning's launch pair, under the same one-shot gate.
+                    //
+                    // `sweepStaging()` first and synchronously: what it deletes is
+                    // whatever a crash, a force-quit or a power loss left half
+                    // written under `.staging`, and it is only safe *because* it
+                    // runs before anything can be installed (D13). Nothing else in
+                    // the app ever removes those trees, so skipping it would leave
+                    // a failed 53 MB download on disk for the life of the
+                    // installation.
+                    //
+                    // `refresh()` then re-derives everything from the disk and
+                    // publishes the resulting registry, which is what makes a
+                    // relaunch pick up what a previous run installed: the file
+                    // system is the state (D12), so there is nothing persisted to
+                    // restore and no ordering against the session restore to get
+                    // right. Asynchronous and unawaited — a language whose server
+                    // has not been registered yet answers from tree-sitter for the
+                    // moment it takes, exactly as it does when no server exists.
+                    lspInstallEngine.sweepStaging()
+                    Task { await lspProvisioning.refresh() }
                 }
 
                 // Terminate every shell on app quit so no PTY-backed processes
@@ -584,7 +726,11 @@ struct PisakaApp: App {
         // dedicated window automatically. Hosts the thin `SettingsView` bound to
         // the shared `settings` store.
         Settings {
-            SettingsView(settings: settings)
+            SettingsView(
+                settings: settings,
+                provisioning: lspProvisioning,
+                installEngine: lspInstallEngine
+            )
         }
     }
 

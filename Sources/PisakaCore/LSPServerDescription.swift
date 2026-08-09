@@ -149,4 +149,31 @@ extension SyntaxLanguage {
         case .gitignore: return "ignore"
         }
     }
+
+    /// The `languageId` for one *document*, which for the JS/TS family is not
+    /// decided by the language alone.
+    ///
+    /// `SyntaxLanguage` deliberately collapses `.tsx` into `.typescript` and
+    /// `.jsx` into `.javascript` — one grammar, one keyword list, one symbols
+    /// query — but LSP names those `typescriptreact`/`javascriptreact`, and
+    /// `typescript-language-server` passes the id straight through to tsserver as
+    /// a script kind (`mode2ScriptKind`, verified in the pinned 5.3.0 bundle). It
+    /// corrects a bad id only when the id is not a mode it knows, so
+    /// `"typescript"` on a `.tsx` file is *not* corrected: tsserver opens it as
+    /// `ScriptKind.TS`, whose language variant parses no JSX. Every completion and
+    /// definition inside the JSX half of the file then comes back wrong — and
+    /// comes back **answered**, which is the one failure
+    /// `RoutingIntelligenceProvider` cannot fall back from, since a wrong answer
+    /// is indistinguishable from a right one at that seam.
+    ///
+    /// `.jsx` is harmless either way (tsserver's `ScriptKind.JS` already parses
+    /// JSX), and is spelled here for the same reason the rest of this mapping is
+    /// a `switch`: the protocol's spelling, stated deliberately.
+    public func lspLanguageID(forFileNamed fileName: String) -> String {
+        switch (self, (fileName as NSString).pathExtension.lowercased()) {
+        case (.typescript, "tsx"): return "typescriptreact"
+        case (.javascript, "jsx"): return "javascriptreact"
+        default: return lspLanguageID
+        }
+    }
 }

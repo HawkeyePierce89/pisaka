@@ -71,7 +71,11 @@ final class LSPSessionTests: XCTestCase {
         budgets: LSPSession.Budgets = LSPSessionTests.quick
     ) async throws -> LSPSession {
         let session = LSPSession(transport: transport, budgets: budgets)
-        try await session.start(processID: 4242, rootURI: "file:///tmp/Project")
+        try await session.start(
+            processID: 4242,
+            rootURI: "file:///tmp/Project",
+            rootPath: "/tmp/Project"
+        )
         return session
     }
 
@@ -112,6 +116,8 @@ final class LSPSessionTests: XCTestCase {
         let initialize = try XCTUnwrap(transport.requests(for: LSPMethod.initialize).first)
         let params = try XCTUnwrap(initialize.params)
         XCTAssertEqual(params["rootUri"]?.stringValue, "file:///tmp/Project")
+        // Both spellings travel: pyright reads only the deprecated path form.
+        XCTAssertEqual(params["rootPath"]?.stringValue, "/tmp/Project")
         XCTAssertEqual(params["processId"]?.intValue, 4242)
         XCTAssertEqual(params["clientInfo"]?["name"]?.stringValue, "Pisaka")
 

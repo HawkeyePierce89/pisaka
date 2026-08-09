@@ -5,19 +5,29 @@ import PisakaCore
 /// The Preferences window (⌘,). Hosted by the `Settings` scene in `PisakaApp`,
 /// which gives the standard Preferences menu item and ⌘, shortcut automatically.
 ///
-/// Two tabs, in the usual macOS Preferences shape: the settings form itself and
-/// the third-party Acknowledgements. A `TabView` sizes to its widest tab, so
-/// `GeneralSettingsView` keeps its own 340pt width and `AcknowledgementsView` —
-/// which needs room to read a license — drives the window.
+/// Three tabs, in the usual macOS Preferences shape: the settings form itself,
+/// the downloadable language servers, and the third-party Acknowledgements. A
+/// `TabView` sizes to its widest tab, so `GeneralSettingsView` keeps its own
+/// 340pt width and `AcknowledgementsView` — which needs room to read a license —
+/// drives the window.
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
+    /// Which servers may be downloaded and what state each is in. Threaded
+    /// through to both of the tabs that read it — the management surface and the
+    /// Acknowledgements section for what is installed — rather than each of them
+    /// building its own view of the install root.
+    @ObservedObject var provisioning: LSPProvisioningModel
+    let installEngine: LSPInstallEngine
 
     var body: some View {
         TabView {
             GeneralSettingsView(settings: settings)
                 .tabItem { Label("General", systemImage: "gearshape") }
 
-            AcknowledgementsView()
+            LSPServerSettingsView(provisioning: provisioning)
+                .tabItem { Label("Language Servers", systemImage: "arrow.down.circle") }
+
+            AcknowledgementsView(provisioning: provisioning, installEngine: installEngine)
                 .tabItem { Label("Acknowledgements", systemImage: "doc.text") }
         }
     }

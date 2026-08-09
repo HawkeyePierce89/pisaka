@@ -72,8 +72,9 @@ Rules for the value:
 ## Check by hand before the first submission
 
 `swift test` and CI cover everything static — the plists, the privacy manifest,
-the pins, the license manifest. Two things they structurally cannot cover,
-because the view layer is untested by convention:
+the pins, the license manifest. What follows is what they structurally cannot
+cover, because the view layer is untested by convention and because nothing in
+CI has a network, a `tar` or a child process:
 
 - **iOS layout at real screen size.** `INFOPLIST_KEY_UILaunchScreen_Generation:
   YES` is what takes the app out of letterboxed compatibility mode, so the first
@@ -85,6 +86,29 @@ because the view layer is untested by convention:
   long text (libgit2's, 66 KB / 1,323 lines) to its tail. That the pane scrolls
   rather than clipping is the whole obligation, and nothing in `swift test` sees
   the rendered view.
+- **Provisioned language servers, end to end** (macOS). The whole of phase 2b is
+  network, `Process` and view layer, so none of it is reachable from `swift test`:
+  1. Open a `.ts` file in a project with no `node_modules`. The consent banner
+     appears, sized. Accept it, and confirm completion and Go to Definition become
+     semantic without a restart — including that **completing a symbol that needs
+     an import inserts the import line** (D4's auto-import, which 2a had no server
+     that could exercise; see `core-lsp.md`).
+  2. Open a `.py` file, accept, and confirm the second offer is the ~4 MB one.
+  3. Preferences → Language Servers: Remove one. Its process must be gone
+     *immediately*, and the language must fall back silently.
+  4. Quit the app and run `pgrep -fl "node|pyright|typescript-language-server"`.
+     **Nothing.** This is the orphan check the provisioning layer's push-then-delete
+     ordering exists for, and it has no automated equivalent.
+  5. Cut the network mid-download and press Retry. The row says so; nothing is
+     left under `LanguageServers/.staging/`.
+  6. Confirm Acknowledgements grows a *Language Servers* section while something is
+     installed and loses it again after the last removal — the only place the
+     downloaded components' notices appear, since `LicenseCoverageTests` cannot
+     see them.
+  7. On a **notarized** build specifically: confirm the unpacked `node` actually
+     launches. The app writes that binary itself so it carries no quarantine flag,
+     and library validation does not apply to a child process, but a hardened-runtime
+     app spawning a downloaded executable is not exercised anywhere else.
 
 ## Not here yet
 
@@ -99,6 +123,10 @@ Program membership exists:
   (`GitCLIService`) and opens a PTY for the embedded terminal, neither of which
   survives sandboxing. So the macOS channel is Developer ID + notarization unless
   those two features are reworked; the iOS App Store path is unaffected.
+  Phase 2b adds a second, **independent** reason the Mac App Store is out: the
+  macOS app downloads and executes third-party binaries at the user's request,
+  which App Review guideline 2.5.2 forbids outright regardless of sandboxing.
+  Nothing in the iOS build does this — the whole layer is behind `#if os(macOS)`.
 - The App Store Connect app records, store metadata and screenshots.
 
 None of the repository-side work above depends on a signing team existing;

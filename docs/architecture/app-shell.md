@@ -149,6 +149,25 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     server that cannot be told opens the document afresh on its next request. None of
     this touches the writer gate: the LSP layer is a **reader**, so it neither raises
     `autosave.suspend()`/`localChanges.beginRevert()` nor is gated by them.
+    **Provisioning (phase 2b) is composed at the same point and pushed into the same
+    workspace** — the layer itself is `core-provisioning.md`. `init()` builds the
+    install engine over the two concrete seams (`LSPDownloadService`,
+    `LSPArchiveUnpacker`) and the model over it, through
+    `makeProvisioning(settings:)` so the default-constructed `ContentView` gets the
+    same stack and the install root
+    (`~/Library/Application Support/Pisaka/LanguageServers`) is spelled once. The
+    whole of D16's wiring is one closure: `onRegistryChange` awaits
+    `lspWorkspace.updateRegistry(_:)`, which is what makes an install servable and a
+    removal terminate its process without a restart. It captures `lspWorkspace`
+    directly rather than through `self`, since it runs during `init` and must outlive
+    a half-built value. At launch, under the same one-shot gate as the session
+    restore, `sweepStaging()` runs **synchronously first** — what it deletes is
+    whatever a crash left half-written, and it is only safe because nothing can be
+    installing yet — and `refresh()` follows in an unawaited `Task`, re-deriving the
+    registry from the disk (the file system is the state, so there is nothing
+    persisted to restore and no ordering against the session restore to get right).
+    A language whose server has not been re-registered yet answers from tree-sitter
+    for the moment it takes, exactly as it does when no server exists.
     `closeFile(id:)` (and every branch of its confirmation) routes through
     `forgetIndexedBuffer(_:)`, which hands the tab's entry back to disk only when no
     tab still shows the file — so the Cancel branch, and a file legitimately reached
@@ -885,13 +904,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     observers would make it invisible and fragile — hence
     `AutosaveController.flushNow()` being internal and `PisakaApp` calling both
     back to back from one place.
-  - `SettingsView.swift` — the Preferences window (⌘,), a two-tab `TabView`:
-    "General" (`GeneralSettingsView`, the form below) and "Acknowledgements"
-    (`AcknowledgementsView`). A `TabView` sizes to its widest tab, which is why
-    the split is worth noting: `GeneralSettingsView` keeps its own `.frame(width:
-    340)` while the Acknowledgements tab — needing room to read a license — is
-    what drives the window. `PisakaApp` still constructs
-    `SettingsView(settings:)` unchanged.
+  - `SettingsView.swift` — the Preferences window (⌘,), a three-tab `TabView`:
+    "General" (`GeneralSettingsView`, the form below), "Language Servers"
+    (`LSPServerSettingsView`, phase 2b — full entry in `core-provisioning.md`) and
+    "Acknowledgements" (`AcknowledgementsView`). A `TabView` sizes to its widest
+    tab, which is why the split is worth noting: `GeneralSettingsView` keeps its
+    own `.frame(width: 340)` while the Acknowledgements tab — needing room to read
+    a license — is what drives the window. `PisakaApp` constructs
+    `SettingsView(settings:provisioning:installEngine:)`, threading the
+    provisioning model and engine through to the two tabs that read them rather
+    than letting each build its own view of the install root.
     `GeneralSettingsView` is the former Preferences form, verbatim: a thin
     `@ObservedObject
     SettingsStore` view (a `Form` with a `Picker` for tab orientation, a `Picker`
@@ -981,3 +1003,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     dependencies" can never be the silent reading. No logic (untested like the
     rest of the view layer); the iOS peer is `AcknowledgementsView_iOS` in
     `app-ios.md`.
+    **Two sources, one screen** since phase 2b: below the "Bundled" section, a
+    "Language Servers" section lists whatever is *installed* under Application
+    Support right now, read through `LSPInstalledLicenses` (entry in
+    `core-provisioning.md`) — so it exists only while something is provisioned and
+    disappears when it is removed, which is the one thing this screen must not get
+    wrong: acknowledging software the app does not have would imply it ships it.
+    Both lists are `LicenseDocument`s by the time they arrive, so the detail pane
+    needs no idea which one a selection came from. The installed section is
+    `@State` re-read on `.task(id: provisioning.rows)` rather than a computed
+    property, because — unlike the bundled catalog — it *can* change while the
+    window is open; a removal that deletes the selected entry falls back to the
+    first bundled one instead of leaving the placeholder.

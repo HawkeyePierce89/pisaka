@@ -12,10 +12,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     removed; diffs open in a separate window on double-click). The `if let file`
     branch of `editorZone` is a `VStack(spacing: 0) { PathBarView(fileURL:
     file.url, projectRoot: model.projectRoot).equatable(); Divider();
-    <SearchBarView while search.isVisible>; CodeEditorView(…) }` — so the find bar
+    LSPConsentBanner(provisioning:language:hasProjectRoot:); <SearchBarView while
+    search.isVisible>; CodeEditorView(…) }` — so the find bar
     sits between the breadcrumb and the editor and, living inside `editorZone`,
     covers **both** tab layouts at once (in `.horizontal` it simply lands under the
-    tab strip). `ContentView` takes `search: EditorSearchState` and `reveal:
+    tab strip). The consent banner (phase 2b, entry in `core-provisioning.md`) sits
+    above the find bar so it is the topmost thing in the editor zone without
+    covering the file's own path; it is keyed on `SyntaxLanguage(forFileName:
+    file.displayName)` and on `model.projectRoot != nil`, and renders nothing at
+    all — no layout, no divider — unless that language has an unanswered,
+    uninstalled downloadable server *and* there is a project for it to serve
+    (`LSPWorkspace` refuses to prepare anything without a root, so offering the
+    download with only a loose file open would spend a permanent, one-shot consent
+    on something that could not demonstrate itself). The same
+    keyed view is where an *already accepted* server is installed on first use, so
+    both halves of "what happens when this file is opened" stay in one place. `ContentView` takes `search: EditorSearchState` and `reveal:
     EditorRevealState` (both defaulted so previews compile) and threads them into
     `CodeEditorView`, along with `fileURL: file.url` and `diskRevision:
     model.diskRevision(for: file.id)` for the gutter's git-blame column (both with

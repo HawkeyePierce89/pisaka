@@ -481,4 +481,220 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
         let none = await router.resolveEdits(for: indexItem)
         XCTAssertTrue(none.isEmpty)
     }
+
+    // MARK: - The provisioned languages (phase 2b)
+
+    /// Phase 2b can add entries to the registry at runtime, which makes the 2a
+    /// promise above a moving target: the set of languages that route to a server
+    /// is no longer fixed at build time. So the promise is re-stated here in the
+    /// two forms that can now break.
+    ///
+    /// **Nothing installed changes nothing.** A `.ts` or `.py` file on a machine
+    /// where no server has been provisioned must answer *the bare index
+    /// provider's* answer, and a `.swift` file must still reach sourcekit-lsp —
+    /// asserted by equality and by the launch counter rather than by reading the
+    /// candidates, because a downloadable entry that leaked into the base registry
+    /// would produce answers that still look plausible.
+    ///
+    /// **An install is scoped to its own languages.** Provisioning pyright must
+    /// leave a TypeScript answer and a Swift answer byte-identical to what they
+    /// were before it, which is the property that makes "one more manifest record"
+    /// a safe way to add the tenth server.
+
+    private var typescriptFile: URL { root.appendingPathComponent("src/app.ts") }
+    private var pythonFile: URL { root.appendingPathComponent("src/app.py") }
+    private var typescriptDeclarationFile: URL { root.appendingPathComponent("src/greeter.ts") }
+    private var pythonDeclarationFile: URL { root.appendingPathComponent("src/greeter.py") }
+
+    private let typescriptSource = "const greeter = new TSGreeter()"
+    private let pythonSource = "greeter = PyGreeter()"
+
+    /// An index of a project written in the two downloadable languages, so the
+    /// fallback's answers are about the language under test rather than about
+    /// Swift. Deliberately *not* `makeIndex()`: the names are distinct per
+    /// language, so a candidate can only have come from the file it belongs to.
+    private func makeProvisionedLanguagesIndex() -> SymbolIndex {
+        var index = SymbolIndex()
+        index.replace(fileURL: typescriptDeclarationFile, symbols: [
+            Symbol(
+                name: "TSGreeter",
+                kind: .type,
+                range: NSRange(location: 13, length: 9),
+                fileURL: typescriptDeclarationFile,
+                line: 1
+            )
+        ])
+        index.replace(fileURL: pythonDeclarationFile, symbols: [
+            Symbol(
+                name: "PyGreeter",
+                kind: .type,
+                range: NSRange(location: 6, length: 9),
+                fileURL: pythonDeclarationFile,
+                line: 1
+            )
+        ])
+        return index
+    }
+
+    private func typescriptDefinitionRequest() -> DefinitionRequest {
+        DefinitionRequest(
+            identifier: "TSGreeter",
+            fileURL: typescriptFile,
+            offset: (typescriptSource as NSString).range(of: "TSGreeter()").location,
+            text: typescriptSource
+        )
+    }
+
+    private func pythonDefinitionRequest() -> DefinitionRequest {
+        DefinitionRequest(
+            identifier: "PyGreeter",
+            fileURL: pythonFile,
+            offset: (pythonSource as NSString).range(of: "PyGreeter()").location,
+            text: pythonSource
+        )
+    }
+
+    private func typescriptCompletionRequest() -> CompletionRequest {
+        CompletionRequest(
+            prefix: "TSGre",
+            fileURL: typescriptFile,
+            text: typescriptSource,
+            language: .typescript,
+            offset: (typescriptSource as NSString).range(of: "TSGreeter()").location + 5
+        )
+    }
+
+    private func pythonCompletionRequest() -> CompletionRequest {
+        CompletionRequest(
+            prefix: "PyGre",
+            fileURL: pythonFile,
+            text: pythonSource,
+            language: .python,
+            offset: (pythonSource as NSString).range(of: "PyGreeter()").location + 5
+        )
+    }
+
+    /// The registry `LSPProvisioningModel` publishes once `server` is installed,
+    /// built the way the model builds it: the base, plus the manifest's own
+    /// description. The shipped manifest and a made-up install root, because the
+    /// description is pure path math and nothing here starts anything.
+    private func registryInstalling(_ server: LSPDownloadableServer) throws -> LSPServerRegistry {
+        let layout = LSPInstallLayout(
+            base: URL(fileURLWithPath: "/private/tmp/PisakaRouting/LanguageServers", isDirectory: true)
+        )
+        let description = try XCTUnwrap(
+            server.serverDescription(manifest: .standard, layout: layout)
+        )
+        return LSPServerRegistry(LSPServerRegistry.standard.descriptions + [description])
+    }
+
+    func testWithNothingProvisionedTheDownloadableLanguagesEqualTheBareIndexProvidersOutput() async {
+        transport.script(LSPMethod.definition, .reply(serverDefinitionReply()))
+        let index = makeProvisionedLanguagesIndex()
+        // `.standard` is the registry of a machine that has provisioned nothing:
+        // sourcekit-lsp and no more.
+        let router = makeRouter(index: index)
+        let bare = makeFallback(index)
+
+        for request in [typescriptDefinitionRequest(), pythonDefinitionRequest()] {
+            let routed = await router.definitions(for: request)
+            let expected = await bare.definitions(for: request)
+            XCTAssertEqual(routed, expected, "\(request.identifier)")
+            XCTAssertFalse(routed.isEmpty, "\(request.identifier)")
+        }
+        for request in [typescriptCompletionRequest(), pythonCompletionRequest()] {
+            let routed = await router.completions(for: request)
+            let expected = await bare.completions(for: request)
+            XCTAssertEqual(routed, expected, "\(request.prefix)")
+            XCTAssertFalse(routed.isEmpty, "\(request.prefix)")
+        }
+
+        // Not equal by luck: neither language entered the LSP stack at all.
+        XCTAssertEqual(harness.launches, 0)
+        XCTAssertTrue(transport.sentMethods.isEmpty)
+
+        // And 2a's one language is untouched by their presence in the enum.
+        let swift = await router.definitions(for: definitionRequest())
+        XCTAssertEqual(swift.map(\.relativePath), ["Sources/Core/Greeter.swift"])
+        XCTAssertEqual(harness.launches, 1)
+    }
+
+    func testInstallingThePythonServerLeavesTypeScriptAndSwiftByteIdentical() async throws {
+        try await assertInstallingChangesNothingElse(
+            .python,
+            definition: typescriptDefinitionRequest(),
+            completion: typescriptCompletionRequest()
+        )
+    }
+
+    func testInstallingTheTypeScriptServerLeavesPythonAndSwiftByteIdentical() async throws {
+        try await assertInstallingChangesNothingElse(
+            .typescript,
+            definition: pythonDefinitionRequest(),
+            completion: pythonCompletionRequest()
+        )
+    }
+
+    /// Install `server`, and assert that a language it does *not* serve — plus
+    /// Swift — answers exactly what it answered before.
+    ///
+    /// Staged as two routers over two `Harness`es rather than one router whose
+    /// registry is swapped: the point is a whole editor run with the server
+    /// provisioned, and a fresh harness is what makes the launch counter mean
+    /// "this run started one server" rather than "two runs started two".
+    private func assertInstallingChangesNothingElse(
+        _ server: LSPDownloadableServer,
+        definition: DefinitionRequest,
+        completion: CompletionRequest,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let index = makeProvisionedLanguagesIndex()
+
+        transport.script(LSPMethod.definition, .reply(serverDefinitionReply()))
+        let before = makeRouter(index: index)
+        let swiftBefore = await before.definitions(for: definitionRequest())
+        let definitionsBefore = await before.definitions(for: definition)
+        let completionsBefore = await before.completions(for: completion)
+        XCTAssertEqual(harness.launches, 1, file: file, line: line)
+
+        // The next run of the editor, with the server on disk and registered.
+        harness = Harness()
+        transport.script(LSPMethod.definition, .reply(serverDefinitionReply()))
+        let registry = try registryInstalling(server)
+        for language in server.languages {
+            XCTAssertTrue(registry.servesLanguage(language), "\(language)", file: file, line: line)
+        }
+        let after = makeRouter(index: index, registry: registry)
+
+        let swiftAfter = await after.definitions(for: definitionRequest())
+        let definitionsAfter = await after.definitions(for: definition)
+        let completionsAfter = await after.completions(for: completion)
+        let bare = makeFallback(index)
+        let bareDefinitions = await bare.definitions(for: definition)
+        let bareCompletions = await bare.completions(for: completion)
+
+        // Swift still reaches sourcekit-lsp, and reaches it with the same answer.
+        XCTAssertEqual(swiftAfter, swiftBefore, file: file, line: line)
+        XCTAssertEqual(
+            swiftAfter.map(\.relativePath),
+            ["Sources/Core/Greeter.swift"],
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(registry.description(for: .swift), .sourcekitLSP, file: file, line: line)
+
+        // The other downloadable language is still the bare index provider's,
+        // byte for byte — before the install and after it.
+        XCTAssertEqual(definitionsAfter, definitionsBefore, file: file, line: line)
+        XCTAssertEqual(definitionsAfter, bareDefinitions, file: file, line: line)
+        XCTAssertFalse(definitionsAfter.isEmpty, file: file, line: line)
+        XCTAssertEqual(completionsAfter, completionsBefore, file: file, line: line)
+        XCTAssertEqual(completionsAfter, bareCompletions, file: file, line: line)
+        XCTAssertFalse(completionsAfter.isEmpty, file: file, line: line)
+
+        // The Swift request is the only thing that started a server: the
+        // unserved language never reached the installed one.
+        XCTAssertEqual(harness.launches, 1, file: file, line: line)
+    }
 }

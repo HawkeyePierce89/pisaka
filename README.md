@@ -29,6 +29,11 @@ close files with a confirmation prompt when there are unsaved changes.
   `DEVELOPER_DIR` decide which one), and nothing is bundled or downloaded. Without
   Xcode, Swift files behave exactly as every other language does — Go to Definition
   and completion answer from the tree-sitter symbol index, silently.
+- macOS, optional: an internet connection *once*, if you accept the offer to
+  download a TypeScript/JavaScript or Python language server (see Features). No
+  Node, `npm` or Python installation of your own is required or used; nothing is
+  downloaded unless you ask for it, and declining leaves those languages on the
+  built-in index.
 
 ## Build & Run
 
@@ -334,6 +339,36 @@ involved.
   build, while the server is still starting, and if it crashes or hangs — the
   question is simply answered from the index instead, with no alert, no banner and
   no stall. Quitting the app stops every server it started.
+- Semantic code intelligence for **TypeScript / JavaScript and Python** (macOS),
+  if you want it. These servers are not bundled — the app offers to download them,
+  once, the first time you open a file of that kind: a strip above the editor names
+  the server and its size, with **Download** and **No Thanks** and nothing else.
+  Nothing is fetched until you press Download, and nothing is fetched again if you
+  don't.
+  What arrives is `typescript-language-server` (with the `typescript` it drives)
+  or `pyright`, plus one shared Node runtime the two of them use. The first
+  acceptance is about **57 MB** (Node is most of it); the second server, whichever
+  it is, costs about **4 MB** because the runtime is already there. The size the
+  prompt shows is always what is still missing, not the total. Every file is
+  checked against a checksum built into the app before it is unpacked, comes from
+  `nodejs.org` or `registry.npmjs.org`, and is installed under
+  `~/Library/Application Support/Pisaka/LanguageServers/` — nothing is put on your
+  `PATH`, nothing global is touched, and no `npm` or Node installation of your own
+  is used or needed. The install is atomic: an interrupted or corrupted download
+  leaves nothing behind and the file keeps working exactly as before.
+  Once it lands, that language becomes semantic **immediately** — no restart —
+  with the same typed completion, real members and cross-file jumps Swift gets
+  above. **Preferences → Language Servers** shows each server's state and offers
+  Install, Retry and Remove; removing one stops its process at once and the
+  language falls straight back to the built-in index. **Removing also answers
+  "no"** — the banner will not offer that language again, and reinstalling is a
+  button on that same screen. Disk comes back the same way it was spent: removing
+  one of two servers frees only its own few MB, because the ~52 MB Node runtime
+  they share goes away with the *last* one. Declining is remembered
+  across launches and is turned around from that same screen. To de-provision
+  everything by hand, quit the app and delete the `LanguageServers` folder above.
+  Acknowledgements (Preferences) grows a *Language Servers* section listing what is
+  installed and its verbatim licenses, and loses it again when you remove them.
 - VS Code-style minimap to the right of the editor: a scaled-down,
   syntax-colored overview of the file with a draggable viewport rectangle.
   Click or drag the rectangle to scroll the editor, or scroll the mouse wheel
@@ -655,6 +690,26 @@ and iPhone. The feature scope landed so far:
   differently; jumps and edits still land exactly right, since only the numbering
   differs and no server line number is ever shown. On iOS there is no language
   server at all (iOS has no subprocesses), so the next item applies there in full.
+- The downloadable TypeScript/JavaScript and Python servers are macOS-only and
+  cover the same Go to Definition and completion — no diagnostics, no hover types,
+  no rename, no status indicator and no log, and nothing about them is
+  configurable: no per-project server, no extra options or arguments, and no
+  version picker (the versions are pinned in the app and change only when you
+  update it — and when an update does move a pin, the next TypeScript or Python
+  file you open re-downloads the server at the new version without asking again,
+  replacing the old copy, because you already agreed to install it). Offline,
+  behind a proxy that intercepts TLS, or on a network that blocks `nodejs.org` /
+  `registry.npmjs.org`, the download simply fails: the Settings row says "not
+  installed", there is a Retry button, and the language keeps using the built-in
+  index — the same thing that happens if you decline. There is no progress bar,
+  no resume (an interrupted download restarts from zero) and no mirror or proxy
+  setting, and each file is held in memory while it is verified, so a first
+  install peaks around 53 MB of RAM for a few seconds. A Rosetta-translated app
+  installs the Intel build of Node. `pyright` with no Python interpreter it can
+  find still answers, but only from its own bundled type stubs — it will not know
+  about the packages in your virtualenv. And what is installed is verified once,
+  when it is downloaded: if you edit the files under `LanguageServers/` yourself,
+  the app runs what you put there.
 - The tree-sitter fallback — which is what every other language, and Swift without
   Xcode, always uses — is index-based, not a compiler: Go to Definition matches a
   *name*, so it cannot tell two same-named declarations apart (it lists both),
@@ -704,3 +759,10 @@ Acknowledgements** on macOS and **Settings → About → Acknowledgements** on i
 libgit2 is used under GPL-2.0 with its linking exception (its bundled `xdiff`
 code is LGPL-2.1). Adding a dependency means adding its license there too —
 `swift test` fails until you do (`LicenseCoverageTests`).
+
+Language servers you choose to download are not in that directory and are not
+covered by that test, because they ship inside nothing: their verbatim notices
+are read out of the tree that was actually installed, so the notice and the code
+it covers are always the same bytes. They appear in the *Language Servers*
+section of Acknowledgements while they are installed and disappear when you
+remove them.

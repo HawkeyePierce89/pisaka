@@ -32,7 +32,12 @@ final class LSPSourceGatingTests: XCTestCase {
     /// explicitly *as well as* discovered, so a rename does not quietly empty the
     /// sweep and leave a passing suite that checks nothing.
     private static let expectedAppFiles: Set<String> = [
+        "LSPArchiveUnpacker.swift",
+        "LSPConsentBanner.swift",
+        "LSPDownloadService.swift",
+        "LSPInstalledLicenses.swift",
         "LSPProcessTransport.swift",
+        "LSPServerSettingsView.swift",
         "LSPToolchain.swift",
         "SourceViewerContent.swift",
         "SourceViewerWindowController.swift",
@@ -51,7 +56,20 @@ final class LSPSourceGatingTests: XCTestCase {
     /// the protocol that made them necessary — but they are the layer's Core
     /// surface just as much as `LSPSession` is, and the Foundation-only rule is
     /// about the whole of it.
-    private static let coreFilePrefixes = ["LSP", "CompletionEditPlan", "RoutingIntelligenceProvider"]
+    ///
+    /// `SHA256` is here for a sharper version of the same reason. It exists only
+    /// because provisioning must verify what it downloads and Core cannot link
+    /// `CryptoKit`, and the *one* way it could be quietly ruined is somebody
+    /// deleting 200 lines of bit-twiddling in favour of `import CryptoKit` — which
+    /// would compile on both destinations, pass every digest test, and make the
+    /// domain library depend on a platform framework. The import assertion below is
+    /// what says no.
+    private static let coreFilePrefixes = [
+        "LSP",
+        "CompletionEditPlan",
+        "RoutingIntelligenceProvider",
+        "SHA256",
+    ]
 
     /// The Core-side files, named for the same reason the app-side ones are: the
     /// prefix sweep is what *finds* them, and the list is what says the sweep
@@ -61,15 +79,20 @@ final class LSPSourceGatingTests: XCTestCase {
     private static let expectedCoreFiles: Set<String> = [
         "CompletionEditPlan.swift",
         "LSPFraming.swift",
+        "LSPInstallEngine.swift",
+        "LSPInstallLayout.swift",
         "LSPIntelligenceProvider.swift",
         "LSPMessage.swift",
         "LSPPositionMap.swift",
         "LSPProtocolTypes.swift",
+        "LSPProvisioning.swift",
+        "LSPProvisioningManifest.swift",
         "LSPServerDescription.swift",
         "LSPSession.swift",
         "LSPTransport.swift",
         "LSPWorkspace.swift",
         "RoutingIntelligenceProvider.swift",
+        "SHA256.swift",
     ]
 
     /// Identifiers that must not appear in Core's LSP files. `Process` is matched

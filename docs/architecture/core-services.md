@@ -119,6 +119,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `+1`/`-1`). Fully unit-tested in `SettingsStoreTests` (defaults, clamping at
     both bounds, the step helper staying clamped, a persistence round-trip across
     two instances over one suite, and the enums' raw-value stability).
+    Phase 2b adds a fourth persisted value, `lspServerConsent`: one dictionary of
+    server id → `LSPServerConsent.rawValue` under `Keys.lspServerConsent`, read
+    **leniently** (a value the current app does not recognise reads back as
+    `unasked`, so a downgrade cannot be poisoned by a newer build's answer) and
+    written through `setConsent(_:for:)` alone — `private(set)`, because a
+    dictionary bound directly into a view would let a surface record an answer
+    without going through the model that owns what an answer *means*. `unasked` is
+    stored as **absence** rather than as a value, so "never asked" and "erased"
+    are the same state on disk. `consent(for:)` answers `unasked` for anything
+    unseen, which is what makes a fresh install prompt exactly once per server.
+    Recording an answer equal to the one already stored is a **no-op**: the
+    dictionary is `@Published` and `ContentView` observes this store, so a
+    redundant write would republish it — re-evaluating the project tree, the tab
+    list and the editor — and the provisioning model records `accepted` on every
+    install call, including the ones its silent half makes on tab opens.
+    The rules built on it are D15 in `core-provisioning.md`; `SettingsStoreTests`
+    covers the round trip across a rebuilt store, the lenient read, and that an
+    unchanged answer publishes nothing.
   - `EditorSession.swift` — the persisted editor session behind launch-time
     session restore and "Untitled" hot exit (macOS today; the iOS variant is a
     follow-up over this same model). Foundation-only: the value types, the pure
@@ -402,7 +420,11 @@ verifiable rather than merely plausible.
 
 **The coverage invariant.** `LicenseCoverageTests` is the guard against the one
 failure this design cannot express in code — a dependency added to `project.yml`
-whose license nobody copied. In the `VendoredGrammarQueryTests` style it reads
+whose license nobody copied. It covers what the app *ships*; a second, runtime
+source of `LicenseDocument`s exists for the language servers a user chooses to
+download, is read out of the installed tree rather than the bundle, and is
+deliberately outside this invariant — see `LSPInstalledLicenses` in
+`core-provisioning.md`. In the `VendoredGrammarQueryTests` style it reads
 repository files through `#filePath` (Foundation only; Core links no YAML parser
 and must not start, so `project.yml` is read by a deliberately tiny,
 shape-specific line scanner) and asserts:
