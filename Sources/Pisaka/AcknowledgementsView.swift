@@ -10,14 +10,34 @@ import PisakaCore
 /// text is rendered whole and never truncated or reflowed: the copyright lines and
 /// the permission notice *are* the obligation, so shortening them would defeat the
 /// screen.
+///
+/// Two sources, one screen. The bundled dependencies come from the app's own
+/// `Resources/Licenses/`; the *provisioned* language servers come from whatever
+/// is installed under Application Support right now (`LSPInstalledLicenses`), so
+/// that section exists only while something is installed and disappears when it
+/// is removed. Both are `LicenseDocument`s by the time they get here, which is
+/// why the detail pane needs no idea which list a selection came from.
 struct AcknowledgementsView: View {
-    /// Computed, not stored: `SettingsView`'s `TabView` builds both tab views
+    /// Observed so an install or a removal re-reads the installed section: the
+    /// model republishes its rows on every transition, which is what drives the
+    /// `.task(id:)` below.
+    @ObservedObject var provisioning: LSPProvisioningModel
+    /// Where the installed license texts are read from. The engine owns the
+    /// manifest and the layout, and knows which components are actually on disk.
+    let installEngine: LSPInstallEngine
+
+    /// Computed, not stored: `SettingsView`'s `TabView` builds every tab view
     /// eagerly, so a stored property would read the whole `Licenses/` directory
     /// off disk whenever Preferences opens — including the General tab. The
     /// loader caches, so resolving these per body evaluation costs nothing after
     /// the first.
     private var documents: [LicenseDocument] { LicenseCatalogLoader.documents }
     private var failure: String? { LicenseCatalogLoader.failureDescription }
+
+    /// The installed language servers' notices. State rather than a computed
+    /// property because these are *not* cached — an install changes them — and
+    /// this view's body re-evaluates on every selection change.
+    @State private var installed: [LicenseDocument] = []
 
     @State private var selection: LicenseDocument.ID?
 
@@ -47,29 +67,58 @@ struct AcknowledgementsView: View {
         // so the General form keeps its own 340pt width and this one drives the
         // window.
         .frame(width: 640, height: 420)
+        // Re-read on open and whenever a row changes state. Keyed on the rows
+        // rather than on a timer or a notification: `rows` is the model's own
+        // published summary, so an install completing, a removal finishing and a
+        // relaunch's `refresh()` all land here for free.
+        .task(id: provisioning.rows) {
+            installed = LSPInstalledLicenses.documents(engine: installEngine)
+            // A removal can delete the entry that was selected. Fall back to the
+            // first bundled one rather than leaving the detail pane on the
+            // "Select a dependency." placeholder.
+            if selection == nil || allDocuments.allSatisfy({ $0.id != selection }) {
+                selection = documents.first?.id
+            }
+        }
     }
+
+    /// Both lists, for the detail pane and the selection check. Bundled first, in
+    /// manifest order; installed servers after, in the provisioning manifest's
+    /// order. Ids cannot collide — the bundled ones are `project.yml` package
+    /// keys and these are component ids — and the first match would win if they
+    /// ever did.
+    private var allDocuments: [LicenseDocument] { documents + installed }
 
     private var dependencyList: some View {
         List(selection: $selection) {
-            ForEach(documents) { document in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(document.notice.name)
-                    Text(document.notice.spdx)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            Section("Bundled") {
+                ForEach(documents) { row($0) }
+            }
+            // Present only while something is provisioned: a section listing
+            // nothing would suggest the app ships these, which is the one thing
+            // this screen must not imply.
+            if !installed.isEmpty {
+                Section("Language Servers") {
+                    ForEach(installed) { row($0) }
                 }
-                .padding(.vertical, 2)
             }
         }
         .frame(minWidth: 180, idealWidth: 200, maxWidth: 280)
-        .onAppear {
-            if selection == nil { selection = documents.first?.id }
+    }
+
+    private func row(_ document: LicenseDocument) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(document.notice.name)
+            Text(document.notice.spdx)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
+        .padding(.vertical, 2)
     }
 
     @ViewBuilder
     private var detail: some View {
-        if let document = documents.first(where: { $0.id == selection }) {
+        if let document = allDocuments.first(where: { $0.id == selection }) {
             VStack(alignment: .leading, spacing: 0) {
                 header(for: document.notice)
                 Divider()

@@ -33,8 +33,11 @@ final class LSPSourceGatingTests: XCTestCase {
     /// sweep and leave a passing suite that checks nothing.
     private static let expectedAppFiles: Set<String> = [
         "LSPArchiveUnpacker.swift",
+        "LSPConsentBanner.swift",
         "LSPDownloadService.swift",
+        "LSPInstalledLicenses.swift",
         "LSPProcessTransport.swift",
+        "LSPServerSettingsView.swift",
         "LSPToolchain.swift",
         "SourceViewerContent.swift",
         "SourceViewerWindowController.swift",

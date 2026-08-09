@@ -69,6 +69,15 @@ struct ContentView: View {
     /// controller over a fresh, never-walked index so a default-constructed view
     /// (previews/tests) still compiles.
     var symbolIndex: SymbolIndexController = SymbolIndexController(model: SymbolIndexModel())
+    /// Which downloadable language servers exist and what state each is in.
+    /// Observed because the consent banner above the editor appears and
+    /// disappears with it — `consentPrompt(forOpening:)` is a rule over state
+    /// this model publishes. Owned by `PisakaApp`; the default builds a
+    /// throwaway stack over the same install root so a default-constructed view
+    /// (previews/tests) still compiles, matching the `GitCLIService()` defaults
+    /// above. A model nobody asks anything of reads nothing and downloads
+    /// nothing.
+    @ObservedObject var provisioning: LSPProvisioningModel = PisakaApp.makeProvisioning().model
     /// Open the file a Go to Definition landed on and select the declaration's
     /// name. Wired to the same `PisakaApp` entry point a Find in Files activation
     /// uses — opening a tab is the app's job — and threaded straight into
@@ -399,6 +408,17 @@ struct ContentView: View {
                 PathBarView(fileURL: file.url, projectRoot: model.projectRoot)
                     .equatable()
                 Divider()
+                // The consent banner (D15), between the breadcrumb and the find
+                // bar so it is the topmost thing in the editor zone without
+                // covering the file's own path. It renders nothing at all unless
+                // the selected tab's language has an unanswered, uninstalled
+                // downloadable server, and it is also where an *already*
+                // accepted server is installed on first use — both keyed on this
+                // one language.
+                LSPConsentBanner(
+                    provisioning: provisioning,
+                    language: SyntaxLanguage(forFileName: file.displayName)
+                )
                 // The find/replace bar sits between the breadcrumb and the editor,
                 // so it covers both tab orientations at once (in `.horizontal` it
                 // simply lands under the tab strip). Rendered only while open —

@@ -215,15 +215,8 @@ struct PisakaApp: App {
         // Core's and is unit-tested without a network or a `tar`.
         let settings = SettingsStore()
         _settings = StateObject(wrappedValue: settings)
-        let installEngine = LSPInstallEngine(
-            layout: LSPInstallLayout(base: PisakaApp.languageServerInstallRoot),
-            fileService: FileService(),
-            downloader: LSPDownloadService(),
-            unpacker: LSPArchiveUnpacker(),
-            architecture: PisakaApp.hostArchitecture
-        )
+        let (installEngine, provisioning) = PisakaApp.makeProvisioning(settings: settings)
         self.lspInstallEngine = installEngine
-        let provisioning = LSPProvisioningModel(engine: installEngine, settings: settings)
         // The whole of D16's wiring: whenever the set of installed servers changes,
         // the workspace is handed a new registry and shuts down whatever the change
         // un-registered. Awaited by the model on purpose — a removal publishes the
@@ -256,6 +249,33 @@ struct PisakaApp: App {
                 }
             )
         )
+    }
+
+    /// The provisioning pair — the engine and the model over it — composed the
+    /// one way this app composes them.
+    ///
+    /// A factory rather than two inline expressions in `init` because the
+    /// default-constructed `ContentView` (previews/tests, the `GitCLIService()`
+    /// defaults' reason) needs the same stack and must not spell the install root
+    /// a second time: two spellings of one directory is how a preview ends up
+    /// reading somewhere the real app never writes. The `settings` default is for
+    /// that caller alone; `init` passes the store the whole app shares, because
+    /// consent is persisted through it.
+    ///
+    /// Building one costs nothing on its own: the engine touches the disk only
+    /// when asked a question, and `URLSession` opens no connection until a
+    /// request is made.
+    static func makeProvisioning(
+        settings: SettingsStore = SettingsStore()
+    ) -> (engine: LSPInstallEngine, model: LSPProvisioningModel) {
+        let engine = LSPInstallEngine(
+            layout: LSPInstallLayout(base: PisakaApp.languageServerInstallRoot),
+            fileService: FileService(),
+            downloader: LSPDownloadService(),
+            unpacker: LSPArchiveUnpacker(),
+            architecture: PisakaApp.hostArchitecture
+        )
+        return (engine, LSPProvisioningModel(engine: engine, settings: settings))
     }
 
     /// Where provisioned language servers live: `~/Library/Application
@@ -401,6 +421,7 @@ struct PisakaApp: App {
                 search: search,
                 reveal: reveal,
                 symbolIndex: symbolIndexController,
+                provisioning: lspProvisioning,
                 onGoToDefinition: { url, range in activateSearchMatch(url: url, range: range) },
                 onViewDefinitionOutsideProject: { url, range in
                     viewDefinitionOutsideProject(url: url, range: range)
@@ -703,7 +724,11 @@ struct PisakaApp: App {
         // dedicated window automatically. Hosts the thin `SettingsView` bound to
         // the shared `settings` store.
         Settings {
-            SettingsView(settings: settings)
+            SettingsView(
+                settings: settings,
+                provisioning: lspProvisioning,
+                installEngine: lspInstallEngine
+            )
         }
     }
 

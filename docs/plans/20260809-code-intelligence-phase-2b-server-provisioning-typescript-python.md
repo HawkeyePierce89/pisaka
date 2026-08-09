@@ -295,21 +295,21 @@ Acknowledgements section that exists only when something is installed.
 - Modify: `Sources/Pisaka/AcknowledgementsView.swift`
 - Modify: `Tests/PisakaCoreTests/LSPSourceGatingTests.swift`
 
-- [ ] `LSPConsentBanner`: a non-modal strip above the editor, driven by
+- [x] `LSPConsentBanner`: a non-modal strip above the editor, driven by
       `consentPrompt(forOpening:)` on the selected tab's language, naming the server and the
       approximate download size, with exactly two actions (Download / No Thanks) and no
       other way out
-- [ ] `LSPServerSettingsView`: a third Preferences tab listing each downloadable server with
+- [x] `LSPServerSettingsView`: a third Preferences tab listing each downloadable server with
       its state — not installed / declined / installing… (indeterminate) / installed +
       version — and Install, Retry and Remove where each applies; no progress bar, no log, no
       version picker
-- [ ] `LSPInstalledLicenses` + the Acknowledgements section: read each installed component's
+- [x] `LSPInstalledLicenses` + the Acknowledgements section: read each installed component's
       recorded license files from disk (`node`'s `LICENSE`, `typescript-language-server`'s
       `LICENSE`, `typescript`'s `LICENSE.txt`, `pyright`'s `LICENSE.txt`, `fsevents`'
       `LICENSE`), render them through the existing `LicenseTextView`, and show the section
       only when something is installed
-- [ ] extend the gating suite's app-side list with the three new files
-- [ ] run `swift test` — must pass before task 8
+- [x] extend the gating suite's app-side list with the three new files
+- [x] run `swift test` — must pass before task 8
 
 ### Task 8: Pin the invariants and build both destinations
 
