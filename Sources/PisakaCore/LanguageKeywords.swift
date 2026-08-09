@@ -41,6 +41,11 @@ public enum LanguageKeywords {
         case .python: return python
         case .dockerfile: return dockerfile
         case .go: return go
+        // Placeholder: Rust *does* get a list — it is written in the next task,
+        // and this line is deliberately not a `languagesWithoutKeywords` entry,
+        // which would be a decision rather than a step. `LanguageKeywordsTests`
+        // fails on the empty list until it is replaced.
+        case .rust: return []
         case .json, .markdown, .html, .css, .yaml, .dotenv, .gitignore: return []
         }
     }

@@ -163,6 +163,7 @@ extension SyntaxLanguage {
         case .markdown: return "markdown"
         case .python: return "python"
         case .go: return "go"
+        case .rust: return "rust"
         case .html: return "html"
         case .css: return "css"
         case .yaml: return "yaml"

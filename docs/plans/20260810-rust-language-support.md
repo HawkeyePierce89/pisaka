@@ -414,25 +414,45 @@ and ⌘U works.
   `Tests/PisakaCoreTests/FileIconTests.swift`,
   `Tests/PisakaCoreTests/SyntaxTokenKindTests.swift`
 
-- [ ] add `case rust` and the `"rs"` extension mapping; pin that `main.rs`
+- [x] add `case rust` and the `"rs"` extension mapping; pin that `main.rs`
       resolves, that the raw value is `rust` (the ` ```rust ` fence path through
       `configuration(forInjectionName:)`), and that no prefix or dot-ignore rule
       can claim a Rust name
-- [ ] assert `FileIcon` already maps `rs` rather than adding it, so icon and
+      *(`testRustNamesResolve`/`testRustLookalikesDoNotResolveToRust` added;
+      `rs` moved out of the two "unknown extension" tests, which kept their
+      shape with `rst`/`zip` standing in. `testRawValuesAreStable` now pins both
+      spellings the injection path tries — raw value `rust` and extension `rs`.)*
+- [x] assert `FileIcon` already maps `rs` rather than adding it, so icon and
       language cannot drift apart; give Rust the `lspLanguageID` `"rust"`
-- [ ] load the grammar in `SyntaxLanguageConfiguration` —
+      *(`FileIcon`'s map was already `rs` → code-glyph/orange and is untouched;
+      `FileIconTests` now pins it beside Go's. `lspLanguageID` gains
+      `case .rust: return "rust"`, pinned in `LSPServerRegistryTests`.)*
+- [x] load the grammar in `SyntaxLanguageConfiguration` —
       `LanguageConfiguration(tree_sitter_rust(), name: "Rust")` plus
       `import TreeSitterRust`
-- [ ] pin the highlight query's 21 capture names by hand in `SyntaxTokenKindTests`
+      *(The macOS build succeeds, so the module imports, the C entry point
+      resolves and the package links — the planning finding that package and
+      target share the name `TreeSitterRust`, and so need no explicit
+      `bundleName:`, holds.)*
+- [x] pin the highlight query's 21 capture names by hand in `SyntaxTokenKindTests`
       (the dockerfile/Go precedent), read out of the resolved checkout at the
       pinned revision, asserting each resolves to its expected kind **and** that
       none resolves to `.plain`; note on the table that `escape` resolves only
       because of the Go-era `"escape": .string` entry
-- [ ] `LanguageKeywords.keywords(for:)` is a total switch — add the
+      *(Re-read from the resolved checkout at revision `77a3747266…`: exactly
+      the 21 names the plan lists, no more. All 21 resolve non-`.plain` with no
+      `nameMap` change, and the count is asserted so a table that loses a row
+      fails rather than passing quietly.)*
+- [x] `LanguageKeywords.keywords(for:)` is a total switch — add the
       `case .rust: return []` placeholder with a comment saying Task 4 replaces it
       (never a `languagesWithoutKeywords` entry)
-- [ ] run `swift test` — expect exactly two failures, `SymbolQueryTests` and
+- [x] run `swift test` — expect exactly two failures, `SymbolQueryTests` and
       `LanguageKeywordsTests`; those are Tasks 3 and 4
+      *(2221 tests, exactly 2 failures, and exactly those two:
+      `testEveryLanguageShipsASymbolsQueryExceptTheUnindexableOnes` and
+      `testEveryLanguageEitherHasKeywordsOrIsExcluded`. Both are the set-equality
+      suites doing their job — `.rust` is in `allCases` with neither a query
+      directory nor a keyword list yet.)*
 
 ### Task 3: The symbols query
 

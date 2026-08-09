@@ -13,6 +13,7 @@ import TreeSitterJavaScript
 import TreeSitterTypeScript
 import TreeSitterPython
 import TreeSitterGo
+import TreeSitterRust
 import TreeSitterHTML
 import TreeSitterCSS
 import TreeSitterMarkdown
@@ -87,6 +88,12 @@ enum SyntaxLanguageConfiguration {
             return try LanguageConfiguration(tree_sitter_python(), name: "Python")
         case .go:
             return try LanguageConfiguration(tree_sitter_go(), name: "Go")
+        case .rust:
+            // Package *and* target are both `TreeSitterRust`, so the resource
+            // bundle is `TreeSitterRust_TreeSitterRust` — what the convention
+            // above already derives from `name: "Rust"`, with no explicit
+            // `bundleName:` needed.
+            return try LanguageConfiguration(tree_sitter_rust(), name: "Rust")
         case .html:
             return try LanguageConfiguration(tree_sitter_html(), name: "HTML")
         case .css:
