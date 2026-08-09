@@ -775,6 +775,13 @@ final class LSPProvisioningModelTests: XCTestCase {
         )
         XCTAssertTrue(harness.tree.hasDirectory("LanguageServers/node/24.19.0"))
 
+        // Nor does an Install arriving in the same window: the row offers no
+        // button, and `install(_:)` refuses on its own for the same reason.
+        let downloads = harness.downloader.requestedURLs.count
+        XCTAssertEqual(midway?.canInstall, false)
+        await harness.model.install(.typescript)
+        XCTAssertEqual(harness.downloader.requestedURLs.count, downloads)
+
         gate.release()
         await first.value
 
@@ -948,6 +955,86 @@ final class LSPProvisioningModelTests: XCTestCase {
         await install.value
         XCTAssertEqual(harness.state(of: .python), .installed(version: "1.1.411"))
         XCTAssertTrue(harness.model.registry.servesLanguage(.python))
+    }
+
+    /// And removing the server whose *own* install is in flight must do nothing at
+    /// all — the case the row's `canRemove` hides but the model has to refuse on
+    /// its own, exactly as it refuses a second Remove.
+    ///
+    /// The stranded runtime is what makes this reachable: it is the one state that
+    /// puts Install and Remove on the same row at the same time (server component
+    /// absent, `node` on disk and reclaimable), so a Remove clicked off a row
+    /// snapshot taken a frame before Retry claimed the attempt arrives here with an
+    /// install running. Everything it would then do is wrong.
+    /// `engine.remove(serverComponentID)` no-ops — the attempt has committed
+    /// nothing yet, it is all still staging — so the removal walks straight on to
+    /// the shared runtime, which `runtimeIsNeeded(byAnythingOtherThan:)` reports as
+    /// needed by nothing because it only ever asks about the *other* servers. The
+    /// install then commits its artifact onto a deleted `node`: a server the row
+    /// reads as absent, servable by nothing, with the 4 MB download spent.
+    func testARemoveArrivingWhileTheSameServerInstallsDoesNothing() async {
+        let harness = makeHarness()
+        // The stranded runtime: `node` lands, the server's own artifact does not.
+        harness.downloader.fail(Fixture.tsServer)
+        await harness.model.accept(.typescript)
+        XCTAssertTrue(harness.tree.hasDirectory("LanguageServers/node/24.19.0"))
+
+        let stranded = harness.model.row(for: .typescript)
+        XCTAssertEqual(stranded?.canInstall, true)
+        XCTAssertEqual(stranded?.canRemove, true, "the state this test needs is not the one it staged")
+
+        // Retry, held on the artifact that failed last time.
+        harness.downloader.serve(Fixture.tsServer)
+        let gate = Gate()
+        harness.downloader.hold(Fixture.tsServer, on: gate)
+        let install = Task { await harness.model.install(.typescript) }
+        await gate.waitUntilReached()
+        XCTAssertEqual(harness.state(of: .typescript), .installing)
+
+        let removedBefore = harness.tree.removedPaths
+        await harness.model.remove(.typescript)
+
+        XCTAssertEqual(
+            harness.tree.removedPaths,
+            removedBefore,
+            "a Remove ran against an install in flight and deleted its runtime"
+        )
+        XCTAssertTrue(harness.tree.hasDirectory("LanguageServers/node/24.19.0"))
+        XCTAssertEqual(harness.model.row(for: .typescript)?.consent, .accepted)
+        XCTAssertNil(harness.model.row(for: .typescript)?.failureMessage)
+        XCTAssertEqual(harness.state(of: .typescript), .installing)
+
+        gate.release()
+        await install.value
+
+        // The retry the user actually asked for finishes, whole and servable.
+        XCTAssertEqual(harness.state(of: .typescript), .installed(version: "5.3.0"))
+        XCTAssertTrue(harness.model.registry.servesLanguage(.typescript))
+        XCTAssertEqual(harness.model.row(for: .typescript)?.consent, .accepted)
+    }
+
+    /// The value-type half of the same window: a row that is being removed offers
+    /// no Install either.
+    ///
+    /// `state` cannot say this on its own. A removal that starts from the stranded
+    /// state finds the server component `.absent` and keeps reading `.absent`
+    /// throughout, so without `isRemoving` in the rule the row would offer Install
+    /// beside its own "Removing…" and a spinner.
+    func testARowBeingRemovedOffersNeitherButton() {
+        let row = LSPServerRow(
+            server: .typescript,
+            displayName: "TypeScript",
+            languages: LSPDownloadableServer.typescript.languages,
+            consent: .declined,
+            state: .absent,
+            pendingDownloadByteCount: 0,
+            failureMessage: nil,
+            hasFilesOnDisk: true,
+            isRemoving: true
+        )
+
+        XCTAssertFalse(row.canInstall)
+        XCTAssertFalse(row.canRemove)
     }
 
     func testRemovingSomethingThatIsNotInstalledChangesNothing() async {

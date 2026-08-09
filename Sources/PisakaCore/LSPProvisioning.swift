@@ -97,9 +97,17 @@ public struct LSPServerRow: Equatable, Identifiable, Sendable {
         return false
     }
 
-    /// Install (or Retry) applies to a row with nothing servable on disk and no
-    /// attempt in flight.
-    public var canInstall: Bool { state == .absent }
+    /// Install (or Retry) applies to a row with nothing servable on disk and
+    /// nothing in flight — neither an install (which `state` already reports as
+    /// `.installing`) nor a removal.
+    ///
+    /// The removal half is not covered by `state`: a removal that starts from the
+    /// stranded-runtime state finds the server component `.absent` and keeps
+    /// reading `.absent` all the way through, so without `!isRemoving` this row
+    /// would offer Install beside its own "Removing…" and a spinner — and the
+    /// action behind it would be an install racing a deletion of the runtime it
+    /// needs.
+    public var canInstall: Bool { state == .absent && !isRemoving }
 
     /// Remove applies to anything that has files, once nothing is in flight —
     /// removing mid-download would delete a directory the engine is about to
@@ -321,7 +329,21 @@ public final class LSPProvisioningModel: ObservableObject {
     /// available. Nothing throws out of this method, because there is no caller
     /// that could do anything more useful with an error than the row already
     /// does.
+    ///
+    /// **An install while this server is being removed returns immediately**, the
+    /// symmetric half of `remove(_:)`'s own guard. Today it is a net over a state
+    /// nothing reaches rather than a fix for one something does — `remove(_:)`
+    /// suspends only inside the shutdown push, which happens *before* any deletion
+    /// and therefore only for a server that is installed, so an install arriving
+    /// there finds every component already on disk and does nothing anyway. It is
+    /// written down all the same, in `mayDelete(_:)`'s mould: the reason it is
+    /// currently unreachable is a fact about where the one `await` in `remove(_:)`
+    /// happens to sit, and an install that landed after a deletion would record
+    /// `accepted`, download, and commit a version directory into a tree the
+    /// removal is about to finish clearing. `canInstall` hides the button for the
+    /// same window; this is the half that does not depend on a view.
     public func install(_ server: LSPDownloadableServer) async {
+        guard !removals.contains(server) else { return }
         settings.setConsent(.accepted, for: server.id)
 
         // Coalesce at this level too, not just in the engine: two accepts for one
@@ -404,8 +426,22 @@ public final class LSPProvisioningModel: ObservableObject {
     /// politely stopping, which is the exact orphan this ordering exists to
     /// prevent. `canRemove` hides the button for the same window; this is the
     /// half that does not depend on a view.
+    ///
+    /// **A removal while this server is installing returns immediately too**, and
+    /// for a sharper reason than tidiness. The state that makes both buttons
+    /// appear on one row is the stranded runtime — server component absent, `node`
+    /// on disk — where `canInstall` and `canRemove` are simultaneously true, so a
+    /// Remove clicked off a row snapshot taken a frame before a Retry claimed the
+    /// attempt would run against an install in flight. `engine.remove` would then
+    /// no-op on the server component (nothing is committed yet, it is all still
+    /// staging) and go straight on to delete the shared runtime, because
+    /// `runtimeIsNeeded(byAnythingOtherThan:)` only ever asks about the *other*
+    /// servers — this one's own attempt is excluded by construction. The install
+    /// would then commit its artifact onto a deleted `node`, or, if the runtime was
+    /// still staging and so nothing was deleted, commit both and leave a fully
+    /// servable, registered server under the `declined` this removal just recorded.
     public func remove(_ server: LSPDownloadableServer) async {
-        guard !removals.contains(server) else { return }
+        guard !removals.contains(server), attempts[server] == nil else { return }
         removals.insert(server)
         updateRows()
         await publishRegistry()

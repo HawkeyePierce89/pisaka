@@ -293,6 +293,32 @@ carries. D1–D10 are in `core-lsp.md`.
     suspending and it walks straight into the deletion, pulling the executable out
     from under the session the first call is still stopping — exactly the orphan
     the push-then-delete ordering exists to prevent.
+    **An install of the same server is the other thing `remove(_:)` refuses**, and
+    that one is reachable rather than theoretical. The stranded runtime is the one
+    state that puts Install and Remove on a single row at the same time (server
+    component absent, `node` on disk and reclaimable by this row), so a Remove
+    clicked off a snapshot taken a frame before Retry claimed the attempt arrives
+    with an install in flight. `engine.remove(serverComponentID)` then no-ops —
+    the attempt has committed nothing yet, it is all still staging — and the
+    removal walks on to the shared runtime, which
+    `runtimeIsNeeded(byAnythingOtherThan:)` reports as needed by nothing, because
+    it only ever asks about the *other* servers. The install commits its artifact
+    onto a deleted `node` a moment later: a server the row reads as absent,
+    servable by nothing, under a `declined` it never asked for, with the download
+    spent. Or, if the runtime was itself still staging, nothing is deleted at all
+    and both components commit — a fully servable, registered server under
+    `declined`. `attempts[server] == nil` is the guard
+    (`testARemoveArrivingWhileTheSameServerInstallsDoesNothing`), and `canInstall`
+    gains `!isRemoving` for the view half: `state` cannot express it, because a
+    removal that starts from the stranded state reads `.absent` throughout, so the
+    row would otherwise offer Install beside its own "Removing…"
+    (`testARowBeingRemovedOffersNeitherButton`). `install(_:)` carries the mirror
+    guard on `removals`; that one is a net over an unreachable state in
+    `mayDelete(_:)`'s mould rather than a fix — `remove(_:)` suspends only inside
+    the shutdown push, which precedes every deletion and so only ever happens for
+    an installed server, where an install finds everything on disk and does
+    nothing — and it is written down because that reachability is a fact about
+    where the one `await` currently sits.
     `hasFilesOnDisk` — what Remove would reclaim — is the server's component at
     any version (the stranded-pin case) **plus the shared runtime when this row is
     what stranded it**. A server is two components installed in manifest order and
