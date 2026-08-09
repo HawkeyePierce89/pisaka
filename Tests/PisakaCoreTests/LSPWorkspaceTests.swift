@@ -294,6 +294,48 @@ final class LSPWorkspaceTests: XCTestCase {
         XCTAssertEqual(workspace.liveServerCount, 2)
     }
 
+    /// `.tsx` and `.jsx` share a `SyntaxLanguage` case with their plain
+    /// counterparts, and must not share a `languageId`.
+    ///
+    /// `typescript-language-server` hands the id straight to tsserver as a script
+    /// kind, and corrects a wrong one only when it is not a mode it recognises —
+    /// `"typescript"` is, so a `.tsx` announced that way is opened as
+    /// `ScriptKind.TS`, whose variant parses no JSX. The server then *answers*,
+    /// wrongly, about every identifier in the JSX half of the file, and an answer
+    /// is the one thing `RoutingIntelligenceProvider` cannot fall back from.
+    func testTheJSXAndTSXFlavoursAreOpenedUnderTheirOwnLanguageIDs() async throws {
+        let cases: [(String, SyntaxLanguage, String)] = [
+            ("view.tsx", .typescript, "typescriptreact"),
+            ("view.ts", .typescript, "typescript"),
+            ("view.jsx", .javascript, "javascriptreact"),
+            ("view.js", .javascript, "javascript"),
+            ("view.mjs", .javascript, "javascript"),
+        ]
+        let fake = LSPServerDescription(
+            id: "fake-tsls",
+            languages: [.typescript, .javascript],
+            launch: .executable(path: "/usr/local/bin/fake-tsls"),
+            arguments: ["--stdio"]
+        )
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness, registry: LSPServerRegistry([fake]))
+
+        for (fileName, language, _) in cases {
+            _ = await workspace.prepare(
+                url: root.appendingPathComponent(fileName),
+                language: language,
+                text: "const a = 1\n"
+            )
+        }
+
+        let opened = harness.latest.notifications(for: LSPMethod.didOpen)
+        XCTAssertEqual(opened.count, cases.count)
+        XCTAssertEqual(
+            opened.map { $0.params?["textDocument"]?["languageId"]?.stringValue },
+            cases.map(\.2)
+        )
+    }
+
     // MARK: - Request-driven sync (D2)
 
     func testATextChangeFlushesExactlyOneDidChangeAndAnUnchangedTextFlushesNone() async throws {

@@ -258,17 +258,42 @@ carries. D1–D10 are in `core-lsp.md`.
     though it had.
     `install(_:)` records `accepted` first (installing *is* consent) and absorbs
     every failure into the row's `failureMessage`, which is the entire failure
-    surface of this feature. `remove(_:)` sets consent to `declined` — the only
-    answer that describes what just happened, since leaving it `accepted` would
-    silently re-download on the next `.ts` file and `unasked` would re-prompt —
-    and drops the shared runtime only when no other server has *any* files on
-    disk **or an attempt this model is holding**, so a server stranded by a pin
-    bump is not turned into a full re-download and neither is one whose download
-    the user has just accepted. A deletion that *fails* becomes the row's
-    `failureMessage` like any other failure, and it has to: the files are still
-    there, so the very next `publishRegistry()` re-registers the server and
-    restarts the process the push just stopped — a Remove that visibly undoes
-    itself with nothing anywhere saying why.
+    surface of this feature. `remove(_:)` sets consent to `declined` **on success**
+    — the only answer that describes what just happened, since leaving it
+    `accepted` would silently re-download on the next `.ts` file and `unasked`
+    would re-prompt — and drops the shared runtime only when no other server has
+    *any* files on disk **or an attempt this model is holding**, so a server
+    stranded by a pin bump is not turned into a full re-download and neither is
+    one whose download the user has just accepted. A deletion that *fails*
+    becomes the row's `failureMessage` like any other failure, and it has to: the
+    files are still there, so the very next `publishRegistry()` re-registers the
+    server and restarts the process the push just stopped — a Remove that visibly
+    undoes itself with nothing anywhere saying why. That path records **no**
+    consent: the server is installed, registered and answering requests, which is
+    the one state `declined` may not describe.
+    A removal in flight is a state of its own. The push is awaited (it is what
+    stops the process), so the model sits inside `onRegistryChange` for as long as
+    the shutdown budget allows, and the row publishes `isRemoving` for that whole
+    window — `canRemove` is false and the Settings row reads "Removing…". The
+    model does not rely on the view for that: `remove(_:)` returns immediately on
+    re-entry. Without both, a second Remove clicked during the shutdown finds the
+    registry already published, so *its* `publishRegistry()` returns without ever
+    suspending and it walks straight into the deletion, pulling the executable out
+    from under the session the first call is still stopping — exactly the orphan
+    the push-then-delete ordering exists to prevent.
+    `hasFilesOnDisk` — what Remove would reclaim — is the server's component at
+    any version (the stranded-pin case) **plus the shared runtime when this row is
+    what stranded it**. A server is two components installed in manifest order and
+    committed by separate renames, so a download that dies on the 4 MB tarball
+    after the 52 MB one landed leaves ~110 MB unpacked under a row that reads "not
+    installed"; deriving this from the server component alone left `canRemove`
+    false on every row in that state, with the Finder as the only way out. The
+    runtime is deliberately *kept* rather than swept — the retry then costs 4 MB
+    and not 56 — so this makes it reclaimable, not automatic. The clause is gated
+    on `accepted` and on nothing else needing the runtime (`removeRuntimeIfUnused`'s
+    own rule), so the orphan is offered under the row of the server the user asked
+    for rather than under an untouched one that merely shares the runtime, and a
+    row never offers a Remove that would reclaim nothing.
     `LSPProvisioningModelTests` pins the rules over the task-3 fakes, including
     the ones about what must *not* change: installing pyright leaves a TypeScript
     answer byte-identical, installing the TypeScript server leaves a Python one,
@@ -366,7 +391,12 @@ carries. D1–D10 are in `core-lsp.md`.
   - `LSPServerSettingsView.swift` — Preferences → Language Servers, the whole
     management surface: one row per downloadable server showing the state the
     model derived (not installed · size / not installed · declined / Installing…
-    / Installed · version) and the actions that apply to it. No progress bar (the
+    / Removing… / Installed · version) and the actions that apply to it. The
+    removal state is checked ahead of the install state, because a removal keeps
+    reading `installed` right up until the files go — the wait in between is a
+    live session being stopped (D16) — and a row that says "Installed" while its
+    button has just vanished is the one thing that window must not look like. No
+    progress bar (the
     engine reports no progress, because the download seam answers whole bytes —
     D14), no install log, no version picker (the manifest is pinned data), and no
     way to add a server that is not in it. This is where a "no" is turned around,

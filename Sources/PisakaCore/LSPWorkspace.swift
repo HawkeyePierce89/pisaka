@@ -469,7 +469,10 @@ public final class LSPWorkspace {
             version = try await flush(
                 uri: uri,
                 text: text,
-                language: language,
+                // Resolved from the *file*, not the language: `.tsx` and `.jsx`
+                // share a `SyntaxLanguage` case with their plain counterparts but
+                // not an LSP id (see `lspLanguageID(forFileNamed:)`).
+                languageID: language.lspLanguageID(forFileNamed: url.lastPathComponent),
                 session: session,
                 key: key
             )
@@ -511,7 +514,7 @@ public final class LSPWorkspace {
     private func flush(
         uri: String,
         text: String,
-        language: SyntaxLanguage,
+        languageID: String,
         session: LSPSession,
         key: ServerKey
     ) async throws -> Int {
@@ -545,7 +548,7 @@ public final class LSPWorkspace {
                     try await send(
                         uri: uri,
                         text: text,
-                        language: language,
+                        languageID: languageID,
                         session: session,
                         key: key
                     )
@@ -570,7 +573,7 @@ public final class LSPWorkspace {
     private func send(
         uri: String,
         text: String,
-        language: SyntaxLanguage,
+        languageID: String,
         session: LSPSession,
         key: ServerKey
     ) async throws -> Int {
@@ -593,7 +596,7 @@ public final class LSPWorkspace {
             LSPDidOpenTextDocumentParams(
                 textDocument: LSPTextDocumentItem(
                     uri: uri,
-                    languageId: language.lspLanguageID,
+                    languageId: languageID,
                     version: 1,
                     text: text
                 )

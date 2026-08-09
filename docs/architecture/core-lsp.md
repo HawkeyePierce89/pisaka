@@ -310,6 +310,20 @@ document, together with the limits they carry.
     enforces. Two are not in the spec's list and follow what editors settled on:
     `.dotenv` (no server speaks it; present only so the mapping is total) and
     `.gitignore` → `"ignore"`.
+    `lspLanguageID(forFileNamed:)` is what `LSPWorkspace` actually sends, because
+    for the JS/TS family the id is a property of the *document* and not of the
+    language: `SyntaxLanguage` deliberately collapses `.tsx` into `.typescript`
+    and `.jsx` into `.javascript` (one grammar, one keyword list, one symbols
+    query), while LSP names those `typescriptreact`/`javascriptreact`.
+    `typescript-language-server` hands the id straight to tsserver as a script
+    kind and corrects a wrong one *only* when it is not a mode it recognises —
+    `"typescript"` is one, so a `.tsx` announced that way is not corrected and is
+    opened as `ScriptKind.TS`, whose language variant parses no JSX. The server
+    then answers, wrongly, about every identifier in the JSX half of the file, and
+    an answer is the one failure `RoutingIntelligenceProvider` cannot fall back
+    from. `.jsx` is harmless either way (tsserver's `ScriptKind.JS` already parses
+    JSX) and is spelled out for the same reason the rest of the mapping is a
+    `switch`.
 
   - `LSPWorkspace.swift` — which servers are running, for which project, holding
     which documents open, and when to stop trying. `@MainActor` for

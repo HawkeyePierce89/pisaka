@@ -86,7 +86,7 @@ struct LSPServerSettingsView: View {
 
             Spacer(minLength: 8)
 
-            if row.state == .installing {
+            if row.state == .installing || row.isRemoving {
                 ProgressView()
                     .controlSize(.small)
                     .progressViewStyle(.circular)
@@ -120,6 +120,11 @@ struct LSPServerSettingsView: View {
     /// — a removed server is `declined` too (removing is the strongest possible
     /// "no"), and that is exactly what it should say.
     private func status(of row: LSPServerRow) -> String {
+        // Ahead of the install state, because a removal keeps reading `installed`
+        // right up until the files go — the wait in between is a live session
+        // being stopped (D16), and a row that says "Installed" while its button
+        // has just vanished is the one thing that window must not look like.
+        if row.isRemoving { return "Removing…" }
         switch row.state {
         case .installing:
             return "Installing…"

@@ -65,10 +65,19 @@ public struct LSPServerRow: Equatable, Identifiable, Sendable {
     /// what the editor does — the language was answering from tree-sitter before
     /// the attempt and still is.
     public let failureMessage: String?
-    /// Whether any version of this server's component is on disk — including one
-    /// a pin bump has left stranded, which is servable by nothing but is still
-    /// occupying real disk and must therefore be removable.
+    /// Whether Remove would reclaim anything for this row — any version of this
+    /// server's component, including one a pin bump has left stranded (servable
+    /// by nothing, still occupying real disk), and the shared runtime when this
+    /// row is the one that stranded it.
     public let hasFilesOnDisk: Bool
+    /// Whether this server's files are being deleted right now.
+    ///
+    /// A removal is not instant: it publishes a registry without the server and
+    /// *awaits* that push, which shuts a live session down (up to
+    /// `LSPSession.Budgets.shutdown`) before the first byte is deleted (D16).
+    /// The row has to say so, because a Remove button that stays live through
+    /// that window is a second removal racing the first one's shutdown.
+    public let isRemoving: Bool
 
     public var id: String { server.id }
 
@@ -83,8 +92,9 @@ public struct LSPServerRow: Equatable, Identifiable, Sendable {
 
     /// Remove applies to anything that has files, once nothing is in flight —
     /// removing mid-download would delete a directory the engine is about to
-    /// rename onto.
-    public var canRemove: Bool { hasFilesOnDisk && state != .installing }
+    /// rename onto, and removing mid-removal would delete one the *first*
+    /// removal is still stopping a process on top of.
+    public var canRemove: Bool { hasFilesOnDisk && state != .installing && !isRemoving }
 
     public init(
         server: LSPDownloadableServer,
@@ -94,7 +104,8 @@ public struct LSPServerRow: Equatable, Identifiable, Sendable {
         state: LSPInstallState,
         pendingDownloadByteCount: Int,
         failureMessage: String?,
-        hasFilesOnDisk: Bool
+        hasFilesOnDisk: Bool,
+        isRemoving: Bool = false
     ) {
         self.server = server
         self.displayName = displayName
@@ -104,6 +115,7 @@ public struct LSPServerRow: Equatable, Identifiable, Sendable {
         self.pendingDownloadByteCount = pendingDownloadByteCount
         self.failureMessage = failureMessage
         self.hasFilesOnDisk = hasFilesOnDisk
+        self.isRemoving = isRemoving
     }
 }
 
@@ -331,12 +343,15 @@ public final class LSPProvisioningModel: ObservableObject {
     /// running session down (D16); only once it has returned may the files it
     /// was running from go away.
     ///
-    /// Consent becomes `declined`, which is the only answer that describes what
-    /// just happened operationally — "do not install this, and do not ask me".
-    /// Leaving it `accepted` would have the next `.ts` file silently download the
-    /// server the user just removed; resetting it to `unasked` would re-prompt
-    /// for it, which is the same interruption wearing a question mark. The
-    /// Settings row is where it is turned around, and it says so.
+    /// On success consent becomes `declined`, which is the only answer that
+    /// describes what just happened operationally — "do not install this, and do
+    /// not ask me". Leaving it `accepted` would have the next `.ts` file silently
+    /// download the server the user just removed; resetting it to `unasked` would
+    /// re-prompt for it, which is the same interruption wearing a question mark.
+    /// The Settings row is where it is turned around, and it says so. A *failed*
+    /// deletion records nothing: the files are still there and the push below
+    /// re-registers them, so the server goes on serving, and "declined" is the one
+    /// thing an installed, registered, actively-answering server is not.
     ///
     /// A failed deletion is the row's `failureMessage`, exactly as a failed
     /// install is. Swallowing it would be the one genuinely confusing outcome
@@ -344,7 +359,18 @@ public final class LSPProvisioningModel: ObservableObject {
     /// `publishRegistry()` re-registers the server and restarts the process the
     /// push just stopped — a Remove that visibly undoes itself with nothing
     /// anywhere saying why.
+    ///
+    /// **Re-entrant calls return immediately**, and that guard is what makes the
+    /// push-then-delete ordering real rather than nominal. The push suspends for
+    /// as long as the shutdown takes; a second call arriving in that window finds
+    /// the registry already published, so its own `publishRegistry()` returns
+    /// without suspending at all and it walks straight into `engine.remove(…)` —
+    /// deleting the executable out from under the session the first call is still
+    /// politely stopping, which is the exact orphan this ordering exists to
+    /// prevent. `canRemove` hides the button for the same window; this is the
+    /// half that does not depend on a view.
     public func remove(_ server: LSPDownloadableServer) async {
+        guard !removals.contains(server) else { return }
         removals.insert(server)
         updateRows()
         await publishRegistry()
@@ -353,12 +379,12 @@ public final class LSPProvisioningModel: ObservableObject {
             try engine.remove(server.serverComponentID)
             try removeRuntimeIfUnused(after: server)
             failures[server] = nil
+            settings.setConsent(.declined, for: server.id)
         } catch {
             failures[server] = error.localizedDescription
         }
 
         removals.remove(server)
-        settings.setConsent(.declined, for: server.id)
         updateRows()
         await publishRegistry()
     }
@@ -379,14 +405,17 @@ public final class LSPProvisioningModel: ObservableObject {
     /// which of two tasks the scheduler ran first. The attempts are what this
     /// model knows; they belong in the rule.
     private func removeRuntimeIfUnused(after server: LSPDownloadableServer) throws {
+        guard !runtimeIsNeeded(byAnythingOtherThan: server) else { return }
+        try engine.remove(server.runtimeComponentID)
+    }
+
+    private func runtimeIsNeeded(byAnythingOtherThan server: LSPDownloadableServer) -> Bool {
         let runtime = server.runtimeComponentID
-        let stillNeeded = LSPDownloadableServer.allCases.contains { other in
+        return LSPDownloadableServer.allCases.contains { other in
             other != server
                 && other.runtimeComponentID == runtime
                 && (attempts[other] != nil || engine.state(of: other.serverComponentID) != .absent)
         }
-        guard !stillNeeded else { return }
-        try engine.remove(runtime)
     }
 
     // MARK: - Deriving
@@ -423,9 +452,37 @@ public final class LSPProvisioningModel: ObservableObject {
                 state: state(of: server),
                 pendingDownloadByteCount: engine.pendingDownloadByteCount(for: server),
                 failureMessage: failures[server],
-                hasFilesOnDisk: engine.state(of: server.serverComponentID) != .absent
+                hasFilesOnDisk: hasReclaimableFiles(server),
+                isRemoving: removals.contains(server)
             )
         }
+    }
+
+    /// Whether Remove would actually free disk for this row.
+    ///
+    /// The server's own component at any version, first — the stranded-pin case
+    /// `hasFilesOnDisk` was written for.
+    ///
+    /// **And the shared runtime, when this row is what stranded it.** A server is
+    /// two components installed in manifest order, and `node` commits by its own
+    /// rename *before* the server's artifact is fetched: a download that dies on
+    /// the 4 MB tarball after the 52 MB one landed leaves ~110 MB unpacked under a
+    /// row that reads "not installed". Deriving this from the server component
+    /// alone left `canRemove` false on every row in that state, so the only way
+    /// out was the Finder — which the surface does name (D12: the disk is the
+    /// state), but naming an escape hatch is not the same as the button being
+    /// right. The runtime is deliberately *kept* rather than swept, so the retry
+    /// costs 4 MB and not 56; this makes it reclaimable, not automatic.
+    ///
+    /// Gated on `accepted` so the orphan is offered under the row of the server
+    /// the user asked for, and not under an untouched one that merely shares the
+    /// runtime — and on nothing else needing it, which is `removeRuntimeIfUnused`'s
+    /// own rule, so a row never offers a Remove that would reclaim nothing.
+    private func hasReclaimableFiles(_ server: LSPDownloadableServer) -> Bool {
+        if engine.state(of: server.serverComponentID) != .absent { return true }
+        guard settings.consent(for: server.id) == .accepted else { return false }
+        return engine.state(of: server.runtimeComponentID) != .absent
+            && !runtimeIsNeeded(byAnythingOtherThan: server)
     }
 
     /// The base registry plus every installed server, pushed only when it is

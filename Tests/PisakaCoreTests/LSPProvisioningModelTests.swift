@@ -680,12 +680,134 @@ final class LSPProvisioningModelTests: XCTestCase {
         // The runtime is untouched: the server that needs it is still installed.
         XCTAssertTrue(harness.tree.hasDirectory("LanguageServers/node/24.19.0"))
 
-        // Retrying once the volume cooperates finishes the job and clears the
-        // message.
+        // And no decline was recorded: this server is installed, registered and
+        // answering requests, which is the one state "declined" may not describe.
+        // Recording it here would also have the row read "Installed · 5.3.0"
+        // under a consent that says the user refused it.
+        XCTAssertEqual(row?.consent, .accepted)
+
+        // Retrying once the volume cooperates finishes the job, clears the
+        // message, and *then* records the answer.
         harness.tree.removeFailures = []
         await harness.model.remove(.typescript)
         XCTAssertNil(harness.model.row(for: .typescript)?.failureMessage)
         XCTAssertEqual(harness.state(of: .typescript), .absent)
+        XCTAssertEqual(harness.model.row(for: .typescript)?.consent, .declined)
+    }
+
+    /// The two components of a server are installed in order and committed
+    /// separately, so a download that dies on the small one leaves the ~52 MB
+    /// runtime behind under a row that reads "not installed". The runtime is kept
+    /// on purpose — the retry then costs 4 MB rather than 56 — but it has to stay
+    /// reclaimable, or the only way out of an install that will never succeed
+    /// (offline machine, blocked registry) is the Finder.
+    func testAnInstallThatDiedAfterTheRuntimeLandedCanStillReclaimIt() async {
+        let harness = makeHarness()
+        harness.downloader.fail(Fixture.tsServer)
+
+        await harness.model.accept(.typescript)
+
+        XCTAssertTrue(harness.tree.hasDirectory("LanguageServers/node/24.19.0"))
+        let row = harness.model.row(for: .typescript)
+        XCTAssertEqual(row?.state, .absent)
+        XCTAssertEqual(row?.canInstall, true)
+        XCTAssertEqual(row?.canRemove, true, "the runtime a failed install stranded could not be reclaimed")
+
+        // The row nobody asked about does not offer to clean up after the one
+        // that failed, even though they share the runtime.
+        XCTAssertEqual(harness.model.row(for: .python)?.canRemove, false)
+
+        await harness.model.remove(.typescript)
+
+        XCTAssertFalse(
+            harness.tree.hasDirectory("LanguageServers/node"),
+            "Remove left the stranded runtime on disk"
+        )
+        XCTAssertEqual(harness.model.row(for: .typescript)?.canRemove, false)
+        // Nothing was ever registered, so there is nothing to push either way.
+        XCTAssertEqual(harness.pushes.count, 0)
+    }
+
+    /// A runtime still in use is not "stranded", so the row a removal left behind
+    /// does not offer to delete it out from under the server that needs it.
+    func testTheRowOfARemovedServerOffersNothingWhileTheOtherStillUsesTheRuntime() async {
+        let harness = makeHarness()
+        await harness.model.accept(.typescript)
+        await harness.model.accept(.python)
+
+        await harness.model.remove(.typescript)
+
+        XCTAssertTrue(harness.tree.hasDirectory("LanguageServers/node/24.19.0"))
+        XCTAssertEqual(
+            harness.model.row(for: .typescript)?.canRemove,
+            false,
+            "a removed server offered to delete the runtime the other one is running on"
+        )
+        XCTAssertEqual(harness.model.row(for: .python)?.canRemove, true)
+    }
+
+    /// D16's ordering is "push, then delete" — the push is what stops the process,
+    /// and it is awaited, so the model sits inside it for as long as the shutdown
+    /// takes. A second Remove arriving in that window must not run: its own
+    /// `publishRegistry()` finds the registry already published and returns
+    /// *without suspending*, so it would walk straight into the deletion and pull
+    /// the executable out from under the session the first call is still stopping
+    /// — precisely the orphan the ordering exists to prevent.
+    func testASecondRemoveDuringTheShutdownPushDoesNothing() async {
+        let harness = makeHarness()
+        await harness.model.accept(.typescript)
+
+        let gate = PushGate()
+        harness.model.onRegistryChange = { _ in await gate.hold() }
+
+        let first = Task { await harness.model.remove(.typescript) }
+        await gate.waitUntilHeld()
+
+        // The window itself: the row says what is happening and offers no button.
+        let midway = harness.model.row(for: .typescript)
+        XCTAssertEqual(midway?.isRemoving, true)
+        XCTAssertEqual(midway?.canRemove, false)
+
+        await harness.model.remove(.typescript)
+        XCTAssertTrue(
+            harness.tree.hasDirectory("LanguageServers/typescript-language-server/5.3.0"),
+            "a second Remove deleted the files while the first was still stopping the server"
+        )
+        XCTAssertTrue(harness.tree.hasDirectory("LanguageServers/node/24.19.0"))
+
+        gate.release()
+        await first.value
+
+        XCTAssertFalse(harness.tree.hasDirectory("LanguageServers/typescript-language-server"))
+        XCTAssertEqual(harness.model.row(for: .typescript)?.isRemoving, false)
+        XCTAssertEqual(harness.state(of: .typescript), .absent)
+    }
+
+    /// A rendezvous the *push* runs into, so a test can act while the model is
+    /// suspended inside `onRegistryChange` — where a real removal spends up to
+    /// `LSPSession.Budgets.shutdown` stopping a process. The support `Gate`
+    /// blocks its thread, which on the main actor would deadlock the test rather
+    /// than interleave with it.
+    @MainActor
+    private final class PushGate {
+        private var resume: (() -> Void)?
+        private var held = false
+
+        func hold() async {
+            held = true
+            await withCheckedContinuation { continuation in
+                resume = { continuation.resume() }
+            }
+        }
+
+        func release() {
+            resume?()
+            resume = nil
+        }
+
+        func waitUntilHeld() async {
+            while !held { await Task.yield() }
+        }
     }
 
     /// A runtime that could not be deleted is reported too, even though the
