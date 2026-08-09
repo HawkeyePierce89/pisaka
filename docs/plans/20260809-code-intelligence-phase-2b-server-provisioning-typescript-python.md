@@ -317,19 +317,21 @@ Acknowledgements section that exists only when something is installed.
 - Modify: `Tests/PisakaCoreTests/RoutingIntelligenceProviderTests.swift`
 - Modify: `Tests/PisakaCoreTests/LSPProvisioningModelTests.swift`
 
-- [ ] a test that the downloadable entries never touch the Swift path: with nothing
+- [x] a test that the downloadable entries never touch the Swift path: with nothing
       installed, a Swift request routes exactly as in 2a, and a TypeScript and a Python
       request answer byte-identically to the bare tree-sitter provider
-- [ ] the same equality after an install completes for the *other* language — installing
+- [x] the same equality after an install completes for the *other* language — installing
       pyright must not change a TypeScript answer, and neither may change a Swift one
-- [ ] run `swift test`
-- [ ] run `xcodegen generate` — XcodeGen enumerates `Sources/Pisaka` into explicit file
+- [x] run `swift test`
+- [x] run `xcodegen generate` — XcodeGen enumerates `Sources/Pisaka` into explicit file
       references at generate time, so this phase's new app-side files are absent from
       `Pisaka.xcodeproj` until it is re-run and the macOS build would fail on the
       `PisakaApp` wiring that references them
-- [ ] build macOS (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`)
-- [ ] build iOS (`-destination 'generic/platform=iOS'`) and confirm none of the new app-side
-      machinery compiles into it
+- [x] build macOS (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`)
+- [x] build iOS (`-destination 'generic/platform=iOS'`) and confirm none of the new app-side
+      machinery compiles into it — `nm` over both binaries reports 0 symbols on iOS for
+      `LSPDownloadService`, `LSPArchiveUnpacker`, `LSPServerSettingsView`,
+      `LSPConsentBanner` and `LSPInstalledLicenses`, against hundreds on macOS
 
 ### Task 9: Documentation
 

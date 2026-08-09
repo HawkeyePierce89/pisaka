@@ -669,6 +669,103 @@ final class LSPProvisioningModelTests: XCTestCase {
         XCTAssertFalse(harness.model.registry.servesLanguage(.typescript))
     }
 
+    // MARK: - What an install may not change
+
+    /// The registry an install publishes differs from the previous one by exactly
+    /// one entry, appended: everything already in it — sourcekit-lsp above all —
+    /// is the same value in the same place.
+    ///
+    /// Stated as an assertion over *every* language rather than over the two
+    /// downloadable ones, because the failure this guards against is a manifest
+    /// record that claims a language it should not: a `typescript` component that
+    /// listed `.swift` would take sourcekit-lsp's place in nothing (first
+    /// registration wins) but would take every other language's, silently, for
+    /// whoever installs it.
+    private func assertInstallingAppendsExactlyOneEntry(
+        _ server: LSPDownloadableServer,
+        _ harness: Harness,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        let before = harness.model.registry
+        await harness.model.accept(server)
+        let after = harness.model.registry
+
+        XCTAssertEqual(after.descriptions.count, before.descriptions.count + 1, file: file, line: line)
+        XCTAssertEqual(
+            Array(after.descriptions.dropLast()),
+            before.descriptions,
+            "an install rewrote the entries that were already registered",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(after.descriptions.first, .sourcekitLSP, file: file, line: line)
+        XCTAssertEqual(
+            after.servedLanguages,
+            before.servedLanguages.union(server.languages),
+            file: file,
+            line: line
+        )
+        for language in SyntaxLanguage.allCases where !server.languages.contains(language) {
+            XCTAssertEqual(
+                after.description(for: language),
+                before.description(for: language),
+                "\(language) changed hands when \(server.id) was installed",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    func testInstallingPyrightLeavesTypeScriptAndSwiftExactlyAsTheyWere() async {
+        let harness = makeHarness()
+        await assertInstallingAppendsExactlyOneEntry(.python, harness)
+
+        let registry = harness.model.registry
+        XCTAssertEqual(registry.description(for: .swift), .sourcekitLSP)
+        XCTAssertFalse(registry.servesLanguage(.typescript))
+        XCTAssertFalse(registry.servesLanguage(.javascript))
+        XCTAssertEqual(registry.servedLanguages, [.swift, .python])
+        XCTAssertEqual(harness.state(of: .typescript), .absent)
+        // The TypeScript row is offerable exactly as it was: an install of the
+        // other server is not an answer to a question about this one.
+        XCTAssertEqual(harness.model.row(for: .typescript)?.consent, .unasked)
+        XCTAssertNotNil(harness.model.consentPrompt(forOpening: .typescript))
+    }
+
+    func testInstallingTheTypeScriptServerLeavesPythonAndSwiftExactlyAsTheyWere() async {
+        let harness = makeHarness()
+        await assertInstallingAppendsExactlyOneEntry(.typescript, harness)
+
+        let registry = harness.model.registry
+        XCTAssertEqual(registry.description(for: .swift), .sourcekitLSP)
+        XCTAssertFalse(registry.servesLanguage(.python))
+        XCTAssertEqual(registry.servedLanguages, [.swift, .typescript, .javascript])
+        XCTAssertEqual(harness.state(of: .python), .absent)
+        XCTAssertEqual(harness.model.row(for: .python)?.consent, .unasked)
+        XCTAssertNotNil(harness.model.consentPrompt(forOpening: .python))
+    }
+
+    /// Both installed, and the base is still untouched: whatever else this layer
+    /// publishes, `.swift` resolves to the entry 2a shipped, found through `xcrun`
+    /// and named by nothing in the manifest.
+    func testNoManifestEntryEverClaimsTheSwiftPath() async {
+        let harness = makeHarness()
+        await harness.model.accept(.typescript)
+        await harness.model.accept(.python)
+
+        XCTAssertEqual(harness.model.registry.description(for: .swift), .sourcekitLSP)
+        for description in harness.model.registry.descriptions.dropFirst() {
+            XCTAssertFalse(description.languages.contains(.swift), description.id)
+            if case .toolchainTool = description.launch {
+                XCTFail("a provisioned server was described as a toolchain tool: \(description.id)")
+            }
+        }
+        for server in LSPDownloadableServer.allCases {
+            XCTAssertFalse(server.languages.contains(.swift), server.id)
+        }
+    }
+
     // MARK: - Rows
 
     func testTheRowsAreOnePerServerInAFixedOrder() {
