@@ -114,13 +114,13 @@ vectors behind it.
 - Create: `Sources/PisakaCore/SHA256.swift`
 - Create: `Tests/PisakaCoreTests/SHA256Tests.swift`
 
-- [ ] implement FIPS 180-4 SHA-256 over `Data` with a lowercase-hex convenience and a
+- [x] implement FIPS 180-4 SHA-256 over `Data` with a lowercase-hex convenience and a
       streaming-friendly `update`/`finalize` shape (the engine hashes one `Data`, but the
       incremental form is what keeps it honest and cheap to test)
-- [ ] tests against the published vectors: empty input, `"abc"`, the 448-bit message, the
+- [x] tests against the published vectors: empty input, `"abc"`, the 448-bit message, the
       1 000 000 × `"a"` message, plus a multi-chunk `update` sequence that must equal the
       one-shot digest and a length-boundary sweep around 55/56/63/64/65 bytes
-- [ ] run `swift test` — must pass before task 2
+- [x] run `swift test` — must pass before task 2
 
 ### Task 2: The provisioning manifest and the install layout
 
