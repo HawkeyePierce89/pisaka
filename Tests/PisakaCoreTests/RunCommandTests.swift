@@ -44,6 +44,13 @@ final class RunCommandTests: XCTestCase {
         )
     }
 
+    func testCommandForGo() {
+        XCTAssertEqual(
+            RunCommand.command(forFileName: "main.go", absolutePath: "/p/main.go"),
+            "go run '/p/main.go'"
+        )
+    }
+
     func testCommandForShell() {
         XCTAssertEqual(
             RunCommand.command(forFileName: "run.sh", absolutePath: "/p/run.sh"),
@@ -84,6 +91,7 @@ final class RunCommandTests: XCTestCase {
         XCTAssertTrue(RunCommand.canRun(fileName: "app.cjs"))
         XCTAssertTrue(RunCommand.canRun(fileName: "main.py"))
         XCTAssertTrue(RunCommand.canRun(fileName: "main.swift"))
+        XCTAssertTrue(RunCommand.canRun(fileName: "main.go"))
         XCTAssertTrue(RunCommand.canRun(fileName: "run.sh"))
         XCTAssertTrue(RunCommand.canRun(fileName: "run.bash"))
         XCTAssertTrue(RunCommand.canRun(fileName: "MAIN.PY"))
@@ -101,6 +109,15 @@ final class RunCommandTests: XCTestCase {
         XCTAssertEqual(
             RunCommand.command(forFileName: "a.py", absolutePath: "/my dir/a b.py"),
             "python3 '/my dir/a b.py'"
+        )
+    }
+
+    // The Go runner is two tokens, so a quoted path has to survive the join as
+    // one argument rather than being split at the space.
+    func testQuotingGoPathWithSpaces() {
+        XCTAssertEqual(
+            RunCommand.command(forFileName: "main.go", absolutePath: "/my dir/cmd app/main.go"),
+            "go run '/my dir/cmd app/main.go'"
         )
     }
 

@@ -476,14 +476,28 @@ repository's recipe requires for every grammar change.
 - Modify: `Tests/PisakaCoreTests/RunCommandTests.swift`,
   `Tests/PisakaCoreTests/TestCommandTests.swift`
 
-- [ ] add `"go": ["go", "run"]` to `RunCommand.runners`, with the single-file
+- [x] add `"go": ["go", "run"]` to `RunCommand.runners`, with the single-file
       limit noted
-- [ ] tests: `main.go` runs as `go run <quoted path>`, `canRun` answers true, a
+      — the note states it as the map's shape rather than a Go shortfall: every
+      entry in `runners` runs one file, so `go run .` from the terminal is the
+      answer for a `main` split across a package.
+- [x] tests: `main.go` runs as `go run <quoted path>`, `canRun` answers true, a
       path with a space survives `ShellQuote`
-- [ ] `TestCommand` already resolves Go — add the assertions that pin it now that
+      — the quoting case is worth its own test here rather than reusing the
+      Python one: Go is the first **two-token** runner in the map, so the space
+      test is what pins that the quoted path survives the join as a single
+      argument instead of splitting.
+- [x] `TestCommand` already resolves Go — add the assertions that pin it now that
       Go is a language rather than a loose extension: `_test.go` is a test file,
       `foo.go` is not, and the command is `go test <quoted dir>`
-- [ ] run `swift test`
+      — all three were already pinned (`testIsTestFileGo`, `testGoTargetsDirectory`,
+      `testDirQuotingWithMetacharacters`), which is the plan's own claim about
+      `TestCommand` demonstrated. So this bullet added what only becomes
+      assertable now: that `SyntaxLanguage(forFileName:)`, `isTestFile` and
+      `canRun` agree on one Go file, and that Go does **not** inherit Python's
+      leading `test_` or JS's infix `.test.` convention.
+- [x] run `swift test`
+      — 2197 tests, 0 failures.
 
 ### Task 6: Core — the Go toolchain and gopls domain
 
