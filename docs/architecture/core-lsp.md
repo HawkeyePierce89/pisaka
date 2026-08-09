@@ -591,6 +591,17 @@ document, together with the limits they carry.
     is retiring. Clearing them unconditionally would drop the live server's
     transport out of `terminateNow()`'s reach — precisely the orphan this method
     exists to prevent, reintroduced by the method itself.
+    **The transport's check is the transport's own identity, not the session's**
+    (`forget(orphan.transport, for: key)`, which is why `LSPSession.transport` is
+    readable). The two disagree in exactly one window, and it is reachable: a
+    transport is registered *before* its handshake and a session filed only
+    *after*, so a reinstall that is still handshaking already owns
+    `transports[key]` while `sessions[key]` is still the withdrawn launch's. That
+    is the one moment `sessions[key] === orphan` is true and the transport entry
+    belongs to somebody else — and clearing it there leaves the reinstalled server
+    serving requests with nothing for a quit to reach, the same orphan by a longer
+    route. `testAReinstallStillHandshakingKeepsItsTransportWhenTheRemovalCleansUp`
+    stages the two handshakes in that order.
     **A transport stays in `transports` until the process behind it is actually
     dead** — that is the invariant, and it holds for a live session and a pending
     launch alike, in `updateRegistry(_:)` and in `shutdownAll()`. `transports` is

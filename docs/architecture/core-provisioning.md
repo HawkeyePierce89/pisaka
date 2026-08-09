@@ -390,6 +390,15 @@ carries. D1–D10 are in `core-lsp.md`.
     `prepareForOpening`, so both halves of "what happens when this file is
     opened" live in one place. Download is unawaited: the install runs for
     minutes and the banner must go away the moment the answer is recorded.
+    **The body's container is a `VStack(spacing: 0)` and must not be a `Group`.**
+    The silent half only ever runs in the state where the banner is *absent*, so
+    it lives on a modifier attached to a container with no children — and a
+    modifier on a `Group` is applied to each of its members individually, so an
+    empty one applies it to nothing and the `.task` is never installed at all.
+    That failure is silent and total: the visible half keeps working, because its
+    branch is non-empty exactly when there is something to show, while the half
+    that matters here never runs once. An empty `VStack` contributes no height, so
+    the "costs the editor no layout" property the shape exists for is unchanged.
     **Both halves are gated on a project folder being open**, and the `.task` id
     is `(language, hasProjectRoot)` rather than the language alone so that
     opening a folder re-runs them. `LSPWorkspace.prepare` and `canServe` both
@@ -560,6 +569,22 @@ solver.
 The manifest is data in Core, so a version bump is a source change plus the
 checksums below — never a runtime lookup. Nothing in `project.yml`,
 `Package.resolved` or `licenses.json` is involved.
+
+**`LSPComponent.version` is the install key, so it must move whenever *any* of
+that component's artifacts does.** D12 makes the version directory the whole of
+the state: `isInstalled(_:)` is "does `<component>/<version>/` exist", and
+`install(_:)` returns immediately when it does, without looking at a single
+digest. A component bundles independently-versioned artifacts — `typescript`
+5.9.3 rides inside `typescript-language-server` 5.3.0, `fsevents` inside
+`pyright` — and bumping only an inner one leaves every existing install
+permanently stale: the same directory name still exists, so nothing re-downloads,
+and the pin the source now states is one no machine that already installed will
+ever run. Nothing catches this — the manifest tests check the artifact list
+against itself, and a stale tree is byte-for-byte a valid install. When an inner
+artifact moves and the outer package has not, bump the component's `version`
+anyway (the outer package's version with a suffix is enough); the cost is one
+re-download of a component that was already correct, against a silent
+never-updates otherwise.
 
 Node (both architectures come from one signed checksum file):
 

@@ -1419,6 +1419,72 @@ final class LSPWorkspaceTests: XCTestCase {
         XCTAssertTrue(live2.isTerminated, "the reinstalled server was left running with nothing pointing at it")
     }
 
+    /// The same overlap, with the two handshakes finishing in the other order: the
+    /// reinstalled server is still handshaking when the *withdrawn* one finishes and
+    /// files itself under the key. That is the one moment the removal's own identity
+    /// check cannot see, because it asks about the session and the disagreement is in
+    /// the transport — a transport is registered before its handshake, a session only
+    /// after, so `sessions[key]` is the withdrawn launch's while `transports[key]` is
+    /// already the new one's. Clearing the entry on the session's say-so drops a live
+    /// process out of `terminateNow()`'s reach for the rest of the app run.
+    func testAReinstallStillHandshakingKeepsItsTransportWhenTheRemovalCleansUp() async throws {
+        let harness = ServerHarness()
+        let live = LSPServerRegistry([.sourcekitLSP, downloaded()])
+        // A handshake budget wide enough that the two staged delays below are
+        // ordering, not timeouts.
+        let workspace = LSPWorkspace(
+            registry: live,
+            budgets: LSPSession.Budgets(
+                handshake: 10,
+                definition: 1,
+                completion: 1,
+                resolve: 1,
+                shutdown: 1
+            ),
+            processID: 4242,
+            transportFactory: { [harness] description, launchRoot in
+                try harness.makeTransport(description, launchRoot)
+            },
+            delay: { _ in }
+        )
+        workspace.prepareForFolderChange(root: root)
+
+        // Long enough to outlast the removal and the reinstall below, short enough
+        // to land well before the second handshake.
+        harness.initializeDelay = 0.5
+        async let firstRequest = workspace.prepare(url: appFile, language: .typescript, text: "a")
+        await waitFor("the first launch to start") { harness.launches.count == 1 }
+        let first = try XCTUnwrap(harness.firstTransport(of: "typescript-language-server"))
+
+        async let removal: Void = workspace.updateRegistry(.standard)
+        await waitFor("the removal to swap the registry") { !workspace.canServe(.typescript) }
+
+        // Reinstalled, and its launch is still handshaking when the withdrawn one
+        // finishes — the ordering this case exists for.
+        harness.initializeDelay = 1.5
+        await workspace.updateRegistry(live)
+        async let secondRequest = workspace.prepare(url: appFile, language: .typescript, text: "a")
+        await waitFor("the second launch to start") { harness.launches.count == 2 }
+        let second = try XCTUnwrap(harness.transports.last)
+        XCTAssertFalse(second === first)
+
+        _ = await firstRequest
+        await removal
+        XCTAssertTrue(first.isTerminated, "the withdrawn launch was left running")
+
+        // The reinstalled server finishes and is the one serving the folder.
+        let prepared = await secondRequest
+        XCTAssertNotNil(prepared, "the reinstalled server did not start")
+        XCTAssertFalse(second.isTerminated)
+        XCTAssertEqual(workspace.liveServerCount, 1)
+
+        workspace.terminateNow()
+        XCTAssertTrue(
+            second.isTerminated,
+            "the removal cleared a transport belonging to a newer, still-handshaking launch"
+        )
+    }
+
     /// The quit lands *inside* a removal, while the withdrawn server is still
     /// handshaking. `updateRegistry` parks on that launch — the slowest thing this
     /// layer does — so the window is wide, and the process is alive for all of it.

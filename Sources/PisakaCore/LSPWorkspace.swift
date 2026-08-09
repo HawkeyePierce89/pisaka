@@ -407,18 +407,27 @@ public final class LSPWorkspace {
         // installed is the opposite of what this method is for. So the launch runs
         // to completion and is unregistered and shut down here afterwards.
         //
-        // Every one of those three unregistrations is guarded by the same identity
-        // check, and the guard is the point: this loop awaits, so a second
-        // `updateRegistry` (remove then reinstall from the Settings surface) can have
-        // re-registered the *same* key with a live session, a live transport and open
-        // documents before we wake. Clearing them unconditionally would drop the new
-        // server's transport out of `terminateNow()`'s reach — the orphan process this
-        // whole method exists to prevent — and forget documents it has open.
+        // Every one of those three unregistrations is guarded by an identity check,
+        // and the guard is the point: this loop awaits, so a second `updateRegistry`
+        // (remove then reinstall from the Settings surface) can have re-registered the
+        // *same* key with a live session, a live transport and open documents before we
+        // wake. Clearing them unconditionally would drop the new server's transport out
+        // of `terminateNow()`'s reach — the orphan process this whole method exists to
+        // prevent — and forget documents it has open.
+        //
+        // The transport takes `forget`'s check rather than the session's, because the
+        // two can disagree. Taking a launch out of `pendingLaunches` above is what lets
+        // a second launch start for the same key, and a transport is registered
+        // *before* its handshake while a session is filed only after: the second launch
+        // can therefore own `transports[key]` while `sessions[key]` is still the first
+        // one's — the one moment `sessions[key] === orphan` is true and the entry is
+        // somebody else's. Clearing it there leaves the second server serving requests
+        // with nothing for a quit to reach, which is the same orphan by a longer route.
         for (key, pending) in inflight {
             guard let orphan = await pending.task.value else { continue }
             guard sessions[key] === orphan else { await orphan.shutdown(); continue }
             sessions[key] = nil
-            transports[key] = nil
+            forget(orphan.transport, for: key)
             documents = documents.filter { $0.value.serverKey != key }
             await orphan.shutdown()
         }

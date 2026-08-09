@@ -89,7 +89,16 @@ public actor LSPSession {
         case terminated
     }
 
-    private let transport: LSPTransport
+    /// The wire this session speaks over.
+    ///
+    /// Readable from outside — and synchronously, being an immutable `Sendable`
+    /// `let` — for one reason: `LSPWorkspace` unregisters a transport only while
+    /// it is still the one filed under the key (`forget(_:for:)`), and the
+    /// teardown paths that hold a *session* need its transport's identity to make
+    /// that check. Without it the only way to drop a finished session's entry is
+    /// an unconditional clear, which is exactly how a newer launch's live process
+    /// stops being reachable by `terminateNow()`.
+    public let transport: LSPTransport
     public let budgets: Budgets
 
     private var phase: Phase = .notStarted

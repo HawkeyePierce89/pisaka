@@ -46,13 +46,21 @@ struct LSPConsentBanner: View {
     let hasProjectRoot: Bool
 
     var body: some View {
-        // A `Group` with an empty branch renders nothing and takes no space, so
-        // the common case — every language that is not TypeScript, JavaScript or
+        // An empty `VStack` renders nothing and contributes no height, so the
+        // common case — every language that is not TypeScript, JavaScript or
         // Python, and every one of those whose question has been answered —
         // costs the editor no layout at all. It also keeps the `.task` below
         // attached to a view that exists in *both* cases, which the two branches
         // of an `if` at `ContentView` level would not.
-        Group {
+        //
+        // **Deliberately not a `Group`**, which is the obvious spelling and the
+        // wrong one: a modifier on a `Group` is applied to each of its members
+        // individually, so an empty one applies it to nothing and the `.task`
+        // below is never installed at all. That failure is silent and total — the
+        // banner still works, because its branch is non-empty exactly when there
+        // is something to show, while the silent half below only ever runs in the
+        // empty case and so would never run.
+        VStack(spacing: 0) {
             if let prompt {
                 strip(prompt)
             }
