@@ -687,6 +687,49 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(request.params?["sortText"]?.stringValue, "4939.67153671-Greeter")
     }
 
+    /// A resolve contributes its `additionalTextEdits` and nothing else — the text
+    /// the user committed is never re-derived from the answer.
+    ///
+    /// The spec does not let a resolve change what an item inserts, and
+    /// sourcekit-lsp echoes the whole item back, so this is a guard against the
+    /// *next* server rather than this one. A server that answers with a leaner item
+    /// than it was sent — label, detail, the edits it kept back — would otherwise
+    /// have `insertedText` fall through to `label`, and this is the one path in the
+    /// layer whose result is written into the file rather than dropped: the popup
+    /// says `Greeter`, the user commits it, and the buffer gets `Greeter(name:)`.
+    func testAResolveThatDropsTheItemsOwnTextDoesNotChangeWhatIsInserted() async throws {
+        transport.script(LSPMethod.completion, .reply(try fixtureResult("completion-identifier.json")))
+        let lean: JSONValue = [
+            "label": "Greeter(name:)",
+            "detail": "Greeter",
+            "additionalTextEdits": [
+                [
+                    "newText": "import Core\n",
+                    "range": [
+                        "start": ["line": 1, "character": 0],
+                        "end": ["line": 1, "character": 0],
+                    ],
+                ]
+            ],
+        ]
+        transport.script(LSPMethod.resolveCompletionItem, .reply(lean))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "Gree", offset: identifierCaret)
+        )
+        let item = try XCTUnwrap(items.first)
+        XCTAssertEqual(item.text, "Greeter")
+
+        let edits = await provider.resolveEdits(for: item)
+        XCTAssertEqual(edits.map(\.role), [.primary, .additional])
+        XCTAssertEqual(
+            edits.first?.newText, "Greeter",
+            "the primary edit is the published item's, not the resolved item's label"
+        )
+        XCTAssertEqual(edits.last?.newText, "import Core\n", "the import is still picked up")
+    }
+
     /// A handle from a superseded list names nothing: the table is replaced
     /// wholesale when a new list is published, and handles are never reused.
     func testAHandleFromASupersededListResolvesToNothing() async throws {

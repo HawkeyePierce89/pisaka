@@ -103,6 +103,14 @@ public final class LSPWorkspace {
         let task: Task<Result<Int, Error>, Never>
     }
 
+    /// The one way a flush fails that is not the transport's fault: the server it
+    /// was talking to stopped being the server filed under its key while the
+    /// notification was in flight. Read by `prepare` exactly like a write failure —
+    /// drop the state, answer `nil`, let the next request re-`didOpen`.
+    private enum FlushFailure: Error {
+        case serverReplaced
+    }
+
     private let registry: LSPServerRegistry
     private let transportFactory: TransportFactory
     private let budgets: LSPSession.Budgets
@@ -417,6 +425,7 @@ public final class LSPWorkspace {
             try await session.didChange(
                 LSPDidChangeTextDocumentParams(uri: uri, version: version, fullText: text)
             )
+            guard isCurrent(session, for: key) else { throw FlushFailure.serverReplaced }
             documents[uri] = DocumentState(serverKey: key, version: version, text: text)
             return version
         }
@@ -435,8 +444,29 @@ public final class LSPWorkspace {
                 )
             )
         )
+        guard isCurrent(session, for: key) else { throw FlushFailure.serverReplaced }
         documents[uri] = DocumentState(serverKey: key, version: 1, text: text)
         return 1
+    }
+
+    /// Whether `session` is still the one filed under `key` — the check that stops
+    /// a notification written a moment ago from writing its document state back
+    /// over a clear that superseded it.
+    ///
+    /// `send` is a read-modify-write over `documents[uri]` with an `await` in the
+    /// middle, and the per-document flush claim only serialises it against *other
+    /// flushes*. `noteDeath`, `shutdownAll()` and `terminateNow()` drop document
+    /// state from outside that claim — they must, since a crash and a quit do not
+    /// queue behind a keystroke — so a `didChange` that returned successfully just
+    /// before the server died resumes into a world where its document was already
+    /// forgotten, and writes it back. The entry then records the file as open on a
+    /// key whose *replacement* server has never heard of it: every later flush
+    /// takes the "nothing to send" fast path or bumps a version against a document
+    /// that was never `didOpen`ed, so that file falls back to tree-sitter silently
+    /// for the life of that server. The identity check is `forget(_:for:)`'s, for
+    /// `forget(_:for:)`'s reason.
+    private func isCurrent(_ session: LSPSession, for key: ServerKey) -> Bool {
+        sessions[key] === session
     }
 
     /// Tell the server the file is gone from the editor — the last tab on it
@@ -581,7 +611,18 @@ public final class LSPWorkspace {
         // Nothing is started for a workspace that has moved on since this call
         // began — see the token above. The same guard `launch` applies after D7's
         // backoff, applied to the hops that happen *before* it.
-        guard token == epoch else { return nil }
+        //
+        // `unavailable` is re-read for the same reason it is re-read there. The
+        // entry check ran before the liveness hop and the death booking, and the
+        // *second* observer of one crash resumes past both: the first one booked
+        // the death, spent the last of D7's budget, and returned `nil`, but this
+        // one finds the slot empty (so neither branch above answers) and would
+        // launch. `canServe`/`isUnavailable` already answer `false` for the key by
+        // then, so nothing would ever route to that server — it would just be a
+        // live `sourcekit-lsp` holding a build-system cache until the next folder
+        // switch or the quit, and the contradiction of "nothing is ever launched
+        // for it again".
+        guard !unavailable.contains(key), token == epoch else { return nil }
 
         launchCounter += 1
         let id = launchCounter
@@ -626,8 +667,12 @@ public final class LSPWorkspace {
             await delay(LSPWorkspace.backoffDelays[index])
         }
         // The wait is the widest window in this layer, so it is also checked across:
-        // a folder switch during the backoff must not launch anything at all.
-        guard token == epoch else { return nil }
+        // a folder switch during the backoff must not launch anything at all, and
+        // neither must a budget another request spent while this one slept — four
+        // seconds is long enough for the remaining restarts to be booked and the
+        // key retired, and a server launched after that is one nothing will ever
+        // ask a question.
+        guard !unavailable.contains(key), token == epoch else { return nil }
 
         let transport: LSPTransport
         do {

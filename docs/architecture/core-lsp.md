@@ -324,6 +324,21 @@ document, together with the limits they carry.
     `.testATabClosedWhileTheBufferIsFlushingDoesNotLeaveTheDocumentRecordedAsOpen`
     stages it by holding the writer inside the `didChange` while the main actor runs
     the close.
+    **What the claim cannot cover, an identity check does.** `noteDeath`,
+    `shutdownAll()` and `terminateNow()` drop document state from *outside* the
+    per-document claim, and must: a crash and a quit do not queue behind a keystroke,
+    and `terminateNow()` cannot `await` at all. So `send` re-checks
+    `sessions[key] === session` after each notification, before it stores anything,
+    and throws `FlushFailure.serverReplaced` when the answer is no — read by `prepare`
+    exactly like a write failure (drop the state, answer `nil`, let the next request
+    re-`didOpen`). Without it a `didChange` that returned a moment before a folder
+    switch resurrects its entry behind `shutdownAll()`'s clear, filed under the very
+    `(server, root)` key the *next* server for that folder is filed under — a server
+    that has never heard of the file. Every later flush then reads "nothing to send"
+    or bumps a version against a document that was never `didOpen`ed, and that file
+    answers from tree-sitter for the life of the server. `LSPWorkspaceTests`
+    `.testAFolderSwitchWhileTheBufferIsFlushingDoesNotLeaveTheDocumentRecordedAsOpen`
+    stages it the same way the close case is staged.
     **The claim is released before the request is sent, so `holdsVersion(_:for:)`
     exists.** `prepare` guarantees the server's text at *prepare* time, not for the
     life of the question: a second request carrying different text — one queued
@@ -374,6 +389,16 @@ document, together with the limits they carry.
     `(server, root)` went silently unavailable for the rest of the app run. The
     loser also returns a session another request restarted in the meantime rather
     than starting a second one for the same key.
+    **`unavailable` is re-read after every hop that can retire the key**, not only
+    when `liveSession` is entered. On the crash that spends the *last* of the budget
+    both observers pass the entry check together, and the loser resumes to find the
+    slot empty — neither the identity branch nor the replacement branch answers, so
+    it would launch. `canServe`/`isUnavailable` already say `false` for the key by
+    then, so nothing would ever route to that server: it would just be a live
+    `sourcekit-lsp` holding a build-system cache until the next folder switch or the
+    quit, and the contradiction of "nothing is ever launched for it again". The same
+    re-read guards `launch` after D7's backoff, which is up to four seconds long —
+    time enough for another request to book the remaining failures.
     **Two tokens, not one.** `prepareForFolderChange(root:)` bumps the public
     `generation` — only when the root actually changes, matching
     `SymbolIndexModel.prepareForFolderChange` so a caller can pin one token across
@@ -568,6 +593,16 @@ document, together with the limits they carry.
     list resolves to nothing rather than to whatever now sits at that number. The
     session is captured with the item, because a resolve is only meaningful to the
     process that produced the list.
+    **The resolve contributes its `additionalTextEdits` and nothing else.** The
+    *primary* edit is rebuilt from the item the popup published and the user
+    committed, never from the answer. The spec does not let a resolve change what an
+    item inserts and sourcekit-lsp echoes the whole item back, so this guards the
+    *next* server rather than this one: an answer that came back leaner than it was
+    sent — label, detail, the edits it kept back — would have `insertedText` fall
+    through to `label`, and this is the one path in the layer whose result is written
+    into the file rather than dropped. The popup would say `Greeter` and the buffer
+    would get `Greeter(name:)`. Pinned by `LSPIntelligenceProviderTests`
+    `.testAResolveThatDropsTheItemsOwnTextDoesNotChangeWhatIsInserted`.
     **The table is ordered by request, not by arrival.** Every `completions(for:)`
     claims a monotonic list token synchronously, before its first hop, and a publish
     whose token is older than the one already published keeps its items but does not

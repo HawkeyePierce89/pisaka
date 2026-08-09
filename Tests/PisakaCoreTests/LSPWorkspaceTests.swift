@@ -441,6 +441,109 @@ final class LSPWorkspaceTests: XCTestCase {
         XCTAssertEqual(harness.latest.notifications(for: LSPMethod.didOpen).count, 2)
     }
 
+    /// A folder switch **while the buffer is being flushed** must not have the
+    /// document written back behind it.
+    ///
+    /// The tab-close case above takes the per-document claim, so it queues. A
+    /// folder switch cannot and does not: `shutdownAll()` drops every document
+    /// synchronously, before its first `await`, because a crash and a quit do not
+    /// wait for a keystroke. So the notification already on its way resumes into a
+    /// world where its document was forgotten and re-records it — under the same
+    /// `(server, root)` key the *next* server for that folder will be filed under,
+    /// which has never heard of the file. Every later flush then reads "nothing to
+    /// send" or bumps a version against a document that was never `didOpen`ed, and
+    /// that file answers from tree-sitter for the life of the server. Silently.
+    func testAFolderSwitchWhileTheBufferIsFlushingDoesNotLeaveTheDocumentRecordedAsOpen() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1")
+
+        // Hold the writer inside the `didChange`, which leaves the main actor free
+        // — the window the switch interleaves into.
+        let first = harness.latest
+        let reached = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        first.onSend { method in
+            guard method == LSPMethod.didChange else { return }
+            reached.signal()
+            release.wait()
+        }
+
+        let flushing = Task { await workspace.prepare(url: mainFile, language: .swift, text: "let a = 2") }
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                reached.wait()
+                continuation.resume()
+            }
+        }
+
+        workspace.prepareForFolderChange(root: otherRoot)
+        let shuttingDown = Task { await workspace.shutdownAll() }
+        // Let the shutdown run its synchronous clear and reach its first `await`,
+        // so the notification resumes *after* the state it would resurrect is gone.
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        release.signal()
+        let prepared = await flushing.value
+        await shuttingDown.value
+        first.onSend(nil)
+
+        XCTAssertNil(prepared, "a request whose server was shut down under it has no answer")
+        XCTAssertTrue(
+            workspace.openDocumentURIs.isEmpty,
+            "the switch is the last word: nothing may be re-recorded behind it"
+        )
+
+        // The proof that the record and the next server agree: coming back to the
+        // folder opens the document afresh rather than changing against a document
+        // nothing has ever been told about.
+        workspace.prepareForFolderChange(root: root)
+        let reopened = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 2")
+        XCTAssertEqual(reopened?.version, 1)
+        XCTAssertEqual(harness.latest.notifications(for: LSPMethod.didOpen).count, 1)
+        XCTAssertTrue(harness.latest.notifications(for: LSPMethod.didChange).isEmpty)
+    }
+
+    /// The *second* observer of the crash that spent the last of D7's budget must
+    /// not launch a server nothing will ever route to.
+    ///
+    /// `unavailable` is checked when `liveSession` is entered, and both requests
+    /// pass that check together — the key is retired several suspension points
+    /// later, by the one that books the death. The other resumes to find the slot
+    /// empty (so neither the identity branch nor the replacement branch answers)
+    /// and would start a server that `canServe` already says `false` for: a live
+    /// `sourcekit-lsp` holding a build-system cache that nothing reaches until the
+    /// next folder switch or the quit.
+    func testTheSecondObserverOfTheFinalCrashLaunchesNothing() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        // Three crashes, three restarts: the budget is down to its last failure.
+        for _ in 1...3 {
+            await crash(harness.latest)
+            _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        }
+        XCTAssertEqual(harness.launches.count, 4)
+        XCTAssertFalse(workspace.isUnavailable(.swift))
+
+        // Both requests read the same live session and both come back holding the
+        // same corpse — `testTwoRequestsObservingOneCrashSpendOneRestartBetweenThem`'s
+        // interleaving, on the crash that is terminal.
+        await crash(harness.latest)
+        async let first = workspace.prepare(url: mainFile, language: .swift, text: "a")
+        async let second = workspace.prepare(url: greeterFile, language: .swift, text: "b")
+        let answers = await [first, second]
+
+        XCTAssertTrue(answers.allSatisfy { $0 == nil }, "the server has been given up on")
+        XCTAssertTrue(workspace.isUnavailable(.swift))
+        XCTAssertFalse(workspace.canServe(.swift))
+        XCTAssertEqual(
+            harness.launches.count, 4,
+            "nothing is ever launched for a `(server, root)` that has been retired"
+        )
+        XCTAssertEqual(workspace.liveServerCount, 0)
+    }
+
     // MARK: - Folder switch
 
     func testAFolderSwitchClosesEveryDocumentAndShutsEveryServerDown() async throws {

@@ -362,7 +362,12 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
                     // adds no key of its own, so the flag is inert here rather
                     // than false in some interesting sense.
                     isFromCurrentFile: false,
-                    edits: edits(for: item, typedWord: typedWord, in: text),
+                    edits: edits(
+                        for: item,
+                        additionalTextEdits: item.additionalTextEdits,
+                        typedWord: typedWord,
+                        in: text
+                    ),
                     resolveHandle: resolveHandle
                 )
             )
@@ -386,14 +391,19 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     /// drags an `import` along (D4), or the server chose a range other than the
     /// one the client typed — which it is entitled to do, and which AppKit would
     /// then get wrong.
+    ///
+    /// `additionalTextEdits` is passed in rather than read off `item`, because the
+    /// resolve path takes the two halves from two different places — see
+    /// `resolveEdits(for:)`.
     private func edits(
         for item: LSPCompletionItem,
+        additionalTextEdits: [LSPTextEdit]?,
         typedWord: NSRange,
         in text: NSString
     ) -> [CompletionEdit] {
         let primaryRange = item.textEdit.map { LSPPositionMap.range(for: $0.range, in: text) }
             ?? typedWord
-        let additional = (item.additionalTextEdits ?? []).map {
+        let additional = (additionalTextEdits ?? []).map {
             CompletionEdit(
                 range: LSPPositionMap.range(for: $0.range, in: text),
                 newText: $0.newText,
@@ -423,8 +433,18 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         guard let resolved = try? await pending.session.resolveCompletionItem(pending.item) else {
             return []
         }
+        // The **primary** edit comes from the item the popup published and the user
+        // committed, never from the resolved one. A resolve exists to fill in what
+        // the server kept back — `detail`, `documentation`, `additionalTextEdits`
+        // (the only property this client asks for) — and the spec does not let it
+        // change what the item inserts; but a server that answers with a leaner item
+        // than it was sent, dropping `textEdit`/`insertText`, would have
+        // `insertedText` fall through to `label` here, and this is the one path in
+        // the layer whose result is *written to the file* rather than dropped. So
+        // the resolved item contributes exactly the half it is allowed to.
         return edits(
-            for: resolved,
+            for: pending.item,
+            additionalTextEdits: resolved.additionalTextEdits ?? pending.item.additionalTextEdits,
             typedWord: pending.typedWord,
             in: pending.text as NSString
         )

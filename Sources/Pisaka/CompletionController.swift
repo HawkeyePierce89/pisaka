@@ -199,6 +199,12 @@ final class CompletionController {
         guard let snapshot,
               charRange.location != NSNotFound,
               charRange.location >= 0,
+              // Checked with the bound below rather than left to it: `NSMaxRange`
+              // of a negative length is *smaller* than the location, so a negative
+              // length passes the bound and then raises inside `substring(with:)`.
+              // The insertion side (`insert(_:for:in:)`) makes the same check on
+              // the same AppKit-supplied range.
+              charRange.length >= 0,
               NSMaxRange(charRange) <= nsText.length
         else { return [] }
         guard nsText.substring(with: charRange) == snapshot.prefix else {
