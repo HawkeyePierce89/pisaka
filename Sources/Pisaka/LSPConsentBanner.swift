@@ -197,6 +197,16 @@ struct LSPConsentBanner: View {
     /// toolchain, their module cache and their build cache doing the work, and a
     /// sentence that said "Pisaka will download gopls" would be false in every
     /// clause.
+    ///
+    /// The caches are named for the same reason, and the claim is deliberately
+    /// narrower than the one this copy first made: only `GOBIN` is redirected, so
+    /// the *installed binary* is the app's and the intermediates are the user's —
+    /// `go install` writes into their `GOMODCACHE`/`GOCACHE`, and with
+    /// `GOTOOLCHAIN=auto` may fetch a newer toolchain into the same cache (both
+    /// recorded known limits in `core-lsp.md`). "Nothing outside its own folder is
+    /// changed" was therefore a promise the install does not keep; "nothing is
+    /// *installed* outside its own folder", plus the sentence about the caches, is
+    /// what it does.
     private func goRow(_ prompt: LSPGoConsentPrompt) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "hammer")
@@ -207,8 +217,10 @@ struct LSPConsentBanner: View {
                     .font(.callout)
                 Text(
                     "Pisaka will build version \(prompt.version) with the Go at "
-                    + "\(prompt.goExecutablePath) and keep it to itself — nothing is downloaded "
-                    + "by Pisaka and nothing outside its own folder is changed. "
+                    + "\(prompt.goExecutablePath) and keep the result to itself — nothing is "
+                    + "downloaded by Pisaka and nothing is installed outside its own folder. "
+                    + "The build runs as your own “go install” would, using and adding to your "
+                    + "Go module and build caches. "
                     + "It adds project-wide completion and Go to Definition for these files; "
                     + "without it they keep using the built-in index."
                 )

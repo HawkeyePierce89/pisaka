@@ -752,10 +752,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     started, returns without signalling, and the next statement launches it — the
     exact window a quit during a first-launch build falls into, and one
     `terminateNow()` cannot repair afterwards because it has already emptied the
-    registry. A `go` compiling gopls has a whole tree of children
-    beneath it, all of which go with it; the release check
-    (`pgrep -f 'gopls|go install'` empty after a quit) is what that is written
-    against.
+    registry. **Teardown signals the child's process group, not its pid**, and that
+    is the one place this departs from `LSPProcessTransport.stop()`: a language
+    server is one process, while a `go` compiling gopls is a parent with a compiler
+    and a linker beneath it, and Unix does not end a child when its parent dies —
+    `terminate()`/`kill(pid, …)` alone would leave that tree re-parented to
+    `launchd`, still compiling and still writing into the user's build cache after
+    the app quit, which a `pgrep -f 'gopls|go install'` would not even show. The
+    negative pid is safe because Foundation launches every child as its own
+    process-group leader, and it is checked (`getpgid(pid) == pid`) rather than
+    assumed, so a Foundation that stopped doing that narrows the signal back to the
+    single process instead of widening it to a group containing Pisaka. The group
+    `SIGKILL` is sent whether or not the parent missed its grace period, because a
+    `go` that honoured `SIGTERM` promptly still leaves behind what it had already
+    spawned. The release check (`pgrep -f 'gopls|go install'` empty after a quit) is
+    what all of that is written against.
   - `DefinitionPicker.swift` — the "which one did you mean?" surface of Go to
     Definition: an `NSMenu` popped up under the identifier, one item per candidate
     (plan Decision 3). A menu rather than a custom `NSPanel` because AppKit gives

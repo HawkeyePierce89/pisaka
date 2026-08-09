@@ -505,7 +505,14 @@ built by the user's own Go toolchain. All of it, with decisions D17–D20, is in
     copy is what differs, because what happens differs: a hammer rather than a
     download arrow, no size at all, and a sentence naming the user's own `go` —
     accepting builds gopls from source with the toolchain at that path, and
-    Pisaka downloads nothing (D20). The download branch is checked first and is
+    Pisaka downloads nothing (D20). **That copy claims only what the install
+    keeps**: nothing is *installed* outside the app's own folder, and the build
+    "runs as your own `go install` would, using and adding to your Go module and
+    build caches". Only `GOBIN` is redirected, so the intermediates are the user's
+    (`GOMODCACHE`/`GOCACHE`, plus whatever `GOTOOLCHAIN=auto` fetches into them) —
+    both recorded known limits in `core-lsp.md`, and the reason an earlier
+    "nothing outside its own folder is changed" was too strong a sentence to show
+    above a button that grants consent. The download branch is checked first and is
     stated to win; the two contributors serve disjoint languages and cannot
     collide today, but a strip asking two questions in one row would be a worse
     thing to discover than an arbitrary order. `strip` is generic over its

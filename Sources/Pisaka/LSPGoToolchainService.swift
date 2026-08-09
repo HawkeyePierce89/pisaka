@@ -32,7 +32,8 @@ import PisakaCore
 /// `@unchecked Sendable` over an `NSLock`, the `LSPProcessTransport` arrangement:
 /// the lock guards the cached discovery and the live-child registry, is never held
 /// across a subprocess wait, and every launched process is reachable from
-/// `terminateNow()` so a quit mid-build leaves no `go` behind.
+/// `terminateNow()` — which signals each child's whole *process group*, so a quit
+/// mid-build leaves behind neither the `go` nor the toolchain it had running.
 final class LSPGoToolchainService: LSPGoToolchainDiscovering, LSPGoModuleInstalling, @unchecked Sendable {
     /// Where the blocking work runs. Concurrent, so a discovery started at launch
     /// and an install started by the banner do not queue behind each other — and
@@ -384,10 +385,11 @@ final class LSPGoToolchainService: LSPGoToolchainDiscovering, LSPGoModuleInstall
             }
         } onCancel: {
             // A quit, or a folder switch that dropped the model, must not leave a
-            // `go` — and a `go` compiling gopls has a whole tree of children of its
-            // own, all of which die with it. `LSPProcessTransport`'s rule, and the
-            // release check (`pgrep -f 'gopls|go install'` empty after a quit) is
-            // what it is written against.
+            // `go` — nor the compiler and linker a `go` compiling gopls has beneath
+            // it, which outlive their parent unless the whole process group is
+            // signalled (`ChildProcess.terminate`). `LSPProcessTransport`'s rule,
+            // and the release check (`pgrep -f 'gopls|go install'` empty after a
+            // quit) is what it is written against.
             child.cancel()
         }
     }
@@ -714,23 +716,51 @@ final class LSPGoToolchainService: LSPGoToolchainDiscovering, LSPGoModuleInstall
         /// is one that may also ignore a polite signal, and leaving it holding a
         /// staging directory that is about to be deleted is worse than killing it.
         ///
+        /// **Signalled as a process group rather than as one pid**, which is where
+        /// this departs from `LSPProcessTransport.stop()`: a language server is one
+        /// process, while a `go install` is a parent with a compiler and a linker
+        /// beneath it. Unix does not end a child when its parent dies, so signalling
+        /// the pid alone leaves that tree re-parented to `launchd`, still compiling
+        /// and still writing into the user's build cache after the app that asked
+        /// for it has quit — the exact leak the release check
+        /// (`pgrep -f 'gopls|go install'` empty after a quit) is meant to catch, and
+        /// one a `pgrep` for those two names would not even show.
+        ///
+        /// The negative pid is safe because Foundation launches every child as its
+        /// own process-group leader, and it is *checked* rather than assumed: the
+        /// group is signalled only while `getpgid(pid) == pid`, so if that ever
+        /// stopped being true the signal would narrow back to the single process
+        /// instead of widening to a group that contains Pisaka itself.
+        ///
         /// The escalation runs on its own queue so a caller with a deadline to keep
         /// — or a terminate observer with a whole app to quit — is not held up by
         /// somebody else's grace period.
         static func terminate(_ process: Process) {
-            process.terminate()
+            // Read before anything is signalled, while the child is certainly still
+            // there: once it has exited and been reaped there is no group left to
+            // ask about. `pid > 0` guards the one genuinely dangerous mistake here:
+            // `kill(0, …)` — and `kill(-0, …)` — signals the whole process group,
+            // i.e. Pisaka itself. A process that never launched reports 0, and this
+            // is the check `TerminalSession.terminate()` and
+            // `LSPProcessTransport.stop()` both make for the same reason.
             let pid = process.processIdentifier
+            let group: pid_t? = pid > 0 && getpgid(pid) == pid ? pid : nil
+
+            process.terminate()
+            if let group { kill(-group, SIGTERM) }
+
             reapQueue.async {
                 let deadline = Date().addingTimeInterval(terminationGrace)
                 while process.isRunning, Date() < deadline {
                     Thread.sleep(forTimeInterval: 0.05)
                 }
-                // `pid > 0` guards the one genuinely dangerous mistake here:
-                // `kill(0, …)` signals the whole process group, i.e. Pisaka itself.
-                // A process that never launched reports 0, and this is the check
-                // `TerminalSession.terminate()` and `LSPProcessTransport.stop()`
-                // both make for the same reason.
                 if process.isRunning, pid > 0 { kill(pid, SIGKILL) }
+                // Unconditional, unlike the line above, and that is the point: a
+                // `go` that honoured `SIGTERM` promptly still leaves behind
+                // whatever it had already spawned, so the group has to be finished
+                // off whether or not the parent missed its deadline. `ESRCH` from a
+                // group that is already gone is the ordinary answer here.
+                if let group { kill(-group, SIGKILL) }
                 process.waitUntilExit()
             }
         }
