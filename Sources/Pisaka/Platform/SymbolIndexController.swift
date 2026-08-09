@@ -79,7 +79,42 @@ final class SymbolIndexController {
     /// which is this class's job. Reading the property each time is deliberate:
     /// the provider reads the model's latest snapshot on demand, so no caller can
     /// end up answering from the state a folder was opened in.
-    var provider: CodeIntelligenceProviding { model.provider }
+    var provider: CodeIntelligenceProviding { composedProvider ?? model.provider }
+
+    /// The provider handed out instead of the index's own, once something above has
+    /// composed one — `nil` on every path that has not.
+    ///
+    /// This is how the LSP layer reaches the editor without a single view signature
+    /// changing: the macOS app builds a `RoutingIntelligenceProvider` around
+    /// *exactly* `model.provider` and installs it here, so `CodeEditorView` and
+    /// `CompletionController` go on reading `symbolIndex.provider` and cannot tell
+    /// which of the two answered. iOS installs nothing, so there it stays literally
+    /// the index.
+    private var composedProvider: (any CodeIntelligenceProviding)?
+
+    /// Answer the editor's questions through `provider` from now on.
+    ///
+    /// Called once, at app construction, with the routing provider whose fallback is
+    /// this controller's own model — so replacing the seam adds a source of answers
+    /// rather than taking one away. Deliberately *not* an `init` parameter: the
+    /// routing provider needs `model.provider`, which needs the model, which needs
+    /// this controller to exist first, and threading that knot through the
+    /// initializer would put the composition in the one place that cannot express
+    /// it.
+    func installProvider(_ provider: any CodeIntelligenceProviding) {
+        composedProvider = provider
+    }
+
+    /// The index's **project** token, forwarded so a definition surface can pin it
+    /// synchronously before its `Task` hop and drop an answer the user has since
+    /// left the folder for — see `SymbolIndexModel.currentRootGeneration` for why
+    /// the providers' own gates cannot close that last hop themselves.
+    ///
+    /// The one thing of the model's the views may read. It is not "driving the
+    /// index" (the reason the model itself stays private): it is a token, it moves
+    /// only when the app registers a folder switch, and reading it cannot make the
+    /// controller do anything.
+    var currentRootGeneration: Int { model.currentRootGeneration }
 
     // MARK: - Buffers
 

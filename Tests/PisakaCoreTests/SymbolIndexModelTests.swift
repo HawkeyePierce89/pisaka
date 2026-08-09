@@ -232,6 +232,36 @@ final class SymbolIndexModelTests: XCTestCase {
         XCTAssertFalse(model.index.isEmpty)
     }
 
+    func testRootGenerationMovesOnlyWhenTheFolderActuallyChanges() async {
+        let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
+        let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
+        await model.rebuild(root: root)
+
+        let pinnedRoot = model.currentRootGeneration
+        let requestBefore = model.currentRequestGeneration
+
+        // Everything a project does to *itself* while a jump is outstanding: an
+        // FSEvents refresh, a re-walk, a repeat open of the same folder. Each of
+        // these moves the request token — which is exactly why a definition
+        // surface pins the *project* token instead: gating a jump on the request
+        // token would cancel it whenever the index happened to be re-read while
+        // the user waited for an answer.
+        await model.refresh(root: root)
+        await model.rebuild(root: root)
+        _ = model.prepareForFolderChange(root: root)
+        XCTAssertEqual(model.currentRootGeneration, pinnedRoot)
+        XCTAssertGreaterThan(model.currentRequestGeneration, requestBefore)
+
+        // A genuine switch does move it, and so does closing the folder — the two
+        // cases in which an answer already computed names a file the user has left.
+        _ = model.prepareForFolderChange(root: otherRoot)
+        XCTAssertNotEqual(model.currentRootGeneration, pinnedRoot)
+
+        let afterSwitch = model.currentRootGeneration
+        _ = model.prepareForFolderChange(root: nil)
+        XCTAssertNotEqual(model.currentRootGeneration, afterSwitch)
+    }
+
     func testRebuildRejectsASupersededRequestGeneration() async {
         let stub = StubFileTree(root: root, files: ["a.swift": "sym alpha\n"])
         let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
@@ -960,6 +990,6 @@ final class SymbolIndexModelTests: XCTestCase {
             for: DefinitionRequest(identifier: "alpha", fileURL: nil, offset: 0)
         )
         XCTAssertEqual(candidates.map(\.relativePath), ["a.swift"])
-        XCTAssertEqual(candidates.first?.symbol.line, 1)
+        XCTAssertEqual(candidates.first?.line, 1)
     }
 }

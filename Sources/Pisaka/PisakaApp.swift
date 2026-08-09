@@ -92,6 +92,22 @@ struct PisakaApp: App {
     /// controllers above.
     private let symbolIndexController: SymbolIndexController
 
+    /// Which language servers are running, for which project, holding which
+    /// documents open (phase 2a). A plain stored reference like the window
+    /// controllers: the `@main` App is created once, and this owning reference is
+    /// what keeps a session's read task alive — `LSPSession` holds `self` weakly, so
+    /// a workspace nobody references would stop reading (the retention contract
+    /// stated on the session).
+    ///
+    /// Three lifecycle points hang off it, all beside the ones that already exist:
+    /// `prepareForFolderChange` + `shutdownAll()` in `openFolder(url:)`,
+    /// `didClose(url:)` in `forgetIndexedBuffer(_:)`, and `terminateNow()` in the
+    /// `willTerminateNotification` observer. Nothing else: **it is a reader** (D10),
+    /// so it neither raises `autosave.suspend()` / `localChanges.beginRevert()` nor
+    /// is gated by them — the rule already written for the symbol index, and for the
+    /// same reason.
+    private let lspWorkspace: LSPWorkspace
+
     /// Wire the workspace, the project-search model and the symbol index together.
     ///
     /// `ProjectSearchModel`'s buffer closures are `let`s taken at construction, and
@@ -131,7 +147,38 @@ struct PisakaApp: App {
             extractSymbols: SymbolExtractor.symbols(in:language:fileURL:)
         )
         self.symbolIndex = symbolIndex
-        self.symbolIndexController = SymbolIndexController(model: symbolIndex)
+        let symbolIndexController = SymbolIndexController(model: symbolIndex)
+        self.symbolIndexController = symbolIndexController
+
+        // The LSP layer, composed once and then left alone. `LSPProcessTransport`
+        // is the *only* thing handed over from the app side: the workspace decides
+        // whether to launch a server, this decides what launching one means here —
+        // the `GitServicing`/`GitCLIService` split, one level down.
+        let lspWorkspace = LSPWorkspace(
+            transportFactory: LSPProcessTransport.make(for:root:)
+        )
+        self.lspWorkspace = lspWorkspace
+        // What the editor surfaces actually ask: a language server first, and this
+        // very index — the same instance, reading the same live snapshot — whenever
+        // that does not answer in time. The fallback is `symbolIndex.provider`
+        // itself rather than a second provider over the same index, so a request no
+        // server serves takes exactly the path it took before this phase existed
+        // (`RoutingIntelligenceProviderTests` pins that by equality).
+        //
+        // Installed on the controller rather than plumbed through the views: they
+        // read `symbolIndex.provider` already, so composition here changes no view
+        // signature and no view can tell which side answered.
+        symbolIndexController.installProvider(
+            RoutingIntelligenceProvider(
+                lsp: LSPIntelligenceProvider(workspace: lspWorkspace),
+                fallback: symbolIndex.provider
+            )
+        )
+        // Resolve `sourcekit-lsp` off the main thread now, so the first ⌘-click in a
+        // cold project does not pay for an `xcrun` inside the launch turn. Purely an
+        // optimisation — the lookup is cached either way (see `LSPToolchain`).
+        LSPToolchain.prewarm()
+
         _projectSearch = StateObject(
             wrappedValue: ProjectSearchModel(
                 fileService: FileService(),
@@ -179,6 +226,16 @@ struct PisakaApp: App {
     /// reference like `diffWindows`/`mergeWindows`, and `closeAll()` is invoked
     /// from the same `willTerminateNotification` observer.
     private let projectSearchWindows = ProjectSearchWindowController()
+
+    /// Owns the separate, non-modal read-only source viewer windows a Go to
+    /// Definition opens when the declaration lives *outside* the opened folder — an
+    /// SDK interface, a dependency checkout (D3). A plain stored reference and a
+    /// `closeAll()` from the same `willTerminateNotification` observer, mirroring
+    /// `diffWindows`/`mergeWindows`.
+    ///
+    /// Only the LSP provider ever produces such a candidate, so on a project with
+    /// no language server this stays empty for the app's whole life.
+    private let sourceViewers = SourceViewerWindowController()
 
     /// Watches the opened project folder with FSEvents so an *external* change (a
     /// generator run in the embedded terminal, a Finder rename, a console `git
@@ -247,6 +304,9 @@ struct PisakaApp: App {
                 reveal: reveal,
                 symbolIndex: symbolIndexController,
                 onGoToDefinition: { url, range in activateSearchMatch(url: url, range: range) },
+                onViewDefinitionOutsideProject: { url, range in
+                    viewDefinitionOutsideProject(url: url, range: range)
+                },
                 bottomPanel: $bottomPanel,
                 onTogglePanel: { togglePanel($0) },
                 onClose: { closeFile(id: $0) },
@@ -327,6 +387,16 @@ struct PisakaApp: App {
                         diffWindows.closeAll()
                         mergeWindows.closeAll()
                         projectSearchWindows.closeAll()
+                        sourceViewers.closeAll()
+                        // And every language server, for the terminal sessions'
+                        // reason: a `sourcekit-lsp` left behind is an orphan process
+                        // holding a build-system cache open, which the release check
+                        // (`pgrep -fl sourcekit-lsp`) is specifically looking for.
+                        // `terminateNow()` rather than the graceful `shutdownAll()`
+                        // — this is the last notification AppKit posts, so a `Task`
+                        // wrapping the `async` teardown would never be picked up;
+                        // see the method's own note.
+                        lspWorkspace.terminateNow()
                     }
                     // Tear the FSEvents subscription down too, so no stream
                     // outlives the app. `stop()` is idempotent (and a no-op when
@@ -806,6 +876,32 @@ struct PisakaApp: App {
         symbolIndexController.reset()
         let symbolRequest = symbolIndex.prepareForFolderChange(root: url)
         Task { await symbolIndex.rebuild(root: url, request: symbolRequest) }
+
+        // Register the switch with the LSP workspace in this same turn, for the same
+        // reason and with the sharpest consequence of the three: a language server is
+        // *initialized for one root*, so an answer from the previous project's server
+        // would name a file under a folder the user has left. The synchronous call
+        // bumps the token a launch still in its handshake is pinned to, so that
+        // server is terminated when it finishes rather than stored.
+        //
+        // Only when the root actually changed (the `commitDialog` idiom above):
+        // re-opening the same folder must not tear down a server that has already
+        // paid for resolving its build system. The teardown itself has to be
+        // awaited — a graceful `didClose`/`shutdown`/`exit` cannot happen
+        // synchronously — and needs no generation of its own, because
+        // `shutdownAll()` is unconditional.
+        //
+        // Which leaves exactly one narrow window, worth stating rather than
+        // engineering around: a request arriving between this turn and the teardown
+        // sees the *new* root and may start its server, which `shutdownAll()` then
+        // stops. It costs one wasted launch and one tree-sitter answer, and — the
+        // part that matters — no restart budget, since a superseded launch is not a
+        // failure and a server shut down deliberately leaves no dead session for the
+        // next request to count as a crash.
+        let lspGenerationBefore = lspWorkspace.currentRequestGeneration
+        if lspWorkspace.prepareForFolderChange(root: url) != lspGenerationBefore {
+            Task { await lspWorkspace.shutdownAll() }
+        }
     }
 
     // MARK: - Commit dialog
@@ -1108,6 +1204,27 @@ struct PisakaApp: App {
     }
 
     // MARK: - Go to definition
+
+    /// Show a declaration that lives **outside** the opened folder in a separate,
+    /// read-only source viewer window (D3) — the other half of
+    /// `activateSearchMatch(url:range:)`, which handles every target inside it.
+    ///
+    /// A jump into an SDK `.swiftinterface` or a dependency checkout deliberately
+    /// does *not* go through `openFile(url:)`: that would put a file the user
+    /// cannot meaningfully edit into `WorkspaceModel`, where the autosave gate, the
+    /// session snapshot and ⌘S all apply to it. The viewer has no model behind it,
+    /// so a semantic jump outside the project cannot become a write outside the
+    /// project.
+    ///
+    /// An unreadable target (the path moved, permission denied, binary or oversize)
+    /// beeps and opens nothing — exactly what a ⌘-click that resolved nothing does,
+    /// because from the user's side it is the same event: the jump did not happen.
+    private func viewDefinitionOutsideProject(url: URL, range: NSRange) {
+        guard sourceViewers.open(fileURL: url, range: range, settings: settings) else {
+            PlatformFeedback.warning()
+            return
+        }
+    }
 
     /// The Find menu's "Go to Definition" (⌃⌘J): ask the focused editor to jump
     /// from wherever its caret is.
@@ -2139,9 +2256,18 @@ struct PisakaApp: App {
     /// tab open, and the same file can legitimately be reached through two tabs
     /// (opened once by path and once through a symlink — `fileID(forURL:)` matches
     /// canonically, exactly as the index keys its files).
+    ///
+    /// The language server is told the same thing at the same moment (D2's
+    /// `didClose`), under this one guard rather than a second copy of it: the two
+    /// consumers of a buffer must agree about when a file stops having one, and a
+    /// `didClose` for a file another tab still shows would leave the server
+    /// answering about a document it has dropped. Fire-and-forget, because nothing
+    /// waits on it and a server that cannot be told is one whose next request opens
+    /// the document afresh anyway.
     private func forgetIndexedBuffer(_ url: URL?) {
         guard let url, model.fileID(forURL: url) == nil else { return }
         symbolIndexController.noteBufferClosed(url: url)
+        Task { await lspWorkspace.didClose(url: url) }
     }
 
     /// Re-index a still-open tab whose buffer an in-app rewrite just replaced —

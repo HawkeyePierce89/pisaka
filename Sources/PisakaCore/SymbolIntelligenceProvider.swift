@@ -169,13 +169,13 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
             if lhs.candidate.relativePath != rhs.candidate.relativePath {
                 return lhs.candidate.relativePath < rhs.candidate.relativePath
             }
-            if lhs.candidate.symbol.line != rhs.candidate.symbol.line {
-                return lhs.candidate.symbol.line < rhs.candidate.symbol.line
+            if lhs.candidate.line != rhs.candidate.line {
+                return lhs.candidate.line < rhs.candidate.line
             }
-            if lhs.candidate.symbol.range.location != rhs.candidate.symbol.range.location {
-                return lhs.candidate.symbol.range.location < rhs.candidate.symbol.range.location
+            if lhs.candidate.range.location != rhs.candidate.range.location {
+                return lhs.candidate.range.location < rhs.candidate.range.location
             }
-            return lhs.candidate.symbol.name < rhs.candidate.symbol.name
+            return lhs.candidate.name < rhs.candidate.name
         }.prefix(limit).map(\.candidate)
     }
 

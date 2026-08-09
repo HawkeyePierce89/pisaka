@@ -260,6 +260,26 @@ public final class SymbolIndexModel: ObservableObject {
     /// `request:`.
     public var currentRequestGeneration: Int { generation }
 
+    /// The current **project** generation, captured synchronously by a caller that
+    /// defers *reading an answer* across a `Task` hop — the definition surfaces.
+    ///
+    /// Deliberately not `currentRequestGeneration` (`ProjectSearchModel`'s
+    /// distinction, for the same reason): a rebuild and every FSEvents refresh
+    /// advance that one, so a jump pinned to it would cancel itself whenever the
+    /// project happened to be re-walked while the user waited for an answer. Only a
+    /// genuine folder switch moves this one.
+    ///
+    /// It exists because a provider's own staleness gate cannot reach past its own
+    /// `return`. Both gates — this index being cleared by
+    /// `prepareForFolderChange`, and `LSPWorkspace.stillHolds(_:)` — stop an answer
+    /// from being *computed* for a folder the user has left, but the candidates
+    /// then travel one more main-actor hop before a surface opens them, and a
+    /// folder switch landing inside that hop would open a file from the previous
+    /// project — which the whole clearing rule above exists to prevent. The
+    /// consuming call site pins this token before the hop and drops the answer if
+    /// it moved: the same rule, applied where the answer is finally used.
+    public var currentRootGeneration: Int { rootGeneration }
+
     // MARK: - Rebuild
 
     /// Walk `root` from scratch and extract every indexable file, publishing

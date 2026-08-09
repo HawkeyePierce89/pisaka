@@ -101,7 +101,7 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
             in: store,
             projectRoot: root
         )
-        XCTAssertEqual(found.map(\.symbol.name), ["Worker"])
+        XCTAssertEqual(found.map(\.name), ["Worker"])
         XCTAssertEqual(found.map(\.relativePath), ["a.swift"])
     }
 
@@ -121,7 +121,7 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
             projectRoot: root
         )
         XCTAssertEqual(
-            found.map { "\($0.relativePath):\($0.symbol.line)" },
+            found.map { "\($0.relativePath):\($0.line)" },
             ["z.swift:2", "a.swift:3", "a.swift:9", "m.swift:1"]
         )
     }
@@ -224,6 +224,41 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(candidate.displayLabel, "Worker.run — src/Worker.swift:42")
     }
 
+    /// D8: the candidate stores what it displays, so a symbol-built one and a
+    /// directly-built one carrying the same facts are the *same value* — which
+    /// is what lets an LSP location, which has no `SymbolKind` to give, be
+    /// expressed at all.
+    func testASymbolBuiltCandidateEqualsTheEquivalentDirectlyBuiltOne() {
+        let declaration = symbol("run", kind: .method, in: "src/Worker.swift", line: 42, container: "Worker")
+        let fromSymbol = DefinitionCandidate(symbol: declaration, relativePath: "src/Worker.swift")
+        let direct = DefinitionCandidate(
+            name: "run",
+            containerName: "Worker",
+            kind: .method,
+            fileURL: declaration.fileURL,
+            range: declaration.range,
+            line: 42,
+            relativePath: "src/Worker.swift"
+        )
+        XCTAssertEqual(fromSymbol, direct)
+    }
+
+    /// A location the server did not classify still labels itself the same way:
+    /// no kind, no container, and the row reads exactly as it always has.
+    func testACandidateWithoutAKindOrContainerLabelsItselfWithTheBareName() {
+        let candidate = DefinitionCandidate(
+            name: "run",
+            fileURL: URL(fileURLWithPath: "/sdk/Swift.swiftinterface"),
+            range: NSRange(location: 12, length: 3),
+            line: 7,
+            relativePath: "Swift.swiftinterface"
+        )
+        XCTAssertNil(candidate.kind)
+        XCTAssertNil(candidate.containerName)
+        XCTAssertEqual(candidate.qualifiedName, "run")
+        XCTAssertEqual(candidate.displayLabel, "run — Swift.swiftinterface:7")
+    }
+
     /// The current file is matched through the canonical key, so a tab opened at
     /// a firmlinked/symlinked spelling still ranks its own declarations first.
     func testCurrentFileIsMatchedCanonically() throws {
@@ -260,7 +295,7 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
             projectRoot: directory
         )
         XCTAssertEqual(found.count, 2)
-        XCTAssertEqual(found.first?.symbol.fileURL, spelled)
+        XCTAssertEqual(found.first?.fileURL, spelled)
     }
 
     // MARK: - Completions: tie-breaks, one at a time

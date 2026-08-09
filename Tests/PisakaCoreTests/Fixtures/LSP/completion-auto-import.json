@@ -1,0 +1,51 @@
+{
+  "id": 12,
+  "jsonrpc": "2.0",
+  "result": {
+    "isIncomplete": false,
+    "items": [
+      {
+        "additionalTextEdits": [
+          {
+            "newText": "import Core\n",
+            "range": {
+              "end": {
+                "character": 0,
+                "line": 1
+              },
+              "start": {
+                "character": 0,
+                "line": 1
+              }
+            }
+          }
+        ],
+        "data": {
+          "itemId": 4211,
+          "sessionId": 0,
+          "uri": "file:///private/tmp/lspfix/pkg/Sources/App/main.swift"
+        },
+        "detail": "Greeter",
+        "filterText": "Greeter",
+        "insertText": "Greeter",
+        "insertTextFormat": 1,
+        "kind": 22,
+        "label": "Greeter",
+        "sortText": "4939.67153671-Greeter",
+        "textEdit": {
+          "newText": "Greeter",
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 3
+            },
+            "start": {
+              "character": 14,
+              "line": 3
+            }
+          }
+        }
+      }
+    ]
+  }
+}

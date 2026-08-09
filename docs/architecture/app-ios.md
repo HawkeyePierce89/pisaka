@@ -163,9 +163,25 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     a folder was opened in) as the seam the editor surfaces ask through, rather than
     handing views the model itself: a view that could reach the model could also
     drive the index, and the model republishes after every chunk, which must stay
-    off a view's update path. Lives in `Platform/` because both destinations drive
-    both halves; the project refresh is *watcher*-driven only on macOS, while on iOS
-    it is driven by the app's own working-tree rewrites.
+    off a view's update path. The one other thing forwarded is
+    `currentRootGeneration`, the model's *project* token, which both definition
+    surfaces pin before their `Task` hop and re-check when the candidates arrive —
+    see `core-intelligence.md` for why the providers' own staleness gates cannot
+    close that last hop themselves. Forwarding it is not "driving the index": it is
+    a token, it moves only when the app registers a folder switch, and reading it
+    cannot make this class do anything. That `provider` is also **the seam phase 2a's LSP
+    layer reaches the editor through**, without a single view signature changing:
+    `installProvider(_:)` records a composed provider that `provider` then hands out
+    in the model's place, and the macOS app calls it once at construction with a
+    `RoutingIntelligenceProvider` built around *exactly* `model.provider` — so
+    replacing the seam adds a source of answers rather than taking one away, and
+    `CodeEditorView`/`CompletionController` go on reading `symbolIndex.provider` and
+    cannot tell which of the two answered. It is deliberately not an `init`
+    parameter: the routing provider needs `model.provider`, which needs the model,
+    which needs this controller to exist first. iOS installs nothing, so there
+    `provider` stays literally the index. Lives in `Platform/` because both
+    destinations drive both halves; the project refresh is *watcher*-driven only on
+    macOS, while on iOS it is driven by the app's own working-tree rewrites.
   - `iOS/PisakaApp_iOS.swift` — the iOS `@main` App (the macOS `@main` is gated
     out under one-`@main`-per-platform `#if`). It also constructs the
     `SymbolIndexModel` + `SymbolIndexController` pair, the same way the macOS app
@@ -205,14 +221,26 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     plain `let`s, never `@ObservedObject` (the model republishes after every chunk of
     a walk and nothing here reads it — observing would rebuild the whole root per
     chunk); the editor surfaces ask through `symbolIndex.provider`. The folder switch
-    is registered in `onChange(of: model.projectRoot)` rather than in
-    `synchronizeGitModels` precisely because *both* folder paths — a picker open and
-    the launch-time bookmark restore — publish `projectRoot`, and an index that only
-    existed after a manual pick would leave go-to-definition dead on every relaunch:
-    `symbolIndexController.reset()` + `prepareForFolderChange(root:)` run
-    synchronously, then a pinned `rebuild` is spawned. Closing the folder (`nil`)
+    is registered by `synchronizeSymbolIndex(forRoot:)`
+    (`prepareForFolderChange(root:)` + `symbolIndexController.reset()` synchronously,
+    then a pinned `rebuild`), called from **two** places on purpose. The picker path
+    (`handlePicked`) calls it in the same main-actor turn as the open, for the same
+    reason the branch widget is registered there rather than left to its `onChange`:
+    that observer runs in a *later* SwiftUI update cycle, so bumping the index's
+    project token only there would leave a window in which an outstanding Go to
+    Definition resumes after the folder committed but before the token moved, passes
+    `CodeEditorCoordinator_iOS`'s `currentRootGeneration` re-check, and presents a
+    declaration from the project the user just left — the exact hop that guard exists
+    to close. `onChange(of: model.projectRoot)` calls it too, and that copy is not
+    redundant: the launch-time bookmark restore publishes `projectRoot` without going
+    through the picker, and an index that only existed after a manual pick would
+    leave go-to-definition dead on every relaunch. Calling it twice for one switch is
+    therefore the normal case and stays cheap by construction —
+    `prepareForFolderChange` is a no-op for a root the model already holds and the
+    generation it returns is what says so, so the second call neither cancels the
+    controller's two debounces nor spawns a second walk. Closing the folder (`nil`)
     still prepares, which clears the index — a symbol pointing into a folder the app
-    can no longer read is worse than no symbol. `requestClose` (and both branches of
+    can no longer read is worse than no symbol — it just has nothing to walk. `requestClose` (and both branches of
     the dirty-close dialog) hands a tab's entry back to disk through
     `forgetIndexedBuffer`, a no-op while any tab still shows the file, so a cancelled
     close and the same file reached through two tabs leave the buffer mark alone —
@@ -308,7 +336,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     pre-computing a lookup per selection change (the inversion the macOS completion
     controller uses) would put a provider call behind every tap in the buffer to
     save one menu row. The answer is handed to `DefinitionRoute_iOS`, which decides
-    between a jump, a choice list and a haptic. **Completion** is recomputed on
+    between a jump, a choice list and a haptic — unless
+    `symbolIndex.currentRootGeneration`, pinned synchronously before the `Task`, has
+    moved by the time it comes back, which is the macOS coordinator's guard carried
+    over verbatim: the index refuses to answer for a folder the user has left, but
+    the candidates cross one more main-actor hop to reach the route, and a folder
+    change (a picker open, a bookmark restore, or closing the folder) landing inside
+    that hop would present a declaration from the previous project. Silently, no
+    haptic — the user asked for a different folder. **Completion** is recomputed on
     every text change *and* every selection change (a caret move invalidates the
     strip as surely as a keystroke — the word it answers is no longer the word being
     typed), behind a 150 ms debounce and a generation token, gated on a bare caret,

@@ -1,0 +1,32 @@
+{
+  "id": 2,
+  "jsonrpc": "2.0",
+  "result": [
+    {
+      "range": {
+        "end": {
+          "character": 14,
+          "line": 1
+        },
+        "start": {
+          "character": 14,
+          "line": 1
+        }
+      },
+      "uri": "file:///private/tmp/lspfix/pkg/Sources/Core/Greeter.swift"
+    },
+    {
+      "range": {
+        "end": {
+          "character": 11,
+          "line": 4
+        },
+        "start": {
+          "character": 11,
+          "line": 4
+        }
+      },
+      "uri": "file:///private/tmp/lspfix/pkg/Sources/Core/Greeter.swift"
+    }
+  ]
+}

@@ -74,6 +74,11 @@ struct ContentView: View {
     /// uses — opening a tab is the app's job — and threaded straight into
     /// `CodeEditorView`. Default no-op for previews/tests.
     var onGoToDefinition: (URL, NSRange) -> Void = { _, _ in }
+    /// Show a definition that lives outside the opened folder in the separate
+    /// read-only source viewer window (D3). Wired to `PisakaApp` — owning windows
+    /// is the app's job — and threaded straight into `CodeEditorView`. Default
+    /// no-op for previews/tests.
+    var onViewDefinitionOutsideProject: (URL, NSRange) -> Void = { _, _ in }
     /// Which bottom dock panel is shown (`nil` = none), VS Code-style. Owned by
     /// `PisakaApp` and bound here; `.constant(nil)` keeps the default-constructed
     /// view (previews/tests) with no panel shown.
@@ -416,7 +421,8 @@ struct ContentView: View {
                     search: search,
                     reveal: reveal,
                     symbolIndex: symbolIndex,
-                    onGoToDefinition: onGoToDefinition
+                    onGoToDefinition: onGoToDefinition,
+                    onViewDefinitionOutsideProject: onViewDefinitionOutsideProject
                 )
             }
         } else {

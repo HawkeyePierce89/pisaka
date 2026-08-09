@@ -218,11 +218,25 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         let request = DefinitionRequest(
             identifier: match.text,
             fileURL: fileURL,
-            offset: match.range.location
+            offset: match.range.location,
+            // Carried on iOS too, where no language server runs, for the reason
+            // stated on the field: the default exists so phase-1 call sites still
+            // compile, which makes a *forgotten* one the hazard — an offset with no
+            // buffer behind it is exactly the shape `LSPIntelligenceProvider`
+            // refuses to send. The tree-sitter provider ignores it, so filling it in
+            // changes nothing today and cannot be wrong later.
+            text: textView.text ?? ""
         )
+        // The folder the question is asked in, pinned synchronously before the hop
+        // — the macOS coordinator's guard, for the reason written there: the index
+        // refuses to answer for a folder the user has left, but the candidates
+        // cross one more main-actor hop to reach the route, and a folder change
+        // landing inside it would present a declaration from the previous project.
+        let rootGeneration = symbolIndex?.currentRootGeneration
         Task { [weak self] in
             let candidates = await provider.definitions(for: request)
-            guard let route = self?.definitionRoute else { return }
+            guard let self, self.symbolIndex?.currentRootGeneration == rootGeneration else { return }
+            guard let route = self.definitionRoute else { return }
             route.present(candidates)
         }
     }
@@ -337,7 +351,11 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
             fileURL: fileURL,
             text: contents,
             language: language,
-            member: member
+            member: member,
+            // Carried on iOS too, where no language server runs: the field costs
+            // nothing to fill and a request that means the same thing on both
+            // platforms is one fewer difference to remember.
+            offset: offset
         )
         let interval = completionDebounce
         completionTask = Task { [weak self, weak textView] in

@@ -1,0 +1,19 @@
+{
+  "id": 3,
+  "jsonrpc": "2.0",
+  "result": [
+    {
+      "range": {
+        "end": {
+          "character": 22,
+          "line": 18545
+        },
+        "start": {
+          "character": 22,
+          "line": 18545
+        }
+      },
+      "uri": "file:///var/folders/xq/wbrh3j0n07162c6gymb3f_bm0000gn/T/sourcekit-lsp/GeneratedInterfaces/3496602203573370090/Swift.String.swiftinterface"
+    }
+  ]
+}

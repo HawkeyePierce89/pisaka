@@ -93,6 +93,20 @@ struct CodeEditorView: NSViewRepresentable {
     /// default-constructed view (previews/tests) still compiles.
     var onGoToDefinition: (URL, NSRange) -> Void = { _, _ in }
 
+    /// Show a definition that lives *outside* the opened folder — an SDK
+    /// interface, a dependency checkout — in the separate read-only source viewer
+    /// window instead of opening it as a tab (D3). Wired to
+    /// `PisakaApp.viewDefinitionOutsideProject(url:range:)`, which beeps when the
+    /// file cannot be read. Default no-op so a default-constructed view
+    /// (previews/tests) still compiles.
+    ///
+    /// A separate closure rather than a flag on `onGoToDefinition`, because the two
+    /// destinations are different app-level operations: one opens a tab through
+    /// `WorkspaceModel`, the other opens a window that has no model behind it at
+    /// all. Only the LSP provider ever marks a candidate out-of-root, so on the
+    /// tree-sitter path this is never called.
+    var onViewDefinitionOutsideProject: (URL, NSRange) -> Void = { _, _ in }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text)
     }
@@ -164,6 +178,19 @@ struct CodeEditorView: NSViewRepresentable {
         // correct because there is then no interceptor to guard.
         textView.onCompletionInsertion = { [weak coordinator = context.coordinator] isApplying in
             coordinator?.noteCompletionInsertion(isApplying)
+        }
+        // A committed row whose item carries its own edits (an auto-import) is
+        // applied by the completion controller instead of AppKit. Weakly
+        // captured for the same retain-cycle reason; a deallocated coordinator
+        // answers `false`, which is the stock insertion — the same graceful
+        // degradation as losing the flag above.
+        textView.onInsertCompletion = { [weak coordinator = context.coordinator] word, range, isFinal, tv in
+            coordinator?.insertCompletion(
+                word,
+                forPartialWordRange: range,
+                isFinal: isFinal,
+                in: tv
+            ) ?? false
         }
 
         let scrollView = NSScrollView()
@@ -298,6 +325,7 @@ struct CodeEditorView: NSViewRepresentable {
         // entirely, for a file outside the opened folder).
         context.coordinator.symbolIndex = symbolIndex
         context.coordinator.navigateToDefinition = onGoToDefinition
+        context.coordinator.viewDefinitionOutsideProject = onViewDefinitionOutsideProject
         context.coordinator.reindexSymbols(
             text: text,
             language: language,
@@ -470,8 +498,10 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.symbolIndex = symbolIndex
         // Keep the navigation closure current: it captures `PisakaApp`'s state, so
         // a stale one from a previous update would open tabs through a torn-down
-        // scene's workspace.
+        // scene's workspace. The out-of-root destination is kept current for the
+        // same reason.
         context.coordinator.navigateToDefinition = onGoToDefinition
+        context.coordinator.viewDefinitionOutsideProject = onViewDefinitionOutsideProject
         if switchedFile || contentReplaced {
             context.coordinator.reindexSymbols(
                 text: textView.string,
@@ -646,8 +676,18 @@ struct CodeEditorView: NSViewRepresentable {
 
         /// Bind the completion popup's candidate source to this text view
         /// (`makeNSView`).
+        ///
+        /// The controller is additionally given the programmatic-edit flag, for
+        /// the one insertion it performs outside AppKit's own
+        /// `insertCompletion` bracket: a late auto-import (D4). Captured weakly
+        /// — the coordinator owns the controller — so a torn-down editor simply
+        /// leaves the flag alone, which is right because there is then no
+        /// interceptor left to guard.
         func attachCompletion(textView: NSTextView) {
             completion.attach(textView: textView)
+            completion.noteProgrammaticEdit = { [weak self] isApplying in
+                self?.isApplyingProgrammaticEdit = isApplying
+            }
         }
 
         /// Recompute the popup's candidates for what is being typed.
@@ -735,6 +775,27 @@ struct CodeEditorView: NSViewRepresentable {
             isApplyingProgrammaticEdit = isApplying
         }
 
+        /// A row was committed (or previewed): let the completion controller
+        /// apply the item's own edits, and say whether it did.
+        ///
+        /// `false` — the answer for every tree-sitter item and most LSP ones —
+        /// leaves AppKit's stock insertion to do the job it already does
+        /// correctly. `true` is the auto-import case, where the item's edits
+        /// have to be applied as written and in one undo group.
+        func insertCompletion(
+            _ word: String,
+            forPartialWordRange charRange: NSRange,
+            isFinal: Bool,
+            in textView: NSTextView
+        ) -> Bool {
+            completion.insert(
+                word,
+                forPartialWordRange: charRange,
+                isFinal: isFinal,
+                in: textView
+            )
+        }
+
         // MARK: - Symbol index
 
         /// Re-index the shown file from its live buffer text.
@@ -760,6 +821,11 @@ struct CodeEditorView: NSViewRepresentable {
         /// scene state (see the property's note there).
         var navigateToDefinition: (URL, NSRange) -> Void = { _, _ in }
 
+        /// Shows a declaration that lives outside the opened folder in the separate
+        /// read-only viewer window. Assigned from `CodeEditorView` on every update,
+        /// like `navigateToDefinition`, and for the same reason.
+        var viewDefinitionOutsideProject: (URL, NSRange) -> Void = { _, _ in }
+
         /// Jump to the declaration of the identifier at `offset` — the single
         /// entry point behind both ⌘-click and the ⌃⌘J menu item, so the two can
         /// never disagree about what counts as an identifier or how a jump is made.
@@ -774,20 +840,43 @@ struct CodeEditorView: NSViewRepresentable {
         /// the question was asked about, which `DefinitionPicker` clamps against
         /// the buffer as it is by then.
         func goToDefinition(in textView: NSTextView, at offset: Int) {
+            let text = textView.string
             guard let provider = symbolIndex?.provider,
-                  let match = IdentifierScanner.identifier(in: textView.string as NSString, at: offset)
+                  let match = IdentifierScanner.identifier(in: text as NSString, at: offset)
             else {
                 PlatformFeedback.warning()
                 return
             }
+            // The buffer travels with the question (D2): an LSP provider has to
+            // tell the server the current text before it can ask about an offset
+            // in it, and this is the one macOS path that reaches one. Leaving
+            // `text` to its default here would not fail to compile — it would
+            // quietly ask about offset N in an empty document.
             let request = DefinitionRequest(
                 identifier: match.text,
                 fileURL: fileURL,
-                offset: match.range.location
+                offset: match.range.location,
+                text: text
             )
+            // The folder this question is being asked in, pinned *synchronously*
+            // before the hop — the generation-token rule, applied at the point an
+            // answer is finally read rather than where it is computed.
+            //
+            // Both providers already refuse to answer for a folder the user has
+            // left (the index is cleared by `prepareForFolderChange`;
+            // `LSPWorkspace.stillHolds(_:)` drops a response its root no longer
+            // matches), but neither gate reaches past its own `return`: the
+            // candidates cross one more main-actor hop to get here, and ⌘⇧O lands
+            // in a single synchronous turn, so a switch scheduled inside that hop
+            // would leave this task opening a file from the previous project — the
+            // one outcome every one of those gates exists to prevent. Silently,
+            // with no beep: the user asked for a different folder, and a warning
+            // sound for an answer they are no longer waiting on is noise.
+            let rootGeneration = symbolIndex?.currentRootGeneration
             Task { [weak self, weak textView] in
                 let candidates = await provider.definitions(for: request)
                 guard let self, let textView else { return }
+                guard self.symbolIndex?.currentRootGeneration == rootGeneration else { return }
                 switch candidates.count {
                 case 0:
                     // Nothing declares that name in the indexed project — the
@@ -796,19 +885,32 @@ struct CodeEditorView: NSViewRepresentable {
                     // worse than the click itself.
                     PlatformFeedback.warning()
                 case 1:
-                    self.navigateToDefinition(
-                        candidates[0].symbol.fileURL,
-                        candidates[0].symbol.range
-                    )
+                    self.navigate(to: candidates[0])
                 default:
                     DefinitionPicker.present(
                         candidates,
                         in: textView,
                         anchoredTo: match.range
                     ) { [weak self] candidate in
-                        self?.navigateToDefinition(candidate.symbol.fileURL, candidate.symbol.range)
+                        self?.navigate(to: candidate)
                     }
                 }
+            }
+        }
+
+        /// Land on a chosen declaration: a tab for a file inside the opened folder,
+        /// the read-only viewer window for one outside it (D3).
+        ///
+        /// The fork is the candidate's own `isOutsideProjectRoot` — the provider
+        /// knows the project root, this view does not — and it is applied in one
+        /// place so the single-candidate jump and the picker's choice can never
+        /// disagree about where a target opens. Every tree-sitter candidate takes
+        /// the first branch: the index only ever walks the opened folder.
+        private func navigate(to candidate: DefinitionCandidate) {
+            if candidate.isOutsideProjectRoot {
+                viewDefinitionOutsideProject(candidate.fileURL, candidate.range)
+            } else {
+                navigateToDefinition(candidate.fileURL, candidate.range)
             }
         }
 
@@ -1590,6 +1692,13 @@ final class EditorTextView: NSTextView {
     /// and `false` after. Set by `CodeEditorView.makeNSView`; `nil` until then.
     var onCompletionInsertion: ((Bool) -> Void)?
 
+    /// Applies a committed completion item's own edits, answering whether it
+    /// performed the whole insertion. Set by `CodeEditorView.makeNSView` to the
+    /// coordinator's `insertCompletion(_:forPartialWordRange:isFinal:in:)`;
+    /// `nil` until then, and `false` from it for everything that is just a word
+    /// replacing the typed prefix.
+    var onInsertCompletion: ((String, NSRange, Bool, NSTextView) -> Bool)?
+
     /// Complete from the caret — the entry point shared by this view's own ⌃Space
     /// (`keyDown`) and the Find menu's "Complete", which reaches this view as the
     /// key window's first responder, exactly like ⌃⌘J.
@@ -1624,14 +1733,22 @@ final class EditorTextView: NSTextView {
     /// Insert a chosen completion, with the coordinator's programmatic-edit flag
     /// raised for the duration.
     ///
-    /// `super` does the whole job — the replacement, the caret, and the *single*
-    /// undo step it registers on the active per-file undo manager — so nothing
-    /// about the documented undo discipline changes here. The only addition is the
-    /// flag, which keeps `AutoPairEngine`/`IndentEngine` from treating the
-    /// inserted word as typed text (a completion ending in an opener would
-    /// otherwise be auto-closed). The flag is lowered unconditionally, so an
+    /// `super` does the whole job for an ordinary item — the replacement, the
+    /// caret, and the *single* undo step it registers on the active per-file undo
+    /// manager — so nothing about the documented undo discipline changes for the
+    /// tree-sitter path. The flag keeps `AutoPairEngine`/`IndentEngine` from
+    /// treating the inserted word as typed text (a completion ending in an opener
+    /// would otherwise be auto-closed), and is lowered unconditionally, so an
     /// exception out of `super` cannot leave the interceptors disabled for the
     /// rest of the session.
+    ///
+    /// The one addition is `onInsertCompletion`: an LSP item may carry edits of
+    /// its own — the `import` line that makes the symbol resolve, or a
+    /// replacement range the server chose rather than the one the client typed
+    /// (D4) — and those have to be applied *as written*, which `super` cannot do
+    /// because it only knows the word. It answers `false` for everything else,
+    /// including every preview of a highlighted row, so the stock path stays the
+    /// path.
     override func insertCompletion(
         _ word: String,
         forPartialWordRange charRange: NSRange,
@@ -1640,6 +1757,7 @@ final class EditorTextView: NSTextView {
     ) {
         onCompletionInsertion?(true)
         defer { onCompletionInsertion?(false) }
+        if onInsertCompletion?(word, charRange, isFinal, self) == true { return }
         super.insertCompletion(
             word,
             forPartialWordRange: charRange,

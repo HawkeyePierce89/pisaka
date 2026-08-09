@@ -130,18 +130,17 @@ struct RootView_iOS: View {
             // their sheets' `.onAppear`; the branch widget is never dismissed, so it
             // needs this.)
             .onChange(of: model.projectRoot) { _, newRoot in
-                // The symbol index is registered here rather than in
-                // `synchronizeGitModels` precisely because *both* folder paths — a
-                // picker open and the launch-time bookmark restore — publish
-                // `projectRoot`, and an index that only existed after a manual pick
-                // would leave go-to-definition dead on every relaunch. Closing the
-                // folder (`nil`) still prepares, which clears the index: a symbol
-                // pointing into a folder the app can no longer read is worse than
-                // no symbol.
-                symbolIndexController.reset()
-                let symbolRequest = symbolIndex.prepareForFolderChange(root: newRoot)
+                // The symbol index is *also* registered here, and not only in the
+                // picker path, precisely because both folder paths — a picker open
+                // and the launch-time bookmark restore — publish `projectRoot`, and
+                // an index that only existed after a manual pick would leave
+                // go-to-definition dead on every relaunch. Closing the folder
+                // (`nil`) still prepares, which clears the index: a symbol pointing
+                // into a folder the app can no longer read is worse than no symbol.
+                // A repeat for the root the pick path already registered is a no-op
+                // — see the helper.
+                synchronizeSymbolIndex(forRoot: newRoot)
                 guard let newRoot else { return }
-                Task { await symbolIndex.rebuild(root: newRoot, request: symbolRequest) }
                 let request = branchSwitcher.prepareForRefresh(root: newRoot)
                 Task { await branchSwitcher.refresh(root: newRoot, request: request) }
             }
@@ -440,6 +439,7 @@ struct RootView_iOS: View {
         case .folder:
             fileAccess.openFolder(at: url)
             synchronizeGitModels(forRoot: url)
+            synchronizeSymbolIndex(forRoot: url)
         case .file:
             fileAccess.openFile(at: url)
             if isCompact { showingEditor = true }
@@ -476,6 +476,42 @@ struct RootView_iOS: View {
         // repo the user just left. This closes it, matching `PisakaApp.openFolder`.
         let branchRequest = branchSwitcher.prepareForRefresh(root: root)
         Task { await branchSwitcher.refresh(root: root, request: branchRequest) }
+    }
+
+    /// Register a folder switch with the symbol index and spawn its walk — the iOS
+    /// peer of the `prepareForFolderChange` + `rebuild` pair in
+    /// `PisakaApp.openFolder`, and kept out of `synchronizeGitModels` because the
+    /// index is not a git model and one of its two callers is not a folder pick.
+    ///
+    /// Called from **both** the picker path — synchronously, in the same main-actor
+    /// turn as the open — and the `.onChange(of: model.projectRoot)` backstop that
+    /// catches the launch-time bookmark restore. The pick-turn call is the
+    /// load-bearing half, for the same reason the branch widget is registered there:
+    /// `.onChange` runs in a later SwiftUI update cycle, so bumping the index's
+    /// project token only there leaves a window in which an outstanding Go to
+    /// Definition resumes after the folder committed but before the token moved,
+    /// passes the coordinator's `currentRootGeneration` re-check, and presents a
+    /// declaration from the project the user just left — the very hop that guard
+    /// exists to close (`CodeEditorCoordinator_iOS.goToDefinition`).
+    ///
+    /// Calling it twice for one switch is therefore normal and must stay cheap:
+    /// `prepareForFolderChange` is a no-op for a root the model already holds, and
+    /// the generation it returns is what says so, so the backstop neither cancels
+    /// the controller's two debounces nor spawns a second walk over a project
+    /// already being read. Closing the folder (`nil`) still registers — that clears
+    /// the index, and a symbol pointing into a folder the app can no longer read is
+    /// worse than no symbol — it just has nothing to walk.
+    private func synchronizeSymbolIndex(forRoot root: URL?) {
+        let generationBefore = symbolIndex.currentRequestGeneration
+        let symbolRequest = symbolIndex.prepareForFolderChange(root: root)
+        guard symbolRequest != generationBefore else { return }
+        // Whatever the buffer/watcher debounces would publish is superseded by the
+        // switch, so that work is dropped rather than done — `PisakaApp.openFolder`'s
+        // rule. Ordering against `prepareForFolderChange` is free: no `await` runs
+        // between them, so nothing can observe the half-registered state.
+        symbolIndexController.reset()
+        guard let root else { return }
+        Task { await symbolIndex.rebuild(root: root, request: symbolRequest) }
     }
 
     /// Teach the definition route how to open a tab.
