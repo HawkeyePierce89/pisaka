@@ -12,7 +12,7 @@ import XCTest
 ///
 /// Shared test support because two suites read queries with it:
 /// `VendoredGrammarQueryTests` (the two in-repo *highlight* queries) and
-/// `SymbolQueryTests` (the eleven in-repo *symbol* queries under
+/// `SymbolQueryTests` (the twelve in-repo *symbol* queries under
 /// `Resources/Queries/`). Having one scanner is the point — a query the two
 /// suites read differently is a query only one of them really checks.
 struct ParsedQuery {

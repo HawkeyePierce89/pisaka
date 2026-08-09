@@ -381,18 +381,29 @@ repository's recipe requires for every grammar change.
 - Create: `Resources/Queries/go/symbols.scm`
 - Modify: `Tests/PisakaCoreTests/SymbolQueryTests.swift`
 
-- [ ] write `symbols.scm` as drafted above, with the header comment stating the
+- [x] write `symbols.scm` as drafted above, with the header comment stating the
       shared convention and the four decisions (pointer receivers, `method_elem`,
       top-level anchoring, no package clause)
-- [ ] add Go to `SymbolQueryTests.pinnedNodeNames` with its named nodes, its empty
+      — shipped as drafted with **one substantive change the runtime check
+      forced**: the const pattern navigates by position,
+      `(const_spec (identifier) @definition.constant)`, not by `name:`. See the
+      fourth bullet.
+- [x] add Go to `SymbolQueryTests.pinnedNodeNames` with its named nodes, its empty
       anonymous-literal set and its fields (`name`, `receiver`, `type`) — the
       coverage, capture-vocabulary and predicate-free assertions then cover it
       automatically
-- [ ] re-verify every pinned name against the pinned checkout's
+      — 23 named nodes, empty anonymous set, the three fields. A comment on the
+      entry records that this pin does *not* move if the const pattern is ever
+      "tidied" back to `name:` (same node and field vocabulary either way), so the
+      reasoning lives on the query and in the capture table instead.
+- [x] re-verify every pinned name against the pinned checkout's
       `src/node-types.json` under the matching `named` flag (the plan-time check,
       repeated at implementation time against the actually-resolved checkout in
       `SourcePackages/checkouts/tree-sitter-go`)
-- [ ] runtime half of the documented recipe: compile the query against the grammar
+      — all 23 named, none anonymous, none missing; `name`/`receiver`/`type` all
+      declared, and each on the nodes the query hangs them off. Checkout revision
+      confirmed `1547678a9da59885853f5f5cc8a99cc203fa2e2c`.
+- [x] runtime half of the documented recipe: compile the query against the grammar
       and run it over a fixture `.go` file exercising every pattern (struct with
       fields, interface with methods, type alias, generic type,
       value/pointer/generic receivers, grouped and ungrouped `const`/`var`, a
@@ -400,7 +411,22 @@ repository's recipe requires for every grammar change.
       `npx tree-sitter query` run against the checkout, since `PisakaCore` cannot
       link SwiftTreeSitter; record the confirmed element-by-element capture table
       in `docs/architecture/core-intelligence.md`
-- [ ] run `swift test` — `SymbolQueryTests` green
+      — run with `tree-sitter query` 0.25.10; all twelve patterns fired, pointer
+      and generic receivers yielded `Worker`/`Pair` with no star, and the three
+      function locals were correctly absent. **The check earned its keep**: with
+      the drafted `const_spec name: (identifier)`, `const A, B = 1, 2` indexed `A`
+      alone, because the grammar declares `const_spec`'s `name` field to hold the
+      separating `,` tokens and a field interrupted by an anonymous token yields
+      only its first named child. `var_spec`'s field holds identifiers only, so
+      vars were unaffected — the asymmetry is the grammar's. Dropping the field is
+      exact, not merely broader: a `const_spec`'s direct `identifier` children are
+      exactly its names, the initializers being one level down inside
+      `value: (expression_list)`. The grammar declares exactly two such
+      comma-carrying fields (`const_spec.name`, `type_case.type`) and the query
+      touches only the first. Capture table recorded in `core-intelligence.md`.
+- [x] run `swift test` — `SymbolQueryTests` green
+      — 9 tests, 0 failures. The suite's one remaining failure is
+      `LanguageKeywordsTests`, the expected red Task 2 recorded and Task 4 closes.
 
 ### Task 4: Go keywords
 

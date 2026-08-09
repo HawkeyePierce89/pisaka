@@ -197,7 +197,7 @@ final class SymbolQueryTests: XCTestCase {
         )
     }
 
-    /// The ten *remote* grammars' sources are not in this repository, so their
+    /// The eleven *remote* grammars' sources are not in this repository, so their
     /// `node-types.json` cannot be read and the check above cannot be made. What
     /// can be pinned is the set of node names, anonymous literals and field names
     /// each query uses — by hand, the way `SyntaxTokenKindTests` pins the
@@ -267,6 +267,24 @@ final class SymbolQueryTests: XCTestCase {
             "assignment", "block", "class_definition", "decorated_definition",
             "expression_statement", "function_definition", "identifier", "module",
         ], anonymous: [], fields: ["body", "left", "name"]),
+
+        // Go's anonymous set is empty on purpose, and one absence in it is
+        // load-bearing: the const pattern navigates by *position* rather than by
+        // `name:`, because that field is declared to hold the separating `,`
+        // tokens and so yields only its first identifier. Were that pattern ever
+        // "tidied" back into `const_spec name: (identifier)`, this pin would not
+        // move — the query's node and field vocabulary is identical either way —
+        // so the reasoning lives on the query itself and in the recorded capture
+        // table, which is where a multi-name `const A, B = 1, 2` is shown
+        // indexing both names.
+        .go: (named: [
+            "const_declaration", "const_spec", "field_declaration", "field_declaration_list",
+            "field_identifier", "function_declaration", "generic_type", "identifier",
+            "interface_type", "method_declaration", "method_elem", "parameter_declaration",
+            "parameter_list", "pointer_type", "source_file", "struct_type", "type_alias",
+            "type_declaration", "type_identifier", "type_spec", "var_declaration", "var_spec",
+            "var_spec_list",
+        ], anonymous: [], fields: ["name", "receiver", "type"]),
 
         .markdown: (named: ["atx_heading", "inline", "paragraph", "setext_heading"],
                     anonymous: [], fields: ["heading_content"]),
