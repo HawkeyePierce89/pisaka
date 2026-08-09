@@ -372,4 +372,29 @@ final class LSPPositionMapTests: XCTestCase {
             }
         }
     }
+
+    /// The whole point of the precomputed `range` overload is that a caller
+    /// mapping many ranges against one buffer gets the *same* answers for one
+    /// scan — including the reversed and past-the-end shapes the one-shot form
+    /// normalises.
+    func testPrecomputedRangeAgreesWithTheOneShotFormIncludingDegenerateRanges() {
+        let content = map("alpha\nbeta\r\ngamma\rdelta\n")
+        let starts = LSPPositionMap.lineStarts(in: content)
+        let positions = [
+            LSPPosition(line: 0, character: 0),
+            LSPPosition(line: 1, character: 2),
+            LSPPosition(line: 2, character: 99),
+            LSPPosition(line: 3, character: 5),
+            LSPPosition(line: 99, character: 0)
+        ]
+        for start in positions {
+            for end in positions {
+                let range = LSPRange(start: start, end: end)
+                XCTAssertEqual(
+                    LSPPositionMap.range(for: range, in: content, lineStarts: starts),
+                    LSPPositionMap.range(for: range, in: content)
+                )
+            }
+        }
+    }
 }

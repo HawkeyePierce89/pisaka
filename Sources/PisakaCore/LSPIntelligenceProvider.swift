@@ -332,9 +332,19 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         var results: [CompletionItem] = []
         var deferred: [Int: PendingResolve] = [:]
         var handle = claimResolveHandles(count: items.count)
+        // One table for the whole list rather than one per mapped range: see the
+        // `lineStarts` overload of `LSPPositionMap.range(for:in:)`.
+        let lineStarts = LSPPositionMap.lineStarts(in: text)
 
         for entry in ordered {
             let item = entry.element
+            // D5 advertises `snippetSupport: false`, but that is a request, not an
+            // enforcement — and this is the one path in the layer whose result is
+            // *written to the file*. An item that claims snippet format anyway
+            // carries `${1:…}` placeholders that would go into the buffer
+            // verbatim, so it is dropped, for this file's first rule: no answer is
+            // better than a guessed one. Absent means plain text, per the spec.
+            guard item.insertTextFormat ?? 1 == 1 else { continue }
             let inserted = item.insertedText
             // Completing `foo` to `foo` inserts nothing and hides a real
             // candidate behind it — the same rule the tree-sitter path applies,
@@ -366,7 +376,8 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
                         for: item,
                         additionalTextEdits: item.additionalTextEdits,
                         typedWord: typedWord,
-                        in: text
+                        in: text,
+                        lineStarts: lineStarts
                     ),
                     resolveHandle: resolveHandle
                 )
@@ -395,17 +406,23 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     /// `additionalTextEdits` is passed in rather than read off `item`, because the
     /// resolve path takes the two halves from two different places — see
     /// `resolveEdits(for:)`.
+    ///
+    /// `lineStarts` is `text`'s table, built by the caller: `publish` maps every
+    /// item in a list against the same buffer, and rebuilding it per range is the
+    /// one avoidable cost on a path that runs per keystroke.
     private func edits(
         for item: LSPCompletionItem,
         additionalTextEdits: [LSPTextEdit]?,
         typedWord: NSRange,
-        in text: NSString
+        in text: NSString,
+        lineStarts: [Int]
     ) -> [CompletionEdit] {
-        let primaryRange = item.textEdit.map { LSPPositionMap.range(for: $0.range, in: text) }
+        let primaryRange = item.textEdit
+            .map { LSPPositionMap.range(for: $0.range, in: text, lineStarts: lineStarts) }
             ?? typedWord
         let additional = (additionalTextEdits ?? []).map {
             CompletionEdit(
-                range: LSPPositionMap.range(for: $0.range, in: text),
+                range: LSPPositionMap.range(for: $0.range, in: text, lineStarts: lineStarts),
                 newText: $0.newText,
                 role: .additional
             )
@@ -442,11 +459,13 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         // `insertedText` fall through to `label` here, and this is the one path in
         // the layer whose result is *written to the file* rather than dropped. So
         // the resolved item contributes exactly the half it is allowed to.
+        let text = pending.text as NSString
         return edits(
             for: pending.item,
             additionalTextEdits: resolved.additionalTextEdits ?? pending.item.additionalTextEdits,
             typedWord: pending.typedWord,
-            in: pending.text as NSString
+            in: text,
+            lineStarts: LSPPositionMap.lineStarts(in: text)
         )
     }
 

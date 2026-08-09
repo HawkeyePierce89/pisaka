@@ -112,9 +112,24 @@ public enum LSPPositionMap {
     /// happens, and which `NSRange` cannot represent — yields an empty range at
     /// `start` rather than a negative length that traps at the call site.
     public static func range(for range: LSPRange, in content: NSString) -> NSRange {
-        let starts = lineStarts(in: content)
-        let start = offset(for: range.start, in: content, lineStarts: starts)
-        let end = offset(for: range.end, in: content, lineStarts: starts)
+        self.range(for: range, in: content, lineStarts: lineStarts(in: content))
+    }
+
+    /// The same conversion against a table the caller already built.
+    ///
+    /// The overload above scans the whole buffer once per call, which is the right
+    /// shape for a one-off but the wrong one for a completion list: every item the
+    /// server sends carries a `textEdit`, so mapping a 30-item list in a large file
+    /// would re-scan it 30 times on every debounced keystroke. Callers that map
+    /// more than one range against the same `content` build the table once and hand
+    /// it here.
+    public static func range(
+        for range: LSPRange,
+        in content: NSString,
+        lineStarts: [Int]
+    ) -> NSRange {
+        let start = offset(for: range.start, in: content, lineStarts: lineStarts)
+        let end = offset(for: range.end, in: content, lineStarts: lineStarts)
         return NSRange(location: start, length: max(0, end - start))
     }
 

@@ -480,8 +480,11 @@ public struct LSPCompletionItem: Equatable, Hashable, Sendable, Codable {
     /// Edits elsewhere in the file that must land with the item — the `import`
     /// line of D4's auto-import.
     public var additionalTextEdits: [LSPTextEdit]?
-    /// Present and `1` for plain text. Never a snippet (D5), but decoded so an
-    /// item that claims otherwise can be recognised rather than mis-inserted.
+    /// Present and `1` for plain text; absent means the same, per the spec. Never
+    /// a snippet (D5) — but `snippetSupport: false` is a request, not an
+    /// enforcement, so this is decoded *and read*:
+    /// `LSPIntelligenceProvider.publish` drops an item that claims otherwise
+    /// rather than letting its `${1:…}` placeholders reach the buffer.
     public var insertTextFormat: Int?
     public var deprecated: Bool?
     public var data: JSONValue?

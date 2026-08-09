@@ -166,7 +166,10 @@ document, together with the limits they carry.
     that follows is one code unit or two, which a list of starts cannot say.
     `range(for:in:)` normalises a range whose `end` precedes its `start` — servers
     do send those, and `NSRange` cannot represent one — into an empty range at
-    `start` rather than a negative length that traps at the call site.
+    `start` rather than a negative length that traps at the call site. It has the
+    same precomputed variant, for the same reason and one hotter caller: a
+    completion list maps one range per item against one buffer, and the one-shot
+    form would scan that buffer once per item.
     **The interior of a CRLF pair is not an addressable LSP position.** The
     exhaustive round-trip test surfaced this; both directions agree to clamp it to
     the line's content end, and
@@ -527,9 +530,24 @@ document, together with the limits they carry.
     **The server's ranking is the ranking** (D6): items ordered by `sortText ??
     label` with the server's own array order preserved on ties (the enumerated index
     is carried as the last sort key rather than trusting `sorted(by:)` to be
-    stable), then only hygiene — drop the item identical to what was typed, collapse
+    stable), then only hygiene — drop the item that claims snippet format, drop the
+    item identical to what was typed, collapse
     duplicates by inserted text (first wins), cap at
-    `SymbolIntelligenceProvider.defaultCompletionLimit`. No name heuristic, no
+    `SymbolIntelligenceProvider.defaultCompletionLimit`.
+    **The snippet drop is enforcement, not tidiness.** D5 advertises
+    `snippetSupport: false`, but a client capability is a *request*: a server that
+    ignores it answers with `insertTextFormat: 2` and a `newText` full of
+    `${1:…}` placeholders, and a completion item is the one thing in this layer
+    whose result is written to the user's file rather than merely displayed. So the
+    field is read, not just decoded: absent means plain text (the spec's default)
+    and is kept, anything other than `1` is dropped, by the same rule as everything
+    else here — no answer is better than a guessed one.
+    **One line-start table per list.** Every item sourcekit-lsp sends carries a
+    `textEdit`, so mapping a list with the one-shot `LSPPositionMap.range(for:in:)`
+    would re-scan the whole buffer once per item — thirty full scans of a large file
+    on every debounced keystroke. `publish` builds the table once and hands it to
+    `edits(…)`; `resolveEdits(for:)` builds its own, being a single mapping on a
+    path the user has already committed to. No name heuristic, no
     current-file bonus, no fuzzy quality: those exist in the tree-sitter provider
     because a bucket of names has no ranking of its own, while a server has spent
     real work on this order.
@@ -747,11 +765,16 @@ insertion happens first and the import edit is applied when it arrives, as a
 second undo step — and only while the buffer is otherwise unchanged.
 
 **D5 — No snippet support is advertised**, so `newText` is always plain text and
-nothing has to strip `${1:placeholder}` syntax.
+nothing has to strip `${1:placeholder}` syntax. Advertising it is not the same as
+being obeyed, though, so the guarantee is *checked* as well as asked for:
+`publish` drops any item whose `insertTextFormat` is present and not `1`, rather
+than writing placeholder syntax into the buffer on the word of a server that
+ignored the capability.
 
 **D6 — Ranking for LSP-answered requests trusts the server**: items sorted by
 `sortText ?? label`, preserving server array order on ties, then the existing
-hygiene (drop the item identical to the typed token, dedup by inserted text, cap
+hygiene (drop the snippet-format item, drop the item identical to the typed
+token, dedup by inserted text, cap
 at `SymbolIntelligenceProvider.defaultCompletionLimit`). No name heuristics on
 top. The recorded transcript is what pins this rather than a constructed example:
 sourcekit-lsp put `Greeter` *last* in the array with the *lowest* `sortText`.

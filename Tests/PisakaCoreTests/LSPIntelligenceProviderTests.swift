@@ -572,6 +572,27 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(items.map(\.text), ["Greeter", "Greeting"])
     }
 
+    /// D5 asks for `snippetSupport: false`, but that is a request the server is
+    /// free to ignore — and an item is the one thing in this layer that gets
+    /// *written to the file*, so a `${1:…}` placeholder must not reach the buffer
+    /// verbatim. Absent means plain text (the spec's default) and is kept.
+    func testAnItemClaimingSnippetFormatIsDroppedWhileAnAbsentFormatIsKept() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                completionItemJSON(label: "Greeter", sortText: "100", insertTextFormat: nil),
+                completionItemJSON(label: "Greeting", sortText: "200", insertTextFormat: 2),
+                completionItemJSON(label: "GreeterBox", sortText: "300", insertTextFormat: 1)
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "Gree", offset: identifierCaret)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["Greeter", "GreeterBox"])
+    }
+
     // MARK: - Completion: edits
 
     /// The auto-import shape (D4): a `textEdit` on the typed word plus an
@@ -838,6 +859,7 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         label: String,
         sortText: String,
         detail: String? = nil,
+        insertTextFormat: Int? = 1,
         textEdit: (startLine: Int, startCharacter: Int, endLine: Int, endCharacter: Int)? = nil
     ) -> JSONValue {
         var object: [String: JSONValue] = [
@@ -845,9 +867,9 @@ final class LSPIntelligenceProviderTests: XCTestCase {
             "sortText": .string(sortText),
             "insertText": .string(label),
             "filterText": .string(label),
-            "kind": .int(LSPCompletionItemKind.struct.rawValue),
-            "insertTextFormat": .int(1)
+            "kind": .int(LSPCompletionItemKind.struct.rawValue)
         ]
+        if let insertTextFormat { object["insertTextFormat"] = .int(insertTextFormat) }
         if let detail { object["detail"] = .string(detail) }
         if let textEdit {
             object["textEdit"] = .object([
