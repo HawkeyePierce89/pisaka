@@ -103,7 +103,7 @@ enum LSPInstalledLicenses {
                 // because the header renders the field as "Revision" and a bare
                 // 64 hex characters there would read as a git object id.
                 revision: "sha256:\(primary.sha256)",
-                spdx: component.licenseSPDXID,
+                spdx: component.licenseSPDX,
                 file: heading
             ),
             text: sections.joined(separator: "\n")

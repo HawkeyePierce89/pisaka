@@ -127,7 +127,13 @@ carries. D1–D10 are in `core-lsp.md`.
     de-provisioning instructions in `README.md` point at the one place that
     defines it. The staging directory begins with a dot so it can never collide
     with a component id, and `stagingDirectory(…, token:)` takes a per-attempt
-    token so a retry cannot adopt a half-written tree a previous attempt left.
+    token so a retry cannot adopt a half-written tree a previous attempt left —
+    *within one run*. The counter restarts at zero every launch, so the first
+    attempt of a run recomputes the path a crashed attempt of the previous run
+    may still occupy; `ensureDirectory` would succeed on it and adopt it. The
+    engine therefore `discard`s the staging path before it builds there, which is
+    what makes the empty tree an established fact rather than an inference from
+    the best-effort sweep having worked.
     `contains(_:)` is the containment predicate behind every deletion, and it
     counts the root itself — it answers "inside", and the sweep reads that
     directory. The engine narrows it to `mayDelete(_:)`, which additionally
@@ -725,6 +731,17 @@ tar tzf "$P-$V.tgz" | grep -iE 'licen|copying|notice|third.?party'
 `licenseFileSubpaths` and appended below a separator by `LSPInstalledLicenses`.
 Run that `grep` on every artifact of a bumped pin; a notice that appears and is
 not listed ships unacknowledged, and nothing in `swift test` can see it.
+
+A second notice may also move the component's **`licenseSPDX`**, which is an
+SPDX *expression* (`MIT AND Apache-2.0` for pyright) rather than a bare id, and
+is rendered as the heading over the very texts below it. The line is whether the
+notice is a *separate project's license file* — typeshed's Apache-2.0 `LICENSE`
+is, so it is named; the third-party sections carried inside Node's own `LICENSE`
+and `typescript`'s `ThirdPartyNoticeText.txt` are not, and are printed verbatim
+under a single-id heading. `LSPProvisioningManifestTests` validates the
+expression's operands and pins all three values by hand, because a wrong heading
+compiles, passes every other check and mislabels a license on screen.
+
 `swift test` then re-validates the shape of everything else, and the manual
 checks at the end of the plan re-validate that the server actually answers.
 

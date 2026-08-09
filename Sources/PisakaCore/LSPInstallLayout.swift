@@ -105,7 +105,10 @@ public struct LSPInstallLayout: Equatable, Sendable {
     /// version are coalesced by the engine, but a *retry* after a failed attempt
     /// whose sweep has not run yet must not adopt the half-written tree the
     /// previous one left. A fresh token per attempt makes that impossible instead
-    /// of unlikely.
+    /// of unlikely — *within one run*. The engine's counter restarts at zero every
+    /// launch, so the token says nothing across launches and the emptiness of the
+    /// tree is established by the engine dropping it before it builds there, not
+    /// by this name being unique.
     public func stagingDirectory(componentID: String, version: String, token: Int) -> URL {
         stagingRoot.appendingPathComponent("\(componentID)-\(version)-\(token)", isDirectory: true)
     }

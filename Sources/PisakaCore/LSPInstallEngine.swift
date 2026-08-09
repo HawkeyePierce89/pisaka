@@ -337,6 +337,17 @@ public final class LSPInstallEngine {
         let staging = layout.stagingDirectory(for: component, token: stagingCounter)
 
         do {
+            // The token makes two attempts of one run impossible to confuse, but
+            // `stagingCounter` restarts at zero every launch, so the *first*
+            // attempt of a run recomputes the exact path an attempt of the
+            // previous run may still occupy — and `ensureDirectory` succeeds on a
+            // directory that already exists, which would adopt that half-written
+            // tree rather than refuse it. `sweepStaging()` normally removed it a
+            // moment ago at launch, but it is best-effort by design (a listing or
+            // a deletion that throws is skipped), so the empty tree the rest of
+            // this sequence assumes is *established* here rather than inferred
+            // from the sweep having worked.
+            discard(staging)
             try ensureDirectory(staging, of: component)
 
             for artifact in artifacts {

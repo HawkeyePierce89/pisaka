@@ -68,7 +68,7 @@ final class LSPInstallLayoutTests: XCTestCase {
 
         // A component with nothing to run answers nothing rather than a path into
         // a file that does not exist.
-        let library = LSPComponent(id: "lib", version: "1", licenseSPDXID: "MIT", licenseFileSubpaths: [], artifacts: [])
+        let library = LSPComponent(id: "lib", version: "1", licenseSPDX: "MIT", licenseFileSubpaths: [], artifacts: [])
         XCTAssertNil(layout.executable(of: library))
         XCTAssertEqual(layout.licenseFiles(of: library), [])
     }

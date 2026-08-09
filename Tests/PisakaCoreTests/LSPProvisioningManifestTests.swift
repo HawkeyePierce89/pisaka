@@ -227,8 +227,8 @@ final class LSPProvisioningManifestTests: XCTestCase {
             unpackedByteCount: 2
         )
         let cyclic = LSPProvisioningManifest(components: [
-            LSPComponent(id: "a", version: "1", licenseSPDXID: "MIT", licenseFileSubpaths: [], artifacts: [artifact], requires: ["b"]),
-            LSPComponent(id: "b", version: "1", licenseSPDXID: "MIT", licenseFileSubpaths: [], artifacts: [artifact], requires: ["a"]),
+            LSPComponent(id: "a", version: "1", licenseSPDX: "MIT", licenseFileSubpaths: [], artifacts: [artifact], requires: ["b"]),
+            LSPComponent(id: "b", version: "1", licenseSPDX: "MIT", licenseFileSubpaths: [], artifacts: [artifact], requires: ["a"]),
         ])
         XCTAssertEqual(cyclic.installationOrder(for: "a").map(\.id), ["b", "a"])
     }
@@ -251,7 +251,16 @@ final class LSPProvisioningManifestTests: XCTestCase {
     func testEveryComponentDeclaresALicenseItActuallyShips() {
         let known: Set<String> = ["MIT", "Apache-2.0"]
         for component in manifest.components {
-            XCTAssertTrue(known.contains(component.licenseSPDXID), "\(component.id): unrecognised SPDX id")
+            // `licenseSPDX` is an *expression*, so the operands are validated
+            // rather than the whole string: a set of whole strings would reject
+            // the honest `MIT AND Apache-2.0` and quietly reward labelling
+            // pyright's two-licensed tree with whichever single id was already
+            // listed here.
+            let operands = component.licenseSPDX.components(separatedBy: " AND ")
+            XCTAssertFalse(component.licenseSPDX.isEmpty, "\(component.id): no SPDX expression")
+            for operand in operands {
+                XCTAssertTrue(known.contains(operand), "\(component.id): unrecognised SPDX id “\(operand)”")
+            }
             XCTAssertFalse(component.licenseFileSubpaths.isEmpty, "\(component.id) ships no license text")
 
             func isUnder(_ subpath: String, _ destination: String) -> Bool {
@@ -286,6 +295,26 @@ final class LSPProvisioningManifestTests: XCTestCase {
                 XCTAssertTrue(layout.contains(url), "\(component.id)'s license text is outside the install root")
             }
         }
+    }
+
+    /// pyright's expression names both licenses its tree is under, pinned by hand
+    /// because nothing else can see it: the Apache-2.0 half is typeshed's
+    /// `dist/typeshed-fallback/LICENSE`, a different project's file shipped inside
+    /// pyright's MIT package, and `LSPInstalledLicenses` renders this string as
+    /// the heading over that very text. A single "MIT" compiles, passes every
+    /// other assertion here, and mislabels the notice on screen — so the value is
+    /// written down rather than derived, the way the digests above are.
+    ///
+    /// The other two stay single-id on the stated rule: `node`'s OpenSSL/ICU/zlib
+    /// sections and `typescript`'s `ThirdPartyNoticeText.txt` are notices *inside*
+    /// those packages' own files, printed verbatim below the heading.
+    func testPyrightIsLabelledWithBothLicensesItsTreeIsUnder() throws {
+        XCTAssertEqual(try XCTUnwrap(manifest.component("pyright")).licenseSPDX, "MIT AND Apache-2.0")
+        XCTAssertEqual(try XCTUnwrap(manifest.component("node")).licenseSPDX, "MIT")
+        XCTAssertEqual(
+            try XCTUnwrap(manifest.component("typescript-language-server")).licenseSPDX,
+            "Apache-2.0"
+        )
     }
 
     // MARK: - The servers

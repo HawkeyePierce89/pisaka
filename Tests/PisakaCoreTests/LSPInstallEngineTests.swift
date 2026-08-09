@@ -45,7 +45,7 @@ final class LSPInstallEngineTests: XCTestCase {
         static let runtime = LSPComponent(
             id: "runtime",
             version: "1.0.0",
-            licenseSPDXID: "MIT",
+            licenseSPDX: "MIT",
             licenseFileSubpaths: ["LICENSE"],
             artifacts: [
                 artifact(runtimeARM, byteCount: 1000, architecture: .arm64),
@@ -60,7 +60,7 @@ final class LSPInstallEngineTests: XCTestCase {
         static let server = LSPComponent(
             id: "server",
             version: "2.0.0",
-            licenseSPDXID: "Apache-2.0",
+            licenseSPDX: "Apache-2.0",
             licenseFileSubpaths: ["node_modules/server/LICENSE"],
             artifacts: [
                 artifact(serverArchive, byteCount: 200, destinationSubpath: "node_modules/server"),
@@ -74,7 +74,7 @@ final class LSPInstallEngineTests: XCTestCase {
         static let bumpedServer = LSPComponent(
             id: "server",
             version: "3.0.0",
-            licenseSPDXID: "Apache-2.0",
+            licenseSPDX: "Apache-2.0",
             licenseFileSubpaths: ["node_modules/server/LICENSE"],
             artifacts: [
                 artifact(bumpedServerArchive, byteCount: 210, destinationSubpath: "node_modules/server"),
@@ -87,7 +87,7 @@ final class LSPInstallEngineTests: XCTestCase {
         static let intelOnly = LSPComponent(
             id: "intel-only",
             version: "1.0.0",
-            licenseSPDXID: "MIT",
+            licenseSPDX: "MIT",
             licenseFileSubpaths: [],
             artifacts: [artifact(intelOnlyArchive, byteCount: 10, architecture: .x64)]
         )
@@ -595,6 +595,45 @@ final class LSPInstallEngineTests: XCTestCase {
             harness.installedFiles("server", version: "2.0.0").count, 3,
             "the sweep reached outside .staging"
         )
+    }
+
+    /// The sweep is best-effort, so the install may not lean on it having worked.
+    ///
+    /// This is the across-launches case the staging *token* cannot cover: the
+    /// counter restarts at zero every run, so the first attempt of a run
+    /// recomputes the exact path a crashed attempt of the previous run left
+    /// occupied — and `ensureDirectory` succeeds on a directory that is already
+    /// there. Staged as the sweep failing (`removeFailures`) and then being
+    /// removed, which is what a permissions blip or a file the volume would not
+    /// release looks like from here: the leftover survives the sweep, the install
+    /// runs anyway, and none of the previous attempt's files may reach the version
+    /// directory the single `move` commits.
+    func testAnInstallDoesNotAdoptALeftoverStagingTreeTheSweepCouldNotRemove() async throws {
+        let harness = Harness()
+
+        // What a force-quit mid-unpack left behind, at the very path this run's
+        // first attempt will compute (`runtime` installs first, token 1).
+        let leftover = "LanguageServers/.staging/runtime-1.0.0-1"
+        harness.tree.files["\(leftover)/bin/runtime"] = "#!truncated"
+        harness.tree.files["\(leftover)/bin/orphan"] = "from the attempt that died"
+
+        harness.tree.removeFailures.insert(leftover)
+        harness.engine.sweepStaging()
+        XCTAssertTrue(harness.tree.hasDirectory(leftover), "the sweep was supposed to fail here")
+
+        harness.tree.removeFailures.remove(leftover)
+        try await harness.engine.install("runtime")
+
+        XCTAssertEqual(
+            harness.installedFiles("runtime", version: "1.0.0"),
+            ["LanguageServers/runtime/1.0.0/LICENSE", "LanguageServers/runtime/1.0.0/bin/runtime"],
+            "a file from the previous attempt was committed by the rename"
+        )
+        XCTAssertEqual(
+            harness.tree.files["LanguageServers/runtime/1.0.0/bin/runtime"], "#!runtime arm64",
+            "the truncated file survived instead of being replaced"
+        )
+        XCTAssertEqual(harness.stagingEntries, [])
     }
 
     /// A launch on a machine that has provisioned servers and crashed on none of

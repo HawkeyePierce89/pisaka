@@ -53,7 +53,7 @@ final class LSPProvisioningModelTests: XCTestCase {
         static let node = LSPComponent(
             id: "node",
             version: "24.19.0",
-            licenseSPDXID: "MIT",
+            licenseSPDX: "MIT",
             licenseFileSubpaths: ["LICENSE"],
             artifacts: [
                 artifact(nodeARM, byteCount: nodeBytes, architecture: .arm64),
@@ -65,7 +65,7 @@ final class LSPProvisioningModelTests: XCTestCase {
         static let typescriptLanguageServer = LSPComponent(
             id: "typescript-language-server",
             version: "5.3.0",
-            licenseSPDXID: "Apache-2.0",
+            licenseSPDX: "Apache-2.0",
             licenseFileSubpaths: ["node_modules/typescript-language-server/LICENSE"],
             artifacts: [
                 artifact(
@@ -86,7 +86,7 @@ final class LSPProvisioningModelTests: XCTestCase {
         static let pyrightComponent = LSPComponent(
             id: "pyright",
             version: "1.1.411",
-            licenseSPDXID: "MIT",
+            licenseSPDX: "MIT",
             licenseFileSubpaths: ["node_modules/pyright/LICENSE.txt"],
             artifacts: [
                 artifact(pyright, byteCount: pyrightBytes, destinationSubpath: "node_modules/pyright"),

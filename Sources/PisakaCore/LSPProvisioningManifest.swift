@@ -178,10 +178,27 @@ public struct LSPComponent: Equatable, Sendable, Identifiable {
     public let id: String
     public let version: String
 
-    /// SPDX identifier for everything this component ships. One id per component
-    /// because each one's artifacts happen to agree; a component whose artifacts
-    /// disagreed would have to be split, which is the honest outcome anyway.
-    public let licenseSPDXID: String
+    /// SPDX *expression* for everything this component ships — one id, or ids
+    /// joined by ` AND `, the way `licenses.json` already spells `tree-sitter` as
+    /// `MIT AND Unicode-DFS-2016`.
+    ///
+    /// An expression rather than a bare id because a component is its whole
+    /// installed tree, and a tree is not always under one license: `pyright`'s own
+    /// code is MIT and the typeshed stub library it ships beside it is Apache-2.0,
+    /// from a different project. Labelling that entry "MIT" would caption
+    /// Apache-2.0 text with the wrong license on the one screen whose purpose is
+    /// exactness.
+    ///
+    /// What it deliberately does *not* enumerate is the third-party notices
+    /// carried **inside** a package's own license file — Node's OpenSSL/ICU/zlib
+    /// sections, `typescript`'s `ThirdPartyNoticeText.txt`, the MIT header
+    /// `typescript-language-server`'s Apache-2.0 LICENSE opens with for its
+    /// vscode-derived parts. Those travel with the verbatim text
+    /// `LSPInstalledLicenses` prints, which is the authority; this field is the
+    /// heading over it, and a heading naming thirty ids informs nobody. The line
+    /// is "a separate project's license file" — which is exactly what
+    /// `licenseFileSubpaths` lists a second entry for.
+    public let licenseSPDX: String
 
     /// Verbatim license texts inside the installed tree, relative to the version
     /// directory. Read at display time by the Acknowledgements surface — the
@@ -201,7 +218,7 @@ public struct LSPComponent: Equatable, Sendable, Identifiable {
     public init(
         id: String,
         version: String,
-        licenseSPDXID: String,
+        licenseSPDX: String,
         licenseFileSubpaths: [String],
         artifacts: [LSPArtifact],
         requires: [String] = [],
@@ -209,7 +226,7 @@ public struct LSPComponent: Equatable, Sendable, Identifiable {
     ) {
         self.id = id
         self.version = version
-        self.licenseSPDXID = licenseSPDXID
+        self.licenseSPDX = licenseSPDX
         self.licenseFileSubpaths = licenseFileSubpaths
         self.artifacts = artifacts
         self.requires = requires
@@ -238,7 +255,7 @@ extension LSPComponent {
     public static let node = LSPComponent(
         id: "node",
         version: "24.19.0",
-        licenseSPDXID: "MIT",
+        licenseSPDX: "MIT",
         licenseFileSubpaths: ["LICENSE"],
         artifacts: [
             LSPArtifact(
@@ -272,7 +289,7 @@ extension LSPComponent {
     public static let typescriptLanguageServer = LSPComponent(
         id: "typescript-language-server",
         version: "5.3.0",
-        licenseSPDXID: "Apache-2.0",
+        licenseSPDX: "Apache-2.0",
         // `ThirdPartyNoticeText.txt` is not decoration: TypeScript's own
         // `LICENSE.txt` is Apache-2.0 for Microsoft's code, and that file is the
         // separate notice for the third-party material incorporated into the
@@ -314,7 +331,12 @@ extension LSPComponent {
     public static let pyright = LSPComponent(
         id: "pyright",
         version: "1.1.411",
-        licenseSPDXID: "MIT",
+        // Two ids, because the tree really is under two: the Apache-2.0 below is
+        // typeshed's, not a notice inside pyright's own MIT file, and the
+        // Acknowledgements heading has to say so or it captions Apache-2.0 text
+        // "MIT". Same shape as `tree-sitter`'s `MIT AND Unicode-DFS-2016` in
+        // `licenses.json`.
+        licenseSPDX: "MIT AND Apache-2.0",
         // pyright's own `LICENSE.txt` is MIT and covers its code. It also ships
         // `dist/typeshed-fallback/` — the typeshed stub library it reads to
         // answer anything about the standard library — which is Apache-2.0 under
