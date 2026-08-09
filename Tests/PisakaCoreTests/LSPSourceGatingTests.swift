@@ -35,6 +35,7 @@ final class LSPSourceGatingTests: XCTestCase {
         "LSPArchiveUnpacker.swift",
         "LSPConsentBanner.swift",
         "LSPDownloadService.swift",
+        "LSPGoToolchainService.swift",
         "LSPInstalledLicenses.swift",
         "LSPProcessTransport.swift",
         "LSPServerSettingsView.swift",

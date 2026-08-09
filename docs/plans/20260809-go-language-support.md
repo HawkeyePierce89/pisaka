@@ -580,22 +580,53 @@ on *this* Mac, and what running `go install` means here.
 - Create: `Sources/Pisaka/LSPGoToolchainService.swift`
 - Modify: `Tests/PisakaCoreTests/LSPSourceGatingTests.swift`
 
-- [ ] discovery: locate `go` (login `PATH`, `/usr/local/go/bin`, Homebrew
+- [x] discovery: locate `go` (login `PATH`, `/usr/local/go/bin`, Homebrew
       prefixes), then ask it `go env GOBIN GOPATH` and look for `gopls` in
       `GOBIN`, `GOPATH/bin` and `~/go/bin`; cache the whole answer per app run
       **including the negative one**, resolve off the main thread, never block a
       caller — `LSPToolchain`'s discipline, and its pipe-draining and `/dev/null`
       stdin discipline too
-- [ ] install: `go install golang.org/x/tools/gopls@<version>` with `GOBIN` set to
+      — the search order is the decision the plan left open: inherited `PATH`
+      first (a Pisaka started from a terminal should use the `go` that terminal
+      would have run), the three well-known directories second (three `stat`s,
+      covering the official installer and Homebrew on both architectures), and
+      the **login shell last**, because it is the only step that costs a
+      subprocess and the only one that can find a version-manager shim
+      (`asdf`/`mise`/`goenv`). It is asked for `$PATH` rather than `command -v
+      go`, so a shell *function* named `go` answers with something this file then
+      fails to `stat` instead of a launch error minutes later; `-l` and not `-i`,
+      so the profile files are read and the rc files are not. Two rules the plan
+      did not name: a `go` that cannot answer `go env` is reported as **no
+      toolchain** rather than as a toolchain with an unknown `GOBIN` (it will not
+      build anything either, and reporting it present would offer an Install that
+      cannot work), and the whole search is deadlined — 5 s for the login shell,
+      10 s for `go env` — because on a Mac with no Go at all this runs at every
+      launch.
+- [x] install: `go install golang.org/x/tools/gopls@<version>` with `GOBIN` set to
       the staging directory the model passes, environment otherwise inherited
       untouched, stdout and stderr drained, the last lines of stderr kept as the
       failure sentence the row shows, and a SIGTERM→SIGKILL teardown on
       cancellation so a quit mid-build leaves no `go` child
       (`LSPProcessTransport`'s rule)
-- [ ] add the file to `LSPSourceGatingTests.expectedAppFiles`; it is gated
+      — plus a 30-minute deadline, which the plan did not ask for and
+      `LSPArchiveUnpacker.deadline` argues for: the model keeps the row
+      `.installing` and refuses Remove until this returns, so a build that never
+      finishes is not a slow install but a dead one, for the rest of the app run,
+      with nothing said and no way back but quitting. The tail is **three** lines
+      rather than one, because `go`'s actual reason is regularly the line above
+      the last (`# golang.org/x/tools/gopls` heads a block). The child registry
+      that makes the teardown possible covers *every* child, not only the
+      install's, so a quit during discovery leaves no login shell either — and it
+      is what Task 8's terminate observer calls (`terminateNow()`), which is why
+      it lives here rather than being invented there.
+- [x] add the file to `LSPSourceGatingTests.expectedAppFiles`; it is gated
       `#if os(macOS)` from its first significant line to its last
-- [ ] run `swift test` (the gating suite is what covers this file; the seam itself
+- [x] run `swift test` (the gating suite is what covers this file; the seam itself
       is untested by convention, like `LSPDownloadService`)
+      — 2213 tests, 0 failures. `swift test` compiles `PisakaCore` alone and so
+      cannot see this file's *code*, only its shape, so the macOS build was run
+      here rather than left to Task 9: it caught two real compile errors and now
+      succeeds.
 
 ### Task 8: App — wiring, the banner branch and the Settings row
 
