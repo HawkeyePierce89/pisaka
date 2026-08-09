@@ -204,17 +204,17 @@ a removed server whose process is still running is the orphan the release check 
 - Modify: `Sources/PisakaCore/LSPWorkspace.swift`
 - Modify: `Tests/PisakaCoreTests/LSPWorkspaceTests.swift`
 
-- [ ] add `public func updateRegistry(_ registry: LSPServerRegistry) async`: swap the
+- [x] add `public func updateRegistry(_ registry: LSPServerRegistry) async`: swap the
       registry, then for every live or pending session whose description is gone or changed
       (id, launch, arguments or initialization options) shut it down, drop its transport,
       forget its documents and clear its failure/unavailable bookkeeping; leave every
       unchanged server running and every generation token alone
-- [ ] tests: `canServe` answers `false` before and `true` after a registry that adds a
+- [x] tests: `canServe` answers `false` before and `true` after a registry that adds a
       server, and back again after one that removes it; a removed server's session is shut
       down and its documents forgotten; an unchanged server keeps its session across an
       update; a re-added server that had been marked unavailable by D7 gets a fresh budget;
       `prepareForFolderChange`'s generation is unaffected by an update
-- [ ] run `swift test` — must pass before task 5
+- [x] run `swift test` — must pass before task 5
 
 ### Task 5: Consent, and the provisioning model
 

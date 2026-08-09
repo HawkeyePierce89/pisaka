@@ -17,6 +17,10 @@ final class LSPWorkspaceTests: XCTestCase {
     /// asked for what.
     private final class ServerHarness {
         private(set) var launches: [(id: String, root: URL)] = []
+        /// The descriptions themselves, in launch order — what the "a changed
+        /// launch description restarts the server" case checks the *new* process
+        /// was started from.
+        private(set) var launched: [LSPServerDescription] = []
         private(set) var transports: [ScriptedLSPTransport] = []
 
         /// When set, every launch fails the way a missing executable does.
@@ -33,6 +37,7 @@ final class LSPWorkspaceTests: XCTestCase {
             _ root: URL
         ) throws -> LSPTransport {
             launches.append((description.id, root))
+            launched.append(description)
             if let launchError { throw launchError }
             let transport = ScriptedLSPTransport()
             transport.script(
@@ -49,6 +54,14 @@ final class LSPWorkspaceTests: XCTestCase {
 
         var latest: ScriptedLSPTransport {
             transports[transports.count - 1]
+        }
+
+        /// The transport handed over for the *first* launch of `id` — how the
+        /// registry-update cases tell one server's process from another's without
+        /// counting launches by hand.
+        func firstTransport(of id: String) -> ScriptedLSPTransport? {
+            guard let index = launches.firstIndex(where: { $0.id == id }) else { return nil }
+            return index < transports.count ? transports[index] : nil
         }
     }
 
@@ -1052,6 +1065,241 @@ final class LSPWorkspaceTests: XCTestCase {
         _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
         XCTAssertEqual(harness.launches.count, 1)
         XCTAssertTrue(recordedDelays.isEmpty)
+    }
+
+    // MARK: - Dynamic registration (D16)
+
+    /// The description a 2b install produces: a real `.executable(path:)` under the
+    /// install root, served for the languages that server covers.
+    private func downloaded(
+        id: String = "typescript-language-server",
+        languages: Set<SyntaxLanguage> = [.typescript, .javascript],
+        path: String = "/Application Support/LanguageServers/node/24.19.0/bin/node",
+        arguments: [String] = ["--stdio"],
+        options: JSONValue? = nil
+    ) -> LSPServerDescription {
+        LSPServerDescription(
+            id: id,
+            languages: languages,
+            launch: .executable(path: path),
+            arguments: arguments,
+            initializationOptions: options
+        )
+    }
+
+    private var appFile: URL { root.appendingPathComponent("src/app.ts") }
+
+    func testARegistryUpdateMakesAServerServableAndUnmakesItAgain() async {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+
+        // Nothing installed: 2a's registry, and TypeScript answers from tree-sitter.
+        XCTAssertFalse(workspace.canServe(.typescript))
+        XCTAssertFalse(workspace.canServe(.javascript))
+        XCTAssertTrue(workspace.canServe(.swift))
+
+        // The install finishes and the model pushes a registry through.
+        await workspace.updateRegistry(LSPServerRegistry([.sourcekitLSP, downloaded()]))
+
+        XCTAssertTrue(workspace.canServe(.typescript))
+        XCTAssertTrue(workspace.canServe(.javascript))
+        XCTAssertTrue(workspace.canServe(.swift), "the servers that were there stay there")
+
+        // Servable means served: the very next request starts it, with no restart in
+        // between.
+        let prepared = await workspace.prepare(url: appFile, language: .typescript, text: "let a = 1")
+        XCTAssertEqual(prepared?.description.id, "typescript-language-server")
+
+        // …and the user removes it again.
+        await workspace.updateRegistry(.standard)
+
+        XCTAssertFalse(workspace.canServe(.typescript))
+        XCTAssertFalse(workspace.canServe(.javascript))
+        XCTAssertTrue(workspace.canServe(.swift))
+    }
+
+    /// Un-registering is not forgetting: the process has to stop, or it outlives the
+    /// feature that started it and shows up in `pgrep` after the app quits.
+    func testARemovedServerIsShutDownAndItsDocumentsForgotten() async throws {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(
+            harness: harness,
+            registry: LSPServerRegistry([.sourcekitLSP, downloaded()])
+        )
+
+        let prepared = await workspace.prepare(url: appFile, language: .typescript, text: "let a = 1")
+        XCTAssertEqual(try XCTUnwrap(prepared).description.id, "typescript-language-server")
+        XCTAssertEqual(workspace.liveServerCount, 1)
+        let transport = try XCTUnwrap(harness.firstTransport(of: "typescript-language-server"))
+
+        await workspace.updateRegistry(.standard)
+
+        // Closed the way a folder switch closes it (D2), then shut down politely.
+        XCTAssertEqual(
+            transport.notifications(for: LSPMethod.didClose)
+                .compactMap { $0.params?["textDocument"]?["uri"]?.stringValue },
+            [LSPWorkspace.documentURI(for: appFile)]
+        )
+        XCTAssertEqual(transport.sentMethods.suffix(2), [LSPMethod.shutdown, LSPMethod.exit])
+        XCTAssertTrue(transport.isTerminated)
+        XCTAssertEqual(workspace.liveServerCount, 0)
+        XCTAssertTrue(workspace.openDocumentURIs.isEmpty)
+
+        // And nothing restarts it: the language is on tree-sitter from here.
+        let afterRemoval = await workspace.prepare(url: appFile, language: .typescript, text: "let a = 1")
+        XCTAssertNil(afterRemoval)
+        XCTAssertEqual(harness.launches.count, 1)
+    }
+
+    func testAnUnchangedServerKeepsItsSessionAcrossARegistryUpdate() async throws {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(
+            harness: harness,
+            registry: LSPServerRegistry([.sourcekitLSP, downloaded()])
+        )
+
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1")
+        _ = await workspace.prepare(url: appFile, language: .typescript, text: "let b = 2")
+        XCTAssertEqual(workspace.liveServerCount, 2)
+        let swiftTransport = try XCTUnwrap(harness.firstTransport(of: "sourcekit-lsp"))
+
+        await workspace.updateRegistry(.standard)
+
+        // sourcekit-lsp was not touched by the swap, so nothing about it moves —
+        // not the process, not the document it holds, not its restart budget.
+        XCTAssertFalse(swiftTransport.isTerminated)
+        XCTAssertTrue(swiftTransport.notifications(for: LSPMethod.didClose).isEmpty)
+        XCTAssertEqual(workspace.liveServerCount, 1)
+        XCTAssertEqual(workspace.openDocumentURIs, [LSPWorkspace.documentURI(for: mainFile)])
+
+        // The next Swift request is answered by the session that was already there:
+        // no relaunch, and no second `didOpen` for a document it still holds.
+        let again = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1")
+        XCTAssertEqual(try XCTUnwrap(again).version, 1)
+        XCTAssertEqual(harness.launches.map(\.id), ["sourcekit-lsp", "typescript-language-server"])
+        XCTAssertEqual(swiftTransport.notifications(for: LSPMethod.didOpen).count, 1)
+    }
+
+    /// Same id, different install — a version bump. The old process is running out
+    /// of a directory the engine is about to delete, so "unchanged" has to mean the
+    /// whole launch description and not just the name on it.
+    func testAChangedLaunchDescriptionRestartsTheServer() async throws {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(
+            harness: harness,
+            registry: LSPServerRegistry([downloaded(path: "/servers/node/24.19.0/bin/node")])
+        )
+
+        _ = await workspace.prepare(url: appFile, language: .typescript, text: "let a = 1")
+        let old = try XCTUnwrap(harness.firstTransport(of: "typescript-language-server"))
+
+        await workspace.updateRegistry(
+            LSPServerRegistry([downloaded(path: "/servers/node/24.20.0/bin/node")])
+        )
+
+        XCTAssertTrue(old.isTerminated)
+        XCTAssertEqual(workspace.liveServerCount, 0)
+        XCTAssertTrue(workspace.openDocumentURIs.isEmpty)
+
+        // The language is still served — by the new install.
+        XCTAssertTrue(workspace.canServe(.typescript))
+        let prepared = await workspace.prepare(url: appFile, language: .typescript, text: "let a = 1")
+        XCTAssertNotNil(prepared)
+        XCTAssertEqual(harness.launches.count, 2)
+        XCTAssertEqual(
+            harness.launched.last?.launch,
+            .executable(path: "/servers/node/24.20.0/bin/node")
+        )
+        XCTAssertTrue(recordedDelays.isEmpty, "an un-registration is not a crash")
+
+        // The same holds for the parts of a description that are not the path: a
+        // changed argument list or `initializationOptions` is a different server.
+        await workspace.updateRegistry(
+            LSPServerRegistry([
+                downloaded(
+                    path: "/servers/node/24.20.0/bin/node",
+                    options: .object(["tsserver": .object(["path": .string("/servers/ts")])])
+                )
+            ])
+        )
+        XCTAssertEqual(workspace.liveServerCount, 0)
+        _ = await workspace.prepare(url: appFile, language: .typescript, text: "let a = 1")
+        XCTAssertEqual(harness.launches.count, 3)
+    }
+
+    /// D7's "never within a root" is about a server that keeps crashing on the same
+    /// project. A server the user removed and installed again is a different server,
+    /// and making someone relaunch the app to get a second chance after one bad
+    /// download would be a silent dead end.
+    func testAReAddedServerThatHadBeenGivenUpOnGetsAFreshBudget() async {
+        let harness = ServerHarness()
+        let live = LSPServerRegistry([.sourcekitLSP, downloaded()])
+        let workspace = makeWorkspace(harness: harness, registry: live)
+
+        _ = await workspace.prepare(url: appFile, language: .typescript, text: "a")
+        for _ in 1...3 {
+            await crash(harness.latest)
+            _ = await workspace.prepare(url: appFile, language: .typescript, text: "a")
+        }
+        await crash(harness.latest)
+        let givenUp = await workspace.prepare(url: appFile, language: .typescript, text: "a")
+        XCTAssertNil(givenUp)
+        XCTAssertTrue(workspace.isUnavailable(.typescript))
+        XCTAssertEqual(harness.launches.count, 4)
+        XCTAssertEqual(recordedDelays, LSPWorkspace.backoffDelays)
+
+        // Removed, then installed again.
+        await workspace.updateRegistry(.standard)
+        await workspace.updateRegistry(live)
+
+        XCTAssertTrue(workspace.canServe(.typescript))
+        XCTAssertFalse(workspace.isUnavailable(.typescript))
+        let retried = await workspace.prepare(url: appFile, language: .typescript, text: "a")
+        XCTAssertNotNil(retried)
+        XCTAssertEqual(harness.launches.count, 5)
+        XCTAssertEqual(recordedDelays, LSPWorkspace.backoffDelays, "and no backoff is carried over")
+    }
+
+    /// A registry update is not a folder change. The generation orders *requests*
+    /// against the project they were asked under, and a server appearing or
+    /// disappearing does not change which folder is open — a Swift request in flight
+    /// while a TypeScript server installs must still be readable when it lands.
+    func testARegistryUpdateLeavesTheRequestGenerationAlone() async throws {
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(harness: harness)
+
+        let answer = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1")
+        let prepared = try XCTUnwrap(answer)
+        let generation = workspace.currentRequestGeneration
+
+        await workspace.updateRegistry(LSPServerRegistry([.sourcekitLSP, downloaded()]))
+        await workspace.updateRegistry(.standard)
+
+        XCTAssertEqual(workspace.currentRequestGeneration, generation)
+        XCTAssertTrue(workspace.stillHolds(prepared))
+    }
+
+    /// The server that is still handshaking when its description is withdrawn — the
+    /// window a removal is most likely to land in, since starting a language server
+    /// is the slowest thing this layer does.
+    func testARegistryUpdateStopsAServerThatIsStillHandshaking() async throws {
+        let harness = ServerHarness()
+        harness.initializeDelay = 0.05
+        let workspace = makeWorkspace(
+            harness: harness,
+            registry: LSPServerRegistry([.sourcekitLSP, downloaded()])
+        )
+
+        async let request = workspace.prepare(url: appFile, language: .typescript, text: "let a = 1")
+        await waitFor("the launch to start") { harness.launches.count == 1 }
+
+        await workspace.updateRegistry(.standard)
+        let answer = await request
+
+        XCTAssertNil(answer, "a request against a withdrawn server falls back")
+        XCTAssertEqual(workspace.liveServerCount, 0)
+        XCTAssertTrue(workspace.openDocumentURIs.isEmpty)
+        XCTAssertTrue(try XCTUnwrap(harness.firstTransport(of: "typescript-language-server")).isTerminated)
     }
 
     // MARK: - Paths

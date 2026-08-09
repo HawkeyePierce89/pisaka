@@ -115,7 +115,12 @@ public final class LSPWorkspace {
         case serverReplaced
     }
 
-    private let registry: LSPServerRegistry
+    /// Which server answers for which language — a `var` since 2b (D16), because a
+    /// server the app has just finished installing must become servable in the
+    /// turn it lands rather than at the next launch. Swapped only through
+    /// `updateRegistry(_:)`, which is what makes "un-registered means stopped"
+    /// true rather than hopeful.
+    private var registry: LSPServerRegistry
     private let transportFactory: TransportFactory
     private let budgets: LSPSession.Budgets
     /// The backoff wait, injectable so the restart tests assert D7's delays
@@ -288,6 +293,117 @@ public final class LSPWorkspace {
         documents = [:]
 
         for transport in live.values { transport.terminate() }
+    }
+
+    // MARK: - Registration
+
+    /// Swap the registry, and stop every server the swap un-registered or changed
+    /// (D16).
+    ///
+    /// 2a fixed the registry at construction, which was enough while the only
+    /// server was one `xcrun` finds. 2b installs servers *while the app runs*, and
+    /// the whole promise of that feature is that opening a `.ts` file, accepting the
+    /// download and getting semantic completion is one uninterrupted sequence — so
+    /// `canServe` has to flip from `false` to `true` without a restart, which means
+    /// the registry has to move.
+    ///
+    /// It has to flip **both ways**, and that is the half with teeth. Removing a
+    /// server in Settings un-registers it, and a description that is merely
+    /// forgotten leaves its process running against a root nobody will ever ask it
+    /// about again: the orphan `pgrep -fl node` finds after quitting. So an
+    /// un-registered — or *changed*, which for a launch description means a
+    /// different id, executable, argument list or initialization options — server is
+    /// shut down politely here, its documents `didClose`d first (D2) exactly as a
+    /// folder switch does, its transport dropped and its documents forgotten.
+    ///
+    /// Its D7 bookkeeping is cleared with it, so a re-added server starts with a
+    /// fresh budget of three restarts. The rule "never reset within a root" is about
+    /// a server that keeps crashing on the same project; a server the user has just
+    /// removed and reinstalled is a *new* server on that project, and making someone
+    /// relaunch the app to get a second chance after a bad download would be the
+    /// silent failure D7 exists to avoid, not the one it prevents.
+    ///
+    /// Everything the swap left alone is left alone: an unchanged server keeps its
+    /// session, its open documents and its failure count, and neither generation
+    /// token moves — a registry update is not a folder change, and a request in
+    /// flight for a server that survived is still a request about the folder it was
+    /// asked under.
+    public func updateRegistry(_ registry: LSPServerRegistry) async {
+        guard registry != self.registry else { return }
+        let before = LSPWorkspace.reachableDescriptions(in: self.registry)
+        let after = LSPWorkspace.reachableDescriptions(in: registry)
+        self.registry = registry
+
+        // Gone, shadowed, or launched differently. Written as "not identical to
+        // what it was" rather than "absent now" so a version bump — same id, new
+        // executable path under a new version directory — is torn down too: the
+        // running process is the *old* install, whose directory the engine is about
+        // to delete.
+        func isStale(_ serverID: String) -> Bool {
+            after[serverID] == nil || after[serverID] != before[serverID]
+        }
+
+        failures = failures.filter { !isStale($0.key.serverID) }
+        unavailable = unavailable.filter { !isStale($0.serverID) }
+
+        let dead = Set(sessions.keys).union(pendingLaunches.keys).filter { isStale($0.serverID) }
+        guard !dead.isEmpty else { return }
+
+        // Every map is emptied *before* the first hop, so a `prepare` racing this
+        // call finds nothing to hand out rather than a session that is on its way
+        // to being shut down — `shutdownAll()`'s ordering, applied to a subset.
+        var live: [ServerKey: LSPSession] = [:]
+        var inflight: [ServerKey: PendingLaunch] = [:]
+        var open: [String: DocumentState] = [:]
+        for key in dead {
+            if let session = sessions.removeValue(forKey: key) { live[key] = session }
+            transports[key] = nil
+            if let pending = pendingLaunches.removeValue(forKey: key) { inflight[key] = pending }
+        }
+        for (uri, state) in documents where dead.contains(state.serverKey) {
+            open[uri] = state
+            documents[uri] = nil
+        }
+
+        for (key, session) in live {
+            for (uri, state) in open where state.serverKey == key {
+                try? await session.didClose(LSPDidCloseTextDocumentParams(uri: uri))
+            }
+            await session.shutdown()
+        }
+
+        // A launch that had not finished when the registry moved. The epoch is
+        // deliberately *not* bumped for it — that token supersedes every launch in
+        // flight, including the ones for servers this update left untouched, and
+        // killing a healthy server's handshake because an unrelated one was
+        // installed is the opposite of what this method is for. So the launch runs
+        // to completion, registers itself as it always does, and is unregistered and
+        // shut down here afterwards.
+        for (key, pending) in inflight {
+            guard let orphan = await pending.task.value else { continue }
+            if sessions[key] === orphan { sessions[key] = nil }
+            transports[key] = nil
+            documents = documents.filter { $0.value.serverKey != key }
+            await orphan.shutdown()
+        }
+    }
+
+    /// The descriptions a registry can actually route to, by id.
+    ///
+    /// Keyed off `servedLanguages` rather than `descriptions` because the registry
+    /// resolves first-registration-wins per language: a description that is shadowed
+    /// for *every* language it claims can never be launched again, so for the
+    /// purposes of "is this still the server?" it is gone, and its process should go
+    /// with it.
+    private static func reachableDescriptions(
+        in registry: LSPServerRegistry
+    ) -> [String: LSPServerDescription] {
+        var map: [String: LSPServerDescription] = [:]
+        for language in registry.servedLanguages {
+            guard let description = registry.description(for: language) else { continue }
+            map[description.id] = description
+        }
+        return map
     }
 
     // MARK: - Documents
