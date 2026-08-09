@@ -144,12 +144,18 @@ final class ScriptedGoDiscovery: LSPGoToolchainDiscovering, @unchecked Sendable 
     /// No `go` anywhere.
     static var missing: ScriptedGoDiscovery { ScriptedGoDiscovery(.missing) }
 
+    /// The search path the default toolchain was found under — the mainstream
+    /// Finder-launch shape, where `launchd`'s four directories hold no `go` and
+    /// the install's own directory is what the app prepended.
+    static let searchPath = "/usr/local/go/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
     /// A toolchain, with or without a gopls the user installed themselves.
     static func found(
         go goPath: String = "/usr/local/go/bin/go",
+        searchPath: String = ScriptedGoDiscovery.searchPath,
         gopls goplsPath: String? = nil
     ) -> ScriptedGoDiscovery {
-        ScriptedGoDiscovery(.found(goPath: goPath, goplsPath: goplsPath))
+        ScriptedGoDiscovery(.found(goPath: goPath, searchPath: searchPath, goplsPath: goplsPath))
     }
 
     /// Hold the search until the gate is released — the window a test asserts

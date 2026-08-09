@@ -78,18 +78,39 @@ public enum LSPGoToolchainReport: Equatable, Sendable {
     /// registered — the language answers from the tree-sitter index, exactly as
     /// it does for a user who declined.
     case missing
-    /// `go` at a path, and a gopls the *user* installed at another, if there is
-    /// one. `goplsPath` says nothing about the app's own copy, which is read off
-    /// the install root instead.
-    case found(goPath: String, goplsPath: String?)
+    /// `go` at a path, the `PATH` it must be run under, and a gopls the *user*
+    /// installed at another path, if there is one. `goplsPath` says nothing about
+    /// the app's own copy, which is read off the install root instead.
+    ///
+    /// `searchPath` is the second half of "a toolchain was found", and leaving it
+    /// out is what made the first cut of this feature do nothing at all.
+    /// **gopls does not take a `go` path**: it resolves the toolchain itself with
+    /// `exec.LookPath("go")` and shells out to `go list`/`go env` for every
+    /// package it loads, so a gopls started without `go` on its `PATH` starts
+    /// cleanly and then answers nothing — which `RoutingIntelligenceProvider`
+    /// cannot tell from "this file has no definition", so it falls back silently
+    /// while the Settings row says the server is installed. A Finder-launched app
+    /// inherits `launchd`'s `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`), which
+    /// contains neither `/usr/local/go/bin` nor Homebrew's prefixes nor any
+    /// version-manager shim directory, so this is the *normal* launch and not an
+    /// edge case. The app therefore reports the `PATH` that found the `go`
+    /// alongside the `go` itself, and Core hands it to the server as the launch
+    /// environment (`makeDescriptions()`) without ever learning what is in it.
+    case found(goPath: String, searchPath: String, goplsPath: String?)
 
     public var goPath: String? {
-        if case let .found(goPath, _) = self { return goPath }
+        if case let .found(goPath, _, _) = self { return goPath }
+        return nil
+    }
+
+    /// The `PATH` both the toolchain and the server it builds must run under.
+    public var searchPath: String? {
+        if case let .found(_, searchPath, _) = self { return searchPath }
         return nil
     }
 
     public var discoveredGoplsPath: String? {
-        if case let .found(_, goplsPath) = self { return goplsPath }
+        if case let .found(_, _, goplsPath) = self { return goplsPath }
         return nil
     }
 

@@ -557,13 +557,32 @@ public final class LSPGoplsProvisioningModel: ObservableObject {
     /// it starts and answers nothing while every request through it spends D7's
     /// restart budget finding that out. Contributing nothing is the honest
     /// answer, and it is the same one the row gives.
+    ///
+    /// **And "a toolchain exists" is not the same as "gopls can find it."** The
+    /// server looks `go` up on its own `PATH` (`exec.LookPath`), and the `PATH` a
+    /// Finder-launched app inherits is `launchd`'s four directories — so the
+    /// discovered search path travels with the description as its environment
+    /// overlay, and this guard requires it. Without that, every state above stays
+    /// exactly as it reads here and the server still answers nothing, which is
+    /// the one failure the routing provider cannot see: an empty answer and a
+    /// file with nothing in it are the same value at that seam.
+    ///
+    /// An *empty* search path is treated as no search path, which the app cannot
+    /// currently report — every branch of its search either found the `go` on a
+    /// non-empty `PATH` or built one around it. It is checked here anyway because
+    /// the alternative failure is the quiet one: contributing `PATH=""` would
+    /// register a server that resolves *nothing* by name, which is strictly worse
+    /// than the inherited environment this seam exists to improve on, and it would
+    /// look identical in the Settings row.
     private func makeDescriptions() -> [LSPServerDescription] {
-        guard !isRemoving, report?.hasToolchain == true, let installation else { return [] }
+        guard !isRemoving, let installation else { return [] }
+        guard let searchPath = report?.searchPath, !searchPath.isEmpty else { return [] }
         return [
             LSPServerDescription(
                 id: LSPGopls.componentID,
                 languages: [.go],
-                launch: .executable(path: installation.executablePath)
+                launch: .executable(path: installation.executablePath),
+                environment: ["PATH": searchPath]
             )
         ]
     }

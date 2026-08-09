@@ -331,6 +331,16 @@ document, together with the limits they carry.
     several; `initializationOptions` is an opaque `JSONValue` passed through
     verbatim, since it is *that server's* configuration and Core has no business
     having an opinion about its shape.
+    `environment` is an **overlay and never a replacement** — the app merges it on
+    top of the process environment rather than assigning it, so everything a server
+    resolves out of `PATH`/`HOME`/`DEVELOPER_DIR` keeps working. It is empty for
+    every server but gopls: sourcekit-lsp answers through `xcrun`/`DEVELOPER_DIR`,
+    and `typescript-language-server` and pyright are launched as an absolute-path
+    `node` plus an absolute-path script, resolving nothing by name. gopls is the one
+    that looks a *second* executable up on `PATH` — see
+    `LSPGoToolchainReport.found`'s `searchPath` below. It is carried on the
+    description rather than resolved at launch for D9's reason: the value is
+    machine-specific knowledge, so the app finds it and Core only passes it along.
     `sourcekitLSP` is the only entry `.standard` holds, with **no**
     `initializationOptions`: it discovers the build system from the root it is
     initialized with, and a project it cannot make sense of answers nothing — which
@@ -950,10 +960,29 @@ they share with 2b is stated in that document's own cross-reference.
     installing run remembered. The build's answer is therefore *checked* against
     it rather than trusted.
     `LSPGoToolchainReport` is what crosses the discovery seam — `.missing`, or
-    `.found(goPath:goplsPath:)`. **A gopls path without a `go` path is
+    `.found(goPath:searchPath:goplsPath:)`. **A gopls path without a `go` path is
     unrepresentable on purpose**: gopls with no toolchain behind it would start
     and answer nothing, and "no Go toolchain" is the one sentence the row can say
     truthfully there.
+    `searchPath` is the second half of "a toolchain was found", and leaving it out
+    is what made the first cut of this feature do nothing at all. **gopls does not
+    take a `go` path**: it resolves the toolchain itself with `exec.LookPath("go")`
+    and shells out to `go list`/`go env` for every package it loads, so a gopls
+    started without `go` on its `PATH` starts cleanly and then answers nothing —
+    which `RoutingIntelligenceProvider` cannot tell from "this file declares
+    nothing", so it falls back silently while the Settings row says the server is
+    installed. A Finder-launched app inherits `launchd`'s `PATH`
+    (`/usr/bin:/bin:/usr/sbin:/sbin`), which contains neither `/usr/local/go/bin`
+    nor Homebrew's prefixes nor any version-manager shim directory, so that is the
+    *normal* launch and not an edge case. The app therefore reports the `PATH` its
+    search found the `go` under, and Core hands it to the server as
+    `LSPServerDescription.environment` (`makeDescriptions()`) without ever learning
+    what is in it — D9's rule intact: the app knows the paths, Core knows the rule.
+    An **empty** search path is treated as no search path and contributes nothing,
+    which the app cannot currently report; it is checked because the alternative
+    failure is the quiet one — `PATH=""` registers a server that resolves nothing
+    by name at all, strictly worse than the inherited environment the overlay
+    exists to improve on, and identical in every surface the user can see.
     `LSPGoplsInstallation` keeps `.discovered(path:)` and
     `.appInstalled(version:path:)` apart as two cases rather than one "installed"
     with a flag, because Remove may only ever touch the second — a rule in the
@@ -1037,7 +1066,13 @@ they share with 2b is stated in that document's own cross-reference.
     since gopls shells out to `go list` and without one would start, answer
     nothing, and spend D7's restart budget per request; the entry itself is a
     plain `.executable(path:)` with no arguments (gopls speaks LSP over stdio by
-    default), so Core learns no paths and gains no launch kind.
+    default), so Core learns no paths and gains no launch kind. It requires the
+    report's `searchPath` for the same reason one step further on — "a toolchain
+    exists" is not "gopls can find it", and the guard is what stops the app
+    registering a server that starts and answers nothing on every machine whose
+    `go` is outside launchd's four directories, which is all of them. The path
+    travels as the description's `environment` (`["PATH": …]`), the one field that
+    is not a constant here.
     A **reader**, like the rest of this layer: it walks its own install root and
     touches nothing of the user's, so it takes no writer gate and is not gated by
     one.
@@ -1131,7 +1166,9 @@ the stored `symbol` property is gone, so every *accessor* site was a mechanical
 edit.
 
 **D9 — The registry.** `LSPServerDescription` is
-`{ id, languages, launch, arguments, initializationOptions }`, where `launch` is
+`{ id, languages, launch, arguments, initializationOptions, environment }`, where
+`environment` is an overlay merged over the app's own (empty for all but gopls —
+D17) and `launch` is
 `.toolchainTool(name:)` (resolved by the app through `xcrun --find`, honouring
 `DEVELOPER_DIR`, cached per app run) or `.executable(path:)`. `LSPServerRegistry`
 maps language → description. Adding a server is one registry entry.
@@ -1167,10 +1204,17 @@ description.** The obvious move — a third `LSPServerDescription.Launch` beside
 knows (`$GOBIN`, `$GOPATH/bin`, `~/go/bin`, the login `PATH`, `/usr/local/go/bin`,
 Homebrew) is machine-specific knowledge of exactly the kind D9 keeps out of Core.
 Instead the app *does* the search and hands Core a value — "no Go toolchain", or
-"`go` at `<path>`, gopls at `<path>` / not found" — and Core turns a found gopls
-into a plain `.executable(path:)` registry entry, `id: "gopls"`,
-`languages: [.go]`, no arguments (gopls speaks LSP over stdio by default). Core
-learns no paths and gains no launch kind. Discovery follows the `LSPToolchain`
+"`go` at `<path>`, found under `<PATH>`, gopls at `<path>` / not found" — and Core
+turns a found gopls into a plain `.executable(path:)` registry entry,
+`id: "gopls"`, `languages: [.go]`, no arguments (gopls speaks LSP over stdio by
+default), and that `PATH` as the description's `environment`. Core
+learns no paths and gains no launch kind. **The `PATH` is part of the answer, not
+a detail of the search**: gopls takes no `go` path and resolves the toolchain
+itself with `exec.LookPath("go")`, and a Finder-launched app inherits launchd's
+`/usr/bin:/bin:/usr/sbin:/sbin`, which contains no Go install anybody ships — so
+a report that named only the `go` would register a server that starts and answers
+nothing on essentially every machine, silently, with every surface in the app
+saying it was installed. Discovery follows the `LSPToolchain`
 discipline exactly: non-blocking, off-main, cached per app run **including the
 negative answer**, `pending` while unresolved.
 

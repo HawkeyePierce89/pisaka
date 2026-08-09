@@ -181,6 +181,25 @@ final class LSPGoplsProvisioningTests: XCTestCase {
         XCTAssertEqual(harness.discovery.callCount, 1)
     }
 
+    /// The other half of "a toolchain is required": gopls takes no `go` path and
+    /// resolves one with `exec.LookPath`, so a registration without the `PATH` the
+    /// `go` is on registers a server that starts and answers nothing — and an
+    /// answer of nothing is what the routing provider cannot distinguish from a
+    /// file that declares nothing, so it would fall back silently for good while
+    /// every surface in the app said gopls was installed.
+    func testGoplsIsNotRegisteredWithoutThePathItsToolchainIsOn() async {
+        let harness = makeHarness(discovery: .found(searchPath: "", gopls: Fixture.userGoplsPath))
+        await harness.model.discover()
+
+        // The row is unchanged — a toolchain *was* found, and this is not a state
+        // the user can be told about or do anything about.
+        XCTAssertEqual(harness.model.row.status, .discovered)
+        XCTAssertEqual(harness.model.installation, .discovered(path: Fixture.userGoplsPath))
+        // …but nothing that cannot work is handed to the workspace.
+        XCTAssertEqual(harness.model.descriptions, [])
+        XCTAssertEqual(harness.pushes.count, 0)
+    }
+
     // MARK: - A gopls the user already has
 
     func testAGoplsAlreadyOnTheMachineIsUsedSilentlyAndIsNeverRemovable() async {
@@ -200,6 +219,11 @@ final class LSPGoplsProvisioningTests: XCTestCase {
         XCTAssertEqual(harness.model.descriptions.first?.languages, [.go])
         XCTAssertEqual(harness.model.descriptions.first?.launch, .executable(path: Fixture.userGoplsPath))
         XCTAssertEqual(harness.model.descriptions.first?.arguments, [])
+        XCTAssertEqual(
+            harness.model.descriptions.first?.environment,
+            ["PATH": ScriptedGoDiscovery.searchPath],
+            "gopls was registered without the PATH its `go` is on"
+        )
         XCTAssertEqual(harness.pushes.count, 1)
 
         // And nothing is built for it, whatever the consent says.
@@ -259,6 +283,11 @@ final class LSPGoplsProvisioningTests: XCTestCase {
         XCTAssertEqual(
             harness.model.descriptions.first?.launch,
             .executable(path: harness.installedExecutablePath)
+        )
+        XCTAssertEqual(
+            harness.model.descriptions.first?.environment,
+            ["PATH": ScriptedGoDiscovery.searchPath],
+            "the copy the app just built was registered without the PATH its `go` is on"
         )
         XCTAssertEqual(harness.pushes.count, 1, "one install published twice")
 

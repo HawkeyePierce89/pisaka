@@ -100,10 +100,10 @@ final class LSPGoToolchainService: LSPGoToolchainDiscovering, LSPGoModuleInstall
     /// hit.
     private var discoveryTask: Task<LSPGoToolchainReport, Never>?
 
-    /// The `PATH` the discovered `go` must be run with, or `nil` when the app's
-    /// own environment is enough. Written once by the search and read by every
-    /// `go` afterwards, including an install started an hour later — which is why
-    /// it lives here under the lock rather than in a local.
+    /// The `PATH` the discovered `go` must be run with, `nil` only until the
+    /// search has found one. Written once by the search and read by every `go`
+    /// afterwards, including an install started an hour later — which is why it
+    /// lives here under the lock rather than in a local.
     private var resolvedSearchPath: String?
 
     /// Every child this service has running, so `terminateNow()` can end them all.
@@ -157,16 +157,28 @@ final class LSPGoToolchainService: LSPGoToolchainDiscovering, LSPGoModuleInstall
         // install — has to happen in the same `PATH` this one was found in.
         setSearchPath(found.searchPath)
         guard let environment = goEnvironment(goPath: found.path) else { return .missing }
-        return .found(goPath: found.path, goplsPath: locateGopls(environment: environment))
+        return .found(
+            goPath: found.path,
+            searchPath: found.searchPath,
+            goplsPath: locateGopls(environment: environment)
+        )
     }
 
     /// A `go` and the `PATH` it must be run with.
     ///
-    /// The second half is `nil` when the app's own environment already found it,
-    /// and the login shell's `PATH` when that is what did — see `locateGo`.
+    /// **The second half is never `nil` and always contains the first.** Both of
+    /// this service's own children (`go env`, `go install`) and — through
+    /// `LSPGoToolchainReport` — the gopls the app registers are run under it, and
+    /// gopls is the case that makes the invariant load-bearing: it takes no `go`
+    /// path, it calls `exec.LookPath("go")`, and a Finder-launched app's inherited
+    /// `PATH` is `launchd`'s `/usr/bin:/bin:/usr/sbin:/sbin`, which holds no Go
+    /// install anybody ships. A `searchPath` that merely said "the app's own
+    /// environment was enough to *find* it" would be true for the well-known
+    /// directories and useless to the server, so the well-known branch prepends
+    /// the directory it found instead.
     private struct FoundGo {
         let path: String
-        let searchPath: String?
+        let searchPath: String
     }
 
     /// The first `go` that exists, cheapest lookup first.
@@ -186,12 +198,20 @@ final class LSPGoToolchainService: LSPGoToolchainDiscovering, LSPGoModuleInstall
     /// four directories fails, `go env` exits non-zero, and `search()` reports
     /// "no toolchain" on exactly the machines this step was added for.
     private func locateGo() -> FoundGo? {
-        let inherited = Self.pathEntries(ProcessInfo.processInfo.environment["PATH"])
+        let inheritedPath = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        let inherited = Self.pathEntries(inheritedPath)
         if let found = Self.firstExecutable(named: "go", in: inherited) {
-            return FoundGo(path: found, searchPath: nil)
+            return FoundGo(path: found, searchPath: inheritedPath)
         }
         if let found = Self.firstExecutable(named: "go", in: Self.wellKnownGoDirectories) {
-            return FoundGo(path: found, searchPath: nil)
+            // The one branch that has to *build* a `PATH` rather than report one:
+            // the app's environment was not what found this `go`, three `stat`s
+            // were. Prepended rather than appended so this is the `go` that runs
+            // even if a later entry has another, which keeps the toolchain the
+            // report names and the toolchain the server resolves the same one.
+            let directory = (found as NSString).deletingLastPathComponent
+            let rest = inherited.filter { $0 != directory }
+            return FoundGo(path: found, searchPath: ([directory] + rest).joined(separator: ":"))
         }
         guard let login = loginShellPath() else { return nil }
         guard let found = Self.firstExecutable(named: "go", in: Self.pathEntries(login)) else {
@@ -282,14 +302,16 @@ final class LSPGoToolchainService: LSPGoToolchainDiscovering, LSPGoModuleInstall
         return path
     }
 
-    /// The environment every `go` this service runs is given, or `nil` for "the
-    /// app's own, untouched" — which is the case whenever the toolchain was found
-    /// without asking a shell.
+    /// The environment every `go` this service runs is given, or `nil` before the
+    /// search has answered — which only `goEnvironment`'s first call can see, and
+    /// it is called from inside the search itself, after `setSearchPath`.
     ///
     /// One variable is replaced and never more: the `PATH` that found the `go`,
-    /// so a version-manager shim can re-exec what it needs. The user's
-    /// `GOMODCACHE`, `GOCACHE`, `GOPROXY`, `GOPRIVATE` and proxy settings are all
-    /// inherited untouched, which is the whole of "nothing global is changed".
+    /// so a version-manager shim can re-exec what it needs and a Homebrew or
+    /// `/usr/local/go/bin` toolchain can find the tools it invokes by name. The
+    /// user's `GOMODCACHE`, `GOCACHE`, `GOPROXY`, `GOPRIVATE` and proxy settings
+    /// are all inherited untouched, which is the whole of "nothing global is
+    /// changed".
     private func childEnvironment() -> [String: String]? {
         lock.lock()
         let searchPath = resolvedSearchPath
@@ -300,7 +322,7 @@ final class LSPGoToolchainService: LSPGoToolchainDiscovering, LSPGoModuleInstall
         return environment
     }
 
-    private func setSearchPath(_ path: String?) {
+    private func setSearchPath(_ path: String) {
         lock.lock()
         resolvedSearchPath = path
         lock.unlock()
@@ -310,8 +332,8 @@ final class LSPGoToolchainService: LSPGoToolchainDiscovering, LSPGoModuleInstall
 
     /// One `go install <module>@<version>` with `GOBIN` pointed at `binDirectory`.
     ///
-    /// The environment is inherited wholesale and `GOBIN` is added (plus `PATH`,
-    /// when the toolchain was found through a login shell — `childEnvironment()`),
+    /// The environment is inherited wholesale and two variables are set — `GOBIN`,
+    /// and the `PATH` the toolchain was found under (`childEnvironment()`) —
     /// which is the whole of "nothing global is touched": the user's `GOMODCACHE`,
     /// `GOCACHE`, `GOPROXY`, `GOPRIVATE` and proxy settings all keep working
     /// because none of them is replaced. Sharing those caches is one of the two
@@ -378,9 +400,13 @@ final class LSPGoToolchainService: LSPGoToolchainDiscovering, LSPGoModuleInstall
         child: ChildProcess
     ) throws {
         // `childEnvironment()` is the base rather than `ProcessInfo`'s directly,
-        // so a shim `go` builds in the same `PATH` it was found in — otherwise
-        // this would be the one place the version-manager case still failed, and
-        // it would fail after the user had already accepted.
+        // so the `go` builds in the same `PATH` it was found in — otherwise this
+        // would be the one place a shim, or any toolchain outside launchd's four
+        // directories, still failed, and it would fail after the user had already
+        // accepted. The `??` is unreachable in practice (an install needs a report,
+        // and the search sets the path before it returns one) and is a plain
+        // inherit rather than a precondition for this whole layer's rule: a wrong
+        // guess here is a build that fails into a Settings row, never a crash.
         var environment = childEnvironment() ?? ProcessInfo.processInfo.environment
         environment["GOBIN"] = binDirectory.path
 

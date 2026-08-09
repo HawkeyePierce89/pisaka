@@ -595,10 +595,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     discarded**, and draining is not optional: a server that logs steadily would
     otherwise fill the pipe buffer and block *writing a log line*, wedging itself
     behind output nobody reads.
-    The environment is inherited wholesale and never assigned (`GitCLIService.run`'s
+    The environment is inherited wholesale and never *replaced* (`GitCLIService.run`'s
     reasoning: a language server resolves its toolchain, caches and build system out
-    of `PATH`/`HOME`/`DEVELOPER_DIR`, and replacing the environment to add one
-    variable would take all of that away). `stop()` is idempotent: stop reading, close
+    of `PATH`/`HOME`/`DEVELOPER_DIR`, and assigning the environment to add one
+    variable would take all of that away). A description's
+    `LSPServerDescription.environment` is therefore **merged over** the inherited set
+    and applied only when it is non-empty, so every server but gopls leaves
+    `process.environment` unassigned exactly as before — the inheritance stays the
+    real one rather than a copy this process took of it. gopls is the one server that
+    needs the overlay, and needs it on the ordinary launch path rather than in some
+    corner: it takes no `go` path, resolves the toolchain itself with
+    `exec.LookPath("go")` for every `go list`/`go env` it runs, and a Finder-launched
+    app inherits `launchd`'s `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`), which holds
+    neither `/usr/local/go/bin` nor Homebrew's prefixes nor any version-manager shim
+    directory. Without the overlay it starts cleanly and answers *nothing* — the one
+    failure `RoutingIntelligenceProvider` cannot see, since an empty answer and a file
+    that declares nothing are the same value at that seam — while Settings reports the
+    server installed. `stop()` is idempotent: stop reading, close
     stdin — which gives a server that reads to EOF a chance to exit on its own, as
     sourcekit-lsp does — `SIGTERM`, then `SIGKILL` after a 2 s grace.
     **The stdin close goes through the write queue**, not the calling
@@ -685,12 +698,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     space-separated, so `printf %s "$PATH"` hands back one string that
     `pathEntries` — which splits on `:`, as `PATH` is defined — reads as a single
     bogus directory. `env` prints the exported environment, where `PATH` is
-    colon-separated in every shell. **A `go` found this way is then run *with* that
-    `PATH`** (`childEnvironment()`, for both `go env` and the install), which is the
-    half without which the step buys nothing: a version-manager `go` is a shim that
+    colon-separated in every shell. **Every branch reports a `PATH` that contains
+    the `go` it found**, and everything that runs a `go` afterwards runs under it:
+    this service's own children (`go env` and the install, via `childEnvironment()`)
+    and — through `LSPGoToolchainReport.found`'s `searchPath` — the gopls the app
+    registers. The login-shell branch reports the shell's `PATH`, and it is the half
+    without which *that* step buys nothing: a version-manager `go` is a shim that
     re-execs `asdf`/`mise`/`goenv` off `PATH`, so running it back under launchd's
     four directories fails, `go env` exits non-zero, and the search reports "no
-    toolchain" on exactly the machines the step was added for.
+    toolchain" on exactly the machines the step was added for. The well-known-directory
+    branch is the one that has to *build* a `PATH` rather than report one — three
+    `stat`s found that `go`, not an environment — so it prepends the directory it
+    found to the inherited entries (prepended, and the duplicate dropped, so the
+    toolchain the report names and the toolchain the server resolves stay the same
+    one). Only reporting the login-shell case, as the first cut did, is what left
+    every mainstream install — the official `/usr/local/go/bin`, both Homebrew
+    prefixes — registering a gopls that could not find a `go`.
     `GOBIN`/`GOPATH` come from `go env` rather than the environment, because both
     can be set by `go env -w`'s config file and `GOPATH` has a default (`~/go`)
     that is never in the environment at all. **A `go` that cannot answer `go env`
@@ -700,9 +723,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     one** (`LSPToolchain`'s discipline and reason), resolved off the main thread,
     and deadlined — 5 s for the login shell, 10 s for `go env` — because on a Mac
     with no Go at all this runs at every launch.
-    The install adds `GOBIN`, pointed at the staging directory the model owns (plus
-    the child's own `PATH`, when the toolchain was found through a login shell);
-    everything else is inherited untouched,
+    The install sets two variables — `GOBIN`, pointed at the staging directory the
+    model owns, and the `PATH` the toolchain was found under; everything else is
+    inherited untouched,
     which is the whole of "nothing global is touched" — nothing is written to the
     user's shell profile and their `GOMODCACHE`,
     `GOPROXY` and proxy settings all keep working. It runs *from* the staging
