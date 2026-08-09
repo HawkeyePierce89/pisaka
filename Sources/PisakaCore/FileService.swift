@@ -97,6 +97,18 @@ public protocol FileServicing {
     /// correct-but-slower rather than to a stale index.
     func fileStamp(at url: URL) -> FileStamp?
 
+    /// Whether the file at `url` exists and this process may execute it.
+    ///
+    /// **Undefaulted, deliberately** (D22). Every other optional member of this
+    /// protocol defaults to an answer that degrades safely — "unknown size",
+    /// "unknown stamp", "not a symlink" — but this one is a *gate*: the install
+    /// engine asks it before committing a downloaded binary, and a default would
+    /// have to answer `false` (a gate that fails every install through a partial
+    /// stub) or `true` (a gate that silently passes, which is worse than not
+    /// having one). There are three conformers in the app and a handful of test
+    /// stubs, so the compiler asking each of them is the cheap side of that trade.
+    func isExecutableFile(at url: URL) -> Bool
+
     /// The contents of `url` as text, or `nil` when it should not be searched:
     /// a **binary** file (a NUL byte in its head, git's own heuristic) or one
     /// **larger than `maxBytes`**.
@@ -211,6 +223,23 @@ public struct FileService: FileServicing {
     /// (the entry vanished, or its metadata is inaccessible).
     public func fileByteCount(at url: URL) -> Int? {
         (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+    }
+
+    /// Whether the file at `url` exists and this process may execute it —
+    /// `access(2)`'s `X_OK`, as `FileManager` spells it.
+    ///
+    /// Answers the question the install engine actually has ("can what I just
+    /// unpacked be run?") rather than "is the `x` bit set in its mode", which is
+    /// the same thing for the binaries this app installs and not the same thing on
+    /// a `noexec` mount or under a sandbox that denies it. A directory answers
+    /// `false`: `FileManager` reports search permission for one, and a directory
+    /// where an executable was expected is exactly the outcome the gate is for.
+    public func isExecutableFile(at url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue
+        else { return false }
+        return FileManager.default.isExecutableFile(atPath: url.path)
     }
 
     /// The size + modification date of the file at `url`, read in **one**

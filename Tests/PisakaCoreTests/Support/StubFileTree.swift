@@ -59,6 +59,12 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
     var directories: Set<String> = []
     /// Root-relative paths reported as symbolic links.
     var symlinks: Set<String> = []
+    /// Root-relative paths reported as executable — the injection point for the
+    /// install engine's `.gzip` gate, which is a question no in-memory tree can
+    /// derive from its contents. A file that is not in here is an ordinary,
+    /// non-executable file, which is what an unpacker that forgot the mode leaves
+    /// behind.
+    var executableFiles: Set<String> = []
     /// Root-relative directory paths whose listing throws (`""` for the root).
     var unreadableDirectories: Set<String> = []
     /// Root-relative paths whose `read` throws.
@@ -151,6 +157,13 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
         root.appendingPathComponent(path)
     }
 
+    /// The key this tree stores `url` under — the inverse of `url(_:)`, which the
+    /// scripted seams need to record something about a file they just wrote (the
+    /// executable bit) without knowing how the tree spells paths.
+    func relativePath(of url: URL) -> String {
+        relative(url)
+    }
+
     enum StubError: Error, LocalizedError {
         case missing
         case denied
@@ -233,6 +246,15 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
         symlinks.contains(relative(url)) ? "elsewhere" : nil
     }
 
+    /// Executable only when a test said so *and* something is really there — the
+    /// real `FileService` answers `false` for a missing file, and a stub that said
+    /// `true` for a path nobody wrote would make the engine's gate untestable in
+    /// the direction that matters.
+    func isExecutableFile(at url: URL) -> Bool {
+        let path = relative(url)
+        return files[path] != nil && executableFiles.contains(path)
+    }
+
     // MARK: - Mutating the tree
     //
     // Enough of a file system for the install engine's atomicity rules to mean
@@ -279,6 +301,14 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
             directories.remove(directory)
             directories.insert(to + directory.dropFirst(from.count))
         }
+        // The mode travels with the file, as a rename does on a real volume —
+        // otherwise a binary unpacked into staging would arrive at its version
+        // directory unexecutable, which is a property of this stub and of nothing
+        // else.
+        for executable in executableFiles where executable == from || executable.hasPrefix(prefix) {
+            executableFiles.remove(executable)
+            executableFiles.insert(to + executable.dropFirst(from.count))
+        }
         lock.lock()
         movesStorage.append(Move(from: from, to: to))
         lock.unlock()
@@ -294,6 +324,9 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
         }
         for directory in directories where directory == path || directory.hasPrefix(prefix) {
             directories.remove(directory)
+        }
+        for executable in executableFiles where executable == path || executable.hasPrefix(prefix) {
+            executableFiles.remove(executable)
         }
         lock.lock()
         removedPathsStorage.append(path)

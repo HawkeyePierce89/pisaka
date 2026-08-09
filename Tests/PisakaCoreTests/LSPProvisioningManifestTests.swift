@@ -179,10 +179,22 @@ final class LSPProvisioningManifestTests: XCTestCase {
     func testEveryDestinationAndStripDepthIsSane() {
         for component in manifest.components {
             for artifact in component.artifacts {
-                XCTAssertEqual(
-                    artifact.stripComponents, 1,
-                    "\(artifact.url.lastPathComponent): every archive here wraps its contents in one directory"
-                )
+                switch artifact.format {
+                case .tarGzip:
+                    XCTAssertEqual(
+                        artifact.stripComponents, 1,
+                        "\(artifact.url.lastPathComponent): every tarball here wraps its contents in one directory"
+                    )
+                case .gzip:
+                    // A bare `.gz` holds one file and no layout, so there is
+                    // nothing to strip and the unpacker ignores the value. Pinned
+                    // at 0 rather than left unspecified: the field would otherwise
+                    // read as a fact about the archive that is not true of it.
+                    XCTAssertEqual(
+                        artifact.stripComponents, 0,
+                        "\(artifact.url.lastPathComponent): a gzip artifact has no leading components to strip"
+                    )
+                }
                 XCTAssertFalse(artifact.destinationSubpath.hasPrefix("/"), "destinations are relative")
                 XCTAssertFalse(
                     artifact.destinationSubpath.split(separator: "/").contains(".."),

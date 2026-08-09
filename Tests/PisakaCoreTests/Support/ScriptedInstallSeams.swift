@@ -312,6 +312,7 @@ final class ScriptedUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
     private let lock = NSLock()
     private var trees: [Data: [String: String]] = [:]
     private var failures: Set<Data> = []
+    private var forgottenModes: Set<Data> = []
     private var recorded: [Call] = []
 
     init(writingInto tree: StubFileTree) {
@@ -335,17 +336,35 @@ final class ScriptedUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Unpack the archive served at `url` **without** the executable bit — an
+    /// unpacker that reported success and produced a file nobody can run (D22).
+    ///
+    /// The one outcome a `.gzip` unpack has that a tarball's does not: a tarball
+    /// carries a mode per member and `tar` restores it, while a bare `.gz` carries
+    /// none, so "and it is executable" is a claim of the unpacker's that the
+    /// engine has to check rather than believe. This is how the unchecked version
+    /// of that claim is staged.
+    func forgetExecutableMode(_ url: URL) {
+        lock.lock()
+        forgottenModes.insert(ScriptedArchive.bytes(for: url))
+        lock.unlock()
+    }
+
     var calls: [Call] {
         lock.lock()
         defer { lock.unlock() }
         return recorded
     }
 
-    private func record(_ call: Call) -> ([String: String]?, Bool) {
+    private func record(_ call: Call) -> ([String: String]?, Bool, Bool) {
         lock.lock()
         defer { lock.unlock() }
         recorded.append(call)
-        return (trees[call.archive], failures.contains(call.archive))
+        return (
+            trees[call.archive],
+            failures.contains(call.archive),
+            forgottenModes.contains(call.archive)
+        )
     }
 
     func unpack(
@@ -355,7 +374,7 @@ final class ScriptedUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
         stripComponents: Int
     ) async throws {
         // Synchronous, for the reason `ScriptedDownloader.claim(_:)` states.
-        let (entries, fails) = record(
+        let (entries, fails, forgetsMode) = record(
             Call(
                 archive: archive,
                 format: format,
@@ -368,8 +387,17 @@ final class ScriptedUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
 
         // An unregistered archive still materialises *something*, so a test that
         // does not care what is inside a component still gets a directory that
-        // exists — which is what `state(of:)` reads.
-        let contents = entries ?? ["payload": String(decoding: archive, as: UTF8.self)]
+        // exists — which is what `state(of:)` reads. A `.gzip` archive is one
+        // named file rather than a tree, so the format's own name is what it
+        // materialises as — the real unpacker has nothing else to call it.
+        let defaultContents: [String: String]
+        switch format {
+        case .tarGzip:
+            defaultContents = ["payload": String(decoding: archive, as: UTF8.self)]
+        case .gzip(let fileName):
+            defaultContents = [fileName: String(decoding: archive, as: UTF8.self)]
+        }
+        let contents = entries ?? defaultContents
 
         // The writes hop to the main actor, and they have to. This method is a
         // `nonisolated async` protocol requirement, so it runs on the cooperative
@@ -389,6 +417,13 @@ final class ScriptedUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
                     .split(separator: "/")
                     .reduce(destination) { $0.appendingPathComponent(String($1)) }
                 try tree.write(text, to: url)
+            }
+            // The real unpacker creates a `.gzip` file with mode `0o755`, so the
+            // fake marks the same one executable — unless the test staged the
+            // unpacker that forgets to.
+            if case .gzip(let fileName) = format, !forgetsMode {
+                let url = destination.appendingPathComponent(fileName)
+                tree.executableFiles.insert(tree.relativePath(of: url))
             }
         }
     }

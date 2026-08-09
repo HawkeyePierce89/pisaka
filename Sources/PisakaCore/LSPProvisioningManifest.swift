@@ -79,12 +79,32 @@ public enum LSPHostArchitecture: String, CaseIterable, Sendable {
 
 // MARK: - Artifacts
 
-/// How an artifact is packed. One case today, and a case rather than a `Bool`
-/// because the unpack seam takes the format as an argument and a second one
-/// (a `.zip` for a server that ships no tarball) must be a compile error at every
-/// call site rather than a silently wrong `false`.
-public enum LSPArchiveFormat: String, Equatable, Sendable {
+/// How an artifact is packed — and, for `gzip`, what the single file inside it is
+/// called.
+///
+/// A case rather than a `Bool` because the unpack seam takes the format as an
+/// argument and a new one must be a compile error at every call site rather than
+/// a silently wrong `false`. The second case is what that bought: rust-analyzer
+/// publishes its macOS builds as a bare `.gz` of one binary, not as a tarball, so
+/// the unpacker's switch grew a branch and nothing else had to move.
+///
+/// **The name lives in the payload (D22).** A tarball carries its members' names;
+/// a bare `.gz` carries nothing but bytes, so the file it decompresses into has to
+/// be named by whoever pinned it. Naming it here rather than in a parallel
+/// `LSPArtifact.unpackedFileName` is what keeps the manifest from being able to
+/// express "a gzip with no name" or "a tarball with one" — two states that have no
+/// meaning and would each need a guard somewhere.
+///
+/// It also carries an implication the other case does not: **a `gzip` artifact is
+/// an executable**. That is the only reason this format exists here, and
+/// `LSPInstallEngine` verifies it before it commits — the unpacker sets the bit at
+/// creation, the engine refuses to install a file that somehow lacks it.
+///
+/// No raw value: `stripComponents` is meaningless for `gzip` (the manifest tests
+/// pin it to `0`), and nothing ever needed the format as a string.
+public enum LSPArchiveFormat: Equatable, Sendable {
     case tarGzip
+    case gzip(fileName: String)
 }
 
 /// One downloadable file, and everything needed to verify and place it.
@@ -123,8 +143,10 @@ public struct LSPArtifact: Equatable, Sendable {
     public let format: LSPArchiveFormat
 
     /// Leading path components the archive's own layout adds and we do not want.
-    /// Every artifact here is 1: a Node tarball wraps everything in
-    /// `node-v…-darwin-arm64/`, an npm tarball in `package/`.
+    /// Every *tarball* here is 1: a Node tarball wraps everything in
+    /// `node-v…-darwin-arm64/`, an npm tarball in `package/`. A `.gzip` artifact
+    /// has no layout to strip and pins this at 0 — the unpacker ignores it there,
+    /// and `LSPProvisioningManifestTests` is what keeps the data saying so.
     public let stripComponents: Int
 
     /// Where the stripped contents land, relative to the component's version

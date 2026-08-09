@@ -36,7 +36,13 @@ public protocol LSPArtifactDownloading: Sendable {
 /// `stripComponents` is the archive's own wrapper directory
 /// (`node-v24.19.0-darwin-arm64/`, npm's `package/`), removed as the entries are
 /// written rather than by unpacking and then moving — which is what lets an
-/// artifact land at its final relative position in one step.
+/// artifact land at its final relative position in one step. It has no meaning for
+/// `.gzip`, which holds one nameless file and no layout: the manifest pins it to
+/// `0` there and the implementation ignores it.
+///
+/// A `.gzip` unpack must also leave its one file **executable** — the format says
+/// so (D22) — and the engine checks that before it commits, so an implementation
+/// that forgets installs nothing rather than installing something that cannot run.
 public protocol LSPArchiveUnpacking: Sendable {
     func unpack(
         _ archive: Data,
@@ -386,6 +392,8 @@ public final class LSPInstallEngine {
                         reason: error.localizedDescription
                     )
                 }
+
+                try verifyExecutable(of: artifact, unpackedInto: destination, of: component)
             }
 
             try commit(staging, of: component)
@@ -393,6 +401,41 @@ public final class LSPInstallEngine {
             discard(staging)
             throw error
         }
+    }
+
+    /// The one thing a `.gzip` artifact promises that a tarball does not: what it
+    /// unpacked into is a program (D22).
+    ///
+    /// A tarball carries a mode per member and `tar` restores it, so an installed
+    /// entry point is executable because the archive said so. A bare `.gz` carries
+    /// no mode at all — the bit is set by whoever writes the decompressed bytes —
+    /// which makes "and it is executable" a claim of *this* app's unpacker rather
+    /// than of the artifact. A claim that nothing checks is how a version directory
+    /// comes to exist naming a binary that cannot start, with the Settings row
+    /// reporting it installed and every request through it spending D7's restart
+    /// budget discovering otherwise.
+    ///
+    /// So it is checked here, **before** `commit` and therefore before the rename:
+    /// the failure lands on the ordinary unpack-failed path, the staging tree is
+    /// discarded and the previous install is left exactly as it was. That is D13's
+    /// promise applied to the one thing D13 could not see — an unpack that
+    /// "succeeded" and produced something unusable.
+    ///
+    /// Tarball artifacts are not checked, and that is not an omission: their entry
+    /// points are `node` scripts run as arguments to a runtime, so executability is
+    /// not what makes them work.
+    private func verifyExecutable(
+        of artifact: LSPArtifact,
+        unpackedInto destination: URL,
+        of component: LSPComponent
+    ) throws {
+        guard case let .gzip(fileName) = artifact.format else { return }
+        let file = destination.appendingPathComponent(fileName)
+        guard !fileService.isExecutableFile(at: file) else { return }
+        throw LSPInstallError.unpackFailed(
+            component: component.id,
+            reason: "“\(fileName)” was not written as an executable file."
+        )
     }
 
     /// The single rename that makes the version directory exist, and the cleanup

@@ -601,31 +601,65 @@ the deliverable.
   `Tests/PisakaCoreTests/FileServiceTests.swift`,
   `Tests/PisakaCoreTests/LSPProvisioningManifestTests.swift`
 
-- [ ] `LSPArchiveFormat` gains `case gzip(fileName: String)` and drops its unused
+- [x] `LSPArchiveFormat` gains `case gzip(fileName: String)` and drops its unused
       `String` raw value, with D22's reasoning on the case — why the name lives in
       the payload, and why the case implies "and it is executable"
-- [ ] `FileServicing` gains `isExecutableFile(at:) -> Bool`, **undefaulted**, with
+      *(`LSPArtifact.stripComponents`' own doc was corrected in the same edit: it
+      claimed "every artifact here is 1", which stops being true the moment this
+      case exists.)*
+- [x] `FileServicing` gains `isExecutableFile(at:) -> Bool`, **undefaulted**, with
       the reason written on it; implement in `FileService`, forward in
       `SecurityScopedFileService`, add to `StubFileTree` (an injectable per-path
       executable bit) and to the small local stubs `swift test` compiles
-- [ ] `LSPInstallEngine.perform` verifies, after unpacking a `.gzip` artifact and
+      *(Ten conformers in all — `FileService`, the iOS decorator, `StubFileTree`
+      and seven local test stubs. `FileService` answers `false` for a directory
+      rather than forwarding `FileManager`'s search-permission `true`, since the
+      gate is asked about a file an unpack was supposed to produce.
+      `StubFileTree.move`/`removeItem` carry the bit with the file, as a rename
+      does on a real volume — without that a binary unpacked into staging would
+      arrive at its version directory unexecutable, a property of the stub and of
+      nothing else.)*
+- [x] `LSPInstallEngine.perform` verifies, after unpacking a `.gzip` artifact and
       **before** `commit`, that the named file is executable — otherwise
       `unpackFailed`, the staging tree is discarded and nothing is renamed
-- [ ] `LSPArchiveUnpacker` gains the gzip branch: `/usr/bin/gunzip` fed the
+      *(Per artifact rather than per component, so the check runs at the point the
+      destination is still in hand and a component mixing formats needs no second
+      rule.)*
+- [x] `LSPArchiveUnpacker` gains the gzip branch: `/usr/bin/gunzip` fed the
       verified bytes on stdin, stdout redirected into a destination file created
       with `posixPermissions: 0o755`, under the same deadline, `F_SETNOSIGPIPE`
       and SIGTERM→SIGKILL teardown as the tar path; `stripComponents` is ignored
       here and the switch stays exhaustive
-- [ ] tests: a `.gzip` artifact whose unpack produces an executable installs and
+      *(The two formats now differ in exactly one place — where stdout goes — so
+      `run` was generalised over a `tool`, its arguments and an `Output` of
+      `.discarded` (a drained pipe, `tar`) or `.file` (the destination handle,
+      `gunzip -c`). The stdout drain thread exists only for the pipe case: a file
+      never blocks its writer the way a full pipe does. `Failure.tarUnavailable`
+      became `toolUnavailable` and gained `destinationUnwritable`, which happens
+      before anything is launched and so has no exit status to report.)*
+- [x] tests: a `.gzip` artifact whose unpack produces an executable installs and
       commits with exactly one rename; one whose unpack produces a **non-executable**
       file throws `unpackFailed`, records **no** move, leaves the version directory
       absent and a previous install untouched; a `.gzip` install still discards its
       staging tree on a checksum mismatch; and **every existing tar-based component
       still installs unchanged**
-- [ ] `LSPProvisioningManifestTests` gains the invariant that a `.gzip` artifact
+      *(Five tests over two new fixture components — `binary` 1.0.0 and its 2.0.0
+      bump, so the "previous install byte-for-byte" case is a real upgrade rather
+      than a re-install. `ScriptedUnpacker` gained `forgetExecutableMode(_:)` and
+      now materialises a `.gzip` archive as one file named by the format, marked
+      executable, which is what the real unpacker does. The tarball test asserts
+      the gate is `.gzip`'s alone: nothing the tar path writes is executable in
+      the stub tree and it installs anyway.)*
+- [x] `LSPProvisioningManifestTests` gains the invariant that a `.gzip` artifact
       declares `stripComponents == 0`
-- [ ] run `swift test`, then the macOS build (Go's Task 7 precedent — `swift test`
+      *(Written as a switch over the format so both halves are stated — tarballs
+      still pinned at 1 — rather than as a weakened "0 or 1". Vacuous for `gzip`
+      until Task 7 adds the component, which is the point: the assertion is there
+      before the data is.)*
+- [x] run `swift test`, then the macOS build (Go's Task 7 precedent — `swift test`
       compiles `PisakaCore` alone and cannot see the unpacker)
+      *(2231 tests, 0 failures; `xcodebuild -destination 'platform=macOS'`
+      BUILD SUCCEEDED.)*
 
 ### Task 7: The rust-analyzer manifest component
 

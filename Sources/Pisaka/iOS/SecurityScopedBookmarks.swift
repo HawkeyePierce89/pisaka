@@ -171,6 +171,15 @@ final class SecurityScopedFileService: FileServicing, SecurityScopeProviding, @u
         withScope(url) { base.symbolicLinkDestination(at: url) }
     }
 
+    /// Forwarded under the covering scope like every other question about a file:
+    /// outside an active grant `access(2)` answers "no such file", which would make
+    /// this report a perfectly good executable as not one. Nothing on iOS installs
+    /// a language server today, but a gate that answers `false` for the wrong
+    /// reason is exactly what the undefaulted requirement exists to prevent.
+    func isExecutableFile(at url: URL) -> Bool {
+        withScope(url) { base.isExecutableFile(at: url) }
+    }
+
     /// Forwarded (rather than inheriting the protocol extension's `nil` default)
     /// so the size check in `readTextIfNotBinary` actually fires on iOS: `nil`
     /// means "unknown", and the default implementation then decodes the whole file
