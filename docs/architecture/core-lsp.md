@@ -605,11 +605,16 @@ document, together with the limits they carry.
     **A transport stays in `transports` until the process behind it is actually
     dead** — that is the invariant, and it holds for a live session and a pending
     launch alike, in `updateRegistry(_:)` and in `shutdownAll()`. `transports` is
-    the only map `terminateNow()` reads, and both of the things this teardown
-    `await`s run against a process that is still alive: the handshake it waits out
-    for a pending launch is the slowest thing this layer does, and the goodbye it
-    waits out for a live session runs a whole request budget. Emptying the map on
-    the way past would leave a quit inside either window
+    the only map `terminateNow()` reads, and *every* `await` this teardown makes
+    runs against a process that is still alive: the handshake it waits out for a
+    pending launch is the slowest thing this layer does, and the goodbye it waits
+    out — for a live session and for that same launch once it finishes — runs a
+    whole request budget. A withdrawn launch is therefore awaited **twice**, and
+    the second wait is the one that is easy to lose: the obvious place to
+    unregister is beside the session and the documents, which are cleared *before*
+    the goodbye on purpose (a racing reader must find nothing), and putting the
+    transport there too would hand the map back the window it exists to close.
+    Emptying it on the way past would leave a quit inside any of those windows
     (`willTerminateNotification`, with no further run-loop turn to catch it) with
     nothing to terminate — the exact orphan both methods exist to prevent,
     reintroduced by them. So each entry is dropped after its own `await` returns,
@@ -618,9 +623,10 @@ document, together with the limits they carry.
     in-flight launches: a superseded launch sees the epoch mismatch, terminates
     what it built and `forget`s it itself.
     `testAQuitDuringARemovalStillKillsTheServerThatWasHandshaking`,
+    `testAQuitWhileAWithdrawnLaunchIsShuttingDownStillKillsIt`,
     `testAQuitWhileARemovedServerIsShuttingDownStillKillsIt` and
     `testTerminateNowKillsAServerAFolderSwitchIsStillShuttingDown` stage a quit
-    inside each of the three windows.
+    inside each of the four windows.
     Neither generation moves either: a registry update is
     not a folder change, and a request in flight for a server that survived is
     still a request about the folder it was asked under. Every map a `prepare`

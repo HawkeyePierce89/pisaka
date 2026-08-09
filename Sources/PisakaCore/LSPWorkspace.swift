@@ -427,9 +427,17 @@ public final class LSPWorkspace {
             guard let orphan = await pending.task.value else { continue }
             guard sessions[key] === orphan else { await orphan.shutdown(); continue }
             sessions[key] = nil
-            forget(orphan.transport, for: key)
             documents = documents.filter { $0.value.serverKey != key }
+            // The transport is cleared *after* the goodbye, not before it, for the
+            // reason the collection loop above states and the live-session loop
+            // already obeys: `shutdown()` waits out a whole request budget against
+            // a process that is still running, and `transports` is the only map
+            // `terminateNow()` reads. Unregistering here — the obvious place,
+            // beside the other two — would leave this launch alive and unreachable
+            // for that entire window, which is the orphan the branch exists to
+            // prevent, reached by the one path that had finished handshaking.
             await orphan.shutdown()
+            forget(orphan.transport, for: key)
         }
     }
 

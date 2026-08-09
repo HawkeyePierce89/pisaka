@@ -1553,6 +1553,49 @@ final class LSPWorkspaceTests: XCTestCase {
         await removal
     }
 
+    /// The third and last corner of the same window, and the one the other two
+    /// leave open: the withdrawn server was still *launching* when the registry
+    /// moved, so it is cleaned up by the pending-launch branch rather than the
+    /// live-session one — but its handshake finished, so that branch is parked on
+    /// `shutdown()`, not on the launch. The process is alive for that whole
+    /// budget, and `terminateNow()` reads nothing but `transports`, so a branch
+    /// that unregisters the transport on its way to the goodbye leaves exactly the
+    /// orphan its two siblings are careful not to.
+    func testAQuitWhileAWithdrawnLaunchIsShuttingDownStillKillsIt() async throws {
+        let harness = ServerHarness()
+        // Long enough that the removal below starts while the launch is still
+        // pending — the branch this case is about — and short enough that the
+        // handshake lands well inside it.
+        harness.initializeDelay = 0.2
+        let workspace = makeWorkspace(
+            harness: harness,
+            registry: LSPServerRegistry([.sourcekitLSP, downloaded()])
+        )
+
+        async let request = workspace.prepare(url: appFile, language: .typescript, text: "a")
+        await waitFor("the launch to start") { harness.launches.count == 1 }
+        let transport = try XCTUnwrap(harness.firstTransport(of: "typescript-language-server"))
+        // A goodbye the server takes its time over, so the quit lands inside it
+        // rather than after it.
+        transport.script(LSPMethod.shutdown, .reply(.null, after: 0.5))
+
+        async let removal: Void = workspace.updateRegistry(.standard)
+        await waitFor("the removal to reach the withdrawn launch's shutdown") {
+            !transport.requests(for: LSPMethod.shutdown).isEmpty
+        }
+        XCTAssertFalse(transport.isTerminated, "the shutdown answered before the quit could land")
+
+        workspace.terminateNow()
+        XCTAssertTrue(
+            transport.isTerminated,
+            "a launch withdrawn mid-handshake was dropped from terminateNow()'s reach "
+                + "before its shutdown finished"
+        )
+
+        _ = await request
+        await removal
+    }
+
     /// `reachableDescriptions` is keyed off what the registry *routes to*, not off
     /// everything it holds: first registration wins per language, so a description
     /// that has been shadowed for every language it claims can never be launched
