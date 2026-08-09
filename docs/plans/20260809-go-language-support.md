@@ -513,16 +513,27 @@ so it is TDD.
 - Modify: `Tests/PisakaCoreTests/Support/` (a scripted discovery/install pair, in
   `ScriptedInstallSeams`' mould), `Tests/PisakaCoreTests/LSPSourceGatingTests.swift`
 
-- [ ] value types: the discovery report (no toolchain / `go` at a path, with gopls
+- [x] value types: the discovery report (no toolchain / `go` at a path, with gopls
       found at a path or not), the gopls installation (`discovered` vs
       `appInstalled(version:)`), the consent prompt, and the Settings row with
       `canInstall`/`canRemove`/status as properties — D19's rules, so the views
       hold no logic
-- [ ] the two seams: a discovery protocol answering the report, and an install
+      — plus `LSPGopls`, the pin as data (component id, module path, version, and
+      the `v`-prefixed spelling `go install` wants, derived from the same
+      constant). Two shapes the plan did not name. The row's status carries a
+      **sixth** case beside D19's five, `pending`: discovery shells out to `go`,
+      so it cannot run inside the turn that draws the row, and a row that guessed
+      "no Go toolchain" for that first moment would say something false and then
+      quietly correct itself — `LSPToolchain.Resolution.pending`'s case, for its
+      reason. And `executableSubpath` is a **constant** (`bin/gopls`) rather than
+      whatever the build reports back, because the registry entry's path has to be
+      derivable from a directory listing after a relaunch (D12); the seam's answer
+      is therefore *checked* against it rather than trusted.
+- [x] the two seams: a discovery protocol answering the report, and an install
       protocol taking (`go` executable, module path, version, target bin
       directory) and answering the installed executable URL — both `Sendable`,
       both `async`, neither mentioning `Process`
-- [ ] the `@MainActor` model: pending-until-discovered lifecycle, D19's
+- [x] the `@MainActor` model: pending-until-discovered lifecycle, D19's
       app-copy-wins preference, the `unasked`/`accepted`/`declined` consent
       through `SettingsStore` under id `"gopls"`, the silent "already accepted →
       install on first `.go` open, once per app run" rule (2b's `prepareForOpening`
@@ -531,15 +542,34 @@ so it is TDD.
       removal through `LSPInstallEngine.remove("gopls")` with the
       push-then-delete ordering, the published description, and an awaited change
       callback
-- [ ] tests: no toolchain → never prompts, never installs, contributes no
+      — three rules written down that the plan left implicit. `install()` with no
+      toolchain does *nothing at all*, not even record consent: there is nothing to
+      build with, and a row reading "no Go toolchain" beside a sentence about a
+      failed build would describe an attempt nobody made. The description requires
+      a toolchain **even for a discovered gopls**, since gopls shells out to
+      `go list` and without one would start, answer nothing, and spend D7's restart
+      budget per request. And a Remove of the app's copy on a machine that also has
+      the user's falls back to theirs — the recorded decline gates *building*, not
+      using a binary this app neither installed nor was asked about.
+- [x] tests: no toolchain → never prompts, never installs, contributes no
       description; gopls discovered → used silently, no prompt, no Remove; accept
       → one install, one rename, a description appears, consent persists; decline
       → persists across a rebuilt model and never re-prompts; a failed install →
       row message plus Retry, no description, no second automatic attempt this
       run; Remove → description withdrawn *before* deletion, and refuses for a
       discovered copy; a coalesced double-accept → one install
-- [ ] register both new Core files in `LSPSourceGatingTests.expectedCoreFiles`
-- [ ] run `swift test`
+      — 16 tests, all of the above plus the ones the shape invited: the negative
+      discovery answer is cached per app run, an upgrade drops the version it
+      replaced, a build that exits successfully and produces *no executable*
+      installs nothing, a failed removal is reported as a removal and leaves the
+      server registered, and a second Remove inside the shutdown push does
+      nothing. `StubFileTree` gained a `moves` log so "**one** rename" is asserted
+      as a count rather than inferred from the tree that resulted; the scripted
+      discovery/install pair lives in `ScriptedInstallSeams.swift` beside its
+      2b siblings.
+- [x] register both new Core files in `LSPSourceGatingTests.expectedCoreFiles`
+- [x] run `swift test`
+      — 2213 tests, 0 failures.
 
 ### Task 7: App — the machine-knowledge seams
 

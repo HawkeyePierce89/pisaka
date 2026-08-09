@@ -126,6 +126,165 @@ final class ScriptedDownloader: LSPArtifactDownloading, @unchecked Sendable {
     }
 }
 
+/// The Go toolchain as the app would report it (D18), scripted.
+///
+/// The whole seam is one answer, so the fake is one stored value plus a counter:
+/// what the model's rules turn on is *which* report it got, and the counter is
+/// what pins "discovery runs once per app run, including the negative answer".
+final class ScriptedGoDiscovery: LSPGoToolchainDiscovering, @unchecked Sendable {
+    private let lock = NSLock()
+    private var report: LSPGoToolchainReport
+    private var calls = 0
+    private var gate: Gate?
+
+    init(_ report: LSPGoToolchainReport) {
+        self.report = report
+    }
+
+    /// No `go` anywhere.
+    static var missing: ScriptedGoDiscovery { ScriptedGoDiscovery(.missing) }
+
+    /// A toolchain, with or without a gopls the user installed themselves.
+    static func found(
+        go goPath: String = "/usr/local/go/bin/go",
+        gopls goplsPath: String? = nil
+    ) -> ScriptedGoDiscovery {
+        ScriptedGoDiscovery(.found(goPath: goPath, goplsPath: goplsPath))
+    }
+
+    /// Hold the search until the gate is released — the window a test asserts
+    /// `pending` in. Blocking is sound for `ScriptedDownloader.hold(_:on:)`'s
+    /// reason: the seam is `nonisolated`, so it runs on the cooperative pool.
+    func hold(on gate: Gate) {
+        lock.lock()
+        self.gate = gate
+        lock.unlock()
+    }
+
+    var callCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+
+    func discover() async -> LSPGoToolchainReport {
+        let (gate, answer) = claim()
+        gate?.wait()
+        return answer
+    }
+
+    private func claim() -> (Gate?, LSPGoToolchainReport) {
+        lock.lock()
+        defer { lock.unlock() }
+        calls += 1
+        return (gate, report)
+    }
+}
+
+/// `go install` as a value: it writes one file where `GOBIN` points, or it does
+/// not.
+///
+/// The three interesting outcomes are all here, because all three are rules the
+/// model has to have: a build that works, a build that fails (no network, a
+/// compile error, a cancelled quit), and a build that *reports success and
+/// produces nothing* — the one the `executableMissing` guard exists for, and the
+/// one that would otherwise commit a version directory naming an executable that
+/// is not there.
+final class ScriptedGoInstaller: LSPGoModuleInstalling, @unchecked Sendable {
+    enum Failure: Error, LocalizedError {
+        case buildFailed
+
+        var errorDescription: String? { "build failed: no required module provides package" }
+    }
+
+    enum Outcome {
+        /// Writes the binary at `<binDirectory>/gopls` and answers its URL.
+        case builds
+        /// Answers a URL for a binary it never wrote.
+        case buildsNothing
+        case fails(Error)
+    }
+
+    /// One call, recorded whole — the pin and the toolchain are what a test
+    /// asserts `go install` was asked for.
+    struct Call: Equatable {
+        let module: String
+        let version: String
+        let goExecutablePath: String
+        let binDirectory: URL
+    }
+
+    private let tree: StubFileTree
+    private let lock = NSLock()
+    private var outcome: Outcome = .builds
+    private var gate: Gate?
+    private var recorded: [Call] = []
+
+    init(writingInto tree: StubFileTree) {
+        self.tree = tree
+    }
+
+    func setOutcome(_ outcome: Outcome) {
+        lock.lock()
+        self.outcome = outcome
+        lock.unlock()
+    }
+
+    func hold(on gate: Gate) {
+        lock.lock()
+        self.gate = gate
+        lock.unlock()
+    }
+
+    var calls: [Call] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    func install(
+        module: String,
+        version: String,
+        using goExecutablePath: String,
+        into binDirectory: URL
+    ) async throws -> URL {
+        // Recorded before the wait, so a test can see the build has started
+        // while it is still being held.
+        let (gate, outcome) = record(
+            Call(
+                module: module,
+                version: version,
+                goExecutablePath: goExecutablePath,
+                binDirectory: binDirectory
+            )
+        )
+        gate?.wait()
+
+        let executable = binDirectory.appendingPathComponent("gopls")
+        switch outcome {
+        case .fails(let error):
+            throw error
+        case .buildsNothing:
+            return executable
+        case .builds:
+            // The write hops to the main actor, for `ScriptedUnpacker.unpack`'s
+            // reason: this seam is `nonisolated async`, and `StubFileTree` is a
+            // plain dictionary the model reads from the main actor.
+            try await MainActor.run {
+                try tree.write("#!gopls \(version)", to: executable)
+            }
+            return executable
+        }
+    }
+
+    private func record(_ call: Call) -> (Gate?, Outcome) {
+        lock.lock()
+        defer { lock.unlock() }
+        recorded.append(call)
+        return (gate, outcome)
+    }
+}
+
 /// An unpacker that writes a canned tree into a `StubFileTree` — or fails.
 final class ScriptedUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
     enum Failure: Error, LocalizedError {
