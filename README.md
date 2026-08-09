@@ -34,6 +34,12 @@ close files with a confirmation prompt when there are unsaved changes.
   Node, `npm` or Python installation of your own is required or used; nothing is
   downloaded unless you ask for it, and declining leaves those languages on the
   built-in index.
+- macOS, optional: a **Go toolchain**, for the semantic Go intelligence. Unlike
+  the two servers above, `gopls` has no official prebuilt binaries — so Pisaka
+  uses the one you already have if it can find it, and otherwise offers to build
+  it once with *your* `go`. Without a Go toolchain there is no offer and no
+  server: Go files behave exactly as every other language does, on the built-in
+  index.
 
 ## Build & Run
 
@@ -299,7 +305,9 @@ involved.
   fuzzy match, preferring the ones that land on word boundaries and stay tight —
   then the current file's names, then real declarations before keywords before
   plain words, then shorter names. Keywords are offered for Swift, JavaScript,
-  TypeScript, Python and Dockerfile (`FROM`, `HEALTHCHECK`, … in the uppercase
+  TypeScript, Python, Go (the 25 reserved words plus the predeclared names no
+  file can declare — `nil`, `error`, `len`, `make`, …) and Dockerfile (`FROM`,
+  `HEALTHCHECK`, … in the uppercase
   they are written in); the data formats, Markdown and `.gitignore` deliberately
   have no list, and HTML/CSS are left out until completion knows about position.
   Type a `.` after an identifier or a closing bracket and the list opens right
@@ -317,7 +325,10 @@ involved.
   on disk (only the files whose size or modification date actually moved get
   re-parsed), and kept current for the file you are typing in, so a name you just
   wrote is completable before it is saved. Declarations are indexed for Swift,
-  JavaScript, TypeScript and Python; Markdown headings, CSS selectors, top-level
+  JavaScript, TypeScript, Python and Go (types, interface and struct members,
+  functions, methods — a pointer receiver `func (w *Worker)` indexes under
+  `Worker` — and top-level `const`/`var`, but not locals inside a function);
+  Markdown headings, CSS selectors, top-level
   YAML/JSON keys, Dockerfile build stages, `.env` variables and HTML `id`s are
   indexed too. A file type with no query still completes from the words in the
   buffer.
@@ -367,8 +378,38 @@ involved.
   they share goes away with the *last* one. Declining is remembered
   across launches and is turned around from that same screen. To de-provision
   everything by hand, quit the app and delete the `LanguageServers` folder above.
+  That folder — and the Remove button — cover **what Pisaka installed**: a `gopls`
+  of your own in `~/go/bin` is used from where it is, so deleting the folder does
+  not touch it and no Remove button is offered for it.
   Acknowledgements (Preferences) grows a *Language Servers* section listing what is
   installed and its verbatim licenses, and loses it again when you remove them.
+- Semantic code intelligence for **Go** (macOS), through `gopls` — the same Go to
+  Definition and completion Swift gets above, including real members after a `.`
+  and an auto-import inserted with the symbol as a single undo step. How it is
+  acquired is deliberately different from the two servers above, because `gopls`
+  publishes no official binaries: **it is never downloaded by Pisaka.** If you
+  already have one (`~/go/bin/gopls`, `$GOBIN`, `$GOPATH/bin`), it is found and
+  used with **no prompt at all**. If you don't, the first Go file you open in a
+  project offers once — *Install gopls with your Go toolchain?* — and accepting
+  runs `go install golang.org/x/tools/gopls@v0.23.0` with **your own `go`**,
+  which fetches the module through Go's tooling and verifies it against Go's
+  checksum database. A Go toolchain is required either way; on a Mac without one
+  there is no prompt, no offer and no server, and the Settings row says so.
+  What gets built lands under
+  `~/Library/Application Support/Pisaka/LanguageServers/` like everything else
+  Pisaka installs — nothing goes on your `PATH`, into `~/go/bin`, or anywhere
+  else global, and no `sudo` is involved. Go becomes semantic the moment it
+  lands, with no restart. **Preferences → Language Servers** has a Go row showing
+  which of the two it is: *installed · found on this Mac* (no Remove button — it
+  isn't Pisaka's binary to delete) or *installed by Pisaka · version 0.23.0*
+  (Remove, which stops the server and falls back to your own copy if you have
+  one). Declining persists across launches and is turned around from that same
+  screen; a failed build is a sentence in that row and a Retry button, never an
+  alert, and Go keeps using the built-in index throughout. The build uses your
+  normal module and build caches, so it is as fast as any other `go install` on
+  your machine. `gopls` comes from `github.com/golang/tools` and is BSD-3-Clause;
+  it is not in Acknowledgements, because `go install` writes one binary and no
+  license file — the Go row names its origin and license instead.
 - VS Code-style minimap to the right of the editor: a scaled-down,
   syntax-colored overview of the file with a draggable viewport rectangle.
   Click or drag the rectangle to scroll the editor, or scroll the mouse wheel
@@ -377,7 +418,7 @@ involved.
   overview slides as you scroll rather than squeezing the whole file into the
   panel; colors follow the system light/dark appearance.
 - Syntax highlighting (tree-sitter via ChimeHQ's Neon) for Swift, JavaScript,
-  TypeScript, JSON, Markdown, Python, HTML, CSS, YAML, Dockerfiles, `.env`
+  TypeScript, JSON, Markdown, Python, Go, HTML, CSS, YAML, Dockerfiles, `.env`
   files, and dot-prefixed ignore files (`.gitignore`, `.dockerignore`,
   `.npmignore`, `.eslintignore`, `.prettierignore`, …). The language is
   detected from the whole file name, not just its extension — so `Dockerfile`,
@@ -560,8 +601,11 @@ involved.
 - Run File (macOS): run the current file in a new terminal session via the
   Run > Run File menu item, Cmd+R (for the active tab), or the "Run" item in a
   file's project-tree context menu. Runnable
-  types are TypeScript (`npx tsx`), JavaScript (`node`), Python (`python3`), Swift
-  (`swift`), and shell scripts (`bash`). The file's dirty tab is saved first, the
+  types are TypeScript (`npx tsx`), JavaScript (`node`), Python (`python3`), Go
+  (`go run`), Swift
+  (`swift`), and shell scripts (`bash`). Like every entry in that list, Go runs
+  the *one file* you are in — a `main` split across several files in a package
+  needs `go run .` from the terminal. The file's dirty tab is saved first, the
   session starts in the project folder (or the file's folder when no project is
   open), and re-running the same file reuses its dedicated "Run:" tab rather than
   piling up new ones. Unrunnable file types are skipped with a notice.
@@ -710,6 +754,19 @@ and iPhone. The feature scope landed so far:
   about the packages in your virtualenv. And what is installed is verified once,
   when it is downloaded: if you edit the files under `LanguageServers/` yourself,
   the app runs what you put there.
+- The Go server (`gopls`) is macOS-only and covers the same Go to Definition and
+  completion, with the same absence of diagnostics, hover types, rename, status
+  indicator and log. It needs a Go toolchain — there is no offer without one, and
+  a `go` that cannot answer `go env` counts as none. A `gopls` you already have
+  is used **at whatever version it is**: none is read, required or shown, and it
+  is never replaced or updated by Pisaka. A build Pisaka does run is your own
+  `go install`, so it uses your module and build caches (only `GOBIN` is
+  redirected) and, with Go's default `GOTOOLCHAIN=auto`, an older toolchain may
+  fetch a newer one to build with. It is attempted **once per launch**: if it
+  fails, the Settings row says why and offers Retry rather than trying again
+  every time you switch to a Go file. Discovery happens once per launch too, so a
+  Go toolchain installed while Pisaka is running is found at the next launch. The
+  version is pinned in the app and there is no version picker.
 - The tree-sitter fallback — which is what every other language, and Swift without
   Xcode, always uses — is index-based, not a compiler: Go to Definition matches a
   *name*, so it cannot tell two same-named declarations apart (it lists both),
@@ -766,3 +823,8 @@ are read out of the tree that was actually installed, so the notice and the code
 it covers are always the same bytes. They appear in the *Language Servers*
 section of Acknowledgements while they are installed and disappear when you
 remove them.
+
+`gopls` is not in either place, for a related reason: Pisaka bundles none of it
+and downloads none of it, and `go install` writes one binary and no license file
+to read. It comes from [github.com/golang/tools](https://github.com/golang/tools)
+and is BSD-3-Clause; the Go row in **Preferences → Language Servers** says so.

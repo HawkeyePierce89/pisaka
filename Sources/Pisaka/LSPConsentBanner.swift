@@ -2,14 +2,22 @@
 import SwiftUI
 import PisakaCore
 
-/// The one place this app asks to download something (D15).
+/// The one place this app asks to acquire something (D15).
 ///
 /// A non-modal strip between the breadcrumb and the editor, shown only while
-/// `LSPProvisioningModel.consentPrompt(forOpening:)` answers for the selected
-/// tab's language. Everything about *when* it appears is that rule's — a
-/// downloadable language, consent still `unasked`, nothing installed or
-/// installing — so this view holds no state of its own and cannot disagree with
-/// the Settings surface about whether the question is still open.
+/// `LSPProvisioningModel.consentPrompt(forOpening:)` — or, for Go,
+/// `LSPGoplsProvisioningModel.consentPrompt(forOpening:)` — answers for the
+/// selected tab's language. Everything about *when* it appears is those rules' —
+/// a provisionable language, consent still `unasked`, nothing installed or
+/// installing (and, for Go, a `go` to build with) — so this view holds no state
+/// of its own and cannot disagree with the Settings surface about whether the
+/// question is still open.
+///
+/// **Two questions, one strip, and never both at once.** The two contributors
+/// serve disjoint languages, so the branches cannot collide today; the download
+/// branch is nonetheless checked first and stated to win, because a banner that
+/// asked two questions in one row — or stacked two rows above an editor — would
+/// be a worse thing to discover than an arbitrary order.
 ///
 /// **Two actions and no third way out.** There is no ✕, no "Later" and no
 /// Esc-to-dismiss, and that is the deliberate half of "asked once": the banner
@@ -26,6 +34,11 @@ import PisakaCore
 /// the semantic half.
 struct LSPConsentBanner: View {
     @ObservedObject var provisioning: LSPProvisioningModel
+
+    /// The Go half. Observed for the same reason as `provisioning`: what makes
+    /// the strip appear and disappear is a published change on the model, and
+    /// this view is the one place that reads it.
+    @ObservedObject var gopls: LSPGoplsProvisioningModel
 
     /// The selected tab's language, or `nil` when nothing is open or the file's
     /// language is not recognized. Resolved by `ContentView` from the tab's
@@ -62,7 +75,9 @@ struct LSPConsentBanner: View {
         // empty case and so would never run.
         VStack(spacing: 0) {
             if let prompt {
-                strip(prompt)
+                strip { downloadRow(prompt) }
+            } else if let goPrompt {
+                strip { goRow(goPrompt) }
             }
         }
         // The silent half of D15, and the reason this modifier is here rather
@@ -84,6 +99,11 @@ struct LSPConsentBanner: View {
         .task(id: Trigger(language: language, hasProjectRoot: hasProjectRoot)) {
             guard hasProjectRoot, let language else { return }
             await provisioning.prepareForOpening(language)
+            // Both contributors, in the branch order above, and sequential rather
+            // than concurrent: each does nothing at all for a language that is not
+            // its own, so the second call is a guard away from a return in every
+            // case where the first one had work to do.
+            await gopls.prepareForOpening(language)
         }
     }
 
@@ -99,16 +119,27 @@ struct LSPConsentBanner: View {
         return provisioning.consentPrompt(forOpening: language)
     }
 
-    private func strip(_ prompt: LSPConsentPrompt) -> some View {
+    /// The Go question, under the same project-root precondition as the download
+    /// one: `LSPWorkspace.prepare` opens with `guard let root = currentRoot`, so a
+    /// `.go` file opened on its own with ⌘O has nothing to serve — and gopls needs
+    /// a module even more plainly than sourcekit-lsp does. Spending the one-shot
+    /// consent there would ask the question in the one state where accepting
+    /// demonstrably changes nothing.
+    private var goPrompt: LSPGoConsentPrompt? {
+        guard hasProjectRoot, let language else { return nil }
+        return gopls.consentPrompt(forOpening: language)
+    }
+
+    private func strip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 0) {
-            row(prompt)
+            content()
             // The banner's own bottom rule, so the editor zone needs no
             // conditional `Divider()` beside a view that is usually empty.
             Divider()
         }
     }
 
-    private func row(_ prompt: LSPConsentPrompt) -> some View {
+    private func downloadRow(_ prompt: LSPConsentPrompt) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "arrow.down.circle")
                 .foregroundStyle(.tint)
@@ -148,6 +179,69 @@ struct LSPConsentBanner: View {
 
             Button("No Thanks") {
                 provisioning.decline(prompt.server)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(NSColor.controlBackgroundColor))
+    }
+
+    /// The Go question: the same strip, the same two actions and the same absence
+    /// of a dismiss, with the copy that says what actually happens (D20).
+    ///
+    /// **A hammer rather than a download arrow**, and no size, because there is no
+    /// download: accepting runs the user's own `go`, which fetches the module
+    /// through Go's tooling and compiles it. Naming that `go` is the whole
+    /// difference between this prompt and the one above — it is the user's
+    /// toolchain, their module cache and their build cache doing the work, and a
+    /// sentence that said "Pisaka will download gopls" would be false in every
+    /// clause.
+    ///
+    /// The caches are named for the same reason, and the claim is deliberately
+    /// narrower than the one this copy first made: only `GOBIN` is redirected, so
+    /// the *installed binary* is the app's and the intermediates are the user's —
+    /// `go install` writes into their `GOMODCACHE`/`GOCACHE`, and with
+    /// `GOTOOLCHAIN=auto` may fetch a newer toolchain into the same cache (both
+    /// recorded known limits in `core-lsp.md`). "Nothing outside its own folder is
+    /// changed" was therefore a promise the install does not keep; "nothing is
+    /// *installed* outside its own folder", plus the sentence about the caches, is
+    /// what it does.
+    private func goRow(_ prompt: LSPGoConsentPrompt) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "hammer")
+                .foregroundStyle(.tint)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Install \(prompt.displayName) with your Go toolchain?")
+                    .font(.callout)
+                Text(
+                    "Pisaka will build version \(prompt.version) with the Go at "
+                    + "\(prompt.goExecutablePath) and keep the result to itself — nothing is "
+                    + "downloaded by Pisaka and nothing is installed outside its own folder. "
+                    + "The build runs as your own “go install” would, using and adding to your "
+                    + "Go module and build caches. "
+                    + "It adds project-wide completion and Go to Definition for these files; "
+                    + "without it they keep using the built-in index."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 8)
+
+            // Unawaited, and pointer-only, for the download branch's two reasons:
+            // the build runs for minutes while the banner must go away the moment
+            // the answer is recorded (`accept` records it synchronously before its
+            // first hop), and a `.defaultAction` here would put every Return typed
+            // in the file behind this strip on the key-equivalent path.
+            Button("Install") {
+                Task { await gopls.accept() }
+            }
+
+            Button("No Thanks") {
+                gopls.decline()
             }
         }
         .padding(.horizontal, 12)

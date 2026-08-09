@@ -67,7 +67,12 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
     /// toolchain that was deleted between the `xcrun` lookup and now — is the same
     /// answer to `LSPWorkspace`, which spends one restart on it and falls back
     /// silently in the meantime.
-    init(executable: URL, arguments: [String], directory: URL) throws {
+    init(
+        executable: URL,
+        arguments: [String],
+        directory: URL,
+        environment: [String: String] = [:]
+    ) throws {
         var escaped: AsyncStream<Data>.Continuation!
         // Unbounded on purpose. Every element is a piece of the message stream and
         // dropping one desyncs `LSPFraming.Decoder` for good; the bound that
@@ -87,11 +92,19 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = errors
-        // The environment is inherited wholesale and never assigned: a language
+        // The environment is inherited wholesale and never *replaced*: a language
         // server resolves its toolchain, its caches and its build system out of
-        // `PATH`/`HOME`/`DEVELOPER_DIR`, and replacing the environment to add one
+        // `PATH`/`HOME`/`DEVELOPER_DIR`, and assigning the environment to add one
         // variable would take all of that away (`GitCLIService.run`'s reasoning,
-        // one level down). Nothing here needs a variable set, so nothing is.
+        // one level down). A description that names variables therefore gets them
+        // merged *over* the inherited set and nothing else is touched — and a
+        // description that names none (every server but gopls) leaves
+        // `process.environment` unassigned exactly as before, so the inheritance
+        // is the real one rather than a copy this process took of it.
+        if !environment.isEmpty {
+            process.environment = ProcessInfo.processInfo.environment
+                .merging(environment) { _, overlay in overlay }
+        }
 
         // Writing to a pipe whose read end is gone raises `SIGPIPE`, and the
         // default disposition of `SIGPIPE` kills the *app*. A server that crashes
@@ -307,7 +320,8 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
         return try LSPProcessTransport(
             executable: URL(fileURLWithPath: path),
             arguments: description.arguments,
-            directory: root
+            directory: root,
+            environment: description.environment
         )
     }
 }

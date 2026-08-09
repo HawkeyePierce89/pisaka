@@ -18,6 +18,11 @@ public enum RunCommand {
         "cjs": ["node"],
         "py": ["python3"],
         "swift": ["swift"],
+        // `go run <file>` compiles and runs that one file, so a `main` split
+        // across several files of a package needs `go run .` from the terminal.
+        // Every entry in this map runs a single file — that is the map's shape,
+        // not a Go-specific shortfall.
+        "go": ["go", "run"],
         "sh": ["bash"],
         "bash": ["bash"],
     ]

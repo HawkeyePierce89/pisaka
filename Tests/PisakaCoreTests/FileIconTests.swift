@@ -25,6 +25,9 @@ final class FileIconTests: XCTestCase {
             "config.yml": FileIcon(symbolName: "list.bullet.indent", color: .purple),
             "README.md": FileIcon(symbolName: "text.alignleft", color: .blue),
             "script.py": FileIcon(symbolName: "chevron.left.forwardslash.chevron.right", color: .green),
+            // `go` was already in the extension map before Go became a
+            // `SyntaxLanguage`; pinned here so the icon and the language agree.
+            "main.go": FileIcon(symbolName: "chevron.left.forwardslash.chevron.right", color: .blue),
             "run.sh": FileIcon(symbolName: "terminal", color: .green),
             "style.css": FileIcon(symbolName: "paintbrush", color: .blue),
             "logo.png": FileIcon(symbolName: "photo", color: .purple),

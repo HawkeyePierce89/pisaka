@@ -36,6 +36,7 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
     case json
     case markdown
     case python
+    case go
     case html
     case css
     case yaml
@@ -106,6 +107,7 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
         "md": .markdown,
         "markdown": .markdown,
         "py": .python,
+        "go": .go,
         "html": .html,
         "htm": .html,
         "css": .css,

@@ -12,7 +12,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     removed; diffs open in a separate window on double-click). The `if let file`
     branch of `editorZone` is a `VStack(spacing: 0) { PathBarView(fileURL:
     file.url, projectRoot: model.projectRoot).equatable(); Divider();
-    LSPConsentBanner(provisioning:language:hasProjectRoot:); <SearchBarView while
+    LSPConsentBanner(provisioning:gopls:language:hasProjectRoot:); <SearchBarView while
     search.isVisible>; CodeEditorView(…) }` — so the find bar
     sits between the breadcrumb and the editor and, living inside `editorZone`,
     covers **both** tab layouts at once (in `.horizontal` it simply lands under the
@@ -21,12 +21,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     covering the file's own path; it is keyed on `SyntaxLanguage(forFileName:
     file.displayName)` and on `model.projectRoot != nil`, and renders nothing at
     all — no layout, no divider — unless that language has an unanswered,
-    uninstalled downloadable server *and* there is a project for it to serve
+    uninstalled server *this app can provision* — downloaded (phase 2b) **or built
+    by the user's own Go toolchain** (gopls, D17) — *and* there is a project for it
+    to serve
     (`LSPWorkspace` refuses to prepare anything without a root, so offering the
     download with only a loose file open would spend a permanent, one-shot consent
-    on something that could not demonstrate itself). The same
+    on something that could not demonstrate itself). The two contributors serve
+    disjoint languages, so the branches cannot collide today; the download branch
+    is nonetheless checked first and stated to win, because a strip that asked two
+    questions at once would be a worse thing to discover than an arbitrary order.
+    `gopls: LSPGoplsProvisioningModel` is threaded in beside `provisioning` and,
+    like it, is **not** observed by `ContentView` — the banner observes both
+    itself, so an install's state changes redraw the strip and not the window. The same
     keyed view is where an *already accepted* server is installed on first use, so
-    both halves of "what happens when this file is opened" stay in one place. `ContentView` takes `search: EditorSearchState` and `reveal:
+    both halves of "what happens when this file is opened" stay in one place; the
+    Go half of that awaits discovery rather than reading it, since the search is
+    started unawaited at launch and a restored `.go` tab regularly beats it (entry
+    in `core-lsp.md`). `ContentView` takes `search: EditorSearchState` and `reveal:
     EditorRevealState` (both defaulted so previews compile) and threads them into
     `CodeEditorView`, along with `fileURL: file.url` and `diskRevision:
     model.diskRevision(for: file.id)` for the gutter's git-blame column (both with

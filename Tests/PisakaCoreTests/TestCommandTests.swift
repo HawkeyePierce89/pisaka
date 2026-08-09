@@ -54,6 +54,11 @@ final class TestCommandTests: XCTestCase {
     func testIsTestFileGo() {
         XCTAssertTrue(TestCommand.isTestFile(fileName: "foo_test.go"))
         XCTAssertFalse(TestCommand.isTestFile(fileName: "foo.go"))
+        // `go test` recognises the `_test.go` suffix alone; Python's leading
+        // `test_` and JS's infix `.test.` are other ecosystems' conventions and
+        // must not leak into Go's.
+        XCTAssertFalse(TestCommand.isTestFile(fileName: "test_foo.go"))
+        XCTAssertFalse(TestCommand.isTestFile(fileName: "foo.test.go"))
     }
 
     func testIsTestFileSwift() {
@@ -243,6 +248,20 @@ final class TestCommandTests: XCTestCase {
     // MARK: - Go / Rust directory-target
 
     func testGoTargetsDirectory() {
+        XCTAssertEqual(
+            TestCommand.command(forFileName: "a_test.go", absolutePath: "/p/pkg/a_test.go", evidence: evidence()),
+            .command("go test '/p/pkg'")
+        )
+    }
+
+    // Go's run and test resolution predate `SyntaxLanguage.go` — both were
+    // written against the bare extension. Now that the extension is a language,
+    // pin that the three agree on the same file, so a later change to one of the
+    // maps cannot silently leave a Go file runnable but not testable.
+    func testGoRunTestAndLanguageAgreeOnTheSameFile() {
+        XCTAssertEqual(SyntaxLanguage(forFileName: "a_test.go"), .go)
+        XCTAssertTrue(TestCommand.isTestFile(fileName: "a_test.go"))
+        XCTAssertTrue(RunCommand.canRun(fileName: "a_test.go"))
         XCTAssertEqual(
             TestCommand.command(forFileName: "a_test.go", absolutePath: "/p/pkg/a_test.go", evidence: evidence()),
             .command("go test '/p/pkg'")

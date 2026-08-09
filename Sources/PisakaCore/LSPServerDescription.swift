@@ -48,18 +48,39 @@ public struct LSPServerDescription: Equatable, Hashable, Sendable, Identifiable 
     /// having an opinion about its shape.
     public let initializationOptions: JSONValue?
 
+    /// Environment variables laid **over** the app's own for this server's
+    /// process, empty for almost every server.
+    ///
+    /// An overlay and never a replacement: a language server resolves its
+    /// toolchain, its caches and its build system out of the environment it
+    /// inherits, so `LSPProcessTransport` merges these on top of
+    /// `ProcessInfo.processInfo.environment` rather than assigning them
+    /// (`GitCLIService.run`'s reasoning, one level down). Empty for sourcekit-lsp
+    /// (`xcrun`/`DEVELOPER_DIR` already answer), for
+    /// `typescript-language-server` and for pyright (launched as an absolute-path
+    /// `node` plus an absolute-path script, resolving nothing off `PATH`).
+    ///
+    /// It exists for gopls, which is the one server so far that looks a *second*
+    /// executable up on `PATH` — see `LSPGoToolchainReport.found`'s `searchPath`.
+    /// Carried on the description rather than resolved at launch because the
+    /// value is machine-specific knowledge D9 keeps out of Core: the app finds it
+    /// and puts it here, and Core only passes it along.
+    public let environment: [String: String]
+
     public init(
         id: String,
         languages: Set<SyntaxLanguage>,
         launch: Launch,
         arguments: [String] = [],
-        initializationOptions: JSONValue? = nil
+        initializationOptions: JSONValue? = nil,
+        environment: [String: String] = [:]
     ) {
         self.id = id
         self.languages = languages
         self.launch = launch
         self.arguments = arguments
         self.initializationOptions = initializationOptions
+        self.environment = environment
     }
 
     /// The one server phase 2a ships.
@@ -141,6 +162,7 @@ extension SyntaxLanguage {
         case .json: return "json"
         case .markdown: return "markdown"
         case .python: return "python"
+        case .go: return "go"
         case .html: return "html"
         case .css: return "css"
         case .yaml: return "yaml"

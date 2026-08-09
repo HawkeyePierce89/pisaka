@@ -45,6 +45,23 @@ The decisions D11–D16 are written out at the end of this document, together wi
 the pinned manifest, the by-hand update procedure and the limits the design
 carries. D1–D10 are in `core-lsp.md`.
 
+**gopls is not one of these, and there is no gopls artifact to look for.** The Go
+language work added a *second* registry contributor beside this one, and it
+deliberately reuses only the half of this layer that is not about bytes. It
+**does** reuse `LSPInstallLayout`'s path math (string-keyed, so it needs no
+`LSPComponent`), `LSPInstallEngine.remove(_:)` (which deletes any component
+directory on disk whether or not the manifest describes it), the same install
+root and therefore the same `sweepStaging()`, D13's stage-then-one-rename
+atomicity, D16's push-then-delete removal ordering, the `LSPServerConsent`
+dictionary in `SettingsStore` under one more id, and both surfaces below — the
+consent banner and the Language Servers tab. It **does not** touch
+`LSPProvisioningManifest`, `LSPDownloadableServer`, `LSPComponent`, `SHA256`, the
+two download/unpack seams, or `LSPInstallEngine`'s install path: there are no
+official prebuilt gopls binaries, so there is no URL, no digest, no archive and
+nothing to unpack — it is discovered if the user already has it, and otherwise
+built by the user's own Go toolchain. All of it, with decisions D17–D20, is in
+`core-lsp.md`.
+
 ## Files
 
 ### `PisakaCore`
@@ -481,6 +498,25 @@ carries. D1–D10 are in `core-lsp.md`.
     where accepting demonstrably changes nothing.
     `size(_:)` formats through `ByteCountFormatter`, so "52.2 MB" here means what
     it means in the Finder.
+    **It asks the Go question too, and never both at once.** A second branch
+    renders `LSPGoplsProvisioningModel.consentPrompt(forOpening:)` in the same
+    strip, with the same two actions and the same absence of a dismiss, and the
+    `.task` calls both models' `prepareForOpening` in the same branch order. The
+    copy is what differs, because what happens differs: a hammer rather than a
+    download arrow, no size at all, and a sentence naming the user's own `go` —
+    accepting builds gopls from source with the toolchain at that path, and
+    Pisaka downloads nothing (D20). **That copy claims only what the install
+    keeps**: nothing is *installed* outside the app's own folder, and the build
+    "runs as your own `go install` would, using and adding to your Go module and
+    build caches". Only `GOBIN` is redirected, so the intermediates are the user's
+    (`GOMODCACHE`/`GOCACHE`, plus whatever `GOTOOLCHAIN=auto` fetches into them) —
+    both recorded known limits in `core-lsp.md`, and the reason an earlier
+    "nothing outside its own folder is changed" was too strong a sentence to show
+    above a button that grants consent. The download branch is checked first and is
+    stated to win; the two contributors serve disjoint languages and cannot
+    collide today, but a strip asking two questions in one row would be a worse
+    thing to discover than an arbitrary order. `strip` is generic over its
+    content so both rows share the bottom rule.
 
   - `LSPServerSettingsView.swift` — Preferences → Language Servers, the whole
     management surface: one row per downloadable server showing the state the
@@ -503,6 +539,21 @@ carries. D1–D10 are in `core-lsp.md`.
     A thin view in the `GeneralSettingsView` mould — every rule (which actions
     apply, what the state is, what it costs) is a property of `LSPServerRow` and
     is unit-tested in Core.
+    **The Go row is last, under the same rules from a different model.** It
+    renders `LSPGoServerRow` — D19's states plus the `pending` one the lifecycle
+    starts in, drawn as "Looking for a Go toolchain…" rather than guessed at —
+    with Install/Retry gated on `canInstall` and Remove on `canRemove`, neither
+    rule spelled in the view. It comes after the downloadable rows because those
+    are a fixed, stated list (`LSPDownloadableServer.allCases`) and appending
+    keeps that order visible rather than interleaving a row that obeys different
+    rules. Two of the tab's own sentences changed with it, both made untrue by a
+    server that is *built* rather than fetched: the header now says "download or
+    build", and the install-root footer says **anything Pisaka installs** lives
+    there — a gopls found in `~/go/bin` is used from where it is and is no more
+    affected by deleting that directory than by the Remove button that does not
+    appear for it. A third sentence is new and is gopls's whole licence surface;
+    see `LSPInstalledLicenses.swift` below for why it is a sentence here rather
+    than a document there.
 
   - `LSPInstalledLicenses.swift` — the license texts of whatever is *installed*,
     read from the installed tree. **Why these are not in `Resources/Licenses/`**:
@@ -534,6 +585,13 @@ carries. D1–D10 are in `core-lsp.md`.
     the separator line ("everything above this line is the verbatim text of the
     file named at the top of this entry") would then restate, compounding the
     mislabel instead of containing it.
+    **gopls is deliberately not here.** `go install` writes one binary and
+    nothing else, so there is no licence file in the installed tree to read —
+    and nothing for `licenses.json` to cover either, this app bundling no gopls
+    bytes at all. The substitute is one sentence in the Language Servers tab
+    naming the origin and the BSD-3-Clause licence, built from `LSPGopls.origin`
+    / `licenseSPDX` so the fact lives in Core beside the pin. That is a decision
+    rather than an omission, which is why it is written down in both places.
 
   - `PisakaApp.swift` (modified) — composes the layer exactly once in `init`:
     the install root (`~/Library/Application Support/Pisaka/LanguageServers` —
@@ -552,14 +610,34 @@ carries. D1–D10 are in `core-lsp.md`.
     state, so "restore the registry" is a directory listing and a language
     answers from tree-sitter for the moment it takes, exactly as it does when no
     server exists. Full entry in `app-shell.md`.
+    **The gopls pair is composed beside it, over the *same* engine.**
+    `makeGopls(engine:settings:)` takes the engine `makeProvisioning` built
+    rather than constructing a second one: the install root is one directory and
+    `sweepStaging()` sweeps all of it, so two layouts over one path is how a
+    Remove ends up looking where nothing was written. Discovery is kicked off
+    here, unawaited (`LSPToolchain.prewarm()`'s position), so a machine with no
+    `go` spends its login-shell search entirely off the launch path. The registry
+    merge is **two** `@MainActor` closures rather than one shared function —
+    each takes its own contributor's *new* value as a parameter and reads the
+    other's published one, which is what makes the push see the change being made
+    rather than the state before it. The service is held by `PisakaApp` (not only
+    by the model) because the terminate observer calls its `terminateNow()`
+    beside `lspWorkspace`'s: a quit mid-build must leave no `go` child, and the
+    teardown is permanent as well as immediate, so a `.go` tab opened after the
+    observer cannot start another build.
 
   - `ContentView.swift` (modified) — hosts `LSPConsentBanner` in the editor zone
     between the path bar and the find bar, keyed on
-    `SyntaxLanguage(forFileName:)` of the selected tab. Full entry in
-    `app-window.md`.
+    `SyntaxLanguage(forFileName:)` of the selected tab, and hands it **both**
+    contributors. Neither is observed here, for the same reason: the banner
+    observes them itself, and a `ContentView` that did would redraw the whole
+    window on every install state change. Full entry in `app-window.md`.
 
   - `SettingsView.swift` / `AcknowledgementsView.swift` (modified) — Preferences
-    gains a third tab, and Acknowledgements gains a "Language Servers" section
+    gains a third tab (which now also threads the gopls model through to the
+    Language Servers pane, and only there — gopls ships no licence file into its
+    install, so Acknowledgements has nothing of it to show), and Acknowledgements
+    gains a "Language Servers" section
     that exists only while something is installed. The section is re-read on a
     `.task(id: provisioning.rows)`, so an install completing, a removal finishing
     and a relaunch's `refresh()` all land there for free; a removal that deletes

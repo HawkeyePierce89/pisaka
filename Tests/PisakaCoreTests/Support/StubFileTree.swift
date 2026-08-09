@@ -89,11 +89,18 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
     /// Held on the read of this exact root-relative path, once.
     var readGate: (path: String, gate: Gate)?
 
+    /// One completed rename, as root-relative paths.
+    struct Move: Equatable {
+        let from: String
+        let to: String
+    }
+
     private let lock = NSLock()
     private var readPathsStorage: [String] = []
     private var stampPathsStorage: [String] = []
     private var writtenPathsStorage: [String] = []
     private var removedPathsStorage: [String] = []
+    private var movesStorage: [Move] = []
 
     /// The root-relative paths whose contents were read, in call order.
     var readPaths: [String] {
@@ -123,6 +130,15 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return removedPathsStorage
+    }
+
+    /// The renames that succeeded, in call order — how "the version directory
+    /// came into existence in **one** `move`" (D13) is asserted as a count
+    /// rather than inferred from the tree that resulted.
+    var moves: [Move] {
+        lock.lock()
+        defer { lock.unlock() }
+        return movesStorage
     }
 
     init(root: URL, files: [String: String]) {
@@ -263,6 +279,9 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
             directories.remove(directory)
             directories.insert(to + directory.dropFirst(from.count))
         }
+        lock.lock()
+        movesStorage.append(Move(from: from, to: to))
+        lock.unlock()
     }
 
     func removeItem(at url: URL) throws {

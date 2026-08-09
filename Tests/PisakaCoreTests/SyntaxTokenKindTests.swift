@@ -87,8 +87,8 @@ final class SyntaxTokenKindTests: XCTestCase {
     // (gitignore's, hand-written; dotenv's, vendored verbatim) are pinned by
     // `VendoredGrammarQueryTests`, which reads the `.scm` files themselves — so a
     // query that gains or renames a capture fails there instead of silently
-    // rendering default-colored text. Only the dockerfile grammar is remote, and
-    // so unreadable from this suite; its names stay pinned by hand below.
+    // rendering default-colored text. The dockerfile and Go grammars are remote,
+    // and so unreadable from this suite; their names stay pinned by hand below.
 
     func testDockerfileGrammarQueryCaptureNamesResolve() {
         // The exact capture names emitted by the dockerfile grammar's own
@@ -106,6 +106,40 @@ final class SyntaxTokenKindTests: XCTestCase {
             "punctuation.special": .punctuation, // image tag/digest separators, `${…}`
             "string": .string,                   // quoted strings, JSON strings, heredoc lines
             "constant": .constant,               // SCREAMING_CASE variables
+        ]
+
+        for (name, kind) in emitted {
+            XCTAssertEqual(SyntaxTokenKind(captureName: name), kind, "capture \(name)")
+            XCTAssertNotEqual(SyntaxTokenKind(captureName: name), .plain, "capture \(name) must not render plain")
+        }
+    }
+
+    func testGoGrammarQueryCaptureNamesResolve() {
+        // The exact capture names emitted by the Go grammar's own
+        // `queries/highlights.scm` (tree-sitter/tree-sitter-go 0.25.0, revision
+        // 1547678a…), read out of the resolved checkout at the time it was
+        // pinned — the dockerfile precedent above, for the same reason: a remote
+        // query cannot be re-read from here, so what this guards is that the Core
+        // mapping keeps resolving every name the grammar emits.
+        //
+        // Thirteen names, and `escape` is why `SyntaxTokenKind.nameMap` gained an
+        // entry: this grammar spells string escapes bare rather than
+        // `@string.escape`, so before that entry every `\n` in a Go string was
+        // default-colored — the exact silent failure this suite exists to catch.
+        let emitted: [String: SyntaxTokenKind] = [
+            "keyword": .keyword,           // func, type, range, go, defer, …
+            "type": .type,                 // type identifiers
+            "function": .function,         // call targets, declared functions
+            "function.builtin": .function, // len, cap, append, …
+            "function.method": .function,  // method declarations and calls
+            "property": .property,         // struct field names
+            "variable": .variable,         // identifiers
+            "constant.builtin": .constant, // nil, true, false, iota
+            "string": .string,             // interpreted + raw string literals
+            "escape": .string,             // `\n`, `\t`, `\uXXXX` inside a string
+            "number": .number,             // int/float/imaginary literals
+            "operator": .operator,         // `:=`, `<-`, arithmetic, …
+            "comment": .comment,           // `//` and `/* … */`
         ]
 
         for (name, kind) in emitted {

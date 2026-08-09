@@ -625,7 +625,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `true`/`nil`/`None`, the widely-used contextual keywords) and nothing more.
     They are deliberately not a standard-library index: `print`, `console` and
     `String` are declarations, and a project that uses them has them in its buffer
-    or (for its own code) in its symbol index already. TypeScript is *composed*
+    or (for its own code) in its symbol index already. Go's list is what sharpens
+    that rule into the one sentence the others were following implicitly: **an
+    identifier belongs here when no source file can ever declare it.** That is why
+    Go reaches past the 25 reserved words into the whole universe block — its 22
+    predeclared types, 4 constants and 18 built-in functions, 69 entries in all —
+    and why the reach is not a contradiction of the paragraph above even though it
+    contains `print` and `println`. A universe-block name is declared in no file
+    anywhere, so neither the symbol index nor the harvested buffer words can ever
+    offer it, and leaving it out would make `len`, `error` and `nil`
+    uncompletable in a Go project forever; `fmt.Println` *is* a declaration in a
+    package and stays out, along with every other qualified name.
+    `LanguageKeywordsTests` pins the Go list by **set equality** against those four
+    families spelled out separately, because a subset check is what a hand edit
+    slips through — dropping `close` or `float32` from 69 entries leaves every
+    shape invariant true and silently loses a built-in nothing else can offer. TypeScript is *composed*
     from JavaScript plus a type-level list and re-sorted, so there is one list to
     maintain instead of two that drift and the composition cannot break the sorted
     invariant. **A keyword is never a definition**: `SymbolIntelligenceProvider`'s
@@ -927,7 +941,7 @@ The language knowledge itself lives outside Core, in
 `.gitignore`, wired into the bundle as a **folder reference** in `project.yml`
 (like `Resources/Licenses`, so adding a language's query needs no `xcodegen
 generate`) and loaded by `SymbolQueryCatalog`. One convention, authored once and
-used by all eleven files: **the captured node is always the name node**, the
+used by all twelve files: **the captured node is always the name node**, the
 capture name is the kind (`@definition.type`, `@definition.function`, …), and an
 optional `@container` capture *in the same match* supplies the enclosing type's
 name — which is why `SymbolExtractor` walks matches rather than captures.
@@ -966,8 +980,8 @@ equality of emitted capture names against what `SymbolKind` resolves, each kind
 capture resolving to *its own* kind, the single auxiliary capture
 (`@_attribute`, the HTML `id` filter) pinned by its own set equality, the dotenv
 query validated against the vendored grammar's own `node-types.json` under the
-matching `named` flag *and* against its declared field table, and — for the ten
-remote grammars, whose sources are not in the repository — the node-name,
+matching `named` flag *and* against its declared field table, and — for the
+eleven remote grammars, whose sources are not in the repository — the node-name,
 anonymous-literal and field-name sets pinned by hand, the way
 `SyntaxTokenKindTests` pins the dockerfile captures, so a grammar update that
 renames a node or a field fails with the language named.
@@ -995,3 +1009,93 @@ the completion list, exactly as `Vendor/TreeSitterGitignore/VENDORED.md` require
 for the highlight query it holds. A pinned-node-name test failing is the *cheap*
 signal; this is the one that catches a node whose meaning changed while its name
 did not.
+
+### `Resources/Queries/go/symbols.scm` — the four decisions and the confirmed captures
+
+Go's query (grammar `tree-sitter/tree-sitter-go`, pinned `0.25.0`, revision
+`1547678a…`) follows the shared convention and makes four decisions worth reading
+as decisions rather than as accidents.
+
+**The pointer star is stripped by the grammar, not by us.** `*` is an anonymous
+token inside `pointer_type`, so capturing the `type_identifier` *inside* it yields
+`Worker`, not `*Worker` — which is the spelling the type itself is indexed under
+and therefore the only one `SymbolIntelligenceProvider`'s receiver promotion
+(`index.declaresType(named:)`) can look up. That is why the four receiver forms
+(value, pointer, generic, pointer-to-generic) are four separate patterns:
+`[(type_identifier) (pointer_type …)] @container` would capture the *`pointer_type`
+node* in the pointer case and put the star back, and `*Worker` matches no declared
+type.
+
+**Interface methods are methods with the interface as their container**, so a
+member completion after a value of interface type lists them. The node is
+`method_elem`; it was `method_spec` in grammars before 0.25, which is exactly the
+rename `SymbolQueryTests`' hand-pinned node set exists to surface on a pin bump.
+An *embedded* interface (`fmt.Formatter`) is a `type_elem` and is deliberately not
+matched — it declares nothing new.
+
+**Consts and vars are anchored to `source_file`**, the JavaScript/TypeScript
+reasoning verbatim: unanchored, `var_spec` matches every `var` inside every
+function body and the index fills with locals. `var_spec_list` needs a second
+pattern because a grouped `var ( … )` block nests one level deeper; a grouped
+`const ( … )` does not. Types are *not* anchored, matching the JS/TS treatment of
+nested classes — a `type` declared inside a function body is a declaration worth
+finding (and so are its fields, which is why the struct and interface patterns
+navigate from `type_spec` rather than from `type_declaration`), and is rare enough
+that it cannot flood a picker the way a loop counter can. `function_declaration`
+*is* anchored, and that costs nothing: Go has no nested function declarations at
+all — a function inside a function is a `func_literal` bound to a variable, which
+this query does not match either way — so the anchor is a statement of intent
+rather than a filter that ever fires.
+
+**The package clause is not indexed.** `package foo` repeats in every file of a
+directory, so indexing it would put N identical `foo` symbols in the picker for a
+name nobody jumps to.
+
+One further asymmetry is the grammar's, and the runtime check is what found it:
+the const pattern navigates by **position** (`(const_spec (identifier) @…)`) where
+the var patterns navigate by field (`var_spec name: (identifier)`). `const_spec`'s
+`name` field is declared to hold the separating `,` tokens as well as the
+identifiers, and a field whose run of children is interrupted by an anonymous
+token yields only its first named child to `name: (identifier)` — so
+`const A, B = 1, 2` indexed `A` alone. Every direct `identifier` child of a
+`const_spec` *is* a declared name (the initializers live one level down, inside
+`value: (expression_list)`), so dropping the field is exact rather than merely
+broader. `var_spec`'s `name` field holds identifiers only, and keeps the field.
+The grammar declares exactly two such comma-carrying fields, `const_spec.name` and
+`type_case.type`, and the query touches only the first.
+
+The runtime half of the recipe was run with `tree-sitter query` 0.25.10 against
+the resolved checkout (Core cannot link SwiftTreeSitter, so this is a throwaway
+CLI run, not a test), over a fixture exercising every pattern. Confirmed
+element by element:
+
+| fixture declaration | capture | text |
+|---|---|---|
+| `type Worker struct { … }` | `@definition.type` | `Worker` |
+| `Name string` | `@container` + `@definition.property` | `Worker` + `Name` |
+| `count int` | `@container` + `@definition.property` | `Worker` + `count` |
+| `X, Y int` | two `@definition.property` matches | `X`, `Y` |
+| `Inner struct{ Z int }` | `@definition.property` | `Inner` (not `Z` — the nested anonymous struct is not a named `type_spec`) |
+| `*Base` (embedded) | — | not captured; an embedded field declares no new name |
+| `type Stringer interface { … }` | `@definition.type` | `Stringer` |
+| `String() string` | `@container` + `@definition.method` | `Stringer` + `String` |
+| `fmt.Formatter` (embedded) | — | not captured (`type_elem`) |
+| `type Alias = Worker` | `@definition.type` | `Alias` |
+| `type Pair[K, V] struct { Key K }` | `@definition.type`, then `@container` + `@definition.property` | `Pair`, `Pair` + `Key` |
+| `const Version = "1.0"` | `@definition.constant` | `Version` |
+| `const First, Second = 1, 2` | two `@definition.constant` matches | `First`, `Second` |
+| `const ( Alpha = iota; Beta )` | two `@definition.constant` matches | `Alpha`, `Beta` |
+| `var Registry = …` | `@definition.variable` | `Registry` |
+| `var ( Global int; another string )` | two `@definition.variable` matches | `Global`, `another` |
+| `func New(…) *Worker` | `@definition.function` | `New` |
+| `local := 1` / `var localVar int` / `const localConst = 2` (inside `New`) | — | **not captured** — the `source_file` anchor at work |
+| `func (w Worker) String()` | `@container` + `@definition.method` | `Worker` + `String` |
+| `func (w *Worker) Increment()` | `@container` + `@definition.method` | `Worker` (no star) + `Increment` |
+| `func (p Pair[K, V]) Get()` | `@container` + `@definition.method` | `Pair` + `Get` |
+| `func (p *Pair[K, V]) Set(k K)` | `@container` + `@definition.method` | `Pair` + `Set` |
+| `package demo` | — | not captured, by decision |
+
+All twelve patterns fired, so none is dead. The remaining manual step is the one
+the recipe requires of every grammar update: open a `.go` file in a DEBUG build
+and confirm its declarations answer ⌃⌘J — the CLI proves the query compiles and
+captures, not that `SymbolQueryCatalog` found and loaded it.
