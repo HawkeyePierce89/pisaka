@@ -554,17 +554,34 @@ and ⌘U works.
 - Modify: `Tests/PisakaCoreTests/RunCommandTests.swift`,
   `Tests/PisakaCoreTests/TestCommandTests.swift`
 
-- [ ] pin `TestCommand` now that Rust is a language: `foo.rs` resolves to
+- [x] pin `TestCommand` now that Rust is a language: `foo.rs` resolves to
       `cargo test`, and Rust inherits neither Go's `_test.go` nor JS's infix
       `.test.` convention — every `.rs` file is a test target because Rust's tests
       live beside the code
-- [ ] pin the `RunCommand` decision rather than leaving it implied:
+      *(`testIsTestFileRust` now pins the three foreign conventions as answering
+      **true** — `foo_test.rs`, `test_foo.rs`, `foo.test.rs` are testable for the
+      same reason `lib.rs` is, not because they matched anything — so the failure
+      mode a borrowed suffix check would introduce is *excluding* files, and the
+      test says so. `testRustAlwaysResolves` gained the second half of the rule:
+      `cargo test` takes neither the file nor its directory, so the command is
+      one constant string, no evidence is consulted, and a path full of shell
+      metacharacters cannot reach the command line at all — unlike Go's.)*
+- [x] pin the `RunCommand` decision rather than leaving it implied:
       `canRun("main.rs")` is `false` and `command(forFileName:)` answers `nil`,
       with the test's comment carrying the reason (the map runs one file; Rust has
       a project runner and no file runner)
-- [ ] assert `SyntaxLanguage(forFileName:)`, `isTestFile` and `canRun` agree on one
+      *(`testRustHasNoRunner`, in its own MARK section so it reads as a decision
+      rather than as `.rs` falling through the "unsupported" test beside `.md`
+      and `Makefile`. The uppercase `MAIN.RS` is pinned too, since `canRun`
+      lowercases before the lookup and an entry added later would answer both.)*
+- [x] assert `SyntaxLanguage(forFileName:)`, `isTestFile` and `canRun` agree on one
       Rust file
-- [ ] run `swift test`
+      *(`testRustRunTestAndLanguageAgreeOnTheSameFile`, in the shape of the Go
+      agreement test it sits beside — and it is the one place the asymmetry is
+      stated rather than implied: same file, `.rust` / testable / **not**
+      runnable.)*
+- [x] run `swift test`
+      *(2225 tests, 0 failures.)*
 
 ### Task 6: The second archive format and the executable-bit gate
 
