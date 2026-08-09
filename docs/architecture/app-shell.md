@@ -168,6 +168,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     persisted to restore and no ordering against the session restore to get right).
     A language whose server has not been re-registered yet answers from tree-sitter
     for the moment it takes, exactly as it does when no server exists.
+    **gopls (D17) is composed beside it as a second registry contributor**, through
+    `makeGopls(engine:settings:)` and over the *same* `LSPInstallEngine`: it is not
+    downloaded, but it lives under the same install root, is swept by the same
+    `sweepStaging()`, is deleted by the same `engine.remove` and records its consent
+    in the same `SettingsStore` dictionary. D16's wiring is therefore **two**
+    `@MainActor` closures — `provisioning.onRegistryChange` and
+    `gopls.onDescriptionsChange` — each taking its own contributor's new value as a
+    parameter and reading the other's published one, and each merging base entries
+    first so `LSPServerRegistry`'s first-registration-wins rule leaves a
+    hand-registered override intact. `init` also kicks off `Task { await
+    gopls.discover() }` unawaited, at `LSPToolchain.prewarm()`'s position and for its
+    reason: the search shells out (up to a login shell) and the Settings row reads
+    `pending` until it answers. `lspGoToolchain` is a stored `let` rather than living
+    only inside the model, because the terminate observer below needs it.
     `closeFile(id:)` (and every branch of its confirmation) routes through
     `forgetIndexedBuffer(_:)`, which hands the tab's entry back to disk only when no
     tab still shows the file — so the Cancel branch, and a file legitimately reached
@@ -290,7 +304,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     rather than the graceful `shutdownAll()`**, because this is the last notification
     AppKit posts before the process exits: a `Task` wrapping the async teardown would
     compile, never be picked up, and leave exactly that orphan — the same reason the
-    autosave and session writers flush *synchronously* from this observer. It
+    autosave and session writers flush *synchronously* from this observer.
+    `lspGoToolchain.terminateNow()` is called beside it, and what it ends is worse
+    than an orphan server: a `go install` has a compiler and a linker beneath it,
+    all writing into a staging directory nothing will ever finish. It is also
+    **permanent** as well as immediate — a torn-down service refuses to launch
+    anything else — which closes the window between this observer firing and a `.go`
+    tab open landing on `prepareForOpening`. The release check is
+    `pgrep -f 'gopls|go install'` coming back empty after a quit. It
     also holds the shared
     `CommitLogModel` (real
     `GitCLIService`); `openFolder()` refreshes it (`CommitLogView.initialLimit`)
@@ -911,9 +932,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     tab, which is why the split is worth noting: `GeneralSettingsView` keeps its
     own `.frame(width: 340)` while the Acknowledgements tab — needing room to read
     a license — is what drives the window. `PisakaApp` constructs
-    `SettingsView(settings:provisioning:installEngine:)`, threading the
-    provisioning model and engine through to the two tabs that read them rather
-    than letting each build its own view of the install root.
+    `SettingsView(settings:provisioning:gopls:installEngine:)`, threading the
+    provisioning models and engine through to the tabs that read them rather
+    than letting each build its own view of the install root. `gopls` reaches the
+    Language Servers tab *only*: `go install` writes one binary and no license
+    file, so there is nothing of it in the installed tree for Acknowledgements to
+    read (the row names the origin and the SPDX id instead).
     `GeneralSettingsView` is the former Preferences form, verbatim: a thin
     `@ObservedObject
     SettingsStore` view (a `Form` with a `Picker` for tab orientation, a `Picker`

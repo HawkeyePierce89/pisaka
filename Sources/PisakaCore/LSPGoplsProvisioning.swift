@@ -200,13 +200,6 @@ public final class LSPGoplsProvisioningModel: ObservableObject {
         await task.value
     }
 
-    /// Re-derive everything from the disk and publish — the launch call, and the
-    /// one anything outside this model makes after touching the install root.
-    public func refresh() async {
-        updateRow()
-        await publish()
-    }
-
     // MARK: - Reading
 
     /// Which gopls answers right now, or none.
@@ -264,13 +257,24 @@ public final class LSPGoplsProvisioningModel: ObservableObject {
     /// re-triggered it. The budget is "once per app run, automatically"; the
     /// Settings row's Retry stays unconditional, and so does the next launch.
     public func prepareForOpening(_ language: SyntaxLanguage) async {
-        guard
-            language == .go,
-            settings.consent(for: LSPGopls.componentID) == .accepted,
-            failure == nil,
-            report?.hasToolchain == true,
-            installation == nil
-        else { return }
+        guard language == .go, settings.consent(for: LSPGopls.componentID) == .accepted else {
+            return
+        }
+
+        // Discovery is *awaited* here rather than read off `report`, and that is
+        // load-bearing rather than tidy. It is kicked off unawaited at launch and
+        // costs a subprocess — up to a login shell — while this runs from the
+        // banner's `.task`, which fires within milliseconds of the first render.
+        // A restored `.go` tab therefore regularly arrives before the answer
+        // does, and a `report` that is still `nil` at that moment would decline
+        // silently *for the whole app run*: the trigger this runs under does not
+        // fire again until the language or the project root changes, and nothing
+        // else calls this. `discover()` coalesces onto the one task, so every
+        // call after the first is free — and the non-Go guard above is what keeps
+        // that out of the ordinary tab open.
+        await discover()
+
+        guard failure == nil, report?.hasToolchain == true, installation == nil else { return }
         await install()
     }
 
@@ -355,10 +359,13 @@ public final class LSPGoplsProvisioningModel: ObservableObject {
     /// straight back to using that one — which is right, since this app neither
     /// put it there nor was asked about it.
     ///
-    /// Refuses for a discovered copy (`canRemove` says so too, and this is the
-    /// half that does not depend on a view): a binary in `~/go/bin` is not this
-    /// app's to delete, and `engine.remove` would not touch it anyway — it only
-    /// ever deletes inside the install root.
+    /// Refuses when there is nothing under the install root (`canRemove` says so
+    /// too, and this is the half that does not depend on a view): a binary in
+    /// `~/go/bin` is not this app's to delete, and `engine.remove` would not
+    /// touch it anyway — it only ever deletes inside the install root. What it
+    /// *does* reclaim is every version directory there, including one a pin bump
+    /// stranded, which is why the guard is "are there files" rather than "is the
+    /// pinned version installed" (`LSPGoServerRow.hasFilesOnDisk`).
     ///
     /// **Re-entrant calls and calls during an install return immediately**, for
     /// `LSPProvisioningModel.remove(_:)`'s reasons: the push suspends for as long
@@ -366,7 +373,7 @@ public final class LSPGoplsProvisioningModel: ObservableObject {
     /// find the descriptions already published and walk straight into deleting
     /// the executable the first call is still politely stopping.
     public func remove() async {
-        guard !isRemoving, attempt == nil, installation?.isAppInstalled == true else { return }
+        guard !isRemoving, attempt == nil, !installedVersions().isEmpty else { return }
         isRemoving = true
         updateRow()
         await publish()
@@ -522,6 +529,7 @@ public final class LSPGoplsProvisioningModel: ObservableObject {
             failureMessage: failure?.message,
             failureWasRemoval: failure?.wasRemoval ?? false,
             version: LSPGopls.version,
+            hasFilesOnDisk: !installedVersions().isEmpty,
             isRemoving: isRemoving
         )
     }

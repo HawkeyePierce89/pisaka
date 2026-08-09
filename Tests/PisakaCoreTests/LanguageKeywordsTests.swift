@@ -141,39 +141,54 @@ final class LanguageKeywordsTests: XCTestCase {
     /// invariants (sorted, unique, insertable, reachable) already come free from
     /// the per-language sweeps above.
     ///
-    /// The four families are asserted separately because they are four different
-    /// arguments for inclusion — a reserved word, a predeclared constant, a
-    /// predeclared type and a built-in function — and dropping any one of them
-    /// would leave that family uncompletable in a Go project with no other source
-    /// able to offer it.
-    func testGoListCoversTheReservedWordsAndTheUniverseBlock() {
-        let go = LanguageKeywords.keywords(for: .go)
-
-        // All 25 reserved words, in full: the list's floor.
+    /// The four families are spelled out separately because they are four
+    /// different arguments for inclusion — a reserved word, a predeclared
+    /// constant, a predeclared type and a built-in function — and dropping any
+    /// one of them would leave that family uncompletable in a Go project with no
+    /// other source able to offer it.
+    ///
+    /// Asserted by **set equality** against their union rather than as
+    /// representative subsets, because a subset check is exactly what a hand edit
+    /// slips through: dropping `close`, `println` or `float32` from a list of 69
+    /// leaves every named spelling still present and every shape invariant still
+    /// true, and the built-in it silently loses can never be offered by anything
+    /// else. The equality also fails in the other direction, so a name that is
+    /// *not* in the universe block cannot be added without saying which family it
+    /// joins.
+    func testGoListIsExactlyTheReservedWordsAndTheUniverseBlock() {
+        // All 25 reserved words: the list's floor (Go spec, "Keywords").
         let reserved = [
             "break", "case", "chan", "const", "continue", "default", "defer",
             "else", "fallthrough", "for", "func", "go", "goto", "if", "import",
             "interface", "map", "package", "range", "return", "select",
             "struct", "switch", "type", "var",
         ]
-        XCTAssertEqual(reserved.count, 25)
-        for keyword in reserved {
-            XCTAssertTrue(go.contains(keyword), keyword)
-        }
+        // The 22 predeclared types, the 4 predeclared constants (`nil` is
+        // formally a zero value, and belongs here for the same reason) and the
+        // 18 built-in functions — the universe block, which no source file
+        // declares and so no index can ever offer.
+        let types = [
+            "any", "bool", "byte", "comparable", "complex64", "complex128", "error",
+            "float32", "float64", "int", "int8", "int16", "int32", "int64", "rune",
+            "string", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
+        ]
+        let constants = ["true", "false", "iota", "nil"]
+        let builtins = [
+            "append", "cap", "clear", "close", "complex", "copy", "delete", "imag",
+            "len", "make", "max", "min", "new", "panic", "print", "println", "real",
+            "recover",
+        ]
 
-        // The universe block, one representative per family plus the spellings
-        // most easily lost to a hand edit (`iota`, the sized numeric types).
-        for keyword in ["true", "false", "nil", "iota"] {
-            XCTAssertTrue(go.contains(keyword), keyword)
-        }
-        for keyword in ["any", "bool", "byte", "comparable", "error", "rune", "string",
-                        "int", "int64", "uint8", "uintptr", "float64", "complex128"] {
-            XCTAssertTrue(go.contains(keyword), keyword)
-        }
-        for keyword in ["append", "cap", "clear", "copy", "delete", "len", "make",
-                        "max", "min", "new", "panic", "recover"] {
-            XCTAssertTrue(go.contains(keyword), keyword)
-        }
+        XCTAssertEqual(reserved.count, 25)
+        XCTAssertEqual(types.count, 22)
+        XCTAssertEqual(constants.count, 4)
+        XCTAssertEqual(builtins.count, 18)
+
+        XCTAssertEqual(
+            Set(LanguageKeywords.keywords(for: .go)),
+            Set(reserved + types + constants + builtins)
+        )
+        XCTAssertEqual(LanguageKeywords.keywords(for: .go).count, 69, "the list gained a duplicate")
     }
 
     /// The line the list must not cross: a package's declarations are the symbol

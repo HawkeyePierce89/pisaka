@@ -359,7 +359,7 @@ Shared test helpers live in `Tests/PisakaCoreTests/Support/`: `StubFileTree` (an
 in-memory `FileServicing` project tree, with hooks for unreadable files, absent
 stamps and stamp overrides, **plus a mutable half** — empty directories,
 `createDirectory`/`ensureDirectory`/`move`/`remove`, `moveFailures`/`removeFailures`
-injection points and a `removedPaths` call log — which is what makes the install
+injection points and `removedPaths`/`moves` call logs — which is what makes the install
 engine's atomicity rules assertable), `Gate` (a blocking rendezvous that holds
 off-main work suspended while a test mutates model state on the main actor — how
 the folder-switch-mid-walk cases are staged), `QueryScanner`'s `ParsedQuery`, the
@@ -367,7 +367,8 @@ the folder-switch-mid-walk cases are staged), `QueryScanner`'s `ParsedQuery`, th
 `ScriptedLSPTransport`, the deterministic `LSPTransport` fake the session and
 workspace suites drive a whole conversation through, and `ScriptedInstallSeams`
 (`ScriptedDownloader`/`ScriptedUnpacker`, the canned download-and-unpack pair the
-provisioning suites drive). Reach for
+provisioning suites drive, plus `ScriptedGoDiscovery`/`ScriptedGoInstaller`, the
+toolchain report and `go install` fakes the gopls suite drives). Reach for
 these before writing a new stub. A fake standing in for a `nonisolated async`
 seam runs on the cooperative pool, so anything it writes into a `StubFileTree`
 must hop to the main actor first — the engine reads that tree *from* the main
@@ -539,8 +540,8 @@ covering libgit2 linking) in parallel. No signing, secrets, or simulator.
   grammar and that every element of a fixture is actually captured), which needs
   SwiftTreeSitter — deliberately not linked by Core — so the `VENDORED.md`
   harness recipe remains mandatory on every grammar update. The remote
-  dockerfile grammar's query is not in this repository and so cannot be read;
-  its capture names stay pinned by hand in `SyntaxTokenKindTests`.
+  dockerfile and Go grammars' queries are not in this repository and so cannot be
+  read; their capture names stay pinned by hand in `SyntaxTokenKindTests`.
   `Vendor/TreeSitterDotenv` (upstream `pnx/tree-sitter-dotenv` v1.1.1, MIT,
   SHA `8b1dad8…`) exists for the narrower reason that **upstream's own manifest
   does not link**: the grammar declares an external scanner

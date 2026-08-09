@@ -962,7 +962,16 @@ they share with 2b is stated in that document's own cross-reference.
     the `go` path, so the banner can name *whose* toolchain is about to do the
     work. `LSPGoServerRow` carries D19's states and makes every button's
     availability a property (`canInstall`, `canRemove`), so both surfaces stay
-    thin; its `Status` has a **sixth** case beside D19's five, `pending`, for
+    thin. `canRemove` is keyed on a `hasFilesOnDisk` flag rather than on the
+    status being `.appInstalled`, `LSPServerRow`'s field for `LSPServerRow`'s
+    reason: a version directory a *pin bump* moved past reads as `.notInstalled`
+    (or `.discovered`, on a machine that also has the user's own copy) while
+    still being this app's to reclaim, and the only other thing that ever deletes
+    one is `removeOtherVersions()` — which runs inside a **successful** install of
+    the new pin. Without the flag, a user whose machine cannot build the new
+    version (offline, proxy blocked, toolchain too old) or who declines afterwards
+    keeps tens of megabytes with no button in the app that admits they are there.
+    Its `Status` has a **sixth** case beside D19's five, `pending`, for
     `LSPToolchain.Resolution.pending`'s reason — discovery shells out to `go`, so
     it cannot answer inside the turn that draws the row, and a row that guessed
     "no Go toolchain" for that first moment would say something false and then
@@ -999,7 +1008,17 @@ they share with 2b is stated in that document's own cross-reference.
     `install()` clears `failureMessage` before each attempt, the one place D15
     reports the failure would be wiped by the very tab switch that re-triggered
     it. The budget is "once per app run, automatically"; the Settings row's Retry
-    stays unconditional, and so does the next launch. And **`remove()` falls back
+    stays unconditional, and so does the next launch. It does, however,
+    **`await discover()` rather than read the report** — the one thing that turns
+    that budget into a real first-use install. Discovery is kicked off unawaited at
+    launch and costs a subprocess (up to a login shell), while the caller is the
+    banner's `.task`, which fires within milliseconds of the first render: a
+    restored `.go` tab regularly arrives while the report is still `nil`, and
+    reading it there returned silently *for the whole app run*, since that trigger
+    does not fire again until the language or the project root changes and nothing
+    else calls this. `discover()` coalesces onto the one task, so the wait is paid
+    once and the non-Go guard keeps it out of the ordinary tab open. And
+    **`remove()` falls back
     to a user-installed gopls** where one exists: it records `declined`, which
     describes what happened operationally (the next `.go` file must not silently
     rebuild what was just removed), but that consent gates *building* and nothing

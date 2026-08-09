@@ -179,6 +179,16 @@ public struct LSPGoServerRow: Equatable, Sendable {
     /// The version this app would install, for the row's own copy in every state
     /// — including the ones where nothing is installed yet.
     public let version: String
+    /// Whether Remove would reclaim anything: any version directory this app
+    /// installed, **including one a pin bump has left stranded** — servable by
+    /// nothing, still occupying real disk. `LSPServerRow.hasFilesOnDisk`'s field,
+    /// for its reason, and the reason it is not simply "is the pinned version
+    /// installed": the only other thing that ever deletes a stranded directory is
+    /// `removeOtherVersions()`, which runs inside a *successful* install of the
+    /// new pin, so a user who then declines — or whose build fails, offline or on
+    /// a toolchain too old — would keep tens of megabytes with no button in the
+    /// app that admits they are there.
+    public let hasFilesOnDisk: Bool
     public let isRemoving: Bool
 
     /// Install (or Retry) needs a toolchain to build with, nothing installed to
@@ -190,12 +200,19 @@ public struct LSPGoServerRow: Equatable, Sendable {
     /// silently switch which binary is running.
     public var canInstall: Bool { status == .notInstalled && !isRemoving }
 
-    /// Remove applies to this app's own copy and to nothing else — never to a
-    /// binary in `~/go/bin` that the app did not put there.
-    public var canRemove: Bool {
-        guard case .appInstalled = status else { return false }
-        return !isRemoving
-    }
+    /// Remove applies to files under this app's own install root and to nothing
+    /// else — never to a binary in `~/go/bin` that the app did not put there,
+    /// which `hasFilesOnDisk` cannot see and `engine.remove` would not touch
+    /// anyway.
+    ///
+    /// Keyed on the files rather than on `status` for `hasFilesOnDisk`'s reason:
+    /// a version directory the pin moved past reads as `.notInstalled` (or, on a
+    /// machine that also has the user's own copy, `.discovered`) while still
+    /// being this app's to reclaim. Nothing in flight, for `LSPServerRow`'s two
+    /// reasons — removing mid-install would delete a directory the commit is
+    /// about to rename onto, and removing mid-removal would delete one the first
+    /// removal is still stopping a process on top of.
+    public var canRemove: Bool { hasFilesOnDisk && status != .installing && !isRemoving }
 
     public init(
         status: Status,
@@ -203,6 +220,7 @@ public struct LSPGoServerRow: Equatable, Sendable {
         failureMessage: String? = nil,
         failureWasRemoval: Bool = false,
         version: String = LSPGopls.version,
+        hasFilesOnDisk: Bool = false,
         isRemoving: Bool = false
     ) {
         self.status = status
@@ -210,6 +228,7 @@ public struct LSPGoServerRow: Equatable, Sendable {
         self.failureMessage = failureMessage
         self.failureWasRemoval = failureWasRemoval
         self.version = version
+        self.hasFilesOnDisk = hasFilesOnDisk
         self.isRemoving = isRemoving
     }
 }

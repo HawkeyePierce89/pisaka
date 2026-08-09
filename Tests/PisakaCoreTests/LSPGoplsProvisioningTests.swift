@@ -175,7 +175,9 @@ final class LSPGoplsProvisioningTests: XCTestCase {
         let harness = makeHarness(discovery: .missing)
         await harness.model.discover()
         await harness.model.discover()
-        await harness.model.refresh()
+        // Including through the silent half, which awaits the same task rather
+        // than reading a `report` that may not be there yet.
+        await harness.model.prepareForOpening(.go)
         XCTAssertEqual(harness.discovery.callCount, 1)
     }
 
@@ -222,6 +224,14 @@ final class LSPGoplsProvisioningTests: XCTestCase {
         XCTAssertEqual(prompt?.displayName, "gopls")
         XCTAssertEqual(prompt?.version, "0.23.0")
         XCTAssertEqual(prompt?.goExecutablePath, Fixture.goPath, "the banner cannot say whose toolchain builds it")
+        // …and only for Go. This is the one state where every other condition is
+        // satisfied, so it is the only place the language check can be seen: a
+        // Mac with a Go toolchain would otherwise offer to build gopls above
+        // every Swift and JSON file, spending a one-shot consent on the wrong
+        // question.
+        for other in SyntaxLanguage.allCases where other != .go {
+            XCTAssertNil(harness.model.consentPrompt(forOpening: other), "\(other) was offered gopls")
+        }
 
         await harness.model.accept()
 
@@ -266,15 +276,14 @@ final class LSPGoplsProvisioningTests: XCTestCase {
     /// present, and the app's is the one that answers — because it is the one at
     /// the pinned version and the only one Remove may touch.
     func testTheAppsOwnCopyIsPreferredOverOneFoundOnTheMachine() async {
-        let harness = makeHarness(discovery: .found(gopls: Fixture.userGoplsPath))
-        await harness.model.discover()
-        XCTAssertEqual(harness.model.installation, .discovered(path: Fixture.userGoplsPath))
-
         // The Settings row cannot start this install (a discovered copy already
-        // answers), but a previous run's could have — so the state is staged the
-        // way a relaunch would find it.
+        // answers), but a previous run's could have — so the state is staged on
+        // the disk before the model exists and read the way a relaunch reads it:
+        // `discover()` and a directory listing, which is the whole of "the disk
+        // is the state" (D12).
+        let harness = makeHarness(discovery: .found(gopls: Fixture.userGoplsPath))
         try? harness.tree.write("#!gopls", to: harness.root.appendingPathComponent(Fixture.installedExecutable))
-        await harness.model.refresh()
+        await harness.model.discover()
 
         XCTAssertEqual(
             harness.model.installation,
@@ -360,6 +369,35 @@ final class LSPGoplsProvisioningTests: XCTestCase {
         XCTAssertTrue(harness.model.row.canInstall)
     }
 
+    /// The silent half of D15 on a *cold* run: the tab open beats the search.
+    ///
+    /// Discovery is started unawaited at launch and costs a subprocess, while
+    /// this runs from the banner's `.task`, so a restored `.go` tab regularly
+    /// arrives while the report is still `nil`. Reading it rather than awaiting
+    /// it made that return silently — and the trigger never fires again, so
+    /// "installs on first use" simply did not happen for the whole app run.
+    func testTheFirstGoTabWaitsForDiscoveryRatherThanDecliningSilently() async {
+        let harness = makeHarness(discovery: .found())
+        harness.settings.setConsent(.accepted, for: LSPGopls.componentID)
+
+        let gate = Gate()
+        harness.discovery.hold(on: gate)
+
+        // The launch call, unawaited, exactly as the app composes it.
+        let launch = Task { await harness.model.discover() }
+        await gate.waitUntilReached()
+        XCTAssertEqual(harness.model.row.status, .pending, "the row answered before the search did")
+
+        let opened = Task { await harness.model.prepareForOpening(.go) }
+        gate.release()
+        await launch.value
+        await opened.value
+
+        XCTAssertEqual(harness.discovery.callCount, 1, "the tab open started a second search")
+        XCTAssertEqual(harness.installer.calls.count, 1, "the first Go tab of a cold run built nothing")
+        XCTAssertEqual(harness.model.row.status, .appInstalled(version: "0.23.0"))
+    }
+
     /// The silent half of D15: accepted once, built on the first Go file of the
     /// next run without asking again.
     func testAnAlreadyAcceptedGoplsIsBuiltWhenAGoFileIsOpened() async {
@@ -429,10 +467,44 @@ final class LSPGoplsProvisioningTests: XCTestCase {
         await harness.model.accept()
 
         XCTAssertEqual(harness.model.row.status, .notInstalled)
-        XCTAssertNotNil(harness.model.row.failureMessage)
+        // The sentence, not merely "a sentence": this is the one surface a
+        // failure has (D15), and asserting non-nil cannot tell this failure from
+        // a build that never ran or a rename that would not happen.
+        XCTAssertEqual(
+            harness.model.row.failureMessage,
+            LSPGoInstallError.executableMissing(path: "").errorDescription
+        )
         XCTAssertEqual(harness.tree.moves, [], "an empty staging tree was committed")
         XCTAssertFalse(harness.tree.hasDirectory(Fixture.versionDirectory))
         XCTAssertEqual(harness.model.descriptions, [])
+    }
+
+    /// The other half of D13's atomicity: the build worked and the *rename* did
+    /// not. Committing anyway would register an executable that is not there and
+    /// spend D7's restart budget per request discovering it.
+    func testAFailedRenameInstallsNothingAndLeavesNothingStaged() async {
+        let harness = makeHarness(discovery: .found())
+        await harness.model.discover()
+        harness.tree.moveFailures.insert(Fixture.versionDirectory)
+
+        await harness.model.accept()
+
+        XCTAssertEqual(harness.installer.calls.count, 1, "the build did not even run")
+        XCTAssertEqual(
+            harness.model.row.failureMessage?.hasPrefix("Could not install “gopls”."), true,
+            "a failed rename was reported as something other than an install failure"
+        )
+        XCTAssertFalse(harness.model.row.failureWasRemoval)
+        XCTAssertEqual(harness.model.row.status, .notInstalled)
+        XCTAssertTrue(harness.model.row.canInstall, "a failed rename offered no Retry")
+        XCTAssertFalse(harness.model.row.canRemove, "a failed rename left files to reclaim")
+        XCTAssertNil(harness.tree.files[Fixture.installedExecutable])
+        XCTAssertTrue(
+            harness.tree.filePaths(under: "LanguageServers/.staging").isEmpty,
+            "the staging tree survived the failure it caused"
+        )
+        XCTAssertEqual(harness.model.descriptions, [], "a rename that did not happen was registered")
+        XCTAssertEqual(harness.pushes.count, 0)
     }
 
     // MARK: - Removal
@@ -476,9 +548,8 @@ final class LSPGoplsProvisioningTests: XCTestCase {
     /// and the decline it just recorded gates *building*, not using.
     func testRemovingTheAppsCopyFallsBackToTheOneOnTheMachine() async {
         let harness = makeHarness(discovery: .found(gopls: Fixture.userGoplsPath))
-        await harness.model.discover()
         try? harness.tree.write("#!gopls", to: harness.root.appendingPathComponent(Fixture.installedExecutable))
-        await harness.model.refresh()
+        await harness.model.discover()
 
         await harness.model.remove()
 
@@ -490,7 +561,55 @@ final class LSPGoplsProvisioningTests: XCTestCase {
         )
         // The withdrawal is still pushed first: the app's binary is deleted, and
         // whatever was running from it has to be stopped before that happens.
-        XCTAssertEqual(harness.pushes.map(\.descriptions.isEmpty), [false, false, true, false])
+        XCTAssertEqual(harness.pushes.map(\.descriptions.isEmpty), [false, true, false])
+    }
+
+    /// A version directory the pin moved past is still this app's to reclaim.
+    ///
+    /// `removeOtherVersions()` only ever runs *inside* a successful install of
+    /// the new pin, so a user who bumps to a version their machine cannot build —
+    /// offline, module proxy blocked, toolchain too old — or who simply declines
+    /// afterwards would otherwise keep tens of megabytes with no button that
+    /// admits they are there. `LSPServerRow.hasFilesOnDisk`'s rule, which this
+    /// row states in the same words.
+    func testAVersionThePinMovedPastIsStillRemovable() async {
+        let harness = makeHarness(discovery: .found())
+        let stranded = "LanguageServers/gopls/0.20.0/bin/gopls"
+        try? harness.tree.write("#!gopls", to: harness.root.appendingPathComponent(stranded))
+        await harness.model.discover()
+
+        // Nothing is *servable*: the pinned version is not installed, so the row
+        // offers Install — and Remove, for the files that are nonetheless there.
+        XCTAssertEqual(harness.model.row.status, .notInstalled)
+        XCTAssertNil(harness.model.installation)
+        XCTAssertEqual(harness.model.descriptions, [])
+        XCTAssertTrue(harness.model.row.canInstall)
+        XCTAssertTrue(harness.model.row.canRemove, "a stranded version directory had no way out")
+
+        await harness.model.remove()
+
+        XCTAssertNil(harness.tree.files[stranded])
+        XCTAssertFalse(harness.tree.hasDirectory("LanguageServers/gopls"))
+        XCTAssertFalse(harness.model.row.canRemove)
+        XCTAssertNil(harness.model.row.failureMessage)
+    }
+
+    /// …and never to a binary the app did not put there. A machine with only the
+    /// user's own gopls has nothing under the install root, so Remove is refused
+    /// by the model itself and not merely hidden by the view.
+    func testRemoveNeverTouchesAGoplsTheAppDidNotInstall() async {
+        let harness = makeHarness(discovery: .found(gopls: Fixture.userGoplsPath))
+        await harness.model.discover()
+
+        XCTAssertFalse(harness.model.row.hasFilesOnDisk)
+        XCTAssertFalse(harness.model.row.canRemove)
+
+        await harness.model.remove()
+
+        XCTAssertEqual(harness.model.installation, .discovered(path: Fixture.userGoplsPath))
+        XCTAssertEqual(harness.model.row.consent, .unasked, "a refused removal recorded an answer")
+        XCTAssertEqual(harness.tree.removedPaths, [])
+        XCTAssertEqual(harness.pushes.count, 1)
     }
 
     func testAFailedRemovalIsReportedAsARemoval() async {
@@ -534,6 +653,16 @@ final class LSPGoplsProvisioningTests: XCTestCase {
             "a second Remove deleted the executable while the first was still stopping the server"
         )
 
+        // An *install* arriving in the same window is refused by the model too,
+        // and this is the only place that guard can be seen. Without it a build
+        // would stage and rename a version directory into the component
+        // directory `engine.remove` is concurrently deleting, and would flip
+        // consent to `accepted` inside a removal that then records `declined` —
+        // leaving the final answer up to the interleaving.
+        await harness.model.install()
+        XCTAssertEqual(harness.installer.calls.count, 1, "a build started during a removal")
+        XCTAssertEqual(harness.model.row.consent, .accepted)
+
         gate.release()
         await first.value
         XCTAssertNil(harness.tree.files[Fixture.installedExecutable])
@@ -556,8 +685,20 @@ final class LSPGoplsProvisioningTests: XCTestCase {
             resume = nil
         }
 
-        func waitUntilHeld() async {
-            while !held { await Task.yield() }
+        /// Bounded, because the regression this gate exists to catch — a
+        /// `remove()` that deletes before it publishes — is precisely the one
+        /// that would never arrive here: an unbounded spin turns a named failure
+        /// into a CI job that hangs until the runner kills it and says nothing
+        /// about why.
+        func waitUntilHeld(
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) async {
+            for _ in 0..<100_000 {
+                if held { return }
+                await Task.yield()
+            }
+            XCTFail("the removal never reached its push", file: file, line: line)
         }
     }
 }

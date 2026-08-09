@@ -22,8 +22,10 @@ import PisakaCore
 ///
 /// **Nothing is downloaded by this app and nothing global is touched** (D17/D20).
 /// The install points `GOBIN` at a staging directory the model owns and inherits
-/// the environment otherwise untouched: no `$PATH` edit, no `~/go/bin`, no `sudo`,
-/// no package manager. Module integrity is Go's own checksum database, verified by
+/// the environment otherwise: nothing is written to the user's shell profile, no
+/// `~/go/bin`, no `sudo`, no package manager. The one other variable it may set is
+/// the child's own `PATH`, and only to the one the `go` was found in — see
+/// `childEnvironment()`. Module integrity is Go's own checksum database, verified by
 /// the toolchain doing the build, which is that ecosystem's equivalent of 2b's
 /// pinned SHA-256s and which this app therefore does not reimplement.
 ///
@@ -98,6 +100,12 @@ final class LSPGoToolchainService: LSPGoToolchainDiscovering, LSPGoModuleInstall
     /// hit.
     private var discoveryTask: Task<LSPGoToolchainReport, Never>?
 
+    /// The `PATH` the discovered `go` must be run with, or `nil` when the app's
+    /// own environment is enough. Written once by the search and read by every
+    /// `go` afterwards, including an install started an hour later — which is why
+    /// it lives here under the lock rather than in a local.
+    private var resolvedSearchPath: String?
+
     /// Every child this service has running, so `terminateNow()` can end them all.
     private var children: [Int: ChildProcess] = [:]
     private var nextChildToken = 0
@@ -143,9 +151,22 @@ final class LSPGoToolchainService: LSPGoToolchainDiscovering, LSPGoModuleInstall
     /// present would offer an Install that cannot work and register a discovered
     /// gopls that would answer nothing.
     private func search() -> LSPGoToolchainReport {
-        guard let goPath = locateGo() else { return .missing }
-        guard let environment = goEnvironment(goPath: goPath) else { return .missing }
-        return .found(goPath: goPath, goplsPath: locateGopls(environment: environment))
+        guard let found = locateGo() else { return .missing }
+        // Remembered before `go` is run for the first time, because every later
+        // run of it — the `go env` below and, minutes or hours later, the
+        // install — has to happen in the same `PATH` this one was found in.
+        setSearchPath(found.searchPath)
+        guard let environment = goEnvironment(goPath: found.path) else { return .missing }
+        return .found(goPath: found.path, goplsPath: locateGopls(environment: environment))
+    }
+
+    /// A `go` and the `PATH` it must be run with.
+    ///
+    /// The second half is `nil` when the app's own environment already found it,
+    /// and the login shell's `PATH` when that is what did — see `locateGo`.
+    private struct FoundGo {
+        let path: String
+        let searchPath: String?
     }
 
     /// The first `go` that exists, cheapest lookup first.
@@ -158,11 +179,25 @@ final class LSPGoToolchainService: LSPGoToolchainDiscovering, LSPGoModuleInstall
     /// find a version-manager shim (`asdf`, `mise`, `goenv`) — so it runs exactly
     /// on the machines that need it, and on the machines with no Go at all, once
     /// per app run.
-    private func locateGo() -> String? {
+    /// A `go` found in the last of those is carried **with** the `PATH` that
+    /// found it, and that is the half without which the step buys nothing. A
+    /// version-manager `go` is a shim — a script that re-execs `asdf`/`mise`/
+    /// `goenv`, which it looks up on `PATH` — so running it back under launchd's
+    /// four directories fails, `go env` exits non-zero, and `search()` reports
+    /// "no toolchain" on exactly the machines this step was added for.
+    private func locateGo() -> FoundGo? {
         let inherited = Self.pathEntries(ProcessInfo.processInfo.environment["PATH"])
-        if let found = Self.firstExecutable(named: "go", in: inherited) { return found }
-        if let found = Self.firstExecutable(named: "go", in: Self.wellKnownGoDirectories) { return found }
-        return Self.firstExecutable(named: "go", in: Self.pathEntries(loginShellPath()))
+        if let found = Self.firstExecutable(named: "go", in: inherited) {
+            return FoundGo(path: found, searchPath: nil)
+        }
+        if let found = Self.firstExecutable(named: "go", in: Self.wellKnownGoDirectories) {
+            return FoundGo(path: found, searchPath: nil)
+        }
+        guard let login = loginShellPath() else { return nil }
+        guard let found = Self.firstExecutable(named: "go", in: Self.pathEntries(login)) else {
+            return nil
+        }
+        return FoundGo(path: found, searchPath: login)
     }
 
     /// `GOBIN` and `GOPATH` as this `go` resolves them — which is not the same as
@@ -176,6 +211,7 @@ final class LSPGoToolchainService: LSPGoToolchainDiscovering, LSPGoModuleInstall
         guard let result = try? run(
             URL(fileURLWithPath: goPath),
             ["env", "GOBIN", "GOPATH"],
+            environment: childEnvironment(),
             deadline: Self.goEnvDeadline
         ), result.status == 0 else { return nil }
 
@@ -218,23 +254,64 @@ final class LSPGoToolchainService: LSPGoToolchainDiscovering, LSPGoModuleInstall
     /// alias named `go` would answer `command -v` with something that is not a
     /// path, and the failure would be a launch error minutes later rather than a
     /// lookup that simply found nothing.
+    ///
+    /// It is asked for by running `env` and reading the `PATH=` line, rather than
+    /// by interpolating `"$PATH"`, because `$SHELL` is whatever the user chose
+    /// and the interpolation is not portable across the plausible ones: in fish,
+    /// `PATH` is a *list* variable and `"$PATH"` expands space-separated, so
+    /// `printf %s "$PATH"` hands back one string that `pathEntries` — which
+    /// splits on `:`, as `PATH` is defined — reads as a single bogus directory.
+    /// The result is silent and total for a fish user whose `go` is anywhere but
+    /// the three well-known places. `env` sidesteps the shell's own variable
+    /// semantics entirely: what it prints is the exported environment, and there
+    /// `PATH` is colon-separated by definition, in every shell.
     private func loginShellPath() -> String? {
         let shell = TerminalLaunch.shell(environment: ProcessInfo.processInfo.environment)
         guard FileManager.default.isExecutableFile(atPath: shell) else { return nil }
         guard let result = try? run(
             URL(fileURLWithPath: shell),
-            ["-l", "-c", "printf %s \"$PATH\""],
+            ["-l", "-c", "/usr/bin/env"],
             deadline: Self.shellDeadline
         ), result.status == 0 else { return nil }
-        let path = result.standardOutput.trimmingCharacters(in: .whitespacesAndNewlines)
-        return path.isEmpty ? nil : path
+        let path = result.standardOutput
+            .components(separatedBy: .newlines)
+            .first { $0.hasPrefix("PATH=") }
+            .map { String($0.dropFirst("PATH=".count)) }?
+            .trimmingCharacters(in: .whitespaces)
+        guard let path, !path.isEmpty else { return nil }
+        return path
+    }
+
+    /// The environment every `go` this service runs is given, or `nil` for "the
+    /// app's own, untouched" — which is the case whenever the toolchain was found
+    /// without asking a shell.
+    ///
+    /// One variable is replaced and never more: the `PATH` that found the `go`,
+    /// so a version-manager shim can re-exec what it needs. The user's
+    /// `GOMODCACHE`, `GOCACHE`, `GOPROXY`, `GOPRIVATE` and proxy settings are all
+    /// inherited untouched, which is the whole of "nothing global is changed".
+    private func childEnvironment() -> [String: String]? {
+        lock.lock()
+        let searchPath = resolvedSearchPath
+        lock.unlock()
+        guard let searchPath else { return nil }
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = searchPath
+        return environment
+    }
+
+    private func setSearchPath(_ path: String?) {
+        lock.lock()
+        resolvedSearchPath = path
+        lock.unlock()
     }
 
     // MARK: - Installing
 
     /// One `go install <module>@<version>` with `GOBIN` pointed at `binDirectory`.
     ///
-    /// The environment is inherited wholesale and exactly one variable is added,
+    /// The environment is inherited wholesale and `GOBIN` is added (plus `PATH`,
+    /// when the toolchain was found through a login shell — `childEnvironment()`),
     /// which is the whole of "nothing global is touched": the user's `GOMODCACHE`,
     /// `GOCACHE`, `GOPROXY`, `GOPRIVATE` and proxy settings all keep working
     /// because none of them is replaced. Sharing those caches is one of the two
@@ -300,7 +377,11 @@ final class LSPGoToolchainService: LSPGoToolchainDiscovering, LSPGoModuleInstall
         binDirectory: URL,
         child: ChildProcess
     ) throws {
-        var environment = ProcessInfo.processInfo.environment
+        // `childEnvironment()` is the base rather than `ProcessInfo`'s directly,
+        // so a shim `go` builds in the same `PATH` it was found in — otherwise
+        // this would be the one place the version-manager case still failed, and
+        // it would fail after the user had already accepted.
+        var environment = childEnvironment() ?? ProcessInfo.processInfo.environment
         environment["GOBIN"] = binDirectory.path
 
         let result = try run(
@@ -464,6 +545,23 @@ final class LSPGoToolchainService: LSPGoToolchainDiscovering, LSPGoModuleInstall
             try process.run()
         } catch {
             throw Failure.goUnavailable(error.localizedDescription)
+        }
+
+        // Re-checked *after* the launch, and this is not belt and braces:
+        // `adopt` closes the window before the `Process` exists, but a
+        // `cancel()` landing between it and `run()` finds a process that is not
+        // running yet, returns without signalling anything — and the statement
+        // above then launches it. That is precisely where a quit during a
+        // first-launch build falls, and what it leaves behind is a `go install`
+        // with a compiler and a linker beneath it, writing into a staging
+        // directory nothing will ever finish, outliving the app that started it.
+        // `terminateNow()` cannot help: it has already emptied the registry.
+        // Nothing is drained on this path on purpose: no drain has started yet,
+        // and `terminate` reaps on its own queue, so both pipes are released
+        // with the `Process` rather than waited on by a caller that is quitting.
+        if child.wasCancelled {
+            ChildProcess.terminate(process)
+            throw Failure.cancelled
         }
 
         let streams = DispatchGroup()

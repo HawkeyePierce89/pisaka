@@ -625,7 +625,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `true`/`nil`/`None`, the widely-used contextual keywords) and nothing more.
     They are deliberately not a standard-library index: `print`, `console` and
     `String` are declarations, and a project that uses them has them in its buffer
-    or (for its own code) in its symbol index already. TypeScript is *composed*
+    or (for its own code) in its symbol index already. Go's list is what sharpens
+    that rule into the one sentence the others were following implicitly: **an
+    identifier belongs here when no source file can ever declare it.** That is why
+    Go reaches past the 25 reserved words into the whole universe block — its 22
+    predeclared types, 4 constants and 18 built-in functions, 69 entries in all —
+    and why the reach is not a contradiction of the paragraph above even though it
+    contains `print` and `println`. A universe-block name is declared in no file
+    anywhere, so neither the symbol index nor the harvested buffer words can ever
+    offer it, and leaving it out would make `len`, `error` and `nil`
+    uncompletable in a Go project forever; `fmt.Println` *is* a declaration in a
+    package and stays out, along with every other qualified name.
+    `LanguageKeywordsTests` pins the Go list by **set equality** against those four
+    families spelled out separately, because a subset check is what a hand edit
+    slips through — dropping `close` or `float32` from 69 entries leaves every
+    shape invariant true and silently loses a built-in nothing else can offer. TypeScript is *composed*
     from JavaScript plus a type-level list and re-sorted, so there is one list to
     maintain instead of two that drift and the composition cannot break the sorted
     invariant. **A keyword is never a definition**: `SymbolIntelligenceProvider`'s
@@ -1023,10 +1037,15 @@ matched — it declares nothing new.
 reasoning verbatim: unanchored, `var_spec` matches every `var` inside every
 function body and the index fills with locals. `var_spec_list` needs a second
 pattern because a grouped `var ( … )` block nests one level deeper; a grouped
-`const ( … )` does not. Types and functions are *not* anchored, matching the JS/TS
-treatment of nested classes and functions — a `type` declared inside a function
-body is a declaration worth finding, and is rare enough that it cannot flood a
-picker the way a loop counter can.
+`const ( … )` does not. Types are *not* anchored, matching the JS/TS treatment of
+nested classes — a `type` declared inside a function body is a declaration worth
+finding (and so are its fields, which is why the struct and interface patterns
+navigate from `type_spec` rather than from `type_declaration`), and is rare enough
+that it cannot flood a picker the way a loop counter can. `function_declaration`
+*is* anchored, and that costs nothing: Go has no nested function declarations at
+all — a function inside a function is a `func_literal` bound to a variable, which
+this query does not match either way — so the anchor is a statement of intent
+rather than a filter that ever fires.
 
 **The package clause is not indexed.** `package foo` repeats in every file of a
 directory, so indexing it would put N identical `foo` symbols in the picker for a

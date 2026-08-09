@@ -134,7 +134,7 @@ the constants (`true`, `false`, `nil`, `iota`), the type names (`any`, `bool`,
 `int8/16/32/64`, `rune`, `string`, `uint`, `uint8/16/32/64`, `uintptr`) and the
 built-in functions (`append`, `cap`, `clear`, `close`, `complex`, `copy`,
 `delete`, `imag`, `len`, `make`, `max`, `min`, `new`, `panic`, `print`,
-`println`, `real`, `recover`). 70 entries, sorted, unique.
+`println`, `real`, `recover`). 69 entries, sorted, unique.
 
 The rule, stated: **include an identifier when no source file can ever declare
 it.** That is exactly the existing TypeScript precedent — `string`, `number`,
@@ -434,7 +434,7 @@ repository's recipe requires for every grammar change.
 - Modify: `Sources/PisakaCore/LanguageKeywords.swift`
 - Modify: `Tests/PisakaCoreTests/LanguageKeywordsTests.swift`
 
-- [x] add the 70-entry Go list per the stated rule, sorted and duplicate-free,
+- [x] add the 69-entry Go list per the stated rule, sorted and duplicate-free,
       with the rule itself written on the property — reserved words plus the
       universe block, because those are the identifiers no file can declare and
       therefore no other source can offer

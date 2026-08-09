@@ -679,6 +679,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     this file then fails to `stat` instead of producing a launch error minutes
     later; `-l` and not `-i`, so the profile files where `PATH` is assembled are
     read and the rc files where a prompt framework might print or block are not.
+    That `PATH` is asked for by running **`/usr/bin/env` and reading the `PATH=`
+    line**, not by interpolating `"$PATH"`: `$SHELL` is whatever the user chose,
+    and in fish `PATH` is a *list* variable whose quoted expansion is
+    space-separated, so `printf %s "$PATH"` hands back one string that
+    `pathEntries` — which splits on `:`, as `PATH` is defined — reads as a single
+    bogus directory. `env` prints the exported environment, where `PATH` is
+    colon-separated in every shell. **A `go` found this way is then run *with* that
+    `PATH`** (`childEnvironment()`, for both `go env` and the install), which is the
+    half without which the step buys nothing: a version-manager `go` is a shim that
+    re-execs `asdf`/`mise`/`goenv` off `PATH`, so running it back under launchd's
+    four directories fails, `go env` exits non-zero, and the search reports "no
+    toolchain" on exactly the machines the step was added for.
     `GOBIN`/`GOPATH` come from `go env` rather than the environment, because both
     can be set by `go env -w`'s config file and `GOPATH` has a default (`~/go`)
     that is never in the environment at all. **A `go` that cannot answer `go env`
@@ -688,9 +700,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     one** (`LSPToolchain`'s discipline and reason), resolved off the main thread,
     and deadlined — 5 s for the login shell, 10 s for `go env` — because on a Mac
     with no Go at all this runs at every launch.
-    The install adds exactly one environment variable, `GOBIN`, pointed at the
-    staging directory the model owns; everything else is inherited untouched,
-    which is the whole of "nothing global is touched" — the user's `GOMODCACHE`,
+    The install adds `GOBIN`, pointed at the staging directory the model owns (plus
+    the child's own `PATH`, when the toolchain was found through a login shell);
+    everything else is inherited untouched,
+    which is the whole of "nothing global is touched" — nothing is written to the
+    user's shell profile and their `GOMODCACHE`,
     `GOPROXY` and proxy settings all keep working. It runs *from* the staging
     tree, which is inside no module, so nothing depends on the app's launch
     directory not being a Go module. Its deadline is 30 minutes: the model keeps
@@ -709,7 +723,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     observer calls it beside `LSPWorkspace.terminateNow()`. It is idempotent and
     **permanent** — a torn-down service refuses to launch anything else — which
     closes the window between the observer firing and a `.go` tab open landing on
-    `prepareForOpening`. A `go` compiling gopls has a whole tree of children
+    `prepareForOpening`. `ChildProcess.adopt` closes the window *before* the
+    `Process` exists, and `wasCancelled` is re-checked **after** `run()` to close
+    the one between them: a `cancel()` landing there finds a process that has not
+    started, returns without signalling, and the next statement launches it — the
+    exact window a quit during a first-launch build falls into, and one
+    `terminateNow()` cannot repair afterwards because it has already emptied the
+    registry. A `go` compiling gopls has a whole tree of children
     beneath it, all of which go with it; the release check
     (`pgrep -f 'gopls|go install'` empty after a quit) is what that is written
     against.

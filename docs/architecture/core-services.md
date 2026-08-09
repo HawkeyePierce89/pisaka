@@ -24,7 +24,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     PTY/session lifecycle lives in `Pisaka`, the same split as `TerminalLaunch`).
     A `public enum RunCommand` backed by a private static lowercased-extension →
     runner-tokens map (`ts`/`tsx` → `npx tsx`, `js`/`mjs`/`cjs` → `node`, `py` →
-    `python3`, `swift` → `swift`, `sh`/`bash` → `bash`), mirroring
+    `python3`, `swift` → `swift`, `go` → `go run`, `sh`/`bash` → `bash`), mirroring
     `FileIcon`/`SyntaxLanguage`'s extension-map pattern. `command(forFileName:
     absolutePath:) -> String?` looks up the file's extension (via
     `(fileName as NSString).pathExtension.lowercased()`) and, when known, returns
