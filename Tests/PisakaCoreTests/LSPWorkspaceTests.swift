@@ -69,6 +69,9 @@ final class LSPWorkspaceTests: XCTestCase {
     private var greeterFile: URL { root.appendingPathComponent("Sources/Greeter/Greeter.swift") }
 
     private var recordedDelays: [TimeInterval] = []
+    /// Work run *inside* D7's backoff wait — the seam the "superseded while waiting
+    /// out the backoff" case is staged through.
+    private var onDelay: (@MainActor () async -> Void)?
 
     /// A workspace already pointed at `root`, with the harness behind its factory.
     private func makeWorkspace(
@@ -83,7 +86,10 @@ final class LSPWorkspaceTests: XCTestCase {
             transportFactory: { [harness] description, launchRoot in
                 try harness.makeTransport(description, launchRoot)
             },
-            delay: { [weak self] seconds in self?.recordedDelays.append(seconds) }
+            delay: { [weak self] seconds in
+                self?.recordedDelays.append(seconds)
+                if let hook = self?.onDelay { await hook() }
+            }
         )
         workspace.prepareForFolderChange(root: root ?? self.root)
         return workspace
@@ -113,7 +119,12 @@ final class LSPWorkspaceTests: XCTestCase {
     override func setUp() {
         super.setUp()
         recordedDelays = []
+        onDelay = nil
+        backoffIsReleased = false
     }
+
+    /// Flipped by the test to let a launch out of the staged backoff wait.
+    private var backoffIsReleased = false
 
     // MARK: - Lazy start
 
@@ -306,6 +317,46 @@ final class LSPWorkspaceTests: XCTestCase {
         )
     }
 
+    /// Two requests for **one** file, resuming from one launch in the same turn,
+    /// must not interleave their flushes.
+    ///
+    /// This is the ordinary shape, not a contrived one: a keystroke and a ⌘-click
+    /// queue behind the same cold start, and both wake when the handshake lands.
+    /// Interleaved they would each read `documents[uri]` as empty and each send a
+    /// `didOpen` for the same URI at version 1 — two opens of one document, and a
+    /// version that never advances past what the *second* one recorded.
+    func testTwoRequestsForOneFileQueuedBehindALaunchDoNotInterleave() async throws {
+        let harness = ServerHarness()
+        harness.initializeDelay = 0.05
+        let workspace = makeWorkspace(harness: harness)
+
+        async let first = workspace.prepare(url: mainFile, language: .swift, text: "let a = 1")
+        async let second = workspace.prepare(url: mainFile, language: .swift, text: "let a = 12")
+        let prepared = await [first, second]
+
+        XCTAssertEqual(harness.launches.count, 1)
+        let transport = harness.latest
+        XCTAssertEqual(
+            transport.notifications(for: LSPMethod.didOpen).count, 1,
+            "one document is opened once; the later text is a didChange"
+        )
+        XCTAssertEqual(transport.notifications(for: LSPMethod.didChange).count, 1)
+        XCTAssertEqual(
+            prepared.compactMap { $0?.version }.sorted(), [1, 2],
+            "the versions the two requests were answered with are distinct and ordered"
+        )
+        // And the record agrees with the wire: the text the *second* notification
+        // carried is the one a further request is compared against.
+        let last = transport.notifications(for: LSPMethod.didChange).last
+        let sent = try XCTUnwrap(last?.params?["contentChanges"]?[0]?["text"]?.stringValue)
+        let repeated = await workspace.prepare(url: mainFile, language: .swift, text: sent)
+        XCTAssertEqual(repeated?.version, 2)
+        XCTAssertEqual(
+            transport.notifications(for: LSPMethod.didChange).count, 1,
+            "nothing is re-sent for text the server already holds"
+        )
+    }
+
     func testClosingADocumentTellsTheServerOnceAndForgetsIt() async {
         let harness = ServerHarness()
         let workspace = makeWorkspace(harness: harness)
@@ -468,6 +519,44 @@ final class LSPWorkspaceTests: XCTestCase {
         )
         XCTAssertTrue(recordedDelays.isEmpty)
         XCTAssertEqual(harness.launches.count, 2)
+    }
+
+    /// The same supersession, staged over the *widest* window this layer has.
+    ///
+    /// A launch waits out up to four seconds of D7's backoff before it touches
+    /// anything, and a folder switch fits through that comfortably. The token has
+    /// to be pinned before the wait, not after it: a launch that pinned the epoch
+    /// the switch had already bumped would pass its own guard and file a session
+    /// into the maps `shutdownAll()` just emptied — where the next visit to that
+    /// folder finds a corpse and charges its death against the restart budget.
+    func testAFolderSwitchDuringTheBackoffSupersedesTheRestart() async {
+        let harness = ServerHarness()
+        harness.launchError = .launchFailed("no toolchain")
+        let workspace = makeWorkspace(harness: harness)
+
+        // One failure, so the next launch has a backoff to be caught inside.
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        harness.launchError = nil
+        onDelay = { [weak self] in
+            while self?.backoffIsReleased == false { await Task.yield() }
+        }
+
+        let pending = Task { await workspace.prepare(url: mainFile, language: .swift, text: "a") }
+        await waitFor("the backoff to start") { self.recordedDelays == [1] }
+
+        workspace.prepareForFolderChange(root: otherRoot)
+        backoffIsReleased = true
+        let prepared = await pending.value
+
+        XCTAssertNil(prepared)
+        XCTAssertEqual(workspace.liveServerCount, 0, "nothing may be filed under the old root")
+        XCTAssertTrue(workspace.openDocumentURIs.isEmpty)
+        // Superseded is not failed, so the *new* root starts with a full budget —
+        // and the old one was never charged for a switch either.
+        XCTAssertEqual(
+            harness.launches.count, 1,
+            "a switch during the wait must not launch a server for the old root"
+        )
     }
 
     // MARK: - Crash, backoff, giving up (D7)

@@ -144,6 +144,33 @@ final class LSPPositionMapTests: XCTestCase {
         XCTAssertEqual(LSPPositionMap.offset(for: LSPPosition(line: 0, character: 99), in: content), 2)
     }
 
+    /// The clamp has to survive numbers no real server sends, because it is the
+    /// boundary an untrusted one crosses.
+    ///
+    /// `character` is an `Int` decoded off the wire, so `start + character` is an
+    /// overflow away from trapping — and a trap here is a hard crash of the editor
+    /// on one malformed response, on the one path where every other failure
+    /// degrades quietly to tree-sitter.
+    func testAnAbsurdCharacterClampsInsteadOfOverflowing() {
+        let content = map("ab\ncdef")
+        XCTAssertEqual(
+            LSPPositionMap.offset(for: LSPPosition(line: 0, character: .max), in: content), 2
+        )
+        XCTAssertEqual(
+            LSPPositionMap.offset(for: LSPPosition(line: 1, character: .max), in: content), 7
+        )
+        XCTAssertEqual(
+            LSPPositionMap.range(
+                for: LSPRange(
+                    start: LSPPosition(line: 0, character: .max),
+                    end: LSPPosition(line: 1, character: .max)
+                ),
+                in: content
+            ),
+            NSRange(location: 2, length: 5)
+        )
+    }
+
     func testCharacterPastTheEndOfACRLFLineStopsBeforeTheCR() {
         // The dangerous clamp: stopping one unit short would land *between* CR
         // and LF, an offset the editor treats as inside a single character.

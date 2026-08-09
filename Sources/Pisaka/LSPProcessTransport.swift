@@ -244,7 +244,16 @@ final class LSPProcessTransport: LSPTransport, @unchecked Sendable {
         errors.fileHandleForReading.readabilityHandler = nil
         // Closing stdin gives a server that reads to EOF a chance to exit on its
         // own before the signal arrives — sourcekit-lsp does exactly that.
-        try? input.fileHandleForWriting.close()
+        //
+        // On the write queue, not here: `send` only *queues* a write, and
+        // `LSPSession.shutdown()` queues the `exit` notification and then calls
+        // `terminate()` in the same turn. Closing the descriptor from this thread
+        // would race that write and usually win, so the notification that lets a
+        // server end with status 0 would be dropped on the ordinary quit path —
+        // the one thing the serial write queue exists to make impossible. The
+        // signals below are unaffected: they are sent regardless, immediately.
+        let stdin = input.fileHandleForWriting
+        writeQueue.async { try? stdin.close() }
 
         guard process.isRunning else { return }
         process.terminate()

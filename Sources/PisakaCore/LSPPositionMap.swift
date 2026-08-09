@@ -96,7 +96,14 @@ public enum LSPPositionMap {
         let start = lineStarts[position.line]
         guard position.character > 0 else { return start }
         let end = lineContentEnd(ofLine: position.line, in: content, lineStarts: lineStarts)
-        return min(start + position.character, end)
+        // The clamp is applied to `character` itself rather than to the sum, and
+        // that is not a rewrite for taste: `character` is a number a *server* sent,
+        // an `Int` decoded straight off the wire, and `start + character` with an
+        // `Int.max` in it traps on overflow before any `min` could see it — a hard
+        // crash of the editor on one malformed response, on a path where every
+        // other failure degrades silently to tree-sitter. `end >= start` always
+        // (`lineContentEnd`'s own postcondition), so the difference is non-negative.
+        return start + min(position.character, end - start)
     }
 
     /// Convert a whole LSP range to a buffer range in one pass over `content`.

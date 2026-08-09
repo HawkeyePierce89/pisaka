@@ -97,6 +97,12 @@ public final class LSPWorkspace {
         let task: Task<LSPSession?, Never>
     }
 
+    /// A flush in flight, with the same id discipline and for the same reason.
+    private struct PendingFlush {
+        let id: Int
+        let task: Task<Result<Int, Error>, Never>
+    }
+
     private let registry: LSPServerRegistry
     private let transportFactory: TransportFactory
     private let budgets: LSPSession.Budgets
@@ -117,6 +123,20 @@ public final class LSPWorkspace {
     private var transports: [ServerKey: LSPTransport] = [:]
     private var pendingLaunches: [ServerKey: PendingLaunch] = [:]
     private var documents: [String: DocumentState] = [:]
+    /// The flush already running for a document, so a second request for the same
+    /// file waits for it instead of interleaving with it.
+    ///
+    /// `flush` is a read-modify-write over `documents[uri]` with an `await` in the
+    /// middle, and two requests for one file overlap as a matter of course rather
+    /// than exotically: every request queued behind a launch resumes in the turn
+    /// the handshake finishes, and a request the router abandoned at its deadline
+    /// keeps flushing while the next one starts. Interleaved, two of them would
+    /// send two `didOpen`s for one URI, or two `didChange`s carrying the same
+    /// version — and, worse, leave `documents[uri]` recording text this server was
+    /// never sent, which the next request reads as "nothing to send" and then asks
+    /// its question against the wrong file, silently, until the buffer changes
+    /// again.
+    private var flushes: [String: PendingFlush] = [:]
     private var failures: [ServerKey: Int] = [:]
     private var unavailable: Set<ServerKey> = []
 
@@ -133,6 +153,7 @@ public final class LSPWorkspace {
     /// `prepareForFolderChange` in the same turn.
     private var epoch = 0
     private var launchCounter = 0
+    private var flushCounter = 0
 
     public init(
         registry: LSPServerRegistry = .standard,
@@ -320,8 +341,70 @@ public final class LSPWorkspace {
         )
     }
 
-    /// `didOpen` / `didChange` / nothing, and the version bookkeeping behind it.
+    /// `didOpen` / `didChange` / nothing — serialised per document.
+    ///
+    /// The serialisation is the whole of this method; `send(…)` below is the part
+    /// that talks. See `flushes` for what interleaving two of them costs.
     private func flush(
+        uri: String,
+        text: String,
+        language: SyntaxLanguage,
+        session: LSPSession,
+        key: ServerKey
+    ) async throws -> Int {
+        // Wait out whatever is already flushing this document. A loop rather than
+        // one wait: several requests can be queued on the same flush, they all wake
+        // when it finishes, and only one of them gets to claim the slot below — the
+        // rest find the *next* claim here and wait again.
+        //
+        // This terminates only because the running flush clears its own slot from
+        // inside its task body, before it completes. Clearing it from the awaiting
+        // owner instead would leave the slot occupied by an *already finished* task
+        // at the moment every waiter wakes, and `await` on a finished task returns
+        // without suspending — so the loop would spin on the main actor and never
+        // let the owner run. That is a hang, not a slowdown.
+        while let inFlight = flushes[uri] { _ = await inFlight.task.value }
+
+        // The no-op — a second request at the same keystroke — is answered without
+        // claiming anything, so the common path allocates nothing.
+        if let state = documents[uri], state.serverKey == key, state.text == text {
+            return state.version
+        }
+
+        // Claimed synchronously: there is no suspension point between the loop
+        // above and this line, so exactly one waiter can get here at a time.
+        flushCounter += 1
+        let id = flushCounter
+        let task = Task { @MainActor [self] () -> Result<Int, Error> in
+            let outcome: Result<Int, Error>
+            do {
+                outcome = .success(
+                    try await send(
+                        uri: uri,
+                        text: text,
+                        language: language,
+                        session: session,
+                        key: key
+                    )
+                )
+            } catch {
+                outcome = .failure(error)
+            }
+            // Released here, as the last thing this task does and while it is still
+            // running — see the loop above for why it cannot be released by the
+            // owner afterwards. The body cannot start before the store below (the
+            // main actor is held until this method suspends), so the slot is
+            // always the one this claim put there.
+            if flushes[uri]?.id == id { flushes[uri] = nil }
+            return outcome
+        }
+        flushes[uri] = PendingFlush(id: id, task: task)
+        return try await task.value.get()
+    }
+
+    /// The notification itself, and the version bookkeeping behind it. Runs only
+    /// under `flush`'s per-document claim.
+    private func send(
         uri: String,
         text: String,
         language: SyntaxLanguage,
@@ -435,9 +518,20 @@ public final class LSPWorkspace {
 
         launchCounter += 1
         let id = launchCounter
+        // The supersession token is pinned **here**, synchronously, before the task
+        // exists — the `prepareForFolderChange` discipline, applied to the one token
+        // `launch` checks. Reading `epoch` inside `launch` instead would read it
+        // after two suspension points a folder switch fits through comfortably: the
+        // task's own scheduling, and D7's backoff, which is up to four seconds long.
+        // A launch that pinned the *already bumped* epoch passes its own guard and
+        // files a session into maps `shutdownAll()` has just emptied, where the next
+        // visit to that folder finds a corpse and charges its death against D7's
+        // budget — four folder round-trips and a healthy server is unavailable for
+        // the rest of the app run.
+        let token = epoch
         let task = Task { @MainActor [weak self] () -> LSPSession? in
             guard let self else { return nil }
-            return await self.launch(description: description, root: root, key: key)
+            return await self.launch(description: description, root: root, key: key, epoch: token)
         }
         pendingLaunches[key] = PendingLaunch(id: id, task: task)
         let session = await task.value
@@ -449,10 +543,14 @@ public final class LSPWorkspace {
 
     /// Start one server and complete its handshake, or count the attempt as a
     /// failure.
+    ///
+    /// `epoch` is the supersession token, pinned by the caller before this task was
+    /// even created — see `liveSession`.
     private func launch(
         description: LSPServerDescription,
         root: URL,
-        key: ServerKey
+        key: ServerKey,
+        epoch token: Int
     ) async -> LSPSession? {
         // D7's backoff, paid before the attempt rather than after the crash: the
         // wait belongs to whoever is asking for a restart, and a session that died
@@ -461,8 +559,10 @@ public final class LSPWorkspace {
             let index = min(previousFailures, LSPWorkspace.backoffDelays.count) - 1
             await delay(LSPWorkspace.backoffDelays[index])
         }
+        // The wait is the widest window in this layer, so it is also checked across:
+        // a folder switch during the backoff must not launch anything at all.
+        guard token == epoch else { return nil }
 
-        let token = epoch
         let transport: LSPTransport
         do {
             transport = try transportFactory(description, root)

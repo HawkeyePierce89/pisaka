@@ -152,7 +152,14 @@ document, together with the limits they carry.
     where a *server's* numbers enter the editor and they are not to be trusted with
     an `NSString` index — a line past the end resolves to the end of the buffer, and
     a character past the end of its line resolves to that line's content end, before
-    the separator, so a jump never lands on the invisible half of a CRLF. Both
+    the separator, so a jump never lands on the invisible half of a CRLF. **The
+    clamp is applied to `character` itself, not to `start + character`**, and that
+    ordering is the whole of it: `character` is an `Int` decoded straight off the
+    wire, so summing first would trap on overflow before any `min` could see the
+    number — a hard crash of the editor on one malformed response, on the one path
+    where every other failure degrades quietly to tree-sitter.
+    `LSPPositionMapTests.testAnAbsurdCharacterClampsInsteadOfOverflowing` pins it
+    with `Int.max`. Both
     have a variant taking precomputed line starts, so a caller mapping several
     positions in one buffer scans it once; `offset(for:in:lineStarts:)` still needs
     `content` because clamping to a line's end means knowing whether the separator
@@ -287,6 +294,20 @@ document, together with the limits they carry.
     when it does not. A document is never opened against a root it does not live
     under: a server initialized for one project has no business being told about a
     file from another, and the answers it gave would be about the wrong build.
+    **The flush is serialised per document**, through the `flushes` table (the
+    `pendingLaunches` id discipline, applied to a URI): a second request for the same
+    file waits for the flush already running rather than interleaving with it. The
+    body is a read-modify-write over `documents[uri]` with an `await` in the middle,
+    and overlapping requests for one file are the ordinary case rather than an exotic
+    one — everything queued behind a cold launch resumes in the turn the handshake
+    lands, and a request the router abandoned at its deadline keeps flushing while
+    the next one starts. Interleaved, two of them send two `didOpen`s for one URI or
+    two `didChange`s carrying the same version, and — the damaging half — leave
+    `documents[uri]` recording text this server was never sent, which the next
+    request reads as "nothing to send" and then asks its question against the wrong
+    file, silently, until the buffer changes again. The "text unchanged" answer is
+    given before the claim, so a second request at the same keystroke still costs
+    nothing.
     **When to give up** (D7): three restarts with 1 s / 2 s / 4 s of backoff — the
     `backoffDelays` array's length *is* the budget — and the fourth failure marks
     that `(server, root)` unavailable for the rest of the app run. The budget is per
@@ -323,9 +344,22 @@ document, together with the limits they carry.
     `generation` — only when the root actually changes, matching
     `SymbolIndexModel.prepareForFolderChange` so a caller can pin one token across
     both models — *and* a private `epoch`. `shutdownAll()` and `terminateNow()` bump
-    only the epoch. A launch captures the epoch before its handshake and terminates
-    the server it just started if it no longer matches, which is what makes "a
-    folder switch supersedes in-flight work" true. One token could not do both jobs:
+    only the epoch. A launch terminates the server it just started if the epoch no
+    longer matches, which is what makes "a folder switch supersedes in-flight work"
+    true. **The token is pinned by `liveSession`, synchronously, before the launch
+    task exists** — the `prepareForFolderChange` discipline applied to the token
+    `launch` itself checks. Reading `epoch` inside `launch` would read it after two
+    suspension points a folder switch fits through comfortably: the task's own
+    scheduling, and D7's backoff, which is up to four seconds long. A launch that
+    pinned the *already bumped* epoch passes its own guard and files a session into
+    the maps `shutdownAll()` has just emptied; the process is still reaped (the
+    shutdown awaits the launch), but the map entry survives as a corpse under the old
+    root's key, and the next visit to that folder charges its death against D7's
+    budget — four folder round-trips and a healthy server is unavailable for the rest
+    of the app run. The token is checked a second time immediately after the backoff,
+    so a switch during the wait launches nothing at all.
+    `LSPWorkspaceTests.testAFolderSwitchDuringTheBackoffSupersedesTheRestart` stages
+    exactly that, through an injected wait. One token could not do both jobs:
     a `shutdownAll()` in the same turn would invalidate the very token the caller had
     just pinned.
     **Two teardowns, because a quit cannot `await`.** `shutdownAll()` is the polite

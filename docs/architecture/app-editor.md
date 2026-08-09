@@ -573,7 +573,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     of `PATH`/`HOME`/`DEVELOPER_DIR`, and replacing the environment to add one
     variable would take all of that away). `stop()` is idempotent: stop reading, close
     stdin — which gives a server that reads to EOF a chance to exit on its own, as
-    sourcekit-lsp does — `SIGTERM`, then `SIGKILL` after a 2 s grace on a *concurrent*
+    sourcekit-lsp does — `SIGTERM`, then `SIGKILL` after a 2 s grace.
+    **The stdin close goes through the write queue**, not the calling
+    thread: `send` only *queues* a write, and `LSPSession.shutdown()` queues the
+    `exit` notification and then calls `terminate()` in the same turn, so closing the
+    descriptor directly would race that write and usually win — dropping, on the
+    ordinary quit path, the one notification that lets a server end with status 0.
+    The signals are unaffected; they are sent immediately either way. Reaping runs on a *concurrent*
     reap queue, so two servers torn down on a folder switch do not wait for each
     other. `pid > 0` guards the one genuinely dangerous mistake here: `kill(0, …)`
     signals the whole process group, i.e. Pisaka itself — the same check
