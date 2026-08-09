@@ -945,17 +945,63 @@ seam the app fills in. TDD.
 
 ### Task 12: Verify acceptance criteria
 
-- [ ] `swift test` — full suite green
-- [ ] both destination builds succeed
-- [ ] audit the branch **as a diff against `master`** (not merely re-run green,
+- [x] `swift test` — full suite green
+      *(2254 tests, 0 failures.)*
+- [x] both destination builds succeed
+      *(`xcodegen generate`, then `platform=macOS` and `generic/platform=iOS`:
+      both BUILD SUCCEEDED. The worktree is clean afterwards and
+      `Package.resolved` still hashes
+      `db2ab036ee37f9a758e483ff78162e8d103823fbce35f57e935d456bf961f33a` — the
+      same digest Task 11 recorded, so the generate and the two resolves rewrote
+      nothing.)*
+- [x] audit the branch **as a diff against `master`** (not merely re-run green,
       since a weakened assertion passes either way) confirming `SymbolQueryTests`,
       `LanguageKeywordsTests`, `SyntaxTokenKindTests`, `LicenseCoverageTests`,
       `DependencyPinTests`, `ReleaseMetadataTests`, `LSPSourceGatingTests` and
       `LSPProvisioningManifestTests` still assert by set equality and changed only
       by gaining rows
-- [ ] confirm the `.gzip` extension is pinned in all three directions: an install
+      *(Read as a diff, suite by suite. Six changed, and every change is an
+      added row: `SymbolQueryTests` gains the `.rust` pin (22 named / empty
+      anonymous / three fields) with its table's other entries untouched;
+      `LanguageKeywordsTests`' `testTheDocumentedLanguagesAreTheOnesWithLists`
+      gains `.rust` inside the same `XCTAssertEqual`; `SyntaxTokenKindTests` and
+      `LicenseCoverageTests` gain one hand-pinned table entry each;
+      `LSPSourceGatingTests` gains three file names across its two expected
+      sets. **`DependencyPinTests` and `ReleaseMetadataTests` are byte-identical
+      to `master`** — both derive their sets from the files they read, so the
+      new pin and the unchanged privacy manifest are covered without an edit,
+      which is the stronger outcome.
+      `LSPProvisioningManifestTests` is the one worth stating in detail, because
+      three of its existing assertions were rewritten rather than appended to,
+      and each rewrite **narrows**: the host allow-list gains `github.com` as a
+      fourth literal (still a closed set, with the redirect-and-digest reasoning
+      written on it); the architecture test's derived rule "everything that is
+      not `node` is an npm tarball" became a hand-written native set checked in
+      *both* directions, so a native artifact carrying `nil` now fails where it
+      previously could not; the strip-depth test became an exhaustive switch
+      stating both halves (tarballs still pinned at 1, gzip at 0) rather than a
+      weakened "0 or 1"; and the licence test's `AND` split became `AND`-then-
+      `OR` with the empty-`licenseFileSubpaths` exemption pinned **by id**, so a
+      second component cannot inherit it. `LSPDownloadableServer`'s own set
+      equality is asserted unchanged in that same suite. No assertion anywhere on
+      the branch became a containment check.)*
+- [x] confirm the `.gzip` extension is pinned in all three directions: an install
       producing an executable commits, a non-executable outcome never commits, and
       every tar-based component still installs
+      *(All three, in `LSPInstallEngineTests`' new D22 section over the `binary`
+      fixture component: `testAGzipArtifactInstallsAsOneExecutableFileInOneRename`
+      (format and `stripComponents: 0` reach the seam whole, exactly one rename,
+      the committed file answers `isExecutableFile`);
+      `testAGzipUnpackThatForgetsTheModeCommitsNothing` (`unpackFailed` naming
+      both the file and the reason, **zero** moves, no version directory, state
+      `.absent`, staging swept); and
+      `testTarballComponentsInstallUnchangedAndAreNotAskedToBeExecutable`, which
+      asserts the gate is `.gzip`'s alone by installing a tarball whose entry
+      point is *not* executable in the stub tree. Two further directions the
+      criterion did not ask for are covered beside them: a failed `.gzip`
+      **upgrade** leaves the previous install byte-for-byte and still runnable,
+      and a `.gzip` checksum mismatch never reaches the unpacker at all — so the
+      gate follows the digest rather than standing in for it.)*
 
 ### Task 13: Update documentation
 
