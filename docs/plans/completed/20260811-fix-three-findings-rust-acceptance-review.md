@@ -312,6 +312,34 @@ in all three paths (commit, preview, late-resolve follow-up).
       unchanged, and the only user-visible difference is that member rows now read
       `greet` instead of `.greet`, which no user-facing document describes
 
+### Amendments from the review iterations (after Tasks 5 and 6 were recorded)
+
+The two `fix: address code review findings` commits that followed the tasks
+above widened the blast radius, so the Task 5/6 bullets no longer describe the
+branch on their own. What changed after they were written:
+
+- the "is the root" half of `mayDelete` moved into the layout as
+  `LSPInstallLayout.isBase(_:)`, and both copies of `mayDelete`
+  (`LSPInstallEngine`, `LSPGoplsProvisioning`) now call it — so `mayDelete`,
+  listed as deliberately unchanged, did change; what it decides did not, but it
+  now decides it with the layout's lexical math on *both* halves instead of a
+  disk-consulting `standardizedFileURL` on the second
+- `LSPInstallEngine.sweepStaging()` re-derives each candidate from
+  `layout.stagingRoot` + the entry's *name* rather than trusting the listing's
+  URL. This is a behavior change: under a root the caller spelled `/tmp/…`, a
+  listing comes back spelled `/private/tmp/…`, the old comparison read every
+  entry as outside the root, and the sweep deleted nothing
+- `LSPIntelligenceProvider.publish` gained a drop rule — an item whose *display*
+  is the typed word is not offered — so the change does affect which rows the
+  popup lists, not only how they are spelled. The dedup key is claimed after
+  that guard, so a dropped row does not spend it
+- `CLAUDE.md` *was* touched after all: the "Paths" invariant now names
+  `LSPInstallLayout`'s lexical rule as the third path rule that must not be
+  unified with the other two
+- files touched beyond the ticket's list therefore also include
+  `LSPInstallEngine.swift`, `LSPGoplsProvisioning.swift`,
+  `LSPInstallEngineTests.swift` and `Tests/…/Support/StubFileTree.swift`
+
 ## Post-Completion Checks (manual)
 
 - Live rust-analyzer install with the install root spelled `/private/tmp/…`: it

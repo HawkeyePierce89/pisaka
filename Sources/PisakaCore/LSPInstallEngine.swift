@@ -548,10 +548,15 @@ public final class LSPInstallEngine {
     /// `layout.contains(_:)` answers "inside the install root", and deliberately
     /// counts the root itself — it is a containment predicate, and the sweep reads
     /// that directory. Nothing here may ever *delete* it: every path below is
-    /// built from a component id or read out of a listing, and one that resolves
-    /// back to the root (a hand-edited manifest with `..` in an id, a `.staging`
-    /// entry that walks out through a symlink) would take every provisioned server
-    /// with it in a single `removeItem`. So the delete sites ask this instead.
+    /// built from a component id or from an entry name, and one that resolves back
+    /// to the root — a hand-edited manifest with `..` in an id — would take every
+    /// provisioned server with it in a single `removeItem`. So the delete sites ask
+    /// this instead.
+    ///
+    /// A symlink is not the other half of that case: this predicate is lexical and
+    /// would not see one, and it does not have to, because `removeItem(at:)` unlinks
+    /// the link rather than following it. A delete site that ever *did* traverse
+    /// links would need more than this.
     ///
     /// Both halves go through the layout's own lexical path math. Asking the
     /// second one any other way — `standardizedFileURL`, which is what this was —

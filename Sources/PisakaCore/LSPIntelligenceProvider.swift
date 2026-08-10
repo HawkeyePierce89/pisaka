@@ -349,7 +349,6 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             // candidate behind it — the same rule the tree-sitter path applies,
             // stated here too because the two lists are never merged.
             guard !inserted.isEmpty, inserted != typed else { continue }
-            guard seen.insert(inserted).inserted else { continue }
 
             let itemEdits = edits(
                 for: item,
@@ -380,6 +379,12 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             // means the row is the inserted text, which the guard above already
             // answered for.
             guard display != typed else { continue }
+            // Claimed here rather than beside the guard above, i.e. only by an
+            // item that is actually offered: a dropped row must not spend the
+            // key, or a later item inserting the same text from a *different*
+            // range — a different row, with a display of its own — would be
+            // discarded as its duplicate and never reach the popup.
+            guard seen.insert(inserted).inserted else { continue }
 
             var resolveHandle: Int?
             if serverResolves, item.needsResolve {

@@ -901,7 +901,11 @@ document, together with the limits they carry.
     word, so a row that answers to it turns a cancel into a *commit*, `import` line
     included. Dropping it here, on the one side that can see both spellings, keeps
     the controller's invariant ("no row is the typed word") true by construction.
-    The dedup key stays the inserted text, as above.
+    The dedup key stays the inserted text, as above — but it is *claimed* after
+    that guard rather than before it, so a dropped row does not spend it: two
+    items may carry one `newText` over different ranges, which makes them two
+    different rows (the head a row drops is read off its own range), and the one
+    that survives must not be mistaken for a duplicate of the one nobody sees.
     `resolveEdits(for:)` is the seam's defaulted extension point, implemented here
     and a no-op everywhere else. A handle names an item from the list the popup is
     *actually showing*: handles are monotonic and never reused, and the table is

@@ -889,6 +889,52 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(items.map(\.text), [".greeting"])
     }
 
+    /// Authored, and narrow on purpose: two items whose `newText` is the same
+    /// string over *different* ranges are two different rows, because the head
+    /// a row may drop is read off its own range. The first here reads as the
+    /// typed word and is dropped; the second reads `.greet` and is a real
+    /// candidate, so the dedup key must still be free when it is reached — a row
+    /// nobody is offered may not spend it.
+    func testARowDroppedOnItsDisplayDoesNotConsumeTheDedupKey() async throws {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                completionItemJSON(
+                    label: "greet",
+                    sortText: "100",
+                    // The dot and the member standing after it: reads `greet`.
+                    textEdit: (startLine: 4, startCharacter: 21, endLine: 4, endCharacter: 27),
+                    textEditNewText: ".greet"
+                ),
+                completionItemJSON(
+                    label: "greet",
+                    sortText: "101",
+                    // Empty, at the caret: nothing to drop, so it reads `.greet`.
+                    textEdit: (startLine: 4, startCharacter: 27, endLine: 4, endCharacter: 27),
+                    textEditNewText: ".greet"
+                )
+            ])
+        ])))
+        let provider = makeProvider()
+        let caret = (mainSource as NSString).range(of: "greeter.greet").upperBound
+
+        let items = await provider.completions(
+            for: CompletionRequest(
+                prefix: "greet",
+                fileURL: mainFile,
+                text: mainSource,
+                language: .swift,
+                member: IdentifierScanner.MemberContext(
+                    receiver: "greeter",
+                    prefixRange: NSRange(location: caret - 5, length: 5)
+                ),
+                offset: caret
+            )
+        )
+
+        XCTAssertEqual(items.map(\.displayText), [".greet"])
+        XCTAssertEqual(items.map(\.text), [".greet"])
+    }
+
     /// The common path, pinned by the recorded fixture: sourcekit-lsp's member
     /// items are zero-length `textEdit`s at the caret, so there is no head to
     /// drop and every row reads exactly what it inserts.
