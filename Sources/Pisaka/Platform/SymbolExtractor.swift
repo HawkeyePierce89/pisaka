@@ -30,7 +30,7 @@ import PisakaCore
 ///
 /// **Predicates are resolved**, unlike in the minimap's highlight pass. Exactly
 /// one query needs it: an HTML `id` attribute is structurally identical to every
-/// other attribute, so without evaluating `(#eq? @_attribute "id")` every
+/// other attribute, so without evaluating `(#match? @_attribute "^[iI][dD]$")` every
 /// `class=` and `href=` value in the document would be indexed as an anchor.
 /// `SymbolQueryTests` pins that HTML is the only query with a predicate, so a
 /// second one arriving is reviewed rather than silently relying on this.

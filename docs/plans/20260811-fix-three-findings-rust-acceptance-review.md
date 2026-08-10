@@ -245,13 +245,13 @@ in all three paths (commit, preview, late-resolve follow-up).
 - Modify: `Tests/PisakaCoreTests/Support/QueryScanner.swift`,
   `Tests/PisakaCoreTests/SymbolQueryTests.swift`
 
-- [ ] correct the predicate-depth note in `QueryScanner.swift` (the HTML symbols
+- [x] correct the predicate-depth note in `QueryScanner.swift` (the HTML symbols
       query needs a `#match?`, not an `#eq?`) and both doc comments in
       `SymbolQueryTests.swift` (the auxiliary-capture test's `@_attribute`
       rationale and the filter test's "without the predicate" argument), leaving
       the deliberate `#match?`-vs-`#eq?` contrast inside
       `testTheHTMLQueryFiltersAttributesByName`'s body untouched
-- [ ] run `swift test` — `SymbolQueryTests` and `VendoredGrammarQueryTests` green
+- [x] run `swift test` — `SymbolQueryTests` and `VendoredGrammarQueryTests` green
       (the change is comments only, and the suites are the check that nothing
       else moved)
 
