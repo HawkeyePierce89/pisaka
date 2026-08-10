@@ -744,6 +744,138 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         )
     }
 
+    // MARK: - Completion: what the row reads
+
+    /// tsserver's member shape, authored rather than recorded (sourcekit-lsp
+    /// never sends it): the `textEdit` covers the dot the user typed, so the
+    /// item inserts `.greet` and a popup showing the inserted text would read
+    /// every row under `greeter.` as `.greet`. The row drops the head that
+    /// merely re-writes the dot already standing there; nothing about the edit
+    /// moves.
+    func testAMemberEditOverTheTypedDotIsDisplayedWithoutIt() async throws {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                completionItemJSON(
+                    label: "greet",
+                    sortText: "100",
+                    // Line 4, characters 21…22: the dot itself.
+                    textEdit: (startLine: 4, startCharacter: 21, endLine: 4, endCharacter: 22),
+                    textEditNewText: ".greet"
+                )
+            ])
+        ])))
+        let provider = makeProvider()
+        let typedWord = NSRange(location: memberCaret, length: 0)
+
+        let items = await provider.completions(
+            for: completionRequest(
+                prefix: "",
+                offset: memberCaret,
+                member: IdentifierScanner.MemberContext(receiver: "greeter", prefixRange: typedWord)
+            )
+        )
+
+        let item = try XCTUnwrap(items.first)
+        XCTAssertEqual(item.text, ".greet")
+        XCTAssertEqual(item.displayText, "greet")
+        // The edit is the item's own, unchanged: the dot is replaced, and what
+        // reaches the buffer is byte-identical to what it was before the row
+        // learned to read differently.
+        let primary = try XCTUnwrap(item.edits.first { $0.role == .primary })
+        XCTAssertEqual(item.edits.count, 1)
+        XCTAssertEqual(primary.range, NSRange(location: memberCaret - 1, length: 1))
+        XCTAssertEqual(primary.newText, ".greet")
+
+        // The safety rule, stated as the assertion it exists for: applying the
+        // plan and letting AppKit insert the *displayed* string over the typed
+        // word compose the same buffer — which is what makes the preview and the
+        // rejected-plan fallback correct rather than merely prettier.
+        let plan = try CompletionEditPlan.make(
+            edits: item.edits,
+            in: typingSource as NSString,
+            replacing: typedWord,
+            typed: ""
+        ).get()
+        let planned = NSMutableString(string: typingSource)
+        for edit in plan.edits { planned.replaceCharacters(in: edit.range, with: edit.newText) }
+        XCTAssertEqual(
+            planned as String,
+            (typingSource as NSString).replacingCharacters(in: typedWord, with: item.displayText)
+        )
+        XCTAssertTrue((planned as String).contains("greeter.greet"))
+    }
+
+    /// The counter-case over exactly the same range: an optional receiver's
+    /// `?.` does not re-write what stands in the buffer — the buffer holds `.`,
+    /// the edit writes `?.` — so the row keeps its full spelling and the user
+    /// sees the rewrite that is about to happen.
+    func testAnOptionalChainMemberEditKeepsItsFullSpellingInTheRow() async throws {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                completionItemJSON(
+                    label: "greet",
+                    sortText: "100",
+                    textEdit: (startLine: 4, startCharacter: 21, endLine: 4, endCharacter: 22),
+                    textEditNewText: "?.greet"
+                )
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(
+                prefix: "",
+                offset: memberCaret,
+                member: IdentifierScanner.MemberContext(
+                    receiver: "greeter",
+                    prefixRange: NSRange(location: memberCaret, length: 0)
+                )
+            )
+        )
+
+        let item = try XCTUnwrap(items.first)
+        XCTAssertEqual(item.text, "?.greet")
+        XCTAssertEqual(item.displayText, "?.greet")
+    }
+
+    /// The common path, pinned by the recorded fixture: sourcekit-lsp's member
+    /// items are zero-length `textEdit`s at the caret, so there is no head to
+    /// drop and every row reads exactly what it inserts.
+    func testTheRecordedMemberListDisplaysExactlyWhatItInserts() async throws {
+        transport.script(LSPMethod.completion, .reply(try fixtureResult("completion-member.json")))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(
+                prefix: "",
+                offset: memberCaret,
+                member: IdentifierScanner.MemberContext(
+                    receiver: "greeter",
+                    prefixRange: NSRange(location: memberCaret, length: 0)
+                )
+            )
+        )
+
+        XCTAssertEqual(items.map(\.displayText), items.map(\.text))
+        XCTAssertEqual(items.map(\.displayText), ["salutation", "greet()", "self"])
+    }
+
+    /// The identifier path is untouched too, including the item that carries an
+    /// auto-import: its primary edit starts at the typed word, so there is no
+    /// gap and the row is the inserted text.
+    func testAnIdentifierItemWithAnImportDisplaysWhatItInserts() async throws {
+        transport.script(LSPMethod.completion, .reply(try fixtureResult("completion-auto-import.json")))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "Gree", offset: identifierCaret)
+        )
+
+        let item = try XCTUnwrap(items.first)
+        XCTAssertEqual(item.displayText, "Greeter")
+        XCTAssertEqual(item.displayText, item.text)
+    }
+
     // MARK: - Resolve
 
     func testADeferredItemResolvesIntoItsImportEditAndEchoesTheServersDataVerbatim() async throws {
@@ -926,7 +1058,8 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         sortText: String,
         detail: String? = nil,
         insertTextFormat: Int? = 1,
-        textEdit: (startLine: Int, startCharacter: Int, endLine: Int, endCharacter: Int)? = nil
+        textEdit: (startLine: Int, startCharacter: Int, endLine: Int, endCharacter: Int)? = nil,
+        textEditNewText: String? = nil
     ) -> JSONValue {
         var object: [String: JSONValue] = [
             "label": .string(label),
@@ -939,7 +1072,7 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         if let detail { object["detail"] = .string(detail) }
         if let textEdit {
             object["textEdit"] = .object([
-                "newText": .string(label),
+                "newText": .string(textEditNewText ?? label),
                 "range": .object([
                     "start": .object([
                         "line": .int(textEdit.startLine),

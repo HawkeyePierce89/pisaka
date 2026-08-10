@@ -182,7 +182,7 @@ in all three paths (commit, preview, late-resolve follow-up).
 - Modify: `Tests/PisakaCoreTests/CompletionEditPlanTests.swift`,
   `Tests/PisakaCoreTests/LSPIntelligenceProviderTests.swift`
 
-- [ ] write the failing pure-rule tests first, then add the rule to
+- [x] write the failing pure-rule tests first, then add the rule to
       `CompletionEditPlan.swift` as a `CompletionEdit` member (that file already
       owns how an edit relates to the typed word): given the typed word's start
       and the buffer the edit was computed against, it answers what a popup row
@@ -193,26 +193,26 @@ in all three paths (commit, preview, late-resolve follow-up).
       differs from the buffer kept whole; no gap (`range.location ==` the typed
       word's start) unchanged; a `newText` that *is* the head kept whole, since
       an empty row is not a row; and the rule applies to the primary edit only
-- [ ] add `displayText` to `CompletionItem` — an initialiser parameter defaulted
+- [x] add `displayText` to `CompletionItem` — an initialiser parameter defaulted
       to `nil` and stored as `displayText ?? text`, so the tree-sitter provider,
       both iOS surfaces and every existing construction site are untouched and
       keep meaning what they meant. Its doc comment carries the safety rule
       verbatim: this string is *also* what AppKit previews and what it inserts
       when the plan is rejected, so it may only differ from `text` by a head that
       re-writes what already stands there, and the LSP `label` is never it
-- [ ] compute it in `LSPIntelligenceProvider.publish(…)` from the item's own
+- [x] compute it in `LSPIntelligenceProvider.publish(…)` from the item's own
       primary edit against the request's buffer and the `typedWord` range already
       in hand; leave `edits(for:…)`, the ranking, the dedup key (`inserted`), the
       cap and the resolve bookkeeping exactly as they are, so what is inserted is
       byte-identical
-- [ ] add the provider-level tests the acceptance names, driving
+- [x] add the provider-level tests the acceptance names, driving
       `ScriptedLSPTransport`: a dot-covering `textEdit` (`{dot,1} → ".greet"` at
       the member caret) whose item inserts `.greet`, displays `greet` and carries
       an unchanged primary `CompletionEdit`; the `?.` counter-case over the same
       range keeping its full spelling; and the recorded `completion-member.json`
       fixture displaying exactly what it inserts (its ranges are zero-length at
       the caret, so this pins that the common path is untouched)
-- [ ] run `swift test` — the whole suite green, including every existing
+- [x] run `swift test` — the whole suite green, including every existing
       `LSPIntelligenceProviderTests` assertion about inserted text and edits
 
 ### Task 3: The macOS popup keys by what it shows

@@ -363,6 +363,13 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
                 handle += 1
             }
 
+            let itemEdits = edits(
+                for: item,
+                additionalTextEdits: item.additionalTextEdits,
+                typedWord: typedWord,
+                in: text,
+                lineStarts: lineStarts
+            )
             results.append(
                 CompletionItem(
                     text: inserted,
@@ -371,14 +378,19 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
                     // adds no key of its own, so the flag is inert here rather
                     // than false in some interesting sense.
                     isFromCurrentFile: false,
-                    edits: edits(
-                        for: item,
-                        additionalTextEdits: item.additionalTextEdits,
-                        typedWord: typedWord,
-                        in: text,
-                        lineStarts: lineStarts
-                    ),
-                    resolveHandle: resolveHandle
+                    edits: itemEdits,
+                    resolveHandle: resolveHandle,
+                    // What the row reads, from the item's own primary edit
+                    // against the buffer the request carried: tsserver answers a
+                    // member access with a `textEdit` over the typed dot, so
+                    // `inserted` is `".greet"` and the row must read `greet`.
+                    // `nil` — the common case, including every edit-less item —
+                    // means the row *is* what is inserted. Nothing below this
+                    // line changes: the dedup key, the cap and the edits are the
+                    // inserted text's, so what reaches the buffer is untouched.
+                    displayText: itemEdits
+                        .first { $0.role == .primary }?
+                        .displayText(forTypedWordStartingAt: typedWord.location, in: text)
                 )
             )
             if results.count == completionLimit { break }
