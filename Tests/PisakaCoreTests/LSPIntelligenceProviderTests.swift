@@ -838,6 +838,57 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(item.displayText, "?.greet")
     }
 
+    /// The member the user already finished typing, over tsserver's dot-covering
+    /// shape: `inserted` is `".greet"` and so passes the "completes to what is
+    /// already typed" guard, but the *row* reads `greet` — the typed word itself.
+    ///
+    /// It is dropped on the displayed spelling for the same reason the inserted
+    /// one is dropped, plus one the caller cannot defend against on its own:
+    /// `CompletionController` keys its snapshot by the displayed string and
+    /// AppKit hands Esc back through that table spelled as the typed word, so a
+    /// row that answers to it turns a cancel into a commit — `import` line
+    /// included. The list that comes back is the neighbours only.
+    func testAMemberAlreadyTypedInFullIsDroppedOnWhatTheRowWouldRead() async throws {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                completionItemJSON(
+                    label: "greet",
+                    sortText: "100",
+                    // Line 4 of `mainSource`, characters 21…27: the dot the user
+                    // typed *and* the whole member name standing after it.
+                    textEdit: (startLine: 4, startCharacter: 21, endLine: 4, endCharacter: 27),
+                    textEditNewText: ".greet"
+                ),
+                completionItemJSON(
+                    label: "greeting",
+                    sortText: "101",
+                    textEdit: (startLine: 4, startCharacter: 21, endLine: 4, endCharacter: 27),
+                    textEditNewText: ".greeting"
+                )
+            ])
+        ])))
+        let provider = makeProvider()
+        let caret = (mainSource as NSString).range(of: "greeter.greet").upperBound
+        let typedWord = NSRange(location: caret - 5, length: 5)
+
+        let items = await provider.completions(
+            for: CompletionRequest(
+                prefix: "greet",
+                fileURL: mainFile,
+                text: mainSource,
+                language: .swift,
+                member: IdentifierScanner.MemberContext(
+                    receiver: "greeter",
+                    prefixRange: typedWord
+                ),
+                offset: caret
+            )
+        )
+
+        XCTAssertEqual(items.map(\.displayText), ["greeting"])
+        XCTAssertEqual(items.map(\.text), [".greeting"])
+    }
+
     /// The common path, pinned by the recorded fixture: sourcekit-lsp's member
     /// items are zero-length `textEdit`s at the caret, so there is no head to
     /// drop and every row reads exactly what it inserts.

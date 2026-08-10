@@ -513,6 +513,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `?.greet` over the same range keeps its full spelling, because `?` is not
     standing there. And the LSP `label` is never this string — `greet(name:
     String)` inserted by the fallback path would corrupt the buffer.
+    **No key may be the typed word**, and that is a provider obligation rather
+    than something this class can check: AppKit routes Esc back through
+    `insert(_:forPartialWordRange:isFinal:)` spelled as the typed word and with
+    `isFinal: true`, and `EditorTextView.insertCompletion` has already dropped
+    `movement`, so a snapshot that answers to that string commits the row instead
+    of cancelling — applying its `import` and moving the caret, on the keystroke
+    that means "never mind". `LSPIntelligenceProvider.publish` therefore drops an
+    item whose *display* string equals the typed word, not only one whose inserted
+    text does (`core-lsp.md`); the miss on this branch was a fully typed member,
+    where the two spellings differ by exactly the dropped head.
     It answers `true` — "handled here" — only for the D4 case, and `false`
     everywhere else, which leaves AppKit's stock insertion to do the job it already
     does correctly. Everything about *which* edits and in what order is

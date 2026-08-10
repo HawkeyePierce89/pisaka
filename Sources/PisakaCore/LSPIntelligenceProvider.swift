@@ -351,6 +351,36 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             guard !inserted.isEmpty, inserted != typed else { continue }
             guard seen.insert(inserted).inserted else { continue }
 
+            let itemEdits = edits(
+                for: item,
+                additionalTextEdits: item.additionalTextEdits,
+                typedWord: typedWord,
+                in: text,
+                lineStarts: lineStarts
+            )
+            // What the row reads, from the item's own primary edit against the
+            // buffer the request carried: tsserver answers a member access with a
+            // `textEdit` over the typed dot, so `inserted` is `".greet"` and the
+            // row must read `greet`. `nil` — the common case, including every
+            // edit-less item — means the row *is* what is inserted.
+            let display = itemEdits
+                .first { $0.role == .primary }?
+                .displayText(forTypedWordStartingAt: typedWord.location, in: text)
+            // The "completes to what is already typed" rule again, this time
+            // against the string the user will *see*, because a head the row
+            // drops is exactly the difference between the two: a fully typed
+            // `greeter.greet` makes tsserver's `".greet"` pass the test above and
+            // read `greet` — the typed word itself. Such a row is not merely
+            // useless. `CompletionController` keys its snapshot by the displayed
+            // string, and AppKit routes Esc back through that same table with the
+            // typed word, so a row spelled like it turns a cancel into a commit —
+            // including the item's `import` line. Dropping it here keeps the
+            // controller's invariant ("no row is the typed word") true by
+            // construction, on the one side that can see both spellings. `nil`
+            // means the row is the inserted text, which the guard above already
+            // answered for.
+            guard display != typed else { continue }
+
             var resolveHandle: Int?
             if serverResolves, item.needsResolve {
                 resolveHandle = handle
@@ -363,13 +393,6 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
                 handle += 1
             }
 
-            let itemEdits = edits(
-                for: item,
-                additionalTextEdits: item.additionalTextEdits,
-                typedWord: typedWord,
-                in: text,
-                lineStarts: lineStarts
-            )
             results.append(
                 CompletionItem(
                     text: inserted,
@@ -380,17 +403,10 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
                     isFromCurrentFile: false,
                     edits: itemEdits,
                     resolveHandle: resolveHandle,
-                    // What the row reads, from the item's own primary edit
-                    // against the buffer the request carried: tsserver answers a
-                    // member access with a `textEdit` over the typed dot, so
-                    // `inserted` is `".greet"` and the row must read `greet`.
-                    // `nil` — the common case, including every edit-less item —
-                    // means the row *is* what is inserted. Nothing below this
-                    // line changes: the dedup key, the cap and the edits are the
+                    // Computed above, where it is also a drop rule. Nothing else
+                    // reads it: the dedup key, the cap and the edits are the
                     // inserted text's, so what reaches the buffer is untouched.
-                    displayText: itemEdits
-                        .first { $0.role == .primary }?
-                        .displayText(forTypedWordStartingAt: typedWord.location, in: text)
+                    displayText: display
                 )
             )
             if results.count == completionLimit { break }

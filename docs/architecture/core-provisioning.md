@@ -254,10 +254,15 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     install root and the sweep silently deleted nothing — the refusal being safe
     is exactly what makes that failure quiet. The engine now takes only the entry
     *name* and re-roots it on `layout.stagingRoot`, so both sides really do derive
-    from one `base`. Not reachable with the shipped Application Support root, and
-    not visible to the suite either — `LSPInstallEngineTests` runs over an
-    in-memory `StubFileTree` rooted at `/Pisaka-tests`, which has no `/private`
-    aliasing to reproduce.
+    from one `base`. Not reachable with the shipped Application Support root, but
+    pinned by the suite all the same: `StubFileTree.listingSpelling` re-spells the
+    directory its listing hangs entry URLs off without moving anything, which is
+    the one thing an in-memory tree cannot otherwise reproduce about
+    `contentsOfDirectory(at:)`, and
+    `testSweepingRemovesLeftoversEvenWhenTheListingSpellsThemThroughASymlink`
+    stages the `/private` alias and asserts the leftover is still removed. Without
+    it, reverting to the entry's own URL kept every sweep test green — a predicate
+    that only ever refuses leaves no other trace.
 
   - `LSPInstallEngine.swift` — the whole of D12–D14: the two seams, the typed
     `LSPInstallError`, `state(of:)`, `install(_:)`, `remove(_:)` and

@@ -890,6 +890,18 @@ document, together with the limits they carry.
     Every item without a primary edit, which is every edit-less item and the whole
     sourcekit-lsp member shape (zero-length ranges at the caret), passes `nil` and
     so displays exactly what it inserts.
+    **"Completes to what is already typed" is asked of the displayed spelling
+    too**, and that second guard is what the first one stops covering once a row
+    may read differently from what it inserts. The two diverge by exactly the head
+    the row drops, so a member the user already finished typing — `greeter.greet`,
+    caret at the end — comes back from tsserver as `".greet"`, passes
+    `inserted != typed`, and reads `greet`: the typed word itself. Such a row is
+    not merely useless: `CompletionController` keys its snapshot by the displayed
+    string and AppKit hands Esc back through that same table spelled as the typed
+    word, so a row that answers to it turns a cancel into a *commit*, `import` line
+    included. Dropping it here, on the one side that can see both spellings, keeps
+    the controller's invariant ("no row is the typed word") true by construction.
+    The dedup key stays the inserted text, as above.
     `resolveEdits(for:)` is the seam's defaulted extension point, implemented here
     and a no-op everywhere else. A handle names an item from the list the popup is
     *actually showing*: handles are monotonic and never reused, and the table is

@@ -92,6 +92,17 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
     var removeFailures: Set<String> = []
     /// Held on the *first* directory listing, if set.
     var listingGate: Gate?
+    /// Re-spells the directory the listing's entry URLs hang off, without moving
+    /// anything: the tree still answers to the paths it was given, only the URLs
+    /// handed *back* read differently.
+    ///
+    /// The one thing an in-memory tree cannot otherwise reproduce about
+    /// `FileManager.contentsOfDirectory(at:)`: it resolves the parent's symlinks
+    /// in the URLs it returns, so a listing of `/tmp/x` comes back spelled
+    /// `/private/tmp/x/…`. Code that compares a listed entry against a path it
+    /// computed itself is wrong in exactly that case and correct in every case a
+    /// stub without this hook can stage — see `LSPInstallEngine.sweepStaging`.
+    var listingSpelling: ((URL) -> URL)?
     /// Held on the read of this exact root-relative path, once.
     var readGate: (path: String, gate: Gate)?
 
@@ -233,8 +244,9 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
             else { continue }
             names[components[prefix.count]] = true
         }
+        let listedURL = listingSpelling?(url) ?? url
         return names
-            .map { DirectoryEntry(url: url.appendingPathComponent($0.key), isDirectory: $0.value) }
+            .map { DirectoryEntry(url: listedURL.appendingPathComponent($0.key), isDirectory: $0.value) }
             .sorted { lhs, rhs in
                 lhs.isDirectory != rhs.isDirectory
                     ? lhs.isDirectory
