@@ -187,6 +187,78 @@ final class ScriptedGoDiscovery: LSPGoToolchainDiscovering, @unchecked Sendable 
     }
 }
 
+/// The Rust toolchain as the app would report it (D23), scripted.
+///
+/// `ScriptedGoDiscovery`'s shape, and for its reasons — one stored answer plus a
+/// counter, because what the model's rules turn on is *which* report it got and
+/// the counter is what pins "discovery runs once per app run, including the
+/// negative answer".
+///
+/// There is no companion installer fake, and that absence is D21: rust-analyzer
+/// is downloaded rather than built, so the install runs through the very
+/// `ScriptedDownloader`/`ScriptedUnpacker` pair every 2b component already uses.
+final class ScriptedRustDiscovery: LSPRustToolchainDiscovering, @unchecked Sendable {
+    private let lock = NSLock()
+    private var report: LSPRustToolchainReport
+    private var calls = 0
+    private var gate: Gate?
+
+    init(_ report: LSPRustToolchainReport) {
+        self.report = report
+    }
+
+    /// No `cargo` anywhere.
+    static var missing: ScriptedRustDiscovery { ScriptedRustDiscovery(.missing) }
+
+    /// The search path a rustup toolchain is found under — the mainstream
+    /// Finder-launch shape, where `launchd`'s four directories hold no `cargo`
+    /// and `~/.cargo/bin` is what the app prepended.
+    static let searchPath = "/Users/someone/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+    /// A toolchain, with or without a rust-analyzer the user already has.
+    static func found(
+        cargo cargoPath: String = "/Users/someone/.cargo/bin/cargo",
+        searchPath: String = ScriptedRustDiscovery.searchPath,
+        rustAnalyzer rustAnalyzerPath: String? = nil
+    ) -> ScriptedRustDiscovery {
+        ScriptedRustDiscovery(
+            .found(
+                cargoPath: cargoPath,
+                searchPath: searchPath,
+                rustAnalyzerPath: rustAnalyzerPath
+            )
+        )
+    }
+
+    /// Hold the search until the gate is released — the window a test asserts
+    /// `pending` in. Blocking is sound for `ScriptedDownloader.hold(_:on:)`'s
+    /// reason: the seam is `nonisolated`, so it runs on the cooperative pool.
+    func hold(on gate: Gate) {
+        lock.lock()
+        self.gate = gate
+        lock.unlock()
+    }
+
+    var callCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+
+    func discover() async -> LSPRustToolchainReport {
+        let (gate, answer) = claim()
+        gate?.wait()
+        return answer
+    }
+
+    private func claim() -> (Gate?, LSPRustToolchainReport) {
+        lock.lock()
+        defer { lock.unlock() }
+        calls += 1
+        return (gate, report)
+    }
+}
+
 /// `go install` as a value: it writes one file where `GOBIN` points, or it does
 /// not.
 ///
@@ -312,6 +384,7 @@ final class ScriptedUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
     private let lock = NSLock()
     private var trees: [Data: [String: String]] = [:]
     private var failures: Set<Data> = []
+    private var forgottenModes: Set<Data> = []
     private var recorded: [Call] = []
 
     init(writingInto tree: StubFileTree) {
@@ -335,17 +408,35 @@ final class ScriptedUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Unpack the archive served at `url` **without** the executable bit — an
+    /// unpacker that reported success and produced a file nobody can run (D22).
+    ///
+    /// The one outcome a `.gzip` unpack has that a tarball's does not: a tarball
+    /// carries a mode per member and `tar` restores it, while a bare `.gz` carries
+    /// none, so "and it is executable" is a claim of the unpacker's that the
+    /// engine has to check rather than believe. This is how the unchecked version
+    /// of that claim is staged.
+    func forgetExecutableMode(_ url: URL) {
+        lock.lock()
+        forgottenModes.insert(ScriptedArchive.bytes(for: url))
+        lock.unlock()
+    }
+
     var calls: [Call] {
         lock.lock()
         defer { lock.unlock() }
         return recorded
     }
 
-    private func record(_ call: Call) -> ([String: String]?, Bool) {
+    private func record(_ call: Call) -> ([String: String]?, Bool, Bool) {
         lock.lock()
         defer { lock.unlock() }
         recorded.append(call)
-        return (trees[call.archive], failures.contains(call.archive))
+        return (
+            trees[call.archive],
+            failures.contains(call.archive),
+            forgottenModes.contains(call.archive)
+        )
     }
 
     func unpack(
@@ -355,7 +446,7 @@ final class ScriptedUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
         stripComponents: Int
     ) async throws {
         // Synchronous, for the reason `ScriptedDownloader.claim(_:)` states.
-        let (entries, fails) = record(
+        let (entries, fails, forgetsMode) = record(
             Call(
                 archive: archive,
                 format: format,
@@ -368,8 +459,17 @@ final class ScriptedUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
 
         // An unregistered archive still materialises *something*, so a test that
         // does not care what is inside a component still gets a directory that
-        // exists — which is what `state(of:)` reads.
-        let contents = entries ?? ["payload": String(decoding: archive, as: UTF8.self)]
+        // exists — which is what `state(of:)` reads. A `.gzip` archive is one
+        // named file rather than a tree, so the format's own name is what it
+        // materialises as — the real unpacker has nothing else to call it.
+        let defaultContents: [String: String]
+        switch format {
+        case .tarGzip:
+            defaultContents = ["payload": String(decoding: archive, as: UTF8.self)]
+        case .gzip(let fileName):
+            defaultContents = [fileName: String(decoding: archive, as: UTF8.self)]
+        }
+        let contents = entries ?? defaultContents
 
         // The writes hop to the main actor, and they have to. This method is a
         // `nonisolated async` protocol requirement, so it runs on the cooperative
@@ -389,6 +489,13 @@ final class ScriptedUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
                     .split(separator: "/")
                     .reduce(destination) { $0.appendingPathComponent(String($1)) }
                 try tree.write(text, to: url)
+            }
+            // The real unpacker creates a `.gzip` file with mode `0o755`, so the
+            // fake marks the same one executable — unless the test staged the
+            // unpacker that forgets to.
+            if case .gzip(let fileName) = format, !forgetsMode {
+                let url = destination.appendingPathComponent(fileName)
+                tree.executableFiles.insert(tree.relativePath(of: url))
             }
         }
     }

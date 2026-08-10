@@ -59,7 +59,14 @@ public struct LSPProvisioningManifest: Equatable, Sendable {
 
     /// The manifest the app ships. See the table in
     /// `docs/architecture/core-provisioning.md` for provenance.
-    public static let standard = LSPProvisioningManifest(components: [.node, .typescriptLanguageServer, .pyright])
+    ///
+    /// `rustAnalyzer` is in here without a matching `LSPDownloadableServer` case,
+    /// and that is D21 rather than an oversight: what Rust reuses from this layer is
+    /// the pinned component and the engine that installs it, not
+    /// `LSPProvisioningModel`, whose row cannot say "no Rust toolchain".
+    public static let standard = LSPProvisioningManifest(
+        components: [.node, .typescriptLanguageServer, .pyright, .rustAnalyzer]
+    )
 }
 
 // MARK: - Architecture
@@ -79,12 +86,32 @@ public enum LSPHostArchitecture: String, CaseIterable, Sendable {
 
 // MARK: - Artifacts
 
-/// How an artifact is packed. One case today, and a case rather than a `Bool`
-/// because the unpack seam takes the format as an argument and a second one
-/// (a `.zip` for a server that ships no tarball) must be a compile error at every
-/// call site rather than a silently wrong `false`.
-public enum LSPArchiveFormat: String, Equatable, Sendable {
+/// How an artifact is packed — and, for `gzip`, what the single file inside it is
+/// called.
+///
+/// A case rather than a `Bool` because the unpack seam takes the format as an
+/// argument and a new one must be a compile error at every call site rather than
+/// a silently wrong `false`. The second case is what that bought: rust-analyzer
+/// publishes its macOS builds as a bare `.gz` of one binary, not as a tarball, so
+/// the unpacker's switch grew a branch and nothing else had to move.
+///
+/// **The name lives in the payload (D22).** A tarball carries its members' names;
+/// a bare `.gz` carries nothing but bytes, so the file it decompresses into has to
+/// be named by whoever pinned it. Naming it here rather than in a parallel
+/// `LSPArtifact.unpackedFileName` is what keeps the manifest from being able to
+/// express "a gzip with no name" or "a tarball with one" — two states that have no
+/// meaning and would each need a guard somewhere.
+///
+/// It also carries an implication the other case does not: **a `gzip` artifact is
+/// an executable**. That is the only reason this format exists here, and
+/// `LSPInstallEngine` verifies it before it commits — the unpacker sets the bit at
+/// creation, the engine refuses to install a file that somehow lacks it.
+///
+/// No raw value: `stripComponents` is meaningless for `gzip` (the manifest tests
+/// pin it to `0`), and nothing ever needed the format as a string.
+public enum LSPArchiveFormat: Equatable, Sendable {
     case tarGzip
+    case gzip(fileName: String)
 }
 
 /// One downloadable file, and everything needed to verify and place it.
@@ -123,8 +150,10 @@ public struct LSPArtifact: Equatable, Sendable {
     public let format: LSPArchiveFormat
 
     /// Leading path components the archive's own layout adds and we do not want.
-    /// Every artifact here is 1: a Node tarball wraps everything in
-    /// `node-v…-darwin-arm64/`, an npm tarball in `package/`.
+    /// Every *tarball* here is 1: a Node tarball wraps everything in
+    /// `node-v…-darwin-arm64/`, an npm tarball in `package/`. A `.gzip` artifact
+    /// has no layout to strip and pins this at 0 — the unpacker ignores it there,
+    /// and `LSPProvisioningManifestTests` is what keeps the data saying so.
     public let stripComponents: Int
 
     /// Where the stripped contents land, relative to the component's version
@@ -366,6 +395,60 @@ extension LSPComponent {
         ],
         requires: ["node"],
         executableSubpath: "node_modules/pyright/dist/pyright-langserver.js"
+    )
+
+    /// rust-analyzer — the one component here that is a **standalone binary**, and
+    /// the reason `LSPArchiveFormat` has a second case (D22).
+    ///
+    /// Everything else in this manifest is a Node program, or Node itself, arriving
+    /// in a tarball that carries its own directory layout and a mode per member.
+    /// Upstream publishes rust-analyzer as a bare `.gz` of one Mach-O executable:
+    /// there is no wrapping directory to strip (`stripComponents: 0`), no member
+    /// name to read out of the archive (so the name travels in the format's
+    /// payload), and no mode either — which is what the engine's pre-commit
+    /// executable check exists for.
+    ///
+    /// **`licenseFileSubpaths` is empty as a decision, not as an omission** (D24).
+    /// The archive holds one binary and nothing beside it, so there is no verbatim
+    /// text inside the installed tree for `LSPInstalledLicenses` to print, and the
+    /// substitute is one sentence in the Settings row naming the origin and the
+    /// dual license below. `licenses.json` covers nothing of it either: this app
+    /// bundles none of its bytes — they arrive over the network at the user's
+    /// request or not at all.
+    ///
+    /// `requires: []`, because nothing runs it but the kernel — the first component
+    /// here that is not a `node` argument. And it is the one whose **version is a
+    /// date**: that is what upstream ships, and a date sorts correctly
+    /// lexicographically, which is the single property `LSPInstallEngine.state(of:)`
+    /// asks of a version string.
+    public static let rustAnalyzer = LSPComponent(
+        id: "rust-analyzer",
+        version: "2026-08-03",
+        licenseSPDX: "Apache-2.0 OR MIT",
+        licenseFileSubpaths: [],
+        artifacts: [
+            LSPArtifact(
+                url: URL(string: "https://github.com/rust-lang/rust-analyzer/releases/download/2026-08-03/rust-analyzer-aarch64-apple-darwin.gz")!,
+                sha256: "bba6cd8209643cd781f3ee5474fa232d3ee1b77a57f2e77982806e3c80a65207",
+                byteCount: 13_873_448,
+                unpackedByteCount: 37_914_480,
+                format: .gzip(fileName: "rust-analyzer"),
+                stripComponents: 0,
+                destinationSubpath: "bin",
+                architecture: .arm64
+            ),
+            LSPArtifact(
+                url: URL(string: "https://github.com/rust-lang/rust-analyzer/releases/download/2026-08-03/rust-analyzer-x86_64-apple-darwin.gz")!,
+                sha256: "8966f9429085c243817b9d13afa76e98920668c07a9b432901daaf047397c6cb",
+                byteCount: 14_576_027,
+                unpackedByteCount: 39_382_228,
+                format: .gzip(fileName: "rust-analyzer"),
+                stripComponents: 0,
+                destinationSubpath: "bin",
+                architecture: .x64
+            ),
+        ],
+        executableSubpath: "bin/rust-analyzer"
     )
 }
 

@@ -81,6 +81,24 @@ final class RunCommandTests: XCTestCase {
         XCTAssertNil(RunCommand.command(forFileName: "", absolutePath: "/p/"))
     }
 
+    // MARK: - Rust: no runner, deliberately
+
+    // Rust is a supported language with no entry in `runners`, and that is a
+    // decision rather than an omission — pinned here so nobody "fixes" it by
+    // adding one. Every entry in this map runs *one file*: the tokens are joined
+    // with the quoted path appended, which is what `go run`, `python3` and
+    // `node` all accept. Rust has a project-level runner and no file-level one —
+    // `cargo run` builds the crate and takes no path, and `rustc` compiles to a
+    // binary you then run, which is two steps and a different thing. So ⌘R stays
+    // off for `.rs` and the terminal panel is the answer, while ⌘U works because
+    // `TestCommand` answers for a project (`cargo test`), not for a file.
+    func testRustHasNoRunner() {
+        XCTAssertFalse(RunCommand.canRun(fileName: "main.rs"))
+        XCTAssertFalse(RunCommand.canRun(fileName: "lib.rs"))
+        XCTAssertFalse(RunCommand.canRun(fileName: "MAIN.RS"))
+        XCTAssertNil(RunCommand.command(forFileName: "main.rs", absolutePath: "/p/src/main.rs"))
+    }
+
     // MARK: - canRun
 
     func testCanRunTrueForSupported() {

@@ -102,6 +102,27 @@ packages:
   tree-sitter-go:
     url: https://github.com/tree-sitter/tree-sitter-go
     exactVersion: "0.25.0"
+  # Rust's grammar is pinned remotely and vendored nowhere, and the two facts
+  # that decide that were read out of the manifest at this exact revision rather
+  # than assumed:
+  #   * its `sources:` is `["src/parser.c", "src/scanner.c"]` — the grammar
+  #     declares an external scanner and upstream *does* compile it, so this is
+  #     not the `TreeSitterDotenv` failure mode (a manifest that omits
+  #     `src/scanner.c` and leaves the consuming app with undefined
+  #     `..._external_scanner_*` symbols at link time). The iOS device build is
+  #     the standing link-time proof.
+  #   * its manifest names ChimeHQ/SwiftTreeSitter — the same package identity
+  #     the root pins `branch: main` above — but only from its *test* target, and
+  #     SwiftPM prunes a non-root package's test-only dependencies. So this adds
+  #     exactly one pin and provokes no "required using two different
+  #     requirements" failure, exactly as `tree-sitter-python` and
+  #     `tree-sitter-css` (which declare the same dependency) already prove.
+  # Package *and* target are both `TreeSitterRust`, so the resource bundle is the
+  # `TreeSitterRust_TreeSitterRust` that `LanguageConfiguration(…, name: "Rust")`
+  # expects, and `bindings/swift` + `queries/highlights.scm` both ship.
+  tree-sitter-rust:
+    url: https://github.com/tree-sitter/tree-sitter-rust
+    exactVersion: "0.24.2"
   # dotenv is vendored for a different reason than gitignore below: upstream
   # (pnx/tree-sitter-dotenv v1.1.1) *does* ship a SwiftPM manifest, but its
   # `sources:` omits `src/scanner.c` while the grammar declares an external
@@ -278,6 +299,8 @@ targets:
         product: TreeSitterDockerfile
       - package: tree-sitter-go
         product: TreeSitterGo
+      - package: tree-sitter-rust
+        product: TreeSitterRust
       - package: TreeSitterDotenv
         product: TreeSitterDotenv
       - package: TreeSitterGitignore

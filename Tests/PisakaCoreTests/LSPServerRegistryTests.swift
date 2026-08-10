@@ -122,5 +122,8 @@ final class LSPServerRegistryTests: XCTestCase {
         XCTAssertEqual(SyntaxLanguage.markdown.lspLanguageID, "markdown")
         // The whole gitignore family is `ignore` to every editor that names it.
         XCTAssertEqual(SyntaxLanguage.gitignore.lspLanguageID, "ignore")
+        // Rust's id is the language's name, not its extension — the spec's own
+        // identifier, and what rust-analyzer keys off.
+        XCTAssertEqual(SyntaxLanguage.rust.lspLanguageID, "rust")
     }
 }

@@ -24,6 +24,8 @@ final class LSPInstallEngineTests: XCTestCase {
         static let helperArchive = URL(string: "https://example.invalid/helper-1.0.0.tgz")!
         static let bumpedServerArchive = URL(string: "https://example.invalid/server-3.0.0.tgz")!
         static let intelOnlyArchive = URL(string: "https://example.invalid/intel-only-1.0.0.tgz")!
+        static let binaryArchive = URL(string: "https://example.invalid/tool-1.0.0-arm64.gz")!
+        static let bumpedBinaryArchive = URL(string: "https://example.invalid/tool-2.0.0-arm64.gz")!
 
         static func artifact(
             _ url: URL,
@@ -92,8 +94,92 @@ final class LSPInstallEngineTests: XCTestCase {
             artifacts: [artifact(intelOnlyArchive, byteCount: 10, architecture: .x64)]
         )
 
-        static let manifest = LSPProvisioningManifest(components: [runtime, server, intelOnly])
-        static let bumpedManifest = LSPProvisioningManifest(components: [runtime, bumpedServer])
+        /// A bare `.gz` of one executable — rust-analyzer's shape (D22), and the
+        /// only artifact here that is not a tarball: no wrapper directory to
+        /// strip, one file whose name the *manifest* supplies, and a mode the
+        /// unpacker sets rather than the archive carrying.
+        static func binaryArtifact(_ url: URL, byteCount: Int) -> LSPArtifact {
+            LSPArtifact(
+                url: url,
+                sha256: ScriptedArchive.checksum(for: url),
+                byteCount: byteCount,
+                unpackedByteCount: byteCount * 4,
+                format: .gzip(fileName: "tool"),
+                stripComponents: 0,
+                destinationSubpath: "bin",
+                architecture: .arm64
+            )
+        }
+
+        static let binary = LSPComponent(
+            id: "binary",
+            version: "1.0.0",
+            licenseSPDX: "Apache-2.0 OR MIT",
+            licenseFileSubpaths: [],
+            artifacts: [binaryArtifact(binaryArchive, byteCount: 500)],
+            executableSubpath: "bin/tool"
+        )
+
+        static let bumpedBinary = LSPComponent(
+            id: "binary",
+            version: "2.0.0",
+            licenseSPDX: "Apache-2.0 OR MIT",
+            licenseFileSubpaths: [],
+            artifacts: [binaryArtifact(bumpedBinaryArchive, byteCount: 520)],
+            executableSubpath: "bin/tool"
+        )
+
+        /// The by-hand pin edit that would escape the install root: the one field
+        /// in this manifest that is concatenated onto a directory rather than
+        /// computed by `LSPInstallLayout`.
+        static let escapingBinary = LSPComponent(
+            id: "escaping",
+            version: "1.0.0",
+            licenseSPDX: "Apache-2.0 OR MIT",
+            licenseFileSubpaths: [],
+            artifacts: [
+                LSPArtifact(
+                    url: escapingArchive,
+                    sha256: ScriptedArchive.checksum(for: escapingArchive),
+                    byteCount: 500,
+                    unpackedByteCount: 2_000,
+                    format: .gzip(fileName: "../../../tool"),
+                    stripComponents: 0,
+                    destinationSubpath: "bin",
+                    architecture: .arm64
+                )
+            ],
+            executableSubpath: "bin/tool"
+        )
+
+        static let escapingArchive = URL(string: "https://example.invalid/escaping-1.0.0.gz")!
+
+        /// The *other* field the by-hand pin edit composes a path out of, and the
+        /// one that escapes for **both** formats: an ordinary tarball whose
+        /// `destinationSubpath` walks up out of the staging tree.
+        static let escapingDestination = LSPComponent(
+            id: "escaping-destination",
+            version: "1.0.0",
+            licenseSPDX: "MIT",
+            licenseFileSubpaths: [],
+            artifacts: [
+                artifact(
+                    escapingDestinationArchive,
+                    byteCount: 40,
+                    destinationSubpath: "../../../escape"
+                )
+            ]
+        )
+
+        static let escapingDestinationArchive =
+            URL(string: "https://example.invalid/escaping-destination-1.0.0.tgz")!
+
+        static let manifest = LSPProvisioningManifest(
+            components: [runtime, server, intelOnly, binary, escapingBinary, escapingDestination]
+        )
+        static let bumpedManifest = LSPProvisioningManifest(
+            components: [runtime, bumpedServer, bumpedBinary]
+        )
     }
 
     // MARK: - The harness
@@ -130,6 +216,10 @@ final class LSPInstallEngineTests: XCTestCase {
             downloader.serve(Fixture.helperArchive)
             downloader.serve(Fixture.bumpedServerArchive)
             downloader.serve(Fixture.intelOnlyArchive)
+            downloader.serve(Fixture.binaryArchive)
+            downloader.serve(Fixture.bumpedBinaryArchive)
+            downloader.serve(Fixture.escapingArchive)
+            downloader.serve(Fixture.escapingDestinationArchive)
 
             unpacker.stub(Fixture.runtimeARM, tree: ["bin/runtime": "#!runtime arm64", "LICENSE": "MIT"])
             unpacker.stub(Fixture.runtimeIntel, tree: ["bin/runtime": "#!runtime x64", "LICENSE": "MIT"])
@@ -702,6 +792,223 @@ final class LSPInstallEngineTests: XCTestCase {
         XCTAssertEqual(harness.tree.removedPaths, ["LanguageServers/.staging/real-1.0.0-1"])
         XCTAssertEqual(harness.tree.files["Documents/notes.txt"], "the user's")
         XCTAssertEqual(harness.engine.state(of: "server"), .installed(version: "2.0.0"))
+    }
+
+    // MARK: - The gzip format and the executable gate (D22)
+
+    func testAGzipArtifactInstallsAsOneExecutableFileInOneRename() async throws {
+        let harness = Harness()
+        try await harness.engine.install("binary")
+
+        // The format travels to the seam whole — the file's name is *in* it,
+        // because a bare `.gz` carries no name of its own — and the strip depth
+        // the manifest states for it is 0, which the unpacker ignores.
+        XCTAssertEqual(harness.unpacker.calls.map(\.format), [.gzip(fileName: "tool")])
+        XCTAssertEqual(harness.unpacker.calls.map(\.stripComponents), [0])
+        XCTAssertTrue(
+            harness.unpacker.calls[0].destination.path.hasPrefix(harness.layout.stagingRoot.path + "/")
+        )
+
+        XCTAssertEqual(harness.installedFiles("binary", version: "1.0.0"), ["LanguageServers/binary/1.0.0/bin/tool"])
+        XCTAssertEqual(harness.tree.moves.count, 1, "the version directory took more than one rename")
+        XCTAssertEqual(harness.engine.state(of: "binary"), .installed(version: "1.0.0"))
+        XCTAssertTrue(harness.engine.isInstalled("binary"))
+        XCTAssertEqual(harness.stagingEntries, [])
+
+        // What the whole format exists to promise: the installed file can be run.
+        let executable = try XCTUnwrap(harness.layout.executable(of: Fixture.binary))
+        XCTAssertTrue(harness.tree.isExecutableFile(at: executable))
+    }
+
+    /// The gate itself: an unpack that reports success and produces a file nobody
+    /// can run must install *nothing*.
+    ///
+    /// Everything before the rename is the same as a successful install — the
+    /// bytes verified, the staging tree written — so this is the one failure D13's
+    /// sequence could not see on its own, and the reason it is checked before
+    /// `commit` rather than after.
+    func testAGzipUnpackThatForgetsTheModeCommitsNothing() async {
+        let harness = Harness()
+        harness.unpacker.forgetExecutableMode(Fixture.binaryArchive)
+
+        let error = await expectFailure(installing: "binary", on: harness.engine)
+        guard case let .unpackFailed(component, reason) = error else {
+            return XCTFail("expected an unpack failure, got \(String(describing: error))")
+        }
+        XCTAssertEqual(component, "binary")
+        XCTAssertTrue(reason.contains("tool"), "the message does not name the file: \(reason)")
+        XCTAssertTrue(reason.contains("executable"), "the message does not say why: \(reason)")
+
+        // Not renamed, not partially installed, and nothing left under staging.
+        XCTAssertEqual(harness.tree.moves, [])
+        XCTAssertFalse(harness.tree.hasDirectory("LanguageServers/binary/1.0.0"))
+        XCTAssertEqual(harness.engine.state(of: "binary"), .absent)
+        XCTAssertFalse(harness.engine.isInstalled("binary"))
+        XCTAssertEqual(harness.stagingEntries, [])
+    }
+
+    /// And the same failure over a working install leaves it exactly as it was —
+    /// D13's promise, now covering the gate as well as the four steps before it.
+    func testAGzipUpgradeThatForgetsTheModeLeavesThePreviousInstallByteForByte() async throws {
+        let harness = Harness()
+        try await harness.engine.install("binary")
+        let installed = harness.tree.files
+
+        harness.rebuild(manifest: Fixture.bumpedManifest)
+        harness.unpacker.forgetExecutableMode(Fixture.bumpedBinaryArchive)
+
+        let error = await expectFailure(installing: "binary", on: harness.engine)
+        XCTAssertNotNil(error)
+
+        XCTAssertEqual(harness.tree.files, installed, "the previous install was disturbed")
+        XCTAssertEqual(harness.engine.state(of: "binary"), .installed(version: "1.0.0"))
+        XCTAssertFalse(harness.tree.hasDirectory("LanguageServers/binary/2.0.0"))
+        XCTAssertEqual(harness.stagingEntries, [])
+        // Still runnable: the gate rejected the new tree, not the old one.
+        XCTAssertTrue(harness.tree.isExecutableFile(at: harness.tree.url("LanguageServers/binary/1.0.0/bin/tool")))
+    }
+
+    /// D12's containment rule applied to the `.gzip` case's file name — one of the
+    /// two manifest fields a path is composed out of, and the one the containment
+    /// test cannot see, because the unpacker appends it after this layer has handed
+    /// the destination over.
+    ///
+    /// The unpacker writes `destination.appendingPathComponent(fileName)` and
+    /// creates it `0o755`, so a `fileName` that walks upwards would put an
+    /// executable outside the install root — and the mode gate would then confirm
+    /// it and let `commit` proceed. Refused **before** the unpack rather than
+    /// after, because after is a file that already exists: nothing here can
+    /// un-write it, and the whole promise is that the install root is the only
+    /// thing this app touches.
+    func testAGzipArtifactThatNamesAPathOutsideItsDestinationIsRefusedBeforeTheUnpack() async {
+        let harness = Harness()
+
+        let error = await expectFailure(installing: "escaping", on: harness.engine)
+        guard case let .unpackFailed(component, reason) = error else {
+            return XCTFail("expected an unpack failure, got \(String(describing: error))")
+        }
+        XCTAssertEqual(component, "escaping")
+        XCTAssertTrue(reason.contains("../../../tool"), "the message does not name it: \(reason)")
+
+        XCTAssertEqual(
+            harness.unpacker.calls.count, 0,
+            "the unpacker was handed a destination it should never have been asked to write"
+        )
+        XCTAssertEqual(harness.tree.moves, [])
+        XCTAssertEqual(harness.engine.state(of: "escaping"), .absent)
+        XCTAssertEqual(harness.stagingEntries, [])
+    }
+
+    /// The other manifest field, and the one that escapes for **every** format:
+    /// `destinationSubpath` is split and appended onto the staging directory, so
+    /// `"../../../escape"` names a directory outside the install root that
+    /// `ensureDirectory` would create and `tar` would then unpack into — no `.gzip`
+    /// required.
+    ///
+    /// Refused before the directory exists, not merely before the unpack: creating
+    /// it is already a write outside the one tree this app promises to touch, and
+    /// `discard(staging)` cannot reach it afterwards because it is not under
+    /// staging.
+    func testAnArtifactWhoseDestinationEscapesTheStagingTreeIsRefusedBeforeAnythingIsCreated() async {
+        let harness = Harness()
+
+        let error = await expectFailure(installing: "escaping-destination", on: harness.engine)
+        guard case let .unpackFailed(component, reason) = error else {
+            return XCTFail("expected an unpack failure, got \(String(describing: error))")
+        }
+        XCTAssertEqual(component, "escaping-destination")
+        XCTAssertTrue(reason.contains("../../../escape"), "the message does not name it: \(reason)")
+
+        XCTAssertFalse(
+            harness.tree.hasDirectory("escape"),
+            "a directory was created outside the install root"
+        )
+        XCTAssertEqual(
+            harness.unpacker.calls.count, 0,
+            "the unpacker was handed a destination it should never have been asked to write"
+        )
+        XCTAssertEqual(harness.tree.moves, [])
+        XCTAssertEqual(harness.engine.state(of: "escaping-destination"), .absent)
+        XCTAssertEqual(harness.stagingEntries, [])
+    }
+
+    /// And a destination that stays inside the install root but walks *out of the
+    /// attempt's staging directory* is refused for the same reason: it would write
+    /// into an installed version directory, where `discard` will not clean it up
+    /// and D13's "the previous install is exactly as it was" quietly stops being
+    /// true.
+    func testAnArtifactWhoseDestinationLeavesStagingForAnInstalledTreeIsRefused() async throws {
+        let harness = Harness()
+        try await harness.engine.install("binary")
+        let installed = harness.tree.files
+        let unpacksSoFar = harness.unpacker.calls.count
+
+        let manifest = LSPProvisioningManifest(
+            components: [
+                LSPComponent(
+                    id: "sideways",
+                    version: "1.0.0",
+                    licenseSPDX: "MIT",
+                    licenseFileSubpaths: [],
+                    artifacts: [
+                        Fixture.artifact(
+                            Fixture.escapingDestinationArchive,
+                            byteCount: 40,
+                            destinationSubpath: "../../binary/1.0.0/bin"
+                        )
+                    ]
+                )
+            ]
+        )
+        harness.rebuild(manifest: manifest)
+
+        let error = await expectFailure(installing: "sideways", on: harness.engine)
+        guard case .unpackFailed = error else {
+            return XCTFail("expected an unpack failure, got \(String(describing: error))")
+        }
+
+        XCTAssertEqual(harness.tree.files, installed, "the previous install was disturbed")
+        XCTAssertEqual(
+            harness.unpacker.calls.count, unpacksSoFar,
+            "the unpacker was handed a destination inside an installed tree"
+        )
+        XCTAssertEqual(harness.engine.state(of: "binary"), .installed(version: "1.0.0"))
+        XCTAssertEqual(harness.stagingEntries, [])
+    }
+
+    /// The gate does not replace the digest, it follows it: a `.gzip` artifact
+    /// whose bytes are not the pinned bytes is still rejected before anything is
+    /// unpacked at all.
+    func testAGzipDownloadThatFailsItsChecksumNeverReachesTheUnpacker() async {
+        let harness = Harness()
+        harness.downloader.serve(Fixture.binaryArchive, bytes: Data("not the pinned bytes".utf8))
+
+        let error = await expectFailure(installing: "binary", on: harness.engine)
+        XCTAssertEqual(error, .checksumMismatch(component: "binary", url: Fixture.binaryArchive))
+
+        XCTAssertEqual(harness.unpacker.calls, [])
+        XCTAssertEqual(harness.tree.moves, [])
+        XCTAssertEqual(harness.engine.state(of: "binary"), .absent)
+        XCTAssertEqual(harness.stagingEntries, [])
+    }
+
+    /// The gate is `.gzip`'s alone. A tarball's entry point is a script run as an
+    /// argument to a runtime, so executability is not what makes it work — and a
+    /// gate applied to every format would fail every install this layer already
+    /// performs.
+    func testTarballComponentsInstallUnchangedAndAreNotAskedToBeExecutable() async throws {
+        let harness = Harness()
+        try await harness.engine.install("server")
+
+        XCTAssertEqual(harness.engine.state(of: "server"), .installed(version: "2.0.0"))
+        XCTAssertEqual(harness.engine.state(of: "runtime"), .installed(version: "1.0.0"))
+        XCTAssertTrue(harness.unpacker.calls.allSatisfy { $0.format == .tarGzip })
+
+        // Nothing the tar path wrote is executable in this tree, and it installed
+        // anyway — which is the assertion, not an accident of the stub.
+        let entry = harness.layout.file("node_modules/server/main.js", of: Fixture.server)
+        XCTAssertFalse(harness.tree.isExecutableFile(at: entry))
+        XCTAssertTrue(harness.engine.isInstalled("server"))
     }
 
     // MARK: - The error messages

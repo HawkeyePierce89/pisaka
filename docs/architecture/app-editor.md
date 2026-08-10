@@ -767,6 +767,71 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `go` that honoured `SIGTERM` promptly still leaves behind what it had already
     spawned. The release check (`pgrep -f 'gopls|go install'` empty after a quit) is
     what all of that is written against.
+  - `LSPRustToolchainService.swift` — the same question again for a third
+    toolchain: where `cargo` and any existing `rust-analyzer` are on **this** Mac
+    (D23). **One seam and no second one**, which is the whole difference from the
+    Go file: rust-analyzer publishes official prebuilt binaries, so installing it
+    is `LSPInstallEngine.install(_:)` over the pinned manifest component and the
+    download/unpack pair 2b already has (D21), and nothing here installs, downloads
+    or writes. It reads directory entries and runs two programs with `--version`.
+    Untested by repository convention, like every seam of this shape, so it is kept
+    to the decisions it actually makes.
+    **The search order is `LSPGoToolchainService.locateGo`'s**, and the one
+    difference is which directories are well-known: the inherited `PATH` first
+    (a Pisaka started from a terminal should use the `cargo` that terminal would
+    have run); then `~/.cargo/bin` and Homebrew's two prefixes — `~/.cargo/bin`
+    leading, because rustup puts both `cargo` and the `rust-analyzer` proxy there
+    and rustup is how nearly everyone has Rust, which is why the common case (a
+    rustup user who already has rust-analyzer) costs no subprocess at all; then the
+    **login shell last**, asked for `$PATH` rather than `command -v`, because it is
+    the only step that costs a subprocess and the only one that can find a
+    version-manager shim. Every branch reports a `PATH` that contains the `cargo`
+    it found, the well-known-directory branch building one by prepending the
+    directory it found — that `PATH` is what Core hands the server as its
+    `environment` overlay (D23), and rust-analyzer resolves `cargo` by name off
+    `PATH` exactly as gopls resolves `go`, so a `searchPath` that merely said "the
+    app's own environment was enough to *find* it" would be true and useless.
+    **A `cargo` that cannot answer `cargo --version` is reported as no toolchain**,
+    for the `go env` rule's reason: the one thing this report decides is whether
+    rust-analyzer may be offered and run, and reporting a broken one present would
+    offer a 13 MB download that installs a server answering nothing. **The probe is
+    applied to a discovered rust-analyzer too**, and that is this file's own
+    finding rather than symmetry: rustup installs a `rust-analyzer` *proxy* into
+    `~/.cargo/bin` whether or not the component behind it was ever added, so on the
+    single most common Rust setup an unprobed search finds an executable file that
+    exits non-zero with "not installed for the toolchain" the instant anything asks
+    it anything — a Settings row reading "installed (found on this Mac)" over Rust
+    files silently answering from the tree-sitter index. Both probes run under the
+    `PATH` that found the `cargo` and inherit everything else (`RUSTUP_HOME`,
+    `CARGO_HOME`, `RUSTUP_TOOLCHAIN`, proxy settings), so the probe's answer is the
+    answer for the real thing rather than for a program run in an environment
+    nothing else uses. The cost is one subprocess, and only on machines that have a
+    candidate.
+    **And because that dead proxy is the common candidate rather than an exotic
+    one, a rust-analyzer that fails the probe is stepped over rather than ending
+    the search**: `locateRustAnalyzer` walks *every* executable of that name on the
+    list (`executables(named:in:)`, de-duplicated so the same file is never probed
+    twice) and takes the first that answers. Stopping at the first executable file
+    would hide a working Homebrew rust-analyzer behind a rustup proxy whose
+    component was never added, and offer a download of a server the machine already
+    has. `cargo` deliberately does *not* do this: the server resolves `cargo` by
+    name off the same `PATH`, so the first one there is the one that will run
+    either way, and reporting no toolchain is the honest answer for that
+    environment — whereas a rust-analyzer path is handed to `.executable(path:)`
+    directly, which makes picking a later one a decision this app is free to make.
+    The whole answer is cached per app run **including the negative one**
+    (`LSPToolchain`'s discipline and reason, with more force: this runs at every
+    launch of every Mac that has no Rust, which is most of them), held as a `Task`
+    so two callers arriving before the first answer await one search, resolved off
+    the main thread on its own queue, and deadlined — 5 s for the login shell, 10 s
+    for a `--version`. A timeout is not an error here; it is one more way of
+    finding no toolchain.
+    **Every child is registered**, so `terminateNow()` leaves no login shell
+    behind, and cancellation is what that registry is really for here: the login
+    shell is the only child that can outlive a quit, since a profile slow enough to
+    hang is exactly why it has a deadline. A child killed by `cancel()` throws
+    `.cancelled` rather than reporting its non-zero status, so a quit cannot become
+    a cached "no Rust toolchain" for a run that no longer exists.
   - `DefinitionPicker.swift` — the "which one did you mean?" surface of Go to
     Definition: an `NSMenu` popped up under the identifier, one item per candidate
     (plan Decision 3). A menu rather than a custom `NSPanel` because AppKit gives

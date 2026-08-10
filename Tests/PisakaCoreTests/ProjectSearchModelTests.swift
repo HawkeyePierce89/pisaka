@@ -141,6 +141,8 @@ final class ProjectSearchModelTests: XCTestCase {
             symlinks.contains(relative(url)) ? "elsewhere" : nil
         }
 
+        func isExecutableFile(at url: URL) -> Bool { false }
+
         private func relative(_ url: URL) -> String {
             let base = root.path.hasSuffix("/") ? root.path : root.path + "/"
             guard url.path.hasPrefix(base) else { return "" }

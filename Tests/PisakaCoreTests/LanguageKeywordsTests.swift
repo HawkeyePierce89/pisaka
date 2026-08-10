@@ -27,7 +27,7 @@ final class LanguageKeywordsTests: XCTestCase {
 
     func testTheDocumentedLanguagesAreTheOnesWithLists() {
         let withKeywords = Set(SyntaxLanguage.allCases.filter { !LanguageKeywords.keywords(for: $0).isEmpty })
-        XCTAssertEqual(withKeywords, [.swift, .javascript, .typescript, .python, .dockerfile, .go])
+        XCTAssertEqual(withKeywords, [.swift, .javascript, .typescript, .python, .dockerfile, .go, .rust])
     }
 
     // MARK: - Shape
@@ -202,6 +202,92 @@ final class LanguageKeywordsTests: XCTestCase {
             XCTAssertFalse(go.contains(keyword), keyword)
         }
         for keyword in go {
+            XCTAssertFalse(keyword.contains("."), keyword)
+        }
+    }
+
+    /// Rust's list, like Go's, reaches past the reserved words — into the
+    /// primitive type names, which no crate declares — so what it pins is
+    /// *content*, by set equality against the union of its three families for
+    /// exactly Go's reason: dropping `i128` or `str` from a list of 56 leaves
+    /// every shape invariant true and every named spelling present, and the
+    /// primitive it silently loses can never be offered by anything else.
+    ///
+    /// The families are spelled out separately because they are three different
+    /// arguments for inclusion: a strict keyword, a primitive type name that is
+    /// declared in no source file, and one contextual keyword.
+    func testRustListIsExactlyTheStrictKeywordsThePrimitivesAndUnion() {
+        // All 38 strict keywords of the 2021 edition (Rust reference,
+        // "Keywords" — strict, not reserved).
+        let strict = [
+            "as", "async", "await", "break", "const", "continue", "crate",
+            "dyn", "else", "enum", "extern", "false", "fn", "for", "if",
+            "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub",
+            "ref", "return", "self", "Self", "static", "struct", "super",
+            "trait", "true", "type", "unsafe", "use", "where", "while",
+        ]
+        // The 17 primitive type names. Declared in no crate — not even `core` —
+        // so no index and no buffer harvest can offer them.
+        let primitives = [
+            "bool", "char", "str",
+            "f32", "f64",
+            "i8", "i16", "i32", "i64", "i128", "isize",
+            "u8", "u16", "u32", "u64", "u128", "usize",
+        ]
+        // The one contextual keyword, on Python's `match`/`case` precedent.
+        let contextual = ["union"]
+
+        XCTAssertEqual(strict.count, 38)
+        XCTAssertEqual(primitives.count, 17)
+
+        let rust = LanguageKeywords.keywords(for: .rust)
+        XCTAssertEqual(Set(rust), Set(strict + primitives + contextual))
+        XCTAssertEqual(rust.count, 56, "the list gained a duplicate")
+
+        // One representative of each primitive family, named so a family that
+        // vanished wholesale is called out by name rather than by a set diff.
+        for keyword in ["i32", "u128", "usize", "f64", "bool", "char", "str"] {
+            XCTAssertTrue(rust.contains(keyword), keyword)
+        }
+        XCTAssertTrue(rust.contains("union"))
+
+        // Uppercase sorts before lowercase, so the one capitalised keyword leads
+        // the list — the shape Python's `False`/`None`/`True` already has.
+        XCTAssertEqual(rust.first, "Self")
+    }
+
+    /// The two lines Rust's list must not cross.
+    ///
+    /// The reserved-but-unusable words are the sharper one: they look exactly
+    /// like keywords and are listed beside them in the reference, but no valid
+    /// Rust program may contain one, so completing to it can only produce a
+    /// compile error. The prelude is Go's `fmt.Println` line restated — those are
+    /// declarations in a crate, and the index or rust-analyzer answers for them.
+    func testRustListDoesNotCrossTheLinesItDraws() {
+        let rust = LanguageKeywords.keywords(for: .rust)
+
+        for keyword in [
+            "abstract", "become", "box", "do", "final", "gen", "macro",
+            "override", "priv", "try", "typeof", "unsized", "virtual", "yield",
+        ] {
+            XCTAssertFalse(rust.contains(keyword), "reserved-but-unusable: \(keyword)")
+        }
+        for keyword in ["Option", "Result", "Some", "None", "Ok", "Err", "String", "Vec", "Box"] {
+            XCTAssertFalse(rust.contains(keyword), "prelude: \(keyword)")
+        }
+        // `macro_rules` is out because what a person types is `macro_rules!`,
+        // and half a token is worse than no offer at all.
+        XCTAssertFalse(rust.contains("macro_rules"))
+        XCTAssertFalse(rust.contains("macro_rules!"))
+        // Unstable primitives stay out until they are not unstable.
+        XCTAssertFalse(rust.contains("f16"))
+        XCTAssertFalse(rust.contains("f128"))
+        // And `_` per Go's precedent: punctuation the user types directly.
+        XCTAssertFalse(rust.contains("_"))
+
+        for keyword in rust {
+            XCTAssertFalse(keyword.contains("!"), keyword)
+            XCTAssertFalse(keyword.contains(":"), keyword)
             XCTAssertFalse(keyword.contains("."), keyword)
         }
     }

@@ -67,10 +67,25 @@ final class TestCommandTests: XCTestCase {
         XCTAssertFalse(TestCommand.isTestFile(fileName: "Foo.swift"))
     }
 
+    // Rust has no test-file *name* convention to detect: `#[test]` functions live
+    // beside the code they exercise (and integration tests are ordinary files
+    // under `tests/`), so every `.rs` file is a test target. That is the whole
+    // rule — the other ecosystems' conventions must not leak in and start
+    // *excluding* files, which is the failure mode a suffix check would have.
     func testIsTestFileRust() {
         XCTAssertTrue(TestCommand.isTestFile(fileName: "foo.rs"))
         XCTAssertTrue(TestCommand.isTestFile(fileName: "lib.rs"))
+        XCTAssertTrue(TestCommand.isTestFile(fileName: "main.rs"))
+        XCTAssertTrue(TestCommand.isTestFile(fileName: "mod.rs"))
+        // Neither Go's `_test.go` suffix nor JS's infix `.test.` nor Python's
+        // leading `test_` is inherited: each of these is a plain `.rs` file and
+        // answers true for the same reason `lib.rs` does, not because it matched
+        // a convention.
+        XCTAssertTrue(TestCommand.isTestFile(fileName: "foo_test.rs"))
+        XCTAssertTrue(TestCommand.isTestFile(fileName: "test_foo.rs"))
+        XCTAssertTrue(TestCommand.isTestFile(fileName: "foo.test.rs"))
         XCTAssertFalse(TestCommand.isTestFile(fileName: "foo.txt"))
+        XCTAssertFalse(TestCommand.isTestFile(fileName: "Cargo.toml"))
     }
 
     // MARK: - JS/TS runner selection
@@ -268,11 +283,38 @@ final class TestCommandTests: XCTestCase {
         )
     }
 
+    // `cargo test` takes neither the file nor its directory: it runs the crate's
+    // whole suite from the working directory, so — unlike Go's — the command is
+    // the same string for every `.rs` file and carries no quoted path at all.
+    // That is why a path full of shell metacharacters cannot reach the command
+    // line here, and why no evidence is consulted.
     func testRustAlwaysResolves() {
         XCTAssertEqual(
             TestCommand.command(forFileName: "lib.rs", absolutePath: "/p/src/lib.rs", evidence: evidence()),
             .command("cargo test")
         )
+        XCTAssertEqual(
+            TestCommand.command(forFileName: "main.rs", absolutePath: "/my dir/$x`y;z/main.rs",
+                                evidence: evidence(root: ["Cargo.toml"])),
+            .command("cargo test")
+        )
+    }
+
+    // The Rust counterpart of the Go agreement test above, and the one place the
+    // asymmetry is stated rather than implied: the language, ⌘U and ⌘R must agree
+    // on the same file. `.rs` is a language and every `.rs` file is testable, but
+    // `canRun` is deliberately false — `RunCommand`'s map appends a quoted path
+    // to run a single file, and Rust has a project runner (`cargo run`, from the
+    // terminal panel) and no file runner. See `RunCommandTests.testRustHasNoRunner`.
+    func testRustRunTestAndLanguageAgreeOnTheSameFile() {
+        XCTAssertEqual(SyntaxLanguage(forFileName: "main.rs"), .rust)
+        XCTAssertTrue(TestCommand.isTestFile(fileName: "main.rs"))
+        XCTAssertFalse(RunCommand.canRun(fileName: "main.rs"))
+        XCTAssertEqual(
+            TestCommand.command(forFileName: "main.rs", absolutePath: "/p/src/main.rs", evidence: evidence()),
+            .command("cargo test")
+        )
+        XCTAssertNil(RunCommand.command(forFileName: "main.rs", absolutePath: "/p/src/main.rs"))
     }
 
     // MARK: - quoting of <file> / <dir>

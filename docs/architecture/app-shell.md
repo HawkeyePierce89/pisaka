@@ -172,16 +172,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `makeGopls(engine:settings:)` and over the *same* `LSPInstallEngine`: it is not
     downloaded, but it lives under the same install root, is swept by the same
     `sweepStaging()`, is deleted by the same `engine.remove` and records its consent
-    in the same `SettingsStore` dictionary. D16's wiring is therefore **two**
-    `@MainActor` closures — `provisioning.onRegistryChange` and
-    `gopls.onDescriptionsChange` — each taking its own contributor's new value as a
-    parameter and reading the other's published one, and each merging base entries
-    first so `LSPServerRegistry`'s first-registration-wins rule leaves a
-    hand-registered override intact. `init` also kicks off `Task { await
-    gopls.discover() }` unawaited, at `LSPToolchain.prewarm()`'s position and for its
-    reason: the search shells out (up to a login shell) and the Settings row reads
-    `pending` until it answers. `lspGoToolchain` is a stored `let` rather than living
-    only inside the model, because the terminate observer below needs it.
+    in the same `SettingsStore` dictionary. **rust-analyzer (D21) is composed the
+    same way, as a third contributor**, through `makeRust(engine:settings:)` and
+    over that same engine — the case that shows a *downloaded* server can also be
+    toolchain-gated: it is a pinned manifest component installed by the shared
+    `LSPInstallEngine`, but it contributes nothing without a `cargo`, so its model
+    is shaped like gopls's rather than like 2b's. D16's wiring is therefore
+    **three** `@MainActor` closures — `provisioning.onRegistryChange`,
+    `gopls.onDescriptionsChange` and `rust.onDescriptionsChange` — each taking its
+    own contributor's new value as a parameter and reading the other two's
+    published ones, and each merging base entries first so `LSPServerRegistry`'s
+    first-registration-wins rule leaves a hand-registered override intact. The
+    order among the three decides nothing today (they serve disjoint languages);
+    it is stated as 2b → Go → Rust because that is the composition order and the
+    order the Settings tab lists them in. `init` also kicks off `Task { await
+    gopls.discover() }` and `Task { await rust.discover() }` unawaited, at
+    `LSPToolchain.prewarm()`'s position and for its reason: the search shells out
+    (up to a login shell) and the Settings row reads `pending` until it answers.
+    The Rust one carries a second reason the Go one does not: the banner's `.task`
+    *awaits* discovery before it can silently install an already-accepted
+    rust-analyzer, so it joins this task rather than starting a second search.
+    `lspGoToolchain` and `lspRustToolchain` are stored `let`s rather than living
+    only inside their models, because the terminate observer below needs them.
     `closeFile(id:)` (and every branch of its confirmation) routes through
     `forgetIndexedBuffer(_:)`, which hands the tab's entry back to disk only when no
     tab still shows the file — so the Cancel branch, and a file legitimately reached
@@ -311,7 +323,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     **permanent** as well as immediate — a torn-down service refuses to launch
     anything else — which closes the window between this observer firing and a `.go`
     tab open landing on `prepareForOpening`. The release check is
-    `pgrep -f 'gopls|go install'` coming back empty after a quit. It
+    `pgrep -f 'gopls|go install'` coming back empty after a quit.
+    `lspRustToolchain.terminateNow()` runs beside it, and it is worth saying what
+    it is *not* for: rust-analyzer is downloaded rather than built, and a download
+    is `URLSession` bytes into a staging tree that the process exit ends and the
+    next launch's `sweepStaging()` reclaims. What this call ends is the
+    *discovery* — the login shell it may have spawned and the `cargo --version` /
+    `rust-analyzer --version` probes — which is the one thing here that can
+    outlive a quit, since a profile slow enough to hang is exactly why it has a
+    deadline. It is permanent in the same way, so a `.rs` tab opening after the
+    observer fires starts nothing; the release check is `pgrep -f rust-analyzer`
+    coming back empty. It
     also holds the shared
     `CommitLogModel` (real
     `GitCLIService`); `openFolder()` refreshes it (`CommitLogView.initialLimit`)
@@ -932,12 +954,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     tab, which is why the split is worth noting: `GeneralSettingsView` keeps its
     own `.frame(width: 340)` while the Acknowledgements tab — needing room to read
     a license — is what drives the window. `PisakaApp` constructs
-    `SettingsView(settings:provisioning:gopls:installEngine:)`, threading the
+    `SettingsView(settings:provisioning:gopls:rust:installEngine:)`, threading the
     provisioning models and engine through to the tabs that read them rather
-    than letting each build its own view of the install root. `gopls` reaches the
-    Language Servers tab *only*: `go install` writes one binary and no license
-    file, so there is nothing of it in the installed tree for Acknowledgements to
-    read (the row names the origin and the SPDX id instead).
+    than letting each build its own view of the install root. `gopls` and `rust`
+    reach the Language Servers tab *only*, for two different reasons that land in
+    the same place: `go install` writes one binary and no license file, and
+    rust-analyzer's bare `.gz` unpacks one binary and no license file either — so
+    neither leaves anything in the installed tree for Acknowledgements to read,
+    and each row names the origin and the SPDX id instead.
     `GeneralSettingsView` is the former Preferences form, verbatim: a thin
     `@ObservedObject
     SettingsStore` view (a `Form` with a `Picker` for tab orientation, a `Picker`

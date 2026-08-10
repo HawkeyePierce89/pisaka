@@ -197,7 +197,7 @@ final class SymbolQueryTests: XCTestCase {
         )
     }
 
-    /// The eleven *remote* grammars' sources are not in this repository, so their
+    /// The twelve *remote* grammars' sources are not in this repository, so their
     /// `node-types.json` cannot be read and the check above cannot be made. What
     /// can be pinned is the set of node names, anonymous literals and field names
     /// each query uses — by hand, the way `SyntaxTokenKindTests` pins the
@@ -285,6 +285,24 @@ final class SymbolQueryTests: XCTestCase {
             "type_declaration", "type_identifier", "type_spec", "var_declaration", "var_spec",
             "var_spec_list",
         ], anonymous: [], fields: ["name", "receiver", "type"]),
+
+        // Rust's anonymous set is empty, and that is the whole shape of the
+        // query: every distinction it draws is drawn by a *named* node or a
+        // field, never by a literal token. Two of them are load-bearing and
+        // invisible in this set — `mod_item body:` anchors what `impl_item
+        // body:` and `trait_item body:` deliberately do not (all three hold a
+        // `declaration_list`, so only the parent tells them apart), and
+        // `generic_type`/`scoped_type_identifier` appear solely to be stepped
+        // *through*, so `impl<T> Worker<T>` files its methods under `Worker`
+        // rather than under `Worker<T>`. Both reasons live on the query itself
+        // and in the recorded capture table.
+        .rust: (named: [
+            "const_item", "declaration_list", "enum_item", "enum_variant", "enum_variant_list",
+            "field_declaration", "field_declaration_list", "field_identifier", "function_item",
+            "function_signature_item", "generic_type", "identifier", "impl_item", "mod_item",
+            "scoped_type_identifier", "source_file", "static_item", "struct_item", "trait_item",
+            "type_identifier", "type_item", "union_item",
+        ], anonymous: [], fields: ["body", "name", "type"]),
 
         .markdown: (named: ["atx_heading", "inline", "paragraph", "setext_heading"],
                     anonymous: [], fields: ["heading_content"]),

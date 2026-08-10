@@ -388,7 +388,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     capture-name gap showed up: tree-sitter-go spells escape sequences `@escape`
     rather than `@string.escape`, which resolved to `.plain` until
     `SyntaxTokenKind.nameMap` gained the entry, so every `\n` in a Go string
-    rendered default-colored. The dockerfile header declares
+    rendered default-colored. `.rust` is a fifth
+    (`LanguageConfiguration(tree_sitter_rust(), name: "Rust")`), by the same
+    derivation: upstream's package and target are both `TreeSitterRust`, so its
+    bundle is `TreeSitterRust_TreeSitterRust` and it needs no `bundleName:`
+    either. Its `highlights.scm` is the counter-case to Go's, and worth recording
+    as one: all **21** of its capture names already resolve to a non-`.plain`
+    kind, so `SyntaxTokenKind.nameMap` needed no entry at all — and one of the 21
+    is `escape`, which resolves only *because* the Go work added
+    `"escape": .string`. Without that earlier fix every `\n` in a Rust string
+    would have rendered default-colored, so the reason this grammar needed no map
+    change is itself a fact about the previous one. The 21 names are pinned by
+    hand in `SyntaxTokenKindTests` (the dockerfile/Go precedent, since the query
+    is not in this repository), asserting each expected kind, that none is
+    `.plain`, and the count — so a table that loses a row fails rather than
+    passing quietly. The dockerfile header declares
     a non-`const` `TSLanguage *` return with no `void` parameter list, which
     needed no cast — it imports as `OpaquePointer!` like every other grammar.
   - `SyntaxTheme.swift` — built-in (not user-configurable) `SyntaxTokenKind →

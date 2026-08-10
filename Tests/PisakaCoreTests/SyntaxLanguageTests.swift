@@ -18,6 +18,7 @@ final class SyntaxLanguageTests: XCTestCase {
             "markdown": .markdown,
             "py": .python,
             "go": .go,
+            "rs": .rust,
             "html": .html,
             "htm": .html,
             "css": .css,
@@ -43,7 +44,6 @@ final class SyntaxLanguageTests: XCTestCase {
     // MARK: - Unknown / missing extension
 
     func testUnknownExtensionReturnsNil() {
-        XCTAssertNil(SyntaxLanguage(fileExtension: "rs"))
         XCTAssertNil(SyntaxLanguage(fileExtension: ""))
         XCTAssertNil(SyntaxLanguage(fileExtension: "xyz"))
     }
@@ -66,8 +66,8 @@ final class SyntaxLanguageTests: XCTestCase {
     }
 
     func testInitFromFileNameWithUnknownExtensionReturnsNil() {
-        XCTAssertNil(SyntaxLanguage(forFileName: "main.rs"))
         XCTAssertNil(SyntaxLanguage(forFileName: "archive.zip"))
+        XCTAssertNil(SyntaxLanguage(forFileName: "notes.rst"))
     }
 
     // MARK: - Dockerfile
@@ -147,6 +147,33 @@ final class SyntaxLanguageTests: XCTestCase {
         XCTAssertEqual(SyntaxLanguage(forFileName: ".goignore"), .gitignore)
     }
 
+    // MARK: - Rust
+
+    func testRustNamesResolve() {
+        // Rust is an ordinary extension language, like Go: it resolves in phase 2
+        // and no later, looser phase may claim or re-claim it. Rust's tests live
+        // beside the code in the same file, so there is no separate test-file
+        // spelling to pin here — `main.rs` and `lib.rs` are the same rule.
+        XCTAssertEqual(SyntaxLanguage(forFileName: "main.rs"), .rust)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "MAIN.RS"), .rust)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "lib.rs"), .rust)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "src/bin/server.rs"), .rust)
+    }
+
+    func testRustLookalikesDoNotResolveToRust() {
+        // No prefix or dot-ignore rule may claim a Rust-shaped name, and no
+        // Rust rule may claim a neighbour's: `Cargo.toml` is the manifest (TOML
+        // is not a language here at all), `rustfmt.toml` likewise, and a bare
+        // `rs` has no extension so it reaches no phase.
+        XCTAssertNil(SyntaxLanguage(forFileName: "rs"))
+        XCTAssertNil(SyntaxLanguage(forFileName: "Cargo.toml"))
+        XCTAssertNil(SyntaxLanguage(forFileName: "rustfmt.toml"))
+        XCTAssertNil(SyntaxLanguage(forFileName: "main.rs.orig"))
+        // `.rsignore` is a dot-file ending in "ignore" with no `rs` extension,
+        // so the shape rule claims it — the extension phase must not.
+        XCTAssertEqual(SyntaxLanguage(forFileName: ".rsignore"), .gitignore)
+    }
+
     // MARK: - Rule precedence
 
     func testExtensionWinsOverDotIgnoreShapeAndPrefix() {
@@ -196,6 +223,12 @@ final class SyntaxLanguageTests: XCTestCase {
         // (```go), so injection resolution reaches it through the raw value alone.
         XCTAssertEqual(SyntaxLanguage(rawValue: "go"), .go)
         XCTAssertEqual(SyntaxLanguage.go.rawValue, "go")
+        // Rust's raw value is likewise the fence info string (```rust), and it
+        // is *not* the extension — `configuration(forInjectionName:)` tries the
+        // raw value first and the extension second, so both spellings resolve.
+        XCTAssertEqual(SyntaxLanguage(rawValue: "rust"), .rust)
+        XCTAssertEqual(SyntaxLanguage.rust.rawValue, "rust")
+        XCTAssertEqual(SyntaxLanguage(fileExtension: "rs"), .rust)
         XCTAssertEqual(SyntaxLanguage(rawValue: "dockerfile"), .dockerfile)
         XCTAssertEqual(SyntaxLanguage(rawValue: "dotenv"), .dotenv)
         XCTAssertEqual(SyntaxLanguage(rawValue: "gitignore"), .gitignore)
@@ -214,7 +247,7 @@ final class SyntaxLanguageTests: XCTestCase {
         let knownFileNames = [
             "Main.swift", "app.js", "app.jsx", "app.mjs", "app.cjs",
             "app.ts", "app.tsx", "data.json", "README.md", "README.markdown",
-            "main.py", "main.go", "index.html", "index.htm", "style.css",
+            "main.py", "main.go", "main.rs", "index.html", "index.htm", "style.css",
             "config.yml", "config.yaml",
             "Dockerfile", ".env", ".gitignore",
         ]

@@ -148,6 +148,7 @@ final class CommitDialogModelTests: XCTestCase {
         func write(_ text: String, to url: URL) throws { contents[url.path] = text }
         func contentsOfDirectory(at url: URL) throws -> [DirectoryEntry] { [] }
         func symbolicLinkDestination(at url: URL) -> String? { symlinks[url.path] }
+        func isExecutableFile(at url: URL) -> Bool { false }
     }
 
     // MARK: - Fixtures

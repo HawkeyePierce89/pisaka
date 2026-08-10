@@ -2278,6 +2278,8 @@ private struct StubFileService: FileServicing {
         if let directoryError { throw directoryError }
         return directoryEntries
     }
+
+    func isExecutableFile(at url: URL) -> Bool { false }
 }
 
 /// In-memory `FileServicing` serving contents **by path**, throwing for a path it
@@ -2294,6 +2296,8 @@ private struct PathContentsFileService: FileServicing {
     func write(_ text: String, to url: URL) throws {}
 
     func contentsOfDirectory(at url: URL) throws -> [DirectoryEntry] { [] }
+
+    func isExecutableFile(at url: URL) -> Bool { false }
 }
 
 /// In-memory `FileServicing` that records the bytes written per url and can be
@@ -2316,4 +2320,6 @@ private final class RecordingFileService: FileServicing {
     }
 
     func contentsOfDirectory(at url: URL) throws -> [DirectoryEntry] { [] }
+
+    func isExecutableFile(at url: URL) -> Bool { false }
 }

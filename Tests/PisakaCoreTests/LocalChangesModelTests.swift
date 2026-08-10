@@ -119,6 +119,7 @@ final class LocalChangesModelTests: XCTestCase {
         func symbolicLinkDestination(at url: URL) -> String? {
             symlinkTargetsByPath[url.path]
         }
+        func isExecutableFile(at url: URL) -> Bool { false }
     }
 
     private func makeModel(git: StubGit, files: StubFiles = StubFiles()) -> LocalChangesModel {

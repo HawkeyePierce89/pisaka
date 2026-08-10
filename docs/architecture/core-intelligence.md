@@ -639,7 +639,32 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `LanguageKeywordsTests` pins the Go list by **set equality** against those four
     families spelled out separately, because a subset check is what a hand edit
     slips through — dropping `close` or `float32` from 69 entries leaves every
-    shape invariant true and silently loses a built-in nothing else can offer. TypeScript is *composed*
+    shape invariant true and silently loses a built-in nothing else can offer.
+    Rust's list is Go's rule applied a second time, and the three lines it draws
+    are what the rule looks like when it has to say *no*: 56 entries — the 38
+    strict keywords of the 2021 edition, the **17 primitive type names**
+    (`bool char str`, `f32 f64`, the ten sized integers, `isize`/`usize`), and the
+    one contextual keyword `union`. The primitives are in because they are declared
+    in no crate anywhere, not even `core`, so neither the symbol index nor the
+    buffer-word harvest can ever offer them. **Reserved-but-unusable words are
+    out** (`abstract`, `become`, `box`, `do`, `final`, `gen`, `macro`, `override`,
+    `priv`, `try`, `typeof`, `unsized`, `virtual`, `yield`): they are reserved
+    precisely so that no program may use them, so completing to one produces a
+    compile error and nothing else — the inverse of the rule's purpose.
+    **`union` is in and `macro_rules` is out**: `union` is contextual, following
+    the precedent Python's soft keywords `match`/`case` already set, while the
+    token a person actually types is `macro_rules!` and a bare identifier that
+    completes to half of it is worse than offering nothing (the harvest picks it
+    up the moment a file declares one). **The prelude stays out** — `Option`,
+    `Result`, `Some`, `None`, `Ok`, `Err`, `String`, `Vec`, `Box` — for the reason
+    `fmt.Println` stayed out of Go's: they are declarations in a crate, so
+    rust-analyzer or the index is what should offer them. `f16`/`f128` are excluded
+    as unstable and `_` per Go's precedent (punctuation typed directly), and `Self`
+    sorts first because Swift orders uppercase before lowercase, exactly as
+    Python's list opens with `False`/`None`/`True`. Pinned by set equality against
+    the three families, with the count at 56 so a duplicate fails and with
+    `abstract`/`virtual`/`yield`/`Option`/`Some`/`Vec`/`macro_rules` asserted
+    absent, so each line above is a test rather than a comment. TypeScript is *composed*
     from JavaScript plus a type-level list and re-sorted, so there is one list to
     maintain instead of two that drift and the composition cannot break the sorted
     invariant. **A keyword is never a definition**: `SymbolIntelligenceProvider`'s
@@ -941,7 +966,7 @@ The language knowledge itself lives outside Core, in
 `.gitignore`, wired into the bundle as a **folder reference** in `project.yml`
 (like `Resources/Licenses`, so adding a language's query needs no `xcodegen
 generate`) and loaded by `SymbolQueryCatalog`. One convention, authored once and
-used by all twelve files: **the captured node is always the name node**, the
+used by all thirteen files: **the captured node is always the name node**, the
 capture name is the kind (`@definition.type`, `@definition.function`, …), and an
 optional `@container` capture *in the same match* supplies the enclosing type's
 name — which is why `SymbolExtractor` walks matches rather than captures.
@@ -981,7 +1006,7 @@ capture resolving to *its own* kind, the single auxiliary capture
 (`@_attribute`, the HTML `id` filter) pinned by its own set equality, the dotenv
 query validated against the vendored grammar's own `node-types.json` under the
 matching `named` flag *and* against its declared field table, and — for the
-eleven remote grammars, whose sources are not in the repository — the node-name,
+twelve remote grammars, whose sources are not in the repository — the node-name,
 anonymous-literal and field-name sets pinned by hand, the way
 `SyntaxTokenKindTests` pins the dockerfile captures, so a grammar update that
 renames a node or a field fails with the language named.
@@ -1099,3 +1124,107 @@ All twelve patterns fired, so none is dead. The remaining manual step is the one
 the recipe requires of every grammar update: open a `.go` file in a DEBUG build
 and confirm its declarations answer ⌃⌘J — the CLI proves the query compiles and
 captures, not that `SymbolQueryCatalog` found and loaded it.
+
+### `Resources/Queries/rust/symbols.scm` — the six decisions and the confirmed captures
+
+Rust's query (grammar `tree-sitter/tree-sitter-rust`, pinned `0.24.2`, revision
+`77a3747266…`) follows the shared convention and makes six decisions.
+
+**`impl Trait for Type` files under `Type`, not under `Trait`.** One rule covers
+both impl forms and needs no second pattern, because `type:` is the *self* type
+in `impl Type` and in `impl Trait for Type` alike — the trait sits in the
+`trait:` field, which this query never navigates. It is also the rule the rest of
+the stack already assumes: `SymbolIntelligenceProvider`'s member branch answers
+"`.` after a value of type `Worker`" by looking up members whose container is
+`Worker`, so a `fmt` filed under `Display` would never surface there.
+
+**Generics are stripped by stepping through `generic_type`, not by editing the
+text** — Go's pointer-star reasoning verbatim.
+`[(type_identifier) (generic_type …)] @container` would capture the
+*`generic_type` node* in the generic case and put `<T>` back, and `Worker<T>`
+matches no declared type. So the self-type shapes get one pattern each;
+`scoped_type_identifier` is stepped through the same way, so `impl foo::Bar`
+files under `Bar`. There are **four** patterns, not three, because the two
+wrappers nest: `generic_type type:` is declared to hold a
+`scoped_type_identifier` as well as a bare `type_identifier`, so
+`impl<T> crate::foo::Bar<T>` (and `impl<'a> Self::Iter<'a>`) is one node deeper
+than either single-wrapper pattern and matches neither. That shape is common
+enough — an inherent impl written against a path-qualified generic type — that
+its methods silently vanishing from the index would look exactly like a type
+that declares none, so the combined shape is spelled out rather than left to
+the "not indexed, deliberately" list.
+
+**`mod_item body:` is anchored beside `source_file`, while `impl` and `trait`
+bodies are not.** All three hold a `declaration_list`, so naming the parent is
+the only thing that tells them apart exactly. The rule: an inline `mod` is a
+*namespace*, so a `fn`, `const` or `static` written there is as top-level as one
+in the file; an `impl` or `trait` body is a *container*, whose functions are
+methods and so reach the container patterns instead; a *function* body holds
+locals and is anchored out, for the reason every other language's bindings are.
+Types are deliberately not anchored at all — a `struct` declared inside a
+function is a declaration worth finding, and is rare enough that it cannot flood
+a picker the way a loop counter can.
+
+**`const` is a constant, `static` is a variable.** A `static` is Rust's global
+binding and `static mut` its mutable one — Go's package-level `var`, and the same
+mapping.
+
+**Trait members need two patterns**, because a provided method (with a body) is a
+`function_item` and a required one (a signature and a `;`) is a
+`function_signature_item`. Both are methods of the trait, so a member completion
+after a value of that trait's type lists both.
+
+**Not indexed, deliberately:** `macro_rules!` definitions, associated `const`s
+and associated types inside `impl`/`trait` bodies, `use` aliases, tuple-struct
+positional fields (`ordered_field_declaration_list` declares no names to
+capture), the fields of a struct-shaped enum variant, `union` fields, and `impl`
+blocks whose self type is a reference, tuple, slice or `dyn` type. Each is a real
+declaration; none is a name a reader jumps to often enough to pay for a pattern,
+and recording them is what keeps the list a decision rather than an oversight.
+
+The static half of the recipe found nothing to correct here: all 22 node names
+are declared `named: true` in the pinned checkout's `src/node-types.json`, the
+anonymous set is empty (every distinction this query draws is drawn by a named
+node or a field, never by a literal token), and each of the three fields —
+`name`, `body`, `type` — is declared on the node the query hangs it off.
+
+The runtime half was run against the resolved checkout by compiling the
+tree-sitter runtime with the pinned grammar's `parser.c` **and `scanner.c`** into
+a throwaway C harness over `ts_query_new`/`ts_query_cursor` — Core cannot link
+SwiftTreeSitter, and no `tree-sitter` CLI is needed for this — over a fixture
+exercising every pattern. The query compiled (19 patterns, 7 captures) and
+**every one of the 19 fired**, so none is dead. Confirmed element by element:
+
+| fixture declaration | capture | text |
+|---|---|---|
+| `pub struct Worker { … }` | `@definition.type` | `Worker` |
+| `pub name: String` | `@container` + `@definition.property` | `Worker` + `name` |
+| `count: usize` | `@container` + `@definition.property` | `Worker` + `count` |
+| `pub struct Pair(pub i32, pub i32)` | `@definition.type` only | `Pair` — the positional fields declare no names |
+| `pub enum State { … }` | `@definition.type` | `State` |
+| `Idle` / `Busy { depth: u8 }` / `Done(i32)` | three `@container` + `@definition.constant` | `State` + `Idle`, `Busy`, `Done` (not `depth`) |
+| `pub union Slot { int, float }` | `@definition.type` only | `Slot` — union fields are not indexed |
+| `pub trait Runner { … }` | `@definition.type` | `Runner` |
+| `fn start(&self);` (required) | `@container` + `@definition.method` | `Runner` + `start` |
+| `fn stop(&self) { … }` (provided) | `@container` + `@definition.method` | `Runner` + `stop` |
+| `const LIMIT: usize;` / `type Output;` (associated) | — | not captured, by decision |
+| `pub type Alias = Worker` | `@definition.type` | `Alias` |
+| `impl Worker { pub fn new(…) }` | `@container` + `@definition.method` | `Worker` + `new` |
+| `fn helper()` / `const LOCAL` (inside `new`) | — | **not captured** — the function body is not a `mod` |
+| `impl<T> Holder<T> { pub fn get(…) }` | `@container` + `@definition.method` | `Holder` (no `<T>`) + `get` |
+| `impl fmt::Display for Worker { fn fmt(…) }` | `@container` + `@definition.method` | `Worker` (**not** `Display`) + `fmt` |
+| `impl deep::Nested { pub fn ping(…) }` | `@container` + `@definition.method` | `Nested` (path stepped through) + `ping` |
+| `impl<T> holders::Boxed<T> { pub fn unwrap_it(…) }` | `@container` + `@definition.method` | `Boxed` (both wrappers stepped through) + `unwrap_it` |
+| `pub fn main_entry()` | `@definition.function` | `main_entry` |
+| `fn nested()` / `const NESTED_CONST` (inside `main_entry`) | — | **not captured** — the `source_file` anchor at work |
+| `pub mod outer { pub fn helper() }` | `@definition.function` | `helper` — a `mod` is a namespace, so its `fn` is top-level |
+| `pub const INNER_MAX` / `pub static INNER_FLAG` (in `mod outer`) | `@definition.constant` / `@definition.variable` | `INNER_MAX`, `INNER_FLAG` |
+| `pub const VERSION` | `@definition.constant` | `VERSION` |
+| `static REGISTRY` / `pub static mut COUNTER` | two `@definition.variable` | `REGISTRY`, `COUNTER` |
+| `use std::collections::HashMap as Map` | — | not captured, by decision |
+| `macro_rules! shout { … }` | — | not captured, by decision |
+
+The remaining manual step is the one the recipe requires of every grammar update:
+open a `.rs` file in a DEBUG build and confirm its declarations answer ⌃⌘J — the
+harness proves the query compiles and captures, not that `SymbolQueryCatalog`
+found and loaded it.

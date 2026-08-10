@@ -35,6 +35,21 @@ contributor** rather than a second provisioning layer, and it lives in this
 document, under decisions D17–D20, with entries for `LSPGoToolchain.swift` and
 `LSPGoplsProvisioning.swift` at the end of the file list.
 
+**What the Rust language work added, and why it is here too.** Rust gets semantic
+intelligence on macOS through **rust-analyzer**, and it is the *hybrid* of the two
+stories above rather than a third one: it is **discovered** if the user already
+has it (rustup puts one in `~/.cargo/bin`, which is how nearly everyone has Rust),
+and otherwise **downloaded** — unlike gopls, it publishes official prebuilt macOS
+binaries, so there is a URL to pin, a digest to verify and something to unpack. It
+therefore reuses 2b's engine, its pinned-component machinery and both of its seams
+while keeping gopls's *shape*: a toolchain gate, a discovered-copy state, and a
+Settings row 2b's cannot express. That makes it a **third registry contributor**,
+documented here under decisions D21–D24 with entries for `LSPRustToolchain.swift`
+and `LSPRustProvisioning.swift` at the end of the file list; the bytes half — the
+`.gzip` archive format, the executable-bit gate, the manifest component and the
+by-hand pin procedure — lives in `core-provisioning.md` where the rest of the
+bytes are.
+
 **Where the platform boundary is.** All of it is in `PisakaCore` except one
 thing: the `Process` and its three pipes, which live macOS-gated in
 `Sources/Pisaka/LSPProcessTransport.swift` behind the `LSPTransport` protocol.
@@ -889,7 +904,8 @@ document, together with the limits they carry.
     toolchain is *the wrapped provider's output*, byte for byte —
     `RoutingIntelligenceProviderTests` pins that by equality on both request kinds
     rather than by inspection, because "phase 2a changed nothing for the other
-    eleven languages" is the promise most worth being unable to break by accident.
+    thirteen languages" is the promise most worth being unable to break by
+    accident.
     **An empty answer is not an answer**: a server returning no definitions where
     the index has one has failed to answer the question, so an empty LSP result
     falls through, and only an empty result from *both* is empty — the case the
@@ -1083,6 +1099,141 @@ they share with 2b is stated in that document's own cross-reference.
     and read what it says"). Full entry in `app-editor.md`, beside
     `LSPToolchain.swift` whose discipline it follows.
 
+### rust-analyzer (D21–D24)
+
+Two Core files and one macOS-gated app file — the *third* registry contributor.
+They are documented here rather than in `core-provisioning.md` for the same reason
+gopls's are, but only half applies: the bytes **do** live over there (the pinned
+`LSPComponent`, the `.gzip` format, the executable gate and the pin procedure are
+all 2b's machinery, reused as-is), while what is here is everything that is a
+*rule* — when a server may be offered, which copy wins, what the row may do, and
+what the registry gets.
+
+  - `LSPRustToolchain.swift` — the value types, and nothing that acts.
+    `LSPRustAnalyzer` is the pin as data, and it is deliberately **thinner than
+    `LSPGopls`**: it carries only what a manifest record has no field for — the
+    component id (`"rust-analyzer"`, the one string the consent dictionary, the
+    install root's directory and `LSPInstallEngine.remove(_:)` all key off), the
+    display name, and the origin URL the Settings row's licence sentence names —
+    plus `component(in:)`. The version, the SPDX expression and the executable's
+    position inside the version directory are read *through* that from whichever
+    manifest the engine was built over, because unlike gopls this server **is** a
+    pinned component, so restating any of them here would be a second spelling of
+    a pin the by-hand update procedure moves. It is also what lets the tests drive
+    the model with a fixture pin and prove it reads the data rather than a
+    constant. `component(in:)` answering `nil` is a real answer rather than a
+    precondition: this layer's uniform response to data it cannot act on is
+    *absence* — nothing offered, nothing installed, Rust answered by the index.
+    `LSPRustToolchainReport` is what crosses the discovery seam — `.missing`, or
+    `.found(cargoPath:searchPath:rustAnalyzerPath:)`. **A rust-analyzer path
+    without a `cargo` path is unrepresentable on purpose**, which is D23 stated in
+    the type: rust-analyzer shells out to `cargo` to build the project model, so
+    without a toolchain it starts, answers almost nothing, and burns D7's restart
+    budget per request while every surface claims it is installed — and
+    `RoutingIntelligenceProvider` cannot see that, since an empty answer and a
+    file that declares nothing are the same value at that seam. `searchPath` is
+    the second half of "a toolchain was found", `LSPGoToolchainReport`'s field for
+    its reason one server along: a Finder-launched app inherits `launchd`'s
+    `/usr/bin:/bin:/usr/sbin:/sbin`, which contains neither `~/.cargo/bin` nor
+    Homebrew's prefixes nor any version-manager shim, so a rust-analyzer started
+    under it would resolve no `cargo` at all. That is the *normal* launch, not an
+    edge case. `LSPRustAnalyzerInstallation` keeps `.discovered(path:)` and
+    `.appInstalled(version:path:)` apart as two cases rather than one "installed"
+    with a flag, because Remove may only ever touch the second — a rule in the
+    type instead of a check every view has to remember.
+    `LSPRustConsentPrompt` is `LSPGoConsentPrompt`'s shape **plus a byte count**,
+    which is the field that makes Rust the hybrid: accepting gopls runs the user's
+    own toolchain and downloads nothing this app can size, while accepting this
+    fetches a pinned artifact whose size the manifest knows exactly, and D15's
+    rule is that nobody is asked to download something unsized. The count is
+    `pendingDownloadByteCount` — what is still missing rather than the gross
+    total, the same number the row shows, and zero once it is on disk.
+    `LSPRustServerRow` carries D24's seven states and makes every button's
+    availability a property (`canInstall`, `canRemove`), so both surfaces stay
+    thin; it also carries `licenseSPDX` and `pendingDownloadByteCount` for that
+    same reason, since the view holds no logic and the row is where both reach the
+    manifest. `canInstall` deliberately refuses over a *discovered* copy: it
+    already answers, so a 13 MB download would buy a second copy of the same
+    program plus a Remove button, and D24's preference rule would then silently
+    switch which binary is running. It also requires a non-empty `version`, which
+    is how "the manifest describes no such component" reaches the button: that
+    state reads as `.notInstalled` — the honest status, since nothing is — and
+    `consentPrompt` and `install()` both guard on the component, so without this
+    clause the row would be the one surface offering an action that silently does
+    nothing. `canRemove` is keyed on `hasFilesOnDisk`
+    rather than on the status being `.appInstalled`, `LSPGoServerRow`'s field for
+    its reason — a version directory a pin bump stranded reads as `.notInstalled`
+    (or `.discovered`) while still being this app's to reclaim, and the only other
+    thing that deletes one runs inside a *successful* install of the new pin.
+    `Status.pending` is there for `LSPToolchain.Resolution.pending`'s reason:
+    discovery may shell out to a login shell, so it cannot answer inside the turn
+    that draws the row, and a row guessing "no Rust toolchain" for that first
+    moment would say something false and then quietly correct itself.
+
+  - `LSPRustProvisioning.swift` — the one seam and the `@MainActor` model.
+    `LSPRustToolchainDiscovering` answers a *report*, not a search (D23). **There
+    is deliberately no second seam**, and that is the whole difference from gopls:
+    the install is `LSPInstallEngine.install(_:)` over the pinned component and
+    the download/unpack pair 2b already has (D21), so this protocol is the entire
+    Core-side addition.
+    `LSPRustProvisioningModel` is `LSPGoplsProvisioningModel`'s shape over 2b's
+    engine. It takes **no `FileServicing` at all**, unlike the gopls model: every
+    disk question — is it installed, where is the executable, are there files to
+    reclaim, how many bytes are still to fetch — is already an engine method,
+    because this server *is* a manifest component. Lifecycle: `pending` until
+    `discover()` answers, called once at launch from `PisakaApp.init` and joined
+    rather than repeated by any later caller, so the answer — **including the
+    negative one** — is a per-app-run fact on Core's side too and not only inside
+    whatever cache the seam keeps. The row and the descriptions are updated
+    *inside* that task rather than after awaiting it, so a second caller joining
+    mid-flight returns to finished state. `installation` implements D24 directly:
+    the app's own copy is read off the install root and **wins**, the discovered
+    one is the fallback. `status()` reads *this model's* attempt before the
+    engine's, so the row says "installing…" from the moment the user says yes
+    rather than from the moment the engine claims the component.
+    Four rules read as decisions. **`install()` with no toolchain does nothing at
+    all** — not a download, not a recorded failure, not a recorded consent (D23) —
+    for the gopls rule's reason: a row reading "no Rust toolchain" beside a
+    sentence about a download nobody made would be describing an attempt nobody
+    made. **`prepareForOpening` does not retry a failed *install* this app run**,
+    which is the whole difference between "installs on first use" and a retry
+    loop — but a failed **removal** suppresses nothing, and the guard reads
+    `failure?.wasRemoval != false` rather than `failure == nil` for exactly that
+    reason: a removal that threw leaves consent `accepted` (only a *successful*
+    removal declines), and the state it can leave behind — the pinned version gone
+    while some other version directory refused to go — is one an install fixes
+    rather than one it repeats. The button beside the sentence already draws that
+    distinction (`failureWasRemoval`); the guard draws the same one.
+    It does `await discover()` rather than read the report, because
+    discovery is kicked off unawaited at launch while this runs from the banner's
+    `.task`, so a restored `.rs` tab regularly arrives before the answer and
+    reading a still-`nil` report there would decline silently *for the whole app
+    run*. **Installing records `accepted` first**, since the Settings row is the
+    one place a declined server is turned around and it would be strange to
+    install it and then let the next launch decline to keep it; the attempt is
+    coalesced with the claim made synchronously between check and store, so two
+    accepts produce one download. **`remove()` is push-then-delete** (D16),
+    records `declined` — the only answer that describes what happened
+    operationally — refuses when there is nothing under the install root, and
+    returns immediately when re-entered or called during an install.
+    `makeDescriptions()` contributes a plain `.executable(path:)` with no
+    arguments (rust-analyzer speaks LSP over stdio by default), requires a
+    toolchain **even for a discovered copy**, and requires a non-empty
+    `searchPath` — `PATH=""` would register a server that resolves nothing by
+    name at all, strictly worse than the inherited environment the overlay exists
+    to improve on and identical in every surface a user can see. `publish()` fires
+    only on an actual change and `onDescriptionsChange` is awaited, because the
+    push is what shuts the running server down before `remove()` deletes the
+    executable it was running from.
+    A **reader**, like the rest of this layer: it walks its own install root and
+    touches nothing of the user's, so it takes no writer gate and is not gated by
+    one.
+
+  - `Sources/Pisaka/LSPRustToolchainService.swift` (macOS) — one seam and no
+    second one: where `cargo` and any existing `rust-analyzer` are on **this** Mac
+    (D23). Full entry in `app-editor.md`, beside `LSPGoToolchainService.swift`
+    whose search order and discipline it follows.
+
 ## Decisions
 
 **D1 — Position mapping and line separators.** `LSPPositionMap` scans line starts
@@ -1242,12 +1393,92 @@ silent per-request fallback to tree-sitter, no alert ever, the failure visible
 only as the Settings row's sentence plus Retry. Two honest costs come with using
 the user's own toolchain and are written down as limits below.
 
-**Two registry contributors now exist**, and the app composes them:
-`LSPServerRegistry(provisioning.registry.descriptions + gopls.descriptions)`,
-awaited through `LSPWorkspace.updateRegistry(_:)`, base entries first so a
-hand-registered override still wins, and preserving D16's push-then-delete
-ordering for both. That is glue; every *rule* about when gopls contributes a
-description lives in the Core model and is unit-tested there.
+**D21 — Rust is discovery-first *and* downloadable, and it is a third registry
+contributor rather than a fourth layer.** rust-analyzer publishes official
+prebuilt macOS binaries, so unlike gopls it has a URL, a digest and something to
+unpack — and unlike 2b's servers, most Rust users already have one, because rustup
+puts a `rust-analyzer` in `~/.cargo/bin`. So it is discovered first and downloaded
+second, and it reuses the part of 2b that was already generic and string-keyed: the
+pinned `LSPComponent`, `LSPInstallEngine.install(_:)`/`state(of:)`/
+`pendingDownloadByteCount(for:)`/`remove(_:)`, `LSPInstallLayout`'s path math, both
+seams, D13's stage-then-one-rename and D15's consent record. What it does **not**
+reuse is `LSPProvisioningModel`, because Rust's honest state set is the *Go row's*:
+it has a toolchain gate and a discovered-copy state no 2b server has, and a row
+that offered Install while saying "no Rust toolchain" would be a lie. So
+`LSPDownloadableServer` is **untouched** — still `typescript`/`python` — its
+set-equality tests go on saying exactly what they said before (asserted unchanged
+in `LSPProvisioningManifestTests`), and the Settings row lives beside the Go row in
+the toolchain-gated section, with a download size where Go's has none.
+
+**D22 — The second archive format, and the bit `tar` used to carry.**
+`LSPArchiveFormat` gains `case gzip(fileName: String)` and loses its unused
+`String` raw value. The associated value is where the *name* has to live: a tarball
+carries its members' names and a bare `.gz` carries nothing but bytes, and putting
+it in a parallel `LSPArtifact.unpackedFileName` would let the manifest express "a
+gzip with no name" and "a tarball with one", two states with no meaning that would
+each need a guard. `stripComponents` is meaningless for this case and is pinned to
+`0` by the manifest tests. The case also carries an implication the other does not
+— **a `gzip` artifact is an executable** — and the two halves of the format meet
+that implication from both sides: the app unpacker runs `/usr/bin/gunzip` on stdin
+with stdout redirected straight into a destination file created with
+`posixPermissions: 0o755`, so the ~38 MB is never held a second time in memory and
+the bit is set at creation rather than patched afterwards; and the engine then
+**verifies it**, asking `FileServicing.isExecutableFile(at:)` after the unpack and
+*before* the commit rename, throwing `unpackFailed` if the answer is no. A binary
+that arrives unexecutable therefore installs nothing and leaves the previous state
+untouched — D13's promise applied to the one thing D13 could not see, an unpack
+that "succeeded" and produced something unusable. `FileServicing` gains that method
+**without a default**, because a defaulted answer would be either a gate that fails
+every install through a partial stub or one that silently passes; the full entry is
+in `core-provisioning.md`, where the rest of the bytes are.
+
+**D23 — The toolchain gate and the `PATH` overlay, applied from day one.**
+rust-analyzer shells out to `cargo` to build the project model, so without a
+toolchain it starts, answers almost nothing, and burns D7's restart budget per
+request while the Settings row claims it is installed — the exact failure the gopls
+`searchPath` lesson recorded, arrived at one release earlier because that lesson
+existed. So: **no `cargo` → no prompt, no consent written, no registry entry,
+tree-sitter silently**, for a *discovered* rust-analyzer just as much as for a
+downloadable one. When a toolchain is found, the `PATH` that found it travels as
+the description's `environment` overlay and Core never learns what is in it (D9).
+Discovery follows `LSPToolchain`'s discipline exactly: off-main, non-blocking,
+cached per app run **including the negative answer**, `pending` while unresolved.
+The `--version` probe applies to a discovered rust-analyzer too, and that is not
+symmetry for its own sake: rustup installs a `rust-analyzer` *proxy* whether or not
+the component behind it was ever added, so on the single most common Rust setup an
+unprobed search finds an executable file that exits non-zero the instant anything
+asks it anything — D23's failure with a different first cause.
+
+**D24 — What is preferred, the row's states, the licence, and the pin's shape.**
+When both a discovered rust-analyzer and an app-installed one exist, **the app's
+copy wins** — D19's argument unchanged: it is the version this app pinned and the
+only one Remove may touch, and preferring the other would make Remove delete a copy
+that was not in use. The row reports seven states — *looking for a Rust
+toolchain…* / *no Rust toolchain* / *not installed (13.2 MB)* / *installing…* /
+*installed (found on this Mac)* / *installed by Pisaka · 2026-08-03* / a failure
+sentence with Retry — and offers **Remove only for the app's copy**, where it is
+the ordinary 2b removal through `engine.remove("rust-analyzer")`. Consent is the
+existing `LSPServerConsent` under id `"rust-analyzer"` in the same `SettingsStore`
+dictionary, so declining persists and is reversible from the same tab (D15).
+Licences: a bare `.gz` ships no licence file, so `licenseFileSubpaths` is empty,
+`LSPInstalledLicenses` has nothing to read and `licenses.json` covers nothing —
+this app bundles none of its bytes, so the Go decision applies, and the honest
+substitute is one sentence in the row naming the origin and the
+`Apache-2.0 OR MIT` dual licence (read off the manifest through the row, so the
+view's text cannot drift from the pin). The version pin is a **date**
+(`2026-08-03`), which is what upstream ships; it sorts correctly
+lexicographically, which is the one property `LSPInstallEngine.state(of:)` reads it
+for, and it is why this component's pin procedure gets re-run more often than any
+other's.
+
+**Three registry contributors now exist**, and the app composes them:
+`LSPServerRegistry(provisioning.registry.descriptions + gopls.descriptions +
+rust.descriptions)`, awaited through `LSPWorkspace.updateRegistry(_:)`, base
+entries first so a hand-registered override still wins, and preserving D16's
+push-then-delete ordering for all three — each closure taking its own contributor's
+*new* value and reading the other two's published ones. That is glue; every *rule*
+about when gopls or rust-analyzer contributes a description lives in the Core model
+and is unit-tested there.
 
 ## Known limits
 
@@ -1315,6 +1546,44 @@ description lives in the Core model and is unit-tested there.
 - **No gopls on iOS, ever.** iOS has no subprocess, so there is neither a `go` to
   discover nor a server to run — the same reason phase 2a is macOS-only, and it
   is structural rather than a phase boundary.
+- **rust-analyzer needs a Rust toolchain, and there is no offer without one**
+  (D23). On a Mac with no `cargo`, nothing is prompted, nothing is downloaded and
+  no description is contributed — Rust files highlight, index, complete and jump
+  from the tree-sitter index exactly as they do for a user who declined. The same
+  is true of a `cargo` that cannot answer `cargo --version`, and of a
+  rust-analyzer that cannot answer it either: both are reported as *absent* rather
+  than as present-but-broken, because a rustup proxy whose component was never
+  added is a file that exists, is executable, and fails the moment it is asked
+  anything.
+- **A discovered rust-analyzer is used at whatever version it is.** It is
+  discovered, not measured: no version is read, none is required, and none is
+  shown beyond "found on this Mac". It is also never replaced or upgraded by this
+  app — Install is refused over it — because the app's own copy would then be the
+  one Remove deletes while the other went on running.
+- **A pin bump on a Mac that also has a discovered copy falls back to the
+  discovered one rather than re-downloading.** `installation` answers
+  `.appInstalled` only for the *pinned* version, so the moment an app update moves
+  the pin, the app's own tree stops being the answer and the discovered copy wins
+  by default — the row flips from "installed by Pisaka · <date>" to "found on this
+  Mac", `prepareForOpening` sees a non-`nil` installation and installs nothing, and
+  the superseded directory stays on disk until Remove or the next successful
+  install reclaims it. That is D24's preference rule applied consistently (the
+  app's copy wins *when it exists at the pin*), and it is a limit rather than a
+  bug because the alternative — re-downloading over a working server the user
+  already had — is the louder wrong answer. Recorded in `README.md` too, since it
+  is the one case where the promised "the next Rust file re-downloads at the new
+  version" does not happen.
+- **Discovery is per app run, not per folder** (D23). A Rust toolchain installed
+  while Pisaka is running is picked up at the next launch, stated rather than
+  papered over with invalidation logic for an event nobody has hit.
+- **No rust-analyzer on iOS, ever** — gopls's limit for gopls's structural
+  reason: iOS has no subprocess to discover a `cargo` with or to run a server in.
+- **`.rs` files have no ⌘R.** `TestCommand` answers `cargo test` for Rust, but
+  `RunCommand` deliberately has no `rs` entry: its map answers a command for a
+  *single file* and appends the quoted path, which `cargo run` cannot take. Rust
+  has a project-level runner and no file-level one, so ⌘U works and the terminal
+  panel is the answer for ⌘R. Pinned by `RunCommandTests` rather than left as an
+  omission; the reasoning is in `core-services.md`.
 
 ## Test fixtures
 

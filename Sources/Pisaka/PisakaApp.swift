@@ -154,6 +154,22 @@ struct PisakaApp: App {
     /// reads it, and the two surfaces that show it observe it themselves.
     private let lspGopls: LSPGoplsProvisioningModel
 
+    /// Where `cargo` and any rust-analyzer are on this Mac — the app's whole
+    /// contribution to Rust (D23), and a *smaller* contribution than Go's: there
+    /// is no install seam, because rust-analyzer publishes prebuilt binaries and
+    /// the install is the download/unpack pair `lspInstallEngine` already has.
+    ///
+    /// Held here rather than only inside the model for `lspGoToolchain`'s reason:
+    /// it owns live children — a login shell asked for its `$PATH`, a
+    /// `cargo --version` probe — and the terminate observer calls its
+    /// `terminateNow()` beside the other two.
+    private let lspRustToolchain: LSPRustToolchainService
+
+    /// The third registry contributor (D21): whether Rust has a language server,
+    /// whether this Mac can drive one at all, and what the Settings row may do
+    /// about it. A plain stored reference for `lspProvisioning`'s reason.
+    private let lspRust: LSPRustProvisioningModel
+
     /// Wire the workspace, the project-search model and the symbol index together.
     ///
     /// `ProjectSearchModel`'s buffer closures are `let`s taken at construction, and
@@ -243,31 +259,54 @@ struct PisakaApp: App {
         self.lspGoToolchain = goToolchain
         self.lspGopls = gopls
 
-        // The whole of D16's wiring, now with **two** registry contributors: whenever
-        // either set of installed servers changes, the workspace is handed one merged
-        // registry and shuts down whatever the change un-registered. Awaited by both
-        // models on purpose — a removal publishes the registry *before* deleting the
-        // files, so the process is gone before its executable is (see
-        // `LSPProvisioningModel.onRegistryChange` and its gopls counterpart).
+        // rust-analyzer (D21), composed beside the other two and over the *same*
+        // install engine — one install root, one `sweepStaging()`. Rust is the
+        // hybrid of the two arrangements above: it is downloaded from a pinned
+        // manifest component like the 2b servers, and gated on a toolchain and
+        // preferred behind a discovered copy like gopls. Sharing the engine is
+        // what makes the first half free; the second half is entirely the Core
+        // model's, which is why the app adds one discovery seam and nothing else.
+        let (rustToolchain, rust) = PisakaApp.makeRust(engine: installEngine, settings: settings)
+        self.lspRustToolchain = rustToolchain
+        self.lspRust = rust
+
+        // The whole of D16's wiring, now with **three** registry contributors:
+        // whenever any set of installed servers changes, the workspace is handed one
+        // merged registry and shuts down whatever the change un-registered. Awaited
+        // by all three models on purpose — a removal publishes the registry *before*
+        // deleting the files, so the process is gone before its executable is (see
+        // `LSPProvisioningModel.onRegistryChange` and its two counterparts).
         //
         // Each callback takes its own contributor's new value as a parameter and
-        // reads the other's published one, which is what makes the merge see the
+        // reads the other two's published ones, which is what makes the merge see the
         // change that is being pushed rather than the state before it. Base entries
         // first (`provisioning.registry` already opens with them), so a
         // hand-registered override still wins — `LSPServerRegistry`'s
-        // first-registration-wins rule.
+        // first-registration-wins rule. The three contributors serve disjoint
+        // languages, so the order among *them* decides nothing today; it is stated
+        // rather than left to the reader because the rule that would decide it if
+        // they ever overlapped is the registry's, not this site's.
         //
         // `lspWorkspace` and the models are captured directly rather than through
         // `self`: this runs during `init`, and the closures must outlive it holding
         // those objects, not a half-built `PisakaApp` value.
-        provisioning.onRegistryChange = { @MainActor [lspWorkspace, gopls] registry in
+        provisioning.onRegistryChange = { @MainActor [lspWorkspace, gopls, rust] registry in
             await lspWorkspace.updateRegistry(
-                LSPServerRegistry(registry.descriptions + gopls.descriptions)
+                LSPServerRegistry(registry.descriptions + gopls.descriptions + rust.descriptions)
             )
         }
-        gopls.onDescriptionsChange = { @MainActor [lspWorkspace, provisioning] descriptions in
+        gopls.onDescriptionsChange = { @MainActor [lspWorkspace, provisioning, rust] descriptions in
             await lspWorkspace.updateRegistry(
-                LSPServerRegistry(provisioning.registry.descriptions + descriptions)
+                LSPServerRegistry(
+                    provisioning.registry.descriptions + descriptions + rust.descriptions
+                )
+            )
+        }
+        rust.onDescriptionsChange = { @MainActor [lspWorkspace, provisioning, gopls] descriptions in
+            await lspWorkspace.updateRegistry(
+                LSPServerRegistry(
+                    provisioning.registry.descriptions + gopls.descriptions + descriptions
+                )
             )
         }
         self.lspProvisioning = provisioning
@@ -279,6 +318,13 @@ struct PisakaApp: App {
         // answer is in. Unawaited, so a machine with no `go` spends its login-shell
         // search entirely off the launch path.
         Task { await gopls.discover() }
+        // And the Rust one, for the same reasons and with one more: this search
+        // ends at a login shell on a Mac with no Rust at all, which is most of
+        // them, so it must never be on the path that draws the first window. The
+        // model coalesces onto this one task, so the banner's `.task` — which
+        // awaits discovery before it can install a rust-analyzer the user already
+        // accepted — joins it rather than starting a second search.
+        Task { await rust.discover() }
 
         _projectSearch = StateObject(
             wrappedValue: ProjectSearchModel(
@@ -356,6 +402,30 @@ struct PisakaApp: App {
                 fileService: FileService(),
                 settings: settings
             )
+        )
+    }
+
+    /// The Rust pair — the one machine-knowledge seam and the model over it —
+    /// composed the one way this app composes them.
+    ///
+    /// A factory for `makeProvisioning`'s reason, over the *same* engine for
+    /// `makeGopls`'s: the install root is one directory and `sweepStaging()`
+    /// sweeps all of it. Rust hands the engine *more* than gopls does — its
+    /// server is a pinned manifest component, so the download, the digest check,
+    /// the unpack and the removal are all the engine's — which is why there is one
+    /// seam here and not two.
+    ///
+    /// Building one searches for nothing: `LSPRustToolchainService` resolves
+    /// lazily on first `discover()`, and the model derives its row from a
+    /// `pending` report until that answers.
+    static func makeRust(
+        engine: LSPInstallEngine = PisakaApp.makeProvisioning().engine,
+        settings: SettingsStore = SettingsStore()
+    ) -> (service: LSPRustToolchainService, model: LSPRustProvisioningModel) {
+        let service = LSPRustToolchainService()
+        return (
+            service,
+            LSPRustProvisioningModel(discovery: service, engine: engine, settings: settings)
         )
     }
 
@@ -504,6 +574,7 @@ struct PisakaApp: App {
                 symbolIndex: symbolIndexController,
                 provisioning: lspProvisioning,
                 gopls: lspGopls,
+                rust: lspRust,
                 onGoToDefinition: { url, range in activateSearchMatch(url: url, range: range) },
                 onViewDefinitionOutsideProject: { url, range in
                     viewDefinitionOutsideProject(url: url, range: range)
@@ -628,6 +699,20 @@ struct PisakaApp: App {
                         // open arriving after this observer cannot start another
                         // one (see `LSPGoToolchainService.terminateNow()`).
                         lspGoToolchain.terminateNow()
+                        // And whatever the Rust seam has running — a login shell
+                        // still printing its `PATH`, or a `cargo --version`
+                        // probe. Neither is expensive, but the login shell is
+                        // exactly the child that can outlive a quit: a profile
+                        // slow enough to need the deadline is a profile still
+                        // running when the app goes away. Permanent as well as
+                        // immediate, for the Go seam's reason — a `.rs` tab
+                        // opening after this observer starts nothing at all.
+                        //
+                        // The rust-analyzer *download* is not this call's
+                        // business and needs none: it is `URLSession` bytes into
+                        // a staging tree, which the process exit ends and the
+                        // next launch's `sweepStaging()` reclaims (D13).
+                        lspRustToolchain.terminateNow()
                     }
                     // Tear the FSEvents subscription down too, so no stream
                     // outlives the app. `stop()` is idempotent (and a no-op when
@@ -819,6 +904,7 @@ struct PisakaApp: App {
                 settings: settings,
                 provisioning: lspProvisioning,
                 gopls: lspGopls,
+                rust: lspRust,
                 installEngine: lspInstallEngine
             )
         }

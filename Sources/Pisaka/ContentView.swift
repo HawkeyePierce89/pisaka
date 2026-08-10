@@ -88,6 +88,12 @@ struct ContentView: View {
     /// by `PisakaApp`; the default builds a throwaway stack that searches for
     /// nothing until something calls `discover()`.
     var gopls: LSPGoplsProvisioningModel = PisakaApp.makeGopls().model
+    /// Whether Rust has a language server on this Mac, and how it would get one.
+    /// Threaded through to the same consent banner and non-observed here for the
+    /// same reason as the two above. Owned by `PisakaApp`; the default builds a
+    /// throwaway stack that searches for nothing until something calls
+    /// `discover()` — and, with no toolchain answer yet, offers nothing either.
+    var rust: LSPRustProvisioningModel = PisakaApp.makeRust().model
     /// Open the file a Go to Definition landed on and select the declaration's
     /// name. Wired to the same `PisakaApp` entry point a Find in Files activation
     /// uses — opening a tab is the app's job — and threaded straight into
@@ -422,13 +428,15 @@ struct ContentView: View {
                 // bar so it is the topmost thing in the editor zone without
                 // covering the file's own path. It renders nothing at all unless
                 // the selected tab's language has an unanswered, uninstalled
-                // server this app can provision — downloaded, or built by the
-                // user's own Go toolchain — and it is also where an *already*
-                // accepted server is installed on first use — both keyed on this
-                // one language and on there being a project to serve.
+                // server this app can provision — downloaded, downloaded behind a
+                // toolchain gate, or built by the user's own Go toolchain — and it
+                // is also where an *already* accepted server is installed on first
+                // use — both keyed on this one language and on there being a
+                // project to serve.
                 LSPConsentBanner(
                     provisioning: provisioning,
                     gopls: gopls,
+                    rust: rust,
                     language: SyntaxLanguage(forFileName: file.displayName),
                     hasProjectRoot: model.projectRoot != nil
                 )

@@ -476,6 +476,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     a whole file into memory before measuring it, and the symbol index's stamp gate
     would re-read and re-parse the entire project on every refresh — which iOS does
     run, after each working-tree rewrite the app performs.
+    A third non-mutating reader is forwarded for a *different* reason:
+    `isExecutableFile(at:)` has no default at all (it is the install engine's
+    `.gzip` gate — see `core-workspace.md`), so the compiler requires it here, and
+    forwarding it through `withScope` is what keeps it honest — outside an active
+    grant `access(2)` answers "no such file", which the gate would read as a good
+    executable that arrived unrunnable. Nothing on iOS installs a language server,
+    so the call site is macOS's alone; the forwarding is what stops the decorator
+    from being the one conformer that answers a gate wrongly.
     `SecurityScopedFileService` also conforms to `SecurityScopeProviding` (a small
     `AnyObject` protocol vending `withSecurityScope(covering:_:)`): `LibGit2Service`
     touches the working tree/index directly via `FileManager`/libgit2 rather than

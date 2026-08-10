@@ -5,19 +5,20 @@ import PisakaCore
 /// The one place this app asks to acquire something (D15).
 ///
 /// A non-modal strip between the breadcrumb and the editor, shown only while
-/// `LSPProvisioningModel.consentPrompt(forOpening:)` — or, for Go,
-/// `LSPGoplsProvisioningModel.consentPrompt(forOpening:)` — answers for the
+/// one of the three contributors' `consentPrompt(forOpening:)` answers for the
 /// selected tab's language. Everything about *when* it appears is those rules' —
 /// a provisionable language, consent still `unasked`, nothing installed or
-/// installing (and, for Go, a `go` to build with) — so this view holds no state
-/// of its own and cannot disagree with the Settings surface about whether the
-/// question is still open.
+/// installing (and, for Go and Rust, a toolchain to drive it) — so this view
+/// holds no state of its own and cannot disagree with the Settings surface about
+/// whether the question is still open.
 ///
-/// **Two questions, one strip, and never both at once.** The two contributors
-/// serve disjoint languages, so the branches cannot collide today; the download
-/// branch is nonetheless checked first and stated to win, because a banner that
-/// asked two questions in one row — or stacked two rows above an editor — would
-/// be a worse thing to discover than an arbitrary order.
+/// **Three questions, one strip, and never more than one at once.** The three
+/// contributors serve disjoint languages, so the branches cannot collide today;
+/// they are nonetheless ordered and stated to win in that order — the 2b
+/// downloads, then Go, then Rust, the order they were composed in and the order
+/// the Settings tab lists them — because a banner that asked two questions in one
+/// row, or stacked two rows above an editor, would be a worse thing to discover
+/// than an arbitrary order.
 ///
 /// **Two actions and no third way out.** There is no ✕, no "Later" and no
 /// Esc-to-dismiss, and that is the deliberate half of "asked once": the banner
@@ -39,6 +40,9 @@ struct LSPConsentBanner: View {
     /// the strip appear and disappear is a published change on the model, and
     /// this view is the one place that reads it.
     @ObservedObject var gopls: LSPGoplsProvisioningModel
+
+    /// The Rust half, observed for the same reason as the two above.
+    @ObservedObject var rust: LSPRustProvisioningModel
 
     /// The selected tab's language, or `nil` when nothing is open or the file's
     /// language is not recognized. Resolved by `ContentView` from the tab's
@@ -78,6 +82,8 @@ struct LSPConsentBanner: View {
                 strip { downloadRow(prompt) }
             } else if let goPrompt {
                 strip { goRow(goPrompt) }
+            } else if let rustPrompt {
+                strip { rustRow(rustPrompt) }
             }
         }
         // The silent half of D15, and the reason this modifier is here rather
@@ -99,11 +105,12 @@ struct LSPConsentBanner: View {
         .task(id: Trigger(language: language, hasProjectRoot: hasProjectRoot)) {
             guard hasProjectRoot, let language else { return }
             await provisioning.prepareForOpening(language)
-            // Both contributors, in the branch order above, and sequential rather
-            // than concurrent: each does nothing at all for a language that is not
-            // its own, so the second call is a guard away from a return in every
-            // case where the first one had work to do.
+            // All three contributors, in the branch order above, and sequential
+            // rather than concurrent: each does nothing at all for a language that
+            // is not its own, so every call after the one that matched is a guard
+            // away from a return.
             await gopls.prepareForOpening(language)
+            await rust.prepareForOpening(language)
         }
     }
 
@@ -128,6 +135,17 @@ struct LSPConsentBanner: View {
     private var goPrompt: LSPGoConsentPrompt? {
         guard hasProjectRoot, let language else { return nil }
         return gopls.consentPrompt(forOpening: language)
+    }
+
+    /// The Rust question, under the same project-root precondition as the other
+    /// two, and with the sharpest version of its reason: rust-analyzer builds a
+    /// project model out of the `Cargo.toml` above the file, so a `.rs` file
+    /// opened on its own with ⌘O has nothing for it to load at all. Spending the
+    /// one-shot consent — and 13 MB — there would ask in the one state where
+    /// accepting demonstrably changes nothing.
+    private var rustPrompt: LSPRustConsentPrompt? {
+        guard hasProjectRoot, let language else { return nil }
+        return rust.consentPrompt(forOpening: language)
     }
 
     private func strip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
@@ -242,6 +260,67 @@ struct LSPConsentBanner: View {
 
             Button("No Thanks") {
                 gopls.decline()
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(NSColor.controlBackgroundColor))
+    }
+
+    /// The Rust question: the download row's arrow and size, because it *is* a
+    /// download, over copy that says the two things that are true of this one and
+    /// of neither other prompt (D21/D24).
+    ///
+    /// **The size is shown**, unlike Go's, because accepting fetches a pinned
+    /// artifact whose byte count the manifest knows exactly — D15's rule is that
+    /// nobody is asked to download something unsized — and it is
+    /// `pendingDownloadByteCount` rather than the component's gross total, so a
+    /// half-provisioned state offers what is actually left to fetch.
+    ///
+    /// **The toolchain is not mentioned**, and that is the model's doing rather
+    /// than an omission: this prompt cannot appear without a `cargo` (D23), so a
+    /// sentence explaining that one is required would only ever be read by
+    /// someone who already has one. The machine that lacks one is told so in
+    /// Preferences, where the row has room to say what it means.
+    ///
+    /// The version is named because it is a *date* — the shape upstream ships —
+    /// and a date is the one version string worth putting in front of someone
+    /// before they agree to download it.
+    private func rustRow(_ prompt: LSPRustConsentPrompt) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.down.circle")
+                .foregroundStyle(.tint)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Download the \(prompt.displayName) language server?")
+                    .font(.callout)
+                Text(
+                    "\(Self.size(prompt.downloadByteCount)) download of the official "
+                    + "\(prompt.version) release, verified and kept to itself. "
+                    + "It adds project-wide completion and Go to Definition for these files; "
+                    + "without it they keep using the built-in index."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 8)
+
+            // Unawaited and pointer-only, for the two rows above's reasons: the
+            // download runs for as long as it runs while the banner must go away
+            // the moment the answer is recorded (`accept` records it before it
+            // suspends, and the row it publishes reads "installing…" from that
+            // same moment), and a `.defaultAction` here would put every Return
+            // typed in the file behind this strip on the window's key-equivalent
+            // path.
+            Button("Download") {
+                Task { await rust.accept() }
+            }
+
+            Button("No Thanks") {
+                rust.decline()
             }
         }
         .padding(.horizontal, 12)

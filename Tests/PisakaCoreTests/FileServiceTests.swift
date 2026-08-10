@@ -527,6 +527,10 @@ final class FileServiceTests: XCTestCase {
             func read(url: URL) throws -> String { "" }
             func write(_ text: String, to url: URL) throws {}
             func contentsOfDirectory(at url: URL) throws -> [DirectoryEntry] { [] }
+            // Spelled out rather than inherited: `isExecutableFile(at:)` is the
+            // one member with no default, because a gate that answers by
+            // accident is worse than one the compiler asks about (D22).
+            func isExecutableFile(at url: URL) -> Bool { false }
         }
 
         XCTAssertThrowsError(
@@ -772,6 +776,7 @@ final class FileServiceTests: XCTestCase {
             func read(url: URL) throws -> String { contents }
             func write(_ text: String, to url: URL) throws {}
             func contentsOfDirectory(at url: URL) throws -> [DirectoryEntry] { [] }
+            func isExecutableFile(at url: URL) -> Bool { false }
         }
         let url = URL(fileURLWithPath: "/stub/a.txt")
 
@@ -852,6 +857,34 @@ final class FileServiceTests: XCTestCase {
             FileStamp(byteCount: 10, modificationDate: date),
             FileStamp(byteCount: 10, modificationDate: date.addingTimeInterval(1))
         )
+    }
+
+    // MARK: - Executability (the install engine's gate)
+
+    /// The four answers the install engine's `.gzip` gate depends on. Written as
+    /// real files rather than as a stub, because the whole value of this method is
+    /// that it asks the file system: a downloaded binary is installable only if
+    /// *this process* can run what was just written.
+    func testIsExecutableFileAnswersTheModeOfARealFile() throws {
+        let service = FileService()
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        // An ordinary write — which is what an unpacker that forgot the mode
+        // leaves behind (D22).
+        let plain = dir.appendingPathComponent("plain.txt")
+        try service.write("hello", to: plain)
+        XCTAssertFalse(service.isExecutableFile(at: plain))
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: plain.path)
+        XCTAssertTrue(service.isExecutableFile(at: plain))
+
+        // A directory carries the same bit and means something else by it: the
+        // gate is asked about a *file* the unpack was supposed to produce, and a
+        // directory in its place is the failure, not the success.
+        XCTAssertFalse(service.isExecutableFile(at: dir))
+
+        XCTAssertFalse(service.isExecutableFile(at: dir.appendingPathComponent("gone")))
     }
 
     // MARK: - Helpers

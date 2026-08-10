@@ -62,6 +62,7 @@ final class MergeModelTests: XCTestCase {
             writtenByPath[url.path] = text
         }
         func contentsOfDirectory(at url: URL) throws -> [DirectoryEntry] { [] }
+        func isExecutableFile(at url: URL) -> Bool { false }
     }
 
     private func makeModel(git: StubGit, files: StubFiles = StubFiles()) -> MergeModel {

@@ -32,7 +32,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     extension); `canRun(fileName:) -> Bool` reports whether the extension has a
     runner (drives the "Run" context-menu item and the ⌘R menu enablement);
     `workingDirectory(projectRoot:fileURL:) -> URL` returns `projectRoot ??
-    fileURL.deletingLastPathComponent()`. Paths are shell-quoted via the shared
+    fileURL.deletingLastPathComponent()`.
+    **Rust deliberately has no `rs` entry**, and the asymmetry with `TestCommand`
+    — which answers `cargo test` for the same file — is real and explainable
+    rather than an oversight. This map answers a command for a *single file* and
+    appends the quoted path; `cargo run` takes neither. Rust has a project-level
+    runner and no file-level one — `rustc` compiles to a binary you then run,
+    which is two steps and a different thing — so ⌘U works, ⌘R is disabled, and
+    `cargo run` from the terminal panel is the answer. Pinned by
+    `RunCommandTests.testRustHasNoRunner` (including the uppercase `MAIN.RS`,
+    since `canRun` lowercases before the lookup) in its own section, so it reads
+    as a decision rather than as `.rs` falling through the "unsupported extension"
+    test beside `.md` and `Makefile`, and by a third test asserting that
+    `SyntaxLanguage(forFileName:)`, `isTestFile` and `canRun` agree on one Rust
+    file: `.rust`, testable, **not** runnable. Paths are shell-quoted via the shared
     `ShellQuote.quote(_:)` (extracted from the former private `shellQuoted`), so
     spaces and shell metacharacters (`$`, backtick, `;`) survive intact.
     Unit-tested in `RunCommandTests`.
@@ -71,6 +84,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `workingDirectory(projectRoot:fileURL:)` (delegates to
     `RunCommand.workingDirectory` so run and test sessions agree on cwd).
     Unit-tested in `TestCommandTests`.
+    **Rust's two answers are both "everything, unconditionally", and both are
+    decisions.** `isTestFile` is true for *any* `.rs` file because Rust's tests
+    live beside the code in `#[cfg(test)]` modules, so there is no naming
+    convention to match — and the suite pins the three *foreign* conventions
+    (`foo_test.rs`, `test_foo.rs`, `foo.test.rs`) as answering **true** for that
+    reason rather than because they matched anything, which states the failure
+    mode a borrowed suffix check would introduce: it would *exclude* ordinary
+    files. The command is the constant `cargo test`, taking neither the file nor
+    its directory — cargo finds the workspace from the cwd — so no evidence is
+    consulted and, unlike Go's `go test <dir>`, a path full of shell
+    metacharacters cannot reach the command line at all.
   - `BottomPanel.swift` — pure, testable VS Code-style bottom-dock-panel state
     (Foundation-free — semantic enum only, the `FileIconColor`/`LogFilter`
     precedent). A `public enum BottomPanel: Equatable { case terminal, log,
@@ -279,9 +303,13 @@ run in `swift test` rather than needing an Xcode build.
 
     **Required-reason API audit.** The unit of audit is the **linked binary**,
     not `Sources/`: libgit2 and every tree-sitter grammar compile from C source
-    *into* the app, and none of the 19 dependencies ships a
+    *into* the app, and none of the 20 dependencies ships a
     `PrivacyInfo.xcprivacy` of its own (`find DerivedData/SourcePackages/checkouts
-    -name '*.xcprivacy'` returns nothing), so their required-reason calls must be
+    -name '*.xcprivacy'` returns nothing; the build would surface one if it ever
+    appeared, since every grammar's resource bundle is handed to *both*
+    destinations' `ProcessInfoPlistFile` step as a `-scanforprivacyfile`
+    argument — 16 bundles today, `TreeSitterRust_TreeSitterRust.bundle` among
+    them), so their required-reason calls must be
     declared by this manifest. A `Sources/`-only grep misses them — that is how
     the boot-time entry below was originally missed. Re-run the audit as a grep
     over `Sources/` **plus** a symbol check on the built binary:
@@ -303,29 +331,43 @@ run in `swift test` rather than needing an Xcode build.
     Confirm the file you scanned is non-trivial (`nm -u` on it should list
     hundreds of symbols) before believing an empty match.
 
-    **Last re-run: 2026-08-09**, over both destinations' Debug dylibs
+    **Last re-run: 2026-08-10**, over both destinations' Debug dylibs
     (`Debug-iphoneos/Pisaka.app/Pisaka.debug.dylib`, 2184 undefined symbols, and
-    `Debug/Pisaka.app/Contents/MacOS/Pisaka.debug.dylib`, 2306), after adding the
-    `tree-sitter-go` grammar — the Go language work's one change to what is
-    *linked*, and so the reason a re-run was owed: a grammar is C compiled into
-    the app, exactly the half a `Sources/` grep cannot see. Both binaries
-    answered the same four symbols the record below already explains — `_stat`,
-    `_lstat`, `_fstat`, `_mach_absolute_time` — with no disk-space and no
-    keyboard symbol, so `PrivacyInfo.xcprivacy` is unchanged and
+    `Debug/Pisaka.app/Contents/MacOS/Pisaka.debug.dylib`, 2308), after adding the
+    `tree-sitter-rust` grammar — the Rust language work's one change to what is
+    *linked* (rust-analyzer is neither linked nor bundled; it arrives over the
+    network or not at all), and so the reason a re-run was owed: a grammar is C
+    compiled into the app, exactly the half a `Sources/` grep cannot see. Both
+    binaries answered the same four symbols the record below already explains —
+    `_stat`, `_lstat`, `_fstat`, `_mach_absolute_time` — with no disk-space and
+    no keyboard symbol, so `PrivacyInfo.xcprivacy` is unchanged and
     `ReleaseMetadataTests`' set equality still passes. That the new grammar was
     really inside what was scanned is confirmed rather than assumed: `nm` finds
-    `_tree_sitter_go` **defined** (`T`) in both, beside the grammars that were
+    `_tree_sitter_rust` **defined** (`T`) in both, beside the grammars that were
     there before — the same "check the right binary" trap one level down, since a
     grammar that had linked as its own dynamic framework would keep its C calls
     out of this grep.
 
-    The `Sources/` half turned up one new call site worth naming, because the
-    next reader will meet it and wonder: `LSPGoToolchainService`'s discovery
-    probes candidate `go`/`gopls` paths with
-    `FileManager.isExecutableFile(atPath:)`. That asks a *permission* question
-    and reads no timestamp, and is not one of the file-timestamp APIs Apple's
-    list names, so it adds nothing to declare — the five timestamp call sites
-    below are still all of them.
+    This grammar earns a second confirmation the others did not need, and it is
+    the one the iOS device build exists to make: all five
+    `_tree_sitter_rust_external_scanner_*` symbols are **defined** in both
+    binaries too. `tree-sitter-rust`'s manifest lists `src/scanner.c` in its
+    `sources:`, which is why nothing is vendored for it — and the
+    `TreeSitterDotenv` failure mode is precisely a manifest that omits that line,
+    compiles cleanly, and leaves those five undefined until the consuming app
+    links. Reading upstream's manifest predicts the answer; the link *is* it.
+
+    The `Sources/` half turned up no new *category*, and one call site that has
+    since become a family, because the next reader will meet it and wonder:
+    `FileManager.isExecutableFile(atPath:)`. It was `LSPGoToolchainService`'s
+    `go`/`gopls` discovery probe alone; there are now also `LSPToolchain`'s and
+    `LSPRustToolchainService`'s probes, `LSPArchiveUnpacker`'s check on what it
+    just gunzipped, and — the first time this question is asked from *Core* —
+    `FileServicing.isExecutableFile(at:)`, which `LSPInstallEngine` puts between
+    a `.gzip` unpack and its commit rename. Every one of them asks a
+    *permission* question and reads no timestamp, and none is one of the
+    file-timestamp APIs Apple's list names, so the family adds nothing to
+    declare — the five timestamp call sites below are still all of them.
 
     A later audit should be a diff against this record, not a rediscovery:
 
@@ -380,7 +422,7 @@ run in `swift test` rather than needing an Xcode build.
         `Sources/` and no matching symbol in either binary, not declared.
 
   - `Resources/Licenses/` — `licenses.json` plus one verbatim `<id>.txt` per
-    shipped dependency (19 today). Declared in `project.yml` as a **folder
+    shipped dependency (20 today). Declared in `project.yml` as a **folder
     reference** (`type: folder`), so the whole directory is copied into the
     bundle as `Licenses/` and adding a future text needs no project
     regeneration. That convenience is exactly why the directory's *contents* are

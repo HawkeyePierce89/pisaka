@@ -40,6 +40,13 @@ close files with a confirmation prompt when there are unsaved changes.
   it once with *your* `go`. Without a Go toolchain there is no offer and no
   server: Go files behave exactly as every other language does, on the built-in
   index.
+- macOS, optional: a **Rust toolchain**, for the semantic Rust intelligence.
+  `rust-analyzer` shells out to `cargo` to understand your project, so a
+  toolchain is required *however* the server is acquired — Pisaka uses the
+  `rust-analyzer` you already have if it can find one (rustup puts it in
+  `~/.cargo/bin`), and otherwise offers once to download the official prebuilt
+  binary. Without a `cargo` there is no offer and no server: Rust files behave
+  exactly as every other language does, on the built-in index.
 
 ## Build & Run
 
@@ -306,7 +313,9 @@ involved.
   then the current file's names, then real declarations before keywords before
   plain words, then shorter names. Keywords are offered for Swift, JavaScript,
   TypeScript, Python, Go (the 25 reserved words plus the predeclared names no
-  file can declare — `nil`, `error`, `len`, `make`, …) and Dockerfile (`FROM`,
+  file can declare — `nil`, `error`, `len`, `make`, …), Rust (the 38 strict
+  keywords plus the primitive type names `i32`, `usize`, `f64`, `bool`, `str`, …,
+  which likewise no crate declares) and Dockerfile (`FROM`,
   `HEALTHCHECK`, … in the uppercase
   they are written in); the data formats, Markdown and `.gitignore` deliberately
   have no list, and HTML/CSS are left out until completion knows about position.
@@ -325,9 +334,15 @@ involved.
   on disk (only the files whose size or modification date actually moved get
   re-parsed), and kept current for the file you are typing in, so a name you just
   wrote is completable before it is saved. Declarations are indexed for Swift,
-  JavaScript, TypeScript, Python and Go (types, interface and struct members,
+  JavaScript, TypeScript, Python, Go (types, interface and struct members,
   functions, methods — a pointer receiver `func (w *Worker)` indexes under
-  `Worker` — and top-level `const`/`var`, but not locals inside a function);
+  `Worker` — and top-level `const`/`var`, but not locals inside a function) and
+  Rust (structs, enums, unions, traits and type aliases; struct fields; enum
+  variants; free functions, including those in an inline `mod`; the methods of an
+  `impl` or a trait, filed under the type they are implemented *for* — so
+  `impl Display for Worker` puts `fmt` under `Worker`, and `impl<T> Holder<T>`
+  puts its methods under `Holder` — and top-level `const`/`static`, but not
+  locals inside a function);
   Markdown headings, CSS selectors, top-level
   YAML/JSON keys, Dockerfile build stages, `.env` variables and HTML `id`s are
   indexed too. A file type with no query still completes from the words in the
@@ -410,6 +425,32 @@ involved.
   your machine. `gopls` comes from `github.com/golang/tools` and is BSD-3-Clause;
   it is not in Acknowledgements, because `go install` writes one binary and no
   license file — the Go row names its origin and license instead.
+- Semantic code intelligence for **Rust** (macOS), through `rust-analyzer` — the
+  same Go to Definition and completion Swift and Go get above, including real
+  members after a `.` and an auto-import (a `use` line) inserted with the symbol
+  as a single undo step. How it is acquired is the hybrid of the two stories
+  above: **used if you already have it, downloaded once if you don't.** If a
+  working `rust-analyzer` is already on your Mac — rustup puts one in
+  `~/.cargo/bin` — it is found and used with **no prompt at all**, and Pisaka
+  downloads nothing. If there isn't one, the first Rust file you open in a project
+  offers once, with the download size shown, and accepting fetches the official
+  prebuilt binary from `github.com/rust-lang/rust-analyzer` (release
+  `2026-08-03`), verifies it against a SHA-256 pinned in this app and installs it
+  under `~/Library/Application Support/Pisaka/LanguageServers/` — nothing on your
+  `PATH`, nothing global, no `cargo install`, no `sudo`. Rust becomes semantic the
+  moment it lands, with no restart. **A Rust toolchain is required either way**:
+  `rust-analyzer` runs `cargo` to understand your project, so on a Mac without one
+  there is no prompt, no download and no server — the Settings row says so, and
+  Rust files keep highlighting, indexing, completing and jumping from the built-in
+  index. **Preferences → Language Servers** has a Rust row showing which of the two
+  it is: *installed (found on this Mac)* (no Remove button — it isn't Pisaka's
+  binary to delete) or *installed by Pisaka · 2026-08-03* (Remove, which stops the
+  server and falls back to your own copy if you have one). Declining persists
+  across launches and is turned around from that same screen; a failed download is
+  a sentence in that row and a Retry button, never an alert.
+  `rust-analyzer` is dual-licensed `Apache-2.0 OR MIT`; like `gopls` it is not in
+  Acknowledgements, because the download is a single compressed binary carrying no
+  license file — the Rust row names its origin and license instead.
 - VS Code-style minimap to the right of the editor: a scaled-down,
   syntax-colored overview of the file with a draggable viewport rectangle.
   Click or drag the rectangle to scroll the editor, or scroll the mouse wheel
@@ -418,8 +459,8 @@ involved.
   overview slides as you scroll rather than squeezing the whole file into the
   panel; colors follow the system light/dark appearance.
 - Syntax highlighting (tree-sitter via ChimeHQ's Neon) for Swift, JavaScript,
-  TypeScript, JSON, Markdown, Python, Go, HTML, CSS, YAML, Dockerfiles, `.env`
-  files, and dot-prefixed ignore files (`.gitignore`, `.dockerignore`,
+  TypeScript, JSON, Markdown, Python, Go, Rust, HTML, CSS, YAML, Dockerfiles,
+  `.env` files, and dot-prefixed ignore files (`.gitignore`, `.dockerignore`,
   `.npmignore`, `.eslintignore`, `.prettierignore`, …). The language is
   detected from the whole file name, not just its extension — so `Dockerfile`,
   `Dockerfile.dev`, `.env.local` and any dot-file ending in `ignore` are
@@ -605,7 +646,10 @@ involved.
   (`go run`), Swift
   (`swift`), and shell scripts (`bash`). Like every entry in that list, Go runs
   the *one file* you are in — a `main` split across several files in a package
-  needs `go run .` from the terminal. The file's dirty tab is saved first, the
+  needs `go run .` from the terminal. **Rust is deliberately not on that list**:
+  every runner here takes a single file path, and `cargo run` takes none — Rust
+  has a project runner and no file runner, so `cargo run` from the terminal panel
+  is the answer while Cmd+U below works normally. The file's dirty tab is saved first, the
   session starts in the project folder (or the file's folder when no project is
   open), and re-running the same file reuses its dedicated "Run:" tab rather than
   piling up new ones. Unrunnable file types are skipped with a notice.
@@ -613,7 +657,9 @@ involved.
   Run > Run Test menu item, Cmd+U (for the active tab), or the "Run Test" item in
   a test file's project-tree context menu (shown only for files that match a
   language's test-naming convention — e.g. `*.test.ts`/`*.spec.js`, `test_*.py`,
-  `*_spec.rb`, `*Test.php`, `*_test.exs`, `*_test.go`, `*Tests.swift`, any `.rs`).
+  `*_spec.rb`, `*Test.php`, `*_test.exs`, `*_test.go`, `*Tests.swift`, and **any**
+  `.rs` file, since Rust's tests live beside the code rather than in files named
+  for it).
   The project's test runner is detected from its root config files and manifests:
   JavaScript/TypeScript picks vitest, jest, or mocha (from a `vitest.config.*` /
   `jest.config.*` / `.mocharc*` file or a `package.json` mention, first match
@@ -767,6 +813,28 @@ and iPhone. The feature scope landed so far:
   every time you switch to a Go file. Discovery happens once per launch too, so a
   Go toolchain installed while Pisaka is running is found at the next launch. The
   version is pinned in the app and there is no version picker.
+- The Rust server (`rust-analyzer`) is macOS-only and covers the same Go to
+  Definition and completion, with the same absence of diagnostics, hover types,
+  rename, status indicator and log. It needs a **Rust toolchain** — there is no
+  offer and no server without one, and a `cargo` that cannot answer
+  `cargo --version` counts as none. The same applies to a `rust-analyzer` it
+  finds: rustup installs a proxy for it whether or not the component was ever
+  added, so one that cannot answer `--version` is treated as absent rather than
+  used. A `rust-analyzer` you already have is used **at whatever version it is**:
+  none is read, required or shown, and it is never replaced or updated by Pisaka —
+  which is also why Install is not offered over it. The downloaded version is
+  pinned in the app (a *date*, which is how upstream releases it) and there is no
+  version picker; when an app update moves that pin, the next Rust file you open
+  re-downloads at the new version without asking again, because you already agreed
+  to install it — *unless* you also have a `rust-analyzer` of your own, in which
+  case Pisaka falls back to using yours rather than downloading the new pin, and
+  the row says so ("found on this Mac"). The old copy Pisaka downloaded is still
+  removable from Preferences. The download is attempted **once per launch**: if it fails, the
+  Settings row says why and offers Retry rather than trying again every time you
+  switch to a Rust file, and offline or behind a proxy that blocks `github.com` it
+  simply fails and Rust keeps using the built-in index. Discovery happens once per
+  launch too, so a Rust toolchain installed while Pisaka is running is found at
+  the next launch.
 - The tree-sitter fallback — which is what every other language, and Swift without
   Xcode, always uses — is index-based, not a compiler: Go to Definition matches a
   *name*, so it cannot tell two same-named declarations apart (it lists both),
@@ -828,3 +896,13 @@ remove them.
 and downloads none of it, and `go install` writes one binary and no license file
 to read. It comes from [github.com/golang/tools](https://github.com/golang/tools)
 and is BSD-3-Clause; the Go row in **Preferences → Language Servers** says so.
+
+`rust-analyzer` is not in either place either, and it is the sharper case: unlike
+`gopls`, Pisaka *does* download it — but the download is a single compressed
+binary, and an archive of one file carries no license text to read out of the
+installed tree. So there is nothing for `Resources/Licenses/` to cover (none of
+those bytes ship in the app) and nothing for the Acknowledgements section to show.
+It comes from
+[github.com/rust-lang/rust-analyzer](https://github.com/rust-lang/rust-analyzer)
+and is dual-licensed `Apache-2.0 OR MIT`; the Rust row in **Preferences →
+Language Servers** says so.
