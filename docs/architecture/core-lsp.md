@@ -904,7 +904,8 @@ document, together with the limits they carry.
     toolchain is *the wrapped provider's output*, byte for byte —
     `RoutingIntelligenceProviderTests` pins that by equality on both request kinds
     rather than by inspection, because "phase 2a changed nothing for the other
-    eleven languages" is the promise most worth being unable to break by accident.
+    thirteen languages" is the promise most worth being unable to break by
+    accident.
     **An empty answer is not an answer**: a server returning no definitions where
     the index has one has failed to answer the question, so an empty LSP result
     falls through, and only an empty result from *both* is empty — the case the
@@ -1154,7 +1155,12 @@ what the registry gets.
     manifest. `canInstall` deliberately refuses over a *discovered* copy: it
     already answers, so a 13 MB download would buy a second copy of the same
     program plus a Remove button, and D24's preference rule would then silently
-    switch which binary is running. `canRemove` is keyed on `hasFilesOnDisk`
+    switch which binary is running. It also requires a non-empty `version`, which
+    is how "the manifest describes no such component" reaches the button: that
+    state reads as `.notInstalled` — the honest status, since nothing is — and
+    `consentPrompt` and `install()` both guard on the component, so without this
+    clause the row would be the one surface offering an action that silently does
+    nothing. `canRemove` is keyed on `hasFilesOnDisk`
     rather than on the status being `.appInstalled`, `LSPGoServerRow`'s field for
     its reason — a version directory a pin bump stranded reads as `.notInstalled`
     (or `.discovered`) while still being this app's to reclaim, and the only other
@@ -1189,9 +1195,16 @@ what the registry gets.
     all** — not a download, not a recorded failure, not a recorded consent (D23) —
     for the gopls rule's reason: a row reading "no Rust toolchain" beside a
     sentence about a download nobody made would be describing an attempt nobody
-    made. **`prepareForOpening` does not retry a failed attempt this app run**,
+    made. **`prepareForOpening` does not retry a failed *install* this app run**,
     which is the whole difference between "installs on first use" and a retry
-    loop; it does `await discover()` rather than read the report, because
+    loop — but a failed **removal** suppresses nothing, and the guard reads
+    `failure?.wasRemoval != false` rather than `failure == nil` for exactly that
+    reason: a removal that threw leaves consent `accepted` (only a *successful*
+    removal declines), and the state it can leave behind — the pinned version gone
+    while some other version directory refused to go — is one an install fixes
+    rather than one it repeats. The button beside the sentence already draws that
+    distinction (`failureWasRemoval`); the guard draws the same one.
+    It does `await discover()` rather than read the report, because
     discovery is kicked off unawaited at launch while this runs from the banner's
     `.task`, so a restored `.rs` tab regularly arrives before the answer and
     reading a still-`nil` report there would decline silently *for the whole app
@@ -1547,6 +1560,19 @@ and is unit-tested there.
   shown beyond "found on this Mac". It is also never replaced or upgraded by this
   app — Install is refused over it — because the app's own copy would then be the
   one Remove deletes while the other went on running.
+- **A pin bump on a Mac that also has a discovered copy falls back to the
+  discovered one rather than re-downloading.** `installation` answers
+  `.appInstalled` only for the *pinned* version, so the moment an app update moves
+  the pin, the app's own tree stops being the answer and the discovered copy wins
+  by default — the row flips from "installed by Pisaka · <date>" to "found on this
+  Mac", `prepareForOpening` sees a non-`nil` installation and installs nothing, and
+  the superseded directory stays on disk until Remove or the next successful
+  install reclaims it. That is D24's preference rule applied consistently (the
+  app's copy wins *when it exists at the pin*), and it is a limit rather than a
+  bug because the alternative — re-downloading over a working server the user
+  already had — is the louder wrong answer. Recorded in `README.md` too, since it
+  is the one case where the promised "the next Rust file re-downloads at the new
+  version" does not happen.
 - **Discovery is per app run, not per folder** (D23). A Rust toolchain installed
   while Pisaka is running is picked up at the next launch, stated rather than
   papered over with invalidation logic for an event nobody has hit.

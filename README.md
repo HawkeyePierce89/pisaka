@@ -826,7 +826,10 @@ and iPhone. The feature scope landed so far:
   pinned in the app (a *date*, which is how upstream releases it) and there is no
   version picker; when an app update moves that pin, the next Rust file you open
   re-downloads at the new version without asking again, because you already agreed
-  to install it. The download is attempted **once per launch**: if it fails, the
+  to install it — *unless* you also have a `rust-analyzer` of your own, in which
+  case Pisaka falls back to using yours rather than downloading the new pin, and
+  the row says so ("found on this Mac"). The old copy Pisaka downloaded is still
+  removable from Preferences. The download is attempted **once per launch**: if it fails, the
   Settings row says why and offers Retry rather than trying again every time you
   switch to a Rust file, and offline or behind a proxy that blocks `github.com` it
   simply fails and Rust keeps using the built-in index. Discovery happens once per

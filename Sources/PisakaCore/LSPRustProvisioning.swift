@@ -211,6 +211,14 @@ public final class LSPRustProvisioningModel: ObservableObject {
     /// one place D15 reports the failure would be wiped by the very tab switch
     /// that re-triggered it. The budget is "once per app run, automatically"; the
     /// Settings row's Retry stays unconditional, and so does the next launch.
+    ///
+    /// A failed **removal** is not that failure and suppresses nothing. It leaves
+    /// consent `accepted` — only a *successful* removal declines — and the state
+    /// it can leave behind, the pinned version gone while some other version
+    /// directory refused to go, is one an install fixes rather than one it
+    /// repeats. The button beside the sentence already draws this distinction
+    /// (`failureWasRemoval`); the guard draws the same one rather than reading
+    /// "some failure happened".
     public func prepareForOpening(_ language: SyntaxLanguage) async {
         guard
             language == .rust,
@@ -231,7 +239,11 @@ public final class LSPRustProvisioningModel: ObservableObject {
         // tab open.
         await discover()
 
-        guard failure == nil, report?.hasToolchain == true, installation == nil else { return }
+        guard
+            failure?.wasRemoval != false,
+            report?.hasToolchain == true,
+            installation == nil
+        else { return }
         await install()
     }
 
@@ -378,6 +390,14 @@ public final class LSPRustProvisioningModel: ObservableObject {
         // user saying yes and the engine claiming the component belongs to the
         // row as much as the download does.
         if attempt != nil { return .installing }
+        // The engine's answer covers an install of *this* component that this
+        // model did not start. Nothing in the app reaches it today — every
+        // rust-analyzer install goes through `install()` above, whose attempt
+        // outlives the engine's — and it is deliberately not tested as though
+        // something did. It is here because the engine is shared and its state is
+        // per component: a second reader of the same component would otherwise
+        // read `.notInstalled` and offer Install over a download in flight, which
+        // is the one wrong answer this row can give.
         if engine.state(of: LSPRustAnalyzer.componentID) == .installing { return .installing }
         switch installation {
         case let .appInstalled(version, _): return .appInstalled(version: version)

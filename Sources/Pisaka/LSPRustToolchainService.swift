@@ -229,14 +229,24 @@ final class LSPRustToolchainService: LSPRustToolchainDiscovering, @unchecked Sen
     /// (found on this Mac)" in front of a user whose Rust files silently answer
     /// from the tree-sitter index — the D23 failure with a different first cause.
     /// The cost is one subprocess, and only on machines that have a candidate.
+    ///
+    /// And because that dead proxy is the *common* candidate rather than an exotic
+    /// one, a candidate that fails the probe is stepped over rather than ending the
+    /// search: `~/.cargo/bin` leads the well-known list, so stopping at the first
+    /// executable file would hide a working Homebrew rust-analyzer behind a rustup
+    /// proxy whose component was never added, and offer a 13 MB download of a
+    /// server the machine already has. Unlike `cargo` — which the *server* resolves
+    /// by name off the same `PATH`, so the first one there is the one that will
+    /// run either way — this path is handed to `.executable(path:)` directly, so
+    /// picking a later one is a decision this app is free to make.
     private func locateRustAnalyzer(searchPath: String) -> String? {
         let directories = Self.pathEntries(searchPath) + Self.wellKnownCargoDirectories
-        guard let found = Self.firstExecutable(
-            named: Self.rustAnalyzerExecutableName,
-            in: directories
-        ) else { return nil }
-        guard probe(found, environment: environment(searchPath: searchPath)) else { return nil }
-        return found
+        let environment = environment(searchPath: searchPath)
+        for candidate in Self.executables(named: Self.rustAnalyzerExecutableName, in: directories)
+        where probe(candidate, environment: environment) {
+            return candidate
+        }
+        return nil
     }
 
     /// Does this program answer `--version` successfully?
@@ -603,13 +613,27 @@ final class LSPRustToolchainService: LSPRustToolchainDiscovering, @unchecked Sen
 
     /// The first `directory/name` that is actually executable, in the order given.
     private static func firstExecutable(named name: String, in directories: [String]) -> String? {
+        executables(named: name, in: directories).first
+    }
+
+    /// Every executable of that name on the list, in order and without repeats.
+    ///
+    /// The duplicate rule is what makes this usable as a *probe* list rather than
+    /// as a listing: `locateRustAnalyzer` concatenates the discovered `PATH` with
+    /// the well-known directories, and `~/.cargo/bin` is routinely on both — a
+    /// second look at the same file would spend a second subprocess to reach the
+    /// same answer.
+    private static func executables(named name: String, in directories: [String]) -> [String] {
         let manager = FileManager.default
+        var found: [String] = []
+        var seen: Set<String> = []
         for directory in directories {
             let candidate = URL(fileURLWithPath: directory, isDirectory: true)
                 .appendingPathComponent(name).path
-            if manager.isExecutableFile(atPath: candidate) { return candidate }
+            guard seen.insert(candidate).inserted else { continue }
+            if manager.isExecutableFile(atPath: candidate) { found.append(candidate) }
         }
-        return nil
+        return found
     }
 }
 

@@ -228,7 +228,7 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `AcknowledgementsView.swift` — Preferences Acknowledgements tab (bundled dependencies + the installed-server section, verbatim license text).
 
 `docs/architecture/core-provisioning.md` — the macOS provisioning surfaces (same doc as the Core half above):
-- `LSPDownloadService.swift` / `LSPArchiveUnpacker.swift` — the two app-side seams: ephemeral uncached `URLSession` bytes; `/usr/bin/tar -xz` fed on stdin.
+- `LSPDownloadService.swift` / `LSPArchiveUnpacker.swift` — the two app-side seams: ephemeral uncached `URLSession` bytes; `/usr/bin/tar -xz` or `/usr/bin/gunzip -c` fed on stdin (the second format's stdout *is* the destination file, created `0o755`).
 - `LSPConsentBanner.swift` / `LSPServerSettingsView.swift` / `LSPInstalledLicenses.swift` — the consent strip (two actions, no dismiss), the Preferences tab, the installed components' license texts.
 
 `docs/architecture/app-window.md` — window chrome (macOS):
@@ -369,8 +369,9 @@ Shared test helpers live in `Tests/PisakaCoreTests/Support/`: `StubFileTree` (an
 in-memory `FileServicing` project tree, with hooks for unreadable files, absent
 stamps and stamp overrides, **plus a mutable half** — empty directories,
 `createDirectory`/`ensureDirectory`/`move`/`remove`, `moveFailures`/`removeFailures`
-injection points and `removedPaths`/`moves` call logs — which is what makes the install
-engine's atomicity rules assertable), `Gate` (a blocking rendezvous that holds
+injection points, `removedPaths`/`moves` call logs and a per-path `executableFiles`
+bit carried through `move` — which is what makes the install
+engine's atomicity rules and its `.gzip` gate assertable), `Gate` (a blocking rendezvous that holds
 off-main work suspended while a test mutates model state on the main actor — how
 the folder-switch-mid-walk cases are staged), `QueryScanner`'s `ParsedQuery`, the
 `.scm` scanner `VendoredGrammarQueryTests` and `SymbolQueryTests` share,
@@ -378,7 +379,10 @@ the folder-switch-mid-walk cases are staged), `QueryScanner`'s `ParsedQuery`, th
 workspace suites drive a whole conversation through, and `ScriptedInstallSeams`
 (`ScriptedDownloader`/`ScriptedUnpacker`, the canned download-and-unpack pair the
 provisioning suites drive, plus `ScriptedGoDiscovery`/`ScriptedGoInstaller`, the
-toolchain report and `go install` fakes the gopls suite drives). Reach for
+toolchain report and `go install` fakes the gopls suite drives, and
+`ScriptedRustDiscovery`, the toolchain-report fake the rust-analyzer suite drives
+— there is deliberately no Rust *installer* fake, since that install is the
+shared download-and-unpack pair). Reach for
 these before writing a new stub. A fake standing in for a `nonisolated async`
 seam runs on the cooperative pool, so anything it writes into a `StubFileTree`
 must hop to the main actor first — the engine reads that tree *from* the main

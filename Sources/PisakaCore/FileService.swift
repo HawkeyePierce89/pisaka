@@ -105,8 +105,10 @@ public protocol FileServicing {
     /// engine asks it before committing a downloaded binary, and a default would
     /// have to answer `false` (a gate that fails every install through a partial
     /// stub) or `true` (a gate that silently passes, which is worse than not
-    /// having one). There are three conformers in the app and a handful of test
-    /// stubs, so the compiler asking each of them is the cheap side of that trade.
+    /// having one). Two conformers ship in `Sources/` — this protocol's own
+    /// implementation and the iOS security-scoped decorator — plus a handful of
+    /// test stubs, so the compiler asking each of them is the cheap side of that
+    /// trade.
     func isExecutableFile(at url: URL) -> Bool
 
     /// The contents of `url` as text, or `nil` when it should not be searched:

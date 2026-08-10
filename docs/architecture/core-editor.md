@@ -94,8 +94,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     of any SwiftUI/AppKit dependency.
   - `SyntaxLanguage.swift` — pure, testable
     `String`/`CaseIterable`/`Equatable`/`Hashable`/`Sendable`
-    enum of supported languages (swift, javascript, typescript, go, json, markdown,
-    python, html, css, yaml, dockerfile, dotenv, gitignore) with
+    enum of supported languages (swift, javascript, typescript, go, rust, json,
+    markdown, python, html, css, yaml, dockerfile, dotenv, gitignore) with
     `init?(fileExtension:)` and `init?(forFileName:)`, backed by a lowercased
     extension→language map, mirroring `FileIcon`'s extension-map pattern. The
     last three carry no extension at all (`Dockerfile`, `.env`, `.gitignore`), so

@@ -238,7 +238,23 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     arguments to a runtime and executability is not what makes them work. It runs
     after the digest rather than instead of it: a mismatched download never reaches
     the unpacker at all, so the gate follows verification and never stands in for
-    it. The old version's
+    it.
+    **`verifyUnpackTarget` is the other half, and it runs before the unpack rather
+    than after it.** `.gzip` is the first format whose destination path is composed
+    out of *manifest data* — the unpacker writes
+    `destination.appendingPathComponent(fileName)` and creates it `0o755` — where
+    every other path in this layer is `LSPInstallLayout`'s own arithmetic, which is
+    why D12's containment rule could be stated once and enforced at the one place
+    that *deletes* (`mayDelete`). A `fileName` of `"../../x"` would therefore put
+    an executable outside the install root, and `verifyExecutable` would then
+    confirm it and let `commit` proceed. So a `.gzip` file name that is not a lone
+    component throws `unpackFailed` before anything is written — after is a file
+    nothing here can un-write. The manifest is compiled-in constant data and
+    `LSPProvisioningManifestTests.testEveryGzipArtifactNamesALoneFile` states the
+    same rule where that data lives, so a by-hand pin edit fails `swift test`
+    rather than at install time; the runtime guard exists because D12's promise is
+    meant to hold against a mistake in that procedure rather than against nothing.
+    The old version's
     deletion is best-effort and *after* the rename — failing an install because a
     stale directory could not be removed would turn a successful upgrade into a
     reported failure over some wasted disk.

@@ -379,6 +379,7 @@ public final class LSPInstallEngine {
 
                 let destination = layout.destination(of: artifact, unpackingInto: staging)
                 try ensureDirectory(destination, of: component)
+                try verifyUnpackTarget(of: artifact, of: component)
                 do {
                     try await unpacker.unpack(
                         archive,
@@ -401,6 +402,32 @@ public final class LSPInstallEngine {
             discard(staging)
             throw error
         }
+    }
+
+    /// The `.gzip` case's other half: the file it names is written *inside* the
+    /// destination and nowhere else.
+    ///
+    /// Every other path in this layer is `LSPInstallLayout`'s own arithmetic, which
+    /// is why D12's containment rule could be stated once and enforced at the one
+    /// place that deletes (`mayDelete`). This case is the first that composes a path
+    /// out of *manifest data* — `destination.appendingPathComponent(fileName)`, in
+    /// the unpacker — so a `fileName` of `"../../x"` would have an executable
+    /// written outside the install root, and `verifyExecutable` would then confirm
+    /// it and let `commit` proceed. The manifest is compiled-in constant data and
+    /// `LSPProvisioningManifestTests` pins both shipped names, but the documented
+    /// by-hand pin-update procedure edits it, and D12's promise is meant to hold
+    /// against a mistake there rather than against nothing.
+    ///
+    /// Checked **before** the unpack rather than after, because after is too late:
+    /// the write is what has to not happen.
+    private func verifyUnpackTarget(of artifact: LSPArtifact, of component: LSPComponent) throws {
+        guard case let .gzip(fileName) = artifact.format else { return }
+        guard fileName.isEmpty || fileName.contains("/") || fileName == "." || fileName == ".."
+        else { return }
+        throw LSPInstallError.unpackFailed(
+            component: component.id,
+            reason: "“\(fileName)” is not a file name."
+        )
     }
 
     /// The one thing a `.gzip` artifact promises that a tarball does not: what it

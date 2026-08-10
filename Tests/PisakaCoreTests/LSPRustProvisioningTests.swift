@@ -22,7 +22,6 @@ final class LSPRustProvisioningTests: XCTestCase {
     // MARK: - The fixture
 
     private enum Fixture {
-        static let cargoPath = "/Users/someone/.cargo/bin/cargo"
         static let userRustAnalyzerPath = "/Users/someone/.cargo/bin/rust-analyzer"
 
         static let version = "2026-01-02"
@@ -31,30 +30,51 @@ final class LSPRustProvisioningTests: XCTestCase {
         static let versionDirectory = "LanguageServers/rust-analyzer/\(version)"
         static let installedExecutable = "LanguageServers/rust-analyzer/\(version)/bin/rust-analyzer"
 
+        /// The version an app update moves the pin *to*, and the archive it names
+        /// — the upgrade case, where a version directory is already on disk while
+        /// the row reports the new pin as not installed.
+        static let nextVersion = "2026-02-03"
+        static let nextArchive = URL(string: "https://example.invalid/rust-analyzer-\(nextVersion).gz")!
+
         /// The shipped component's shape exactly — a bare `.gz` of one binary,
         /// nothing to strip, the name in the format's payload, no licence file to
         /// read and nothing required (D22/D24).
-        static let component = LSPComponent(
-            id: LSPRustAnalyzer.componentID,
-            version: version,
-            licenseSPDX: "Apache-2.0 OR MIT",
-            licenseFileSubpaths: [],
-            artifacts: [
-                LSPArtifact(
-                    url: archive,
-                    sha256: ScriptedArchive.checksum(for: archive),
-                    byteCount: 13_000_000,
-                    unpackedByteCount: 37_000_000,
-                    format: .gzip(fileName: "rust-analyzer"),
-                    stripComponents: 0,
-                    destinationSubpath: "bin",
-                    architecture: .arm64
-                )
-            ],
-            executableSubpath: "bin/rust-analyzer"
+        static func component(
+            version: String = Fixture.version,
+            archive: URL = Fixture.archive
+        ) -> LSPComponent {
+            LSPComponent(
+                id: LSPRustAnalyzer.componentID,
+                version: version,
+                licenseSPDX: "Apache-2.0 OR MIT",
+                licenseFileSubpaths: [],
+                artifacts: [
+                    LSPArtifact(
+                        url: archive,
+                        sha256: ScriptedArchive.checksum(for: archive),
+                        byteCount: 13_000_000,
+                        unpackedByteCount: 37_000_000,
+                        format: .gzip(fileName: "rust-analyzer"),
+                        stripComponents: 0,
+                        destinationSubpath: "bin",
+                        architecture: .arm64
+                    )
+                ],
+                executableSubpath: "bin/rust-analyzer"
+            )
+        }
+
+        static let manifest = LSPProvisioningManifest(components: [component()])
+
+        /// The same manifest one pin bump later.
+        static let bumpedManifest = LSPProvisioningManifest(
+            components: [component(version: nextVersion, archive: nextArchive)]
         )
 
-        static let manifest = LSPProvisioningManifest(components: [component])
+        /// A manifest that describes no rust-analyzer at all — not a state the
+        /// shipped pin can be in, and the one the model answers "nothing to
+        /// offer" for at every surface rather than trapping on.
+        static let emptyManifest = LSPProvisioningManifest(components: [])
     }
 
     // MARK: - The harness
@@ -84,7 +104,11 @@ final class LSPRustProvisioningTests: XCTestCase {
         private(set) var pushes: [(descriptions: [LSPServerDescription], filesPresent: Bool)] = []
 
         @MainActor
-        init(name: String, discovery: ScriptedRustDiscovery) {
+        init(
+            name: String,
+            discovery: ScriptedRustDiscovery,
+            manifest: LSPProvisioningManifest = Fixture.manifest
+        ) {
             let root = URL(fileURLWithPath: "/Pisaka-rust-tests")
             tree = StubFileTree(root: root, files: [:])
             layout = LSPInstallLayout(base: root.appendingPathComponent(LSPInstallLayout.directoryName))
@@ -92,13 +116,14 @@ final class LSPRustProvisioningTests: XCTestCase {
             downloader = ScriptedDownloader()
             unpacker = ScriptedUnpacker(writingInto: tree)
             downloader.serve(Fixture.archive)
+            downloader.serve(Fixture.nextArchive)
 
             suiteName = "LSPRustProvisioningTests.\(name)"
             defaults = UserDefaults(suiteName: suiteName)!
             defaults.removePersistentDomain(forName: suiteName)
 
             engine = LSPInstallEngine(
-                manifest: Fixture.manifest,
+                manifest: manifest,
                 layout: layout,
                 fileService: tree,
                 downloader: downloader,
@@ -116,10 +141,15 @@ final class LSPRustProvisioningTests: XCTestCase {
 
         /// A relaunch: a second engine, store and model over the same disk and the
         /// same defaults suite.
+        ///
+        /// The manifest is a parameter because an app *update* is a relaunch over
+        /// a moved pin, which is the only way the upgrade states — a version
+        /// directory on disk that the row reports as not installed — can be
+        /// staged at all.
         @MainActor
-        func rebuild() {
+        func rebuild(manifest: LSPProvisioningManifest = Fixture.manifest) {
             engine = LSPInstallEngine(
-                manifest: Fixture.manifest,
+                manifest: manifest,
                 layout: layout,
                 fileService: tree,
                 downloader: downloader,
@@ -165,9 +195,10 @@ final class LSPRustProvisioningTests: XCTestCase {
 
     private func makeHarness(
         _ name: String = #function,
-        discovery: ScriptedRustDiscovery
+        discovery: ScriptedRustDiscovery,
+        manifest: LSPProvisioningManifest = Fixture.manifest
     ) -> Harness {
-        let harness = Harness(name: name, discovery: discovery)
+        let harness = Harness(name: name, discovery: discovery, manifest: manifest)
         addTeardownBlock { harness.deinitSuite() }
         return harness
     }
@@ -456,6 +487,73 @@ final class LSPRustProvisioningTests: XCTestCase {
         XCTAssertEqual(harness.pushes.count, 1)
     }
 
+    // MARK: - Not yet asked
+
+    /// The layer's first promise, and the one the rest of this suite kept
+    /// stepping over: **nothing is downloaded before the question is answered.**
+    ///
+    /// Every other `prepareForOpening` case here reaches its answer through some
+    /// other guard — no toolchain, declined, already installed — so a
+    /// `prepareForOpening` that treated "not yet asked" as good enough would have
+    /// passed all of them while shipping a silent 13 MB fetch on the first `.rs`
+    /// tab of a machine that has never seen the banner. This is the case with the
+    /// toolchain *found* and the consent *unasked*, where the only thing standing
+    /// between the tab open and the network is that one comparison.
+    func testARustFileOpenedBeforeTheQuestionIsAnsweredDownloadsNothing() async {
+        let harness = makeHarness(discovery: .found())
+        await harness.model.discover()
+        XCTAssertEqual(harness.model.row.consent, .unasked)
+
+        await harness.model.prepareForOpening(.rust)
+
+        XCTAssertEqual(harness.downloader.requestedURLs, [], "an unanswered question started a download")
+        XCTAssertEqual(harness.model.row.consent, .unasked, "opening a file answered the question")
+        XCTAssertEqual(harness.model.row.status, .notInstalled)
+        XCTAssertEqual(harness.model.descriptions, [])
+        XCTAssertEqual(harness.pushes.count, 0)
+
+        // What it does instead: the banner has something to ask, and the size it
+        // asks about is the slice this architecture would fetch.
+        let prompt = harness.model.consentPrompt(forOpening: .rust)
+        XCTAssertEqual(prompt?.version, Fixture.version)
+        XCTAssertEqual(prompt?.downloadByteCount, 13_000_000)
+    }
+
+    /// A manifest that describes no rust-analyzer — the state every surface of
+    /// this model has its own `component` guard for, asserted as one answer
+    /// rather than as five separate absences.
+    ///
+    /// Not a state the shipped pin can be in, which is exactly why it is worth a
+    /// test: nothing in `swift test` compiles against `LSPProvisioningManifest`
+    /// being non-empty, so the guards are load-bearing for a by-hand manifest
+    /// edit and for nothing else.
+    func testAManifestThatDescribesNoRustAnalyzerOffersNothing() async {
+        let harness = makeHarness(discovery: .found(), manifest: Fixture.emptyManifest)
+        await harness.model.discover()
+
+        XCTAssertEqual(harness.model.row.status, .notInstalled, "nothing is installed, and that is true")
+        XCTAssertEqual(harness.model.row.version, "")
+        XCTAssertEqual(harness.model.row.licenseSPDX, "")
+        XCTAssertEqual(harness.model.row.pendingDownloadByteCount, 0)
+        XCTAssertFalse(
+            harness.model.row.canInstall,
+            "the row offered Install for a component the manifest does not describe"
+        )
+        XCTAssertFalse(harness.model.row.canRemove)
+        XCTAssertNil(harness.model.consentPrompt(forOpening: .rust))
+
+        // And the two entry points agree with the row rather than with each other:
+        // neither downloads, neither records an answer, and neither registers.
+        await harness.model.install()
+        await harness.model.prepareForOpening(.rust)
+
+        XCTAssertEqual(harness.downloader.requestedURLs, [])
+        XCTAssertEqual(harness.model.row.consent, .unasked, "consent was recorded for nothing")
+        XCTAssertNil(harness.model.installation)
+        XCTAssertEqual(harness.model.descriptions, [])
+        XCTAssertEqual(harness.pushes.count, 0)
+    }
+
     // MARK: - Declining
 
     func testDecliningAnswersOnceAndSurvivesARelaunch() async {
@@ -684,6 +782,78 @@ final class LSPRustProvisioningTests: XCTestCase {
         XCTAssertNil(harness.model.row.failureMessage)
     }
 
+    /// A Remove arriving while an install is still in flight, from the other side
+    /// of the same window `testASecondRemovalDuringTheShutdownPushDoesNothing`
+    /// covers — and it is the guard, not `canRemove`, that has to refuse: the row
+    /// is a value read a frame ago, and the download suspends for as long as the
+    /// network takes.
+    ///
+    /// What it prevents is not a tidiness problem: `engine.remove` deletes the
+    /// component directory the in-flight install is about to rename its staging
+    /// tree onto, and the two writes race over consent as well — the install
+    /// records `accepted`, the removal `declined`, and which one survives is the
+    /// interleaving's business rather than the user's.
+    func testARemovalDuringAnInstallDoesNothing() async {
+        let harness = makeHarness(discovery: .found())
+        await harness.model.discover()
+
+        let gate = Gate()
+        harness.downloader.hold(Fixture.archive, on: gate)
+        let install = Task { await harness.model.accept() }
+        await gate.waitUntilReached()
+
+        XCTAssertEqual(harness.model.row.status, .installing)
+        await harness.model.remove()
+
+        XCTAssertEqual(harness.tree.removedPaths, [], "a Remove ran inside an install")
+        XCTAssertFalse(harness.model.row.isRemoving)
+        XCTAssertEqual(harness.model.row.consent, .accepted, "a refused Remove still recorded a decline")
+
+        gate.release()
+        await install.value
+
+        // The install the Remove did not disturb finished normally.
+        XCTAssertEqual(harness.model.row.status, .appInstalled(version: Fixture.version))
+        XCTAssertNotNil(harness.tree.files[Fixture.installedExecutable])
+        XCTAssertNil(harness.model.row.failureMessage)
+    }
+
+    /// The upgrade window, and the only state in which `canRemove`'s
+    /// `status != .installing` clause decides anything on its own: a version
+    /// directory is on disk — so `hasFilesOnDisk` says yes — while the *new* pin
+    /// is downloading. Removing there would delete the component directory the
+    /// commit is about to rename onto.
+    func testAnUpgradeOffersNoRemoveWhileTheNewPinIsDownloading() async {
+        let harness = makeHarness(discovery: .found())
+        await harness.model.discover()
+        await harness.model.accept()
+        XCTAssertEqual(harness.model.row.status, .appInstalled(version: Fixture.version))
+
+        // An app update: the same disk, one pin later.
+        harness.rebuild(manifest: Fixture.bumpedManifest)
+        await harness.model.discover()
+
+        XCTAssertEqual(harness.model.row.status, .notInstalled, "the moved pin read as installed")
+        XCTAssertTrue(harness.model.row.hasFilesOnDisk)
+        XCTAssertTrue(harness.model.row.canRemove, "the superseded directory had no way out")
+
+        let gate = Gate()
+        harness.downloader.hold(Fixture.nextArchive, on: gate)
+        let upgrade = Task { await harness.model.install() }
+        await gate.waitUntilReached()
+
+        XCTAssertEqual(harness.model.row.status, .installing)
+        XCTAssertTrue(
+            harness.model.row.hasFilesOnDisk,
+            "the old version is still on disk — which is why the clause below is the one that decides"
+        )
+        XCTAssertFalse(harness.model.row.canRemove, "Remove was offered mid-upgrade")
+
+        gate.release()
+        await upgrade.value
+        XCTAssertEqual(harness.model.row.status, .appInstalled(version: Fixture.nextVersion))
+    }
+
     func testAFailedRemovalIsReportedAsARemoval() async {
         let harness = makeHarness(discovery: .found())
         await harness.model.discover()
@@ -700,6 +870,42 @@ final class LSPRustProvisioningTests: XCTestCase {
         XCTAssertEqual(harness.model.row.status, .appInstalled(version: Fixture.version))
         XCTAssertEqual(harness.model.descriptions.count, 1)
         XCTAssertEqual(harness.model.row.consent, .accepted, "a failed removal recorded a decline")
+    }
+
+    /// A failed *removal* is not the failure that suppresses the automatic
+    /// install, and the difference is the whole reason `Failure` carries
+    /// `wasRemoval` rather than being a string.
+    ///
+    /// The state staged here is the one where it matters: consent is still
+    /// `accepted` (only a *successful* removal declines), the pinned version is
+    /// not installed, and a superseded directory is what the failed removal left
+    /// behind. "Some failure happened" would sit on that for the rest of the app
+    /// run with a sentence about a removal, while the thing the user asked for —
+    /// a working rust-analyzer — is one install away.
+    func testAFailedRemovalDoesNotSuppressTheInstallOnFirstUse() async {
+        let harness = makeHarness(discovery: .found())
+        let stranded = "LanguageServers/rust-analyzer/2025-01-01/bin/rust-analyzer"
+        try? harness.tree.write("#!rust-analyzer", to: harness.root.appendingPathComponent(stranded))
+        harness.settings.setConsent(.accepted, for: LSPRustAnalyzer.componentID)
+        await harness.model.discover()
+
+        harness.tree.removeFailures.insert("LanguageServers/rust-analyzer")
+        await harness.model.remove()
+
+        XCTAssertTrue(harness.model.row.failureWasRemoval)
+        XCTAssertEqual(harness.model.row.consent, .accepted)
+        XCTAssertNil(harness.model.installation, "the pinned version was never installed")
+
+        await harness.model.prepareForOpening(.rust)
+
+        XCTAssertEqual(
+            harness.downloader.requestCount(for: Fixture.archive), 1,
+            "a failed removal blocked the install the accepted consent still asks for"
+        )
+        XCTAssertEqual(harness.model.row.status, .appInstalled(version: Fixture.version))
+        XCTAssertNil(harness.model.row.failureMessage, "the removal's sentence outlived the install")
+        // The other half of the distinction — a failed *install* still suppresses
+        // the automatic retry — is `testAFailedInstallIsARowMessageAndIsNotRetriedAutomatically`.
     }
 
     /// A second Remove arriving while the first is still inside the push — the

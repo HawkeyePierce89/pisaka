@@ -807,6 +807,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     answer for the real thing rather than for a program run in an environment
     nothing else uses. The cost is one subprocess, and only on machines that have a
     candidate.
+    **And because that dead proxy is the common candidate rather than an exotic
+    one, a rust-analyzer that fails the probe is stepped over rather than ending
+    the search**: `locateRustAnalyzer` walks *every* executable of that name on the
+    list (`executables(named:in:)`, de-duplicated so the same file is never probed
+    twice) and takes the first that answers. Stopping at the first executable file
+    would hide a working Homebrew rust-analyzer behind a rustup proxy whose
+    component was never added, and offer a download of a server the machine already
+    has. `cargo` deliberately does *not* do this: the server resolves `cargo` by
+    name off the same `PATH`, so the first one there is the one that will run
+    either way, and reporting no toolchain is the honest answer for that
+    environment — whereas a rust-analyzer path is handed to `.executable(path:)`
+    directly, which makes picking a later one a decision this app is free to make.
     The whole answer is cached per app run **including the negative one**
     (`LSPToolchain`'s discipline and reason, with more force: this runs at every
     launch of every Mac that has no Rust, which is most of them), held as a `Task`

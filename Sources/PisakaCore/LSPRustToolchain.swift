@@ -126,10 +126,6 @@ public enum LSPRustAnalyzerInstallation: Equatable, Sendable {
         }
     }
 
-    public var isAppInstalled: Bool {
-        if case .appInstalled = self { return true }
-        return false
-    }
 }
 
 /// What the consent banner needs in order to ask about rust-analyzer, and nothing
@@ -229,7 +225,14 @@ public struct LSPRustServerRow: Equatable, Sendable {
     /// already answers, so the only thing a 13 MB download would buy is a second
     /// copy of the same program plus a Remove button, and D24's preference rule
     /// would then silently switch which binary is running.
-    public var canInstall: Bool { status == .notInstalled && !isRemoving }
+    ///
+    /// A manifest that describes no such component reads as `.notInstalled` — the
+    /// honest status, since nothing is — but there is nothing to install, so the
+    /// empty `version` is required here too. Otherwise this is the one surface
+    /// that would offer the action while `consentPrompt` and `install()`, which
+    /// both guard on the component, silently do nothing: a live button beside a
+    /// "Zero KB download" that answers no click.
+    public var canInstall: Bool { status == .notInstalled && !version.isEmpty && !isRemoving }
 
     /// Remove applies to files under this app's own install root and to nothing
     /// else — never to a binary in `~/.cargo/bin` that the app did not put there,

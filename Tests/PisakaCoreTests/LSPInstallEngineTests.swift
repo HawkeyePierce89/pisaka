@@ -129,7 +129,34 @@ final class LSPInstallEngineTests: XCTestCase {
             executableSubpath: "bin/tool"
         )
 
-        static let manifest = LSPProvisioningManifest(components: [runtime, server, intelOnly, binary])
+        /// The by-hand pin edit that would escape the install root: the one field
+        /// in this manifest that is concatenated onto a directory rather than
+        /// computed by `LSPInstallLayout`.
+        static let escapingBinary = LSPComponent(
+            id: "escaping",
+            version: "1.0.0",
+            licenseSPDX: "Apache-2.0 OR MIT",
+            licenseFileSubpaths: [],
+            artifacts: [
+                LSPArtifact(
+                    url: escapingArchive,
+                    sha256: ScriptedArchive.checksum(for: escapingArchive),
+                    byteCount: 500,
+                    unpackedByteCount: 2_000,
+                    format: .gzip(fileName: "../../../tool"),
+                    stripComponents: 0,
+                    destinationSubpath: "bin",
+                    architecture: .arm64
+                )
+            ],
+            executableSubpath: "bin/tool"
+        )
+
+        static let escapingArchive = URL(string: "https://example.invalid/escaping-1.0.0.gz")!
+
+        static let manifest = LSPProvisioningManifest(
+            components: [runtime, server, intelOnly, binary, escapingBinary]
+        )
         static let bumpedManifest = LSPProvisioningManifest(
             components: [runtime, bumpedServer, bumpedBinary]
         )
@@ -171,6 +198,7 @@ final class LSPInstallEngineTests: XCTestCase {
             downloader.serve(Fixture.intelOnlyArchive)
             downloader.serve(Fixture.binaryArchive)
             downloader.serve(Fixture.bumpedBinaryArchive)
+            downloader.serve(Fixture.escapingArchive)
 
             unpacker.stub(Fixture.runtimeARM, tree: ["bin/runtime": "#!runtime arm64", "LICENSE": "MIT"])
             unpacker.stub(Fixture.runtimeIntel, tree: ["bin/runtime": "#!runtime x64", "LICENSE": "MIT"])
@@ -817,6 +845,35 @@ final class LSPInstallEngineTests: XCTestCase {
         XCTAssertEqual(harness.stagingEntries, [])
         // Still runnable: the gate rejected the new tree, not the old one.
         XCTAssertTrue(harness.tree.isExecutableFile(at: harness.tree.url("LanguageServers/binary/1.0.0/bin/tool")))
+    }
+
+    /// D12's containment rule applied to the one path this layer composes out of
+    /// *manifest data* rather than out of `LSPInstallLayout`'s own arithmetic.
+    ///
+    /// The unpacker writes `destination.appendingPathComponent(fileName)` and
+    /// creates it `0o755`, so a `fileName` that walks upwards would put an
+    /// executable outside the install root — and the mode gate would then confirm
+    /// it and let `commit` proceed. Refused **before** the unpack rather than
+    /// after, because after is a file that already exists: nothing here can
+    /// un-write it, and the whole promise is that the install root is the only
+    /// thing this app touches.
+    func testAGzipArtifactThatNamesAPathOutsideItsDestinationIsRefusedBeforeTheUnpack() async {
+        let harness = Harness()
+
+        let error = await expectFailure(installing: "escaping", on: harness.engine)
+        guard case let .unpackFailed(component, reason) = error else {
+            return XCTFail("expected an unpack failure, got \(String(describing: error))")
+        }
+        XCTAssertEqual(component, "escaping")
+        XCTAssertTrue(reason.contains("../../../tool"), "the message does not name it: \(reason)")
+
+        XCTAssertEqual(
+            harness.unpacker.calls.count, 0,
+            "the unpacker was handed a destination it should never have been asked to write"
+        )
+        XCTAssertEqual(harness.tree.moves, [])
+        XCTAssertEqual(harness.engine.state(of: "escaping"), .absent)
+        XCTAssertEqual(harness.stagingEntries, [])
     }
 
     /// The gate does not replace the digest, it follows it: a `.gzip` artifact

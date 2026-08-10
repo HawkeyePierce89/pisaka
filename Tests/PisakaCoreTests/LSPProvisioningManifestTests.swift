@@ -42,6 +42,48 @@ final class LSPProvisioningManifestTests: XCTestCase {
         }
     }
 
+    /// A host is not an owner, and `github.com` is the one host on that list where
+    /// the difference is the whole check.
+    ///
+    /// `nodejs.org` and `registry.npmjs.org` are single-project hosts: naming them
+    /// *is* naming the project. GitHub serves every repository there is, so a pin
+    /// repointed at `github.com/<anybody>/rust-analyzer/releases/...` passes the
+    /// host check while pointing at a fork — which is precisely what "a pin was not
+    /// pointed at somebody's mirror" was meant to catch. The digest still bounds
+    /// what a wrong URL can do; the two checks are independent on purpose, and this
+    /// is the half that says *whose* bytes were meant.
+    func testGitHubArtifactsComeFromTheProjectsOwnRepository() {
+        let owners = ["github.com": "/rust-lang/rust-analyzer/releases/download/"]
+        for artifact in allArtifacts {
+            guard let prefix = owners[artifact.url.host ?? ""] else { continue }
+            XCTAssertTrue(
+                artifact.url.path.hasPrefix(prefix),
+                "\(artifact.url) is on \(artifact.url.host ?? "-") but not under \(prefix)"
+            )
+        }
+    }
+
+    /// A `.gzip` artifact's file name is a *name*, not a path.
+    ///
+    /// It is the only field in this manifest that is concatenated onto a directory
+    /// rather than computed by `LSPInstallLayout`, so `"../../x"` would have the
+    /// unpacker write an executable outside the install root — D12's containment
+    /// promise broken by data rather than by code. `LSPInstallEngine` refuses it at
+    /// runtime; this is the same rule stated where the data is, so a by-hand pin
+    /// edit fails `swift test` rather than at install time on a user's Mac.
+    func testEveryGzipArtifactNamesALoneFile() {
+        for artifact in allArtifacts {
+            guard case let .gzip(fileName) = artifact.format else { continue }
+            XCTAssertFalse(fileName.isEmpty, "\(artifact.url) unpacks to a file with no name")
+            XCTAssertFalse(
+                fileName.contains("/"), "“\(fileName)” is a path, not a file name"
+            )
+            XCTAssertFalse(
+                fileName == "." || fileName == "..", "“\(fileName)” is a directory, not a file"
+            )
+        }
+    }
+
     func testNoArtifactIsListedTwice() {
         let urls = allArtifacts.map(\.url)
         XCTAssertEqual(Set(urls).count, urls.count, "the same URL is pinned twice")
@@ -422,16 +464,18 @@ final class LSPProvisioningManifestTests: XCTestCase {
             "requiring nothing, it installs alone — no runtime is fetched on its behalf"
         )
 
-        let expected: [LSPHostArchitecture: (String, String, Int)] = [
+        let expected: [LSPHostArchitecture: (String, String, Int, Int)] = [
             .arm64: (
                 "rust-analyzer-aarch64-apple-darwin.gz",
                 "bba6cd8209643cd781f3ee5474fa232d3ee1b77a57f2e77982806e3c80a65207",
-                13_873_448
+                13_873_448,
+                37_914_480
             ),
             .x64: (
                 "rust-analyzer-x86_64-apple-darwin.gz",
                 "8966f9429085c243817b9d13afa76e98920668c07a9b432901daaf047397c6cb",
-                14_576_027
+                14_576_027,
+                39_382_228
             ),
         ]
 
@@ -439,7 +483,7 @@ final class LSPProvisioningManifestTests: XCTestCase {
             let slice = component.artifacts(for: architecture)
             XCTAssertEqual(slice.count, 1, "\(architecture.rawValue) must fetch exactly one file")
             let artifact = try XCTUnwrap(slice.first)
-            let (fileName, sha256, byteCount) = try XCTUnwrap(expected[architecture])
+            let (fileName, sha256, byteCount, unpackedByteCount) = try XCTUnwrap(expected[architecture])
 
             XCTAssertEqual(artifact.url.lastPathComponent, fileName)
             XCTAssertEqual(
@@ -448,6 +492,9 @@ final class LSPProvisioningManifestTests: XCTestCase {
             )
             XCTAssertEqual(artifact.sha256, sha256)
             XCTAssertEqual(artifact.byteCount, byteCount)
+            // Measured, not estimated — one file, so `gunzip` + `ls -l` answers it
+            // exactly and there is no block-size rounding to hide a pasted value.
+            XCTAssertEqual(artifact.unpackedByteCount, unpackedByteCount)
             XCTAssertEqual(artifact.format, .gzip(fileName: "rust-analyzer"))
             XCTAssertEqual(artifact.stripComponents, 0)
             XCTAssertEqual(artifact.destinationSubpath, "bin")
