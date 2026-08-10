@@ -220,22 +220,22 @@ in all three paths (commit, preview, late-resolve follow-up).
 **Files:**
 - Modify: `Sources/Pisaka/CompletionController.swift`
 
-- [ ] key the snapshot's `texts` and `items` by `displayText` (first-wins on a
+- [x] key the snapshot's `texts` and `items` by `displayText` (first-wins on a
       duplicate unchanged), so the rows read as the provider means them to and
       the item is findable under the string AppKit hands back
-- [ ] key `resolved` and `resolveTasks` by `displayText` as well
+- [x] key `resolved` and `resolveTasks` by `displayText` as well
       (`startResolve`), and take `scheduleFollowUp`'s `word` from `displayText` —
       there it is both the resolve key and *what now stands in the buffer* after
       AppKit's own insertion, which is exactly what
       `plan(for:over:replacing:in:)` needs;
       `insert(_:forPartialWordRange:isFinal:in:)` and `preview` already speak in
       the popup's string and so need no change beyond the lookup
-- [ ] extend the class doc comment's "the list is strings; the answers are items"
+- [x] extend the class doc comment's "the list is strings; the answers are items"
       passage: the string is the item's *display* spelling, it is the key in all
       three tables, and it is safe to preview and to insert verbatim only because
       of the head-dropping rule Core enforces — with the `?.` counter-case named
       so nobody later "simplifies" the rule into showing the label
-- [ ] build the macOS app (`xcodegen generate` if needed, then
+- [x] build the macOS app (`xcodegen generate` if needed, then
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`)
       and run `swift test` to confirm Core is still green
 
