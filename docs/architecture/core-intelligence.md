@@ -639,7 +639,32 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `LanguageKeywordsTests` pins the Go list by **set equality** against those four
     families spelled out separately, because a subset check is what a hand edit
     slips through — dropping `close` or `float32` from 69 entries leaves every
-    shape invariant true and silently loses a built-in nothing else can offer. TypeScript is *composed*
+    shape invariant true and silently loses a built-in nothing else can offer.
+    Rust's list is Go's rule applied a second time, and the three lines it draws
+    are what the rule looks like when it has to say *no*: 56 entries — the 38
+    strict keywords of the 2021 edition, the **17 primitive type names**
+    (`bool char str`, `f32 f64`, the ten sized integers, `isize`/`usize`), and the
+    one contextual keyword `union`. The primitives are in because they are declared
+    in no crate anywhere, not even `core`, so neither the symbol index nor the
+    buffer-word harvest can ever offer them. **Reserved-but-unusable words are
+    out** (`abstract`, `become`, `box`, `do`, `final`, `gen`, `macro`, `override`,
+    `priv`, `try`, `typeof`, `unsized`, `virtual`, `yield`): they are reserved
+    precisely so that no program may use them, so completing to one produces a
+    compile error and nothing else — the inverse of the rule's purpose.
+    **`union` is in and `macro_rules` is out**: `union` is contextual, following
+    the precedent Python's soft keywords `match`/`case` already set, while the
+    token a person actually types is `macro_rules!` and a bare identifier that
+    completes to half of it is worse than offering nothing (the harvest picks it
+    up the moment a file declares one). **The prelude stays out** — `Option`,
+    `Result`, `Some`, `None`, `Ok`, `Err`, `String`, `Vec`, `Box` — for the reason
+    `fmt.Println` stayed out of Go's: they are declarations in a crate, so
+    rust-analyzer or the index is what should offer them. `f16`/`f128` are excluded
+    as unstable and `_` per Go's precedent (punctuation typed directly), and `Self`
+    sorts first because Swift orders uppercase before lowercase, exactly as
+    Python's list opens with `False`/`None`/`True`. Pinned by set equality against
+    the three families, with the count at 56 so a duplicate fails and with
+    `abstract`/`virtual`/`yield`/`Option`/`Some`/`Vec`/`macro_rules` asserted
+    absent, so each line above is a test rather than a comment. TypeScript is *composed*
     from JavaScript plus a type-level list and re-sorted, so there is one list to
     maintain instead of two that drift and the composition cannot break the sorted
     invariant. **A keyword is never a definition**: `SymbolIntelligenceProvider`'s

@@ -32,7 +32,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     extension); `canRun(fileName:) -> Bool` reports whether the extension has a
     runner (drives the "Run" context-menu item and the ⌘R menu enablement);
     `workingDirectory(projectRoot:fileURL:) -> URL` returns `projectRoot ??
-    fileURL.deletingLastPathComponent()`. Paths are shell-quoted via the shared
+    fileURL.deletingLastPathComponent()`.
+    **Rust deliberately has no `rs` entry**, and the asymmetry with `TestCommand`
+    — which answers `cargo test` for the same file — is real and explainable
+    rather than an oversight. This map answers a command for a *single file* and
+    appends the quoted path; `cargo run` takes neither. Rust has a project-level
+    runner and no file-level one — `rustc` compiles to a binary you then run,
+    which is two steps and a different thing — so ⌘U works, ⌘R is disabled, and
+    `cargo run` from the terminal panel is the answer. Pinned by
+    `RunCommandTests.testRustHasNoRunner` (including the uppercase `MAIN.RS`,
+    since `canRun` lowercases before the lookup) in its own section, so it reads
+    as a decision rather than as `.rs` falling through the "unsupported extension"
+    test beside `.md` and `Makefile`, and by a third test asserting that
+    `SyntaxLanguage(forFileName:)`, `isTestFile` and `canRun` agree on one Rust
+    file: `.rust`, testable, **not** runnable. Paths are shell-quoted via the shared
     `ShellQuote.quote(_:)` (extracted from the former private `shellQuoted`), so
     spaces and shell metacharacters (`$`, backtick, `;`) survive intact.
     Unit-tested in `RunCommandTests`.
@@ -71,6 +84,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `workingDirectory(projectRoot:fileURL:)` (delegates to
     `RunCommand.workingDirectory` so run and test sessions agree on cwd).
     Unit-tested in `TestCommandTests`.
+    **Rust's two answers are both "everything, unconditionally", and both are
+    decisions.** `isTestFile` is true for *any* `.rs` file because Rust's tests
+    live beside the code in `#[cfg(test)]` modules, so there is no naming
+    convention to match — and the suite pins the three *foreign* conventions
+    (`foo_test.rs`, `test_foo.rs`, `foo.test.rs`) as answering **true** for that
+    reason rather than because they matched anything, which states the failure
+    mode a borrowed suffix check would introduce: it would *exclude* ordinary
+    files. The command is the constant `cargo test`, taking neither the file nor
+    its directory — cargo finds the workspace from the cwd — so no evidence is
+    consulted and, unlike Go's `go test <dir>`, a path full of shell
+    metacharacters cannot reach the command line at all.
   - `BottomPanel.swift` — pure, testable VS Code-style bottom-dock-panel state
     (Foundation-free — semantic enum only, the `FileIconColor`/`LogFilter`
     precedent). A `public enum BottomPanel: Equatable { case terminal, log,

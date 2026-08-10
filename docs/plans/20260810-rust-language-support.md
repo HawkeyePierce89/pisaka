@@ -1011,29 +1011,75 @@ seam the app fills in. TDD.
   `docs/architecture/core-services.md`, `docs/architecture/app-editor.md`,
   `docs/architecture/app-editor-overlays.md`, `CLAUDE.md`, `README.md`
 
-- [ ] `core-intelligence.md`: the Rust symbols query, its six decisions and the
+- [x] `core-intelligence.md`: the Rust symbols query, its six decisions and the
       confirmed capture table from Task 3's runtime check; the keyword list's rule
       and the two lines it draws
-- [ ] `core-lsp.md`: D21–D24 in full, the two new Core files' entries, and the
+      *(The query half was written in Task 3, at the point the runtime harness
+      confirmed it, so this task added the keyword half. It records **three**
+      lines rather than the two the plan drafted — the third being the unstable
+      `f16`/`f128` and `_`, which the property itself states as a line and which
+      the plan had carried as an aside.)*
+- [x] `core-lsp.md`: D21–D24 in full, the two new Core files' entries, and the
       known limits (no rust-analyzer without `cargo`; a discovered copy used at
       whatever version it is and never replaced; discovery per app run rather than
       per folder; no rust-analyzer on iOS, ever; the `.rs`-has-no-⌘R limit)
-- [ ] `core-provisioning.md`: the `.gzip` format and the executable gate, the
+      *(Plus a fourth thing the file needed and the plan did not list: the
+      "What the Rust language work added" opening paragraph beside the 2b and Go
+      ones, since the document's own frame is "here is what each phase added and
+      where it is documented", and a reader arriving at D21 with no such
+      paragraph has no way to know why a *downloaded* server is documented here
+      rather than in `core-provisioning.md`. It states the split — the rules
+      here, the bytes there. "Two registry contributors now exist" became three,
+      and the six limits include the discovered-proxy case the Task 9 probe
+      exists for.)*
+- [x] `core-provisioning.md`: the `.gzip` format and the executable gate, the
       `rust-analyzer` component and its by-hand pin-update procedure (including
       that its version is a *date*), what Rust reuses from 2b and what it
       deliberately does not, the unpacker's second branch, the Settings row and the
       banner's third branch, and why `LSPInstalledLicenses` has nothing of it
-- [ ] `core-workspace.md` / `core-services.md`: `FileServicing.isExecutableFile`,
+      *(The component and its procedure were written in Task 7. What this task
+      added is the reuse boundary — stated beside the existing gopls one, and
+      deliberately as its **mirror image**: gopls reuses everything here except
+      the bytes, Rust reuses the bytes and almost nothing else — plus the format
+      case, the engine's pre-commit gate, the unpacker's generalisation over
+      `tool`/`Output`, the banner's third branch, the Rust row, the licence
+      absence, and the three-closure registry merge. One further paragraph the
+      plan did not list: the manifest suite's three **narrowed** assertions, which
+      belong in the file that documents what that suite pins.)*
+- [x] `core-workspace.md` / `core-services.md`: `FileServicing.isExecutableFile`,
       the `RunCommand`/`TestCommand` decisions, and Task 11's refreshed audit
       record
-- [ ] `app-editor-overlays.md` / `app-editor.md`: the grammar registry entry (the
+      *(The audit record was Task 11's. `isExecutableFile` is documented where the
+      rest of `FileServicing` is, with the undefaulted-because-it-is-a-gate
+      reasoning, the `access(2)`/`X_OK` reading, the directory-answers-`false`
+      rule and `StubFileTree` carrying the bit through a move. The count of
+      conformers is deliberately **not** restated: only two ship in `Sources/`,
+      so the doc names them instead of repeating the protocol comment's "three".
+      Both command decisions are on their own resolvers rather than in one place,
+      since that is where a reader meets them.)*
+- [x] `app-editor-overlays.md` / `app-editor.md`: the grammar registry entry (the
       `TreeSitterRust_TreeSitterRust` bundle derivation and the 21 captures that
       needed no map change) and `LSPRustToolchainService`'s entry beside
       `LSPToolchain`'s
-- [ ] `CLAUDE.md`: index lines for the new Core and app files only — no essays —
+      *(The registry entry records the 21 captures as the **counter-case** to Go's:
+      the interesting fact is not that no map entry was needed but that one of the
+      21 is `escape`, which resolves only because the Go work added it — so the
+      reason this grammar needed no change is a fact about the previous one. The
+      service's entry sits beside `LSPGoToolchainService`'s, since that is whose
+      search order and teardown discipline it follows, and it leads with the one
+      structural difference: one seam, nothing that installs or writes.)*
+- [x] `CLAUDE.md`: index lines for the new Core and app files only — no essays —
       plus the one clause the *Provisioned servers* invariant needs now that a
       provisioned server can also be discovered
-- [ ] `README.md`: Rust in the highlighting, indexing and keyword lists;
+      *(Three index lines, the `core-lsp.md` header line's D-range, and one
+      `FileService.swift` line gaining `isExecutableFile`. Worth flagging rather
+      than absorbing: the repository's PostToolUse hook enforces a 40k-char
+      guideline on this file and **it was already over at 45,168 chars on
+      `master`** — the file is not in this branch's diff before now. This task's
+      additions take it to ~46.4k. Trimming it back under the guideline is a
+      restructuring of pre-existing content, out of this branch's scope, and is
+      deliberately left rather than done silently.)*
+- [x] `README.md`: Rust in the highlighting, indexing and keyword lists;
       rust-analyzer in the semantic-intelligence section with the acquisition story
       stated plainly (used if already on your Mac, otherwise offered once with its
       size and downloaded from the official release; a Rust toolchain is required
@@ -1041,6 +1087,14 @@ seam the app fills in. TDD.
       run-command limit stated; a Limitations bullet in its neighbours' shape; and
       the License-section paragraph saying why rust-analyzer appears in neither
       `Resources/Licenses/` nor Acknowledgements
+      *(All eight, in their neighbours' shapes. Two carry more than the plan asked
+      for because the honest sentence is longer: the Limitations bullet states the
+      **discovered-proxy** case beside the toolchain one, since "a rust-analyzer
+      that cannot answer `--version` is treated as absent" is a user-visible rule
+      and not an implementation detail; and the License paragraph is written as
+      the sharper case beside gopls's rather than as a copy of it — this one *is*
+      downloaded by Pisaka, and still has no licence text to show, which is the
+      part a reader would otherwise assume was an oversight.)*
 
 ## Post-Completion Checks (manual)
 

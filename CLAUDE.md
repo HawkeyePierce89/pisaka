@@ -78,7 +78,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 
 `docs/architecture/core-workspace.md` — files, paths & workspace:
 - `OpenFile.swift` — open-file model: optional `url`, `text`/`savedText`, `isDirty`.
-- `FileService.swift` — disk IO behind `FileServicing`: read/write/list, create/move/delete, `ensureDirectory`, binary/oversize-aware `readTextIfNotBinary`, `FileStamp`/`fileStamp(at:)` (the index's change gate); `.git`/`.DS_Store` exclusion predicates; typed `FileServiceError`.
+- `FileService.swift` — disk IO behind `FileServicing`: read/write/list, create/move/delete, `ensureDirectory`, binary/oversize-aware `readTextIfNotBinary`, `FileStamp`/`fileStamp(at:)` (the index's change gate); undefaulted `isExecutableFile(at:)` (the install engine's gate); `.git`/`.DS_Store` exclusion predicates; typed `FileServiceError`.
 - `FileName.swift` — name/path validation for the tree dialogs: `isValidFileName`, `parseRelativeEntryPath`, reasoned validators over `EntryPathIssue`.
 - `GitRefName.swift` — branch-name validation for the "New Branch…" dialogs.
 - `BranchRef.swift` — branch value type + build/group/filter helpers for the switcher.
@@ -117,7 +117,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `CodeIntelligence.swift` — the async `CodeIntelligenceProviding` seam + its request/result value types (incl. the request's `language`/`member`).
 - `SymbolIntelligenceProvider.swift` — index-backed provider and the home of every definition/completion ranking rule, incl. fuzzy quality, the keyword source and the member branch.
 
-`docs/architecture/core-lsp.md` — the LSP client (phase 2a: Swift via sourcekit-lsp; gopls for Go), incl. decisions D1–D10 + D17–D20 and the known limits:
+`docs/architecture/core-lsp.md` — the LSP client (phase 2a: Swift via sourcekit-lsp; gopls for Go; rust-analyzer for Rust), incl. decisions D1–D10 + D17–D24 and the known limits:
 - `LSPMessage.swift` — JSON-RPC envelopes; `JSONValue`, `LSPRequestID`, `LSPErrorCode`; `null` vs. absent.
 - `LSPFraming.swift` — `Content-Length` framing + the incremental `Decoder`; a framing error is terminal.
 - `LSPProtocolTypes.swift` — the bodies this phase uses; decode leniently, encode exactly; the closed capability tree.
@@ -131,6 +131,8 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `RoutingIntelligenceProvider.swift` — LSP first, tree-sitter otherwise; `LSPIntelligenceSource`, the whole-attempt budget.
 - `LSPGoToolchain.swift` — the gopls pin as data, the discovery report, the installation kinds, the prompt and the Settings row (D17–D19).
 - `LSPGoplsProvisioning.swift` — the two Go seams + the model: discovery, consent, `go install`, removal, the second registry contributor (D18–D20).
+- `LSPRustToolchain.swift` — the rust-analyzer pin as data (read through the manifest component), the discovery report, the installation kinds, the prompt and the Settings row (D21–D24).
+- `LSPRustProvisioning.swift` — the one Rust seam + the model: discovery, the toolchain gate, consent, install/removal over the shared engine, the third registry contributor (D21–D24).
 
 `docs/architecture/core-provisioning.md` — server provisioning (phase 2b: TS/JS + Python), incl. decisions D11–D16, the pinned manifest, its by-hand update procedure and the known limits:
 - `SHA256.swift` — FIPS 180-4 digest in Foundation alone (Core may not import CryptoKit); `update`/`finalize`.
@@ -251,6 +253,7 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `LSPProcessTransport.swift` — the real `LSPTransport`: one process, three pipes, `F_SETNOSIGPIPE`, SIGTERM→SIGKILL teardown; publishes raw chunks.
 - `LSPToolchain.swift` — `xcrun --find` per launch description, cached (including "not found") per app run.
 - `LSPGoToolchainService.swift` — both Go seams: where `go`/`gopls` are on this Mac, `go install` with `GOBIN` staged, `terminateNow()`.
+- `LSPRustToolchainService.swift` — the one Rust seam: where `cargo`/`rust-analyzer` are on this Mac, both `--version`-probed, `terminateNow()`.
 - `ProjectSearchView.swift` / `ProjectSearchWindowController.swift` — Find in Files window (debounce, `resultsMatchControls` gate; single window).
 
 `docs/architecture/app-editor-overlays.md` — editor overlays (macOS):
@@ -313,7 +316,14 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   user has it and otherwise built once, on consent, by the user's own `go` — no
   URL, no digest, nothing unpacked — but it lands in the same install root by the
   same stage-then-one-rename, records consent under the same id, and is removed by
-  the same `engine.remove`.
+  the same `engine.remove`. **rust-analyzer is the third contributor and the case
+  that shows a provisioned server can also be *discovered*** (D21–D24): it is a
+  pinned component installed by that same engine, but it is used from
+  `~/.cargo/bin` when the user already has one, so "provisioned" and "in use" are
+  two questions — the app's own copy wins, Remove only ever touches that copy, and
+  a toolchain (`cargo`) is required before anything is prompted, installed or
+  registered at all. It also adds the second archive format (a bare `.gz`, whose
+  executable bit the engine verifies before it commits).
 - **Open-tab resync** after an operation rewrites the worktree: buffers are
   snapshotted before the hop; a clean, unchanged tab gets `reloadFromDisk`, an
   edited one `reconcileSavedBaseline` + beep, a deleted file force-closes

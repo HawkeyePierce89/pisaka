@@ -116,6 +116,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     for, so stamping the same instance twice can return the first answer after the
     file has been rewritten — in a cache gate, "unchanged" forever. A missing
     *date* alone is not `nil`, since a size change still catches the common edit.
+    A fourth method backs the language-server install path and is the one member
+    of this protocol with **no default**: `isExecutableFile(at:) -> Bool`
+    (`core-lsp.md`'s D22). Every other optional member defaults to an answer that
+    degrades safely — "unknown size", "unknown stamp", "not a symlink" — but this
+    one is a **gate**: `LSPInstallEngine` asks it about a freshly-decompressed
+    binary before committing the install, and a default would have to answer
+    either `false` (a gate that fails every install through a partial stub) or
+    `true` (a gate that silently passes, which is worse than not having one), so
+    the compiler asking every conformer — the real service, the iOS
+    security-scoped decorator that forwards to it, `StubFileTree` and the small
+    local stubs `swift test` compiles — is the cheap side of that trade. The real service answers `access(2)`'s `X_OK` as
+    `FileManager` spells it — "can what I just unpacked be run?", which is the
+    question the caller has, rather than "is the `x` bit set in its mode", the same
+    thing for these binaries and not the same thing on a `noexec` mount or under a
+    sandbox that denies it. A **directory answers `false`**, overriding
+    `FileManager`'s search-permission `true`: a directory where an executable was
+    expected is precisely the outcome the gate exists to catch. `StubFileTree`
+    carries the bit per path and moves it with the file through `move`/`removeItem`
+    as a rename does on a real volume — without that, a binary unpacked into
+    staging would arrive at its version directory unexecutable, a property of the
+    stub and of nothing else.
   - `FileName.swift` — pure, testable name/path validation for the project-tree
     dialogs, in two shapes over *one* rule: the boolean predicates
     `isValidFileName(_:) -> Bool` / `parseRelativeEntryPath(_:) -> [String]?` (the

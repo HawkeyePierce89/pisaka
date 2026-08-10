@@ -62,6 +62,24 @@ nothing to unpack — it is discovered if the user already has it, and otherwise
 built by the user's own Go toolchain. All of it, with decisions D17–D20, is in
 `core-lsp.md`.
 
+**rust-analyzer is a third contributor, and it splits the other way.** Where gopls
+reuses everything here *except* the bytes, Rust reuses the bytes and almost
+nothing else. It **does** reuse `LSPProvisioningManifest` (one more pinned
+`LSPComponent`, the fourth row of the table below), `LSPComponent`, `LSPArtifact`,
+`SHA256`, both download and unpack seams, `LSPInstallEngine`'s whole *install*
+path — `install(_:)`, `state(of:)`, `isInstalled(_:)`,
+`pendingDownloadByteCount(for:)`, `remove(_:)` — `LSPInstallLayout`, the same
+install root and `sweepStaging()`, D13's atomicity, D16's ordering, the consent
+dictionary under one more id, and both surfaces below. It **does not** touch
+`LSPDownloadableServer` or `LSPProvisioningModel` (D21): Rust's honest state set is
+the *Go* row's, with a toolchain gate and a discovered-copy state no 2b server has,
+and a 2b row offering Install beside the sentence "no Rust toolchain" would be a
+lie. So the enum, its set-equality tests, its rows and its banner branch keep
+saying exactly what they said before, and Rust's lifecycle lives in its own Core
+model beside gopls's. Two things it *adds* here rather than reusing are the second
+archive format and the executable-bit gate (D22), both described in the entries
+below. All of it, with decisions D21–D24, is in `core-lsp.md`.
+
 ## Files
 
 ### `PisakaCore`
@@ -106,8 +124,19 @@ built by the user's own Go toolchain. All of it, with decisions D17–D20, is in
     `typescript-language-server` cannot run without `node`. Depth-first with a
     visited set, so a hand-edited cycle terminates instead of hanging.
     `LSPArchiveFormat` is an enum rather than a `Bool` so a second format is a
-    compile error at every call site; `LSPHostArchitecture` is the slice the app
-    is *running as* (see the limits).
+    compile error at every call site — and the second format is what that bought
+    (D22): `case gzip(fileName: String)` beside `tarGzip`, for rust-analyzer's
+    bare `.gz` of one binary, added by growing the unpacker's switch and moving
+    nothing else. **The name lives in the payload** because a tarball carries its
+    members' names and a `.gz` carries nothing but bytes, and a parallel
+    `LSPArtifact.unpackedFileName` would let the manifest express "a gzip with no
+    name" and "a tarball with one" — two meaningless states, each needing a guard.
+    The case also implies **"and it is executable"**, which is the only reason the
+    format exists here: the unpacker sets the bit at creation and the engine
+    refuses to commit a file that somehow lacks it. The enum has no raw value
+    (nothing ever needed the format as a string) and `stripComponents` is
+    meaningless for `gzip`, pinned at `0` by the manifest tests.
+    `LSPHostArchitecture` is the slice the app is *running as* (see the limits).
     `serverDescription(manifest:layout:)` is the bridge to 2a: it composes the
     `LSPServerDescription` an installed server becomes — node as the executable,
     the server's entry `.mjs`/`.js` plus `--stdio` as arguments, D11's
@@ -119,11 +148,26 @@ built by the user's own Go toolchain. All of it, with decisions D17–D20, is in
     data a *missing* server (tree-sitter, silently) rather than a trap.
     `LSPProvisioningManifestTests` pins the data the way `DependencyPinTests`
     pins `Package.resolved`: absolute HTTPS URLs on allowed hosts only, 64
-    lowercase hex per checksum, positive sizes, `node` covering both
-    architectures and the npm artifacts none, every `requires` id and every
+    lowercase hex per checksum, positive sizes, every `requires` id and every
     server's components resolving inside the manifest, unique ids and
     destinations, and the served-language sets disjoint and never containing
-    `.swift`.
+    `.swift`. Three of those assertions were **narrowed** rather than extended
+    when rust-analyzer arrived, which is the shape a set-equality suite is
+    supposed to take under pressure: the architecture rule was "everything that is
+    not `node` is an npm tarball and carries no architecture", a *derived* rule
+    that a second native component would have quietly falsified, and is now a
+    hand-written native set (`node`, `rust-analyzer`) checked in **both**
+    directions, so a native artifact carrying `nil` fails as loudly as an npm one
+    carrying `.arm64`; the strip-depth rule became an exhaustive switch stating
+    both halves (tarballs pinned at 1, gzip at 0) rather than a weakened "0 or 1";
+    and the licence rule learned `OR` beside `AND`, validating the operands of
+    both and pinning the empty-`licenseFileSubpaths` exemption **by id**, so a
+    second component cannot inherit it by accident. A fourth test closes the gap
+    `.gzip` opens on its own: the file name is spelled twice — in the format's
+    payload and inside `executableSubpath` — and nothing at runtime compares them,
+    so a mismatch would install cleanly and `ENOENT` on every start.
+    `LSPDownloadableServer`'s own set equality is asserted **unchanged** in the
+    same suite, which is D21 stated as a test.
 
   - `LSPInstallLayout.swift` — where every provisioned file goes (D12/D13), as
     pure path math over a base `URL`. **No file system access, on purpose**:
@@ -171,12 +215,30 @@ built by the user's own Go toolchain. All of it, with decisions D17–D20, is in
     version — and is the only one that makes a server servable, because every
     path `serverDescription` composes names that version.
     **The install sequence is D13 in order**: stage → download → **verify** →
-    unpack → one `move` onto the version directory → and only then delete what it
-    replaced. Verification is before the unpack always: the alternative is
-    writing code of unknown provenance into a directory and deleting it
-    afterwards, which is a different promise. Every failure between the first
-    line and the `move` drops the staging tree and rethrows, so "the previous
-    install is exactly as it was" needs no rollback to be true. The old version's
+    unpack → *check the executable bit, for a `.gzip` artifact* → one `move` onto
+    the version directory → and only then delete what it replaced. Verification is
+    before the unpack always: the alternative is writing code of unknown
+    provenance into a directory and deleting it afterwards, which is a different
+    promise. Every failure between the first line and the `move` drops the staging
+    tree and rethrows, so "the previous install is exactly as it was" needs no
+    rollback to be true.
+    **The executable check is D22's half of that promise.** `verifyExecutable` asks
+    `FileServicing.isExecutableFile(at:)` about the file a `.gzip` artifact just
+    decompressed into, and throws `unpackFailed` naming the file and the reason if
+    the answer is no — *before* `commit`, so the failure lands on the ordinary
+    unpack-failed path, the staging tree is discarded and the previous install is
+    left exactly as it was. It is D13's promise applied to the one thing D13 could
+    not see: an unpack that "succeeded" and produced something unusable, which
+    would otherwise install cleanly and then die at `exec` on every request, which
+    D7 turns into a silent fallback to tree-sitter while the Settings row says the
+    server is installed. It is checked **per artifact** rather than per component,
+    so the check runs where the destination is still in hand and a component
+    mixing formats needs no second rule; tarball artifacts are not checked and that
+    is not an omission, since their entry points are `node` *scripts* run as
+    arguments to a runtime and executability is not what makes them work. It runs
+    after the digest rather than instead of it: a mismatched download never reaches
+    the unpacker at all, so the gate follows verification and never stands in for
+    it. The old version's
     deletion is best-effort and *after* the rename — failing an install because a
     stale directory could not be removed would turn a successful upgrade into a
     reported failure over some wasted disk.
@@ -415,14 +477,32 @@ built by the user's own Go toolchain. All of it, with decisions D17–D20, is in
     already takes, which is what makes the fake a faithful stand-in.
 
   - `LSPArchiveUnpacker.swift` — the real `LSPArchiveUnpacking`: one
-    `/usr/bin/tar -xz --strip-components=<n> -C <dir>`, fed on stdin.
-    **A system binary, not a library**: macOS ships bsdtar and it has read gzip'd
-    tarballs correctly for longer than this project has existed; linking
-    libarchive (or writing an inflater and a tar reader) would add a dependency
-    and a license obligation to avoid a subprocess the app already spawns several
-    of. Spelled as an absolute path rather than through `/usr/bin/env`, for
-    `LSPToolchain.locate`'s reason: a `PATH` entry must not decide which `tar`
-    unpacks code that is about to be executed.
+    `/usr/bin/tar -xz --strip-components=<n> -C <dir>`, or one `/usr/bin/gunzip
+    -c`, fed on stdin.
+    **A system binary, not a library**: macOS ships bsdtar and gzip, and they have
+    read these two formats correctly for longer than this project has existed;
+    linking libarchive (or writing an inflater and a tar reader) would add a
+    dependency and a license obligation to avoid a subprocess the app already
+    spawns several of. Both are spelled as absolute paths rather than through
+    `/usr/bin/env`, for `LSPToolchain.locate`'s reason: a `PATH` entry must not
+    decide which tool unpacks code that is about to be executed.
+    **The two formats differ in exactly one place — where stdout goes** (D22) — so
+    `run` is generalised over a tool, its arguments and an `Output` of `.discarded`
+    or `.file`, and the deadline, `F_SETNOSIGPIPE`, the SIGTERM→SIGKILL teardown
+    and the exit-status handling are one shared function rather than two. `tar`
+    writes the files itself and says nothing on stdout, so its stdout is a pipe
+    that is drained and discarded; `gunzip -c` writes the *file itself* on stdout,
+    so its stdout is the destination file — created up front with
+    `posixPermissions: 0o755`, which is what makes the binary executable at the
+    moment it comes into existence rather than by a `chmod` afterwards, and which
+    keeps the ~38 MB from being held a second time in this process's memory. The
+    stdout drain thread exists only for the pipe case, because a file never blocks
+    its writer the way a full pipe does. `stripComponents` is ignored on the gzip
+    branch (there is no layout to strip) and the switch over the format stays
+    exhaustive, so a third format is a compile error here. `Failure.tarUnavailable`
+    became `toolUnavailable` now that there are two tools, and gained
+    `destinationUnwritable` — which happens before anything is launched and so has
+    no exit status to report.
     **The bytes go in on stdin**, so the verified bytes and the unpacked bytes
     are the same bytes with no window in between, and there is no temporary file
     to create, hide and delete on every failure path.
@@ -517,6 +597,18 @@ built by the user's own Go toolchain. All of it, with decisions D17–D20, is in
     collide today, but a strip asking two questions in one row would be a worse
     thing to discover than an arbitrary order. `strip` is generic over its
     content so both rows share the bottom rule.
+    **And the Rust question, as a third branch** (D21). Same strip, same two
+    actions, same absence of a dismiss, and the `.task` calls all three models'
+    `prepareForOpening`. This one is a *download*, so the copy takes the 2b shape
+    rather than gopls's — the download arrow and the size, formatted through the
+    same `ByteCountFormatter` — while the precedence is stated as **2b → Go →
+    Rust**, the composition order and the order the Settings tab lists them.
+    Two things the copy deliberately does and does not say: the **version is
+    named**, because it is a *date* and that is the one version string worth
+    showing before someone agrees to a download; and the **toolchain is not
+    mentioned at all**, because D23 means this prompt cannot appear without a
+    `cargo`, so the sentence would only ever be read by someone who already has
+    one.
 
   - `LSPServerSettingsView.swift` — Preferences → Language Servers, the whole
     management surface: one row per downloadable server showing the state the
@@ -554,6 +646,18 @@ built by the user's own Go toolchain. All of it, with decisions D17–D20, is in
     appear for it. A third sentence is new and is gopls's whole licence surface;
     see `LSPInstalledLicenses.swift` below for why it is a sentence here rather
     than a document there.
+    **The Rust row sits beside the Go row, and the two form their own tail.** It
+    renders `LSPRustServerRow` — D24's seven states, with Install/Retry on
+    `canInstall` and Remove on `canRemove`, neither rule spelled in the view —
+    and the order within that tail is the one that reads best: Go's row is never a
+    download and Rust's always is. The row's own licence sentence reads its SPDX
+    expression off `rust.row`, which reads the manifest, so the text in the view
+    cannot drift from the pin; it states gopls's point arrived at from the
+    opposite direction — this one *is* downloaded, but a bare `.gz` holding one
+    binary unpacks no licence file for `LSPInstalledLicenses` to read. The
+    `noToolchain` sentence carries three halves rather than Go's two and names
+    `cargo` explicitly, because "no Rust toolchain" beside a row titled Rust reads
+    as if Rust itself were the thing Pisaka could not find.
 
   - `LSPInstalledLicenses.swift` — the license texts of whatever is *installed*,
     read from the installed tree. **Why these are not in `Resources/Licenses/`**:
@@ -592,6 +696,16 @@ built by the user's own Go toolchain. All of it, with decisions D17–D20, is in
     naming the origin and the BSD-3-Clause licence, built from `LSPGopls.origin`
     / `licenseSPDX` so the fact lives in Core beside the pin. That is a decision
     rather than an omission, which is why it is written down in both places.
+    **rust-analyzer is not here either, and it is the sharper case** (D24): unlike
+    gopls it *is* downloaded by this app, from a pinned URL against a pinned
+    digest — and it still has nothing to show, because the artifact is a bare
+    `.gz` holding one binary and an archive of one file carries no notice. So its
+    `licenseFileSubpaths` is **empty**, pinned by id in
+    `LSPProvisioningManifestTests` so it reads as a decision rather than as a
+    forgotten entry, and the substitute is the same one sentence in the Language
+    Servers tab — origin plus `Apache-2.0 OR MIT`, read off the manifest through
+    `LSPRustServerRow`. `licenses.json` covers nothing here for the gopls reason
+    unchanged: none of those bytes ship in the app.
 
   - `PisakaApp.swift` (modified) — composes the layer exactly once in `init`:
     the install root (`~/Library/Application Support/Pisaka/LanguageServers` —
@@ -625,18 +739,35 @@ built by the user's own Go toolchain. All of it, with decisions D17–D20, is in
     beside `lspWorkspace`'s: a quit mid-build must leave no `go` child, and the
     teardown is permanent as well as immediate, so a `.go` tab opened after the
     observer cannot start another build.
+    **The Rust model is composed the same way, over that same engine.**
+    `makeRust(engine:settings:)` sits beside `makeGopls`, with the same defaulted
+    arguments so the default-constructed `ContentView` builds the same stack — one
+    install root, one `sweepStaging()`, one place a Remove looks. Its discovery is
+    kicked off unawaited beside gopls's, and it carries an extra reason this one
+    has: the banner's `.task` awaits discovery before it can silently install an
+    already-accepted rust-analyzer, so it must *join* this task rather than start
+    a second search. The registry merge is now **three** `@MainActor` closures,
+    each taking its own contributor's new value and reading the other two's
+    published ones. `lspRustToolchain.terminateNow()` runs in the terminate
+    observer beside the other two — and what that call is *not* for is worth
+    stating, because it is the difference from gopls: the rust-analyzer download
+    is `URLSession` bytes into a staging tree, which the process exit ends and the
+    next launch's `sweepStaging()` reclaims. What it stops is the discovery's own
+    children, chiefly the login shell — the one child that can outlive a quit,
+    since a profile slow enough to hang is exactly why it has a deadline.
 
   - `ContentView.swift` (modified) — hosts `LSPConsentBanner` in the editor zone
     between the path bar and the find bar, keyed on
-    `SyntaxLanguage(forFileName:)` of the selected tab, and hands it **both**
-    contributors. Neither is observed here, for the same reason: the banner
+    `SyntaxLanguage(forFileName:)` of the selected tab, and hands it **all three**
+    contributors. None is observed here, for the same reason: the banner
     observes them itself, and a `ContentView` that did would redraw the whole
     window on every install state change. Full entry in `app-window.md`.
 
   - `SettingsView.swift` / `AcknowledgementsView.swift` (modified) — Preferences
-    gains a third tab (which now also threads the gopls model through to the
-    Language Servers pane, and only there — gopls ships no licence file into its
-    install, so Acknowledgements has nothing of it to show), and Acknowledgements
+    gains a third tab (which now also threads the gopls and rust-analyzer models
+    through to the Language Servers pane, and only there — neither ships a licence
+    file into its install, so Acknowledgements has nothing of either to show), and
+    Acknowledgements
     gains a "Language Servers" section
     that exists only while something is installed. The section is re-read on a
     `.task(id: provisioning.rows)`, so an install completing, a removal finishing
