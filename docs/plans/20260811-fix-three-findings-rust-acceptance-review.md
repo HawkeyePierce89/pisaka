@@ -257,16 +257,30 @@ in all three paths (commit, preview, late-resolve follow-up).
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] `swift test` — full suite green, with `LSPInstallEngineTests`,
-      `LSPSourceGatingTests` and every existing completion assertion unmodified
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
-      — the iOS surfaces are untouched and must still compile against the widened
-      seam
-- [ ] read the final diff against `master` and confirm the blast radius: no
-      change to what any path inserts, none to ranking, none to
-      `verifyUnpackTarget`/`mayDelete`, none to `Sources/Pisaka/iOS/`, no new
-      file and no manifest/pin/license/query change
+- [x] `swift test` — full suite green (2282 tests, 0 failures), with
+      `LSPInstallEngineTests`, `LSPSourceGatingTests` and every existing
+      completion assertion unmodified: neither engine/gating file appears in the
+      diff at all, and the only non-additive lines in the three touched test
+      files are one defaulted parameter on the `LSPIntelligenceProviderTests`
+      item factory (`textEditNewText: String? = nil`, applied as
+      `textEditNewText ?? label`), which leaves every prior call site's payload
+      byte-identical
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
+      — `** BUILD SUCCEEDED **`
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
+      — `** BUILD SUCCEEDED **`; the iOS surfaces are untouched and still compile
+      against the widened seam (`displayText` defaulted to `nil` → `text`)
+- [x] read the final diff against `master` and confirmed the blast radius: what
+      is inserted is unchanged everywhere (`CompletionItem.text` still the
+      provider's `inserted`, `edits(for:…)` moved to a `let` and passed through
+      verbatim), ranking/dedup key/cap untouched,
+      `verifyUnpackTarget`/`mayDelete` unchanged (`verifyUnpackTarget` appears in
+      the diff only as a word inside a new doc comment), no change under
+      `Sources/Pisaka/iOS/`, `Resources/`, `project.yml`, `Package.resolved`,
+      `Package.swift` or `Vendor/`, and the only added file is this plan. One
+      file beyond the ticket's list is touched: `Sources/Pisaka/Platform/
+      SymbolExtractor.swift`, a *fourth* stale `#eq?` comment corrected under
+      Task 4 — comments only, no code
 
 ### Task 6: Update documentation
 
