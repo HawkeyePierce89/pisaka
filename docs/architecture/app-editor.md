@@ -483,9 +483,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     shows strings and hands one back when a row is committed, while an LSP answer is
     more than its text — it may carry the `import` line that makes the symbol resolve
     (D4). The snapshot therefore keeps whole `CompletionItem`s keyed by the string
-    the popup shows (first wins on a duplicate, matching the provider's own dedup
-    rule), so `insert(_:forPartialWordRange:isFinal:in:)` can find the item behind
-    the string.
+    the popup shows (first wins on a duplicate), so
+    `insert(_:forPartialWordRange:isFinal:in:)` can find the item behind
+    the string. That key is deliberately **not** the provider's: it deduped by the
+    *inserted* text, so two items that insert differently but read the same
+    survive there and collapse here. This is the one place the popup's list is
+    narrower than the provider's answer, and it has to be — a row the user cannot
+    tell apart is not a choice. The consequence is a rule rather than a caveat:
+    everything else keyed by the same string (`prefetchResolves`, and through it
+    `resolved`/`resolveTasks`) is fed from *this* deduped list, never from the
+    provider's, so an item the snapshot dropped can never file edits under a
+    surviving row's key and have them committed in its place.
     **The string is the item's `displayText`, and it is the key in all three
     tables** — the snapshot (`texts`/`items`), the prefetched resolves
     (`resolved`/`resolveTasks`) and `scheduleFollowUp`'s `word`. It has to be:

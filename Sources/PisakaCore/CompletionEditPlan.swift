@@ -122,6 +122,17 @@ public struct CompletionEdit: Equatable, Hashable, Sendable {
     /// rewrite is the honest display — and a `newText` that *is* the head keeps
     /// it too, because an empty row is not a row.
     ///
+    /// **The guarantee runs one way**, and the two shapes it excludes are worth
+    /// stating because they read like counter-examples and are not. A string
+    /// this rule *keeps* says nothing about the fallback: inserting `?.greet`
+    /// over the typed word composes `greeter.?.greet`, not the plan's buffer.
+    /// And the equality above additionally wants the edit to end where the typed
+    /// word ends — `make` only demands it reach *at least* that far, so a server
+    /// range past the caret leaves the characters beyond it standing. Neither is
+    /// something a display string can repair, because the fallback path can only
+    /// ever replace the typed word; both are exactly why this refuses to shorten
+    /// rather than guessing at a shorter spelling.
+    ///
     /// Only the primary edit is ever a row; an accompaniment (an `import` line)
     /// is inserted whole and never displayed.
     public func displayText(forTypedWordStartingAt typedWordStart: Int, in text: NSString) -> String {

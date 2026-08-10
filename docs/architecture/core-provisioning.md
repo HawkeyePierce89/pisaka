@@ -203,6 +203,14 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     out of a listing, and one that resolved back to the root (a hand-edited
     manifest with `..` in an id, a `.staging` entry that walks out) would take
     every provisioned server with it in a single `removeItem`.
+    `isBase(_:)` is that second half, and it is **here rather than at the delete
+    sites** so the two questions can never be answered by two different path
+    rules. They were: both `mayDelete`s (the engine's and the gopls model's
+    restatement of it) spelled it `url.standardizedFileURL.path !=
+    base.standardizedFileURL.path`, so one boolean expression asked a lexical
+    question and a stat-dependent one at once — under a `/private`-spelled root
+    exactly the mismatch the next two paragraphs describe, inside the predicate
+    that guards every delete.
     The comparison itself is `directory(_:contains:)`, a static over an arbitrary
     root: the engine asks it of the install root before it deletes and of one
     attempt's staging directory before it *writes* (`verifyUnpackTarget`), and one
@@ -237,6 +245,19 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     it should not have — and no caller can trip it, because the engine derives
     root and candidate from one `base`. Symlinks are still not followed, which is
     the limit D12 states.
+    **That last clause is a property of the engine's code, and it had to be made
+    one.** `sweepStaging()` is the single delete site whose candidate did not come
+    from the layout: it came back from `contentsOfDirectory(at:)`, and
+    `FileManager` resolves the parent's symlinks in the URLs it returns, so a
+    listing of a `/tmp`-spelled staging root arrives spelled `/private/tmp/…`.
+    Against a lexically-normalised `base` every entry then read as *outside* the
+    install root and the sweep silently deleted nothing — the refusal being safe
+    is exactly what makes that failure quiet. The engine now takes only the entry
+    *name* and re-roots it on `layout.stagingRoot`, so both sides really do derive
+    from one `base`. Not reachable with the shipped Application Support root, and
+    not visible to the suite either — `LSPInstallEngineTests` runs over an
+    in-memory `StubFileTree` rooted at `/Pisaka-tests`, which has no `/private`
+    aliasing to reproduce.
 
   - `LSPInstallEngine.swift` — the whole of D12–D14: the two seams, the typed
     `LSPInstallError`, `state(of:)`, `install(_:)`, `remove(_:)` and

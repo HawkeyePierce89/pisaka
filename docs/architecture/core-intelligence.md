@@ -801,13 +801,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     an edit relates to the typed word — is that it may differ
     from `text` **only by dropping a head that re-writes, verbatim in UTF-16,
     characters already standing in the buffer** between the primary edit's start
-    and the typed word's start. Under it the preview and the fallback compose
-    exactly the buffer the plan would have (and the fallback for the dot shape
-    stops writing `greeter..greet`, so the rule fixes a path rather than only
-    prettifying one); under anything looser they corrupt it. An optional
+    and the typed word's start. Whenever a head is dropped the preview and the
+    fallback compose exactly the buffer the plan would have (and the fallback for
+    the dot shape stops writing `greeter..greet`, so the rule fixes a path rather
+    than only prettifying one); under anything looser they corrupt it. An optional
     receiver's `?.greet` over the same range therefore keeps its full spelling —
     the head `?` is not what stands there — and a `newText` that *is* the head
-    keeps it too, since an empty row is not a row.
+    keeps it too, since an empty row is not a row. The converse is deliberately
+    not promised: a string the rule *keeps* is still inserted verbatim over the
+    typed word by the fallback and need not compose the plan's buffer, and a
+    server range reaching past the caret leaves the characters beyond it standing.
+    Those are the fallback path's own limits — it can only replace the typed word
+    — and `core-lsp.md` states them where the rule is enforced.
     The LSP `label` is never this string: `greet(name: String)` written into the
     buffer by the fallback path is not a completion, it is damage. The two
     providers that compose these answers, and the rules they follow, are in

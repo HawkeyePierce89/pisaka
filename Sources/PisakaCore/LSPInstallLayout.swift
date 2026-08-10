@@ -139,6 +139,20 @@ public struct LSPInstallLayout: Equatable, Sendable {
         Self.directory(base, contains: url)
     }
 
+    /// Whether `url` *is* the install root, by the same lexical normalisation
+    /// `contains(_:)` uses.
+    ///
+    /// Here rather than at the delete sites so that "inside the root" and "is the
+    /// root" can never be answered by two different path rules. They were: the
+    /// engine and the gopls model both spelled the second half as
+    /// `url.standardizedFileURL.path != base.standardizedFileURL.path`, which
+    /// consults the disk for exactly the reason `normalisedComponents(of:)`
+    /// records — so one boolean expression asked a lexical question and a
+    /// stat-dependent one at once, and only the first was the file's contract.
+    public func isBase(_ url: URL) -> Bool {
+        Self.normalisedComponents(of: url) == Self.normalisedComponents(of: base)
+    }
+
     /// Whether `url` *is* `directory` or lies underneath it, lexically.
     ///
     /// The same comparison `contains(_:)` is, asked of an arbitrary root rather
@@ -216,9 +230,10 @@ public struct LSPInstallLayout: Equatable, Sendable {
     }
 
     /// Appending a possibly-multi-component, possibly-empty subpath. Empty
-    /// answers `root` unchanged — `appendingPathComponent("")` would leave a
-    /// trailing slash and break the string comparison `contains(_:)` and the
-    /// tests do.
+    /// answers `root` unchanged rather than the trailing-slash spelling
+    /// `appendingPathComponent("")` produces: containment no longer cares (the
+    /// component split drops the empty), but the `URL` is compared for equality
+    /// by callers and by the tests, and two spellings of one path are two values.
     private static func appending(_ subpath: String, to root: URL) -> URL {
         let components = subpath.split(separator: "/").map(String.init)
         return components.reduce(root) { $0.appendingPathComponent($1) }

@@ -182,17 +182,51 @@ final class LSPInstallLayoutTests: XCTestCase {
         XCTAssertTrue(LSPInstallLayout(base: root).contains(destination))
     }
 
-    /// The claim "this file stats nothing" as an assertion rather than as prose: a
-    /// root that exists and one that does not answer identically for the same
-    /// shape. Under `standardizedFileURL` they did not.
+    /// The claim "this file stats nothing" as an assertion rather than as prose,
+    /// and it is only an assertion if the two roots are actually *compared*: one
+    /// `/private`-spelled root that exists on disk and one that does not, asked
+    /// the same three questions, must answer the same three ways. The existing
+    /// one is what fails under `standardizedFileURL` — it alone gets shortened to
+    /// `/tmp`, so its base is re-spelled and its child stops being contained —
+    /// which is why an absent root on its own proves nothing here.
     func testAnAbsentRootAnswersExactlyAsAnExistingOneDoes() {
+        let existing = URL(fileURLWithPath: "/private/tmp")
         let absent = URL(fileURLWithPath: "/private/tmp-absent-xyz")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: existing.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: absent.path))
-        let child = absent.appendingPathComponent("pisaka-absent-xyz/node_modules/typescript")
 
-        XCTAssertTrue(LSPInstallLayout.directory(absent, contains: child))
-        XCTAssertEqual(LSPInstallLayout(base: absent).base.path, "/private/tmp-absent-xyz")
-        XCTAssertFalse(LSPInstallLayout.directory(absent, contains: URL(fileURLWithPath: "/private/tmp")))
+        for root in [existing, absent] {
+            let child = root.appendingPathComponent("pisaka-absent-xyz/node_modules/typescript")
+            XCTAssertTrue(LSPInstallLayout.directory(root, contains: child), "\(root.path)")
+            // The spelling the caller handed in survives, whether or not the
+            // shortened form happens to exist.
+            XCTAssertEqual(LSPInstallLayout(base: root).base.path, root.path)
+            XCTAssertFalse(
+                LSPInstallLayout.directory(root, contains: URL(fileURLWithPath: "/private")),
+                "\(root.path)"
+            )
+        }
+    }
+
+    /// `isBase(_:)` is the delete sites' "and never the root itself", and it has
+    /// to be lexical for the same reason containment is: the two halves of
+    /// `mayDelete` are one predicate, and a `standardizedFileURL` comparison —
+    /// which is what this replaced — disagrees with the other half under exactly
+    /// the `/private` root the layout is spelled with in the tests.
+    func testIsBaseAnswersTheRootItselfInEverySpellingAndNothingElse() {
+        let layout = LSPInstallLayout(base: URL(fileURLWithPath: "/private/tmp/servers"))
+
+        XCTAssertTrue(layout.isBase(layout.base))
+        XCTAssertTrue(layout.isBase(URL(fileURLWithPath: "/private/tmp/servers/", isDirectory: true)))
+        XCTAssertTrue(layout.isBase(URL(fileURLWithPath: "/private/tmp/servers/node/..")))
+
+        XCTAssertFalse(layout.isBase(layout.stagingRoot))
+        XCTAssertFalse(layout.isBase(layout.componentDirectory("node")))
+        XCTAssertFalse(layout.isBase(URL(fileURLWithPath: "/private/tmp")))
+        // The `/private` root exists on disk, so this is the spelling
+        // `standardizedFileURL` used to collapse into the base — and the one that
+        // made the containment half and this half of `mayDelete` disagree.
+        XCTAssertFalse(layout.isBase(URL(fileURLWithPath: "/tmp/servers")))
     }
 
     /// The init no longer strips a prefix either: `/private/tmp` stays spelled the

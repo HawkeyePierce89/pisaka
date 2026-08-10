@@ -306,10 +306,13 @@ public struct CompletionItem: Equatable, Hashable, Sendable {
     /// the buffer** between the primary edit's start and the typed word's start.
     /// The shown string is not only shown — AppKit previews it over the typed
     /// word as the user arrows, and inserts it there itself when
-    /// `CompletionEditPlan.make` rejects the plan as stale — so under that rule
-    /// both compose exactly the buffer the plan would have, and under any looser
-    /// one they would corrupt it. An optional receiver's `?.greet` therefore
-    /// keeps its full spelling.
+    /// `CompletionEditPlan.make` rejects the plan as stale — so whenever the
+    /// rule *drops* a head those two compose exactly the buffer the plan would
+    /// have, and under any looser rule they would corrupt it. An optional
+    /// receiver's `?.greet` therefore keeps its full spelling. The converse is
+    /// not promised: a string the rule keeps is inserted verbatim over the typed
+    /// word and need not compose the plan's buffer at all — the fallback path's
+    /// own limit, stated in full on the method that computes this.
     ///
     /// The LSP `label` is never this string: `greet(name: String)` written into
     /// the buffer by the fallback path is not a completion, it is damage.

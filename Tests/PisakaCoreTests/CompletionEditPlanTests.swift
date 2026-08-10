@@ -568,6 +568,43 @@ final class CompletionEditPlanTests: XCTestCase {
         )
     }
 
+    /// The head comparison is **UTF-16 units, literally**, not `String`'s
+    /// canonical equality — the documented rule, and until this test nothing
+    /// failed when it was spelled the other way.
+    ///
+    /// The two spellings of `é` (precomposed U+00E9, decomposed `e` + U+0301)
+    /// compare *equal* as `String`s and unequal as code units. The head is not
+    /// re-typed by anything: it is the buffer's own bytes, left standing while
+    /// only the tail is inserted over the typed word. So a server that answers a
+    /// decomposed receiver with a precomposed one is rewriting characters that
+    /// are there, which is the case the rule exists to keep whole — under
+    /// canonical equality it would drop them and silently change the receiver's
+    /// normalisation.
+    func testAHeadInADifferentUnicodeNormalisationIsKept() {
+        let decomposed = "cafe\u{0301}."
+        let text = "let x = \(decomposed)" as NSString
+        let receiver = text.range(of: decomposed).location
+        let head = NSRange(location: receiver, length: (decomposed as NSString).length)
+
+        // Precomposed head over a decomposed buffer: canonically the same string,
+        // a different sequence of code units.
+        XCTAssertEqual("caf\u{00E9}.", decomposed)
+        XCTAssertNotEqual(("caf\u{00E9}." as NSString).length, (decomposed as NSString).length)
+
+        XCTAssertEqual(
+            primary(head, "caf\u{00E9}.brew")
+                .displayText(forTypedWordStartingAt: text.length, in: text),
+            "caf\u{00E9}.brew"
+        )
+        // The same head spelled the way the buffer holds it *is* dropped, so the
+        // assertion above is about the code units and not about the shape.
+        XCTAssertEqual(
+            primary(head, "\(decomposed)brew")
+                .displayText(forTypedWordStartingAt: text.length, in: text),
+            "brew"
+        )
+    }
+
     /// No gap — the ordinary shape, including every sourcekit-lsp member item,
     /// whose `textEdit` is zero-length at the caret. The display *is* the
     /// inserted text.

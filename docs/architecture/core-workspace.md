@@ -497,6 +497,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     match it), whereas switching *this* helper would desynchronize it from the
     urls `WorkspaceModel` has been matching all along — exactly the drift the
     extraction prevents.
+    **`LSPInstallLayout` is the third and last deliberate variant**, and worth
+    naming here because its rule is the *opposite* of this one: it restates
+    `relativeComponents(of:under:)`'s whole-component prefix check over
+    **lexically** normalised components, because that file may not touch the disk
+    at all — so it keeps a `/private` spelling rather than stripping it, and two
+    spellings of one directory compare as two. It is the only place that must not
+    call in here; its reasoning is in `core-provisioning.md`.
   - `DisplayPath.swift` — the breadcrumb segments shown above the editor for the
     open file: `public enum DisplayPath { public static func components(fileURL:
     URL?, projectRoot: URL?, home: URL) -> [String] }`, Foundation-only and built

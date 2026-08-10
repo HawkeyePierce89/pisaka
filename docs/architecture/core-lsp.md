@@ -765,9 +765,19 @@ document, together with the limits they carry.
     That head-dropping is the *only* difference allowed, and the reason is that
     the shown string is not only shown — AppKit previews it over the typed word as
     the user arrows and inserts it there itself when `make` rejects the plan as
-    stale, so under this rule both compose exactly the buffer the plan would have.
+    stale, so whenever this rule *drops* a head those two compose exactly the
+    buffer the plan would have.
     (For tsserver's dot shape today's fallback writes `greeter..greet`, so the
-    rule corrects that path rather than merely prettifying a row.) Hence the
+    rule corrects that path rather than merely prettifying a row.)
+    **The guarantee runs one way, and that is not an oversight.** A string the
+    rule *keeps* promises nothing about the fallback: `?.greet` inserted over the
+    typed word composes `greeter.?.greet`. Nor does a dropped head help when the
+    server's range reaches past the caret — `make` demands only that the primary
+    edit reach *at least* the typed word's end, so the characters beyond it stay
+    standing. Both are limits of the fallback path itself, which can only ever
+    replace the typed word, and no choice of display string repairs either; they
+    are the reason the rule refuses to shorten in those cases rather than
+    evidence that it should shorten more. Hence the
     guards: `?.greet` over the same range keeps its full spelling because `?` is
     not what stands there, a `newText` that *is* the head keeps it because an
     empty row is not a row, and no gap at all (`range.location` == the typed

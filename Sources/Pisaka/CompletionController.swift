@@ -54,12 +54,23 @@ import PisakaCore
 /// **only** a head that re-writes, verbatim, characters already standing in the
 /// buffer. This class writes that string into the buffer twice — as AppKit's
 /// arrow-key preview, and through `super` whenever `CompletionEditPlan.make`
-/// rejects the plan as stale — and under that rule both compose exactly the
-/// buffer the plan would have. Under a looser one they would corrupt it, so the
-/// rule is not a formatting nicety to be simplified away: an optional receiver's
-/// `?.greet` covers the same range but rewrites a `?` that is *not* there, keeps
-/// its full spelling, and displaying the LSP `label` instead —
-/// `greet(name: String)` — would have the fallback path insert that.
+/// rejects the plan as stale. The rule's guarantee is **one-directional**, and
+/// that is what it is for: whenever a head *is* dropped, those two writes
+/// compose exactly the buffer the plan would have (`greeter.` + `greet`), for
+/// edits that end where the typed word ends — which is every shape this exists
+/// for. Under a looser rule they would corrupt it, so the rule is not a
+/// formatting nicety to be simplified away: an optional receiver's `?.greet`
+/// covers the same range but rewrites a `?` that is *not* there, and displaying
+/// the LSP `label` instead — `greet(name: String)` — would have the fallback
+/// path insert that.
+///
+/// What it does **not** promise is that a *kept* string composes the plan's
+/// buffer. `?.greet` inserted over the typed word writes `greeter.?.greet`, and
+/// a server range reaching past the caret leaves the characters beyond it
+/// standing. Both are the fallback path's pre-existing limit rather than
+/// anything the display string introduced — that path can only ever replace the
+/// typed word, so no display string fixes it — and both are why the rule refuses
+/// to shorten in those cases instead of guessing.
 ///
 /// **Two triggers, not one.** The ordinary trigger is a partial word of at least
 /// `minimumPrefixLength` characters. The second is a *member position* — a caret
@@ -134,9 +145,17 @@ final class CompletionController {
         /// an LSP item's edits (D4's auto-import) could never be applied. The
         /// display spelling rather than the inserted text for exactly that
         /// reason: the popup only ever knows the row it is showing. First wins on
-        /// a duplicate, matching the provider's own dedup rule: two items that
-        /// read the same are one row, and the higher-ranked one is the one the
-        /// user is choosing.
+        /// a duplicate: two items that *read* the same are one row, and the
+        /// higher-ranked one is the one the user is choosing.
+        ///
+        /// Note this key is deliberately **not** the provider's: it deduped by
+        /// the *inserted* text, so two items that insert differently but read
+        /// the same survive there and collapse here. This is the one place the
+        /// popup's list is narrower than the provider's answer, and it has to
+        /// be — a row the user cannot tell apart is not a choice. Everything
+        /// keyed by the same string (the resolves) is therefore fed from *this*
+        /// deduped list rather than from the provider's, so no dropped item can
+        /// file edits under a surviving row's key.
         let items: [String: CompletionItem]
     }
 
@@ -404,7 +423,17 @@ final class CompletionController {
         // the pick is hundreds of milliseconds away, which is time enough for a
         // round trip the user never waits on. Nothing depends on the answer
         // arriving: an item committed first takes the follow-up path instead.
-        prefetchResolves(for: items, provider: provider, token: token)
+        //
+        // The **deduped** rows, not the provider's raw list, and that is a
+        // correctness requirement rather than a saving: the resolve tables are
+        // keyed by the displayed string, so an item this snapshot dropped would
+        // file its edits under a key that now belongs to the row the user can
+        // actually see — and `insert` prefers `resolved[word]` over the item's
+        // own edits, so the visible row would commit the dropped item's
+        // replacement and its `import`. Keying off `texts` makes the collision
+        // unrepresentable: within the snapshot the display strings are unique by
+        // construction, and the provider's order is preserved.
+        prefetchResolves(for: texts.compactMap { byText[$0] }, provider: provider, token: token)
 
         guard let textView,
               !textView.hasMarkedText(),
