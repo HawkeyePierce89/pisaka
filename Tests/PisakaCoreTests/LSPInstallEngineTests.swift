@@ -154,8 +154,28 @@ final class LSPInstallEngineTests: XCTestCase {
 
         static let escapingArchive = URL(string: "https://example.invalid/escaping-1.0.0.gz")!
 
+        /// The *other* field the by-hand pin edit composes a path out of, and the
+        /// one that escapes for **both** formats: an ordinary tarball whose
+        /// `destinationSubpath` walks up out of the staging tree.
+        static let escapingDestination = LSPComponent(
+            id: "escaping-destination",
+            version: "1.0.0",
+            licenseSPDX: "MIT",
+            licenseFileSubpaths: [],
+            artifacts: [
+                artifact(
+                    escapingDestinationArchive,
+                    byteCount: 40,
+                    destinationSubpath: "../../../escape"
+                )
+            ]
+        )
+
+        static let escapingDestinationArchive =
+            URL(string: "https://example.invalid/escaping-destination-1.0.0.tgz")!
+
         static let manifest = LSPProvisioningManifest(
-            components: [runtime, server, intelOnly, binary, escapingBinary]
+            components: [runtime, server, intelOnly, binary, escapingBinary, escapingDestination]
         )
         static let bumpedManifest = LSPProvisioningManifest(
             components: [runtime, bumpedServer, bumpedBinary]
@@ -199,6 +219,7 @@ final class LSPInstallEngineTests: XCTestCase {
             downloader.serve(Fixture.binaryArchive)
             downloader.serve(Fixture.bumpedBinaryArchive)
             downloader.serve(Fixture.escapingArchive)
+            downloader.serve(Fixture.escapingDestinationArchive)
 
             unpacker.stub(Fixture.runtimeARM, tree: ["bin/runtime": "#!runtime arm64", "LICENSE": "MIT"])
             unpacker.stub(Fixture.runtimeIntel, tree: ["bin/runtime": "#!runtime x64", "LICENSE": "MIT"])
@@ -847,8 +868,10 @@ final class LSPInstallEngineTests: XCTestCase {
         XCTAssertTrue(harness.tree.isExecutableFile(at: harness.tree.url("LanguageServers/binary/1.0.0/bin/tool")))
     }
 
-    /// D12's containment rule applied to the one path this layer composes out of
-    /// *manifest data* rather than out of `LSPInstallLayout`'s own arithmetic.
+    /// D12's containment rule applied to the `.gzip` case's file name — one of the
+    /// two manifest fields a path is composed out of, and the one the containment
+    /// test cannot see, because the unpacker appends it after this layer has handed
+    /// the destination over.
     ///
     /// The unpacker writes `destination.appendingPathComponent(fileName)` and
     /// creates it `0o755`, so a `fileName` that walks upwards would put an
@@ -873,6 +896,83 @@ final class LSPInstallEngineTests: XCTestCase {
         )
         XCTAssertEqual(harness.tree.moves, [])
         XCTAssertEqual(harness.engine.state(of: "escaping"), .absent)
+        XCTAssertEqual(harness.stagingEntries, [])
+    }
+
+    /// The other manifest field, and the one that escapes for **every** format:
+    /// `destinationSubpath` is split and appended onto the staging directory, so
+    /// `"../../../escape"` names a directory outside the install root that
+    /// `ensureDirectory` would create and `tar` would then unpack into — no `.gzip`
+    /// required.
+    ///
+    /// Refused before the directory exists, not merely before the unpack: creating
+    /// it is already a write outside the one tree this app promises to touch, and
+    /// `discard(staging)` cannot reach it afterwards because it is not under
+    /// staging.
+    func testAnArtifactWhoseDestinationEscapesTheStagingTreeIsRefusedBeforeAnythingIsCreated() async {
+        let harness = Harness()
+
+        let error = await expectFailure(installing: "escaping-destination", on: harness.engine)
+        guard case let .unpackFailed(component, reason) = error else {
+            return XCTFail("expected an unpack failure, got \(String(describing: error))")
+        }
+        XCTAssertEqual(component, "escaping-destination")
+        XCTAssertTrue(reason.contains("../../../escape"), "the message does not name it: \(reason)")
+
+        XCTAssertFalse(
+            harness.tree.hasDirectory("escape"),
+            "a directory was created outside the install root"
+        )
+        XCTAssertEqual(
+            harness.unpacker.calls.count, 0,
+            "the unpacker was handed a destination it should never have been asked to write"
+        )
+        XCTAssertEqual(harness.tree.moves, [])
+        XCTAssertEqual(harness.engine.state(of: "escaping-destination"), .absent)
+        XCTAssertEqual(harness.stagingEntries, [])
+    }
+
+    /// And a destination that stays inside the install root but walks *out of the
+    /// attempt's staging directory* is refused for the same reason: it would write
+    /// into an installed version directory, where `discard` will not clean it up
+    /// and D13's "the previous install is exactly as it was" quietly stops being
+    /// true.
+    func testAnArtifactWhoseDestinationLeavesStagingForAnInstalledTreeIsRefused() async throws {
+        let harness = Harness()
+        try await harness.engine.install("binary")
+        let installed = harness.tree.files
+        let unpacksSoFar = harness.unpacker.calls.count
+
+        let manifest = LSPProvisioningManifest(
+            components: [
+                LSPComponent(
+                    id: "sideways",
+                    version: "1.0.0",
+                    licenseSPDX: "MIT",
+                    licenseFileSubpaths: [],
+                    artifacts: [
+                        Fixture.artifact(
+                            Fixture.escapingDestinationArchive,
+                            byteCount: 40,
+                            destinationSubpath: "../../binary/1.0.0/bin"
+                        )
+                    ]
+                )
+            ]
+        )
+        harness.rebuild(manifest: manifest)
+
+        let error = await expectFailure(installing: "sideways", on: harness.engine)
+        guard case .unpackFailed = error else {
+            return XCTFail("expected an unpack failure, got \(String(describing: error))")
+        }
+
+        XCTAssertEqual(harness.tree.files, installed, "the previous install was disturbed")
+        XCTAssertEqual(
+            harness.unpacker.calls.count, unpacksSoFar,
+            "the unpacker was handed a destination inside an installed tree"
+        )
+        XCTAssertEqual(harness.engine.state(of: "binary"), .installed(version: "1.0.0"))
         XCTAssertEqual(harness.stagingEntries, [])
     }
 

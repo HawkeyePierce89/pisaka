@@ -378,8 +378,13 @@ public final class LSPInstallEngine {
                 }
 
                 let destination = layout.destination(of: artifact, unpackingInto: staging)
+                try verifyUnpackTarget(
+                    of: artifact,
+                    destination: destination,
+                    inside: staging,
+                    of: component
+                )
                 try ensureDirectory(destination, of: component)
-                try verifyUnpackTarget(of: artifact, of: component)
                 do {
                     try await unpacker.unpack(
                         archive,
@@ -404,23 +409,48 @@ public final class LSPInstallEngine {
         }
     }
 
-    /// The `.gzip` case's other half: the file it names is written *inside* the
-    /// destination and nowhere else.
+    /// D12's containment rule at the place this layer *writes*: everything one
+    /// artifact produces lands inside that attempt's staging directory and nowhere
+    /// else.
     ///
-    /// Every other path in this layer is `LSPInstallLayout`'s own arithmetic, which
-    /// is why D12's containment rule could be stated once and enforced at the one
-    /// place that deletes (`mayDelete`). This case is the first that composes a path
-    /// out of *manifest data* — `destination.appendingPathComponent(fileName)`, in
-    /// the unpacker — so a `fileName` of `"../../x"` would have an executable
-    /// written outside the install root, and `verifyExecutable` would then confirm
-    /// it and let `commit` proceed. The manifest is compiled-in constant data and
-    /// `LSPProvisioningManifestTests` pins both shipped names, but the documented
-    /// by-hand pin-update procedure edits it, and D12's promise is meant to hold
-    /// against a mistake there rather than against nothing.
+    /// Every path in this layer is `LSPInstallLayout`'s own arithmetic **over two
+    /// fields of manifest data**, and those two are what this checks:
     ///
-    /// Checked **before** the unpack rather than after, because after is too late:
-    /// the write is what has to not happen.
-    private func verifyUnpackTarget(of artifact: LSPArtifact, of component: LSPComponent) throws {
+    /// - `destinationSubpath` reaches `layout.destination(of:unpackingInto:)`,
+    ///   which splits it on `/` and appends the components — so `"../../x"` yields
+    ///   a directory outside the staging tree, which `ensureDirectory` would then
+    ///   *create* and both formats would unpack into. Outside the install root it
+    ///   escapes the app's own storage; inside it but outside staging it writes
+    ///   into an installed version directory, where `discard` will not clean it up
+    ///   and D13's "the previous install is exactly as it was" quietly stops being
+    ///   true.
+    /// - the `.gzip` case's `fileName` reaches
+    ///   `destination.appendingPathComponent(fileName)` in the unpacker, so a name
+    ///   that walks upwards would have an executable written outside the install
+    ///   root and `verifyExecutable` would then confirm it and let `commit`
+    ///   proceed. A file name is checked as a file name — the containment test
+    ///   above cannot see it, because the unpacker composes it after this layer has
+    ///   handed the destination over.
+    ///
+    /// The manifest is compiled-in constant data and `LSPProvisioningManifestTests`
+    /// pins both fields for every shipped artifact, but the documented by-hand
+    /// pin-update procedure edits them, and D12's promise is meant to hold against a
+    /// mistake there rather than against nothing.
+    ///
+    /// Checked **before** the directory is created and the unpack runs rather than
+    /// after, because after is too late: the write is what has to not happen.
+    private func verifyUnpackTarget(
+        of artifact: LSPArtifact,
+        destination: URL,
+        inside staging: URL,
+        of component: LSPComponent
+    ) throws {
+        guard LSPInstallLayout.directory(staging, contains: destination) else {
+            throw LSPInstallError.unpackFailed(
+                component: component.id,
+                reason: "“\(artifact.destinationSubpath)” is not inside this install."
+            )
+        }
         guard case let .gzip(fileName) = artifact.format else { return }
         guard fileName.isEmpty || fileName.contains("/") || fileName == "." || fileName == ".."
         else { return }

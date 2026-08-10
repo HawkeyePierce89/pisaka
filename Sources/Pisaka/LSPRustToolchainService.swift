@@ -474,9 +474,17 @@ final class LSPRustToolchainService: LSPRustToolchainDiscovering, @unchecked Sen
         process.waitUntilExit()
 
         // A child killed by `cancel()` exits non-zero with whatever it had written
-        // so far, which would otherwise read as "this `cargo` does not work" — a
-        // quit turned into a permanent, cached "no Rust toolchain" for the run that
-        // is ending anyway, and a wrong answer to any caller still awaiting it.
+        // so far, which would otherwise read as "this `cargo` does not work". It is
+        // distinguished here rather than left to the status for
+        // `LSPGoToolchainService`'s reason, and *only* here: this service's two
+        // callers both collapse every throw into "nothing found" (`probe` returns
+        // `false`, `loginShellPath` returns `nil`), so a cancel still ends the run's
+        // cached report as `.missing` — the same answer the raw status would have
+        // produced. That is deliberate and not a gap: `terminateNow()` is called
+        // from the app's terminate observer alone, so the only report this can
+        // wrongly cache belongs to a run that is already ending. What the throw
+        // buys is that the distinction exists at this seam, so a future caller that
+        // wants to *retry* rather than record can ask.
         if child.wasCancelled { throw Failure.cancelled }
 
         return Result(

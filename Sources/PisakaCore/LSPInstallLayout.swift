@@ -130,7 +130,20 @@ public struct LSPInstallLayout: Equatable, Sendable {
     /// Whether `url` is inside the install root. The engine deletes directories;
     /// this is the assertion that it only ever deletes its own.
     public func contains(_ url: URL) -> Bool {
-        let root = base.standardizedFileURL.path
+        Self.directory(base, contains: url)
+    }
+
+    /// Whether `url` *is* `directory` or lies underneath it, lexically.
+    ///
+    /// The same string comparison over standardised paths that `contains(_:)` is,
+    /// asked of an arbitrary root rather than of `base` — the engine asks it of the
+    /// install root before it deletes and of one attempt's staging directory before
+    /// it writes, and one implementation is what keeps those two answers the same
+    /// shape. Lexical on purpose, like everything else here: this file resolves
+    /// `.`/`..` and touches no file system, so a symlink inside the tree is not
+    /// followed (D12 states that limit).
+    public static func directory(_ directory: URL, contains url: URL) -> Bool {
+        let root = directory.standardizedFileURL.path
         let candidate = url.standardizedFileURL.path
         return candidate == root || candidate.hasPrefix(root.hasSuffix("/") ? root : root + "/")
     }

@@ -202,6 +202,12 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     out of a listing, and one that resolved back to the root (a hand-edited
     manifest with `..` in an id, a `.staging` entry that walks out) would take
     every provisioned server with it in a single `removeItem`.
+    The comparison itself is `directory(_:contains:)`, a static over an arbitrary
+    root: the engine asks it of the install root before it deletes and of one
+    attempt's staging directory before it *writes* (`verifyUnpackTarget`), and one
+    implementation is what keeps those two answers the same shape. Lexical like
+    everything else in this file — `.`/`..` are resolved, symlinks are not
+    followed, which is the limit D12 states.
 
   - `LSPInstallEngine.swift` — the whole of D12–D14: the two seams, the typed
     `LSPInstallError`, `state(of:)`, `install(_:)`, `remove(_:)` and
@@ -239,21 +245,37 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     after the digest rather than instead of it: a mismatched download never reaches
     the unpacker at all, so the gate follows verification and never stands in for
     it.
-    **`verifyUnpackTarget` is the other half, and it runs before the unpack rather
-    than after it.** `.gzip` is the first format whose destination path is composed
-    out of *manifest data* — the unpacker writes
-    `destination.appendingPathComponent(fileName)` and creates it `0o755` — where
-    every other path in this layer is `LSPInstallLayout`'s own arithmetic, which is
-    why D12's containment rule could be stated once and enforced at the one place
-    that *deletes* (`mayDelete`). A `fileName` of `"../../x"` would therefore put
-    an executable outside the install root, and `verifyExecutable` would then
-    confirm it and let `commit` proceed. So a `.gzip` file name that is not a lone
-    component throws `unpackFailed` before anything is written — after is a file
-    nothing here can un-write. The manifest is compiled-in constant data and
-    `LSPProvisioningManifestTests.testEveryGzipArtifactNamesALoneFile` states the
-    same rule where that data lives, so a by-hand pin edit fails `swift test`
-    rather than at install time; the runtime guard exists because D12's promise is
-    meant to hold against a mistake in that procedure rather than against nothing.
+    **`verifyUnpackTarget` is the other half, and it runs before the destination is
+    even created rather than after the unpack.** D12's containment rule is enforced
+    at the one place this layer *deletes* (`mayDelete`) because every path here is
+    `LSPInstallLayout`'s own arithmetic — but that arithmetic runs over **two fields
+    of manifest data**, and this is the gate that covers both:
+    - `destinationSubpath` reaches `destination(of:unpackingInto:)`, which splits it
+      on `/` and appends the components, so `"../../../x"` names a directory outside
+      the staging tree that `ensureDirectory` would *create* and **either** format
+      would then unpack into. Outside the install root it escapes the app's own
+      storage; inside it but outside staging it writes into an installed version
+      directory, where `discard` cannot reach it and D13's "the previous install is
+      exactly as it was" quietly stops being true. So the destination is required to
+      be inside the attempt's staging directory
+      (`LSPInstallLayout.directory(_:contains:)`, the same lexical comparison
+      `contains(_:)` makes against `base`) before anything is created.
+    - the `.gzip` case's `fileName` reaches
+      `destination.appendingPathComponent(fileName)` *in the unpacker*, which
+      creates it `0o755` — after this layer has handed the destination over, so the
+      containment test above cannot see it. A `fileName` of `"../../x"` would put an
+      executable outside the install root and `verifyExecutable` would then confirm
+      it and let `commit` proceed, so a file name that is not a lone component
+      throws `unpackFailed` too.
+
+    Both throw before anything is written — after is a file nothing here can
+    un-write. The manifest is compiled-in constant data and
+    `LSPProvisioningManifestTests` states both rules where that data lives
+    (`testEveryGzipArtifactNamesALoneFile`, and the destination assertions that
+    every subpath is relative and free of `..`), so a by-hand pin edit fails
+    `swift test` rather than at install time; the runtime guards exist because
+    D12's promise is meant to hold against a mistake in that procedure rather than
+    against nothing.
     The old version's
     deletion is best-effort and *after* the rename — failing an install because a
     stale directory could not be removed would turn a successful upgrade into a
