@@ -537,8 +537,14 @@ final class CompletionEditPlanTests: XCTestCase {
     /// The counter-case that decides the rule's shape: an optional receiver's
     /// `?.` covers the same range but does **not** re-write what stands there —
     /// the buffer holds `.`, the edit writes `?.` — so showing the full rewrite
-    /// is the honest display, and previewing it composes the buffer the plan
-    /// would.
+    /// is the honest display.
+    ///
+    /// The guarantee runs one way, and this is the documented shape it excludes:
+    /// keeping the string says nothing about the fallback, which can only ever
+    /// replace the typed word and so would compose `greeter.?.greet` rather than
+    /// the plan's `greeter?.greet`. Keeping it whole is still the right answer —
+    /// no shorter spelling repairs that, and shortening would additionally
+    /// mislead the row.
     func testAnOptionalChainRewriteKeepsItsFullSpelling() {
         let text = "let message = greeter." as NSString
         let dot = text.range(of: ".").location

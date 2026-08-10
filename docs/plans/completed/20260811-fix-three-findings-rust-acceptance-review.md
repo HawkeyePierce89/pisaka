@@ -336,9 +336,18 @@ branch on their own. What changed after they were written:
 - `CLAUDE.md` *was* touched after all: the "Paths" invariant now names
   `LSPInstallLayout`'s lexical rule as the third path rule that must not be
   unified with the other two
+- `Sources/Pisaka/iOS/` *was* touched after all, so Task 5's "the iOS surfaces
+  are untouched" and "no change under `Sources/Pisaka/iOS/`" no longer hold:
+  `CodeEditorCoordinator_iOS.swift` now feeds the completion strip
+  `items.map(\.displayText)` instead of `items.map(\.text)`. Behaviour there is
+  identical today — iOS installs no LSP provider, so every item's `displayText`
+  defaults to its `text` — but the strip both shows the string and inserts it
+  over the typed word, which is exactly the pair the display rule is for, so the
+  invariant is spelled where it is consumed rather than resting on that default
 - files touched beyond the ticket's list therefore also include
   `LSPInstallEngine.swift`, `LSPGoplsProvisioning.swift`,
-  `LSPInstallEngineTests.swift` and `Tests/…/Support/StubFileTree.swift`
+  `LSPInstallEngineTests.swift`, `Tests/…/Support/StubFileTree.swift` and
+  `Sources/Pisaka/iOS/CodeEditorCoordinator_iOS.swift`
 
 ## Post-Completion Checks (manual)
 
