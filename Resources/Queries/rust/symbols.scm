@@ -18,7 +18,8 @@
 ;    the text** — Go's pointer-star reasoning verbatim.
 ;    `[(type_identifier) (generic_type …)] @container` would capture the
 ;    *generic_type node* for the generic case and put `<T>` back, and `Worker<T>`
-;    matches no declared type. So the self-type shapes get one pattern each.
+;    matches no declared type. So the self-type shapes get one pattern each —
+;    four of them, because the wrappers nest (`impl<T> crate::foo::Bar<T>`).
 ;  * **`mod_item body:` is anchored beside `source_file`, while `impl` and
 ;    `trait` bodies are not** — all three hold a `declaration_list`, and naming
 ;    the parent is what tells them apart exactly. An inline `mod` is a
@@ -78,6 +79,14 @@
 
 (impl_item
   type: (scoped_type_identifier name: (type_identifier) @container)
+  body: (declaration_list (function_item name: (identifier) @definition.method)))
+
+; The two wrappers nest: `generic_type type:` is declared to hold a
+; `scoped_type_identifier` as well as a bare one, so `impl<T> crate::foo::Bar<T>`
+; (and `impl<'a> Self::Iter<'a>`) is one node deeper than either pattern above
+; and needs the combined shape spelled out.
+(impl_item
+  type: (generic_type type: (scoped_type_identifier name: (type_identifier) @container))
   body: (declaration_list (function_item name: (identifier) @definition.method)))
 
 ; Trait members: provided methods are `function_item`, required ones

@@ -1142,9 +1142,17 @@ the stack already assumes: `SymbolIntelligenceProvider`'s member branch answers
 text** — Go's pointer-star reasoning verbatim.
 `[(type_identifier) (generic_type …)] @container` would capture the
 *`generic_type` node* in the generic case and put `<T>` back, and `Worker<T>`
-matches no declared type. So the three self-type shapes (bare, generic, scoped)
-get one pattern each; `scoped_type_identifier` is stepped through the same way,
-so `impl foo::Bar` files under `Bar`.
+matches no declared type. So the self-type shapes get one pattern each;
+`scoped_type_identifier` is stepped through the same way, so `impl foo::Bar`
+files under `Bar`. There are **four** patterns, not three, because the two
+wrappers nest: `generic_type type:` is declared to hold a
+`scoped_type_identifier` as well as a bare `type_identifier`, so
+`impl<T> crate::foo::Bar<T>` (and `impl<'a> Self::Iter<'a>`) is one node deeper
+than either single-wrapper pattern and matches neither. That shape is common
+enough — an inherent impl written against a path-qualified generic type — that
+its methods silently vanishing from the index would look exactly like a type
+that declares none, so the combined shape is spelled out rather than left to
+the "not indexed, deliberately" list.
 
 **`mod_item body:` is anchored beside `source_file`, while `impl` and `trait`
 bodies are not.** All three hold a `declaration_list`, so naming the parent is
@@ -1184,8 +1192,8 @@ The runtime half was run against the resolved checkout by compiling the
 tree-sitter runtime with the pinned grammar's `parser.c` **and `scanner.c`** into
 a throwaway C harness over `ts_query_new`/`ts_query_cursor` — Core cannot link
 SwiftTreeSitter, and no `tree-sitter` CLI is needed for this — over a fixture
-exercising every pattern. The query compiled (18 patterns, 7 captures) and
-**every one of the 18 fired**, so none is dead. Confirmed element by element:
+exercising every pattern. The query compiled (19 patterns, 7 captures) and
+**every one of the 19 fired**, so none is dead. Confirmed element by element:
 
 | fixture declaration | capture | text |
 |---|---|---|
@@ -1206,6 +1214,7 @@ exercising every pattern. The query compiled (18 patterns, 7 captures) and
 | `impl<T> Holder<T> { pub fn get(…) }` | `@container` + `@definition.method` | `Holder` (no `<T>`) + `get` |
 | `impl fmt::Display for Worker { fn fmt(…) }` | `@container` + `@definition.method` | `Worker` (**not** `Display`) + `fmt` |
 | `impl deep::Nested { pub fn ping(…) }` | `@container` + `@definition.method` | `Nested` (path stepped through) + `ping` |
+| `impl<T> holders::Boxed<T> { pub fn unwrap_it(…) }` | `@container` + `@definition.method` | `Boxed` (both wrappers stepped through) + `unwrap_it` |
 | `pub fn main_entry()` | `@definition.function` | `main_entry` |
 | `fn nested()` / `const NESTED_CONST` (inside `main_entry`) | — | **not captured** — the `source_file` anchor at work |
 | `pub mod outer { pub fn helper() }` | `@definition.function` | `helper` — a `mod` is a namespace, so its `fn` is top-level |
