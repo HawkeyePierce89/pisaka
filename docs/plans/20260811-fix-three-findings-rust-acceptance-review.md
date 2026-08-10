@@ -284,7 +284,7 @@ in all three paths (commit, preview, late-resolve follow-up).
 
 ### Task 6: Update documentation
 
-- [ ] `docs/architecture/core-provisioning.md` — rewrite the containment passage
+- [x] `docs/architecture/core-provisioning.md` — rewrite the containment passage
       (`LSPInstallLayout` entry, "Lexical like everything else in this file"):
       what the lexical normaliser does, **why `standardizedFileURL` is not used**
       — it consults the file system for `/private/{tmp,var,etc}`, which is how a
@@ -292,21 +292,25 @@ in all three paths (commit, preview, late-resolve follow-up).
       `verifyUnpackTarget` — the component-wise comparison, and the stated limit
       that two spellings of one directory compare as different, with why that is
       safe for a predicate guarding deletes
-- [ ] `docs/architecture/core-intelligence.md` — extend the `CompletionItem`
+- [x] `docs/architecture/core-intelligence.md` — extend the `CompletionItem`
       passage with `displayText`: defaulted like `edits`/`resolveHandle`,
       display-only, and the head-dropping safety rule with its reason (the shown
       string is previewed and inserted by AppKit itself), plus why the `label` is
       never shown
-- [ ] `docs/architecture/core-lsp.md` — record in the `LSPIntelligenceProvider`
+- [x] `docs/architecture/core-lsp.md` — record in the `LSPIntelligenceProvider`
       entry that a member `textEdit` covering the typed dot is answered with the
       dot in the inserted text and without it in the display, and that the
       primary edit is unchanged
-- [ ] `docs/architecture/app-editor.md` — update the `CompletionController`
+- [x] `docs/architecture/app-editor.md` — update the `CompletionController`
       entry: the popup's string is the display spelling and is the key in all
       three tables (snapshot, prefetched resolves, follow-up)
-- [ ] no `README.md` or `CLAUDE.md` change is needed (no user-facing behavior
-      beyond the corrected popup rows, no new file, no new pattern) — state that
-      explicitly rather than leaving it implied
+- [x] no `README.md` or `CLAUDE.md` change is needed, stated explicitly: the
+      three fixes add no file (so no `CLAUDE.md` index line), no invariant and no
+      new pattern — the lexical containment rule and the display-spelling rule
+      are per-file contracts and live in `docs/architecture/`, `README.md`'s
+      de-provisioning instructions still point at `LSPInstallLayout.directoryName`
+      unchanged, and the only user-visible difference is that member rows now read
+      `greet` instead of `.greet`, which no user-facing document describes
 
 ## Post-Completion Checks (manual)
 
