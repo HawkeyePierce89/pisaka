@@ -41,14 +41,20 @@ public struct LSPInstallLayout: Equatable, Sendable {
     /// app, a temporary directory in the tests.
     public let base: URL
 
-    /// `base` is standardised (`.`/`..` resolved lexically, no `realpath(3)` — the
-    /// layout touches no file system) and re-spelled as a directory URL, so that
-    /// two spellings of one root compare equal. Without the second half, a base
-    /// that arrived with a trailing slash and one that did not would be two
-    /// different `URL`s naming the same directory, and `LSPInstallLayout` is a
-    /// value the model compares.
+    /// `base` is normalised (`.`/`..` resolved lexically, no `realpath(3)` and no
+    /// `stat(2)` — the layout touches no file system) and re-spelled as a
+    /// directory URL, so that two spellings of one root compare equal. Without the
+    /// second half, a base that arrived with a trailing slash and one that did not
+    /// would be two different `URL`s naming the same directory, and
+    /// `LSPInstallLayout` is a value the model compares.
+    ///
+    /// `URL.standardizedFileURL` is deliberately *not* what does that: it is
+    /// documented as lexical and is not — under `/private/{tmp,var,etc}` it strips
+    /// the `/private` prefix when the shortened path exists on disk — so it would
+    /// re-spell a base the caller handed us into a different one, and only for
+    /// some roots. See `normalisedComponents(of:)`.
     public init(base: URL) {
-        self.base = URL(fileURLWithPath: base.standardizedFileURL.path, isDirectory: true)
+        self.base = Self.directoryURL(Self.normalisedComponents(of: base))
     }
 
     /// The directory name the app appends to its Application Support directory.
@@ -135,20 +141,79 @@ public struct LSPInstallLayout: Equatable, Sendable {
 
     /// Whether `url` *is* `directory` or lies underneath it, lexically.
     ///
-    /// The same string comparison over standardised paths that `contains(_:)` is,
-    /// asked of an arbitrary root rather than of `base` — the engine asks it of the
-    /// install root before it deletes and of one attempt's staging directory before
-    /// it writes, and one implementation is what keeps those two answers the same
-    /// shape. Lexical on purpose, like everything else here: this file resolves
-    /// `.`/`..` and touches no file system, so a symlink inside the tree is not
-    /// followed (D12 states that limit).
+    /// The same comparison `contains(_:)` is, asked of an arbitrary root rather
+    /// than of `base` — the engine asks it of the install root before it deletes
+    /// and of one attempt's staging directory before it writes, and one
+    /// implementation is what keeps those two answers the same shape. Lexical on
+    /// purpose, like everything else here: this file resolves `.`/`..` and touches
+    /// no file system, so a symlink inside the tree is not followed (D12 states
+    /// that limit).
+    ///
+    /// **Whole components, not a string prefix**, so `/a/bc` inside `/a/b` is
+    /// unrepresentable rather than merely tested against; equal components count
+    /// as contained, because the sweep reads the root itself. This is the rule
+    /// `CanonicalPath.relativeComponents(of:under:)` applies to *canonical*
+    /// components, restated here over lexical ones precisely because this file may
+    /// not touch the disk — the two must not be unified.
+    ///
+    /// The cost is the limit `normalisedComponents(of:)` states: two spellings of
+    /// one directory (`/tmp/x` and `/private/tmp/x`) compare as different
+    /// directories. Safe for a predicate guarding deletes and writes — it can only
+    /// ever refuse — and unreachable from the engine, which derives root and
+    /// candidate from one `base`.
     public static func directory(_ directory: URL, contains url: URL) -> Bool {
-        let root = directory.standardizedFileURL.path
-        let candidate = url.standardizedFileURL.path
-        return candidate == root || candidate.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+        let root = normalisedComponents(of: directory)
+        let candidate = normalisedComponents(of: url)
+        guard candidate.count >= root.count else { return false }
+        return candidate.prefix(root.count).elementsEqual(root)
     }
 
     // MARK: - Mechanism
+
+    /// A path's components, lexically: empties and `.` dropped, `..` resolved
+    /// against what precedes it, clamped at the root so `/../x` is `/x`.
+    ///
+    /// **Stat-free and symlink-blind, which is the whole point.** The obvious
+    /// spelling of this — `URL.standardizedFileURL` — is documented as lexical and
+    /// is not: for a path under `/private/tmp`, `/private/var` or `/private/etc`
+    /// it strips the `/private` prefix *when the shortened path exists on disk*,
+    /// and keeps it when it does not. That made this pure-path-math module quietly
+    /// decide on disk state, and it had one live consequence: the engine's
+    /// `verifyUnpackTarget` asks containment of a staging directory it has just
+    /// **created** (so the shortened spelling exists, and it standardised to
+    /// `/tmp/…`) against an artifact destination inside it that does **not** exist
+    /// yet (so it stayed `/private/tmp/…`). Two spellings of one tree compared as
+    /// unrelated and a correct install under a `/private`-spelled root failed with
+    /// `unpackFailed`.
+    ///
+    /// The limit that buys back: `/tmp/x` and `/private/tmp/x` are one directory
+    /// on macOS and this file calls them two. Nothing here may resolve that
+    /// without a `stat(2)`, and the callers only ever *refuse* on a `false`.
+    ///
+    /// The contract is an absolute file-URL path — what every construction site
+    /// supplies (Application Support in the app, a temporary directory in the
+    /// tests) — so the components are read straight off `path` and re-rooted at
+    /// `/`; a relative one would be treated as if it hung off the root.
+    private static func normalisedComponents(of url: URL) -> [String] {
+        var components: [String] = []
+        for component in url.path.split(separator: "/") {
+            switch component {
+            case ".":
+                continue
+            case "..":
+                if !components.isEmpty { components.removeLast() }
+            default:
+                components.append(String(component))
+            }
+        }
+        return components
+    }
+
+    /// The inverse of `normalisedComponents(of:)`: normalised components back to
+    /// an absolute directory URL. No components is the root itself.
+    private static func directoryURL(_ components: [String]) -> URL {
+        URL(fileURLWithPath: "/" + components.joined(separator: "/"), isDirectory: true)
+    }
 
     /// Appending a possibly-multi-component, possibly-empty subpath. Empty
     /// answers `root` unchanged — `appendingPathComponent("")` would leave a

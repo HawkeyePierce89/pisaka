@@ -141,7 +141,7 @@ in all three paths (commit, preview, late-resolve follow-up).
 - Modify: `Sources/PisakaCore/LSPInstallLayout.swift`
 - Modify: `Tests/PisakaCoreTests/LSPInstallLayoutTests.swift`
 
-- [ ] write the failing tests first: with root `/private/tmp` (exists on every
+- [x] write the failing tests first: with root `/private/tmp` (exists on every
       macOS) and an absent child spelled the same way — the shape
       `verifyUnpackTarget` asks, e.g.
       `directory(URL("/private/tmp"), contains: URL("/private/tmp/<absent>/node_modules/typescript"))`
@@ -152,25 +152,25 @@ in all three paths (commit, preview, late-resolve follow-up).
       a root which does **not** exist on disk (`/private/tmp-absent-xyz`) answers
       *identically* for the same shape, which is the "stats nothing" claim stated
       as an assertion rather than as prose
-- [ ] add the lexical normaliser as private mechanism on `LSPInstallLayout`: a
+- [x] add the lexical normaliser as private mechanism on `LSPInstallLayout`: a
       path's components with empties and `.` dropped and `..` resolved against
       what precedes it, clamped at the root so `/../x` is `/x` (matching
       `standardizedFileURL`'s *lexical* answer), stat-free and symlink-blind;
       note in its comment that the layout's contract is an absolute file-URL
       base, which every construction site supplies
-- [ ] rewrite `directory(_:contains:)` over it as a whole-component prefix
+- [x] rewrite `directory(_:contains:)` over it as a whole-component prefix
       comparison (equal components count as contained — the sweep reads the
       root), and `init(base:)` to re-spell the normalised components as a
       directory URL; both doc comments state why `standardizedFileURL` is *not*
       used (it consults the file system for `/private/{tmp,var,etc}`, so the
       pure-path-math module was quietly deciding on disk state) and state the
       lexical limit for the reader who next sees two spellings compare unequal
-- [ ] extend the tests with the remaining shapes named in the ticket: trailing
+- [x] extend the tests with the remaining shapes named in the ticket: trailing
       slash does not change either `contains(_:)` or `LSPInstallLayout` equality;
       `..` at the root does not walk above `/`; `/tmp/servers/./node/..` still
       equals `/tmp/servers`; the existing sibling-with-a-shared-string-prefix and
       `..`-walks-out negatives still fail as before
-- [ ] run `swift test` — `LSPInstallLayoutTests` green and `LSPInstallEngineTests`
+- [x] run `swift test` — `LSPInstallLayoutTests` green and `LSPInstallEngineTests`
       green **with no edit to that file**
 
 ### Task 2: A display string at the completion seam, and the rule that makes it safe

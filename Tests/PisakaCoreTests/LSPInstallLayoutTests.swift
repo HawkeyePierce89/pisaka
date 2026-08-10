@@ -157,4 +157,113 @@ final class LSPInstallLayoutTests: XCTestCase {
         XCTAssertEqual(noisy, LSPInstallLayout(base: URL(fileURLWithPath: "/tmp/servers")))
         XCTAssertTrue(noisy.contains(noisy.versionDirectory(componentID: "node", version: "1")))
     }
+
+    // MARK: - The normalisation is lexical, and stats nothing
+
+    /// The live failure this pins: `verifyUnpackTarget` asks containment of a
+    /// staging directory it has *already created* against an artifact destination
+    /// inside it that does not exist yet. `URL.standardizedFileURL` answers those
+    /// two in different spellings — it strips `/private` from a path under
+    /// `/private/{tmp,var,etc}` **when the shortened path exists on disk**, so the
+    /// created root shortened to `/tmp/…` while the absent child stayed
+    /// `/private/tmp/…`, and one tree compared as two unrelated ones. A correct
+    /// install under a `/private`-spelled root failed with "is not inside this
+    /// install".
+    func testAnAbsentChildOfAnExistingPrivateRootIsContained() {
+        let root = URL(fileURLWithPath: "/private/tmp")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: root.path),
+            "the case only bites when the root exists on disk and the child does not"
+        )
+        let destination = root.appendingPathComponent("pisaka-absent-xyz/node_modules/typescript")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+
+        XCTAssertTrue(LSPInstallLayout.directory(root, contains: destination))
+        XCTAssertTrue(LSPInstallLayout(base: root).contains(destination))
+    }
+
+    /// The claim "this file stats nothing" as an assertion rather than as prose: a
+    /// root that exists and one that does not answer identically for the same
+    /// shape. Under `standardizedFileURL` they did not.
+    func testAnAbsentRootAnswersExactlyAsAnExistingOneDoes() {
+        let absent = URL(fileURLWithPath: "/private/tmp-absent-xyz")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: absent.path))
+        let child = absent.appendingPathComponent("pisaka-absent-xyz/node_modules/typescript")
+
+        XCTAssertTrue(LSPInstallLayout.directory(absent, contains: child))
+        XCTAssertEqual(LSPInstallLayout(base: absent).base.path, "/private/tmp-absent-xyz")
+        XCTAssertFalse(LSPInstallLayout.directory(absent, contains: URL(fileURLWithPath: "/private/tmp")))
+    }
+
+    /// The init no longer strips a prefix either: `/private/tmp` stays spelled the
+    /// way the caller spelled it, so the base the engine compares against is the
+    /// base it was handed.
+    func testTheBaseKeepsItsPrivateSpelling() {
+        XCTAssertEqual(LSPInstallLayout(base: URL(fileURLWithPath: "/private/tmp")).base.path, "/private/tmp")
+        XCTAssertEqual(
+            LSPInstallLayout(base: URL(fileURLWithPath: "/private/var/folders/x")).base.path,
+            "/private/var/folders/x"
+        )
+    }
+
+    /// The documented cost of being lexical: `/tmp/x` and `/private/tmp/x` are one
+    /// directory on macOS, and this file calls them two. Stated in both directions
+    /// so nobody reads it as a one-way quirk. It is safe for a predicate that
+    /// guards deletes — it can only ever refuse — and unreachable from the engine,
+    /// which derives both sides from one `base`.
+    func testTwoSpellingsOfOneDirectoryCompareAsDifferentDirectories() {
+        let short = URL(fileURLWithPath: "/tmp/servers")
+        let long = URL(fileURLWithPath: "/private/tmp/servers")
+
+        XCTAssertFalse(LSPInstallLayout.directory(short, contains: long.appendingPathComponent("node")))
+        XCTAssertFalse(LSPInstallLayout.directory(long, contains: short.appendingPathComponent("node")))
+        XCTAssertNotEqual(LSPInstallLayout(base: short), LSPInstallLayout(base: long))
+    }
+
+    /// The remaining shapes the normaliser has to get right, none of which may
+    /// consult the disk: a trailing slash is not a component, `..` clamps at the
+    /// root instead of walking above it, and `.`/`..` still collapse.
+    func testTheLexicalNormaliserHandlesTheEdgeSpellings() {
+        // A trailing slash changes neither containment nor value identity.
+        XCTAssertTrue(LSPInstallLayout.directory(
+            URL(fileURLWithPath: "/tmp/servers/", isDirectory: true),
+            contains: URL(fileURLWithPath: "/tmp/servers/node")
+        ))
+        XCTAssertTrue(LSPInstallLayout.directory(
+            URL(fileURLWithPath: "/tmp/servers"),
+            contains: URL(fileURLWithPath: "/tmp/servers/node/", isDirectory: true)
+        ))
+        XCTAssertEqual(
+            LSPInstallLayout(base: URL(fileURLWithPath: "/tmp/servers/", isDirectory: true)),
+            LSPInstallLayout(base: URL(fileURLWithPath: "/tmp/servers"))
+        )
+
+        // `..` at the root clamps rather than walking above `/` — the same answer
+        // `standardizedFileURL` gives lexically.
+        XCTAssertEqual(LSPInstallLayout(base: URL(fileURLWithPath: "/../x")).base.path, "/x")
+        XCTAssertTrue(LSPInstallLayout.directory(
+            URL(fileURLWithPath: "/"),
+            contains: URL(fileURLWithPath: "/../x")
+        ))
+
+        // And the collapsing the old implementation did lexically still happens.
+        XCTAssertEqual(LSPInstallLayout(base: URL(fileURLWithPath: "/tmp/servers/./node/..")).base.path, "/tmp/servers")
+        XCTAssertTrue(LSPInstallLayout.directory(
+            URL(fileURLWithPath: "/tmp/servers"),
+            contains: URL(fileURLWithPath: "/tmp/servers/node/../node/./bin")
+        ))
+    }
+
+    /// Whole components rather than a string prefix, so a sibling sharing a string
+    /// prefix with the root is *unrepresentable* as contained rather than merely
+    /// tested against — asked of the static entry point, which the engine calls
+    /// with an arbitrary staging root.
+    func testContainmentComparesWholeComponents() {
+        let root = URL(fileURLWithPath: "/tmp/a/b")
+        XCTAssertTrue(LSPInstallLayout.directory(root, contains: root))
+        XCTAssertTrue(LSPInstallLayout.directory(root, contains: root.appendingPathComponent("c")))
+        XCTAssertFalse(LSPInstallLayout.directory(root, contains: URL(fileURLWithPath: "/tmp/a/bc")))
+        XCTAssertFalse(LSPInstallLayout.directory(root, contains: URL(fileURLWithPath: "/tmp/a")))
+        XCTAssertFalse(LSPInstallLayout.directory(root, contains: root.appendingPathComponent("../c")))
+    }
 }
