@@ -375,7 +375,15 @@ private struct CachedCatalog: Codable {
         else { return nil }
         for problem in decoded.problems {
             guard LeetCodeDifficulty(rawValue: problem.difficulty) != nil,
-                  LeetCodeProblemStatus(rawValue: problem.status) != nil
+                  LeetCodeProblemStatus(rawValue: problem.status) != nil,
+                  // The slug is validated here for the same reason `LeetCodeAPI`
+                  // validates it on the wire: a restored row's slug is what a
+                  // detail request is made by and — through the parser's
+                  // `requestedSlug` fallback — what a *file name* is composed
+                  // from, so this file is the second door into that path and must
+                  // not be the unguarded one. An unnormalised row invalidates the
+                  // whole cache, exactly as an unknown difficulty does.
+                  LeetCodeProblemInput.normalizedSlug(problem.slug) == problem.slug
             else { return nil }
         }
         self = decoded

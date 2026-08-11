@@ -146,6 +146,43 @@ public enum LeetCodeAPI {
         )
     }
 
+    /// The headers that carry the session, by name.
+    ///
+    /// Named here rather than at the transport because this file is where the
+    /// decision that they *are* the session lives (`commonHeaders`): a fourth
+    /// credential header added below would otherwise keep travelling across
+    /// redirects that this list is what stops.
+    public static let credentialHeaderNames = ["Cookie", "x-csrftoken"]
+
+    /// Whether a redirect from `originalURL` to `newURL` may still carry
+    /// ``credentialHeaderNames``.
+    ///
+    /// The transport follows redirects as a browser would (see its own note), and
+    /// the session travels as a **manually set** `Cookie` header rather than in a
+    /// jar — which is precisely the case `URLSession` re-sends verbatim to
+    /// whatever host the 30x names, including a different one. A `Location` off
+    /// `leetcode.com` therefore hands a third party a live, browser-equivalent
+    /// LeetCode session; the jar this layer deliberately does not use is the very
+    /// mechanism that would have applied a same-origin rule for us, so the rule
+    /// has to be written down here.
+    ///
+    /// The rule is derived from the request rather than from `siteURL`: the
+    /// credentials may travel to the host they were already being sent to, and to
+    /// hosts within it (`leetcode.com` → `www.leetcode.com`). It is deliberately
+    /// **not** ``LeetCodeProblemInput``'s "is this a LeetCode URL" rule, which
+    /// also accepts `leetcode.cn` — that is a different operator, and a session
+    /// obtained on `.com` has no business being sent there. Scheme is checked too,
+    /// so an `https` → `http` downgrade cannot carry the pair in clear text.
+    public static func redirectMayCarryCredentials(from originalURL: URL, to newURL: URL) -> Bool {
+        guard let original = originalURL.host?.lowercased(),
+              let new = newURL.host?.lowercased(),
+              newURL.scheme?.lowercased() == originalURL.scheme?.lowercased()
+        else { return false }
+        return new == original
+            || new.hasSuffix("." + original)
+            || original.hasSuffix("." + new)
+    }
+
     /// The headers every request carries, whatever its method.
     ///
     /// `csrftoken` goes out **twice** — inside `Cookie` and as `x-csrftoken` —

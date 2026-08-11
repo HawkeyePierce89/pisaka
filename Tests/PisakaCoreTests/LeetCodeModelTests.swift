@@ -518,6 +518,59 @@ final class LeetCodeModelTests: XCTestCase {
         XCTAssertEqual(model.lastError, .notLoggedIn)
     }
 
+    /// The other half of the same rule: LeetCode rejects a session as readily
+    /// with a 401/403 or an auth `errors` array as with `isSignedIn: false`, and
+    /// a *thrown* rejection must leave exactly as little behind as the parsed
+    /// one. Recording the failure and keeping the pair would put the Keychain
+    /// item and every "Signed in" surface behind a session that is already dead.
+    func testASessionRejectedByAnErrorIsNotKeptEither() async throws {
+        let rejections: [(String, LeetCodeHTTPResponse)] = [
+            (
+                "graphql errors",
+                LeetCodeHTTPResponse(
+                    statusCode: 200,
+                    headers: [:],
+                    body: Self.fixture("errors-not-authenticated.json")
+                )
+            ),
+            ("401", LeetCodeHTTPResponse(statusCode: 401, headers: [:], body: Data())),
+            ("403", LeetCodeHTTPResponse(statusCode: 403, headers: [:], body: Data()))
+        ]
+        for (name, response) in rejections {
+            let tree = makeTree()
+            let transport = makeTransport()
+            transport.serve(.userStatus, with: response)
+            let store = InMemoryLeetCodeCredentialStore()
+            let model = makeModel(tree: tree, transport: transport, store: store)
+
+            await assertThrows(.notLoggedIn) {
+                _ = try await model.signIn(with: self.credentials)
+            }
+            XCTAssertFalse(model.isSignedIn, name)
+            XCTAssertNil(model.signedInUsername, name)
+            XCTAssertNil(store.stored, name)
+            XCTAssertEqual(model.lastError, .notLoggedIn, name)
+        }
+    }
+
+    /// …and a failure that is *not* a rejection leaves the session alone: the
+    /// cookies came out of a browser that had just signed in, and being offline
+    /// says nothing about them.
+    func testASignInThatCouldNotBeConfirmedKeepsTheSession() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        transport.fail(.userStatus, with: LeetCodeError.network(reason: "offline"))
+        let store = InMemoryLeetCodeCredentialStore()
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        await assertThrows(.network(reason: "offline")) {
+            _ = try await model.signIn(with: self.credentials)
+        }
+        XCTAssertTrue(model.isSignedIn)
+        XCTAssertEqual(store.stored, credentials)
+        XCTAssertEqual(model.lastError, .network(reason: "offline"))
+    }
+
     /// A Keychain that will not take the item does not undo a sign-in that
     /// worked; the session runs for this launch, exactly as a catalog whose cache
     /// cannot be written runs in memory.
@@ -900,6 +953,70 @@ final class LeetCodeModelTests: XCTestCase {
 
         _ = await model.statement(forFileAt: url, in: solutionsFolder)
         XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 2)
+    }
+
+    /// A file whose name parses but whose problem does not exist is asked about
+    /// **once**.
+    ///
+    /// The association rule is deliberately permissive, so a `2024-notes.md`
+    /// dropped in the LeetCode folder is a plausible tab — and the panel's
+    /// refresh runs on every tab change, which without a recorded negative would
+    /// be one request per switch to it, forever, against a rate-limited API.
+    func testASlugLeetCodeSaysDoesNotExistIsAskedAboutOnce() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        transport.serve(
+            .question(slug: "notes"),
+            body: Self.fixture("question-detail-unknown-slug.json")
+        )
+        let model = makeModel(tree: tree, transport: transport)
+        let url = solutionsFolder.appendingPathComponent("2024-notes.md")
+        let other = solutionsFolder.appendingPathComponent("0001-two-sum.swift")
+
+        let first = await model.statement(forFileAt: url, in: solutionsFolder)
+        _ = await model.statement(forFileAt: other, in: solutionsFolder)
+        let second = await model.statement(forFileAt: url, in: solutionsFolder)
+
+        XCTAssertNil(first)
+        XCTAssertNil(second)
+
+        XCTAssertEqual(transport.count(for: .question(slug: "notes")), 1)
+    }
+
+    /// Only that one answer is remembered: offline is a failure to *ask*, so the
+    /// next switch to the tab asks again.
+    func testAStatementThatCouldNotBeFetchedIsRetried() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        transport.fail(.question(slug: "two-sum"), with: LeetCodeError.network(reason: "offline"))
+        let model = makeModel(tree: tree, transport: transport)
+        let url = solutionsFolder.appendingPathComponent("0001-two-sum.swift")
+
+        _ = await model.statement(forFileAt: url, in: solutionsFolder)
+        _ = await model.statement(forFileAt: nil, in: solutionsFolder)
+        _ = await model.statement(forFileAt: url, in: solutionsFolder)
+
+        XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 2)
+    }
+
+    /// Signing out does not blank the description panel.
+    ///
+    /// The statement is public content that is still in the fragment cache and is
+    /// republished from it with no session at all — and the panel's refresh is
+    /// keyed on the *file*, which a sign-out does not change, so clearing it here
+    /// would leave the pane empty until the user switched tabs and back.
+    func testSigningOutLeavesTheStatementStanding() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+
+        _ = try await model.openProblem(input: .number(1), language: swift)
+        XCTAssertEqual(model.statement?.slug, "two-sum")
+
+        model.signOut()
+
+        XCTAssertEqual(model.statement?.slug, "two-sum")
+        XCTAssertFalse(model.isSignedIn)
     }
 
     /// A statement that arrived clears a sentence describing a failure that is

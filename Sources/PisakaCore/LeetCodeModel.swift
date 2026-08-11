@@ -217,6 +217,23 @@ public final class LeetCodeModel: ObservableObject {
     /// invalidates what was fetched under the old one.
     private var slugsFetchedThisRun: Set<String> = []
 
+    /// Slugs LeetCode has answered `data.question: null` for this run.
+    ///
+    /// The counterpart of `slugsFetchedThisRun` for the *negative* answer, and it
+    /// exists for the same reason. The file-name association is deliberately
+    /// permissive — a `2024-notes.md` the user happened to drop in the LeetCode
+    /// folder parses as problem 2024, slug `notes` — and the panel's refresh is
+    /// started by every tab change, so without this a file like that issues a
+    /// GraphQL request that is *permanently* going to answer "no such problem",
+    /// once per switch to it, forever.
+    ///
+    /// Only that one answer is recorded. Offline, throttled and rejected are
+    /// failures to *ask*, and must still be retried; `data.question: null` is
+    /// LeetCode's stable answer about a slug that does not exist. `signOut()`
+    /// empties it with `slugsFetchedThisRun`, so a session change starts every
+    /// one of this run's conclusions over.
+    private var slugsKnownAbsent: Set<String> = []
+
     private var openGeneration = 0
     private var statementGeneration = 0
     private var accountGeneration = 0
@@ -295,16 +312,27 @@ public final class LeetCodeModel: ObservableObject {
             // not a rejection: the cookies came out of a browser session that had
             // just signed in, so they stay, and the name fills in on the next
             // refresh.
-            if generation == accountGeneration { lastError = error }
+            //
+            // `notLoggedIn` is the other half, and it is a rejection: LeetCode
+            // answers a dead session with a 401/403 or an auth `errors` array as
+            // readily as with `isSignedIn: false`, and the two must not end
+            // differently. Without this the pair the user just signed in with is
+            // already in the Keychain, every surface says "Signed in", and the
+            // state is corrected only by whatever operation next happens to fail
+            // — which is the exact "a dead session reading as signed in" that
+            // `refreshUserStatus` spells out one method down.
+            guard generation == accountGeneration else { throw error }
+            if error == .notLoggedIn { signOut() }
+            lastError = error
             throw error
         }
     }
 
     /// Ask LeetCode who this session is, updating the published state.
     ///
-    /// Non-throwing: this is what the app calls at launch and after a window
-    /// becomes active, and a failure there must not produce an alert. A rejection
-    /// still flips `isSignedIn`, because that one *is* an answer.
+    /// Non-throwing: this is what the app calls at launch, and a failure there
+    /// must not produce an alert. A rejection still flips `isSignedIn`, because
+    /// that one *is* an answer.
     @discardableResult
     public func refreshUserStatus() async -> LeetCodeAPI.UserStatus? {
         accountGeneration += 1
@@ -348,6 +376,14 @@ public final class LeetCodeModel: ObservableObject {
     ///
     /// The web view's own cookies are the app layer's half of this (the login view
     /// clears them); either half alone leaves the user half signed in.
+    ///
+    /// **The statement is deliberately left standing.** It is a problem
+    /// description — public content, still in the fragment cache, and republished
+    /// from that cache by `statement(forFileAt:in:)` with no session at all — so
+    /// clearing it here would be the one piece of state a sign-out removes that
+    /// signing back in does not restore: the panel's refresh is keyed on the
+    /// *file* the user is looking at, which a sign-out does not change, so nothing
+    /// would re-ask the question until they switched tabs and back.
     public func signOut() {
         accountGeneration += 1
         invalidateInFlightWork()
@@ -358,9 +394,9 @@ public final class LeetCodeModel: ObservableObject {
         storedCredentialsAreDiscarded = true
         try? credentialStore.clear()
         slugsFetchedThisRun.removeAll()
+        slugsKnownAbsent.removeAll()
         isSignedIn = false
         signedInUsername = nil
-        statement = nil
         lastError = nil
     }
 
@@ -421,16 +457,17 @@ public final class LeetCodeModel: ObservableObject {
         guard let folder else { throw LeetCodeError.folderUnavailable }
         let credentials = try requireCredentials()
 
-        guard let slug = try await catalog.resolveSlug(
-            for: input,
-            credentials: credentials
-        ) else { return .noSuchProblem }
+        // The generation is checked *before* "no such problem" on both steps, not
+        // after: `.noSuchProblem` is a sentence the caller shows, and a superseded
+        // attempt must contribute nothing at all — including the answer to a
+        // question the user has already replaced.
+        let resolved = try await catalog.resolveSlug(for: input, credentials: credentials)
         guard generation == openGeneration else { return .superseded }
+        guard let slug = resolved else { return .noSuchProblem }
 
-        guard let detail = try await fetchDetail(slug: slug, credentials: credentials) else {
-            return .noSuchProblem
-        }
+        let fetched = try await fetchDetail(slug: slug, credentials: credentials)
         guard generation == openGeneration else { return .superseded }
+        guard let detail = fetched else { return .noSuchProblem }
         guard !detail.isPaidOnly else { throw LeetCodeError.paidOnly(slug: detail.slug) }
 
         let name = LeetCodeSolutionFile.name(
@@ -552,6 +589,10 @@ public final class LeetCodeModel: ObservableObject {
         // Already fetched this run — the cache we just published *is* that
         // fetch's bytes. See `slugsFetchedThisRun`.
         if let published, slugsFetchedThisRun.contains(slug) { return published }
+        // Already asked, and LeetCode said there is no such problem. Asking again
+        // on every tab switch would be a request per switch, forever. See
+        // `slugsKnownAbsent`.
+        if slugsKnownAbsent.contains(slug) { return published }
 
         guard let credentials = cachedCredentials ?? storedCredentials() else {
             if published == nil { publish(.notLoggedIn) }
@@ -564,6 +605,7 @@ public final class LeetCodeModel: ObservableObject {
         do {
             let detail = try await fetchDetail(slug: slug, credentials: credentials)
             guard generation == statementGeneration else { return published }
+            if detail == nil { slugsKnownAbsent.insert(slug) }
             guard let detail, !detail.content.isEmpty else { return published }
             let fresh = LeetCodeStatement(
                 slug: slug,

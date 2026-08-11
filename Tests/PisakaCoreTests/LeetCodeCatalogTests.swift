@@ -449,6 +449,27 @@ final class LeetCodeCatalogTests: XCTestCase {
         XCTAssertEqual(transport.count(for: .problemList), 1)
     }
 
+    /// A restored slug is what the next detail request is made by and — through
+    /// the parser's `requestedSlug` fallback — what a file name is composed from,
+    /// so the cache is held to the same slug rule the wire is. A row that is not
+    /// normalized invalidates the file, exactly as an unknown difficulty does.
+    func testACacheRowWhoseSlugIsNotNormalizedIsIgnored() async throws {
+        for slug in ["../../escape", "Two-Sum", "two sum", "-two-sum"] {
+            let tree = makeTree([
+                catalogPath: cacheJSON(
+                    fetchedAt: "2026-08-11T11:00:00Z",
+                    rows: [(1, slug)]
+                )
+            ])
+            let transport = ScriptedLeetCodeTransport()
+            transport.serve(.problemList, json: problemListJSON([(1, "refetched-two-sum")]))
+            let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+            try await assertResolves(catalog, number: 1, to: "refetched-two-sum")
+            XCTAssertEqual(transport.count(for: .problemList), 1, "slug \(slug)")
+        }
+    }
+
     func testAnUnreadableCacheIsTreatedAsAbsent() async throws {
         let tree = makeTree([
             catalogPath: cacheJSON(fetchedAt: "2026-08-11T11:00:00Z", rows: [(1, "two-sum")])

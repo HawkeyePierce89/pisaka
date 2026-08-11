@@ -165,6 +165,56 @@ final class LeetCodeAPITests: XCTestCase {
         )
     }
 
+    // MARK: - Redirects
+
+    /// The session travels as a manually set header rather than in a cookie jar,
+    /// and `URLSession` re-sends those verbatim to whatever host a 30x names — so
+    /// the same-origin rule a jar would have applied is written here instead. The
+    /// names are the ones `commonHeaders` actually sends.
+    func testTheCredentialHeadersAreTheOnesEveryRequestCarries() {
+        let headers = LeetCodeAPI.problemListRequest(credentials: credentials).headers
+        for name in LeetCodeAPI.credentialHeaderNames {
+            XCTAssertNotNil(headers[name], name)
+        }
+        XCTAssertEqual(LeetCodeAPI.credentialHeaderNames, ["Cookie", "x-csrftoken"])
+    }
+
+    func testTheSessionFollowsARedirectOnlyWithinTheSameHost() {
+        let origin = URL(string: "https://leetcode.com/graphql")!
+        let carried = [
+            "https://leetcode.com/accounts/login/",
+            "https://leetcode.com/graphql?next=1",
+            "https://www.leetcode.com/graphql"
+        ]
+        for target in carried {
+            XCTAssertTrue(
+                LeetCodeAPI.redirectMayCarryCredentials(
+                    from: origin,
+                    to: URL(string: target)!
+                ),
+                target
+            )
+        }
+
+        let stripped = [
+            // Another operator entirely, however LeetCode-shaped the name.
+            "https://leetcode.cn/graphql",
+            "https://leetcode.com.evil.example/graphql",
+            "https://evil.example/graphql",
+            // A scheme downgrade would put the pair on the wire in clear text.
+            "http://leetcode.com/graphql"
+        ]
+        for target in stripped {
+            XCTAssertFalse(
+                LeetCodeAPI.redirectMayCarryCredentials(
+                    from: origin,
+                    to: URL(string: target)!
+                ),
+                target
+            )
+        }
+    }
+
     // MARK: - User status
 
     func testSignedOutUserStatusIsAValueNotAnError() throws {

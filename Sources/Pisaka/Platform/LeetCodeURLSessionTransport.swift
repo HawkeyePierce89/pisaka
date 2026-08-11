@@ -28,12 +28,19 @@ import PisakaCore
 /// false` per request (nothing is *attached* to one). Four statements of one
 /// intent, the way `LSPDownloadService` states "nothing is cached" three times.
 ///
-/// **Redirects are followed, as a browser would.** LeetCode answers some
-/// signed-out states with a 302 to the login page rather than a JSON error, and
-/// what `LeetCodeAPI` then parses — an HTML body where JSON was expected —
-/// already has an answer (`apiChanged`), while the authoritative signed-out
-/// verdict comes from `userStatus.isSignedIn`. Suppressing redirects would
-/// change one confusing case into a different confusing case and buy nothing.
+/// **Redirects are followed, as a browser would — but the session does not
+/// follow them off LeetCode.** LeetCode answers some signed-out states with a 302
+/// to the login page rather than a JSON error, and what `LeetCodeAPI` then parses
+/// — an HTML body where JSON was expected — already has an answer (`apiChanged`),
+/// while the authoritative signed-out verdict comes from
+/// `userStatus.isSignedIn`. Suppressing redirects would change one confusing case
+/// into a different confusing case and buy nothing. What a browser *also* does,
+/// and `URLSession` does not do for a manually set header, is scope the cookie to
+/// its origin: a `Location` pointing at another host would otherwise be answered
+/// with the `Cookie` and `x-csrftoken` pair copied verbatim, handing that host a
+/// live LeetCode session. `RedirectGuard` strips them per
+/// `LeetCodeAPI.redirectMayCarryCredentials(from:to:)`, which is where the rule
+/// is written and tested.
 ///
 /// `@unchecked Sendable` over immutable `let`s, the `LSPProcessTransport` /
 /// `LSPDownloadService` arrangement: there is no mutable state here at all, and
@@ -51,6 +58,11 @@ final class LeetCodeURLSessionTransport: LeetCodeTransport, @unchecked Sendable 
     private static let resourceTimeout: TimeInterval = 60
 
     private let session: URLSession
+
+    /// Handed to each task rather than installed on the session, so the session
+    /// does not hold it for the app's lifetime and nothing here has to be
+    /// invalidated. It is stateless, so one instance serves every request.
+    private let redirectGuard = RedirectGuard()
 
     init() {
         let configuration = URLSessionConfiguration.ephemeral
@@ -100,7 +112,7 @@ final class LeetCodeURLSessionTransport: LeetCodeTransport, @unchecked Sendable 
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: urlRequest)
+            (data, response) = try await session.data(for: urlRequest, delegate: redirectGuard)
         } catch {
             throw LeetCodeError.network(reason: error.localizedDescription)
         }
@@ -121,5 +133,48 @@ final class LeetCodeURLSessionTransport: LeetCodeTransport, @unchecked Sendable 
         }
 
         return LeetCodeHTTPResponse(statusCode: http.statusCode, headers: headers, body: data)
+    }
+}
+
+/// Lets a redirect proceed, minus the session when it leaves LeetCode.
+///
+/// The redirect is *followed* either way — refusing it would turn LeetCode's own
+/// "302 to the login page" into an empty body rather than the HTML the parser
+/// already reports as `apiChanged`, and would suppress the ordinary
+/// `leetcode.com` → `www.leetcode.com` hop as well. Only the credentials are
+/// withheld, so an off-site hop answers as a signed-out request would: the
+/// response is meaningless to `LeetCodeAPI` and reads as `apiChanged` or
+/// `notLoggedIn`, which is what a request that could not be made *as this user*
+/// should say.
+///
+/// `@unchecked Sendable` over no stored state at all: the decision is a pure
+/// function of the two URLs.
+private final class RedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard let originalURL = task.originalRequest?.url, let newURL = request.url else {
+            // No URL to compare means no basis for trusting the hop with the
+            // session; strip and continue rather than guess.
+            completionHandler(stripped(request))
+            return
+        }
+        guard LeetCodeAPI.redirectMayCarryCredentials(from: originalURL, to: newURL) else {
+            completionHandler(stripped(request))
+            return
+        }
+        completionHandler(request)
+    }
+
+    private func stripped(_ request: URLRequest) -> URLRequest {
+        var request = request
+        for name in LeetCodeAPI.credentialHeaderNames {
+            request.setValue(nil, forHTTPHeaderField: name)
+        }
+        return request
     }
 }

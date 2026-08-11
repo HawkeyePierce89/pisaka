@@ -354,7 +354,12 @@ the limits the design carries.
     a visible edit here and a version bump rather than a side effect of an
     unrelated refactor. Enums travel as raw strings and are mapped back by hand, so
     an unknown value invalidates the cache instead of decoding into a
-    wrong-but-plausible default; a version that is not *exactly* current is
+    wrong-but-plausible default. **The slug is validated on restore too**
+    (`LeetCodeProblemInput.normalizedSlug(_:) == slug`), for the reason `LeetCodeAPI`
+    validates it on the wire: a restored slug is what the next detail request is
+    made by and — through the parser's `requestedSlug` fallback — what a *file
+    name* is composed from, so the cache file is the second door into that path and
+    must not be the unguarded one. A version that is not *exactly* current is
     rejected in **both** directions, since a newer build's file may carry meaning
     this one would silently drop. Keys are sorted on write so a cache file diffs
     readably.
@@ -440,7 +445,13 @@ the limits the design carries.
     `signIn(with:)` stores the pair, confirms it, and discards a session
     LeetCode rejects at the moment it was obtained; a confirmation that could not be
     *made* (offline, throttled) is **not** a rejection, so the cookies stay and the
-    name fills in on the next refresh. **A rejected request flips `isSignedIn` but
+    name fills in on the next refresh. **Both spellings of a rejection end the same
+    way**: LeetCode says "not signed in" with `isSignedIn: false` *or* with a
+    401/403 or an auth `errors` array, which reaches `signIn` as a thrown
+    `notLoggedIn` — and a catch that only recorded it left the Keychain item saved,
+    every surface reading "Signed in", and the state corrected only by whichever
+    later operation happened to fail. `notLoggedIn` is therefore caught by name
+    there and signs out, exactly as the `isSignedIn == false` branch beside it does. **A rejected request flips `isSignedIn` but
     keeps the stored credentials** (L11, `markSessionRejected`): a 403 from an
     unofficial endpoint is as often a throttle in disguise as a dead session, and
     clearing the Keychain on one would turn a transient failure into a mandatory
@@ -457,8 +468,10 @@ the limits the design carries.
     *Opening.* `openProblem(input:language:)` captures the folder **synchronously**
     (it may be re-pointed while the open runs, and the file belongs where it was
     asked for), then: no folder → `folderUnavailable`; no session → `notLoggedIn`;
-    resolve the input through the catalog; fetch the detail; Premium →
-    `paidOnly` **before anything is written**; compose the name; and **create the
+    resolve the input through the catalog; fetch the detail — each of those two
+    checking the generation **before** it may answer `.noSuchProblem`, since that
+    is a sentence the caller shows and a superseded attempt must contribute nothing
+    at all; Premium → `paidOnly` **before anything is written**; compose the name; and **create the
     file only if it does not exist** (L12) — an existing file is `.resumed`, not
     read, not rewritten and not compared, because the whole point of the naming rule
     is that reopening a problem returns you to your work, and re-seeding would
@@ -502,8 +515,20 @@ the limits the design carries.
     the cache alone. Without it every open cost two identical `questionData`
     requests, and switching back and forth between two LeetCode tabs cost one more
     each way — against an unofficial, rate-limited API the whole design is built
-    around not annoying. `signOut()` empties the set, since a session change
-    invalidates what was fetched under the old one.
+    around not annoying. `slugsKnownAbsent` is the same record for the *negative*
+    answer and exists for the same reason read from the other side: the name rule
+    is deliberately permissive, so a `2024-notes.md` the user dropped in the folder
+    parses as problem 2024 and asks about slug `notes` — a request that is
+    permanently going to answer "no such problem", re-issued on every switch to
+    that tab. Only `data.question: null` is recorded, because that is LeetCode's
+    stable answer *about a slug*; offline, throttled and rejected are failures to
+    ask and must still be retried. `signOut()` empties both sets, since a session
+    change invalidates what was concluded under the old one — while deliberately
+    **leaving `statement` standing**: the fragment is public content, is still in
+    the disk cache, and is republished from it with no session at all, so clearing
+    it would be the one piece of state a sign-out removes that signing back in does
+    not restore (the panel's refresh is keyed on the *file*, which a sign-out does
+    not change, so nothing would re-ask until the user switched tabs and back).
     *The statement.* `associatedProblem(forFileAt:in:)` is the pure half of the
     association and is exposed separately so a view can ask "is this tab a LeetCode
     problem" without starting a fetch; it checks **both** halves — the name parses
@@ -557,7 +582,26 @@ the limits the design carries.
     signed-out states with a 302 to the login page rather than a JSON error, the
     resulting HTML-where-JSON-was-expected already has an answer (`apiChanged`),
     and the authoritative verdict is `userStatus.isSignedIn` — suppressing
-    redirects would trade one confusing case for a different one.
+    redirects would trade one confusing case for a different one. **The session
+    does not follow them off LeetCode**, though, and that is the other half a
+    browser does for free: the pair travels as a *manually set* `Cookie` header,
+    and `URLSession` re-sends those verbatim to whatever host a `Location` names,
+    so a 30x off `leetcode.com` would hand a third party a live,
+    browser-equivalent session — the cookie jar switched off above is exactly the
+    mechanism that would otherwise have scoped it. The transport's `RedirectGuard`
+    (a per-task `URLSessionTaskDelegate`, so the session holds no delegate for the
+    app's lifetime) lets the redirect proceed and strips
+    `LeetCodeAPI.credentialHeaderNames` from it unless
+    `LeetCodeAPI.redirectMayCarryCredentials(from:to:)` allows the hop. The rule
+    lives in Core — the file that decides those headers *are* the session is the
+    file that decides where they may go, and it is the half a test can see — and it
+    is derived from the request rather than from `siteURL`: same host or a host
+    within it (`leetcode.com` → `www.leetcode.com`), same scheme. It is
+    deliberately **not** `LeetCodeProblemInput`'s "is this a LeetCode URL" rule,
+    which also accepts `leetcode.cn`: that is a different operator, and a `.com`
+    session has no business being sent there. Stripping rather than refusing keeps
+    the login-page 302 reading as it did — an off-site hop simply answers as a
+    signed-out request would.
     `waitsForConnectivity` stays **off** (offline must fail now and surface
     `network`, not sit silently until the resource timeout, with the user watching
     a spinner); timeouts are 30 s per request / 60 s per resource, sized by the
