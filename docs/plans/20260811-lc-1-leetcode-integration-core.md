@@ -539,21 +539,64 @@ Notes from the implementation (decisions the later tasks inherit):
 
 Intent: the macOS entry points, wired into the existing menu/orchestration conventions.
 
-- [ ] A `LeetCode` menu with "Open Problem…", "Sign In…"/"Sign Out" (state-dependent), and
+- [x] A `LeetCode` menu with "Open Problem…", "Sign In…"/"Sign Out" (state-dependent), and
   "Choose LeetCode Folder…".
-- [ ] The Open Problem sheet: one text field (number / slug / URL, live-validated through Core's
+- [x] The Open Problem sheet: one text field (number / slug / URL, live-validated through Core's
   parser), a language picker seeded from the persisted last choice, progress and inline error
   while the fetch runs.
-- [ ] Folder establishment on first use: an `NSOpenPanel` in directories-only mode pre-targeted
+- [x] Folder establishment on first use: an `NSOpenPanel` in directories-only mode pre-targeted
   at `~/Documents/LeetCode` (created if absent), the chosen path persisted in `SettingsStore` —
   no bookmark, since the macOS app is unsandboxed.
-- [ ] A LeetCode section in Preferences → General (or its own tab, following the existing tab
+- [x] A LeetCode section in Preferences → General (or its own tab, following the existing tab
   host): signed-in username with Sign In/Out, the folder path with a Change… button, and the
   default language.
-- [ ] On success the returned URL is opened as a regular tab via `WorkspaceModel.open(url:)` and
+- [x] On success the returned URL is opened as a regular tab via `WorkspaceModel.open(url:)` and
   the tree revision bumped if the file landed inside the open project; failures surface through
   `PlatformAlert`.
-- [ ] macOS build succeeds.
+- [x] macOS build succeeds.
+
+Notes from the implementation (decisions the later tasks inherit):
+
+- **The model is a non-observed `let` on the App, and the menu observes it instead.**
+  `LeetCodeCommands` is a `View` inside `CommandMenu` with its own `@ObservedObject`, so the
+  Sign In/Sign Out label tracks `isSignedIn` without making the scene's `body` a subscriber —
+  the `commitDialog`/`symbolIndex` rule, applied to a surface that genuinely does need to
+  observe. Task 10 must keep that discipline: `ContentView` gains no `leetCode` parameter here,
+  and the description pane should observe the model in the pane, not in the window.
+- **The two sheets are one `.sheet(item:)` over an enum, attached outside `ContentView`.** They
+  are mutually exclusive by nature (the sign-in sheet exists because an open needs a session),
+  and attaching them in the scene rather than in the window content is what keeps `ContentView`
+  free of both the parameter and the observation.
+- **While the sheet is up, failures are a sentence in it, not a `PlatformAlert`.** The bullet
+  asks for both, and the split is by *who is on screen*: `openLeetCodeProblem` returns the
+  sentence to the sheet (a mistyped number must not raise a modal alert over a modal sheet), and
+  the alert is kept for the one failure that happens with the sheet already gone — the tab open
+  itself. "No such problem" is a sentence there too, since the model reports it as an outcome
+  rather than an error.
+- **`LeetCodeFolderChooser` is shared by all three entry points** (the menu item, first use from
+  the sheet, and Preferences → Change…), and writes *both* halves — `SettingsStore` for the next
+  launch and `model.solutionsFolder` for this one — so no open can land somewhere Preferences is
+  not showing. It creates `~/Documents/LeetCode` before opening the panel, because a panel
+  pre-targeted at a directory that does not exist opens somewhere arbitrary and the suggestion
+  would have to be made by hand. Cancelling it is an answer, not a failure: nothing is fetched
+  and nothing is alerted. iOS (Task 11) needs its own, bookmark-based counterpart — this one is
+  macOS's unsandboxed plain path.
+- `FilePanels.showOpenFolderPanel` gained two defaulted parameters (`directoryURL`, `message`)
+  rather than a second near-identical function; the defaults are exactly today's "Open Folder…"
+  behaviour, and `canCreateDirectories` is raised only when a directory is suggested, so no
+  existing panel grows a New Folder button.
+- **Sign Out always goes through `LeetCodeWebSession.signOut(model:)`**, from the menu and from
+  Preferences alike — `model.signOut()` alone would clear the Keychain and leave the cookies,
+  which signs the user back in the moment the login sheet reopens.
+- The launch-time `refreshUserStatus()` joins the existing one-shot `.onAppear` block beside
+  `sweepStaging()`/`lspProvisioning.refresh()`: unawaited and silent, because the menu already
+  says "signed in" optimistically from the Keychain item and an unreachable LeetCode at launch
+  is not a sign-out.
+- **A new app-layer file needs `xcodegen generate` after all.** Task 7's note that `project.yml`
+  is untouched holds, but XcodeGen enumerates the source directory at generation time, so the
+  checked-out `Pisaka.xcodeproj` does not pick up a new file until it is regenerated — which is
+  why the first macOS build failed on a symbol that was plainly there. Tasks 10 and 11 add files
+  too and must regenerate before building.
 
 ### Task 10: macOS — the description pane
 

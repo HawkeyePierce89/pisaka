@@ -170,6 +170,25 @@ struct PisakaApp: App {
     /// about it. A plain stored reference for `lspProvisioning`'s reason.
     private let lspRust: LSPRustProvisioningModel
 
+    /// Who is signed in to LeetCode, what opening a problem does, and the
+    /// statement for the active tab.
+    ///
+    /// A plain stored reference rather than a `@StateObject`, the
+    /// `commitDialog`/`symbolIndex` precedent: this scene's `body` reads nothing
+    /// published on it, and subscribing the App to a model that publishes on
+    /// every busy transition and every statement fetch would put `ContentView` —
+    /// and with it the project tree, the tab list and
+    /// `CodeEditorView.updateNSView` — back on that path. The surfaces that *do*
+    /// show its state observe it themselves: `LeetCodeCommands` (the menu),
+    /// `LeetCodeOpenProblemSheet`, `LeetCodeLoginView` and the Preferences tab.
+    /// The `@main` App is created once, so a `let` is a stable instance.
+    ///
+    /// Composed with the same shape as the LSP stack: the app supplies the two
+    /// concrete seams (`LeetCodeURLSessionTransport`, `LeetCodeKeychainStore`)
+    /// and the cache base, and every decision above them is Core's and is
+    /// unit-tested without a network or a Keychain.
+    private let leetCode: LeetCodeModel
+
     /// Wire the workspace, the project-search model and the symbol index together.
     ///
     /// `ProjectSearchModel`'s buffer closures are `let`s taken at construction, and
@@ -269,6 +288,23 @@ struct PisakaApp: App {
         let (rustToolchain, rust) = PisakaApp.makeRust(engine: installEngine, settings: settings)
         self.lspRustToolchain = rustToolchain
         self.lspRust = rust
+
+        // The LeetCode stack, composed once. The folder comes out of the store
+        // *here* rather than being read at each open, so the model is already
+        // pointed at it before the first `openProblem` captures it; the chooser
+        // writes both halves whenever the user changes it.
+        //
+        // Building one talks to nothing: `URLSession` opens no connection until a
+        // request is made, and the Keychain is read exactly once, in
+        // `LeetCodeModel.init`, to decide whether to show "signed in" before the
+        // launch-time confirmation lands.
+        self.leetCode = LeetCodeModel(
+            transport: LeetCodeURLSessionTransport(),
+            credentialStore: LeetCodeKeychainStore(),
+            fileService: FileService(),
+            cacheLayout: LeetCodeSupportDirectory.cacheLayout,
+            solutionsFolder: settings.leetCodeFolderURL
+        )
 
         // The whole of D16's wiring, now with **three** registry contributors:
         // whenever any set of installed servers changes, the workspace is handed one
@@ -477,6 +513,23 @@ struct PisakaApp: App {
     /// the load has been kicked off, lowered by a successful commit, Cancel or Esc.
     @State private var isCommitDialogPresented = false
 
+    /// Which of the two LeetCode sheets is up, or `nil` for neither.
+    ///
+    /// One `.sheet(item:)` over an enum rather than two `.sheet(isPresented:)`
+    /// modifiers on the same view: the two are mutually exclusive by nature (the
+    /// sign-in sheet exists because an open needs a session), and one binding
+    /// makes that structural instead of a rule two `@State` flags would have to
+    /// keep between them.
+    @State private var leetCodeSheet: LeetCodeSheet?
+
+    /// The LeetCode sheets this window can raise.
+    private enum LeetCodeSheet: Int, Identifiable {
+        case signIn
+        case openProblem
+
+        var id: Int { rawValue }
+    }
+
     /// Owns the separate, non-modal diff windows opened on double-click (a Local
     /// Changes row, or a commit's file in Git Log). A plain stored reference — the
     /// `@main` App is created once, so this single instance lives for the app's
@@ -604,6 +657,27 @@ struct PisakaApp: App {
                 onCommit: { origin in await commitFromDialog(originGeneration: origin) },
                 onCommitDialogDismissed: { autosave.resumeFromModal() }
             )
+            // The LeetCode sheets, attached *outside* `ContentView` rather than
+            // inside it: the window content already presents the commit dialog
+            // from its own body, and these are raised by menu commands this
+            // scene owns. Keeping them here means `ContentView` gains no
+            // parameter for them and no reason to observe `leetCode` — which is
+            // the whole point of the model being a non-observed `let` above.
+            .sheet(item: $leetCodeSheet) { sheet in
+                switch sheet {
+                case .signIn:
+                    LeetCodeLoginView(model: leetCode, onDismiss: { leetCodeSheet = nil })
+                case .openProblem:
+                    LeetCodeOpenProblemSheet(
+                        model: leetCode,
+                        settings: settings,
+                        onOpen: { input, language in
+                            await openLeetCodeProblem(input: input, language: language)
+                        },
+                        onCancel: { leetCodeSheet = nil }
+                    )
+                }
+            }
             .onAppear {
                 // Start once. `onSaved` reuses `refreshLocalChanges()` so an
                 // autosave re-runs `git status` through the same generation-pinning
@@ -644,6 +718,14 @@ struct PisakaApp: App {
                     // moment it takes, exactly as it does when no server exists.
                     lspInstallEngine.sweepStaging()
                     Task { await lspProvisioning.refresh() }
+
+                    // Ask LeetCode who the stored session belongs to, once.
+                    // Non-throwing and silent by contract: the menu already says
+                    // "signed in" optimistically from the Keychain item, and an
+                    // unreachable LeetCode at launch is not a sign-out. All this
+                    // fills in is the account name — and, when the session has
+                    // actually expired, the correction.
+                    Task { await leetCode.refreshUserStatus() }
                 }
 
                 // Terminate every shell on app quit so no PTY-backed processes
@@ -894,6 +976,24 @@ struct PisakaApp: App {
                 .keyboardShortcut("u", modifiers: .command)
                 .disabled(!canTestSelectedFile)
             }
+
+            CommandMenu("LeetCode") {
+                // The items live in their own view so *it* observes the model
+                // and this scene's body does not — see the note on `leetCode`.
+                // Nothing here is gated on a project being open: a LeetCode
+                // problem is written into the user's LeetCode folder and opened
+                // as an ordinary tab, which needs no project root (opening that
+                // folder as a project stays their separate choice).
+                LeetCodeCommands(
+                    model: leetCode,
+                    onOpenProblem: { leetCodeSheet = .openProblem },
+                    onSignIn: { leetCodeSheet = .signIn },
+                    onSignOut: { signOutOfLeetCode() },
+                    onChooseFolder: {
+                        LeetCodeFolderChooser.choose(settings: settings, model: leetCode)
+                    }
+                )
+            }
         }
 
         // The standard Preferences scene: macOS gives it the ⌘, menu item and a
@@ -905,9 +1005,107 @@ struct PisakaApp: App {
                 provisioning: lspProvisioning,
                 gopls: lspGopls,
                 rust: lspRust,
-                installEngine: lspInstallEngine
+                installEngine: lspInstallEngine,
+                leetCode: leetCode
             )
         }
+    }
+
+    // MARK: - LeetCode
+
+    /// Open the problem the sheet described, and put the resulting file in a tab.
+    ///
+    /// Answers `nil` when there is nothing left to say — the file opened, or a
+    /// newer request superseded this one — and otherwise the sentence the sheet
+    /// shows under its field. Failures reach the user *there* rather than
+    /// through `PlatformAlert` while the sheet is up: an alert stacked on the
+    /// modal that raised it would make a mistyped number look like a crash.
+    /// `PlatformAlert` is kept for the one failure that happens with the sheet
+    /// already gone — the tab open itself.
+    ///
+    /// Everything decidable happens one layer down: `LeetCodeModel` resolves the
+    /// input, refuses a Premium problem before writing anything, and **never
+    /// overwrites** an existing file. This function's whole contribution is the
+    /// folder (asked for on first use) and the tab.
+    private func openLeetCodeProblem(
+        input: LeetCodeProblemInput,
+        language: LeetCodeLanguage
+    ) async -> String? {
+        // Cancelling the folder panel is an answer, not a failure: the user was
+        // asked where solutions go and declined to say, so the sheet stays up
+        // with its sentence and nothing is fetched.
+        guard LeetCodeFolderChooser.established(settings: settings, model: leetCode) != nil else {
+            return LeetCodeError.folderUnavailable.errorDescription
+        }
+        do {
+            let outcome = try await leetCode.openProblem(input: input, language: language)
+            switch outcome {
+            case .created(let solution), .resumed(let solution):
+                leetCodeSheet = nil
+                openLeetCodeSolution(solution, wasCreated: outcome.wasCreated)
+                return nil
+            case .noSuchProblem:
+                return "LeetCode has no problem matching that."
+            case .superseded:
+                // A newer open is already running and owns the sheet's state.
+                return nil
+            }
+        } catch let error as LeetCodeError {
+            return error.errorDescription
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// Open a solution file as an ordinary editor tab.
+    ///
+    /// **Opening a problem never changes the project root** — the file is a tab
+    /// like any other, and browsing the LeetCode folder as a project stays the
+    /// user's separate action. Which is also why the tree bump is conditional:
+    /// the tree only shows the opened project, so a file written outside it has
+    /// nothing to appear in.
+    ///
+    /// No `notifyIndexOfProjectFileChanges()` beside that bump, for the reason
+    /// `newFile(in:)` already states: the file is opened as a tab in this same
+    /// turn, and a buffer-sourced entry is exactly what the index's disk refresh
+    /// declines to touch.
+    private func openLeetCodeSolution(_ solution: LeetCodeSolution, wasCreated: Bool) {
+        do {
+            try model.open(url: solution.url)
+        } catch {
+            PlatformFeedback.warning()
+            PlatformAlert.presentMessage(
+                title: "Can't open the solution file",
+                message: "The file for problem \(solution.problem.frontendID) was written to \(solution.url.path) but could not be opened."
+            )
+            return
+        }
+        guard wasCreated, let root = model.projectRoot, isInsideProject(solution.url, root: root)
+        else { return }
+        model.bumpTreeRevision()
+    }
+
+    /// Whether `url` sits inside the opened project — the tree-bump condition.
+    ///
+    /// Both sides go through the same symlink-resolving transform before the
+    /// containment test, so a project reached through a symlinked path still
+    /// matches. (`CanonicalPath` itself is Core-internal; this is the same
+    /// transform it applies, which is what keeps the two answers in step.)
+    private func isInsideProject(_ url: URL, root: URL) -> Bool {
+        ScopedFileAccess.path(
+            url.standardizedFileURL.resolvingSymlinksInPath().path,
+            isWithin: root.standardizedFileURL.resolvingSymlinksInPath().path
+        )
+    }
+
+    /// Sign out of LeetCode: the credential store *and* the login web view's
+    /// cookies, in that one call.
+    ///
+    /// Never `leetCode.signOut()` on its own — that clears the Keychain and
+    /// leaves the cookies, which signs the user straight back in the next time
+    /// the login sheet opens (the rule stated on `LeetCodeWebSession.signOut`).
+    private func signOutOfLeetCode() {
+        Task { await LeetCodeWebSession.signOut(model: leetCode) }
     }
 
     /// Toggle a bottom dock panel, shared by the bottom-bar buttons (via
