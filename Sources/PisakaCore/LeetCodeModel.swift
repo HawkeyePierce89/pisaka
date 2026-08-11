@@ -232,11 +232,14 @@ public final class LeetCodeModel: ObservableObject {
     /// and with the same consequence: a Premium problem answers `isPaidOnly: true`
     /// with a null `content`, which is as stable an answer about that slug as
     /// `null` is, and a solution file for one that reached the folder some other
-    /// way would otherwise ask again on every switch to it.
+    /// way would otherwise ask again on every switch to it. **So is a `paidOnly`
+    /// *error***, which is that same Premium answer in LeetCode's other wire shape
+    /// — a GraphQL `errors` array the classifier reads — and recording one shape
+    /// but not the other would leave exactly the loop this set exists to stop.
     ///
-    /// Only those two answers are recorded. Offline, throttled and rejected are
-    /// failures to *ask*, and must still be retried; both of these are LeetCode
-    /// answering the question. `signOut()` and `signIn(with:)` both empty it with
+    /// Only those three answers are recorded. Offline, throttled and rejected are
+    /// failures to *ask*, and must still be retried; all three of these are
+    /// LeetCode answering the question. `signOut()` and `signIn(with:)` empty it with
     /// `slugsFetchedThisRun`, so a session change starts every one of this run's
     /// conclusions over — which is what lets a user who subscribes mid-run see the
     /// statement after signing back in, including after a session LeetCode
@@ -469,6 +472,17 @@ public final class LeetCodeModel: ObservableObject {
     ///
     /// An existing file is returned as `.resumed` and not read, not rewritten and
     /// not compared — see the note on this type.
+    ///
+    /// **A cancelled open reports nothing**, the rule `statement(forFileAt:in:)`
+    /// is written on and for the same two reasons. Both sheets cancel this task
+    /// from `.onDisappear`, so pressing Esc mid-fetch makes `URLSession` throw and
+    /// arrive here as `network(reason: "cancelled")`; the generation guard beside
+    /// this one covers only the *replacement* case, so without it a stale sentence
+    /// about a request the user withdrew would sit in Preferences (and in the iOS
+    /// account rows) until some later operation happened to clear it. It is
+    /// equally not a session verdict — which is why the guard is on `publish`,
+    /// whose `notLoggedIn` branch flips the account state. The error is still
+    /// *thrown*: the caller already discards it under the same test.
     @discardableResult
     public func openProblem(
         input: LeetCodeProblemInput,
@@ -495,11 +509,11 @@ public final class LeetCodeModel: ObservableObject {
                 generation: generation
             )
         } catch let error as LeetCodeError {
-            if generation == openGeneration { publish(error) }
+            if generation == openGeneration, !Task.isCancelled { publish(error) }
             throw error
         } catch {
             let wrapped = LeetCodeError.network(reason: error.localizedDescription)
-            if generation == openGeneration { publish(wrapped) }
+            if generation == openGeneration, !Task.isCancelled { publish(wrapped) }
             throw wrapped
         }
     }
@@ -706,6 +720,15 @@ public final class LeetCodeModel: ObservableObject {
             // equally not a session rejection: a request nobody waited for said
             // nothing about the session.
             if Task.isCancelled { return published }
+            // LeetCode's *other* way of saying "Premium", recorded exactly like the
+            // one above. A locked problem answers either `isPaidOnly: true` with a
+            // null `content` (handled in the success branch) or a GraphQL `errors`
+            // array the classifier turns into `paidOnly` — the same settled fact
+            // about that slug arriving in two wire shapes, and memoising only one
+            // of them leaves a solution file that reached the folder some other way
+            // asking again on every switch to it, forever. Unlike offline/throttled
+            // /rejected, this is LeetCode *answering*, not a failure to ask.
+            if case .paidOnly = error { slugsKnownAbsent.insert(slug) }
             // A rejected session is worth recording whether or not the panel had
             // something to show — it changes what every *other* surface says.
             if error == .notLoggedIn { markSessionRejected() }

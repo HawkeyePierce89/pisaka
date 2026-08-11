@@ -223,6 +223,13 @@ public enum LeetCodeSolutionFile {
     ///
     /// One line, not a banner: this is a file the user is about to type in, and
     /// six lines of ceremony above the cursor is what people delete first.
+    ///
+    /// **One line is a guarantee, not a description.** The title is LeetCode's,
+    /// interpolated into a *line* comment, so an interior line separator in it
+    /// would end the comment and leave the remainder as bare, uncommented text on
+    /// line 2 of the file — which the never-overwrite rule then preserves forever.
+    /// Trimming the ends is not enough for that; every separator inside is
+    /// collapsed to a space.
     public static func header(
         number: Int,
         title: String,
@@ -230,7 +237,13 @@ public enum LeetCodeSolutionFile {
         language: LeetCodeLanguage
     ) -> String {
         let url = LeetCodeAPI.problemURL(slug: slug).absoluteString
-        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Empty pieces are dropped rather than joined, so a CRLF — two separators
+        // with nothing between them — costs one space, not two.
+        let cleanTitle = title
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
         let subject = cleanTitle.isEmpty ? slug : cleanTitle
         return "\(language.lineCommentPrefix) \(number). \(subject) — \(url)"
     }

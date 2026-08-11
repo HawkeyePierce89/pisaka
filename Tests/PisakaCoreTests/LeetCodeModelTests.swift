@@ -1043,6 +1043,37 @@ final class LeetCodeModelTests: XCTestCase {
         XCTAssertEqual(transport.count(for: .question(slug: slug)), 1)
     }
 
+    /// LeetCode's *other* Premium answer — a GraphQL `errors` array rather than a
+    /// null `content` — is remembered exactly like the first.
+    ///
+    /// Both wire shapes are the same settled fact about that slug, and the
+    /// classifier turns this one into `paidOnly`. Memoising only the shape that
+    /// arrives as a parsed detail left the error shape asking again on every
+    /// switch to the tab, which is the loop `slugsKnownAbsent` exists to stop.
+    func testAPremiumErrorIsAskedAboutOnce() async throws {
+        let slug = "two-sum-iii-data-structure-design"
+        let tree = makeTree()
+        let transport = makeTransport()
+        transport.serve(.question(slug: slug), body: Self.fixture("errors-premium.json"))
+        let model = makeModel(tree: tree, transport: transport)
+        let url = solutionsFolder.appendingPathComponent("0170-\(slug).swift")
+        let other = solutionsFolder.appendingPathComponent("0001-two-sum.swift")
+
+        let first = await model.statement(forFileAt: url, in: solutionsFolder)
+        // The verdict is still reported the first time — memoising it is about
+        // the *request*, not about hiding the answer.
+        XCTAssertEqual(model.lastError, .paidOnly(slug: slug))
+
+        // Two Sum's own refresh lands in between, so the second ask below is a
+        // fresh switch back rather than the same question twice in a row.
+        _ = await model.statement(forFileAt: other, in: solutionsFolder)
+        let second = await model.statement(forFileAt: url, in: solutionsFolder)
+
+        XCTAssertNil(first)
+        XCTAssertNil(second)
+        XCTAssertEqual(transport.count(for: .question(slug: slug)), 1)
+    }
+
     /// Signing *in* starts this run's conclusions over, exactly as signing out
     /// does — the two sets are the session's, not the app run's.
     ///
@@ -1189,6 +1220,39 @@ final class LeetCodeModelTests: XCTestCase {
         XCTAssertNil(published)
         XCTAssertNil(model.lastError)
         XCTAssertTrue(model.isSignedIn, "a request nobody waited for says nothing about the session")
+    }
+
+    /// A cancelled *open* reports nothing either — the statement refresh's rule,
+    /// on the path that actually writes.
+    ///
+    /// Both entry sheets cancel their open task from `.onDisappear`, so pressing
+    /// Esc mid-fetch makes the transport throw and arrive as
+    /// `network(reason: "cancelled")`. Publishing that left a sentence about a
+    /// request the user withdrew sitting in Preferences and in the iOS account
+    /// rows until some later operation happened to clear it. The error is still
+    /// thrown — the caller discards it under the same test.
+    func testACancelledOpenReportsNothing() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        transport.fail(
+            .question(slug: "two-sum"),
+            with: LeetCodeError.network(reason: "cancelled")
+        )
+        let gate = Gate()
+        transport.hold(.question(slug: "two-sum"), on: gate)
+        let model = makeModel(tree: tree, transport: transport)
+
+        let opening = Task {
+            try? await model.openProblem(input: .slug("two-sum"), language: self.swift)
+        }
+        await gate.waitUntilReached()
+        opening.cancel()
+        gate.release()
+        _ = await opening.value
+
+        XCTAssertNil(model.lastError)
+        XCTAssertTrue(model.isSignedIn, "a request nobody waited for says nothing about the session")
+        XCTAssertNil(tree.files[twoSumPath], "nothing is written when the fetch never landed")
     }
 
     /// A statement that arrived clears a sentence describing a failure that is

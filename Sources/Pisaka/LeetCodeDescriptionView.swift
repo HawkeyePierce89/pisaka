@@ -242,6 +242,7 @@ private struct LeetCodeStatementWebView: NSViewRepresentable {
     /// resolves them against `about:blank`.
     private func load(into webView: WKWebView, coordinator: Coordinator) {
         coordinator.loadedHTML = html
+        coordinator.isPerformingOwnLoad = true
         webView.loadHTMLString(html, baseURL: LeetCodeAPI.siteURL)
     }
 
@@ -249,6 +250,22 @@ private struct LeetCodeStatementWebView: NSViewRepresentable {
         /// What was last handed to `loadHTMLString`, so `updateNSView` can tell a
         /// re-evaluation from a change.
         var loadedHTML: String?
+
+        /// Set immediately before `loadHTMLString` and consumed by the first
+        /// navigation that follows it: **this view's own load, not a URL**, is what
+        /// identifies the document.
+        ///
+        /// Recognising it by URL instead is not sound. `loadHTMLString` navigates
+        /// to the base URL it was handed, but `https://leetcode.com/` is no private
+        /// sentinel — it is an ordinary destination the verbatim, never-sanitized
+        /// fragment can link to with a bare `href="/"` (resolved against the
+        /// document's own `<base href>`) or reach with a `<meta http-equiv=
+        /// "refresh">`, neither of which needs the JavaScript this view has off.
+        /// Such a navigation matched the old URL test exactly and was `.allow`ed
+        /// into the main frame — the precise failure the policy below exists to
+        /// prevent, and an unrecoverable one: there is no back gesture, and
+        /// `updateNSView` will not reload a document whose HTML has not changed.
+        var isPerformingOwnLoad = false
 
         func webView(
             _ webView: WKWebView,
@@ -268,13 +285,22 @@ private struct LeetCodeStatementWebView: NSViewRepresentable {
             // back gesture, and `updateNSView` will not reload a document whose
             // HTML has not changed.
             //
-            // The document itself is recognised by its URL: `loadHTMLString`
-            // navigates to the base URL it was handed, which is
-            // `LeetCodeAPI.siteURL` and nothing else — the same constant this
-            // view passes in `load(into:)` and the document's own `<base href>`.
+            // The document itself is recognised by *this view having just asked
+            // for it* — see `isPerformingOwnLoad`, which is why the base URL is
+            // not the test.
             let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
-            guard isMainFrame, let url = navigationAction.request.url,
-                  !Self.isTheDocumentItself(url)
+            guard isMainFrame else {
+                decisionHandler(.allow)
+                return
+            }
+            // The flag is consumed on the main frame alone: a sub-frame taking it
+            // would leave the real document load to be judged as a navigation.
+            if isPerformingOwnLoad {
+                isPerformingOwnLoad = false
+                decisionHandler(.allow)
+                return
+            }
+            guard let url = navigationAction.request.url, !Self.isTheEmptyPage(url)
             else {
                 decisionHandler(.allow)
                 return
@@ -295,12 +321,20 @@ private struct LeetCodeStatementWebView: NSViewRepresentable {
             decisionHandler(.cancel)
         }
 
-        /// Whether `url` is the document this view loaded rather than somewhere
-        /// the page is trying to go. `about:blank` counts: it is the empty page a
-        /// web view starts on, not a destination.
-        static func isTheDocumentItself(_ url: URL) -> Bool {
-            url.absoluteString == LeetCodeAPI.siteURL.absoluteString
-                || url.absoluteString == "about:blank"
+        /// The backstop for `isPerformingOwnLoad`: if `loadHTMLString` ever stops
+        /// reaching the policy delegate, the flag would otherwise stay raised and
+        /// hand the *next* navigation the document's exemption. A commit always
+        /// follows a load, so clearing it here bounds the flag's life to one
+        /// document either way.
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            isPerformingOwnLoad = false
+        }
+
+        /// Whether `url` is the empty page a web view starts on rather than
+        /// somewhere the page is trying to go — not a destination, and nothing to
+        /// hand the OS.
+        static func isTheEmptyPage(_ url: URL) -> Bool {
+            url.absoluteString == "about:blank"
         }
     }
 }

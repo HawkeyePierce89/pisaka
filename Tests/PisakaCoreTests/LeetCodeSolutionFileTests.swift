@@ -193,6 +193,45 @@ final class LeetCodeSolutionFileTests: XCTestCase {
         }
     }
 
+    /// One line is a guarantee, not a description of well-behaved input.
+    ///
+    /// The title goes into a *line* comment, so a separator inside it would end
+    /// the comment and leave the remainder as bare, uncommented text on line 2 of
+    /// a file the never-overwrite rule then keeps forever. Trimming the ends does
+    /// not cover that.
+    func testHeaderCollapsesSeparatorsInsideTheTitle() {
+        let header = LeetCodeSolutionFile.header(
+            number: 1,
+            title: "Two\nSum",
+            slug: "two-sum",
+            language: swift
+        )
+        XCTAssertEqual(header, "// 1. Two Sum — https://leetcode.com/problems/two-sum")
+        XCTAssertFalse(header.contains("\n"))
+
+        // A CRLF is two separators with nothing between them, and must still cost
+        // one space.
+        XCTAssertEqual(
+            LeetCodeSolutionFile.header(
+                number: 1,
+                title: "Two\r\nSum",
+                slug: "two-sum",
+                language: swift
+            ),
+            "// 1. Two Sum — https://leetcode.com/problems/two-sum"
+        )
+        // A title that is nothing but separators is as blank as "   ".
+        XCTAssertEqual(
+            LeetCodeSolutionFile.header(
+                number: 1,
+                title: "\n\n",
+                slug: "two-sum",
+                language: swift
+            ),
+            "// 1. two-sum — https://leetcode.com/problems/two-sum"
+        )
+    }
+
     func testHeaderFallsBackToTheSlugWhenTheTitleIsBlank() {
         XCTAssertEqual(
             LeetCodeSolutionFile.header(number: 1, title: "   ", slug: "two-sum", language: swift),

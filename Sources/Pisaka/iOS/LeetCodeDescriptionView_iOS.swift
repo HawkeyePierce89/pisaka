@@ -305,6 +305,7 @@ private struct LeetCodeStatementWebView_iOS: UIViewRepresentable {
     /// resolves them against `about:blank`.
     private func load(into webView: WKWebView, coordinator: Coordinator) {
         coordinator.loadedHTML = html
+        coordinator.isPerformingOwnLoad = true
         webView.loadHTMLString(html, baseURL: LeetCodeAPI.siteURL)
     }
 
@@ -312,6 +313,14 @@ private struct LeetCodeStatementWebView_iOS: UIViewRepresentable {
         /// What was last handed to `loadHTMLString`, so `updateUIView` can tell a
         /// re-evaluation from a change.
         var loadedHTML: String?
+
+        /// Set immediately before `loadHTMLString` and consumed by the first
+        /// main-frame navigation that follows it — the macOS pane's rule, for the
+        /// reason written there: `https://leetcode.com/` is an ordinary
+        /// destination the verbatim fragment can link to with a bare `href="/"`,
+        /// so recognising the document by that URL let such a tap navigate this
+        /// pane to the live site with no way back.
+        var isPerformingOwnLoad = false
 
         func webView(
             _ webView: WKWebView,
@@ -323,12 +332,21 @@ private struct LeetCodeStatementWebView_iOS: UIViewRepresentable {
             // interpolated verbatim, so a `<meta http-equiv="refresh">` or a
             // `<form>` in it would navigate this pane to a live page with no way
             // back. Sub-frame loads are left alone, and subresource loads never
-            // reach this method at all. The document itself is recognised by its
-            // URL: `loadHTMLString` navigates to the base URL it was handed, which
-            // is `LeetCodeAPI.siteURL` and nothing else.
+            // reach this method at all. The document itself is recognised by *this
+            // view having just asked for it* — see `isPerformingOwnLoad`.
             let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
-            guard isMainFrame, let url = navigationAction.request.url,
-                  !Self.isTheDocumentItself(url)
+            guard isMainFrame else {
+                decisionHandler(.allow)
+                return
+            }
+            // The flag is consumed on the main frame alone: a sub-frame taking it
+            // would leave the real document load to be judged as a navigation.
+            if isPerformingOwnLoad {
+                isPerformingOwnLoad = false
+                decisionHandler(.allow)
+                return
+            }
+            guard let url = navigationAction.request.url, !Self.isTheEmptyPage(url)
             else {
                 decisionHandler(.allow)
                 return
@@ -348,12 +366,17 @@ private struct LeetCodeStatementWebView_iOS: UIViewRepresentable {
             decisionHandler(.cancel)
         }
 
-        /// Whether `url` is the document this view loaded rather than somewhere
-        /// the page is trying to go. `about:blank` counts: it is the empty page a
-        /// web view starts on, not a destination.
-        static func isTheDocumentItself(_ url: URL) -> Bool {
-            url.absoluteString == LeetCodeAPI.siteURL.absoluteString
-                || url.absoluteString == "about:blank"
+        /// The backstop for `isPerformingOwnLoad` — the macOS pane's rule, for the
+        /// reason written there.
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            isPerformingOwnLoad = false
+        }
+
+        /// Whether `url` is the empty page a web view starts on rather than
+        /// somewhere the page is trying to go — not a destination, and nothing to
+        /// hand the OS.
+        static func isTheEmptyPage(_ url: URL) -> Bool {
+            url.absoluteString == "about:blank"
         }
     }
 }

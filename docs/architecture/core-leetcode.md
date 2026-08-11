@@ -285,6 +285,13 @@ the limits the design carries.
     language's comment syntax — because this is a file the user is about to type
     in, and six lines of ceremony above the cursor is what people delete first; it
     exists for the human reading the file outside the app and is never parsed back.
+    One line is a **guarantee**, not a description of well-behaved input: the title
+    is LeetCode's and goes into a *line* comment, so a separator inside it would
+    end the comment and leave the remainder as bare, uncommented text on line 2 of
+    a file the never-overwrite rule then keeps forever. Trimming the ends does not
+    cover that, so every separator inside is collapsed to a space (empty pieces
+    dropped, so a CRLF costs one space and not two), and a title that is nothing
+    but separators falls back to the slug exactly as a blank one does.
     `contents(header:snippet:)` writes the header, a blank line, then LeetCode's
     snippet **verbatim** — it is the signature the judge expects, so nothing
     reindents, trims or rewrites it — with a trailing newline added only when the
@@ -508,6 +515,17 @@ the limits the design carries.
     and the panel are all still correct. `ensureDirectory` failing is reported as
     `folderUnavailable` (the folder is gone, or something that is not a directory
     occupies its path), which is exactly what that sentence asks the user to fix.
+    **A cancelled open reports nothing**, the statement refresh's rule applied to
+    the path that writes: both entry sheets cancel their open task on disappear, so
+    pressing Esc mid-fetch makes `URLSession` throw and arrive as
+    `network(reason: "cancelled")`, and the generation token does not cover it —
+    that orders a request against its *replacement*, and here there is none. So the
+    guard sits on `publish`, which is both where the sentence would land (in
+    Preferences and in the iOS account rows, until some later operation cleared it)
+    and where a `notLoggedIn` would flip the account state — and a request nobody
+    waited for says nothing about the session either. The error is still *thrown*:
+    the caller already discards it under the same `Task.isCancelled` test, so the
+    two halves agree without the model having to guess what the caller wants.
     **Opening also caches and publishes the statement — but only once the file
     exists**: the fragment is already in hand, so fetching it again when the tab
     opens would be a second request for bytes we have. The ordering is part of the
@@ -529,13 +547,19 @@ the limits the design carries.
     is deliberately permissive, so a `2024-notes.md` the user dropped in the folder
     parses as problem 2024 and asks about slug `notes` — a request that is
     permanently going to answer "no such problem", re-issued on every switch to
-    that tab. **Two** answers are recorded there: `data.question: null`, and a
+    that tab. **Three** answers are recorded there: `data.question: null`; a
     detail that arrives with an empty `content` — which is the Premium shape
     (`isPaidOnly: true` with a null `content`), equally settled *about that slug*,
     and reachable because the model refuses to *open* a Premium problem but a
-    solution file for one can reach the folder another way. Offline, throttled and
-    rejected are recorded by neither: those are failures to ask and must still be
-    retried. `signOut()` **and `signIn(with:)`** empty both sets, since a session
+    solution file for one can reach the folder another way; and a **`paidOnly`
+    error**, which is that same Premium answer in LeetCode's *other* wire shape — a
+    GraphQL `errors` array the classifier reads by phrase rather than a parsed
+    detail. Both shapes are reachable (the parser tolerates the first, `classify`
+    produces the second), so recording one and not the other left exactly the loop
+    this set exists to stop, for the one kind of file most likely to sit in the
+    folder unopenable. Offline, throttled and
+    rejected are recorded by none of the three: those are failures to ask and must
+    still be retried, while all three of these are LeetCode *answering*. `signOut()` **and `signIn(with:)`** empty both sets, since a session
     change in either direction invalidates what was concluded under the old one.
     Both halves are load-bearing: a session can end *without* a sign-out — LeetCode
     rejects one, `markSessionRejected()` flips the published state and the stored
@@ -861,15 +885,25 @@ the limits the design carries.
     is cancelled, because a related-problem or editorial link would otherwise
     replace the statement inside a 380 pt pane with no way back (the pane has no
     back gesture, and the reload gate above will not restore a document whose HTML
-    has not changed). The test is the *frame and the URL*, not `linkActivated`
+    has not changed). The test is the *frame*, not `linkActivated`
     alone: a click is only the navigation the user can see coming, and this
     markup is interpolated verbatim, so a `<meta http-equiv="refresh">` or a
     `<form>` in it navigates the pane just as effectively — neither needs the
     scripting that is off. Sub-frame loads are left alone (LeetCode's own markup
     embedding something), and subresource loads never reach the delegate at all.
-    The document itself is recognised by its URL, `LeetCodeAPI.siteURL`, which is
-    what `loadHTMLString` was handed as its base and what the document's own
-    `<base href>` carries. **Only `http`/`https` are
+    **The document is recognised by this view having just asked for it**, not by
+    its URL: `isPerformingOwnLoad` is raised immediately before `loadHTMLString`
+    and consumed by the first main-frame navigation after it (on the main frame
+    alone, so a sub-frame cannot take it, and cleared again in `didCommit` so the
+    flag can never outlive one document). Matching `LeetCodeAPI.siteURL` instead
+    was unsound in exactly the way this whole rule exists to prevent:
+    `https://leetcode.com/` is no private sentinel but an ordinary destination the
+    verbatim fragment can reach with a bare `href="/"` — resolved against the
+    document's own `<base href>` — or with a `<meta http-equiv="refresh">` to `/`,
+    and such a navigation matched the test exactly and was allowed into the main
+    frame, stranding the pane on the live site with no way back. `about:blank`
+    stays exempt separately: it is the empty page a web view starts on, not a
+    destination, and there is nothing there to hand the OS. **Only `http`/`https` are
     handed over**, everything else is cancelled and nothing else happens: this
     markup is rendered verbatim and never sanitized, so the `href` behind a click is
     untrusted by construction, and `NSWorkspace.open` would launch a `file:` URL in
