@@ -19,11 +19,29 @@ enum FilePanels {
 
     /// Present an open panel restricted to directories and return the chosen
     /// folder url, or `nil` if the user cancelled.
-    static func showOpenFolderPanel() -> URL? {
+    ///
+    /// Both parameters default to the plain "Open Folder…" behaviour, which is
+    /// what every existing call site wants: no pre-targeting (the panel resumes
+    /// wherever it was last), no explanatory message. The LeetCode folder
+    /// chooser supplies both, because it is *suggesting* a location rather than
+    /// asking the user to find one — and a suggestion needs the panel to open
+    /// inside the suggested directory and a sentence saying what the folder is
+    /// for.
+    static func showOpenFolderPanel(
+        directoryURL: URL? = nil,
+        message: String? = nil
+    ) -> URL? {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
+        // Only when asked: setting `canCreateDirectories` unconditionally would
+        // add a New Folder button to every "open a project" panel in the app.
+        if let directoryURL {
+            panel.directoryURL = directoryURL
+            panel.canCreateDirectories = true
+        }
+        if let message { panel.message = message }
         return panel.runModal() == .OK ? panel.url : nil
     }
 

@@ -1,0 +1,289 @@
+{
+  "user_name": "",
+  "num_solved": 0,
+  "num_total": 4018,
+  "ac_easy": 0,
+  "ac_medium": 0,
+  "ac_hard": 0,
+  "stat_status_pairs": [
+    {
+      "stat": {
+        "question_id": 1,
+        "question__article__live": true,
+        "question__article__slug": "two-sum",
+        "question__article__has_video_solution": true,
+        "question__title": "Two Sum",
+        "question__title_slug": "two-sum",
+        "question__hide": false,
+        "total_acs": 23016852,
+        "total_submitted": 39697947,
+        "frontend_question_id": 1,
+        "is_new_question": false
+      },
+      "status": "ac",
+      "difficulty": {
+        "level": 1
+      },
+      "paid_only": false,
+      "is_favor": false,
+      "frequency": 0,
+      "progress": 0
+    },
+    {
+      "stat": {
+        "question_id": 2,
+        "question__article__live": true,
+        "question__article__slug": "add-two-numbers",
+        "question__article__has_video_solution": true,
+        "question__title": "Add Two Numbers",
+        "question__title_slug": "add-two-numbers",
+        "question__hide": false,
+        "total_acs": 7385722,
+        "total_submitted": 15043252,
+        "frontend_question_id": 2,
+        "is_new_question": false
+      },
+      "status": "notac",
+      "difficulty": {
+        "level": 2
+      },
+      "paid_only": false,
+      "is_favor": false,
+      "frequency": 0,
+      "progress": 0
+    },
+    {
+      "stat": {
+        "question_id": 4,
+        "question__article__live": true,
+        "question__article__slug": "median-of-two-sorted-arrays",
+        "question__article__has_video_solution": true,
+        "question__title": "Median of Two Sorted Arrays",
+        "question__title_slug": "median-of-two-sorted-arrays",
+        "question__hide": false,
+        "total_acs": 4508251,
+        "total_submitted": 9525646,
+        "frontend_question_id": 4,
+        "is_new_question": false
+      },
+      "status": null,
+      "difficulty": {
+        "level": 7
+      },
+      "paid_only": false,
+      "is_favor": false,
+      "frequency": 0,
+      "progress": 0
+    },
+    {
+      "stat": {
+        "question_id": 23,
+        "question__article__live": true,
+        "question__article__slug": "merge-k-sorted-list",
+        "question__article__has_video_solution": true,
+        "question__title": "Merge k Sorted Lists",
+        "question__title_slug": "merge-k-sorted-lists",
+        "question__hide": false,
+        "total_acs": 3136989,
+        "total_submitted": 5206462,
+        "frontend_question_id": 23,
+        "is_new_question": false
+      },
+      "status": null,
+      "difficulty": {
+        "level": 3
+      },
+      "paid_only": false,
+      "is_favor": false,
+      "frequency": 0,
+      "progress": 0
+    },
+    {
+      "stat": {
+        "question_id": 42,
+        "question__article__live": true,
+        "question__article__slug": "trapping-rain-water",
+        "question__article__has_video_solution": false,
+        "question__title": "Trapping Rain Water",
+        "question__title_slug": "trapping-rain-water",
+        "question__hide": false,
+        "total_acs": 3791910,
+        "total_submitted": 5577264,
+        "frontend_question_id": 42,
+        "is_new_question": false
+      },
+      "status": null,
+      "difficulty": {
+        "level": 3
+      },
+      "paid_only": false,
+      "is_favor": false,
+      "frequency": 0,
+      "progress": 0
+    },
+    {
+      "stat": {
+        "question_id": 121,
+        "question__article__live": true,
+        "question__article__slug": "best-time-to-buy-and-sell-stock",
+        "question__article__has_video_solution": true,
+        "question__title": "Best Time to Buy and Sell Stock",
+        "question__title_slug": "best-time-to-buy-and-sell-stock",
+        "question__hide": false,
+        "total_acs": 8444183,
+        "total_submitted": 14756327,
+        "frontend_question_id": 121,
+        "is_new_question": false
+      },
+      "status": null,
+      "difficulty": {
+        "level": 1
+      },
+      "paid_only": false,
+      "is_favor": false,
+      "frequency": 0,
+      "progress": 0
+    },
+    {
+      "stat": {
+        "question_id": 146,
+        "question__article__live": true,
+        "question__article__slug": "lru-cache",
+        "question__article__has_video_solution": false,
+        "question__title": "LRU Cache",
+        "question__title_slug": "lru-cache",
+        "question__hide": false,
+        "total_acs": 2720328,
+        "total_submitted": 5686680,
+        "frontend_question_id": 146,
+        "is_new_question": false
+      },
+      "status": null,
+      "difficulty": {
+        "level": 2
+      },
+      "paid_only": false,
+      "is_favor": false,
+      "frequency": 0,
+      "progress": 0
+    },
+    {
+      "stat": {
+        "question_id": 170,
+        "question__article__live": true,
+        "question__article__slug": "two-sum-iii-data-structure-design",
+        "question__article__has_video_solution": false,
+        "question__title": "Two Sum III - Data structure design",
+        "question__title_slug": "two-sum-iii-data-structure-design",
+        "question__hide": false,
+        "total_acs": 184689,
+        "total_submitted": 470721,
+        "frontend_question_id": 170,
+        "is_new_question": false
+      },
+      "status": null,
+      "difficulty": {
+        "level": 1
+      },
+      "paid_only": true,
+      "is_favor": false,
+      "frequency": 0,
+      "progress": 0
+    },
+    {
+      "stat": {
+        "question_id": 200,
+        "question__article__live": true,
+        "question__article__slug": "number-of-islands",
+        "question__article__has_video_solution": true,
+        "question__title": "Number of Islands",
+        "question__title_slug": "number-of-islands",
+        "question__hide": false,
+        "total_acs": 4387776,
+        "total_submitted": 6757740,
+        "frontend_question_id": 200,
+        "is_new_question": false
+      },
+      "status": null,
+      "difficulty": {
+        "level": 2
+      },
+      "paid_only": false,
+      "is_favor": false,
+      "frequency": 0,
+      "progress": 0
+    },
+    {
+      "stat": {
+        "question_id": 297,
+        "question__article__live": true,
+        "question__article__slug": "serialize-and-deserialize-binary-tree",
+        "question__article__has_video_solution": false,
+        "question__title": "Serialize and Deserialize Binary Tree",
+        "question__title_slug": "serialize-and-deserialize-binary-tree",
+        "question__hide": false,
+        "total_acs": 1252163,
+        "total_submitted": 2050146,
+        "frontend_question_id": 297,
+        "is_new_question": false
+      },
+      "status": null,
+      "difficulty": {
+        "level": 3
+      },
+      "paid_only": false,
+      "is_favor": false,
+      "frequency": 0,
+      "progress": 0
+    },
+    {
+      "stat": {
+        "question_id": 1146,
+        "question__article__live": true,
+        "question__article__slug": "greatest-common-divisor-of-strings",
+        "question__article__has_video_solution": false,
+        "question__title": "Greatest Common Divisor of Strings",
+        "question__title_slug": "greatest-common-divisor-of-strings",
+        "question__hide": false,
+        "total_acs": 1002620,
+        "total_submitted": 1848177,
+        "frontend_question_id": 1071,
+        "is_new_question": false
+      },
+      "status": null,
+      "difficulty": {
+        "level": 1
+      },
+      "paid_only": false,
+      "is_favor": false,
+      "frequency": 0,
+      "progress": 0
+    },
+    {
+      "stat": {
+        "question_id": 2128,
+        "question__article__live": true,
+        "question__article__slug": "reverse-prefix-of-word",
+        "question__article__has_video_solution": false,
+        "question__title": "Reverse Prefix of Word",
+        "question__title_slug": "reverse-prefix-of-word",
+        "question__hide": false,
+        "total_acs": 399116,
+        "total_submitted": 461367,
+        "frontend_question_id": 2000,
+        "is_new_question": false
+      },
+      "status": null,
+      "difficulty": {
+        "level": 1
+      },
+      "paid_only": false,
+      "is_favor": false,
+      "frequency": 0,
+      "progress": 0
+    }
+  ],
+  "frequency_high": 0,
+  "frequency_mid": 0,
+  "category_slug": "all"
+}

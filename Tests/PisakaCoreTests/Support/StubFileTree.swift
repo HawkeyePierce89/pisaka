@@ -86,6 +86,12 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
     /// source is a staging directory whose name carries an attempt counter no
     /// test should have to predict.
     var moveFailures: Set<String> = []
+    /// Root-relative paths whose `write` throws — a read-only cache directory,
+    /// a full volume, an iOS security scope that has lapsed. The injection point
+    /// for "the write failed but the operation must still succeed", which is the
+    /// LeetCode catalog's degradation rule: its cache is an optimisation, and
+    /// failing to persist it may not fail the open the user asked for.
+    var writeFailures: Set<String> = []
     /// Root-relative paths whose `removeItem` throws — a directory the volume
     /// will not let go of, which is the one way a Remove can fail after the
     /// registry push that stopped the server has already happened.
@@ -203,6 +209,7 @@ final class StubFileTree: FileServicing, @unchecked Sendable {
 
     func write(_ text: String, to url: URL) throws {
         let path = relative(url)
+        guard !writeFailures.contains(path) else { throw StubError.denied }
         files[path] = text
         lock.lock()
         writtenPathsStorage.append(path)

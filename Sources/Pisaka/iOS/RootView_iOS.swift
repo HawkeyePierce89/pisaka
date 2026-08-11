@@ -44,9 +44,30 @@ struct RootView_iOS: View {
     /// its direct repository/index access runs under the opened folder's grant.
     let scopeProvider: SecurityScopeProviding
 
+    /// The same object as `fileService`/`scopeProvider`, in its concrete type,
+    /// because the LeetCode folder needs the one thing the two protocols do not
+    /// expose: `register(_:)`. A picked solutions folder is security-scoped
+    /// exactly like a picked project root, and registering it is what makes the
+    /// solution write, the statement cache and every later read run under its
+    /// grant. Three parameters for one object, following the two that are already
+    /// here rather than widening either protocol for one caller.
+    let scopedService: SecurityScopedFileService
+
     /// The Keychain PAT store, managed in the Settings sheet and consulted by the
     /// branch-switcher's fetch (a create-from-`origin/…` on a private HTTPS repo).
     let credentialStore: KeychainCredentialStore
+
+    /// Who is signed in to LeetCode, and the statement for the active tab.
+    ///
+    /// A plain `let`, deliberately not `@ObservedObject` — the macOS
+    /// `ContentView` rule, and the `symbolIndex` rule one line down: this view
+    /// shows nothing published on it, and subscribing would put the project tree
+    /// and the editor on the republish path of every busy transition and every
+    /// statement fetch. The three surfaces that *do* show its state
+    /// (`LeetCodeRoute_iOS`, `LeetCodeDescriptionPane_iOS` and its two
+    /// companions) observe it themselves, which is what makes the pane and its
+    /// toolbar button appear and disappear on their own.
+    let leetCode: LeetCodeModel
 
     /// The project-wide symbol index and the controller that schedules its
     /// incremental work. Plain `let`s, never `@ObservedObject`: the model
@@ -70,6 +91,12 @@ struct RootView_iOS: View {
     @State private var showingLocalChanges = false
     /// Whether the Git Log sheet is shown.
     @State private var showingLog = false
+    /// Whether the LeetCode screen (account + open a problem) is shown.
+    @State private var showingLeetCode = false
+    /// Whether the problem-description screen is shown — the compact-width half
+    /// of the adaptive statement surface (on regular width it is a pane beside
+    /// the editor and needs no state here).
+    @State private var showingDescription = false
     /// On compact width, whether the editor screen is pushed onto the stack.
     @State private var showingEditor = false
     /// Sidebar/detail visibility for the iPad split (shows both by default).
@@ -97,7 +124,7 @@ struct RootView_iOS: View {
     /// so a blocked checkout / create failure has no surface there — this root-level
     /// alert is the iOS peer of macOS `PisakaApp.presentBranchError` /
     /// `reportInvalidBranchName`.
-    @State private var branchAlert: BranchAlert?
+    @State private var rootAlert: RootAlert?
 
     private var isCompact: Bool { horizontalSizeClass == .compact }
 
@@ -110,6 +137,34 @@ struct RootView_iOS: View {
             .onAppear {
                 fileAccess.restoreLastFolder()
                 installDefinitionOpener()
+                // Point the LeetCode model at the configured folder before
+                // anything can ask it to open or to associate a tab — nothing is
+                // created here (see `LeetCodeFolder_iOS.publish`) — and ask
+                // LeetCode who the stored session belongs to, once. The latter is
+                // unawaited and silent on purpose: the screen already says
+                // "signed in" optimistically from the Keychain item, and an
+                // unreachable LeetCode at launch is not a sign-out.
+                LeetCodeFolder_iOS.publish(
+                    settings: settings,
+                    model: leetCode,
+                    scopedService: scopedService
+                )
+                Task { await leetCode.refreshUserStatus() }
+            }
+            // Ask the model what statement — if any — belongs to the tab the user
+            // is looking at. Attached to the root rather than to the pane because
+            // the pane renders nothing until this has produced something, so it
+            // cannot be the thing that starts it; and keyed on
+            // `leetCodeStatementKey` so it runs once per tab (or folder) change
+            // rather than once per keystroke. The model answers `nil` for a tab
+            // that is not a LeetCode solution file, which is what takes the pane
+            // (and the compact toolbar button) back down. Cache first, network
+            // behind it — see `LeetCodeModel.statement`.
+            .task(id: leetCodeStatementKey) {
+                await leetCode.statement(
+                    forFileAt: model.selectedFile?.url,
+                    in: settings.leetCodeFolderURL
+                )
             }
             // A jump may have opened a file that was not the selected tab; on
             // compact width the editor also has to be pushed onto the stack before
@@ -155,11 +210,34 @@ struct RootView_iOS: View {
                 SettingsView_iOS(
                     settings: settings,
                     credentialStore: credentialStore,
+                    leetCode: leetCode,
+                    scopedService: scopedService,
                     prefillHost: settingsPrefillHost,
                     onDone: {
                         showingSettings = false
                         settingsPrefillHost = nil
                     }
+                )
+            }
+            .sheet(isPresented: $showingLeetCode) {
+                LeetCodeRoute_iOS(
+                    model: leetCode,
+                    settings: settings,
+                    onOpen: { input, language in
+                        await openLeetCodeProblem(input: input, language: language)
+                    },
+                    onDone: { showingLeetCode = false }
+                )
+            }
+            // The compact-width half of the description surface. Attached at the
+            // root (not on the pushed editor screen) so a tab switch behind it
+            // cannot tear it down mid-read; the screen itself renders a
+            // placeholder when the statement goes away.
+            .sheet(isPresented: $showingDescription) {
+                LeetCodeDescriptionScreen_iOS(
+                    model: leetCode,
+                    settings: settings,
+                    onDone: { showingDescription = false }
                 )
             }
             .sheet(isPresented: $showingLocalChanges) {
@@ -229,11 +307,11 @@ struct RootView_iOS: View {
                 Text(pending.message + "\n\nCreate the branch from the local copy of the remote ref instead?")
             }
             .alert(
-                branchAlert?.title ?? "",
-                isPresented: branchAlertBinding,
-                presenting: branchAlert
+                rootAlert?.title ?? "",
+                isPresented: rootAlertBinding,
+                presenting: rootAlert
             ) { _ in
-                Button("OK", role: .cancel) { branchAlert = nil }
+                Button("OK", role: .cancel) { rootAlert = nil }
             } message: { alert in
                 Text(alert.message)
             }
@@ -274,6 +352,18 @@ struct RootView_iOS: View {
                     editorArea
                         .navigationTitle(model.selectedFile?.displayName ?? "Editor")
                         .navigationBarTitleDisplayMode(.inline)
+                        // On compact width the statement is a screen, not a pane,
+                        // so the way to it is a toolbar button — one that draws
+                        // nothing at all unless the active tab is a LeetCode
+                        // solution file (the toggle observes the model itself, so
+                        // this view does not have to).
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                LeetCodeDescriptionToggle_iOS(model: leetCode) {
+                                    showingDescription = true
+                                }
+                            }
+                        }
                 }
             }
         } else {
@@ -294,9 +384,29 @@ struct RootView_iOS: View {
     }
 
     /// The editor zone: the open-tabs UI (form chosen by `TabLayout`) above/beside
-    /// the editor for the selected tab, or a placeholder when nothing is open.
-    @ViewBuilder
+    /// the editor for the selected tab, or a placeholder when nothing is open —
+    /// with the LeetCode statement beside it on a regular width when there is one.
+    ///
+    /// The pane is an unconditional trailing child of an `HStack` that renders
+    /// itself away, never a conditional *around* the tabbed editor: a conditional
+    /// there would change the editor's structural identity and tear down the
+    /// `UITextView`, its undo stack and its scroll position every time a LeetCode
+    /// tab was selected.
     private var editorArea: some View {
+        HStack(spacing: 0) {
+            tabbedEditor
+            LeetCodeDescriptionPane_iOS(
+                model: leetCode,
+                settings: settings,
+                isCompact: isCompact
+            )
+        }
+    }
+
+    /// The tabs UI plus the editor for the selected tab — everything the LeetCode
+    /// pane sits beside.
+    @ViewBuilder
+    private var tabbedEditor: some View {
         let presentation = TabLayout.presentation(
             isCompactWidth: isCompact,
             orientation: settings.tabOrientation
@@ -400,6 +510,18 @@ struct RootView_iOS: View {
                 } label: {
                     Label("New File", systemImage: "doc.badge.plus")
                 }
+                Divider()
+                // In this menu rather than as a fifth toolbar button: an iPhone
+                // navigation bar is already carrying the branch widget and four
+                // items, and "open a LeetCode problem" is an *open* — the same
+                // kind of action as the three above it. Nothing gates it on a
+                // project being open: a solution file is written into the
+                // LeetCode folder and opened as a tab of its own.
+                Button {
+                    showingLeetCode = true
+                } label: {
+                    Label("LeetCode Problem…", systemImage: "curlybraces")
+                }
             } label: {
                 Image(systemName: "plus")
             }
@@ -431,6 +553,133 @@ struct RootView_iOS: View {
     /// The window/sidebar title: the open folder's name, or the app name.
     private var projectTitle: String {
         model.projectRoot?.lastPathComponent ?? "Pisaka"
+    }
+
+    // MARK: - LeetCode
+
+    /// What a statement request depends on: which tab is selected, and where the
+    /// LeetCode folder is. Both halves, because the association needs both — a
+    /// file's *name* names a problem only when the file also sits inside that
+    /// folder — so re-pointing the folder has to re-ask the question for the tab
+    /// already open.
+    ///
+    /// The folder is read from `settings` rather than from `leetCode`
+    /// (`solutionsFolder` holds the same URL) precisely because `settings` is
+    /// observed here and the model is not: `LeetCodeFolder_iOS` writes both
+    /// halves, and this is the half that invalidates this view.
+    private var leetCodeStatementKey: String {
+        let file = model.selectedFile?.url?.path ?? ""
+        let folder = settings.leetCodeFolderURL?.path ?? ""
+        return file + "\u{0}" + folder
+    }
+
+    /// Open the problem the LeetCode screen described, and put the resulting file
+    /// in a tab — the iOS peer of `PisakaApp.openLeetCodeProblem`.
+    ///
+    /// Answers `nil` when there is nothing left to say (the file opened, or a
+    /// newer request superseded this one) and otherwise the sentence the screen
+    /// shows under its field. Failures reach the user *there* rather than through
+    /// `PlatformAlert` while the screen is up; the alert is kept for the one
+    /// failure that happens with it already gone — the tab open itself.
+    ///
+    /// Everything decidable happens one layer down: `LeetCodeModel` resolves the
+    /// input, refuses a Premium problem before writing anything, and **never
+    /// overwrites** an existing file. This function's whole contribution is the
+    /// folder (created on first use) and the tab.
+    @MainActor
+    private func openLeetCodeProblem(
+        input: LeetCodeProblemInput,
+        language: LeetCodeLanguage
+    ) async -> String? {
+        // Unlike macOS there is no panel to cancel here: the container default
+        // always exists to fall back to, so the only way this fails is a
+        // directory that could not be created.
+        guard LeetCodeFolder_iOS.established(
+            settings: settings,
+            model: leetCode,
+            scopedService: scopedService
+        ) != nil else {
+            return LeetCodeError.folderUnavailable.errorDescription
+        }
+        do {
+            let outcome = try await leetCode.openProblem(input: input, language: language)
+            // Cancelled means the user left the screen while this was in flight
+            // (see `LeetCodeRoute_iOS.openTask`). The file may already have been
+            // created — it is a file in the folder they set aside, and the
+            // never-overwrite rule means reopening the problem returns to it — but
+            // pushing the editor in front of somebody who tapped Done is answering
+            // a question they withdrew.
+            if Task.isCancelled { return nil }
+            switch outcome {
+            case .created(let solution), .resumed(let solution):
+                showingLeetCode = false
+                openLeetCodeSolution(solution, wasCreated: outcome.wasCreated)
+                return nil
+            case .noSuchProblem:
+                return "LeetCode has no problem matching that."
+            case .superseded:
+                // A newer open is already running and owns the screen's state.
+                return nil
+            }
+        } catch let error as LeetCodeError {
+            return error.errorDescription
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// Open a solution file as an ordinary editor tab.
+    ///
+    /// **Opening a problem never changes the project root** — the file is a tab
+    /// like any other, and browsing the LeetCode folder as a project stays the
+    /// user's separate action. Which is also why the tree bump is conditional:
+    /// the tree only shows the opened project, so a file written outside it has
+    /// nothing to appear in.
+    ///
+    /// The read goes through the scoped service like every other, so a solution
+    /// in a picked (security-scoped) folder opens under the grant
+    /// `LeetCodeFolder_iOS` registered for it. On compact width the editor screen
+    /// is pushed, exactly as opening a file from the tree does.
+    ///
+    /// **A failed open has to put the statement back**, which is why the catch
+    /// path re-asks the question rather than only alerting: `openProblem`
+    /// published the statement it already had in hand, the statement is global
+    /// rather than keyed to a tab, and with no tab opened the selection did not
+    /// change — so the root's `.task(id:)` will not re-run and a statement for a
+    /// problem the user has no tab for would stay behind the pane (and the
+    /// compact toolbar button) beside an unrelated tab. Asking for the *selected*
+    /// tab is the whole restore: it clears the statement when that tab is not a
+    /// solution file and republishes that tab's own when it is — out of the
+    /// cache, so no second request.
+    private func openLeetCodeSolution(_ solution: LeetCodeSolution, wasCreated: Bool) {
+        do {
+            try model.open(url: solution.url)
+            if isCompact { showingEditor = true }
+        } catch {
+            PlatformFeedback.warning()
+            Task {
+                await leetCode.statement(
+                    forFileAt: model.selectedFile?.url,
+                    in: settings.leetCodeFolderURL
+                )
+            }
+            // Through `rootAlert`, not `PlatformAlert`: the LeetCode sheet was
+            // taken down one line above the call to this function, and an alert
+            // presented onto a controller mid-dismissal is dropped — see
+            // `RootAlert`.
+            rootAlert = RootAlert(
+                title: "Can't open the solution file",
+                message: "The file for problem \(solution.problem.frontendID) was written to \(solution.url.path) but could not be opened."
+            )
+            return
+        }
+        guard wasCreated, let root = model.projectRoot,
+              ScopedFileAccess.path(
+                solution.url.standardizedFileURL.resolvingSymlinksInPath().path,
+                isWithin: root.standardizedFileURL.resolvingSymlinksInPath().path
+              )
+        else { return }
+        model.bumpTreeRevision()
     }
 
     /// Handle a document-picker result for the given mode.
@@ -733,7 +982,7 @@ struct RootView_iOS: View {
     private func presentBranchError(_ message: String?) {
         guard let message else { return }
         PlatformFeedback.warning()
-        branchAlert = BranchAlert(title: "Branch operation failed", message: message)
+        rootAlert = RootAlert(title: "Branch operation failed", message: message)
     }
 
     /// Create-and-switch a new branch `name` at `startPoint` under the same (absence
@@ -764,7 +1013,7 @@ struct RootView_iOS: View {
             finishBranchOperation(snapshot: snapshot, repoRoot: repoRoot)
         case .invalidName:
             PlatformFeedback.warning()
-            branchAlert = BranchAlert(
+            rootAlert = RootAlert(
                 title: "Invalid branch name",
                 message: "\"\(name)\" is not a valid git branch name."
             )
@@ -888,10 +1137,10 @@ struct RootView_iOS: View {
         )
     }
 
-    private var branchAlertBinding: Binding<Bool> {
+    private var rootAlertBinding: Binding<Bool> {
         Binding(
-            get: { branchAlert != nil },
-            set: { if !$0 { branchAlert = nil } }
+            get: { rootAlert != nil },
+            set: { if !$0 { rootAlert = nil } }
         )
     }
 
@@ -1183,11 +1432,16 @@ private struct PendingFetchUnavailable: Identifiable {
     let id = UUID()
 }
 
-/// A failed branch switch/create surfaced as a root-level alert (the branch sheet is
-/// already dismissed by then). `title`/`message` mirror macOS's
-/// `presentBranchError` ("Branch operation failed") and `reportInvalidBranchName`
-/// ("Invalid branch name").
-private struct BranchAlert: Identifiable {
+/// A failure surfaced as a **root-level** alert, because by the time it happens the
+/// sheet that started it is already dismissing — and `PlatformAlert` walks the
+/// `presentedViewController` chain, so it would hand the alert to a controller
+/// UIKit is tearing down and the presentation would simply be dropped.
+///
+/// Two callers so far: a failed branch switch/create (whose `title`/`message`
+/// mirror macOS's `presentBranchError` — "Branch operation failed" — and
+/// `reportInvalidBranchName` — "Invalid branch name"), and a LeetCode solution
+/// file that was written but could not be opened as a tab.
+private struct RootAlert: Identifiable {
     let title: String
     let message: String
     let id = UUID()

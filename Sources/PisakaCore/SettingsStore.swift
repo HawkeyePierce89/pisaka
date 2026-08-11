@@ -29,6 +29,31 @@ public final class SettingsStore: ObservableObject {
         /// shape lets an id that no longer exists be read, ignored and
         /// eventually written back out of existence.
         public static let lspServerConsent = "settings.lspServerConsent"
+
+        /// Where LeetCode solution files are written, as a plain file-system
+        /// path.
+        ///
+        /// A path and not a bookmark, because the macOS app ships no
+        /// `.entitlements` and enables no App Sandbox: it can reach a folder the
+        /// user picked in an `NSOpenPanel` on every later launch by path alone,
+        /// exactly as an opened project root is. iOS cannot, which is what the
+        /// next key is for — the *path* is still written on both platforms, since
+        /// it is what the Settings row shows.
+        public static let leetCodeFolderPath = "settings.leetcode.folderPath"
+        /// The security-scoped bookmark for the same folder — **iOS only**.
+        ///
+        /// A second key rather than a second encoding of the first, so the
+        /// platform that does not need it never writes it and the path stays
+        /// readable on its own.
+        public static let leetCodeFolderBookmark = "settings.leetcode.folderBookmark"
+        /// The language new solution files are seeded in, as LeetCode's own slug
+        /// (`swift`, `python3`, `golang`).
+        ///
+        /// The *slug* rather than a `SyntaxLanguage` raw value, because it is
+        /// LeetCode's vocabulary that decides which snippet a problem is opened
+        /// with, and a stored value naming a language this build no longer offers
+        /// must fall back rather than resolve to something adjacent.
+        public static let leetCodeLanguage = "settings.leetcode.language"
     }
 
     public static let minFontSize: Double = 8
@@ -77,6 +102,65 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    /// The LeetCode folder as the user chose it, or `nil` when none has been
+    /// chosen yet.
+    ///
+    /// **Unset is not empty.** Assigning `nil` — or a string that is blank once
+    /// trimmed — *removes* the key rather than storing `""`, so "not configured"
+    /// has exactly one spelling and `LeetCodeModel` reports `folderUnavailable`
+    /// instead of trying to write into the current working directory.
+    ///
+    /// **Blankness is decided on the trimmed value; the path is stored as the
+    /// user's file system spells it.** Trimming the stored string as well would
+    /// rewrite a real folder — both platforms permit a directory name with a
+    /// leading or trailing space, and `NSOpenPanel`/the document picker hand back
+    /// exactly that path — into a *different*, absent one. The session would keep
+    /// writing to the folder the user picked (the model's `solutionsFolder` is
+    /// assigned from the same `URL`, untrimmed) while the next launch resolved the
+    /// trimmed spelling and created a second folder beside it, leaving earlier
+    /// solutions in a directory the app no longer looks at.
+    @Published public var leetCodeFolderPath: String? {
+        didSet {
+            let cleaned = leetCodeFolderPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let path = leetCodeFolderPath, let cleaned, !cleaned.isEmpty {
+                defaults.set(path, forKey: Keys.leetCodeFolderPath)
+            } else {
+                if leetCodeFolderPath != nil {
+                    leetCodeFolderPath = nil
+                    return
+                }
+                defaults.removeObject(forKey: Keys.leetCodeFolderPath)
+            }
+        }
+    }
+
+    /// The iOS security-scoped bookmark for that folder, or `nil` on macOS and
+    /// before one has been chosen. Empty data is stored as absence for the same
+    /// reason the path is: a bookmark that resolves to nothing is not a bookmark.
+    @Published public var leetCodeFolderBookmark: Data? {
+        didSet {
+            if let bookmark = leetCodeFolderBookmark, !bookmark.isEmpty {
+                defaults.set(bookmark, forKey: Keys.leetCodeFolderBookmark)
+            } else {
+                if leetCodeFolderBookmark != nil {
+                    leetCodeFolderBookmark = nil
+                    return
+                }
+                defaults.removeObject(forKey: Keys.leetCodeFolderBookmark)
+            }
+        }
+    }
+
+    /// The language the Open Problem picker starts on.
+    ///
+    /// Held as the whole `LeetCodeLanguage` row rather than as a slug so the
+    /// "unparsable falls back" rule is structural: there is no way to *hold* a
+    /// language this build does not offer, and what reaches `UserDefaults` is
+    /// always a slug that reads back.
+    @Published public var leetCodeLanguage: LeetCodeLanguage {
+        didSet { defaults.set(leetCodeLanguage.langSlug, forKey: Keys.leetCodeLanguage) }
+    }
+
     private let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) {
@@ -97,10 +181,38 @@ public final class SettingsStore: ObservableObject {
         let storedConsent = (defaults.dictionary(forKey: Keys.lspServerConsent) ?? [:])
             .compactMapValues { ($0 as? String).flatMap(LSPServerConsent.init(rawValue:)) }
 
+        // Blank is absent, in both directions: a key holding `""` (an older build,
+        // a hand-edited domain) must read back as "not configured" rather than as
+        // a folder whose path is the empty string. The *test* is on the trimmed
+        // value and the *answer* is the stored one, for the reason written on the
+        // property: a folder name may legitimately end in a space.
+        let storedFolder = defaults.string(forKey: Keys.leetCodeFolderPath)
+        let storedFolderIsBlank = storedFolder?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ?? true
+        let storedBookmark = defaults.data(forKey: Keys.leetCodeFolderBookmark)
+        // A slug this build does not offer — LeetCode's `kotlin`, or one this app
+        // dropped — falls back to the default rather than leaving the picker on a
+        // language it cannot seed a file in.
+        let storedLanguage = (defaults.string(forKey: Keys.leetCodeLanguage))
+            .flatMap(LeetCodeSolutionFile.language(forLangSlug:))
+            ?? LeetCodeSolutionFile.defaultLanguage
+
         self.tabOrientation = orientation
         self.themePreference = theme
         self.fontSize = storedFont
         self.lspServerConsent = storedConsent
+        self.leetCodeFolderPath = storedFolderIsBlank ? nil : storedFolder
+        self.leetCodeFolderBookmark = (storedBookmark?.isEmpty ?? true) ? nil : storedBookmark
+        self.leetCodeLanguage = storedLanguage
+    }
+
+    /// The configured LeetCode folder as a URL, or `nil` when unset.
+    ///
+    /// The one place the persisted *string* becomes a `URL`, so both platforms and
+    /// every call site spell it identically.
+    public var leetCodeFolderURL: URL? {
+        leetCodeFolderPath.map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 
     /// The answer recorded for `serverID`. Never asked, an id this app version

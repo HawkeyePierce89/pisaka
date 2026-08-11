@@ -40,7 +40,29 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     both halves of "what happens when this file is opened" stay in one place; the
     Go and Rust halves of that await discovery rather than reading it, since each
     search is started unawaited at launch and a restored `.go`/`.rs` tab regularly
-    beats it (entry in `core-lsp.md`). `ContentView` takes `search: EditorSearchState` and `reveal:
+    beats it (entry in `core-lsp.md`).
+    The **LeetCode description pane** (LC-1, full entry in `core-leetcode.md`) is
+    the trailing child of an `HStack` around the editor split — a sibling, never a
+    fourth `HSplitView` column and never a conditional *wrapping* the editor, since
+    a split child that comes and goes resets every column's width and a wrapper
+    would tear down the `NSTextView`, its undo stack and its scroll position on
+    every LeetCode tab selection. `leetCode: LeetCodeModel` is threaded in beside
+    `provisioning`/`symbolIndex` and, like them, is **not** observed here: the pane
+    observes it itself and renders *nothing at all* — no divider, no width — until
+    there is a statement, which is why the window cannot decide the pane's
+    visibility and does not try. What the window *does* own is the fetch, a
+    `.task(id:)` keyed on **(selected tab path, LeetCode folder)** beside the
+    bottom-dock `onChange`: both halves, because the association needs both, and
+    the folder is read from `settings` (observed here) rather than from
+    `model.solutionsFolder` (not) — `LeetCodeFolderChooser` writes both halves and
+    only one of them invalidates this view. The pane cannot start the request
+    itself, since it does not exist until the statement does. The editor's 320pt
+    `minWidth` stays on `editorZone` (the horizontal branch: on the `VStack` that is
+    the tab strip plus the editor) rather than moving to the new `HStack`: on the
+    wrapper it would be the floor for *editor + pane*, so a wide statement would
+    come out of the text view's minimum and squeeze it to a sliver. The zone's own
+    minimum then composes as editor + pane, which is what it should be.
+    `ContentView` takes `search: EditorSearchState` and `reveal:
     EditorRevealState` (both defaulted so previews compile) and threads them into
     `CodeEditorView`, along with `fileURL: file.url` and `diskRevision:
     model.diskRevision(for: file.id)` for the gutter's git-blame column (both with

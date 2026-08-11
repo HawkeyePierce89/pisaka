@@ -161,6 +161,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     The rules built on it are D15 in `core-provisioning.md`; `SettingsStoreTests`
     covers the round trip across a rebuilt store, the lenient read, and that an
     unchanged answer publishes nothing.
+    LC-1 adds three more under the same discipline (the layer's entry is in
+    `core-leetcode.md`): `leetCodeFolderPath` (the solutions folder as a plain
+    path — stored **verbatim**, with a value that is blank once trimmed
+    normalising to `nil` so "unset" has exactly one spelling, and
+    `leetCodeFolderURL` as the read side. Blankness is decided on the trimmed
+    string but the trimmed string is never what is stored: both platforms permit
+    a directory name ending in a space, and `NSOpenPanel`/the document picker
+    hand back exactly that path, so trimming it would leave the session writing
+    to the folder the user picked — the model's `solutionsFolder` is assigned the
+    untrimmed `URL` — while the next launch resolved a different, absent spelling
+    and created a second folder beside it),
+    `leetCodeFolderBookmark` (the security-scoped blob for an iOS override; empty
+    data is likewise `nil`, and macOS never writes it, being unsandboxed), and
+    `leetCodeLanguage` — which is held as the whole `LeetCodeLanguage` **row**
+    rather than as a slug. That is what makes "an unparsable value falls back"
+    structural rather than a rule someone has to remember: a slug this build does
+    not offer (LeetCode's `kotlin`, or one a later build dropped) resolves to
+    `LeetCodeSolutionFile.defaultLanguage` at load, there is no way to *hold* a
+    language that is not offerable, and what reaches `UserDefaults` always reads
+    back. `SettingsStoreTests` covers the three defaults, the round trip across a
+    rebuilt store, the blank-to-`nil` normalisation in both directions, the
+    trimming, an unofferable stored slug falling back, and the three key strings.
   - `EditorSession.swift` — the persisted editor session behind launch-time
     session restore and "Untitled" hot exit (macOS today; the iOS variant is a
     follow-up over this same model). Foundation-only: the value types, the pure

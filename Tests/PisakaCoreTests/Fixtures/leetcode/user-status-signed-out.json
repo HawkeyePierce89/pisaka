@@ -1,0 +1,9 @@
+{
+  "data": {
+    "userStatus": {
+      "username": "",
+      "isSignedIn": false,
+      "isPremium": null
+    }
+  }
+}
