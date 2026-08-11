@@ -417,17 +417,57 @@ Intent: the two app halves of the Core seams, plus the one place that answers "w
 cache base on this platform" — all compiled on both destinations, none of it tested by
 repository convention.
 
-- [ ] `LeetCodeURLSessionTransport`: one ephemeral `URLSession` with cookies disabled
+- [x] `LeetCodeURLSessionTransport`: one ephemeral `URLSession` with cookies disabled
   (`httpCookieStorage = nil`, `httpShouldSetCookies = false`) so the only session cookie in play
   is the one Core puts in the header; sensible timeouts; non-HTTP responses and transport errors
   surface as `LeetCodeError.network`.
-- [ ] `LeetCodeKeychainStore`: `kSecClassGenericPassword` under a fixed service, the pair stored
+- [x] `LeetCodeKeychainStore`: `kSecClassGenericPassword` under a fixed service, the pair stored
   as one JSON item, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, compiled for both
   platforms (the existing iOS-only `KeychainCredentialStore` is left alone).
-- [ ] `LeetCodeSupportDirectory`: `…/Application Support/Pisaka/LeetCode` on macOS and the
+- [x] `LeetCodeSupportDirectory`: `…/Application Support/Pisaka/LeetCode` on macOS and the
   container equivalent on iOS, fed to `LeetCodeCacheLayout`.
-- [ ] Verify both platforms compile: `xcodegen generate` then the macOS and iOS `xcodebuild`
+- [x] Verify both platforms compile: `xcodegen generate` then the macOS and iOS `xcodebuild`
   invocations from CLAUDE.md.
+
+Notes from the implementation (decisions the later tasks inherit):
+
+- **`project.yml` is untouched, and that is load-bearing for the rest of the branch.** The app
+  target declares `Sources/Pisaka` as one recursive path, so a new file under `Platform/` is
+  picked up without regenerating anything — which is why Tasks 8–11 can add views without a
+  dependency or project change either, and why Task 13's "these three files are unchanged by this
+  branch" check stays satisfiable.
+- **The cookie jar is switched off four times, at both ends**: `.ephemeral` (no persistent jar),
+  `httpCookieStorage = nil` + `httpCookieAcceptPolicy = .never` (nothing is *kept* from a
+  response), `httpShouldSetCookies = false` on the configuration and `httpShouldHandleCookies =
+  false` per request (nothing is *attached* to one). One intent stated repeatedly, the
+  `LSPDownloadService` "nothing is cached" shape: a jar would be a second, invisible source of
+  sessions — the login `WKWebView`'s copies migrate into a shared `HTTPCookieStorage` readily —
+  and a stale one can outlive a sign-out and keep an account signed in after the Keychain item is
+  gone.
+- **Redirects are followed, as a browser would.** LeetCode answers some signed-out states with a
+  302 to the login page rather than a JSON error; the resulting HTML-where-JSON-was-expected
+  already has an answer (`apiChanged`) and the authoritative verdict is `userStatus.isSignedIn`,
+  so suppressing redirects would trade one confusing case for a different one.
+- **The URL cache is off too**, not just for tidiness: the catalog's once-a-day staleness rule and
+  the statement cache both live on disk in Core, and a URL cache answering a forced refresh with
+  the bytes it already had would silently shadow the one mechanism that repairs a stale catalog.
+- **Response header names are passed through in whatever case they arrived.** `Retry-After` is
+  read through `LeetCodeHTTPResponse.headerValue(forName:)`, which matches case-insensitively; a
+  normalisation here would be a second rule to keep in step with that one.
+- **The Keychain item is one JSON blob under a constant account**, not two items and not one keyed
+  by user name: the two cookies are only ever useful together, so two items would create a
+  half-existing state every reader would need a rule for, and the account is fixed because the item
+  *is* the session — the user name is something the session tells us, not something needed to find
+  it. `load()` treats undecodable as absent (same recovery, one sign-in) and the failure type is a
+  local `LocalizedError`, deliberately not a `LeetCodeError`: the model already knows a save
+  failure costs one sign-in next launch (`lastCredentialSaveFailed`), and `fileSystem` would
+  attribute a Keychain refusal to the disk.
+- **`LeetCodeSupportDirectory` creates nothing.** It answers a location; `LeetCodeCatalog` and
+  `LeetCodeStatementCache` each `ensureDirectory` before their first write, which is what makes the
+  iOS case work — a fresh container has no `Application Support` directory until something makes
+  one. Application Support rather than Caches even though this cache *is* reconstructible: a purge
+  would turn a working airplane-mode reopen into a blank pane and put a 2 MB fetch in front of the
+  next open.
 
 ### Task 8: App — the login WebView on both platforms
 
