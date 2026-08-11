@@ -759,4 +759,42 @@ final class LeetCodeCatalogTests: XCTestCase {
         XCTAssertEqual(slugs, ["two-sum", "add-two-numbers"])
         XCTAssertEqual(transport.count(for: .problemList), 1)
     }
+
+    /// A lookup that arrives while the disk read is decoding waits for it instead
+    /// of concluding there is no cache.
+    ///
+    /// The decode is a suspension point, and the two callers here are the ordinary
+    /// overlapping pair: the statement panel asking for a title by slug, and an
+    /// open resolving a number. With the "consulted" flag raised before the
+    /// decode, the second read a fresh cache as absent and downloaded the 2 MB
+    /// list it was about to be handed.
+    func testALookupDuringTheDiskReadWaitsForItInsteadOfRefetching() async throws {
+        let tree = makeTree([
+            catalogPath: cacheJSON(
+                fetchedAt: "2026-08-11T11:00:00Z",
+                rows: [(1, "two-sum"), (2, "add-two-numbers")]
+            )
+        ])
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(
+            .problemList,
+            json: problemListJSON([(1, "two-sum"), (2, "add-two-numbers")])
+        )
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        // The first suspends inside the decode; the second then runs on the same
+        // actor and must join that read rather than start a fetch.
+        let first = Task { await catalog.cachedProblem(forSlug: "two-sum") }
+        let second = Task { try await catalog.resolveSlug(forNumber: 2, credentials: credentials) }
+
+        let cached = await first.value
+        let resolved = try await second.value
+        XCTAssertEqual(cached?.slug, "two-sum")
+        XCTAssertEqual(resolved, "add-two-numbers")
+        // The cache is a day fresh: nothing had any business asking the network.
+        XCTAssertEqual(transport.count(for: .problemList), 0)
+        // And the catalog in memory is the one that was on disk, not a fetch that
+        // landed and was then overwritten by it.
+        XCTAssertEqual(catalog.problems.count, 2)
+    }
 }

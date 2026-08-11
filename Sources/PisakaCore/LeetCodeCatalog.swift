@@ -85,6 +85,10 @@ public final class LeetCodeCatalog {
     /// one refresh is that the disk copy may predate the problem being asked for.
     private var hasRefreshedFromNetwork = false
     private var refreshTask: Task<Snapshot, Error>?
+    /// The one in-flight disk read, coalesced for the same reason `refreshTask`
+    /// is: the read suspends across the decode, and a second caller arriving in
+    /// that window must *wait for the cache* rather than conclude there is none.
+    private var diskLoadTask: Task<Void, Never>?
 
     /// Whether the last attempt to persist the catalog failed, leaving this
     /// session running on an in-memory catalog. Surfaced for the tests and for a
@@ -341,16 +345,46 @@ public final class LeetCodeCatalog {
     /// a corrupted hash table rather than a flaky assertion), so the IO is not
     /// moved; the four-thousand-row `JSONDecoder` pass and its slug validation
     /// behind it are pure, and are, for the reason written on `fetchProblems`.
+    /// **Coalesced, and the flag is raised on the way *out*.** The decode below is
+    /// a suspension point, and raising `hasConsultedDisk` before it made the two
+    /// states this flag exists to tell apart indistinguishable again for the
+    /// duration: a second caller — the statement panel's `cachedProblem(forSlug:)`
+    /// against an open's `resolveSlug(forNumber:)`, which is the ordinary way two
+    /// of these overlap — read "consulted, and there is no cache" off a cache that
+    /// was mid-decode, and went and downloaded the 2 MB list the disk copy was
+    /// about to answer for. Worse, its fresh snapshot was then replaced by the
+    /// resuming disk one while `hasRefreshedFromNetwork` stayed raised, so the
+    /// forced-refresh-on-miss path was spent and a problem present only in the
+    /// fresh list reported "no such problem" for the rest of the session.
+    /// A second caller now awaits the read, exactly as it awaits an in-flight
+    /// refresh.
     private func loadFromDiskIfNeeded() async {
         guard !hasConsultedDisk else { return }
-        hasConsultedDisk = true
-        guard let text = try? fileService.read(url: layout.catalogFile) else { return }
-        guard let cached = await Task.detached(operation: { CachedCatalog(json: text) }).value
-        else { return }
-        publish(
-            Snapshot(problems: cached.decodedProblems, fetchedAt: cached.fetchedAt),
-            fromNetwork: false
-        )
+        await (diskLoadTask ?? startDiskLoad()).value
+    }
+
+    /// Start the one in-flight disk read and register it for coalescing.
+    private func startDiskLoad() -> Task<Void, Never> {
+        let task = Task { @MainActor [self] () async -> Void in
+            defer {
+                hasConsultedDisk = true
+                diskLoadTask = nil
+            }
+            guard let text = try? fileService.read(url: layout.catalogFile) else { return }
+            guard let cached = await Task.detached(operation: { CachedCatalog(json: text) }).value
+            else { return }
+            // Nothing newer may be overwritten by what was on disk. Coalescing
+            // above closes the path today's callers take here, but `refresh` is
+            // public and takes no disk detour, so the rule is stated where the
+            // publish is rather than left resting on the call graph.
+            guard snapshot == nil else { return }
+            publish(
+                Snapshot(problems: cached.decodedProblems, fetchedAt: cached.fetchedAt),
+                fromNetwork: false
+            )
+        }
+        diskLoadTask = task
+        return task
     }
 
     /// Persist the catalog, or note that it could not be persisted.

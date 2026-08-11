@@ -406,7 +406,22 @@ the limits the design carries.
     the **first** row wins, so the answer is LeetCode's own ordering.
     *The disk cache.* `loadFromDiskIfNeeded` runs once per session — after it,
     "no snapshot" means "there is no cache" rather than "it has not been looked
-    at" — and every failure is treated identically as **there is no cache**: no
+    at". It is **coalesced like `refreshTask`, and raises `hasConsultedDisk` on the
+    way *out*, not on the way in**: the four-thousand-row decode is a suspension
+    point, and a flag raised before it made the two states it exists to separate
+    indistinguishable again for that whole window. The two callers that overlap
+    there are the ordinary pair — the statement panel's `cachedProblem(forSlug:)`
+    against an open's `resolveSlug(forNumber:)` — and the second used to read a
+    *mid-decode* cache as absent, download the 2 MB list the disk copy was about to
+    answer for, and then have its fresh snapshot overwritten by the resuming disk
+    one while `hasRefreshedFromNetwork` stayed raised; that spent the
+    forced-refresh-on-miss budget, so a problem present only in the fresh list
+    answered "no such problem" for the rest of the session. A second caller now
+    awaits the read exactly as it awaits an in-flight refresh, and the publish
+    additionally refuses to replace a snapshot that is already there — `refresh` is
+    public and takes no disk detour, so that rule sits at the publish rather than
+    resting on today's call graph. Every failure is treated identically as
+    **there is no cache**: no
     file, unreadable file, unparsable JSON, an unknown schema version, or a row
     whose difficulty this build has never heard of. Deliberately not granular: the
     file is this app's own, a mismatch means version drift or a half-written file,
