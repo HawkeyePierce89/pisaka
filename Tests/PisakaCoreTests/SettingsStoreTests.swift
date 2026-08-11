@@ -236,6 +236,90 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.consent(for: "legacy-server"), .declined)
     }
 
+    // MARK: - LeetCode
+
+    func testLeetCodeDefaultsOnAFreshStore() {
+        let store = SettingsStore(defaults: makeDefaults())
+
+        // Unset, not empty: nothing has been chosen, and `LeetCodeModel` reports
+        // `folderUnavailable` rather than writing into some fallback directory.
+        XCTAssertNil(store.leetCodeFolderPath)
+        XCTAssertNil(store.leetCodeFolderURL)
+        XCTAssertNil(store.leetCodeFolderBookmark)
+        XCTAssertEqual(store.leetCodeLanguage, LeetCodeSolutionFile.defaultLanguage)
+        XCTAssertEqual(store.leetCodeLanguage.langSlug, "swift")
+    }
+
+    func testLeetCodeSettingsRoundTrip() {
+        let defaults = makeDefaults()
+        let bookmark = Data([0x62, 0x6f, 0x6f, 0x6b])
+
+        let first = SettingsStore(defaults: defaults)
+        first.leetCodeFolderPath = "/Users/someone/Documents/LeetCode"
+        first.leetCodeFolderBookmark = bookmark
+        first.leetCodeLanguage = LeetCodeSolutionFile.language(forLangSlug: "python3")!
+
+        let second = SettingsStore(defaults: defaults)
+        XCTAssertEqual(second.leetCodeFolderPath, "/Users/someone/Documents/LeetCode")
+        XCTAssertEqual(second.leetCodeFolderURL?.path, "/Users/someone/Documents/LeetCode")
+        XCTAssertEqual(second.leetCodeFolderBookmark, bookmark)
+        XCTAssertEqual(second.leetCodeLanguage.langSlug, "python3")
+        XCTAssertEqual(second.leetCodeLanguage.language, .python)
+    }
+
+    /// "Not configured" must have exactly one spelling, in both directions: a
+    /// blank value written is forgotten, and a blank value already in the domain
+    /// reads back as absent rather than as a folder whose path is `""`.
+    func testABlankLeetCodeFolderIsForgottenRatherThanStored() {
+        let defaults = makeDefaults()
+
+        let store = SettingsStore(defaults: defaults)
+        store.leetCodeFolderPath = "/tmp/LeetCode"
+        store.leetCodeFolderPath = "   "
+        XCTAssertNil(store.leetCodeFolderPath)
+        XCTAssertNil(defaults.string(forKey: SettingsStore.Keys.leetCodeFolderPath))
+
+        defaults.set("   ", forKey: SettingsStore.Keys.leetCodeFolderPath)
+        defaults.set(Data(), forKey: SettingsStore.Keys.leetCodeFolderBookmark)
+        let reloaded = SettingsStore(defaults: defaults)
+        XCTAssertNil(reloaded.leetCodeFolderPath)
+        XCTAssertNil(reloaded.leetCodeFolderBookmark)
+    }
+
+    func testAStoredLeetCodeFolderPathIsTrimmed() {
+        let defaults = makeDefaults()
+        let store = SettingsStore(defaults: defaults)
+
+        store.leetCodeFolderPath = "  /tmp/LeetCode\n"
+        XCTAssertEqual(store.leetCodeFolderPath, "/tmp/LeetCode")
+        XCTAssertEqual(
+            defaults.string(forKey: SettingsStore.Keys.leetCodeFolderPath),
+            "/tmp/LeetCode"
+        )
+    }
+
+    /// A slug this build does not offer — LeetCode has a dozen more languages, and
+    /// this app may drop one — falls back rather than leaving the picker on
+    /// something it cannot seed a file in.
+    func testAnUnofferableStoredLanguageFallsBack() {
+        let defaults = makeDefaults()
+        defaults.set("kotlin", forKey: SettingsStore.Keys.leetCodeLanguage)
+
+        XCTAssertEqual(
+            SettingsStore(defaults: defaults).leetCodeLanguage,
+            LeetCodeSolutionFile.defaultLanguage
+        )
+    }
+
+    func testLeetCodeKeysAreStable() {
+        XCTAssertEqual(SettingsStore.Keys.leetCodeFolderPath, "settings.leetcode.folderPath")
+        XCTAssertEqual(
+            SettingsStore.Keys.leetCodeFolderBookmark,
+            "settings.leetcode.folderBookmark"
+        )
+        XCTAssertEqual(SettingsStore.Keys.leetCodeLanguage, "settings.leetcode.language")
+    }
+
     func testAConsentValueOfTheWrongTypeDoesNotDiscardTheWholeDictionary() {
         let defaults = makeDefaults()
         defaults.set(

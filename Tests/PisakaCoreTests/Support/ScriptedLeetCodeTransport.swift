@@ -34,11 +34,25 @@ final class ScriptedLeetCodeTransport: LeetCodeTransport, @unchecked Sendable {
         /// (`globalData`, `questionData`) — which is exactly how LeetCode's own
         /// logging and rate limiting identify it.
         case graphQL(operation: String)
+        /// One problem's detail, keyed by the slug it was asked for.
+        ///
+        /// Finer than the operation name alone because the model suite needs two
+        /// *different* answers to the same operation in one test — two overlapping
+        /// opens, or a problem that exists next to one that does not — and keying
+        /// those by call order would make the assertion about the scheduler
+        /// instead of about the model. The slug is read back out of the request's
+        /// own `variables`, so the fake still only knows what `LeetCodeAPI`
+        /// actually sent.
+        case question(slug: String)
         /// The legacy REST catalog.
         case problemList
         /// Anything else, by path — so a request nobody expected is nameable in
         /// the failure message rather than silently matching something.
         case other(path: String)
+
+        /// The login-confirmation call, spelled once so no test restates the
+        /// operation name.
+        static let userStatus = Route.graphQL(operation: LeetCodeAPI.userStatusOperationName)
     }
 
     enum Failure: Error, LocalizedError {
@@ -183,9 +197,14 @@ final class ScriptedLeetCodeTransport: LeetCodeTransport, @unchecked Sendable {
     static func route(of request: LeetCodeHTTPRequest) -> Route {
         if request.url == LeetCodeAPI.problemListURL { return .problemList }
         if request.url == LeetCodeAPI.graphQLURL {
-            let operation = request.body
+            let payload = request.body
                 .flatMap { try? JSONSerialization.jsonObject(with: $0) }
-                .flatMap { ($0 as? [String: Any])?["operationName"] as? String }
+                .flatMap { $0 as? [String: Any] }
+            let operation = payload?["operationName"] as? String
+            if operation == LeetCodeAPI.questionDetailOperationName,
+               let slug = (payload?["variables"] as? [String: Any])?["titleSlug"] as? String {
+                return .question(slug: slug)
+            }
             return .graphQL(operation: operation ?? "")
         }
         return .other(path: request.url.path)
@@ -215,5 +234,45 @@ final class ScriptedLeetCodeTransport: LeetCodeTransport, @unchecked Sendable {
             try await Task.sleep(nanoseconds: UInt64(step.delay * 1_000_000_000))
         }
         return try step.answer.get()
+    }
+}
+
+/// A `LeetCodeCredentialStore` that keeps the pair in a variable.
+///
+/// The Keychain's whole contract, as far as Core is concerned, is "what was saved
+/// comes back and what was cleared does not" — so the stub is the contract, and
+/// the two injection points below are the only interesting failures: a Keychain
+/// that refuses the item (the sign-in must still work for this run) and one that
+/// hands back nothing (which is indistinguishable from signed out, by design).
+final class InMemoryLeetCodeCredentialStore: LeetCodeCredentialStore {
+    var stored: LeetCodeCredentials?
+    /// When set, `save` throws — the "signed in, but not across launches" case.
+    var saveFails = false
+    /// When set, `clear` throws. Sign-out must still take effect in memory.
+    var clearFails = false
+    private(set) var saveCount = 0
+    private(set) var clearCount = 0
+
+    init(_ stored: LeetCodeCredentials? = nil) {
+        self.stored = stored
+    }
+
+    func load() -> LeetCodeCredentials? { stored }
+
+    func save(_ credentials: LeetCodeCredentials) throws {
+        saveCount += 1
+        if saveFails { throw StoreFailure.denied }
+        stored = credentials
+    }
+
+    func clear() throws {
+        clearCount += 1
+        if clearFails { throw StoreFailure.denied }
+        stored = nil
+    }
+
+    enum StoreFailure: Error, LocalizedError {
+        case denied
+        var errorDescription: String? { "The keychain refused the item." }
     }
 }

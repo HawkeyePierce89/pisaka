@@ -336,33 +336,74 @@ Intent: one `@MainActor ObservableObject` owning login state, the open-problem o
 statement for the active tab — the only place in the area that sequences awaits, and therefore
 the only place generation tokens live.
 
-- [ ] `ScriptedLeetCodeTransport`: canned responses keyed by request (GraphQL operation name /
+- [x] `ScriptedLeetCodeTransport`: canned responses keyed by request (GraphQL operation name /
   URL path), a recording of what was sent, per-step delays and failures, in the shape and spirit
   of `ScriptedLSPTransport`.
-- [ ] `SettingsStore` gains three stable keys: the LeetCode folder path, the iOS folder bookmark
+- [x] `SettingsStore` gains three stable keys: the LeetCode folder path, the iOS folder bookmark
   blob, and the last/default language slug — with the existing per-key defaulting discipline
   (unset ≠ empty, an unparsable value falls back rather than poisoning the store).
-- [ ] Model state: `signedInUsername`/`isSignedIn`, `isBusy`, `lastError`, and the published
+- [x] Model state: `signedInUsername`/`isSignedIn`, `isBusy`, `lastError`, and the published
   statement for the active tab. `signIn(with:)` stores credentials and confirms via user status;
   `signOut()` clears the store and publishes logged-out; any operation whose response says
   logged-out flips the state and surfaces `notLoggedIn`.
-- [ ] `openProblem(input:language:)`: resolve input → slug (via the catalog), fetch detail,
+- [x] `openProblem(input:language:)`: resolve input → slug (via the catalog), fetch detail,
   reject `isPaidOnly` with `paidOnly`, compute the file name, `ensureDirectory` the LeetCode
   folder, and **create the file only if it does not exist** — an existing file is returned
   untouched. Publishes an outcome value naming the URL to open plus whether it was created or
   resumed.
-- [ ] `statement(forFileName:in:)`: parse the number/slug from the active tab's name, verify the
+- [x] `statement(forFileName:in:)`: parse the number/slug from the active tab's name, verify the
   tab is inside the LeetCode folder, serve the cached fragment immediately when present and
   refresh behind it; a network failure with a cache present is not an error.
-- [ ] Every async entry point captures its generation synchronously before the first `await` and
+- [x] Every async entry point captures its generation synchronously before the first `await` and
   discards its result when superseded; the model never calls `autosave.suspend()` or
   `beginRevert()` — it is a reader, plus one create that clobbers nothing.
-- [ ] Tests: full open-problem happy path (number and slug and URL inputs); re-open leaves an
+- [x] Tests: full open-problem happy path (number and slug and URL inputs); re-open leaves an
   existing file byte-identical; paid-only, throttled, network-failure, logged-out and
   API-changed paths each surface their own error and leave no partial file; two overlapping opens
   publish only the newer one; statement serves cache offline; sign-out then any operation reports
   `notLoggedIn`; the new settings keys persist and default correctly.
-- [ ] `swift test` — green.
+- [x] `swift test` — green.
+
+Notes from the implementation (decisions the later tasks inherit):
+
+- **The statement entry point takes a URL, not a file name** (`statement(forFileAt:in:)`). Both
+  halves of the association are checked — the *name* parses to a number and slug, and the *file*
+  sits inside the LeetCode folder — and the second half needs the whole path. The pure half is
+  exposed separately as `associatedProblem(forFileAt:in:)` so the views can ask "is this tab a
+  LeetCode problem" without starting a fetch. Containment goes through
+  `CanonicalPath.canonical` + `ScopedFileAccess.path(_:isWithin:)`, the primitives every other
+  "inside this directory" question in the app uses.
+- **"No such problem" is an outcome, not an error.** `LeetCodeOpenOutcome` is a four-case enum —
+  `created`/`resumed`/`noSuchProblem`/`superseded` — because two of the answers are not failures:
+  a typo is answered truthfully (the `LeetCodeCatalog` rule carried one layer up, so no
+  `notFound` case had to join `LeetCodeError` and sit beside `apiChanged`), and a superseded open
+  publishes *and writes* nothing, so the caller must not open a tab for it.
+- **Three generation counters, not one** (open, statement, account): a statement refresh must not
+  cancel an open. Signing in or out bumps all of them, because a session change invalidates
+  everything in flight.
+- **A rejected request flips `isSignedIn` but keeps the stored credentials.** A 403 from an
+  unofficial endpoint is as often a throttle in disguise as a dead session, and clearing the
+  Keychain on one would turn a transient failure into a mandatory web-view re-login. Only the
+  explicit `signOut()` forgets them; `signIn` also discards a session LeetCode rejects at the
+  moment it was obtained.
+- **`isSignedIn` is optimistic at launch**: a stored pair sets it before anything is confirmed,
+  rather than showing "signed out" for the duration of a round trip. `refreshUserStatus()` is
+  non-throwing and silent on failure — it is what the app calls at launch, and an unreachable
+  LeetCode is not a sign-out.
+- **Existence is asked as a directory listing**, not as a read: a read that failed for any reason
+  other than absence would read as "not there" and the next step would overwrite the user's work.
+- **Opening also caches and publishes the statement.** The fragment is already in hand, so
+  fetching it again when the tab opens would be a second request for bytes we have — and it is
+  what makes the offline reopen work from the first open onwards.
+- A Keychain that refuses the item does not fail the sign-in (`lastCredentialSaveFailed`, the
+  `LeetCodeCatalog.lastCacheWriteFailed` shape), and `isBusy` is a **count**, so the first of two
+  overlapping operations finishing cannot switch the spinner off under the second.
+- `SettingsStore` holds the whole `LeetCodeLanguage` row rather than a slug, which makes "an
+  unparsable value falls back" structural: there is no way to *hold* a language this build does
+  not offer, and what reaches `UserDefaults` always reads back.
+- `ScriptedLeetCodeTransport` gained a `.question(slug:)` route (finer than the operation name,
+  read out of the request's own `variables`) and `InMemoryLeetCodeCredentialStore`, with
+  `saveFails`/`clearFails` injection points.
 
 ### Task 7: App — the real transport and a cross-platform Keychain store
 
