@@ -768,14 +768,28 @@ Notes from the implementation (what Task 13 inherits):
 
 ### Task 13: Verify acceptance criteria
 
-- [ ] `swift test` — full suite green, including every new LeetCode suite.
-- [ ] `xcodegen generate` and both builds:
+- [x] `swift test` — full suite green, including every new LeetCode suite.
+- [x] `xcodegen generate` and both builds:
   `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
   and the iOS Simulator destination from CLAUDE.md.
-- [ ] Confirm `project.yml`, `Package.resolved` and `Resources/Licenses/licenses.json` are
+- [x] Confirm `project.yml`, `Package.resolved` and `Resources/Licenses/licenses.json` are
   unchanged by this branch (`git diff --stat` over those paths is empty).
-- [ ] Confirm `Package.swift`'s test-target `exclude:` lists `Fixtures/leetcode`, and that no
+- [x] Confirm `Package.swift`'s test-target `exclude:` lists `Fixtures/leetcode`, and that no
   fixture is declared as a SwiftPM resource.
+
+Verification record:
+
+- `swift test`: 2499 tests, 0 failures (9.1 s), plus the swift-testing run with no suites.
+- `xcodegen generate`, then `** BUILD SUCCEEDED **` on `platform=macOS` and on
+  `platform=iOS Simulator,name=iPhone 17 Pro`. Neither the generation nor the builds left a
+  tracked change (`git status --porcelain` empty afterwards).
+- The three pin files carry **no** diff against `master`. Note the tracked workspace pin lives at
+  `Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved` (the paths under
+  `SourcePackages/`, `DerivedData/` and a bare `./Package.resolved` are build artefacts or absent),
+  so that is the path this check must name.
+- `Package.swift` has `exclude: ["Fixtures/LSP", "Fixtures/leetcode"]` on the test target and no
+  `resources:` declaration anywhere — the 22 files in `Tests/PisakaCoreTests/Fixtures/leetcode/`
+  are reached through `#filePath` and bundled nowhere.
 
 ## Post-Completion (manual verification by the user)
 
