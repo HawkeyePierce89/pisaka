@@ -186,23 +186,43 @@ Notes from the implementation (decisions the later tasks inherit):
 Intent: the two pure string layers the entry points and the description panel stand on — what
 the user typed, and how a file name names a problem.
 
-- [ ] `LeetCodeProblemInput.parse(_:)` → `.number(Int)` / `.slug(String)`, accepting a bare
+- [x] `LeetCodeProblemInput.parse(_:)` → `.number(Int)` / `.slug(String)`, accepting a bare
   number, a slug, and a full URL (`https://leetcode.com/problems/two-sum/`, with or without
   scheme, trailing path like `/description/`, query and fragment, `www.` host), trimming
   whitespace and rejecting empty/garbage with `nil`.
-- [ ] `LeetCodeSolutionFile.name(number:slug:language:)` → `0001-two-sum.swift` (four-digit zero
+- [x] `LeetCodeSolutionFile.name(number:slug:language:)` → `0001-two-sum.swift` (four-digit zero
   padding, wider numbers pass through), and the reverse `problemNumber(fromFileName:)` plus
   `slug(fromFileName:)` tolerant of paths and unknown extensions.
-- [ ] `SyntaxLanguage` ↔ LeetCode `langSlug` mapping covering at least swift, python3, golang,
+- [x] `SyntaxLanguage` ↔ LeetCode `langSlug` mapping covering at least swift, python3, golang,
   rust, typescript, javascript, exposed as an ordered list of offerable languages (what the
   picker shows) with a test asserting the mapping round-trips and that every offerable language
   has both directions.
-- [ ] `LeetCodeSolutionFile.contents(header:snippet:)` — the seeded file: one header comment
+- [x] `LeetCodeSolutionFile.contents(header:snippet:)` — the seeded file: one header comment
   line carrying number, title and problem URL in that language's line-comment syntax, a blank
   line, then the API snippet verbatim with a trailing newline.
-- [ ] Tests: input parser over every accepted and rejected form; file-name round trip including
+- [x] Tests: input parser over every accepted and rejected form; file-name round trip including
   padding boundaries and hyphenated slugs; language mapping; header comment per language.
-- [ ] `swift test` — green.
+- [x] `swift test` — green.
+
+Notes from the implementation (decisions the later tasks inherit):
+
+- **The slug rule is written once**, as `LeetCodeProblemInput.normalizedSlug(_:)`, and the
+  file-name reverse parse calls it — the app cannot accept a slug in the input field that it
+  would then fail to recognise in the file name it wrote itself.
+- **An all-digit input is a number attempt and nothing else.** `0` and a 30-digit paste satisfy
+  the slug shape too, so falling through would fetch the *slug* `0` and report "no such problem"
+  instead of "that is not a problem number". No LeetCode slug is all digits, so nothing is lost.
+- **Language facts travel as one row** (`LeetCodeLanguage`: `SyntaxLanguage`, `langSlug`,
+  extension, line-comment token, display name) rather than as four dictionaries, which is what
+  makes "every offerable language has all four" structural. A test additionally asserts each
+  row's extension resolves back through `SyntaxLanguage(fileExtension:)` to the same language —
+  the seeded file must highlight as what it is.
+- **The reverse parse is deliberately permissive** (`2024-notes.md` reads as problem 2024): the
+  second half of the association — the file sits inside the configured LeetCode folder — belongs
+  to Task 6, and nothing is written on the strength of a parse.
+- `contents(header:snippet:)` takes an **optional** header (a language with no line comment gets
+  the snippet alone) and adds the trailing newline only when the snippet lacks one, so re-seeding
+  can never differ from itself by a blank line.
 
 ### Task 4: Core — cache layout and the problem catalog
 
