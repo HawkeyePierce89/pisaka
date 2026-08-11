@@ -107,25 +107,25 @@ Intent: the vocabulary the rest of the area speaks, ahead of any IO — a transp
 only real implementation is app-side, credentials as a value behind a store protocol, and the
 one error type every failure funnels into.
 
-- [ ] `LeetCodeHTTPRequest` (method, url, headers, optional body) and `LeetCodeHTTPResponse`
+- [x] `LeetCodeHTTPRequest` (method, url, headers, optional body) and `LeetCodeHTTPResponse`
   (status code, headers, `Data`) as plain value types, plus
   `protocol LeetCodeTransport: Sendable { func send(_ request: LeetCodeHTTPRequest) async throws -> LeetCodeHTTPResponse }`.
   No `URLRequest`, no `URLSession`, no cookie jar — Core composes headers itself so the tests
   can assert them byte for byte.
-- [ ] `LeetCodeCredentials` — the `LEETCODE_SESSION` + `csrftoken` pair, `Equatable`, with the
+- [x] `LeetCodeCredentials` — the `LEETCODE_SESSION` + `csrftoken` pair, `Equatable`, with the
   pure rule that turns a list of `(name, value)` cookie pairs into credentials or `nil` (both
   required, empty values rejected) so the two WKWebView cookie observers share one rule.
-- [ ] `LeetCodeCredentialStore` protocol (`load()` / `save(_:)` / `clear()`), members defaulted
+- [x] `LeetCodeCredentialStore` protocol (`load()` / `save(_:)` / `clear()`), members defaulted
   so partial in-memory stubs compile, absence being the explicit "logged out" signal.
-- [ ] `LeetCodeError: Error, LocalizedError` with `notLoggedIn`, `network(reason:)`,
+- [x] `LeetCodeError: Error, LocalizedError` with `notLoggedIn`, `network(reason:)`,
   `apiChanged(detail:)`, `paidOnly(slug:)`, `throttled(retryAfter:)`, `folderUnavailable`,
   `fileSystem(reason:)` — each with a user-facing `errorDescription` sentence.
-- [ ] `LeetCodeProblem` (frontend id, slug, title, difficulty, paid-only, solved/attempted
+- [x] `LeetCodeProblem` (frontend id, slug, title, difficulty, paid-only, solved/attempted
   status) and `LeetCodeProblemDetail` (the above + HTML statement, `[langSlug: code]` snippets,
   example test cases).
-- [ ] Tests: cookie-pair → credentials (both present, one missing, empty value, extra cookies
+- [x] Tests: cookie-pair → credentials (both present, one missing, empty value, extra cookies
   ignored), every error's `errorDescription` is non-empty and distinct.
-- [ ] `swift test` — green.
+- [x] `swift test` — green.
 
 ### Task 2: Core — the one schema file: request building and response parsing
 
