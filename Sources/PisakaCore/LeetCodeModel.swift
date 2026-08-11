@@ -227,12 +227,35 @@ public final class LeetCodeModel: ObservableObject {
     /// GraphQL request that is *permanently* going to answer "no such problem",
     /// once per switch to it, forever.
     ///
-    /// Only that one answer is recorded. Offline, throttled and rejected are
-    /// failures to *ask*, and must still be retried; `data.question: null` is
-    /// LeetCode's stable answer about a slug that does not exist. `signOut()`
-    /// empties it with `slugsFetchedThisRun`, so a session change starts every
-    /// one of this run's conclusions over.
+    /// A statement with **no content** is recorded here too, for the same reason
+    /// and with the same consequence: a Premium problem answers `isPaidOnly: true`
+    /// with a null `content`, which is as stable an answer about that slug as
+    /// `null` is, and a solution file for one that reached the folder some other
+    /// way would otherwise ask again on every switch to it.
+    ///
+    /// Only those two answers are recorded. Offline, throttled and rejected are
+    /// failures to *ask*, and must still be retried; both of these are LeetCode
+    /// answering the question. `signOut()` empties it with `slugsFetchedThisRun`,
+    /// so a session change starts every one of this run's conclusions over — which
+    /// is also what lets a user who subscribes mid-run see the statement after
+    /// signing back in.
     private var slugsKnownAbsent: Set<String> = []
+
+    /// Problem titles this run has seen on the wire, by slug.
+    ///
+    /// The panel's title has two sources and both can be empty. The catalog knows
+    /// every title, but it is only ever loaded to resolve a *number* — opening by
+    /// slug or by URL returns the slug verbatim without fetching it (see
+    /// `LeetCodeCatalog.resolveSlug`) — and the disk fragment cache stores markup,
+    /// not a title. Without this, a problem opened by URL showed "1. Two Sum"
+    /// while its detail was in hand and then permanently degraded to "1. two-sum"
+    /// the first time the user switched tabs and came back, since that refresh is
+    /// answered from the cache and short-circuits before any fetch could correct
+    /// it.
+    ///
+    /// Not cleared by `signOut()`, like the disk fragment cache it parallels: a
+    /// problem's title is public content, not something the session revealed.
+    private var titlesBySlug: [String: String] = [:]
 
     private var openGeneration = 0
     private var statementGeneration = 0
@@ -577,7 +600,10 @@ public final class LeetCodeModel: ObservableObject {
             published = LeetCodeStatement(
                 slug: slug,
                 number: parts.number,
-                title: catalog.problem(forSlug: slug)?.title ?? slug,
+                // This run's own answer first, the catalog behind it: opening by
+                // slug or URL never loads the catalog, so it is empty on exactly
+                // the paths where the title matters most. See `titlesBySlug`.
+                title: titlesBySlug[slug] ?? catalog.problem(forSlug: slug)?.title ?? slug,
                 fragment: fragment,
                 isFromCache: true
             )
@@ -605,15 +631,22 @@ public final class LeetCodeModel: ObservableObject {
         do {
             let detail = try await fetchDetail(slug: slug, credentials: credentials)
             guard generation == statementGeneration else { return published }
-            if detail == nil { slugsKnownAbsent.insert(slug) }
+            // Both of LeetCode's own answers are recorded, not just `null`: a
+            // detail with no content is a Premium problem, which is as settled a
+            // fact about that slug as "no such problem". See `slugsKnownAbsent`.
+            if detail == nil || detail?.content.isEmpty == true {
+                slugsKnownAbsent.insert(slug)
+            }
             guard let detail, !detail.content.isEmpty else { return published }
+            let title = detail.title.isEmpty ? slug : detail.title
             let fresh = LeetCodeStatement(
                 slug: slug,
                 number: parts.number,
-                title: detail.title.isEmpty ? slug : detail.title,
+                title: title,
                 fragment: detail.content,
                 isFromCache: false
             )
+            titlesBySlug[slug] = title
             statementCache.store(detail.content, forSlug: slug)
             slugsFetchedThisRun.insert(slug)
             statement = fresh
@@ -715,12 +748,16 @@ public final class LeetCodeModel: ObservableObject {
     private func adoptStatement(from detail: LeetCodeProblemDetail) {
         guard !detail.content.isEmpty else { return }
         statementGeneration += 1
+        let title = detail.title.isEmpty ? detail.slug : detail.title
         statementCache.store(detail.content, forSlug: detail.slug)
         slugsFetchedThisRun.insert(detail.slug)
+        // Remembered here and not only published, because the next refresh for
+        // this slug is answered from the fragment cache, which holds no title.
+        titlesBySlug[detail.slug] = title
         statement = LeetCodeStatement(
             slug: detail.slug,
             number: detail.frontendID,
-            title: detail.title.isEmpty ? detail.slug : detail.title,
+            title: title,
             fragment: detail.content,
             isFromCache: false
         )

@@ -168,19 +168,26 @@ public enum LeetCodeAPI {
     ///
     /// The rule is derived from the request rather than from `siteURL`: the
     /// credentials may travel to the host they were already being sent to, and to
-    /// hosts within it (`leetcode.com` → `www.leetcode.com`). It is deliberately
+    /// hosts *within* it (`leetcode.com` → `www.leetcode.com`). It is deliberately
     /// **not** ``LeetCodeProblemInput``'s "is this a LeetCode URL" rule, which
     /// also accepts `leetcode.cn` — that is a different operator, and a session
     /// obtained on `.com` has no business being sent there. Scheme is checked too,
     /// so an `https` → `http` downgrade cannot carry the pair in clear text.
+    ///
+    /// **The containment is one-directional, and that is the whole point.** The
+    /// mirror clause — "the original is within the new host" — reads as the same
+    /// relaxation and is not: it walks *up* the name, so `leetcode.com` → `com`
+    /// satisfies it and the pair goes to whoever answers for the public suffix.
+    /// Nothing in this app currently redirects that way (the original request is
+    /// always `leetcode.com`, so the only host the clause ever admitted was `com`
+    /// itself), but this predicate is the one place the same-origin rule is
+    /// written, and a rule that is right only because of its call site is not one.
     public static func redirectMayCarryCredentials(from originalURL: URL, to newURL: URL) -> Bool {
         guard let original = originalURL.host?.lowercased(),
               let new = newURL.host?.lowercased(),
               newURL.scheme?.lowercased() == originalURL.scheme?.lowercased()
         else { return false }
-        return new == original
-            || new.hasSuffix("." + original)
-            || original.hasSuffix("." + new)
+        return new == original || new.hasSuffix("." + original)
     }
 
     /// The headers every request carries, whatever its method.

@@ -925,6 +925,37 @@ final class LeetCodeModelTests: XCTestCase {
         XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 1)
     }
 
+    /// The panel's title survives a tab switch for a problem opened by slug.
+    ///
+    /// Two sources know a title and neither is available on that path: the
+    /// catalog is only ever loaded to resolve a *number* (a slug resolves to
+    /// itself), and the disk fragment cache stores markup with no title in it.
+    /// So the refresh that a switch back is answered from had nothing but the
+    /// slug to fall back on, and the header degraded from "1. Two Sum" to
+    /// "1. two-sum" for the rest of the run — permanently, because that same
+    /// refresh short-circuits before any fetch that could correct it.
+    func testTheStatementTitleSurvivesATabSwitchWhenOpenedBySlug() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+
+        let outcome = try await model.openProblem(input: .slug("two-sum"), language: swift)
+        let url = try XCTUnwrap(outcome.solution?.url)
+        XCTAssertEqual(model.statement?.title, "Two Sum")
+        XCTAssertEqual(
+            transport.count(for: .problemList),
+            0,
+            "a slug resolves to itself; the catalog is never loaded on this path"
+        )
+
+        _ = await model.statement(forFileAt: nil, in: solutionsFolder)
+        let published = await model.statement(forFileAt: url, in: solutionsFolder)
+
+        XCTAssertEqual(published?.title, "Two Sum")
+        XCTAssertEqual(published?.isFromCache, true)
+        XCTAssertEqual(model.statement?.title, "Two Sum")
+    }
+
     /// A slug this run has *not* fetched is still fetched, cache or no cache —
     /// the disk cache is a head start, not a substitute for a refresh.
     func testACachedStatementFromALaunchAgoIsStillRefreshed() async throws {
@@ -983,8 +1014,37 @@ final class LeetCodeModelTests: XCTestCase {
         XCTAssertEqual(transport.count(for: .question(slug: "notes")), 1)
     }
 
-    /// Only that one answer is remembered: offline is a failure to *ask*, so the
-    /// next switch to the tab asks again.
+    /// A detail with **no content** is the other answer LeetCode gives about a
+    /// slug, and is remembered the same way.
+    ///
+    /// A Premium problem answers `isPaidOnly: true` with a null `content`. The
+    /// model refuses to *open* one, but a solution file for it can reach the
+    /// folder another way (copied in, or written by hand), and without this the
+    /// tab would issue a request that is permanently going to answer nothing,
+    /// once per switch to it.
+    func testAPremiumStatementIsAskedAboutOnce() async throws {
+        let slug = "two-sum-iii-data-structure-design"
+        let tree = makeTree()
+        let transport = makeTransport()
+        transport.serve(
+            .question(slug: slug),
+            body: Self.fixture("question-detail-paid-only.json")
+        )
+        let model = makeModel(tree: tree, transport: transport)
+        let url = solutionsFolder.appendingPathComponent("0170-\(slug).swift")
+        let other = solutionsFolder.appendingPathComponent("0001-two-sum.swift")
+
+        let first = await model.statement(forFileAt: url, in: solutionsFolder)
+        _ = await model.statement(forFileAt: other, in: solutionsFolder)
+        let second = await model.statement(forFileAt: url, in: solutionsFolder)
+
+        XCTAssertNil(first)
+        XCTAssertNil(second)
+        XCTAssertEqual(transport.count(for: .question(slug: slug)), 1)
+    }
+
+    /// Only those two answers are remembered: offline is a failure to *ask*, so
+    /// the next switch to the tab asks again.
     func testAStatementThatCouldNotBeFetchedIsRetried() async throws {
         let tree = makeTree()
         let transport = makeTransport()

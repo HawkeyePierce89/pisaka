@@ -520,9 +520,13 @@ the limits the design carries.
     is deliberately permissive, so a `2024-notes.md` the user dropped in the folder
     parses as problem 2024 and asks about slug `notes` — a request that is
     permanently going to answer "no such problem", re-issued on every switch to
-    that tab. Only `data.question: null` is recorded, because that is LeetCode's
-    stable answer *about a slug*; offline, throttled and rejected are failures to
-    ask and must still be retried. `signOut()` empties both sets, since a session
+    that tab. **Two** answers are recorded there: `data.question: null`, and a
+    detail that arrives with an empty `content` — which is the Premium shape
+    (`isPaidOnly: true` with a null `content`), equally settled *about that slug*,
+    and reachable because the model refuses to *open* a Premium problem but a
+    solution file for one can reach the folder another way. Offline, throttled and
+    rejected are recorded by neither: those are failures to ask and must still be
+    retried. `signOut()` empties both sets, since a session
     change invalidates what was concluded under the old one — while deliberately
     **leaving `statement` standing**: the fragment is public content, is still in
     the disk cache, and is republished from it with no session at all, so clearing
@@ -542,7 +546,17 @@ the limits the design carries.
     yesterday's statement. The consequence, stated so it is not read as a bug: *a
     failure with a cached fragment present is not an error* and sets no `lastError`,
     because the user is looking at the statement either way. A `nil` url or folder
-    clears the panel.
+    clears the panel. The panel's **title** has its own small store, `titlesBySlug`,
+    for a reason that only shows up on the second visit to a tab: two things know a
+    title and neither is reachable there. The catalog knows every one, but it is
+    loaded only to resolve a *number* — a slug or a URL resolves to itself and never
+    fetches it — and the disk fragment cache holds markup, not a title. So a problem
+    opened by URL showed "1. Two Sum" while its detail was in hand and then degraded
+    to "1. two-sum" the first time the user switched tabs and came back, permanently,
+    because that refresh is answered from the cache and short-circuits on
+    `slugsFetchedThisRun` before any fetch could correct it. `signOut()` does *not*
+    empty it, matching the disk fragment cache it parallels: a problem's title is
+    public content, not something the session revealed.
     *Plumbing.* Every request goes through one `send` that folds a non-`LeetCodeError`
     into `network`, so a decorator or a stub cannot escape this layer's vocabulary
     (the same fold `LeetCodeCatalog` applies). A Keychain that refuses the item does
@@ -596,7 +610,15 @@ the limits the design carries.
     lives in Core — the file that decides those headers *are* the session is the
     file that decides where they may go, and it is the half a test can see — and it
     is derived from the request rather than from `siteURL`: same host or a host
-    within it (`leetcode.com` → `www.leetcode.com`), same scheme. It is
+    within it (`leetcode.com` → `www.leetcode.com`), same scheme. **The
+    containment runs one way only**, which is the part worth writing down: the
+    mirror clause — "the original is *within* the new host" — reads as the same
+    relaxation and is not, because it walks *up* the name, so `leetcode.com` →
+    `com` satisfies it and the pair goes to whoever answers for the public suffix.
+    Nothing in this app redirects that way (`task.originalRequest` is always
+    `leetcode.com`, so `com` was the only host it ever admitted), but this
+    predicate is the one place the same-origin rule is written and a rule that is
+    right only because of its call site is not one. It is
     deliberately **not** `LeetCodeProblemInput`'s "is this a LeetCode URL" rule,
     which also accepts `leetcode.cn`: that is a different operator, and a `.com`
     session has no business being sent there. Stripping rather than refusing keeps

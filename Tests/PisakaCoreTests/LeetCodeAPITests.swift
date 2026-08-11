@@ -201,6 +201,10 @@ final class LeetCodeAPITests: XCTestCase {
             "https://leetcode.cn/graphql",
             "https://leetcode.com.evil.example/graphql",
             "https://evil.example/graphql",
+            // Containment runs one way only. Walking *up* the name reads like
+            // the same relaxation and hands the session to whoever answers for
+            // the public suffix.
+            "https://com/graphql",
             // A scheme downgrade would put the pair on the wire in clear text.
             "http://leetcode.com/graphql"
         ]
