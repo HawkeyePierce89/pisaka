@@ -331,8 +331,9 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - **Pure engine + thin glue**: every decision lives in Core and is unit-tested;
   views only wire triggers to engines and are untested.
 - **Paths**: store as the user spelled them, match canonically
-  (`CanonicalPath`); the FSEvents watcher alone uses `realpath(3)` — the two
-  must not be unified (documented on both).
+  (`CanonicalPath`); the FSEvents watcher alone uses `realpath(3)` and
+  `LSPInstallLayout` alone is purely lexical (no `stat(2)`, and *not*
+  `standardizedFileURL`) — the three must not be unified (documented on all).
 - **Line separators**: the editor splits on LF/CR/CRLF/NEL/LS/PS everywhere via
   `LineStartIndex`/`TerminatedLines`; git speaks LF only — `BlameAlignment`
   bridges — and regex `^`/`$` follow ICU's superset (known limit).

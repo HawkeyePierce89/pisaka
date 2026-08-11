@@ -726,6 +726,34 @@ final class LSPInstallEngineTests: XCTestCase {
         XCTAssertEqual(harness.stagingEntries, [])
     }
 
+    /// The sweep against a listing spelled through a symlink — the shape the
+    /// re-derivation in `sweepStaging` exists for, and the only one in which a
+    /// correct leftover reads as outside the install root.
+    ///
+    /// `FileManager.contentsOfDirectory(at:)` resolves the parent's symlinks in
+    /// the URLs it returns, while `layout.base` is whatever the caller spelled
+    /// and this file's path math is lexical and may not stat — so an install root
+    /// under `/tmp` lists its own staging tree as `/private/tmp/…`, which
+    /// `mayDelete` refuses. Taking the entry's *name* and re-rooting it is what
+    /// keeps both sides derived from one `base`; without it the sweep silently
+    /// deletes nothing, and a predicate that only ever refuses leaves no trace.
+    func testSweepingRemovesLeftoversEvenWhenTheListingSpellsThemThroughASymlink() async throws {
+        let harness = Harness()
+        try await harness.engine.install("server")
+        harness.tree.files["LanguageServers/.staging/server-2.0.0-9/node_modules/server/main.js"] = "half"
+        // The same tree, re-spelled the way the real file manager hands it back.
+        harness.tree.listingSpelling = { URL(fileURLWithPath: "/private" + $0.path) }
+
+        harness.engine.sweepStaging()
+
+        XCTAssertEqual(harness.tree.removedPaths, ["LanguageServers/.staging/server-2.0.0-9"])
+        XCTAssertEqual(harness.stagingEntries, [])
+        XCTAssertEqual(
+            harness.installedFiles("server", version: "2.0.0").count, 3,
+            "the sweep reached outside .staging"
+        )
+    }
+
     /// A launch on a machine that has provisioned servers and crashed on none of
     /// them. Both shapes have to be no-ops over an installed tree rather than an
     /// error or a deletion: the staging root absent (nothing was ever installed on

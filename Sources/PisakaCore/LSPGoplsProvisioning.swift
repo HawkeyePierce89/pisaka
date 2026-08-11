@@ -622,7 +622,6 @@ public final class LSPGoplsProvisioningModel: ObservableObject {
     /// deletes through `fileService` directly: inside the install root, and
     /// never the root itself.
     private func mayDelete(_ url: URL) -> Bool {
-        layout.contains(url)
-            && url.standardizedFileURL.path != layout.base.standardizedFileURL.path
+        layout.contains(url) && !layout.isBase(url)
     }
 }

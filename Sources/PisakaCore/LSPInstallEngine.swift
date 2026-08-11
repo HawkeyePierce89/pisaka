@@ -548,12 +548,22 @@ public final class LSPInstallEngine {
     /// `layout.contains(_:)` answers "inside the install root", and deliberately
     /// counts the root itself — it is a containment predicate, and the sweep reads
     /// that directory. Nothing here may ever *delete* it: every path below is
-    /// built from a component id or read out of a listing, and one that resolves
-    /// back to the root (a hand-edited manifest with `..` in an id, a `.staging`
-    /// entry that walks out through a symlink) would take every provisioned server
-    /// with it in a single `removeItem`. So the delete sites ask this instead.
+    /// built from a component id or from an entry name, and one that resolves back
+    /// to the root — a hand-edited manifest with `..` in an id — would take every
+    /// provisioned server with it in a single `removeItem`. So the delete sites ask
+    /// this instead.
+    ///
+    /// A symlink is not the other half of that case: this predicate is lexical and
+    /// would not see one, and it does not have to, because `removeItem(at:)` unlinks
+    /// the link rather than following it. A delete site that ever *did* traverse
+    /// links would need more than this.
+    ///
+    /// Both halves go through the layout's own lexical path math. Asking the
+    /// second one any other way — `standardizedFileURL`, which is what this was —
+    /// would put a disk-consulting comparison inside a predicate whose other half
+    /// is stat-free by contract, and the two can disagree.
     private func mayDelete(_ url: URL) -> Bool {
-        layout.contains(url) && url.standardizedFileURL.path != layout.base.standardizedFileURL.path
+        layout.contains(url) && !layout.isBase(url)
     }
 
     private func ensureDirectory(_ url: URL, of component: LSPComponent) throws {
@@ -608,12 +618,29 @@ public final class LSPInstallEngine {
     /// trees is unreachable garbage — the version directories are the only thing
     /// anything reads. Never throws: a missing staging root is the normal case,
     /// and a launch must not fail over a directory nobody will look in.
+    ///
+    /// The candidate is re-derived from the layout rather than taken from the
+    /// listing, and that is what keeps `mayDelete` answering `true`.
+    /// `FileManager.contentsOfDirectory(at:)` resolves the parent's symlinks in
+    /// the URLs it returns — a listing of `/tmp/servers/.staging` comes back
+    /// spelled `/private/tmp/servers/.staging/…` — while `layout.base` is
+    /// whatever the caller spelled, kept verbatim because this file's path math
+    /// is lexical and may not stat. Comparing those two directly is the one shape
+    /// in which a correct entry reads as outside the install root, so the sweep
+    /// would silently delete nothing. Taking only the *name* off the entry and
+    /// re-rooting it makes "both sides derive from one `base`" an actual property
+    /// of the code rather than an assumption about the file service.
     public func sweepStaging() {
         guard let entries = try? fileService.contentsOfDirectory(at: layout.stagingRoot) else {
             return
         }
-        for entry in entries where mayDelete(entry.url) {
-            try? fileService.removeItem(at: entry.url)
+        for entry in entries {
+            let url = layout.stagingRoot.appendingPathComponent(
+                entry.name,
+                isDirectory: entry.isDirectory
+            )
+            guard mayDelete(url) else { continue }
+            try? fileService.removeItem(at: url)
         }
     }
 }

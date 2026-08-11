@@ -784,8 +784,39 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     meaningful for exactly one implementation; an item the issuing provider does not
     recognise — a handle from a superseded list, or an item from a different provider
     — answers `[]`, which the caller reads as "insert the plain text and nothing
-    else". The two providers that compose these answers, and the rules they follow,
-    are in `core-lsp.md`.
+    else". A later fix added a third defaulted field on the same principle:
+    `displayText`, the string the popup **shows**, stored as `displayText ?? text`
+    so the tree-sitter provider, both iOS surfaces and every construction site
+    that predates it keep meaning exactly what they meant — on those surfaces,
+    "what is shown is what is inserted". It exists for one shape: tsserver answers
+    a member with a `textEdit` that covers the typed dot, so a row showing the
+    *inserted* text reads `.greet` under `greeter.`.
+    **It changes no edit, and it is display-only in that sense alone.** The shown
+    string is not only shown: AppKit writes it over the typed word as a preview
+    while the user arrows (`insertCompletion(…, isFinal: false)`), and it inserts
+    it there itself whenever `CompletionEditPlan.make` rejects the plan as stale.
+    So the safety rule — computed and enforced by
+    `CompletionEdit.displayText(forTypedWordStartingAt:in:)`, which lives in
+    `CompletionEditPlan.swift` (`core-lsp.md`) because that file already owns how
+    an edit relates to the typed word — is that it may differ
+    from `text` **only by dropping a head that re-writes, verbatim in UTF-16,
+    characters already standing in the buffer** between the primary edit's start
+    and the typed word's start. Whenever a head is dropped the preview and the
+    fallback compose exactly the buffer the plan would have (and the fallback for
+    the dot shape stops writing `greeter..greet`, so the rule fixes a path rather
+    than only prettifying one); under anything looser they corrupt it. An optional
+    receiver's `?.greet` over the same range therefore keeps its full spelling —
+    the head `?` is not what stands there — and a `newText` that *is* the head
+    keeps it too, since an empty row is not a row. The converse is deliberately
+    not promised: a string the rule *keeps* is still inserted verbatim over the
+    typed word by the fallback and need not compose the plan's buffer, and a
+    server range reaching past the caret leaves the characters beyond it standing.
+    Those are the fallback path's own limits — it can only replace the typed word
+    — and `core-lsp.md` states them where the rule is enforced.
+    The LSP `label` is never this string: `greet(name: String)` written into the
+    buffer by the fallback path is not a completion, it is damage. The two
+    providers that compose these answers, and the rules they follow, are in
+    `core-lsp.md`.
   - `SymbolIntelligenceProvider.swift` — the index-backed
     `CodeIntelligenceProviding` implementation and the home of **every ranking
     rule**, all of it `static` and pure over an index value, with the instance

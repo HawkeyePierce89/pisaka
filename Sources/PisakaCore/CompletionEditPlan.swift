@@ -97,6 +97,63 @@ public struct CompletionEdit: Equatable, Hashable, Sendable {
         }
         return self
     }
+
+    /// What a popup row for this edit should *read*, given where the typed word
+    /// starts in the buffer the edit was computed against.
+    ///
+    /// A server decides what a completion replaces, and for a member access it
+    /// may reach back past the dot: tsserver answers `greeter.` with a
+    /// `textEdit` covering the dot itself and a `newText` of `".greet"`, so a
+    /// popup that shows the inserted text reads every row as `.greet`.
+    ///
+    /// **The row may only drop a head that re-writes, verbatim, characters
+    /// already standing in the buffer between this edit's start and the typed
+    /// word's start**, and that rule is what makes the shown string safe to
+    /// insert. The shown string is not only shown: AppKit writes it over the
+    /// typed word as a preview while the user arrows
+    /// (`insertCompletion(…, isFinal: false)`), and it inserts it there itself
+    /// whenever `CompletionEditPlan.make` rejects the plan as stale. Dropping a
+    /// head that merely restates what is there composes exactly the buffer the
+    /// plan would have (`greeter.` + `greet`); dropping anything else would
+    /// silently delete or duplicate characters.
+    ///
+    /// So an optional receiver's `"?.greet"` over the same range keeps its full
+    /// spelling — the buffer holds `.`, the edit writes `?.`, and showing the
+    /// rewrite is the honest display — and a `newText` that *is* the head keeps
+    /// it too, because an empty row is not a row.
+    ///
+    /// **The guarantee runs one way**, and the two shapes it excludes are worth
+    /// stating because they read like counter-examples and are not. A string
+    /// this rule *keeps* says nothing about the fallback: inserting `?.greet`
+    /// over the typed word composes `greeter.?.greet`, not the plan's buffer.
+    /// And the equality above additionally wants the edit to end where the typed
+    /// word ends — `make` only demands it reach *at least* that far, so a server
+    /// range past the caret leaves the characters beyond it standing. Neither is
+    /// something a display string can repair, because the fallback path can only
+    /// ever replace the typed word; both are exactly why this refuses to shorten
+    /// rather than guessing at a shorter spelling.
+    ///
+    /// Only the primary edit is ever a row; an accompaniment (an `import` line)
+    /// is inserted whole and never displayed.
+    public func displayText(forTypedWordStartingAt typedWordStart: Int, in text: NSString) -> String {
+        guard role == .primary else { return newText }
+        guard range.location >= 0,
+              typedWordStart > range.location,
+              typedWordStart <= text.length
+        else { return newText }
+
+        let headLength = typedWordStart - range.location
+        let inserted = newText as NSString
+        guard inserted.length > headLength else { return newText }
+        let head = text.substring(with: NSRange(location: range.location, length: headLength))
+        // UTF-16 units, literally: `String`'s own comparison is canonical, and
+        // "the same characters as the buffer holds" here means the same code
+        // units, since the head is not re-typed but left standing.
+        guard (inserted.substring(to: headLength) as NSString).isEqual(to: head) else {
+            return newText
+        }
+        return inserted.substring(from: headLength)
+    }
 }
 
 /// The ordered application of a completion item's edits, and where the caret

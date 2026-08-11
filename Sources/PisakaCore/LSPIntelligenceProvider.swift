@@ -349,6 +349,41 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             // candidate behind it — the same rule the tree-sitter path applies,
             // stated here too because the two lists are never merged.
             guard !inserted.isEmpty, inserted != typed else { continue }
+
+            let itemEdits = edits(
+                for: item,
+                additionalTextEdits: item.additionalTextEdits,
+                typedWord: typedWord,
+                in: text,
+                lineStarts: lineStarts
+            )
+            // What the row reads, from the item's own primary edit against the
+            // buffer the request carried: tsserver answers a member access with a
+            // `textEdit` over the typed dot, so `inserted` is `".greet"` and the
+            // row must read `greet`. `nil` — the common case, including every
+            // edit-less item — means the row *is* what is inserted.
+            let display = itemEdits
+                .first { $0.role == .primary }?
+                .displayText(forTypedWordStartingAt: typedWord.location, in: text)
+            // The "completes to what is already typed" rule again, this time
+            // against the string the user will *see*, because a head the row
+            // drops is exactly the difference between the two: a fully typed
+            // `greeter.greet` makes tsserver's `".greet"` pass the test above and
+            // read `greet` — the typed word itself. Such a row is not merely
+            // useless. `CompletionController` keys its snapshot by the displayed
+            // string, and AppKit routes Esc back through that same table with the
+            // typed word, so a row spelled like it turns a cancel into a commit —
+            // including the item's `import` line. Dropping it here keeps the
+            // controller's invariant ("no row is the typed word") true by
+            // construction, on the one side that can see both spellings. `nil`
+            // means the row is the inserted text, which the guard above already
+            // answered for.
+            guard display != typed else { continue }
+            // Claimed here rather than beside the guard above, i.e. only by an
+            // item that is actually offered: a dropped row must not spend the
+            // key, or a later item inserting the same text from a *different*
+            // range — a different row, with a display of its own — would be
+            // discarded as its duplicate and never reach the popup.
             guard seen.insert(inserted).inserted else { continue }
 
             var resolveHandle: Int?
@@ -371,14 +406,12 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
                     // adds no key of its own, so the flag is inert here rather
                     // than false in some interesting sense.
                     isFromCurrentFile: false,
-                    edits: edits(
-                        for: item,
-                        additionalTextEdits: item.additionalTextEdits,
-                        typedWord: typedWord,
-                        in: text,
-                        lineStarts: lineStarts
-                    ),
-                    resolveHandle: resolveHandle
+                    edits: itemEdits,
+                    resolveHandle: resolveHandle,
+                    // Computed above, where it is also a drop rule. Nothing else
+                    // reads it: the dedup key, the cap and the edits are the
+                    // inserted text's, so what reaches the buffer is untouched.
+                    displayText: display
                 )
             )
             if results.count == completionLimit { break }

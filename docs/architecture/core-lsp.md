@@ -753,6 +753,37 @@ document, together with the limits they carry.
     has a defined order and is allowed; both cases have a test.
     Rejection is a **safe** outcome, not an error worth surfacing: the editor falls
     back to AppKit's own insertion of the plain text and loses only the auto-import.
+    `displayText(forTypedWordStartingAt:in:)` is the second question this file
+    answers about how an edit relates to the typed word, and it lives here for
+    that reason rather than at the seam it feeds: given the typed word's start and
+    the buffer the edit was computed against, it answers what a popup row should
+    read — `newText` minus a head that re-writes, **verbatim in UTF-16**, the
+    characters standing between `range.location` and the typed word's start, and
+    the full `newText` otherwise. UTF-16 units literally, not `String` equality,
+    because "the same characters the buffer holds" here means the same code units:
+    the head is not re-typed, it is left standing.
+    That head-dropping is the *only* difference allowed, and the reason is that
+    the shown string is not only shown — AppKit previews it over the typed word as
+    the user arrows and inserts it there itself when `make` rejects the plan as
+    stale, so whenever this rule *drops* a head those two compose exactly the
+    buffer the plan would have.
+    (For tsserver's dot shape today's fallback writes `greeter..greet`, so the
+    rule corrects that path rather than merely prettifying a row.)
+    **The guarantee runs one way, and that is not an oversight.** A string the
+    rule *keeps* promises nothing about the fallback: `?.greet` inserted over the
+    typed word composes `greeter.?.greet`. Nor does a dropped head help when the
+    server's range reaches past the caret — `make` demands only that the primary
+    edit reach *at least* the typed word's end, so the characters beyond it stay
+    standing. Both are limits of the fallback path itself, which can only ever
+    replace the typed word, and no choice of display string repairs either; they
+    are the reason the rule refuses to shorten in those cases rather than
+    evidence that it should shorten more. Hence the
+    guards: `?.greet` over the same range keeps its full spelling because `?` is
+    not what stands there, a `newText` that *is* the head keeps it because an
+    empty row is not a row, and no gap at all (`range.location` == the typed
+    word's start, the sourcekit-lsp member shape) leaves the string untouched.
+    **Only the primary edit is ever a row** — an accompanying `import` is inserted
+    whole and never displayed — so a non-primary edit answers `newText` unchanged.
 
   - `LSPIntelligenceProvider.swift` — the `CodeIntelligenceProviding`
     implementation that answers from a server, and the one place the two coordinate
@@ -844,6 +875,37 @@ document, together with the limits they carry.
     its cheap path; edits appear when the item drags an `import` along (D4) or when
     the server chose a range other than the one the client typed — the two cases
     AppKit would get wrong.
+    **A member `textEdit` that covers the typed dot is answered with the dot in
+    the inserted text and without it in the display.** tsserver ranges a member
+    item over the `.` the user just typed, so `inserted` is `".greet"` and a popup
+    showing what it inserts reads every row under `greeter.` as `.greet`. So
+    `publish` computes each item's `displayText` from that item's own **primary**
+    edit against the buffer the request carried and the `typedWord` range it
+    already holds, through `CompletionEdit.displayText(forTypedWordStartingAt:in:)`
+    — which drops the head only because those characters already stand in the
+    buffer, and therefore leaves `?.greet` on an optional receiver whole. Nothing
+    downstream of that line moves: **the primary edit is unchanged**, and so are
+    `edits(for:…)`, the ranking, the dedup key (still the *inserted* text), the
+    cap and the resolve bookkeeping — what reaches the buffer is byte-identical.
+    Every item without a primary edit, which is every edit-less item and the whole
+    sourcekit-lsp member shape (zero-length ranges at the caret), passes `nil` and
+    so displays exactly what it inserts.
+    **"Completes to what is already typed" is asked of the displayed spelling
+    too**, and that second guard is what the first one stops covering once a row
+    may read differently from what it inserts. The two diverge by exactly the head
+    the row drops, so a member the user already finished typing — `greeter.greet`,
+    caret at the end — comes back from tsserver as `".greet"`, passes
+    `inserted != typed`, and reads `greet`: the typed word itself. Such a row is
+    not merely useless: `CompletionController` keys its snapshot by the displayed
+    string and AppKit hands Esc back through that same table spelled as the typed
+    word, so a row that answers to it turns a cancel into a *commit*, `import` line
+    included. Dropping it here, on the one side that can see both spellings, keeps
+    the controller's invariant ("no row is the typed word") true by construction.
+    The dedup key stays the inserted text, as above — but it is *claimed* after
+    that guard rather than before it, so a dropped row does not spend it: two
+    items may carry one `newText` over different ranges, which makes them two
+    different rows (the head a row drops is read off its own range), and the one
+    that survives must not be mistaken for a duplicate of the one nobody sees.
     `resolveEdits(for:)` is the seam's defaulted extension point, implemented here
     and a no-op everywhere else. A handle names an item from the list the popup is
     *actually showing*: handles are monotonic and never reused, and the table is

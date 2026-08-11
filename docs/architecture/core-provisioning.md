@@ -182,8 +182,9 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     under the same base** makes the final `move` a rename within one volume; a
     staging directory in `/tmp` would be a cross-device copy with no atomicity to
     offer.
-    `base` is standardised and re-spelled as a directory URL so two spellings of
-    one root compare equal — the layout is a value the model compares.
+    `base` is normalised by this file's own path math and re-spelled as a
+    directory URL so two spellings of one root compare equal — the layout is a
+    value the model compares.
     `directoryName` ("LanguageServers") is spelled here and nowhere else, so the
     de-provisioning instructions in `README.md` point at the one place that
     defines it. The staging directory begins with a dot so it can never collide
@@ -202,12 +203,66 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     out of a listing, and one that resolved back to the root (a hand-edited
     manifest with `..` in an id, a `.staging` entry that walks out) would take
     every provisioned server with it in a single `removeItem`.
+    `isBase(_:)` is that second half, and it is **here rather than at the delete
+    sites** so the two questions can never be answered by two different path
+    rules. They were: both `mayDelete`s (the engine's and the gopls model's
+    restatement of it) spelled it `url.standardizedFileURL.path !=
+    base.standardizedFileURL.path`, so one boolean expression asked a lexical
+    question and a stat-dependent one at once — under a `/private`-spelled root
+    exactly the mismatch the next two paragraphs describe, inside the predicate
+    that guards every delete.
     The comparison itself is `directory(_:contains:)`, a static over an arbitrary
     root: the engine asks it of the install root before it deletes and of one
     attempt's staging directory before it *writes* (`verifyUnpackTarget`), and one
-    implementation is what keeps those two answers the same shape. Lexical like
-    everything else in this file — `.`/`..` are resolved, symlinks are not
-    followed, which is the limit D12 states.
+    implementation is what keeps those two answers the same shape.
+    **Lexical like everything else in this file, by this file's own code.** Both
+    sides go through the private `normalisedComponents(of:)` — the path split on
+    `/`, empties and `.` dropped, `..` resolved against what precedes it and
+    clamped at the root so `/../x` is `/x` — and the answer is a whole-*component*
+    prefix comparison, equal component lists counting as contained because the
+    sweep reads the root itself. Components rather than a string prefix so `/a/bc`
+    inside `/a/b` is unrepresentable rather than merely tested against; it is the
+    rule `CanonicalPath.relativeComponents(of:under:)` applies to *canonical*
+    components, restated over lexical ones precisely because this file may not
+    touch the disk, and the two must not be unified.
+    **`URL.standardizedFileURL` is deliberately not what does that**, in either
+    this method or `init(base:)`. It is documented as lexical and is not: for a
+    path under `/private/tmp`, `/private/var` or `/private/etc` it strips the
+    `/private` prefix *when the shortened path exists on disk*, and keeps it when
+    it does not — so the pure-path-math module was quietly deciding on file-system
+    state. That had one live consequence rather than a theoretical one:
+    `verifyUnpackTarget` asks containment of a staging directory it has just
+    **created** (the shortened spelling exists, so it standardised to `/tmp/…`)
+    against an artifact destination inside it that does **not** exist yet (so it
+    stayed `/private/tmp/…`); two spellings of one tree compared as unrelated and
+    a correct install under a `/private`-spelled root failed with `unpackFailed`.
+    Unreachable with the shipped Application Support root, reachable with any
+    `/private`-spelled one.
+    The stated cost is the other half: `/tmp/x` and `/private/tmp/x` are one
+    directory on macOS and this file calls them two. Nothing here may resolve that
+    without a `stat(2)`, and it is safe for a predicate guarding deletes and
+    writes — a `false` only ever makes a caller *refuse*, never delete something
+    it should not have — and no caller can trip it, because the engine derives
+    root and candidate from one `base`. Symlinks are still not followed, which is
+    the limit D12 states.
+    **That last clause is a property of the engine's code, and it had to be made
+    one.** `sweepStaging()` is the single delete site whose candidate did not come
+    from the layout: it came back from `contentsOfDirectory(at:)`, and
+    `FileManager` resolves the parent's symlinks in the URLs it returns, so a
+    listing of a `/tmp`-spelled staging root arrives spelled `/private/tmp/…`.
+    Against a lexically-normalised `base` every entry then read as *outside* the
+    install root and the sweep silently deleted nothing — the refusal being safe
+    is exactly what makes that failure quiet. The engine now takes only the entry
+    *name* and re-roots it on `layout.stagingRoot`, so both sides really do derive
+    from one `base`. Not reachable with the shipped Application Support root, but
+    pinned by the suite all the same: `StubFileTree.listingSpelling` re-spells the
+    directory its listing hangs entry URLs off without moving anything, which is
+    the one thing an in-memory tree cannot otherwise reproduce about
+    `contentsOfDirectory(at:)`, and
+    `testSweepingRemovesLeftoversEvenWhenTheListingSpellsThemThroughASymlink`
+    stages the `/private` alias and asserts the leftover is still removed. Without
+    it, reverting to the entry's own URL kept every sweep test green — a predicate
+    that only ever refuses leaves no other trace.
 
   - `LSPInstallEngine.swift` — the whole of D12–D14: the two seams, the typed
     `LSPInstallError`, `state(of:)`, `install(_:)`, `remove(_:)` and

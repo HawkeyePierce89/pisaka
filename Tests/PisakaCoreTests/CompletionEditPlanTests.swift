@@ -518,6 +518,158 @@ final class CompletionEditPlanTests: XCTestCase {
         XCTAssertEqual(rejection(result), .bufferChanged)
     }
 
+    // MARK: - The display rule
+
+    /// tsserver's member shape: the `textEdit` covers the dot the user typed and
+    /// re-writes it, so the inserted text reads `.greet` and every row under
+    /// `greeter.` would show a leading dot. The head re-writes what already
+    /// stands in the buffer, so the row drops it.
+    func testAnEditThatRewritesTheTypedDotDropsItFromTheDisplay() {
+        let text = "let message = greeter." as NSString
+        let dot = text.range(of: ".").location
+        let edit = primary(NSRange(location: dot, length: 1), ".greet")
+
+        XCTAssertEqual(edit.displayText(forTypedWordStartingAt: text.length, in: text), "greet")
+        // What is *inserted* is untouched: the row is a spelling, not an edit.
+        XCTAssertEqual(edit.newText, ".greet")
+    }
+
+    /// The counter-case that decides the rule's shape: an optional receiver's
+    /// `?.` covers the same range but does **not** re-write what stands there —
+    /// the buffer holds `.`, the edit writes `?.` — so showing the full rewrite
+    /// is the honest display.
+    ///
+    /// The guarantee runs one way, and this is the documented shape it excludes:
+    /// keeping the string says nothing about the fallback, which can only ever
+    /// replace the typed word and so would compose `greeter.?.greet` rather than
+    /// the plan's `greeter?.greet`. Keeping it whole is still the right answer —
+    /// no shorter spelling repairs that, and shortening would additionally
+    /// mislead the row.
+    func testAnOptionalChainRewriteKeepsItsFullSpelling() {
+        let text = "let message = greeter." as NSString
+        let dot = text.range(of: ".").location
+        let edit = primary(NSRange(location: dot, length: 1), "?.greet")
+
+        XCTAssertEqual(edit.displayText(forTypedWordStartingAt: text.length, in: text), "?.greet")
+    }
+
+    /// The same rule over a longer gap: a head only has to differ somewhere to
+    /// be a rewrite rather than a re-statement.
+    func testAHeadThatDiffersFromTheBufferAnywhereIsKept() {
+        let text = "let message = greeter." as NSString
+        let receiver = text.range(of: "greeter.").location
+        // Reaches back over the receiver and renames it — nothing here merely
+        // restates the buffer, so the row shows the whole replacement.
+        let edit = primary(NSRange(location: receiver, length: 8), "greeting.greet")
+
+        XCTAssertEqual(
+            edit.displayText(forTypedWordStartingAt: text.length, in: text),
+            "greeting.greet"
+        )
+        // And the head that *does* restate it is dropped, over the same gap.
+        XCTAssertEqual(
+            primary(NSRange(location: receiver, length: 8), "greeter.greet")
+                .displayText(forTypedWordStartingAt: text.length, in: text),
+            "greet"
+        )
+    }
+
+    /// The head comparison is **UTF-16 units, literally**, not `String`'s
+    /// canonical equality — the documented rule, and until this test nothing
+    /// failed when it was spelled the other way.
+    ///
+    /// The two spellings of `é` (precomposed U+00E9, decomposed `e` + U+0301)
+    /// compare *equal* as `String`s and unequal as code units. The head is not
+    /// re-typed by anything: it is the buffer's own bytes, left standing while
+    /// only the tail is inserted over the typed word. So a server that answers a
+    /// decomposed receiver with a precomposed one is rewriting characters that
+    /// are there, which is the case the rule exists to keep whole — under
+    /// canonical equality it would drop them and silently change the receiver's
+    /// normalisation.
+    func testAHeadInADifferentUnicodeNormalisationIsKept() {
+        let decomposed = "cafe\u{0301}."
+        let text = "let x = \(decomposed)" as NSString
+        let receiver = text.range(of: decomposed).location
+        let head = NSRange(location: receiver, length: (decomposed as NSString).length)
+
+        // Precomposed head over a decomposed buffer: canonically the same string,
+        // a different sequence of code units.
+        XCTAssertEqual("caf\u{00E9}.", decomposed)
+        XCTAssertNotEqual(("caf\u{00E9}." as NSString).length, (decomposed as NSString).length)
+
+        XCTAssertEqual(
+            primary(head, "caf\u{00E9}.brew")
+                .displayText(forTypedWordStartingAt: text.length, in: text),
+            "caf\u{00E9}.brew"
+        )
+        // The same head spelled the way the buffer holds it *is* dropped, so the
+        // assertion above is about the code units and not about the shape.
+        XCTAssertEqual(
+            primary(head, "\(decomposed)brew")
+                .displayText(forTypedWordStartingAt: text.length, in: text),
+            "brew"
+        )
+    }
+
+    /// No gap — the ordinary shape, including every sourcekit-lsp member item,
+    /// whose `textEdit` is zero-length at the caret. The display *is* the
+    /// inserted text.
+    func testAnEditThatStartsAtTheTypedWordIsDisplayedUnchanged() {
+        let text = "let x = Gree" as NSString
+        let word = NSRange(location: text.length - 4, length: 4)
+
+        XCTAssertEqual(
+            primary(word, "Greeter").displayText(forTypedWordStartingAt: word.location, in: text),
+            "Greeter"
+        )
+        XCTAssertEqual(
+            primary(NSRange(location: text.length, length: 0), "salutation")
+                .displayText(forTypedWordStartingAt: text.length, in: text),
+            "salutation"
+        )
+    }
+
+    /// A `newText` that is exactly the head keeps its full spelling: an empty
+    /// row is not a row, and the user could not tell it from the one above it.
+    func testAnEditWhoseTextIsOnlyTheHeadKeepsIt() {
+        let text = "let message = greeter." as NSString
+        let dot = text.range(of: ".").location
+
+        XCTAssertEqual(
+            primary(NSRange(location: dot, length: 1), ".")
+                .displayText(forTypedWordStartingAt: text.length, in: text),
+            "."
+        )
+    }
+
+    /// Only the primary edit is a row. An `import` line restating what stands
+    /// above it is still inserted whole, and is never shown at all.
+    func testTheRuleAppliesToThePrimaryEditOnly() {
+        let text = "import Foundation\n" as NSString
+        let edit = additional(NSRange(location: 0, length: 0), "import Core\n")
+
+        XCTAssertEqual(edit.displayText(forTypedWordStartingAt: text.length, in: text), "import Core\n")
+        XCTAssertEqual(
+            additional(NSRange(location: 0, length: 7), "import Core\n")
+                .displayText(forTypedWordStartingAt: 7, in: text),
+            "import Core\n"
+        )
+    }
+
+    /// Offsets that cannot describe a gap answer the full text rather than a
+    /// substring of one: the rule guards a *display*, so refusing to shorten is
+    /// always the safe answer.
+    func testAnImpossibleGapLeavesTheTextWhole() {
+        let text = "let message = greeter." as NSString
+        let dot = text.range(of: ".").location
+        let edit = primary(NSRange(location: dot, length: 1), ".greet")
+
+        // A typed word starting *before* the edit — a shape `make` refuses.
+        XCTAssertEqual(edit.displayText(forTypedWordStartingAt: dot - 1, in: text), ".greet")
+        // And one past the end of the buffer the edit was computed against.
+        XCTAssertEqual(edit.displayText(forTypedWordStartingAt: text.length + 1, in: text), ".greet")
+    }
+
     // MARK: - The seam's defaults
 
     /// A tree-sitter item carries no edits and no resolve handle, so nothing
@@ -526,6 +678,22 @@ final class CompletionEditPlanTests: XCTestCase {
         let item = CompletionItem(text: "Worker", kind: .type, isFromCurrentFile: true)
         XCTAssertTrue(item.edits.isEmpty)
         XCTAssertNil(item.resolveHandle)
+        // And shows exactly what it inserts, so both iOS surfaces and AppKit's
+        // stock insertion keep meaning what they meant.
+        XCTAssertEqual(item.displayText, "Worker")
+    }
+
+    /// `displayText` is stored, not derived: a provider that computed one hands
+    /// it over, and everything else keeps `text`.
+    func testAnItemsDisplayTextDefaultsToWhatItInserts() {
+        let shown = CompletionItem(
+            text: ".greet",
+            kind: .method,
+            isFromCurrentFile: false,
+            displayText: "greet"
+        )
+        XCTAssertEqual(shown.text, ".greet")
+        XCTAssertEqual(shown.displayText, "greet")
     }
 
     /// `DefinitionRequest.text` defaults to empty — the compatibility that makes

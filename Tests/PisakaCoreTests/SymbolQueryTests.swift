@@ -135,7 +135,7 @@ final class SymbolQueryTests: XCTestCase {
 
     /// The one auxiliary capture, pinned by set equality of its own.
     ///
-    /// `@_attribute` exists only so the HTML query's `#eq?` predicate can filter
+    /// `@_attribute` exists only so the HTML query's `#match?` predicate can filter
     /// `id` attributes — the leading underscore is tree-sitter's "not an output"
     /// convention, and `SymbolKind` rejects it, so it can never become a symbol.
     /// Pinning the set keeps the *strictness* of the check above: a new
@@ -154,7 +154,7 @@ final class SymbolQueryTests: XCTestCase {
     }
 
     /// The HTML query is the only one that needs a predicate, and it needs it
-    /// badly enough to assert: without the `#eq?`, `(attribute (attribute_name) …
+    /// badly enough to assert: without the `#match?`, `(attribute (attribute_name) …
     /// (attribute_value) @definition.anchor)` matches *every* attribute in the
     /// document, so `class="page"` and `href="#header"` would be indexed as
     /// anchors. This pins that the filter is still there — and, by implication,

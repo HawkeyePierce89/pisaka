@@ -404,7 +404,14 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
                 self.showCompletions([], in: textView)
                 return
             }
-            self.showCompletions(items.map(\.text), answering: member, in: textView)
+            // `displayText`, not `text`, because that is what the seam says a row
+            // reads — and this strip both shows the string and inserts it over
+            // the typed word, which is precisely the pair the display rule is
+            // safe for. Identical here today: iOS installs no LSP provider, so
+            // every item's `displayText` defaults to its `text`. Spelling it this
+            // way puts the invariant where it is consumed rather than resting on
+            // that.
+            self.showCompletions(items.map(\.displayText), answering: member, in: textView)
         }
     }
 

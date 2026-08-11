@@ -296,20 +296,46 @@ public struct CompletionItem: Equatable, Hashable, Sendable {
     /// LSP types stay behind the provider), and the editor never interprets the
     /// number — it hands it straight back to the provider that issued it.
     public let resolveHandle: Int?
+    /// The string the popup *shows*, which is `text` for everything but a member
+    /// item whose server rewrote the typed dot.
+    ///
+    /// Display-only in the sense that it changes no edit — and safe only because
+    /// of the rule `CompletionEdit.displayText(forTypedWordStartingAt:in:)`
+    /// enforces, which is what computes it: it may differ from `text` **only by
+    /// dropping a head that re-writes, verbatim, characters already standing in
+    /// the buffer** between the primary edit's start and the typed word's start.
+    /// The shown string is not only shown — AppKit previews it over the typed
+    /// word as the user arrows, and inserts it there itself when
+    /// `CompletionEditPlan.make` rejects the plan as stale — so whenever the
+    /// rule *drops* a head those two compose exactly the buffer the plan would
+    /// have, and under any looser rule they would corrupt it. An optional
+    /// receiver's `?.greet` therefore keeps its full spelling. The converse is
+    /// not promised: a string the rule keeps is inserted verbatim over the typed
+    /// word and need not compose the plan's buffer at all — the fallback path's
+    /// own limit, stated in full on the method that computes this.
+    ///
+    /// The LSP `label` is never this string: `greet(name: String)` written into
+    /// the buffer by the fallback path is not a completion, it is damage.
+    public let displayText: String
 
     /// `edits` and `resolveHandle` are defaulted so the tree-sitter provider and
-    /// both iOS surfaces are untouched by phase 2a.
+    /// both iOS surfaces are untouched by phase 2a; `displayText` is defaulted to
+    /// `text` for the same reason — every construction site that predates it
+    /// keeps meaning exactly what it meant, which on those surfaces is "what is
+    /// shown is what is inserted".
     public init(
         text: String,
         kind: SymbolKind?,
         isFromCurrentFile: Bool,
         edits: [CompletionEdit] = [],
-        resolveHandle: Int? = nil
+        resolveHandle: Int? = nil,
+        displayText: String? = nil
     ) {
         self.text = text
         self.kind = kind
         self.isFromCurrentFile = isFromCurrentFile
         self.edits = edits
         self.resolveHandle = resolveHandle
+        self.displayText = displayText ?? text
     }
 }

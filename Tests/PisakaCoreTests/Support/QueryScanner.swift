@@ -58,7 +58,7 @@ struct ParsedQuery {
         // `node-types.json`. Neither vendored highlight query uses a predicate
         // today, but upstream queries commonly do (the dockerfile grammar's own
         // does), the dotenv query is re-copied verbatim on every update, and the
-        // HTML symbols query in this repository needs an `#eq?`.
+        // HTML symbols query in this repository needs a `#match?`.
         var predicateDepth: Int?
 
         while index < characters.count {

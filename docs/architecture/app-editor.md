@@ -482,9 +482,47 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     **Phase 2a: the list is strings, but the answers are items.** AppKit's popup
     shows strings and hands one back when a row is committed, while an LSP answer is
     more than its text — it may carry the `import` line that makes the symbol resolve
-    (D4). The snapshot therefore keeps whole `CompletionItem`s keyed by the text they
-    insert (first wins on a duplicate, matching the provider's own dedup rule), so
-    `insert(_:forPartialWordRange:isFinal:in:)` can find the item behind the string.
+    (D4). The snapshot therefore keeps whole `CompletionItem`s keyed by the string
+    the popup shows (first wins on a duplicate), so
+    `insert(_:forPartialWordRange:isFinal:in:)` can find the item behind
+    the string. That key is deliberately **not** the provider's: it deduped by the
+    *inserted* text, so two items that insert differently but read the same
+    survive there and collapse here. This is the one place the popup's list is
+    narrower than the provider's answer, and it has to be — a row the user cannot
+    tell apart is not a choice. The consequence is a rule rather than a caveat:
+    everything else keyed by the same string (`prefetchResolves`, and through it
+    `resolved`/`resolveTasks`) is fed from *this* deduped list, never from the
+    provider's, so an item the snapshot dropped can never file edits under a
+    surviving row's key and have them committed in its place.
+    **The string is the item's `displayText`, and it is the key in all three
+    tables** — the snapshot (`texts`/`items`), the prefetched resolves
+    (`resolved`/`resolveTasks`) and `scheduleFollowUp`'s `word`. It has to be:
+    AppKit hands a committed row back *by string*, so keying by anything the popup
+    does not show makes the item unfindable. In the follow-up it is doing double
+    duty — the resolve key *and* what now literally stands in the buffer after
+    AppKit's own insertion, which is exactly what `plan(for:over:replacing:in:)`
+    needs. For everything but a member item whose server rewrote the typed dot,
+    `displayText` **is** `text`, so this changes nothing on the tree-sitter path.
+    Previewing and inserting that string verbatim is safe only because of the
+    head-dropping rule Core enforces
+    (`CompletionEdit.displayText(forTypedWordStartingAt:in:)`, in `core-lsp.md`):
+    it may only drop a head that re-writes what already stands in the buffer, so
+    under `greeter.` the row reads `greet` and both the preview and the
+    rejected-plan fallback still compose `greeter.greet`. The counter-case is
+    the reason the rule is not "show something shorter": an optional receiver's
+    `?.greet` over the same range keeps its full spelling, because `?` is not
+    standing there. And the LSP `label` is never this string — `greet(name:
+    String)` inserted by the fallback path would corrupt the buffer.
+    **No key may be the typed word**, and that is a provider obligation rather
+    than something this class can check: AppKit routes Esc back through
+    `insert(_:forPartialWordRange:isFinal:)` spelled as the typed word and with
+    `isFinal: true`, and `EditorTextView.insertCompletion` has already dropped
+    `movement`, so a snapshot that answers to that string commits the row instead
+    of cancelling — applying its `import` and moving the caret, on the keystroke
+    that means "never mind". `LSPIntelligenceProvider.publish` therefore drops an
+    item whose *display* string equals the typed word, not only one whose inserted
+    text does (`core-lsp.md`); the miss on this branch was a fully typed member,
+    where the two spellings differ by exactly the dropped head.
     It answers `true` — "handled here" — only for the D4 case, and `false`
     everywhere else, which leaves AppKit's stock insertion to do the job it already
     does correctly. Everything about *which* edits and in what order is

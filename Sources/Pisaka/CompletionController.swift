@@ -34,11 +34,43 @@ import PisakaCore
 /// **The list is strings; the answers are items.** AppKit's popup shows strings
 /// and hands one back when a row is committed, but an LSP answer is more than
 /// its text — it may carry the `import` line that makes the symbol resolve (D4).
-/// The snapshot therefore keeps whole `CompletionItem`s keyed by the text they
-/// insert, so `insert(_:forPartialWordRange:isFinal:in:)` can find the item
-/// behind the string and apply its edits itself. Everything about *which* edits
-/// and in what order is `CompletionEditPlan`'s; this class only supplies the
-/// live buffer, the undo group and the text view.
+/// The snapshot therefore keeps whole `CompletionItem`s keyed by that string, so
+/// `insert(_:forPartialWordRange:isFinal:in:)` can find the item behind it and
+/// apply its edits itself. Everything about *which* edits and in what order is
+/// `CompletionEditPlan`'s; this class only supplies the live buffer, the undo
+/// group and the text view.
+///
+/// That string is the item's **display** spelling (`CompletionItem.displayText`),
+/// not the text it inserts, and it is the key in all three tables — the
+/// snapshot, the prefetched `resolved` edits and `resolveTasks` — because AppKit
+/// hands a committed row back *by string* and there has to be one key that all
+/// of them answer to. The two spellings differ only for a member item whose
+/// server rewrote the typed dot: tsserver answers `greeter.` with a `textEdit`
+/// covering the `.`, so the row inserts `.greet` and reads `greet`.
+///
+/// Showing something other than what is inserted is safe here only because of
+/// the rule Core enforces when it computes the display string
+/// (`CompletionEdit.displayText(forTypedWordStartingAt:in:)`): it may drop
+/// **only** a head that re-writes, verbatim, characters already standing in the
+/// buffer. This class writes that string into the buffer twice — as AppKit's
+/// arrow-key preview, and through `super` whenever `CompletionEditPlan.make`
+/// rejects the plan as stale. The rule's guarantee is **one-directional**, and
+/// that is what it is for: whenever a head *is* dropped, those two writes
+/// compose exactly the buffer the plan would have (`greeter.` + `greet`), for
+/// edits that end where the typed word ends — which is every shape this exists
+/// for. Under a looser rule they would corrupt it, so the rule is not a
+/// formatting nicety to be simplified away: an optional receiver's `?.greet`
+/// covers the same range but rewrites a `?` that is *not* there, and displaying
+/// the LSP `label` instead — `greet(name: String)` — would have the fallback
+/// path insert that.
+///
+/// What it does **not** promise is that a *kept* string composes the plan's
+/// buffer. `?.greet` inserted over the typed word writes `greeter.?.greet`, and
+/// a server range reaching past the caret leaves the characters beyond it
+/// standing. Both are the fallback path's pre-existing limit rather than
+/// anything the display string introduced — that path can only ever replace the
+/// typed word, so no display string fixes it — and both are why the rule refuses
+/// to shorten in those cases instead of guessing.
 ///
 /// **Two triggers, not one.** The ordinary trigger is a partial word of at least
 /// `minimumPrefixLength` characters. The second is a *member position* — a caret
@@ -106,25 +138,35 @@ final class CompletionController {
         let member: IdentifierScanner.MemberContext?
         /// The strings the popup shows, in the provider's order.
         let texts: [String]
-        /// The same answers, whole and keyed by the text they insert.
+        /// The same answers, whole and keyed by the string above.
         ///
         /// AppKit's popup is a list of *strings* and its insertion callback hands
         /// one back, so the item behind it has to be findable by that string or
-        /// an LSP item's edits (D4's auto-import) could never be applied. First
-        /// wins on a duplicate, matching the provider's own dedup rule: two items
-        /// inserting the same text are one row, and the higher-ranked one is the
-        /// one the user is choosing.
+        /// an LSP item's edits (D4's auto-import) could never be applied. The
+        /// display spelling rather than the inserted text for exactly that
+        /// reason: the popup only ever knows the row it is showing. First wins on
+        /// a duplicate: two items that *read* the same are one row, and the
+        /// higher-ranked one is the one the user is choosing.
+        ///
+        /// Note this key is deliberately **not** the provider's: it deduped by
+        /// the *inserted* text, so two items that insert differently but read
+        /// the same survive there and collapse here. This is the one place the
+        /// popup's list is narrower than the provider's answer, and it has to
+        /// be — a row the user cannot tell apart is not a choice. Everything
+        /// keyed by the same string (the resolves) is therefore fed from *this*
+        /// deduped list rather than from the provider's, so no dropped item can
+        /// file edits under a surviving row's key.
         let items: [String: CompletionItem]
     }
 
     private var snapshot: Snapshot?
 
     /// Edits that arrived from a background `completionItem/resolve`, keyed by
-    /// inserted text — the D4 prefetch's landing place. Cleared with the list
-    /// they belong to.
+    /// the row's displayed string — the D4 prefetch's landing place. Cleared with
+    /// the list they belong to.
     private var resolved: [String: [CompletionEdit]] = [:]
 
-    /// The in-flight resolve per inserted text, so the item's edits can be
+    /// The in-flight resolve per displayed string, so the item's edits can be
     /// awaited if the user commits before one lands, and so all of them can be
     /// cancelled when the list they belong to is superseded.
     private var resolveTasks: [String: Task<[CompletionEdit], Never>] = [:]
@@ -367,9 +409,9 @@ final class CompletionController {
     ) {
         var byText: [String: CompletionItem] = [:]
         var texts: [String] = []
-        for item in items where byText[item.text] == nil {
-            byText[item.text] = item
-            texts.append(item.text)
+        for item in items where byText[item.displayText] == nil {
+            byText[item.displayText] = item
+            texts.append(item.displayText)
         }
         guard !texts.isEmpty else {
             snapshot = nil
@@ -381,7 +423,17 @@ final class CompletionController {
         // the pick is hundreds of milliseconds away, which is time enough for a
         // round trip the user never waits on. Nothing depends on the answer
         // arriving: an item committed first takes the follow-up path instead.
-        prefetchResolves(for: items, provider: provider, token: token)
+        //
+        // The **deduped** rows, not the provider's raw list, and that is a
+        // correctness requirement rather than a saving: the resolve tables are
+        // keyed by the displayed string, so an item this snapshot dropped would
+        // file its edits under a key that now belongs to the row the user can
+        // actually see — and `insert` prefers `resolved[word]` over the item's
+        // own edits, so the visible row would commit the dropped item's
+        // replacement and its `import`. Keying off `texts` makes the collision
+        // unrepresentable: within the snapshot the display strings are unique by
+        // construction, and the provider's order is preserved.
+        prefetchResolves(for: texts.compactMap { byText[$0] }, provider: provider, token: token)
 
         guard let textView,
               !textView.hasMarkedText(),
@@ -423,14 +475,15 @@ final class CompletionController {
         }
     }
 
-    /// One background resolve, filed under the text it inserts.
+    /// One background resolve, filed under the string its row shows — the same
+    /// key the snapshot uses, since that is the only one AppKit ever hands back.
     @discardableResult
     private func startResolve(
         for item: CompletionItem,
         provider: CodeIntelligenceProviding,
         token: Int
     ) -> Task<[CompletionEdit], Never> {
-        let text = item.text
+        let text = item.displayText
         let task = Task { [weak self] in
             let edits = await provider.resolveEdits(for: item)
             guard let self, !Task.isCancelled, token == self.generation else { return edits }
@@ -592,7 +645,12 @@ final class CompletionController {
         replacing typedWord: NSRange,
         in textView: NSTextView
     ) {
-        let word = item.text
+        // The display spelling, which here is doing two jobs at once: it is the
+        // resolve key, and it is *what now stands in the buffer* — the plan was
+        // rejected, so AppKit inserted the row's own string over the typed word,
+        // and that is exactly the "typed" text `plan(for:over:replacing:in:)`
+        // has to re-express the edits against.
+        let word = item.displayText
         let token = generation
         let task: Task<[CompletionEdit], Never>
         if let inFlight = resolveTasks[word] {
