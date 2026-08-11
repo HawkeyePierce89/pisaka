@@ -286,17 +286,42 @@ Notes from the implementation (decisions the later tasks inherit):
 Intent: the panel's WKWebView is thin because the HTML it loads is composed and tested here —
 LeetCode's fragment wrapped in the app's own document with theme-aware CSS.
 
-- [ ] `LeetCodeStatementDocument.html(fragment:title:theme:fontSize:)` — a complete document
+- [x] `LeetCodeStatementDocument.html(fragment:title:theme:fontSize:)` — a complete document
   with `<meta charset>`, a viewport meta, an inline stylesheet honouring light/dark
   (`ThemePreference`-derived colours passed in as values, not read from AppKit), the editor font
   size, code/pre styling, and a `<base href="https://leetcode.com/">` so relative CDN image URLs
   resolve.
-- [ ] Statement caching helpers over `LeetCodeCacheLayout` + `FileServicing`: store the raw
+- [x] Statement caching helpers over `LeetCodeCacheLayout` + `FileServicing`: store the raw
   fetched fragment per slug, read it back when the network fails, treat an unreadable cache as
   absent.
-- [ ] Tests: the wrapper contains the fragment verbatim and the expected structural pieces;
+- [x] Tests: the wrapper contains the fragment verbatim and the expected structural pieces;
   light and dark differ; the cache round-trips and survives a missing/unreadable file.
-- [ ] `swift test` — green.
+- [x] `swift test` — green.
+
+Notes from the implementation (decisions the later tasks inherit):
+
+- **The theme arrives as six colour strings, and `.system` is resolved by the caller.**
+  `ThemePreference.system` carries no colour, so `Theme.resolved(_:systemPrefersDark:)` takes the
+  appearance the app is actually running in and the document stays a pure function of its inputs
+  — which is what lets a test assert light and dark differ without Core importing AppKit. Every
+  field is asserted to reach the CSS, so a colour that is declared and never interpolated fails
+  the suite rather than silently doing nothing.
+- **The fragment is interpolated verbatim, never sanitised.** Rewriting LeetCode's markup would
+  be a second parser for an unofficial API, drifting silently; the document loads no script and
+  grants no privileges that would make the markup interesting. Escaping applies to the *title*
+  alone, which this app supplies.
+- **What is cached is the fragment, not the rendered document** — theme and font size are session
+  state, so a cache of composed HTML would be stale the instant the user switched appearance.
+  Task 6 composes on the way to the web view, every time.
+- **Blank is absent, in both directions.** `LeetCodeStatementCache` refuses to store an empty or
+  blank fragment (the `LeetCodeCatalog` empty-catalog rule restated) and reads a blank file back
+  as `nil` — a truncated cache file is how an empty one appears in practice, and serving it would
+  render a permanently blank panel *and* suppress the fetch that would have repaired it.
+- **Neither half throws.** A read failure is "not cached" and a write failure is "it will be
+  fetched again"; `store` returns a `Bool` so the degradation is assertable and every caller may
+  ignore it. Images are not mirrored — the known limit of the offline reopen.
+- `fontSize` goes through `SettingsStore.clampFontSize`, because an unparsable `font-size` drops
+  the whole declaration silently rather than failing loudly.
 
 ### Task 6: Core — `LeetCodeModel`, the main-actor flow
 
