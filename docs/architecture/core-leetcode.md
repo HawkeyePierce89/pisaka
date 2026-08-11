@@ -189,7 +189,20 @@ the limits the design carries.
     answers a paid problem with `isPaidOnly: true` and null
     `content`/`codeSnippets`, so the parser tolerates both absences *when the flag
     is set* (and only then) and hands the flag on — the refusal belongs to the
-    model, the layer that knows a file was about to be written.
+    model, the layer that knows a file was about to be written. The flag alone is
+    *not* the refusal there either: a **subscriber** gets the same flag with the
+    content present, so what the model refuses is the flag with an empty `content`
+    behind it.
+    Everything else in the detail is demanded, `exampleTestcaseList` included:
+    an empty list is a legitimate answer, so folding an absent key into `[]` would
+    make "LeetCode renamed this field" and "this problem ships no example input"
+    the same value — and nothing reads the examples yet, which is precisely why
+    that drift would surface late, as Run submitting an empty input. The
+    `questionFrontendId` is demanded **positive**, on the same principle as the
+    slug check and for the same reason: it is the other half of the file name, and
+    `parts(fromFileName:)` reads back only a positive number, so a `0` would write
+    `0000-two-sum.swift` — a file this app could never associate with a problem
+    again, silently and permanently.
     *Envelope order is not arbitrary.* Throttling is decided from the status and
     headers **before** the body is looked at, because a rate-limited LeetCode
     sometimes answers with an HTML interstitial that no JSON parse survives, and
@@ -487,7 +500,9 @@ the limits the design carries.
     resolve the input through the catalog; fetch the detail — each of those two
     checking the generation **before** it may answer `.noSuchProblem`, since that
     is a sentence the caller shows and a superseded attempt must contribute nothing
-    at all; Premium → `paidOnly` **before anything is written**; compose the name; and **create the
+    at all; a Premium answer with nothing behind it → `paidOnly` **before anything
+    is written** (the *locked shape*, not the flag — a subscriber's Premium detail
+    arrives complete and opens); compose the name; and **create the
     file only if it does not exist** (L12) — an existing file is `.resumed`, not
     read, not rewritten and not compared, because the whole point of the naming rule
     is that reopening a problem returns you to your work, and re-seeding would
@@ -550,8 +565,9 @@ the limits the design carries.
     that tab. **Three** answers are recorded there: `data.question: null`; a
     detail that arrives with an empty `content` — which is the Premium shape
     (`isPaidOnly: true` with a null `content`), equally settled *about that slug*,
-    and reachable because the model refuses to *open* a Premium problem but a
-    solution file for one can reach the folder another way; and a **`paidOnly`
+    and reachable because the model refuses to *open* a Premium problem this
+    account cannot read but a solution file for one can reach the folder another
+    way (written under a subscription that has since lapsed, or by hand); and a **`paidOnly`
     error**, which is that same Premium answer in LeetCode's *other* wire shape — a
     GraphQL `errors` array the classifier reads by phrase rather than a parsed
     detail. Both shapes are reachable (the parser tolerates the first, `classify`
@@ -1186,10 +1202,16 @@ means, what a file is named, when a fetch happens, and what gets written.
 - **A problem added in the last day can cost one extra 2 MB fetch** (L6), the one
   forced refresh. After it, a number that is still absent is answered immediately
   for the rest of the session.
-- **Premium problems are refused, not partially opened.** LeetCode sends
-  `isPaidOnly: true` with null `content`/`codeSnippets`; the model refuses before
-  writing anything rather than seeding a file from a statement the account cannot
-  read.
+- **Premium problems the account cannot read are refused, not partially opened.**
+  The refusal is on the *locked shape*, not on the flag: `isPaidOnly` describes
+  the **problem**, and LeetCode sets it for every caller, withholding
+  `content`/`codeSnippets` only from one who is not subscribed. So the model
+  refuses when the flag arrives with an empty `content` — before writing anything,
+  rather than seeding a file from a statement the account cannot read — and opens
+  normally when LeetCode actually sent the content, which is what a subscriber
+  gets. Gating on the flag alone refused the one user entitled to the problem, and
+  disagreed with `statement(forFileAt:in:)`, which gates on content and would have
+  rendered the statement beside a file the open path had just declined to create.
 - **Solution files are not visible in the Files app by default on iOS.** The
   container's `Documents` directory is exposed by `UIFileSharingEnabled`, which this
   build does not set (`project.yml` is unchanged); `LSSupportsOpeningDocumentsInPlace`

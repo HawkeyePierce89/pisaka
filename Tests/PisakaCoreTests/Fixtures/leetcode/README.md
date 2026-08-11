@@ -44,7 +44,7 @@ no key, value or ordering is otherwise altered.
 
 ### Authored, not recorded
 
-Four shapes could not be obtained anonymously and without abusing the service, so
+Five shapes could not be obtained anonymously and without abusing the service, so
 they are hand-written to the shape LeetCode's stack (Django REST Framework +
 Graphene) produces and labelled here rather than passed off as recordings. If a
 future session ever captures a real one, re-record it and delete the note.
@@ -52,6 +52,7 @@ future session ever captures a real one, re-record it and delete the note.
 | File | Why it is authored |
 | --- | --- |
 | `user-status-signed-in.json` | Requires a real session cookie, which is not committed. |
+| `question-detail-paid-only-subscriber.json` | The *other* Premium shape: requires a Premium session cookie, which is not committed. Same problem (170) and the same `isPaidOnly: true`, but with `content` and `codeSnippets` present — because the flag describes the **problem**, not the caller's access, and LeetCode withholds those two only from a caller who is not subscribed. It is what the model's refusal distinguishes: the locked answer is refused, this one opens. |
 | `errors-not-authenticated.json` | Requires provoking an auth-gated field; the phrasing is Graphene's. |
 | `errors-premium.json` | LeetCode answers a premium question with a null `content` (see above) rather than an error, but the errors-array phrasing exists on other premium surfaces; pinned so the classifier's paid-only branch is exercised. |
 | `throttled.json` / `throttled-no-wait.json` / `rest-not-authenticated.json` | Provoking a real 429 means hammering the service. The body is DRF's standard `{"detail": …}`, and the two throttle variants pin the difference that matters to the user: whether the message can name a wait. |

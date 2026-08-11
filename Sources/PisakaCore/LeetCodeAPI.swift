@@ -325,7 +325,10 @@ public enum LeetCodeAPI {
             path: question.path(of: "titleSlug")
         ) ?? requestedSlug
         let problem = LeetCodeProblem(
-            frontendID: try question.integer("questionFrontendId"),
+            frontendID: try frontendID(
+                try question.integer("questionFrontendId"),
+                path: question.path(of: "questionFrontendId")
+            ),
             slug: slug,
             title: try question.string("title"),
             difficulty: try difficulty(
@@ -357,6 +360,12 @@ public enum LeetCodeAPI {
             throw LeetCodeError.apiChanged(detail: question.path(of: "codeSnippets"))
         }
 
+        // Absent or `null` is `apiChanged`, exactly like `codeSnippets` above and
+        // for the same reason: an *empty* list is a legitimate answer, so folding
+        // a missing key into `[]` would make "LeetCode renamed this field" and
+        // "this problem ships no example input" the same value, with nothing left
+        // to tell them apart. Nothing reads these yet — which is precisely why the
+        // drift would be found late, by Run submitting an empty input.
         var examples: [String] = []
         if let rawExamples = try question.optionalArray("exampleTestcaseList") {
             for (index, element) in rawExamples.enumerated() {
@@ -367,6 +376,8 @@ public enum LeetCodeAPI {
                 }
                 examples.append(text)
             }
+        } else if !isPaidOnly {
+            throw LeetCodeError.apiChanged(detail: question.path(of: "exampleTestcaseList"))
         }
 
         return LeetCodeProblemDetail(
@@ -403,7 +414,10 @@ public enum LeetCodeAPI {
             let level = try difficultyObject.integer("level")
             problems.append(
                 LeetCodeProblem(
-                    frontendID: try stat.integer("frontend_question_id"),
+                    frontendID: try frontendID(
+                        try stat.integer("frontend_question_id"),
+                        path: stat.path(of: "frontend_question_id")
+                    ),
                     slug: try requiredSlug(
                         fromWireValue: try stat.string("question__title_slug"),
                         path: stat.path(of: "question__title_slug")
@@ -467,6 +481,26 @@ public enum LeetCodeAPI {
             throw LeetCodeError.apiChanged(detail: "\(path) = \(value)")
         }
         return slug
+    }
+
+    /// A problem number as it has to be for the naming round trip to close.
+    ///
+    /// The number is the *other* half of a solution file's name, and
+    /// `LeetCodeSolutionFile.parts(fromFileName:)` reads back only a positive one
+    /// — so an id of `0` or less would compose a name (`0000-two-sum.swift`,
+    /// `00-5-two-sum.swift`) that this app could never associate with a problem
+    /// again: the statement panel would stay empty for that file forever, with
+    /// nothing on screen to say why.
+    ///
+    /// Same rule as `requiredSlug(fromWireValue:path:)`, for the same reason —
+    /// **the app must not write a name it would then fail to recognise** — and
+    /// guarding only the slug half left the number half as the one door into name
+    /// composition that shrugged.
+    private static func frontendID(_ value: Int, path: String) throws -> Int {
+        guard value > 0 else {
+            throw LeetCodeError.apiChanged(detail: "\(path) = \(value)")
+        }
+        return value
     }
 
     // MARK: - Enumeration mappings

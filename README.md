@@ -920,8 +920,11 @@ and iPhone. The feature scope landed so far:
   - A solution file is tied to its problem by its **name and its location**.
     Renaming it, or moving it out of the configured folder, detaches it — the
     description pane goes empty for that tab.
-  - Premium problems are refused outright (no file is written) rather than opened
-    with the locked part missing.
+  - Premium problems your account cannot read are refused outright (no file is
+    written) rather than opened with the locked part missing. A Premium
+    subscription opens them normally — LeetCode sends the statement and the
+    snippet, and the refusal is on the locked answer, not on the problem's
+    Premium flag.
   - On iOS, solution files written to the default location are **not visible in
     the Files app** (the app declares no file sharing); point the folder at a
     Files location if you want them there.

@@ -466,7 +466,8 @@ public final class LeetCodeModel: ObservableObject {
     ///
     /// The sequence is fixed and every step of it can be the last: no folder →
     /// `folderUnavailable`; no session → `notLoggedIn`; no such number →
-    /// `.noSuchProblem`; Premium → `paidOnly`, *before* anything is written.
+    /// `.noSuchProblem`; a Premium problem this account cannot read → `paidOnly`,
+    /// *before* anything is written.
     /// Nothing is created until every one of those has passed, which is what
     /// "leaves no partial file" means here.
     ///
@@ -538,7 +539,19 @@ public final class LeetCodeModel: ObservableObject {
         let fetched = try await fetchDetail(slug: slug, credentials: credentials)
         guard generation == openGeneration else { return .superseded }
         guard let detail = fetched else { return .noSuchProblem }
-        guard !detail.isPaidOnly else { throw LeetCodeError.paidOnly(slug: detail.slug) }
+        // **The refusal is on the locked shape, not on the flag.** `isPaidOnly`
+        // describes the *problem*, not this account's access to it: LeetCode sets
+        // it for every caller and nulls `content`/`codeSnippets` only for one who
+        // is not subscribed. Refusing on the flag alone refuses a Premium
+        // subscriber the very statement and snippet LeetCode just handed them —
+        // and disagrees with `statement(forFileAt:in:)`, which publishes whatever
+        // content arrives, so the panel would render a problem whose file this
+        // path had just declined to create. An empty `content` *is* the locked
+        // answer (see `parseQuestionDetail`), so a non-subscriber's experience is
+        // unchanged.
+        guard !detail.isPaidOnly || !detail.content.isEmpty else {
+            throw LeetCodeError.paidOnly(slug: detail.slug)
+        }
 
         let name = LeetCodeSolutionFile.name(
             number: detail.frontendID,

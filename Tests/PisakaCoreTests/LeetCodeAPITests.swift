@@ -569,6 +569,75 @@ final class LeetCodeAPITests: XCTestCase {
         }
     }
 
+    /// The *number* half of the same naming round trip. `parts(fromFileName:)`
+    /// reads back only a positive number, so `0` or a negative id would compose a
+    /// file name this app could never associate with a problem again — the exact
+    /// failure the slug check exists to prevent, through the other door.
+    func testAQuestionNumberThatIsNotPositiveIsASchemaChange() {
+        for wire in ["0", "-5"] {
+            let body = """
+            {"data":{"question":{"questionFrontendId":"\(wire)","title":"Two Sum",\
+            "titleSlug":"two-sum","difficulty":"Easy","isPaidOnly":false,\
+            "content":"<p>x</p>","codeSnippets":[],"exampleTestcaseList":[]}}}
+            """
+            let response = LeetCodeHTTPResponse(statusCode: 200, body: Data(body.utf8))
+            assertAPIChanged(containing: "questionFrontendId") {
+                _ = try LeetCodeAPI.parseQuestionDetail(response, requestedSlug: "two-sum")
+            }
+        }
+    }
+
+    /// The same rule on the catalog side, where the number is the row's other
+    /// identity and becomes `slug(forNumber:)`'s key.
+    func testACatalogNumberThatIsNotPositiveIsASchemaChange() {
+        for wire in ["0", "-5"] {
+            let body = """
+            {"stat_status_pairs":[{"stat":{"frontend_question_id":\(wire),\
+            "question__title_slug":"two-sum","question__title":"Two Sum"},\
+            "difficulty":{"level":1},"paid_only":false,"status":null}]}
+            """
+            let response = LeetCodeHTTPResponse(statusCode: 200, body: Data(body.utf8))
+            assertAPIChanged(containing: "frontend_question_id") {
+                _ = try LeetCodeAPI.parseProblemList(response)
+            }
+        }
+    }
+
+    /// An *empty* example list is a legitimate answer, so an absent or null one
+    /// cannot fold into the same `[]` — that would make a renamed field and a
+    /// problem with no example input indistinguishable, and the drift would be
+    /// found by Run submitting nothing.
+    func testAnAbsentExampleTestcaseListOnAFreeProblemIsAPIChanged() {
+        for wire in ["", "\"exampleTestcaseList\":null,"] {
+            let body = """
+            {"data":{"question":{"questionFrontendId":"1","title":"Two Sum",\
+            "titleSlug":"two-sum","difficulty":"Easy","isPaidOnly":false,\
+            "content":"<p>x</p>","codeSnippets":[],\(wire)"__pad":0}}}
+            """
+            let response = LeetCodeHTTPResponse(statusCode: 200, body: Data(body.utf8))
+            assertAPIChanged(containing: "exampleTestcaseList") {
+                _ = try LeetCodeAPI.parseQuestionDetail(response, requestedSlug: "two-sum")
+            }
+        }
+    }
+
+    /// A Premium problem answered to somebody who *is* subscribed: the flag is
+    /// set and the content arrives anyway. The parser already tolerated both
+    /// shapes; this pins the complete one, which is what the model's refusal now
+    /// distinguishes.
+    func testASubscribersPaidOnlyDetailCarriesItsContentAndSnippets() throws {
+        let detail = try XCTUnwrap(
+            try LeetCodeAPI.parseQuestionDetail(
+                response("question-detail-paid-only-subscriber.json"),
+                requestedSlug: "two-sum-iii-data-structure-design"
+            )
+        )
+        XCTAssertTrue(detail.isPaidOnly)
+        XCTAssertEqual(detail.frontendID, 170)
+        XCTAssertFalse(detail.content.isEmpty)
+        XCTAssertNotNil(detail.snippet(forLanguageSlug: "swift"))
+    }
+
     /// An absent or empty `titleSlug` still falls back to what was asked for —
     /// the validation tightened the *shape* of a slug LeetCode sends, not the
     /// tolerance for it not sending one.

@@ -297,6 +297,36 @@ final class LeetCodeModelTests: XCTestCase {
         XCTAssertNil(model.statement)
     }
 
+    /// The other half of the same flag. `isPaidOnly` is a property of the
+    /// *problem*, not of this account's access to it: LeetCode sets it for
+    /// everybody and withholds `content`/`codeSnippets` only from a caller who is
+    /// not subscribed. So a subscriber's Premium answer arrives complete, and
+    /// refusing it on the flag alone would refuse the one user entitled to it —
+    /// while `statement(forFileAt:in:)`, which gates on content rather than the
+    /// flag, would happily render the statement beside the file this path had
+    /// just declined to create.
+    func testAPremiumProblemOpensWhenLeetCodeActuallySentItsContent() async throws {
+        let slug = "two-sum-iii-data-structure-design"
+        let tree = makeTree()
+        let transport = makeTransport()
+        transport.serve(
+            .question(slug: slug),
+            body: Self.fixture("question-detail-paid-only-subscriber.json")
+        )
+        let model = makeModel(tree: tree, transport: transport)
+
+        let outcome = try await model.openProblem(input: .slug(slug), language: swift)
+
+        XCTAssertTrue(outcome.wasCreated)
+        XCTAssertEqual(outcome.solution?.url.lastPathComponent, "0170-\(slug).swift")
+        XCTAssertNil(model.lastError)
+        XCTAssertEqual(model.statement?.slug, slug)
+        XCTAssertTrue(
+            tree.files["Solutions/0170-\(slug).swift"]?.contains("class TwoSum") == true,
+            "the subscriber's own snippet was not seeded"
+        )
+    }
+
     func testThrottlingSurfacesAndWritesNothing() async throws {
         let tree = makeTree()
         let transport = makeTransport()
