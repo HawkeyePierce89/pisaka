@@ -794,7 +794,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     web view; `openLeetCodeSolution`
     opens the file through `model.open(url:)` like any other and bumps the tree
     revision **only** when it landed inside the open project, because opening a
-    problem never changes the project root. Sign Out always goes through
+    problem never changes the project root — and when that open *fails* it re-asks
+    the statement question for the selected tab before alerting, since the
+    statement `openProblem` published is global rather than keyed to a tab and the
+    selection did not change, so `ContentView`'s `.task(id:)` would not re-run
+    (`core-leetcode.md` carries the full rule). Sign Out always goes through
     `LeetCodeWebSession.signOut(model:)` (never `model.signOut()` alone, which
     would clear the Keychain and leave the cookies), and the launch-time
     `refreshUserStatus()` joins the one-shot `.onAppear` block beside

@@ -1113,11 +1113,27 @@ struct PisakaApp: App {
     /// `newFile(in:)` already states: the file is opened as a tab in this same
     /// turn, and a buffer-sourced entry is exactly what the index's disk refresh
     /// declines to touch.
+    ///
+    /// **A failed open has to put the statement panel back**, which is why the
+    /// catch path re-asks the question rather than only alerting: `openProblem`
+    /// published the statement it already had in hand, the panel is global rather
+    /// than keyed to a tab, and with no tab opened the selection did not change —
+    /// so `ContentView`'s `.task(id:)` will not re-run and a statement for a
+    /// problem the user has no tab for would sit beside whatever unrelated tab is
+    /// open. Asking for the *selected* tab is the whole restore: it clears the
+    /// panel when that tab is not a solution file and republishes that tab's own
+    /// statement when it is — out of the cache, so no second request.
     private func openLeetCodeSolution(_ solution: LeetCodeSolution, wasCreated: Bool) {
         do {
             try model.open(url: solution.url)
         } catch {
             PlatformFeedback.warning()
+            Task {
+                await leetCode.statement(
+                    forFileAt: model.selectedFile?.url,
+                    in: settings.leetCodeFolderURL
+                )
+            }
             PlatformAlert.presentMessage(
                 title: "Can't open the solution file",
                 message: "The file for problem \(solution.problem.frontendID) was written to \(solution.url.path) but could not be opened."

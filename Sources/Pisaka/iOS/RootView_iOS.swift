@@ -640,12 +640,29 @@ struct RootView_iOS: View {
     /// in a picked (security-scoped) folder opens under the grant
     /// `LeetCodeFolder_iOS` registered for it. On compact width the editor screen
     /// is pushed, exactly as opening a file from the tree does.
+    ///
+    /// **A failed open has to put the statement back**, which is why the catch
+    /// path re-asks the question rather than only alerting: `openProblem`
+    /// published the statement it already had in hand, the statement is global
+    /// rather than keyed to a tab, and with no tab opened the selection did not
+    /// change — so the root's `.task(id:)` will not re-run and a statement for a
+    /// problem the user has no tab for would stay behind the pane (and the
+    /// compact toolbar button) beside an unrelated tab. Asking for the *selected*
+    /// tab is the whole restore: it clears the statement when that tab is not a
+    /// solution file and republishes that tab's own when it is — out of the
+    /// cache, so no second request.
     private func openLeetCodeSolution(_ solution: LeetCodeSolution, wasCreated: Bool) {
         do {
             try model.open(url: solution.url)
             if isCompact { showingEditor = true }
         } catch {
             PlatformFeedback.warning()
+            Task {
+                await leetCode.statement(
+                    forFileAt: model.selectedFile?.url,
+                    in: settings.leetCodeFolderURL
+                )
+            }
             // Through `rootAlert`, not `PlatformAlert`: the LeetCode sheet was
             // taken down one line above the call to this function, and an alert
             // presented onto a controller mid-dismissal is dropped — see

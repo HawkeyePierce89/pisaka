@@ -893,7 +893,17 @@ the limits the design carries.
     already gone — the tab open itself. **Opening a problem never changes the
     project root**: the file is opened via `WorkspaceModel.open(url:)` like any
     other, and the tree revision is bumped only when the file actually landed inside
-    the open project. Sign Out always goes through `LeetCodeWebSession.signOut`.
+    the open project. **That failure also re-asks the statement question**, and is
+    the app-side half of the model's ordering rule: `openProblem` published the
+    statement it had in hand once the file existed, but the panel is global rather
+    than keyed to a tab, and a tab that failed to open left the selection unchanged
+    — so the `.task(id:)` below would not re-run and the new statement would sit
+    beside an unrelated tab (or none) with nothing to clear it. The catch path
+    therefore calls `statement(forFileAt: model.selectedFile?.url, in:)` before it
+    alerts, which clears the panel for a non-solution tab and restores an already
+    open LeetCode tab's own statement rather than merely blanking it — served from
+    the cache under `slugsFetchedThisRun`, so it costs no request.
+    Sign Out always goes through `LeetCodeWebSession.signOut`.
     The launch-time `refreshUserStatus()` joins the existing one-shot `.onAppear`
     block beside `sweepStaging()`/`lspProvisioning.refresh()`, unawaited and silent.
     `ContentView` drives the statement from a `.task(id:)` keyed on **(selected tab,
@@ -973,7 +983,8 @@ the limits the design carries.
     be read before the model is built. `RootView_iOS` publishes the folder and calls
     `refreshUserStatus()` once at launch, keys the same `(tab, folder)` statement
     `.task`, and routes the open exactly as macOS does (sentence to the screen,
-    alert only for the tab open, and no tab at all once the screen's held open
+    alert only for the tab open — with the same re-ask of the statement question
+    in that catch path, for the same reason — and no tab at all once the screen's held open
     `Task` has been cancelled — `LeetCodeRoute_iOS` cancels it on disappear for the
     two reasons the macOS sheet's entry gives: a Done that left `isOpening` up, and
     an editor pushed for a problem the user had walked away from). The Settings screen gains a LeetCode section
