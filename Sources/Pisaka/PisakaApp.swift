@@ -298,13 +298,7 @@ struct PisakaApp: App {
         // request is made, and the Keychain is read exactly once, in
         // `LeetCodeModel.init`, to decide whether to show "signed in" before the
         // launch-time confirmation lands.
-        self.leetCode = LeetCodeModel(
-            transport: LeetCodeURLSessionTransport(),
-            credentialStore: LeetCodeKeychainStore(),
-            fileService: FileService(),
-            cacheLayout: LeetCodeSupportDirectory.cacheLayout,
-            solutionsFolder: settings.leetCodeFolderURL
-        )
+        self.leetCode = PisakaApp.makeLeetCode(settings: settings)
 
         // The whole of D16's wiring, now with **three** registry contributors:
         // whenever any set of installed servers changes, the workspace is handed one
@@ -462,6 +456,30 @@ struct PisakaApp: App {
         return (
             service,
             LSPRustProvisioningModel(discovery: service, engine: engine, settings: settings)
+        )
+    }
+
+    /// The LeetCode stack: the two concrete seams, the cache base, and the
+    /// folder the store remembers.
+    ///
+    /// A factory for `makeProvisioning`'s reason — `ContentView` needs a default
+    /// value for the model it hands to the description pane, so the composition
+    /// cannot live only inside `init`. The folder is read from the store *here*
+    /// rather than at each open, so the model is already pointed at it before the
+    /// first `openProblem` captures it; `LeetCodeFolderChooser` writes both halves
+    /// whenever the user changes it.
+    ///
+    /// Building one talks to nothing: `URLSession` opens no connection until a
+    /// request is made, and the Keychain is read exactly once, in
+    /// `LeetCodeModel.init`, to decide whether to show "signed in" before the
+    /// launch-time confirmation lands.
+    static func makeLeetCode(settings: SettingsStore = SettingsStore()) -> LeetCodeModel {
+        LeetCodeModel(
+            transport: LeetCodeURLSessionTransport(),
+            credentialStore: LeetCodeKeychainStore(),
+            fileService: FileService(),
+            cacheLayout: LeetCodeSupportDirectory.cacheLayout,
+            solutionsFolder: settings.leetCodeFolderURL
         )
     }
 
@@ -628,6 +646,7 @@ struct PisakaApp: App {
                 provisioning: lspProvisioning,
                 gopls: lspGopls,
                 rust: lspRust,
+                leetCode: leetCode,
                 onGoToDefinition: { url, range in activateSearchMatch(url: url, range: range) },
                 onViewDefinitionOutsideProject: { url, range in
                     viewDefinitionOutsideProject(url: url, range: range)

@@ -94,6 +94,17 @@ struct ContentView: View {
     /// throwaway stack that searches for nothing until something calls
     /// `discover()` — and, with no toolchain answer yet, offers nothing either.
     var rust: LSPRustProvisioningModel = PisakaApp.makeRust().model
+    /// Who is signed in to LeetCode, and the statement for the active tab.
+    /// Threaded through to the description pane and deliberately **not**
+    /// `@ObservedObject` — the `provisioning`/`symbolIndex` precedent, and the
+    /// rule `PisakaApp` states where it holds this model as a plain `let`: this
+    /// view shows nothing published on it, and subscribing would put the project
+    /// tree, the tab list and `CodeEditorView.updateNSView` on the republish path
+    /// of every busy transition and every statement fetch.
+    /// `LeetCodeDescriptionPane` observes it itself, which is what makes the pane
+    /// appear and disappear. Owned by `PisakaApp`; the default builds a throwaway
+    /// stack that talks to nothing until something asks it to.
+    var leetCode: LeetCodeModel = PisakaApp.makeLeetCode()
     /// Open the file a Go to Definition landed on and select the declaration's
     /// name. Wired to the same `PisakaApp` entry point a Find in Files activation
     /// uses — opening a tab is the app's job — and threaded straight into
@@ -210,6 +221,20 @@ struct ContentView: View {
                 bottomPanel.wrappedValue = nil
             }
         }
+        // Ask the model what statement — if any — belongs to the tab the user is
+        // looking at. Attached to the window root rather than to the pane
+        // because the pane renders nothing until this has produced something,
+        // so it cannot be the thing that starts it; and keyed on
+        // `leetCodeStatementKey` so it runs once per tab (or folder) change
+        // rather than once per keystroke. The model answers `nil` for a tab that
+        // is not a LeetCode solution file, which is what takes the pane back
+        // down. Cache first, network behind it — see `LeetCodeModel.statement`.
+        .task(id: leetCodeStatementKey) {
+            await leetCode.statement(
+                forFileAt: model.selectedFile?.url,
+                in: settings.leetCodeFolderURL
+            )
+        }
         // The commit dialog is a sheet on the main window (⌘K, or the Local
         // Changes header button). `onDismiss` fires on every closing path — the
         // Commit that succeeded, Cancel, Esc — which is what makes the modal
@@ -227,6 +252,22 @@ struct ContentView: View {
         // preference re-applies live (`.system` maps to `nil`, i.e. follow the
         // system appearance).
         .preferredColorScheme(settings.themePreference.colorScheme)
+    }
+
+    /// What a statement request depends on: which tab is selected, and where the
+    /// LeetCode folder is. Both halves, because the association needs both — a
+    /// file's *name* names a problem only when the file also sits inside that
+    /// folder — so re-pointing the folder has to re-ask the question for the tab
+    /// already open.
+    ///
+    /// The folder is read from `settings` rather than from `leetCode`
+    /// (`solutionsFolder` holds the same URL) precisely because `settings` is
+    /// observed here and the model is not: `LeetCodeFolderChooser` writes both
+    /// halves, and this is the half that invalidates this view.
+    private var leetCodeStatementKey: String {
+        let file = model.selectedFile?.url?.path ?? ""
+        let folder = settings.leetCodeFolderURL?.path ?? ""
+        return file + "\u{0}" + folder
     }
 
     /// The editor split, optionally with a bottom dock panel below it. The panel
@@ -395,23 +436,43 @@ struct ContentView: View {
                 TabListView(model: model, orientation: .vertical, onClose: onClose)
                     .frame(minWidth: 180, idealWidth: 220, maxWidth: 320)
 
-                // Right zone: the editor zone for the selected tab.
-                editorZone
-                    .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
+                // Right zone: the editor zone for the selected tab, with the
+                // LeetCode statement beside it when there is one.
+                HStack(spacing: 0) {
+                    editorZone
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    descriptionPane
+                }
+                .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
 
             case .horizontal:
                 // No separate tabs column: a horizontal tab strip is stacked above
-                // the editor zone in the right zone instead.
-                VStack(spacing: 0) {
-                    TabListView(model: model, orientation: .horizontal, onClose: onClose)
-                        .frame(height: 32)
-                    Divider()
-                    editorZone
+                // the editor zone in the right zone instead. The statement pane
+                // sits beside the *whole* column, tab strip included, so it spans
+                // the full height in both orientations.
+                HStack(spacing: 0) {
+                    VStack(spacing: 0) {
+                        TabListView(model: model, orientation: .horizontal, onClose: onClose)
+                            .frame(height: 32)
+                        Divider()
+                        editorZone
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    descriptionPane
                 }
                 .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(minWidth: 640, minHeight: 400)
+    }
+
+    /// The LeetCode statement beside the editor. Renders **nothing at all** —
+    /// no divider, no width — unless the model has a statement for the active
+    /// tab, which is the only way this view can host it without observing
+    /// `leetCode` itself (see the note on that property, and the one on the
+    /// pane).
+    private var descriptionPane: some View {
+        LeetCodeDescriptionPane(model: leetCode, settings: settings)
     }
 
     /// The text editor for the selected tab, or a placeholder when no file is open.

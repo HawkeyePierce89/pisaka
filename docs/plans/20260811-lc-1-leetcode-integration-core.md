@@ -607,13 +607,54 @@ Notes from the implementation (decisions the later tasks inherit):
 Intent: a collapsible right-hand pane that appears exactly when the active tab is a LeetCode
 solution file, rendering Core's composed document.
 
-- [ ] A WKWebView-backed `NSViewRepresentable` loading `LeetCodeStatementDocument`'s HTML with a
+- [x] A WKWebView-backed `NSViewRepresentable` loading `LeetCodeStatementDocument`'s HTML with a
   base URL, navigation delegate opening any link click in the default browser instead of
   in-pane, and no JavaScript-driven state of its own.
-- [ ] Pane visibility follows the model's statement state (present only for a LeetCode tab), is
+- [x] Pane visibility follows the model's statement state (present only for a LeetCode tab), is
   user-collapsible, remembers its width in `@State` like the bottom dock, and re-renders on
   theme/font-size change.
-- [ ] macOS build succeeds.
+- [x] macOS build succeeds.
+
+Notes from the implementation (decisions the later tasks inherit):
+
+- **The pane is an `HStack` sibling, not a third `HSplitView` column.** Two failure modes, both
+  already answered by the bottom dock's manual divider: a split child that appears and disappears
+  re-creates the `HSplitView` and resets every column's width, and a conditional *wrapping* the
+  editor would change the editor's structural identity — tearing down the `NSTextView`, its undo
+  stack and its scroll position every time a LeetCode tab is selected. An `HStack` whose trailing
+  child is sometimes an `EmptyView` costs the editor nothing, and the width is then the pane's own
+  `@State` behind a `resizeLeftRight` drag handle, the `panelHeight` shape turned ninety degrees.
+- **The visibility decision lives *inside* the pane**, because `ContentView` cannot see it:
+  Task 9's rule holds and the window still does not observe `leetCode` (it is a non-observed `var`
+  beside `provisioning`/`symbolIndex`), so the pane carries the `@ObservedObject` and renders
+  nothing at all — no divider, no width — until `model.statement` is non-nil. That is what makes
+  the pane appear and disappear without the project tree and `CodeEditorView.updateNSView` being
+  re-evaluated for it.
+- **The fetch is driven from the window root, not from the pane**, for the reason that follows
+  from the above: the pane does not exist until the statement does, so it cannot be what starts
+  the request. A `.task(id:)` keyed on `(selected tab, LeetCode folder)` is attached beside the
+  bottom-dock `onChange`; both halves are in the key because the association needs both, and the
+  folder is read from `settings` (which this view *does* observe) rather than from
+  `model.solutionsFolder` — `LeetCodeFolderChooser` writes both halves, and only one of them
+  invalidates this view.
+- **`updateNSView` reloads only when the composed HTML differs.** `ContentView.body` re-evaluates
+  on every keystroke, so an unconditional `loadHTMLString` would reload the statement and reset
+  its scroll position once per character typed. Comparing the document is simultaneously the
+  right trigger for the reloads that *should* happen — a new statement, a theme switch, a
+  font-size step — so "re-render on theme/font-size change" and "do not reload while reading" end
+  up as one rule.
+- **Scripting off, data store non-persistent, links out.** The fragment is interpolated verbatim
+  by Core (stated there); `allowsContentJavaScript = false` is what keeps "verbatim" from meaning
+  "executable". A `.nonPersistent()` store keeps this view from becoming a second place a
+  leetcode.com cookie can live, beside the login web view's deliberately persistent one. And
+  `linkActivated` goes to `NSWorkspace` and is cancelled, because a related-problem or editorial
+  link would otherwise replace the statement inside a 380pt pane with no way back.
+- `ThemePreference.system` is resolved against `@Environment(\.colorScheme)` — the appearance the
+  window is *actually* drawn in, which `ContentView`'s own `.preferredColorScheme` has already
+  settled — so `Theme.resolved(_:systemPrefersDark:)` gets its answer without Core asking AppKit.
+- `PisakaApp.makeLeetCode(settings:)` was extracted from `init` for `makeProvisioning`'s reason:
+  `ContentView` needs a default value for the model it hands the pane. Task 11 should follow the
+  same shape on iOS rather than composing a second stack.
 
 ### Task 11: iOS — LeetCode section, folder, and adaptive description screen
 
