@@ -479,14 +479,57 @@ Notes from the implementation (decisions the later tasks inherit):
 Intent: the user signs in exactly as in a browser — including Google/GitHub SSO — and the app
 only watches the cookie store.
 
-- [ ] A WKWebView on `https://leetcode.com/accounts/login/` in a sheet (macOS) / full-screen
+- [x] A WKWebView on `https://leetcode.com/accounts/login/` in a sheet (macOS) / full-screen
   cover (iOS), with a persistent `WKWebsiteDataStore` so SSO redirects survive.
-- [ ] After each navigation, read `httpCookieStore.getAllCookies` and run Core's cookie →
+- [x] After each navigation, read `httpCookieStore.getAllCookies` and run Core's cookie →
   credentials rule; on success save through the store, dismiss, and confirm with the user-status
   call, showing the username where the integration surfaces state.
-- [ ] Sign Out clears the credential store *and* the WebView data store's cookies for
+- [x] Sign Out clears the credential store *and* the WebView data store's cookies for
   `leetcode.com`, and flips the model to logged-out.
-- [ ] Both builds succeed (`xcodebuild`, macOS + iOS).
+- [x] Both builds succeed (`xcodebuild`, macOS + iOS).
+
+Notes from the implementation (decisions the later tasks inherit):
+
+- **The shared half is a `WKNavigationDelegate`, not a helper function.**
+  `Sources/Pisaka/Platform/LeetCodeWebSession.swift` holds both: the enum (login URL, the shared
+  `WKWebsiteDataStore.default()`, the cookie read, the cookie purge, `signOut(model:)`) and
+  `LeetCodeLoginObserver`, which *is* the coordinator both representables return from
+  `makeCoordinator()` and which also builds the web view. So each platform's view file is chrome
+  plus a four-line representable, and the part that could actually be wrong — when to look, what
+  to look at, how many times to fire — exists once. Tasks 9 and 11 present
+  `LeetCodeLoginView` / `LeetCodeLoginView_iOS` (both take `model` and an `onDismiss`) and call
+  `LeetCodeWebSession.signOut(model:)` for Sign Out; neither should reach for
+  `model.signOut()` directly, which would leave the cookies behind.
+- **The domain filter lives in the app, not in Core.** `LeetCodeCredentials.from(cookies:)` takes
+  `(name, value)` pairs and so cannot see a domain; an SSO detour loads the provider's own site in
+  this same web view, and a `csrftoken` set by whoever that is must not be read as LeetCode's. The
+  filter matches the bare host or a `.leetcode.com` suffix, so both cookie-domain spellings are
+  accepted and a lookalike registrable domain is not.
+- **Checked at `didCommit` *and* `didFinish`, fired at most once.** `didCommit` is when the
+  response's `Set-Cookie` headers have landed, `didFinish` catches a cookie set from script after
+  load; the `hasCaptured` flag (re-checked after the store read's suspension, since two
+  navigations can be in flight) makes the pair idempotent, because firing twice would race two
+  `signIn`s — each a network call and a Keychain write — against each other.
+- **Dismiss first, confirm behind it**, per the bullet's own ordering, and the confirmation runs in
+  a bare `Task` rather than `.task`: the view is disappearing in the same turn and a `.task` is
+  cancelled on disappear, which would cancel the very round trip it was started for. The model
+  owns the result either way (`signedInUsername`, or `lastError`), and holding a modal web view
+  open over a spinner would make an offline moment look like a failed login when the session in
+  hand is fine.
+- **Cookies are purged by host, not by `removeData(ofTypes:)`.** The default data store is the
+  process-wide one; signing out of LeetCode is not a reason to sign the user out of every other
+  site. And they are purged *before* `model.signOut()`, which publishes synchronously — the other
+  order leaves a window in which the UI says "signed out" and the cookies are still live.
+- **The store is `.default()` (persistent) on purpose**, which is what the "SSO redirects survive"
+  requirement actually needs: providers keep their own "you are signed in here" state in cookies,
+  and an ephemeral store would drop them between the redirects that need them. The cost —
+  cookies outliving the sheet — is exactly what the scoped purge answers.
+- `WKHTTPCookieStore`'s two callback APIs are awaited through explicit continuations rather than
+  the compiler-generated `async` overloads, whose names come from a renaming rule
+  (`getAllCookies(_:)` → `allCookies()`) that is invisible at the call site and has changed
+  spelling across SDKs.
+- `updateNSView`/`updateUIView` re-point the callback and **never reload**: a body re-evaluation
+  (the model publishing anything at all) must not restart a login the user is halfway through.
 
 ### Task 9: macOS — LeetCode menu, Open Problem dialog, Settings
 
