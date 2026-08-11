@@ -268,9 +268,12 @@ public enum LeetCodeAPI {
     /// Parse a `globalData` response.
     ///
     /// A signed-out answer is **returned, not thrown**: "who am I" is the one
-    /// question whose honest answer can be "nobody", and the sign-in flow needs to
-    /// hear that as a value. Every *other* call turns the same verdict into
-    /// `notLoggedIn`, via `throwIfSignedOut(_:)` below.
+    /// question whose honest answer can be "nobody", and both callers of it —
+    /// `LeetCodeModel.signIn(with:)` and `refreshUserStatus()` — need to hear that
+    /// as a value, because what they do with it (sign out, or just flip the
+    /// published state) is a decision this parser does not get to make.
+    /// `throwIfSignedOut(_:)` below is the same verdict as the error the rest of
+    /// the app speaks, for a caller that only needs the refusal.
     public static func parseUserStatus(
         _ response: LeetCodeHTTPResponse
     ) throws -> UserStatus {

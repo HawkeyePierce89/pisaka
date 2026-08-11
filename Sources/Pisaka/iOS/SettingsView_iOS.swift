@@ -135,6 +135,11 @@ struct SettingsView_iOS: View {
     @ViewBuilder
     private var leetCodeSection: some View {
         Section {
+            // `.borderless` on every button in these rows, like the delete button
+            // in `gitCredentialsSection` below: a `Form` row whose buttons take
+            // the default style is *one* tap target, and a tap anywhere in it
+            // fires all of them — so without this, tapping the "Signed in as …"
+            // label signs the user out.
             HStack {
                 Text(leetCodeAccountDescription)
                     .foregroundStyle(leetCode.isSignedIn ? .primary : .secondary)
@@ -145,8 +150,10 @@ struct SettingsView_iOS: View {
                     Button("Sign Out") {
                         Task { await LeetCodeWebSession.signOut(model: leetCode) }
                     }
+                    .buttonStyle(.borderless)
                 } else {
                     Button("Sign In…") { isSigningInToLeetCode = true }
+                        .buttonStyle(.borderless)
                 }
             }
 
@@ -170,6 +177,7 @@ struct SettingsView_iOS: View {
             }
             HStack {
                 Button("Change…") { isChoosingLeetCodeFolder = true }
+                    .buttonStyle(.borderless)
                 Spacer()
                 if LeetCodeFolder_iOS.isOverridden(settings: settings) {
                     Button("Use Default") {
@@ -179,6 +187,7 @@ struct SettingsView_iOS: View {
                             scopedService: scopedService
                         )
                     }
+                    .buttonStyle(.borderless)
                 }
             }
 

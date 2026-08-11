@@ -213,8 +213,9 @@ public final class LeetCodeModel: ObservableObject {
     /// second request for bytes we hold — against an unofficial API the whole
     /// design is built around not annoying. Switching back and forth between two
     /// LeetCode tabs is the same request twice more. A slug in here is refreshed
-    /// from the cache alone; `signOut()` empties it, since a session change
-    /// invalidates what was fetched under the old one.
+    /// from the cache alone; `signOut()` *and* `signIn(with:)` empty it, since a
+    /// session change in either direction invalidates what was fetched under the
+    /// old one.
     private var slugsFetchedThisRun: Set<String> = []
 
     /// Slugs LeetCode has answered `data.question: null` for this run.
@@ -235,10 +236,11 @@ public final class LeetCodeModel: ObservableObject {
     ///
     /// Only those two answers are recorded. Offline, throttled and rejected are
     /// failures to *ask*, and must still be retried; both of these are LeetCode
-    /// answering the question. `signOut()` empties it with `slugsFetchedThisRun`,
-    /// so a session change starts every one of this run's conclusions over — which
-    /// is also what lets a user who subscribes mid-run see the statement after
-    /// signing back in.
+    /// answering the question. `signOut()` and `signIn(with:)` both empty it with
+    /// `slugsFetchedThisRun`, so a session change starts every one of this run's
+    /// conclusions over — which is what lets a user who subscribes mid-run see the
+    /// statement after signing back in, including after a session LeetCode
+    /// rejected (which ends a session without a sign-out).
     private var slugsKnownAbsent: Set<String> = []
 
     /// Problem titles this run has seen on the wire, by slug.
@@ -305,6 +307,15 @@ public final class LeetCodeModel: ObservableObject {
         accountGeneration += 1
         let generation = accountGeneration
         invalidateInFlightWork()
+        // The same clearing `signOut()` does, and for the same reason: these two
+        // sets are this *session's* conclusions about slugs, so a session change
+        // starts them over. Both directions matter — a session can end without a
+        // sign-out (`markSessionRejected()` flips the state and keeps the stored
+        // pair), so without this every slug concluded Premium-locked or absent
+        // under the dead session stays short-circuited for the whole app run,
+        // even after the user signs back in.
+        slugsFetchedThisRun.removeAll()
+        slugsKnownAbsent.removeAll()
         cachedCredentials = credentials
         storedCredentialsAreDiscarded = false
         isSignedIn = true

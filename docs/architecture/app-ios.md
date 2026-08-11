@@ -302,9 +302,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     toolbar button — an iPhone navigation bar is already carrying the branch widget
     and four items, and "open a LeetCode problem" is the same *kind* of action as
     the three opens above it. `openLeetCodeProblem` mirrors `PisakaApp`'s: the
-    sentence goes to the screen, `PlatformAlert` is kept for the tab open alone, and
+    sentence goes to the screen, an alert is kept for the tab open alone, and
     the tree revision is bumped only when the file landed inside the open project,
-    because opening a problem never changes the project root.
+    because opening a problem never changes the project root. That one alert goes
+    through the root-level `rootAlert` (the type formerly named `BranchAlert`,
+    renamed when it gained its second caller) and **not** `PlatformAlert`: the
+    LeetCode sheet is dismissed one line before it, and `PlatformAlert` walks the
+    `presentedViewController` chain, so it would hand the alert to a controller
+    UIKit is tearing down and the presentation would simply be dropped — the same
+    reason the branch failures already sit there.
   - `iOS/BranchSwitcherView_iOS.swift` — the iOS branch-switcher widget: the
     current branch shown in the toolbar/nav, tapped to a sheet/popover with the
     Local/Remote list (current marked), a filter field, and a "New Branch…" item. A

@@ -1043,6 +1043,36 @@ final class LeetCodeModelTests: XCTestCase {
         XCTAssertEqual(transport.count(for: .question(slug: slug)), 1)
     }
 
+    /// Signing *in* starts this run's conclusions over, exactly as signing out
+    /// does — the two sets are the session's, not the app run's.
+    ///
+    /// The case that needs it: a session can end without a sign-out. LeetCode
+    /// rejects one mid-run, the published state flips (the stored pair stays),
+    /// and the user signs in again through the login sheet — with no `signOut()`
+    /// anywhere in between. Without this, every slug this run had concluded was
+    /// Premium-locked or absent under the dead session stays short-circuited for
+    /// the rest of the app run, so a user who subscribes and signs back in never
+    /// sees the statement the second session would have answered with.
+    func testSigningInStartsThisRunsConclusionsOver() async throws {
+        let slug = "two-sum-iii-data-structure-design"
+        let tree = makeTree()
+        let transport = makeTransport()
+        transport.serve(
+            .question(slug: slug),
+            body: Self.fixture("question-detail-paid-only.json")
+        )
+        let model = makeModel(tree: tree, transport: transport)
+        let url = solutionsFolder.appendingPathComponent("0170-\(slug).swift")
+
+        _ = await model.statement(forFileAt: url, in: solutionsFolder)
+        XCTAssertEqual(transport.count(for: .question(slug: slug)), 1)
+
+        try await model.signIn(with: credentials)
+        _ = await model.statement(forFileAt: url, in: solutionsFolder)
+
+        XCTAssertEqual(transport.count(for: .question(slug: slug)), 2)
+    }
+
     /// Only those two answers are remembered: offline is a failure to *ask*, so
     /// the next switch to the tab asks again.
     func testAStatementThatCouldNotBeFetchedIsRetried() async throws {

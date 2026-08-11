@@ -56,7 +56,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the folder is read from `settings` (observed here) rather than from
     `model.solutionsFolder` (not) — `LeetCodeFolderChooser` writes both halves and
     only one of them invalidates this view. The pane cannot start the request
-    itself, since it does not exist until the statement does.
+    itself, since it does not exist until the statement does. The editor's 320pt
+    `minWidth` stays on `editorZone` (the horizontal branch: on the `VStack` that is
+    the tab strip plus the editor) rather than moving to the new `HStack`: on the
+    wrapper it would be the floor for *editor + pane*, so a wide statement would
+    come out of the text view's minimum and squeeze it to a sliver. The zone's own
+    minimum then composes as editor + pane, which is what it should be.
     `ContentView` takes `search: EditorSearchState` and `reveal:
     EditorRevealState` (both defaulted so previews compile) and threads them into
     `CodeEditorView`, along with `fileURL: file.url` and `diskRevision:

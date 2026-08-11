@@ -439,11 +439,16 @@ struct ContentView: View {
                 // Right zone: the editor zone for the selected tab, with the
                 // LeetCode statement beside it when there is one.
                 HStack(spacing: 0) {
+                    // The 320pt floor stays on the *editor*, not on the zone: put
+                    // it on the `HStack` and the pane's width comes out of the
+                    // editor's minimum, so a wide statement can squeeze the text
+                    // view to a sliver. The zone's own minimum then composes as
+                    // editor + pane, which is what it should be.
                     editorZone
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
                     descriptionPane
                 }
-                .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             case .horizontal:
                 // No separate tabs column: a horizontal tab strip is stacked above
@@ -451,16 +456,18 @@ struct ContentView: View {
                 // sits beside the *whole* column, tab strip included, so it spans
                 // the full height in both orientations.
                 HStack(spacing: 0) {
+                    // The 320pt floor is on the editor column here too, for the
+                    // reason spelled out in the vertical branch above.
                     VStack(spacing: 0) {
                         TabListView(model: model, orientation: .horizontal, onClose: onClose)
                             .frame(height: 32)
                         Divider()
                         editorZone
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
                     descriptionPane
                 }
-                .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(minWidth: 640, minHeight: 400)

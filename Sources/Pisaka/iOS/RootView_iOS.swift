@@ -124,7 +124,7 @@ struct RootView_iOS: View {
     /// so a blocked checkout / create failure has no surface there — this root-level
     /// alert is the iOS peer of macOS `PisakaApp.presentBranchError` /
     /// `reportInvalidBranchName`.
-    @State private var branchAlert: BranchAlert?
+    @State private var rootAlert: RootAlert?
 
     private var isCompact: Bool { horizontalSizeClass == .compact }
 
@@ -307,11 +307,11 @@ struct RootView_iOS: View {
                 Text(pending.message + "\n\nCreate the branch from the local copy of the remote ref instead?")
             }
             .alert(
-                branchAlert?.title ?? "",
-                isPresented: branchAlertBinding,
-                presenting: branchAlert
+                rootAlert?.title ?? "",
+                isPresented: rootAlertBinding,
+                presenting: rootAlert
             ) { _ in
-                Button("OK", role: .cancel) { branchAlert = nil }
+                Button("OK", role: .cancel) { rootAlert = nil }
             } message: { alert in
                 Text(alert.message)
             }
@@ -639,7 +639,11 @@ struct RootView_iOS: View {
             if isCompact { showingEditor = true }
         } catch {
             PlatformFeedback.warning()
-            PlatformAlert.presentMessage(
+            // Through `rootAlert`, not `PlatformAlert`: the LeetCode sheet was
+            // taken down one line above the call to this function, and an alert
+            // presented onto a controller mid-dismissal is dropped — see
+            // `RootAlert`.
+            rootAlert = RootAlert(
                 title: "Can't open the solution file",
                 message: "The file for problem \(solution.problem.frontendID) was written to \(solution.url.path) but could not be opened."
             )
@@ -954,7 +958,7 @@ struct RootView_iOS: View {
     private func presentBranchError(_ message: String?) {
         guard let message else { return }
         PlatformFeedback.warning()
-        branchAlert = BranchAlert(title: "Branch operation failed", message: message)
+        rootAlert = RootAlert(title: "Branch operation failed", message: message)
     }
 
     /// Create-and-switch a new branch `name` at `startPoint` under the same (absence
@@ -985,7 +989,7 @@ struct RootView_iOS: View {
             finishBranchOperation(snapshot: snapshot, repoRoot: repoRoot)
         case .invalidName:
             PlatformFeedback.warning()
-            branchAlert = BranchAlert(
+            rootAlert = RootAlert(
                 title: "Invalid branch name",
                 message: "\"\(name)\" is not a valid git branch name."
             )
@@ -1109,10 +1113,10 @@ struct RootView_iOS: View {
         )
     }
 
-    private var branchAlertBinding: Binding<Bool> {
+    private var rootAlertBinding: Binding<Bool> {
         Binding(
-            get: { branchAlert != nil },
-            set: { if !$0 { branchAlert = nil } }
+            get: { rootAlert != nil },
+            set: { if !$0 { rootAlert = nil } }
         )
     }
 
@@ -1404,11 +1408,16 @@ private struct PendingFetchUnavailable: Identifiable {
     let id = UUID()
 }
 
-/// A failed branch switch/create surfaced as a root-level alert (the branch sheet is
-/// already dismissed by then). `title`/`message` mirror macOS's
-/// `presentBranchError` ("Branch operation failed") and `reportInvalidBranchName`
-/// ("Invalid branch name").
-private struct BranchAlert: Identifiable {
+/// A failure surfaced as a **root-level** alert, because by the time it happens the
+/// sheet that started it is already dismissing — and `PlatformAlert` walks the
+/// `presentedViewController` chain, so it would hand the alert to a controller
+/// UIKit is tearing down and the presentation would simply be dropped.
+///
+/// Two callers so far: a failed branch switch/create (whose `title`/`message`
+/// mirror macOS's `presentBranchError` — "Branch operation failed" — and
+/// `reportInvalidBranchName` — "Invalid branch name"), and a LeetCode solution
+/// file that was written but could not be opened as a tab.
+private struct RootAlert: Identifiable {
     let title: String
     let message: String
     let id = UUID()

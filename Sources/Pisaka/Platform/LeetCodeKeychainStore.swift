@@ -30,6 +30,17 @@ import Security
 /// `AfterFirstUnlock` (rather than `WhenUnlocked`) keeps it readable from a
 /// background refresh after the first post-boot unlock.
 ///
+/// **That accessibility class is an iOS guarantee.** This store is compiled on
+/// both destinations, and without `kSecUseDataProtectionKeychain` a
+/// `kSecClassGenericPassword` item on macOS lands in the legacy file-based login
+/// keychain, which ignores `kSecAttrAccessible` — so on the Mac the item is
+/// protected by the login keychain's own rules instead. The attribute is set
+/// unconditionally rather than gated on the platform because it is harmless where
+/// it is ignored, but the promise above should be read as the iOS one. Adopting
+/// the data-protection keychain on macOS is not a free swap: it wants a signed
+/// app with a keychain-access-group entitlement, and this project ships no
+/// `.entitlements`.
+///
 /// `@unchecked Sendable` over an immutable `let`: there is no mutable state, and
 /// the Keychain is thread-safe. `LeetCodeModel` reads it on the main actor at
 /// launch, but the protocol is not main-actor-bound and nothing here needs it.

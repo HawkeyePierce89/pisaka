@@ -335,7 +335,16 @@ the limits the design carries.
     already *is* the key the detail request is made by, so consulting the catalog
     would turn opening a pasted link into a 2 MB download and would refuse a
     problem newer than the cache — LeetCode's own `data.question: null` is the
-    authority there. **An empty catalog is never published or cached**: a
+    authority there. It is still **re-checked against `normalizedSlug`** on the way
+    out, and an unusable spelling is `nil` (i.e. "no such problem") rather than a
+    request: `LeetCodeProblemInput.slug` is a public case with a plain `String`
+    payload, and what `resolveSlug` returns is appended to the user's folder by
+    `LeetCodeSolutionFile.name(…)`, where `appendingPathComponent` does not resolve
+    `..` — and a name carrying a separator would additionally defeat the
+    never-overwrite rule, which compares `lastPathComponent`. That is the same
+    boundary `LeetCodeAPI`'s wire-slug check guards, and the point of checking here
+    too is that the rule must not hold merely because `parse(_:)` happens to be the
+    only producer today. **An empty catalog is never published or cached**: a
     shape-valid zero-row response would poison the cache for a day and make every
     open report "no such problem", so it is `apiChanged`.
     `publish` rebuilds two indices (`number → slug`, `slug → problem`) rather than
@@ -526,8 +535,16 @@ the limits the design carries.
     and reachable because the model refuses to *open* a Premium problem but a
     solution file for one can reach the folder another way. Offline, throttled and
     rejected are recorded by neither: those are failures to ask and must still be
-    retried. `signOut()` empties both sets, since a session
-    change invalidates what was concluded under the old one — while deliberately
+    retried. `signOut()` **and `signIn(with:)`** empty both sets, since a session
+    change in either direction invalidates what was concluded under the old one.
+    Both halves are load-bearing: a session can end *without* a sign-out — LeetCode
+    rejects one, `markSessionRejected()` flips the published state and the stored
+    pair deliberately stays — and the user then signs in again through the login
+    sheet with no `signOut()` in between, so clearing on sign-out alone left every
+    slug this run had concluded was Premium-locked or absent short-circuited for
+    the rest of the app run. Clearing on sign-in is what lets a user who subscribes
+    (or fixes their session) mid-run see the statement. The sets are emptied while
+    deliberately
     **leaving `statement` standing**: the fragment is public content, is still in
     the disk cache, and is republished from it with no session at all, so clearing
     it would be the one piece of state a sign-out removes that signing back in does
@@ -847,6 +864,18 @@ the limits the design carries.
     a feature that has quietly stopped. `leetCodeFolderBookmark` is therefore the
     *authority* on an override and `leetCodeFolderPath` the *display* of whichever
     folder won, which is why both are written on both paths.
+    The one case that authority cannot answer is a pick whose bookmark could not be
+    *made*: the picker's grant is live and registered right now, but there is
+    nothing to reach the folder with next launch. `adopt` keeps that pick in a
+    non-persisted `sessionOverride` that `resolve` consults behind the bookmark and
+    `isOverridden` counts as an override — which is what makes the documented
+    degradation ("in force for the session, back to the default next launch") true.
+    Without it the override survived only until the next `publish`, which
+    `established(…)` runs on *every* open, so the very next problem was written into
+    the container while Settings still showed the picked folder and offered no way
+    back. It is deliberately not persisted: a path with no bookmark is unreachable
+    after this process ends, and restoring it next launch would present a folder the
+    app cannot write to as the one in force.
     **Nothing is created at launch**: `publish` resolves and points both halves (the
     model's `solutionsFolder`, captured synchronously by `openProblem`, and the
     settings path, which the statement `.task` keys on) without touching the disk;
@@ -885,14 +914,22 @@ the limits the design carries.
     alert only for the tab open). The Settings screen gains a LeetCode section
     (account, folder with Change…/Use Default, default language) and observes the
     model itself.
-    **Both Settings surfaces are the persistent home of `lastError`** — the macOS
-    LeetCode tab and this section each render it under the account row. Everything
+    **`lastError` is rendered wherever an account can be signed into** — the macOS
+    LeetCode Preferences tab, the iOS Settings section, and the iOS
+    `LeetCodeRoute_iOS` account section, each under its account row. Everything
     else that reports a LeetCode failure is transient (the entry sheet's own
     sentence, which goes away with the sheet), and sign-in is confirmed *after*
     the login view has been dismissed: without a durable surface a session LeetCode
     rejected closed the web view and silently flipped the row back to "Sign In…"
-    with no explanation. A successful statement refresh clears it, so the sentence
-    never outlives the state it describes.
+    with no explanation. The iOS route needs its own copy because it, not Settings,
+    is where an iOS user signs in. A successful statement refresh clears it, so the
+    sentence never outlives the state it describes.
+    Every button in those `Form` rows carries **`.buttonStyle(.borderless)`**, the
+    rule the pre-existing git-credentials rows already follow: a `List`/`Form` row
+    whose buttons take the default style is a *single* tap target and a tap
+    anywhere in it fires all of them — so without it tapping the "Signed in as …"
+    label signed the user out, and tapping "Change…" also ran "Use Default",
+    dropping the bookmark for the folder the tap was meant to change.
 
 ## Tests
 

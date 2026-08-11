@@ -155,13 +155,23 @@ public final class LeetCodeCatalog {
     /// cache, refresh if there is none or it has aged out, and force exactly one
     /// refresh if the number is missing from a catalog that had not yet come off
     /// the network this session.
+    ///
+    /// The slug is re-checked against the one slug rule on the way out, even
+    /// though `LeetCodeProblemInput.parse(_:)` already applied it: `.slug` is a
+    /// public case with a plain `String` payload, and **this return value becomes
+    /// a path component** — `LeetCodeSolutionFile.name(…)` appends it to the
+    /// user's folder, and `appendingPathComponent` does not resolve `..`. That is
+    /// the same boundary `LeetCodeAPI`'s wire-slug check guards, and the rule must
+    /// not hold only because of who happens to call it today. An unusable spelling
+    /// is `nil` — "no such problem", which is what a slug this app cannot request
+    /// is.
     public func resolveSlug(
         for input: LeetCodeProblemInput,
         credentials: LeetCodeCredentials
     ) async throws -> String? {
         switch input {
         case .slug(let slug):
-            return slug
+            return LeetCodeProblemInput.normalizedSlug(slug)
         case .number(let number):
             return try await resolveSlug(forNumber: number, credentials: credentials)
         }

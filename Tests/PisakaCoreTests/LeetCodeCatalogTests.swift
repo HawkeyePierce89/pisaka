@@ -400,6 +400,46 @@ final class LeetCodeCatalogTests: XCTestCase {
         XCTAssertNil(slug)
     }
 
+    /// A slug input is re-checked against the one slug rule on the way out, and a
+    /// spelling this app cannot use is "no such problem" — not a request, and
+    /// certainly not a path component.
+    ///
+    /// `LeetCodeProblemInput.slug` is a public case with a plain `String`
+    /// payload, and what this method returns is appended to the user's folder by
+    /// `LeetCodeSolutionFile.name(…)`, where `appendingPathComponent` does not
+    /// resolve `..`. A separator getting through would also defeat the
+    /// never-overwrite rule, which compares `lastPathComponent`. The rule must
+    /// hold here rather than only in `parse(_:)`, which happens to be the one
+    /// producer today.
+    func testASlugInputThatIsNotASlugResolvesToNothing() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "two-sum")]))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        for spelling in ["../../etc/passwd", "two/sum", "..", "two sum", ""] {
+            let slug = try await catalog.resolveSlug(
+                for: .slug(spelling),
+                credentials: credentials
+            )
+            XCTAssertNil(slug, "\(spelling) is not a slug this app can request")
+        }
+        // A slug never costs a catalog download, refused or not.
+        XCTAssertEqual(transport.count(for: .problemList), 0)
+    }
+
+    /// The same check is the identity function on a slug that *is* one — modulo
+    /// the case-folding `normalizedSlug` has always applied.
+    func testAWellSpelledSlugInputIsReturnedNormalized() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        let slug = try await catalog.resolveSlug(for: .slug("Two-Sum"), credentials: credentials)
+        XCTAssertEqual(slug, "two-sum")
+        XCTAssertEqual(transport.count(for: .problemList), 0)
+    }
+
     // MARK: - A cache that cannot be trusted
 
     func testACorruptCacheIsDiscardedAndRefetched() async throws {

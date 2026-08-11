@@ -42,6 +42,22 @@ enum LeetCodeFolder_iOS {
     /// The fallback is unreachable in practice and exists so this is a `URL`
     /// rather than an optional threaded through every caller, the shape
     /// `LeetCodeSupportDirectory.cacheBase` already takes.
+    /// A picked folder this run is using **without** a bookmark behind it.
+    ///
+    /// The failure it exists for is narrow and its handling is what the doc above
+    /// promises: `SecurityScopedBookmarks.makeBookmark(for:)` answered `nil`, so
+    /// there is nothing to reach this folder with at the *next* launch — but the
+    /// picker's grant is live now, `scopedService` has it registered, and the user
+    /// just said this is where their solutions go. Without this the override would
+    /// be honoured until the next `publish` — which `established(…)` runs on every
+    /// open — and then silently revert to the container, writing the file
+    /// somewhere the Settings screen was not showing.
+    ///
+    /// Deliberately *not* persisted: a path with no bookmark is unreachable after
+    /// this process ends, and re-reading it next launch would be a folder the app
+    /// cannot write to presented as the one in force.
+    private static var sessionOverride: URL?
+
     static var containerDefault: URL {
         let documents = FileManager.default
             .urls(for: .documentDirectory, in: .userDomainMask).first
@@ -102,8 +118,9 @@ enum LeetCodeFolder_iOS {
     /// Bookmarked *and* registered, in that order, for `FileAccessController`'s
     /// reason — the bookmark is how the next launch reaches it, the registration
     /// is how *this* launch does. A bookmark that cannot be created leaves the
-    /// override in force for the session and reverts to the default next launch,
-    /// which is the same degradation the project-folder path already accepts.
+    /// override in force for the session (`sessionOverride`) and reverts to the
+    /// default next launch, which is the same degradation the project-folder path
+    /// already accepts.
     static func adopt(
         _ picked: URL,
         settings: SettingsStore,
@@ -111,28 +128,37 @@ enum LeetCodeFolder_iOS {
         scopedService: SecurityScopedFileService
     ) {
         scopedService.register(picked)
-        settings.leetCodeFolderBookmark = SecurityScopedBookmarks.makeBookmark(for: picked)
+        let bookmark = SecurityScopedBookmarks.makeBookmark(for: picked)
+        // Assigned either way, so a *previous* override cannot survive a pick
+        // that replaced it; the session copy is what carries this one when there
+        // is no bookmark to carry it with.
+        settings.leetCodeFolderBookmark = bookmark
+        sessionOverride = bookmark == nil ? picked : nil
         settings.leetCodeFolderPath = picked.standardizedFileURL.path
         model.solutionsFolder = picked
         try? scopedService.ensureDirectory(at: picked)
     }
 
     /// Drop an override and go back to the container default. The bookmark is the
-    /// authority, so forgetting it *is* the revert.
+    /// authority, so forgetting it *is* the revert — along with the bookmark-less
+    /// session copy, which is an override too.
     static func useDefault(
         settings: SettingsStore,
         model: LeetCodeModel,
         scopedService: SecurityScopedFileService
     ) {
         settings.leetCodeFolderBookmark = nil
+        sessionOverride = nil
         settings.leetCodeFolderPath = nil
         publish(settings: settings, model: model, scopedService: scopedService)
     }
 
     /// Whether the folder in force is a picked override rather than the container
-    /// default — what the Settings screen offers "Use Default" for.
+    /// default — what the Settings screen offers "Use Default" for. Both kinds
+    /// count: a folder the user has to be able to leave is a folder they picked,
+    /// whether or not a bookmark for it could be made.
     static func isOverridden(settings: SettingsStore) -> Bool {
-        settings.leetCodeFolderBookmark != nil
+        settings.leetCodeFolderBookmark != nil || sessionOverride != nil
     }
 
     /// The override if it still resolves, the container default otherwise.
@@ -140,7 +166,17 @@ enum LeetCodeFolder_iOS {
         settings: SettingsStore,
         scopedService: SecurityScopedFileService
     ) -> URL {
-        guard let bookmark = settings.leetCodeFolderBookmark else { return containerDefault }
+        guard let bookmark = settings.leetCodeFolderBookmark else {
+            // No bookmark, but possibly a folder picked this run that none could
+            // be made for. Re-registered on every resolve for the same reason the
+            // bookmark branch below registers: the grant is what makes it
+            // writable, and registration is idempotent.
+            if let sessionOverride {
+                scopedService.register(sessionOverride)
+                return sessionOverride
+            }
+            return containerDefault
+        }
         var isStale = false
         guard let url = SecurityScopedBookmarks.resolve(bookmark, isStale: &isStale) else {
             // Gone for good: forget it here rather than re-attempting the same
@@ -234,8 +270,14 @@ struct LeetCodeRoute_iOS: View {
 
     // MARK: - Sections
 
+    @ViewBuilder
     private var accountSection: some View {
         Section("Account") {
+            // `.borderless` on both buttons: a `Form` row whose buttons take the
+            // default style is one tap target and a tap anywhere in it fires all
+            // of them, so without this tapping the "Signed in as …" label signs
+            // the user out. The same rule the git-credentials rows in
+            // `SettingsView_iOS` already follow.
             HStack {
                 Text(accountDescription)
                     .foregroundStyle(model.isSignedIn ? .primary : .secondary)
@@ -247,9 +289,22 @@ struct LeetCodeRoute_iOS: View {
                     Button("Sign Out") {
                         Task { await LeetCodeWebSession.signOut(model: model) }
                     }
+                    .buttonStyle(.borderless)
                 } else {
                     Button("Sign In…") { isSigningIn = true }
+                        .buttonStyle(.borderless)
                 }
+            }
+
+            // Sign-in is confirmed *behind* the dismissed login cover, so a
+            // session LeetCode rejects would otherwise just flip this row back to
+            // "Sign In…" and say nothing — and this screen, not Settings, is
+            // where an iOS user signs in. The same reader `SettingsView_iOS`
+            // carries, for the same reason.
+            if let error = model.lastError {
+                Text(error.errorDescription ?? "LeetCode reported a failure.")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
             }
         }
     }
