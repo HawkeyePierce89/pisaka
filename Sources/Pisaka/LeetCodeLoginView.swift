@@ -33,6 +33,18 @@ struct LeetCodeLoginView: View {
     /// state put the sheet up.
     var onDismiss: () -> Void
 
+    /// What to say when the confirmation running behind the dismissed sheet
+    /// *rejects* the session.
+    ///
+    /// A required parameter rather than an optional one, because the failure it
+    /// carries is invisible by construction: the sheet is already gone, and
+    /// `lastError` has exactly one macOS reader (the LeetCode Preferences tab).
+    /// Everywhere else, discarding this leaves a login that flips the menu back to
+    /// "Sign In…" and says nothing at all — so each presenter is made to name the
+    /// surface it will use, including the one that answers "the pane already
+    /// reads `lastError`".
+    var onFailure: (LeetCodeError) -> Void
+
     /// Guards the presenter against a second dismissal. The observer already fires
     /// once; this is the view's own half of that, so a re-entrant `onDismiss`
     /// cannot reach a presenter that has already torn the sheet down.
@@ -83,7 +95,19 @@ struct LeetCodeLoginView: View {
         // Not `.task`: the sheet is going away in the same turn, and a `.task` is
         // cancelled when its view disappears — which would cancel the confirmation
         // this exists to start.
-        Task { try? await model.signIn(with: credentials) }
+        //
+        // Only `notLoggedIn` is reported. The other failures are the ones this
+        // file's header calls "an offline moment": the cookies came out of a
+        // browser session that had just signed in, `signIn` keeps them, and the
+        // name fills in on the next refresh — so an alert would be telling the
+        // user a login worked failed.
+        Task {
+            do {
+                try await model.signIn(with: credentials)
+            } catch let error as LeetCodeError where error == .notLoggedIn {
+                onFailure(error)
+            } catch {}
+        }
     }
 }
 

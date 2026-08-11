@@ -31,9 +31,12 @@ struct SettingsView: View {
     @ObservedObject var rust: LSPRustProvisioningModel
     let installEngine: LSPInstallEngine
     /// Who is signed in to LeetCode and where its solution files go. Read by the
-    /// LeetCode tab alone, which observes it itself — the App holds it as a
-    /// non-observed `let` for the reason stated there.
-    @ObservedObject var leetCode: LeetCodeModel
+    /// LeetCode tab alone, which observes it itself — so this is a plain `let`
+    /// like the one the App holds, and for the same reason: nothing in *this*
+    /// body reads anything published on it, and observing it here would make the
+    /// whole Preferences window — Acknowledgements and its 66 KB license texts
+    /// included — re-evaluate on every statement fetch and busy transition.
+    let leetCode: LeetCodeModel
 
     var body: some View {
         TabView {
@@ -129,7 +132,14 @@ struct LeetCodeSettingsView: View {
         .padding(20)
         .frame(width: 460)
         .sheet(isPresented: $isSigningIn) {
-            LeetCodeLoginView(model: model, onDismiss: { isSigningIn = false })
+            LeetCodeLoginView(
+                model: model,
+                onDismiss: { isSigningIn = false },
+                // Nothing to raise: this pane renders `lastError` itself, right
+                // under the account row the rejection just flipped back to
+                // "Sign In…" — an alert over it would say the same sentence twice.
+                onFailure: { _ in }
+            )
         }
     }
 

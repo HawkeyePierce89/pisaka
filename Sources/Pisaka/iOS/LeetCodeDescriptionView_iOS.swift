@@ -318,11 +318,17 @@ private struct LeetCodeStatementWebView_iOS: UIViewRepresentable {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
-            // Everything that is not a tap on a link — the `loadHTMLString`
-            // itself, and the subresource loads it triggers — is allowed through
-            // unchanged.
-            guard navigationAction.navigationType == .linkActivated,
-                  let url = navigationAction.request.url
+            // **The main frame only ever holds the document this view loaded** —
+            // the macOS pane's rule, for the reason stated there: the fragment is
+            // interpolated verbatim, so a `<meta http-equiv="refresh">` or a
+            // `<form>` in it would navigate this pane to a live page with no way
+            // back. Sub-frame loads are left alone, and subresource loads never
+            // reach this method at all. The document itself is recognised by its
+            // URL: `loadHTMLString` navigates to the base URL it was handed, which
+            // is `LeetCodeAPI.siteURL` and nothing else.
+            let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+            guard isMainFrame, let url = navigationAction.request.url,
+                  !Self.isTheDocumentItself(url)
             else {
                 decisionHandler(.allow)
                 return
@@ -340,6 +346,14 @@ private struct LeetCodeStatementWebView_iOS: UIViewRepresentable {
             }
             UIApplication.shared.open(url)
             decisionHandler(.cancel)
+        }
+
+        /// Whether `url` is the document this view loaded rather than somewhere
+        /// the page is trying to go. `about:blank` counts: it is the empty page a
+        /// web view starts on, not a destination.
+        static func isTheDocumentItself(_ url: URL) -> Bool {
+            url.absoluteString == LeetCodeAPI.siteURL.absoluteString
+                || url.absoluteString == "about:blank"
         }
     }
 }

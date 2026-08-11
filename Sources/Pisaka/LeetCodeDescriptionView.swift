@@ -255,11 +255,26 @@ private struct LeetCodeStatementWebView: NSViewRepresentable {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
-            // Everything that is not a click on a link — the `loadHTMLString`
-            // itself, and the subresource loads it triggers — is allowed through
-            // unchanged.
-            guard navigationAction.navigationType == .linkActivated,
-                  let url = navigationAction.request.url
+            // **The main frame only ever holds the document this view loaded.**
+            // A sub-frame load is left alone (an embedded player in a statement
+            // is LeetCode's own markup doing what it does), and so are the
+            // subresource loads, which never reach this method at all.
+            //
+            // What the main-frame test catches is everything that is *not* a
+            // click: the fragment is interpolated verbatim and never sanitized,
+            // so a `<meta http-equiv="refresh">` or a `<form>` in it navigates
+            // this pane to a live page — with disabled JavaScript no obstacle,
+            // since neither needs it — and there is no way back: the pane has no
+            // back gesture, and `updateNSView` will not reload a document whose
+            // HTML has not changed.
+            //
+            // The document itself is recognised by its URL: `loadHTMLString`
+            // navigates to the base URL it was handed, which is
+            // `LeetCodeAPI.siteURL` and nothing else — the same constant this
+            // view passes in `load(into:)` and the document's own `<base href>`.
+            let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+            guard isMainFrame, let url = navigationAction.request.url,
+                  !Self.isTheDocumentItself(url)
             else {
                 decisionHandler(.allow)
                 return
@@ -278,6 +293,14 @@ private struct LeetCodeStatementWebView: NSViewRepresentable {
             }
             NSWorkspace.shared.open(url)
             decisionHandler(.cancel)
+        }
+
+        /// Whether `url` is the document this view loaded rather than somewhere
+        /// the page is trying to go. `about:blank` counts: it is the empty page a
+        /// web view starts on, not a destination.
+        static func isTheDocumentItself(_ url: URL) -> Bool {
+            url.absoluteString == LeetCodeAPI.siteURL.absoluteString
+                || url.absoluteString == "about:blank"
         }
     }
 }

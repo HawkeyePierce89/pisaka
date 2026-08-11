@@ -1109,6 +1109,88 @@ final class LeetCodeModelTests: XCTestCase {
         XCTAssertFalse(model.isSignedIn)
     }
 
+    /// Signing in re-asks the question the signed-out session could not answer.
+    ///
+    /// The panel's refresh is keyed on the tab and the folder, and a sign-in
+    /// changes neither — so without this the user who signs in *because* the pane
+    /// said they had to gets no statement until they switch tabs and back.
+    func testSigningInReAsksTheStatementTheSignedOutSessionCouldNotFetch() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(
+            tree: tree,
+            transport: transport,
+            store: InMemoryLeetCodeCredentialStore()
+        )
+        let url = solutionsFolder.appendingPathComponent("0001-two-sum.swift")
+
+        let published = await model.statement(forFileAt: url, in: solutionsFolder)
+        XCTAssertNil(published)
+        XCTAssertNil(model.statement)
+        XCTAssertEqual(model.lastError, .notLoggedIn)
+        XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 0)
+
+        try await model.signIn(with: credentials)
+
+        XCTAssertEqual(model.statement?.slug, "two-sum")
+        XCTAssertEqual(model.statement?.title, "Two Sum")
+        XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 1)
+        XCTAssertNil(model.lastError)
+    }
+
+    /// A tab that is not a solution file is not a question, so a sign-in has
+    /// nothing to re-ask and asks nothing.
+    func testSigningInWithNoStatementQuestionAsksNothing() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(
+            tree: tree,
+            transport: transport,
+            store: InMemoryLeetCodeCredentialStore()
+        )
+
+        _ = await model.statement(forFileAt: nil, in: solutionsFolder)
+        try await model.signIn(with: credentials)
+
+        XCTAssertNil(model.statement)
+        XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 0)
+    }
+
+    /// A refresh nobody is waiting for reports nothing.
+    ///
+    /// The panel's request lives in a view's `.task`, cancelled when the window
+    /// closes or the app is backgrounded mid-fetch; `URLSession` then throws and
+    /// the failure arrives here as an ordinary network error. The generation guard
+    /// does not cover it — there is no *replacement* request to bump the token —
+    /// so without the cancellation check a "could not reach LeetCode: cancelled"
+    /// would sit on `lastError` until the next operation cleared it.
+    func testACancelledStatementRefreshReportsNothing() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        transport.fail(
+            .question(slug: "two-sum"),
+            with: LeetCodeError.network(reason: "cancelled")
+        )
+        let gate = Gate()
+        transport.hold(.question(slug: "two-sum"), on: gate)
+        let model = makeModel(tree: tree, transport: transport)
+
+        let refresh = Task {
+            await model.statement(
+                forFileAt: self.solutionsFolder.appendingPathComponent("0001-two-sum.swift"),
+                in: self.solutionsFolder
+            )
+        }
+        await gate.waitUntilReached()
+        refresh.cancel()
+        gate.release()
+        let published = await refresh.value
+
+        XCTAssertNil(published)
+        XCTAssertNil(model.lastError)
+        XCTAssertTrue(model.isSignedIn, "a request nobody waited for says nothing about the session")
+    }
+
     /// A statement that arrived clears a sentence describing a failure that is
     /// no longer the state of anything.
     func testASuccessfulStatementRefreshClearsAStaleError() async throws {

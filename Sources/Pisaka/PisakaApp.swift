@@ -685,21 +685,33 @@ struct PisakaApp: App {
             .sheet(item: $leetCodeSheet) { sheet in
                 switch sheet {
                 case .signIn:
-                    LeetCodeLoginView(model: leetCode, onDismiss: { leetCodeSheet = nil })
+                    LeetCodeLoginView(
+                        model: leetCode,
+                        onDismiss: { leetCodeSheet = nil },
+                        // The sheet is already gone when the confirmation lands
+                        // and this window renders `lastError` nowhere, so an
+                        // alert is the only thing between a rejected session and
+                        // a Sign In that appears to do nothing at all.
+                        onFailure: {
+                            PlatformAlert.presentMessage(
+                                title: "Could Not Sign In to LeetCode",
+                                message: $0.errorDescription ?? "LeetCode rejected the session."
+                            )
+                        }
+                    )
                 case .openProblem:
+                    // No sign-in hook: the open sheet presents the login web view
+                    // over *itself*, so the problem the user typed is still there
+                    // when they come back. Swapping this slot from `.openProblem`
+                    // to `.signIn` instead took the open sheet down and never
+                    // brought it back.
                     LeetCodeOpenProblemSheet(
                         model: leetCode,
                         settings: settings,
                         onOpen: { input, language in
                             await openLeetCodeProblem(input: input, language: language)
                         },
-                        onCancel: { leetCodeSheet = nil },
-                        // The two sheets share one presentation slot, so this is
-                        // a swap rather than a second presentation: the open
-                        // sheet goes down and the login one comes up in its
-                        // place, which is what makes "sign in from here" one
-                        // click instead of a trip to the menu bar.
-                        onSignIn: { leetCodeSheet = .signIn }
+                        onCancel: { leetCodeSheet = nil }
                     )
                 }
             }
@@ -1064,6 +1076,13 @@ struct PisakaApp: App {
         }
         do {
             let outcome = try await leetCode.openProblem(input: input, language: language)
+            // Cancelled means the user closed the sheet while this was in flight
+            // (see `LeetCodeOpenProblemSheet.openTask`). The file may already have
+            // been created — it is a file in a folder they set aside, and the
+            // never-overwrite rule means reopening the problem returns to it — but
+            // putting a tab in front of somebody who pressed Esc is the sheet
+            // answering a question they withdrew.
+            if Task.isCancelled { return nil }
             switch outcome {
             case .created(let solution), .resumed(let solution):
                 leetCodeSheet = nil

@@ -41,11 +41,6 @@ struct LeetCodeOpenProblemSheet: View {
     /// that put it up.
     var onCancel: () -> Void
 
-    /// Raise the sign-in web view. Owned by the presenter, which owns the sheet
-    /// state the two share: a signed-out user who reached this sheet needs the
-    /// session before anything here can work, and making them cancel, go to the
-    /// menu bar and come back is a detour the iOS screen does not have.
-    var onSignIn: () -> Void
 
     /// What the user typed. Parsed on every keystroke — the parse is pure string
     /// work over a short string — so the Open button's enablement and the hint
@@ -55,6 +50,27 @@ struct LeetCodeOpenProblemSheet: View {
     /// The outcome of the last attempt, or `nil` before the first one. Cleared
     /// on every edit, so a stale sentence never sits under a fresh input.
     @State private var message: String?
+
+    /// The open in flight, held so that leaving the sheet can cancel it.
+    ///
+    /// Nothing else would: an unheld `Task` outlives the view that started it, so
+    /// Cancel and Esc took the sheet down while the request ran on — leaving
+    /// `isOpening` up (the *next* sheet opened with its field, its picker and its
+    /// Open button all disabled, for as long as the abandoned request lived) and
+    /// then opening a tab for a file the user had already said no to.
+    @State private var openTask: Task<Void, Never>?
+
+    /// Whether the sign-in web view is up **over this sheet**.
+    ///
+    /// Presented from here rather than swapped in by the presenter, which is what
+    /// the LeetCode Preferences tab already does and what the iOS screen does with
+    /// its `.fullScreenCover`. The two sheets share one presentation slot up in
+    /// `PisakaApp`, so raising the login one from there took *this* one down: the
+    /// typed problem went with it and nothing brought it back, leaving a user who
+    /// took the "Sign In…" the sheet itself offered with no sheet and an empty
+    /// field. Nested, this one stays up underneath with its text intact, which is
+    /// the "one click instead of a trip to the menu bar" the row promises.
+    @State private var isSigningIn = false
 
     private var parsed: LeetCodeProblemInput? { LeetCodeProblemInput.parse(text) }
 
@@ -72,6 +88,23 @@ struct LeetCodeOpenProblemSheet: View {
         }
         .padding(20)
         .frame(width: 440)
+        // Every closing path — the Cancel button, Esc, and the presenter taking
+        // the sheet down after a successful open — comes through here, so this is
+        // the one place the in-flight open has to be cancelled. Straight-line work
+        // already past its last `await` is unaffected, which is why the successful
+        // path is not a special case: `openLeetCodeProblem` has opened the tab
+        // before this can run.
+        .onDisappear { openTask?.cancel() }
+        .sheet(isPresented: $isSigningIn) {
+            LeetCodeLoginView(
+                model: model,
+                onDismiss: { isSigningIn = false },
+                // The sheet's own sentence line, not an alert: this sheet is back
+                // in front of the user the moment the login one goes down, and it
+                // is where every other refusal in this flow is already reported.
+                onFailure: { message = $0.errorDescription }
+            )
+        }
     }
 
     private var header: some View {
@@ -96,7 +129,7 @@ struct LeetCodeOpenProblemSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
-            Button("Sign In…") { onSignIn() }
+            Button("Sign In…") { isSigningIn = true }
         }
     }
 
@@ -171,7 +204,7 @@ struct LeetCodeOpenProblemSheet: View {
         guard let input = parsed, !model.isOpening else { return }
         message = nil
         let language = settings.leetCodeLanguage
-        Task { message = await onOpen(input, language) }
+        openTask = Task { message = await onOpen(input, language) }
     }
 }
 

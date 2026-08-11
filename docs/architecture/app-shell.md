@@ -783,9 +783,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     opened as a tab whether or not a project is open. The two sheets are one
     `.sheet(item:)` over an enum attached **outside** `ContentView` (they are
     mutually exclusive, and the scene is where they belong if the window is to stay
-    free of the parameter and the observation). `openLeetCodeProblem` returns its
-    sentence *to the sheet* and keeps `PlatformAlert` for the one failure that
-    happens with the sheet already gone — the tab open; `openLeetCodeSolution`
+    free of the parameter and the observation) — and they are genuinely alternatives
+    rather than a stack: the login sheet a signed-out user raises *from* the Open
+    Problem sheet is presented by that sheet over itself, precisely so this slot is
+    never swapped while it is up. `openLeetCodeProblem` returns its
+    sentence *to the sheet*, refuses to open a tab once its `Task` has been
+    cancelled (the sheet cancels the open it is holding on disappear, so Esc means
+    Esc), and keeps `PlatformAlert` for the two failures that happen with the sheet
+    already gone — the tab open, and a login LeetCode rejected behind the dismissed
+    web view; `openLeetCodeSolution`
     opens the file through `model.open(url:)` like any other and bumps the tree
     revision **only** when it landed inside the open project, because opening a
     problem never changes the project root. Sign Out always goes through
@@ -976,7 +982,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (`LSPServerSettingsView`, phase 2b — full entry in `core-provisioning.md`),
     "LeetCode" (`LeetCodeSettingsView` — the account, the solutions folder and the
     default language; full entry in `core-leetcode.md`, and it carries its own
-    `@ObservedObject LeetCodeModel` so the Preferences host does not observe it)
+    `@ObservedObject LeetCodeModel` so the Preferences host holds it as a plain
+    `let` — nothing in `SettingsView.body` reads anything published on it, and
+    observing it there would re-evaluate the whole window, Acknowledgements and its
+    66 KB license texts included, on every statement fetch and busy transition)
     and "Acknowledgements" (`AcknowledgementsView`). A `TabView` sizes to its widest
     tab, which is why the split is worth noting: `GeneralSettingsView` keeps its
     own `.frame(width: 340)` while the Acknowledgements tab — needing room to read

@@ -563,7 +563,25 @@ the limits the design carries.
     yesterday's statement. The consequence, stated so it is not read as a bug: *a
     failure with a cached fragment present is not an error* and sets no `lastError`,
     because the user is looking at the statement either way. A `nil` url or folder
-    clears the panel. The panel's **title** has its own small store, `titlesBySlug`,
+    clears the panel. **A cancelled refresh reports nothing at all**: the request
+    lives in a view's `.task`, cancelled when the window closes or the app is
+    backgrounded mid-fetch, and `URLSession` then throws — arriving here as an
+    ordinary `network` error. The generation token does not cover it, because that
+    orders a request against its *replacement* and there is none, so without the
+    `Task.isCancelled` check a "could not reach LeetCode: cancelled" sat on
+    `lastError` (visible in Preferences) until some later operation cleared it. It
+    is equally not a session rejection — a request nobody waited for said nothing
+    about the session — so the check comes before `markSessionRejected()`.
+    The question the panel last asked is recorded as `lastStatementRequest`, and
+    **`signIn(with:)` asks it again**. The panel's refresh is driven by a view keyed
+    on the tab and the folder — everything the *association* depends on, and
+    deliberately nothing about the session, which is what lets those views go on not
+    observing this model — so a signed-out user looking at a solution file with no
+    cached fragment got an empty pane, signed in *because* the pane said they had
+    to, and changed neither half of that key: nothing re-asked, and the statement
+    only appeared after switching tabs and back. Keeping the question here keeps the
+    account dimension where the account lives. Both halves or nothing: a `nil` tab
+    or folder is not a question, and re-asking it would only re-publish `nil`. The panel's **title** has its own small store, `titlesBySlug`,
     for a reason that only shows up on the second visit to a tab: two things know a
     title and neither is reachable there. The catalog knows every one, but it is
     loaded only to resolve a *number* — a slug or a URL resolves to itself and never
@@ -740,6 +758,19 @@ the limits the design carries.
     re-point the callback and **never reload**: a body re-evaluation (the model
     publishing anything at all) must not restart a login the user is halfway
     through.
+    Dismissing first has a consequence the macOS view carries an `onFailure`
+    parameter for: the surface is already gone when the confirmation lands, so a
+    session LeetCode *rejects* has nothing on screen to appear on unless the
+    presenter says where. It is required rather than optional on purpose — each of
+    the three macOS presenters names the surface it will use (`PisakaApp` a
+    `PlatformAlert`, the Open Problem sheet its own status line, Preferences
+    nothing, since that pane renders `lastError` itself) — because the default
+    otherwise is silence: `lastError` has exactly one macOS reader, and without
+    this a rejected login flipped the menu back to "Sign In…" and said nothing
+    anywhere the user was looking. Only `notLoggedIn` is reported; the rest are the
+    "offline moment" the paragraph above keeps the cookies for. iOS needs no such
+    parameter — both of its presenters render `lastError` inline, immediately under
+    the account row.
   - `LeetCodeOpenProblemSheet.swift` (macOS) — three things in one file, because
     they are one decision seen from three places: the Open Problem sheet, the
     `LeetCodeCommands` menu items, and `LeetCodeFolderChooser`.
@@ -754,11 +785,29 @@ the limits the design carries.
     while the button is disabled — `isOpening` rather than `isBusy` so a statement
     refresh running for some other tab cannot disable the field or swallow the
     user's Return (the counter's own note in this document). A signed-out user gets
-    a **row with a "Sign In…" action in the sheet itself**, which swaps the shared
-    presentation slot for the login sheet: LeetCode answers no problem detail
-    without a session, and making the user cancel, walk to the menu bar and come
-    back is a detour the iOS screen — which puts the account and the input on one
-    screen — does not have.
+    a **row with a "Sign In…" action in the sheet itself**, which presents the login
+    web view **over this sheet** rather than in place of it: LeetCode answers no
+    problem detail without a session, and making the user cancel, walk to the menu
+    bar and come back is a detour the iOS screen — which puts the account and the
+    input on one screen — does not have. Nested rather than swapped into the
+    presenter's shared slot, for the reason the swap failed: the two sheets share
+    one `.sheet(item:)`, so raising the login one took *this* one down, the typed
+    problem went with it, and nothing brought either back — a user who took the
+    "one click instead of a trip to the menu bar" the row offers ended the login
+    with no sheet and an empty field. This is the shape both `LeetCodeSettingsView`
+    and the iOS screen already had.
+    The open runs in a **held `Task`, cancelled on disappear**. An unheld one
+    outlives the sheet that started it, and both consequences were user-visible:
+    `isOpening` stayed up for the life of the abandoned request, so the *next*
+    sheet opened with its field, its picker and its Open button all disabled; and
+    when the request finally landed it opened a tab for a problem the user had
+    pressed Esc on. Cancelling covers the first (the request throws, and
+    `openProblem`'s `defer` clears the flag); the presenters cover the second with
+    a `Task.isCancelled` check before the tab, since straight-line work past the
+    last `await` is not stopped by a cancellation. The file itself may already
+    exist, and is deliberately left: it is a file in a folder the user set aside,
+    and the never-overwrite rule means reopening the problem returns to it. The iOS
+    screen carries the same pair, for the same two consequences.
     `LeetCodeCommands` is a `View` **with its own `@ObservedObject`** inside
     `CommandMenu`, so the Sign In/Sign Out label tracks `isSignedIn` without making
     the scene's `body` — and with it `ContentView`, the project tree, the tab list
@@ -807,9 +856,20 @@ the limits the design carries.
     rule. Scripting is **off** (what keeps Core's "verbatim" from meaning
     "executable"), the data store is `.nonPersistent()` (this view must not become a
     second place a leetcode.com cookie can live, beside the login view's
-    deliberately persistent one), and `linkActivated` goes to `NSWorkspace` and is
-    cancelled, because a related-problem or editorial link would otherwise replace
-    the statement inside a 380 pt pane with no way back. **Only `http`/`https` are
+    deliberately persistent one), and **the main frame only ever holds the document
+    this view loaded** — every other main-frame navigation goes to `NSWorkspace` and
+    is cancelled, because a related-problem or editorial link would otherwise
+    replace the statement inside a 380 pt pane with no way back (the pane has no
+    back gesture, and the reload gate above will not restore a document whose HTML
+    has not changed). The test is the *frame and the URL*, not `linkActivated`
+    alone: a click is only the navigation the user can see coming, and this
+    markup is interpolated verbatim, so a `<meta http-equiv="refresh">` or a
+    `<form>` in it navigates the pane just as effectively — neither needs the
+    scripting that is off. Sub-frame loads are left alone (LeetCode's own markup
+    embedding something), and subresource loads never reach the delegate at all.
+    The document itself is recognised by its URL, `LeetCodeAPI.siteURL`, which is
+    what `loadHTMLString` was handed as its base and what the document's own
+    `<base href>` carries. **Only `http`/`https` are
     handed over**, everything else is cancelled and nothing else happens: this
     markup is rendered verbatim and never sanitized, so the `href` behind a click is
     untrusted by construction, and `NSWorkspace.open` would launch a `file:` URL in
@@ -898,8 +958,10 @@ the limits the design carries.
     on the other. The compact sheet is attached **at the root**, not on the pushed
     editor screen, so a tab switch behind it cannot tear it down mid-read, and it
     shows a placeholder rather than emptying itself when the statement goes away,
-    because a sheet that blanks reads as a bug. The web view has the same three
-    rules as the macOS one (compare-then-load, scripting off, links out to Safari).
+    because a sheet that blanks reads as a bug. The web view has the same rules as
+    the macOS one (compare-then-load, scripting off, and the main frame pinned to
+    the loaded document — everything else `http`/`https` out to Safari, everything
+    else cancelled).
   - `iOS/PisakaApp_iOS.swift` / `RootView_iOS.swift` / `SettingsView_iOS.swift`
     (modified; entries in `app-ios.md`) — the iOS composition and wiring.
     `PisakaApp_iOS` composes the stack inline rather than through a factory
@@ -911,7 +973,10 @@ the limits the design carries.
     be read before the model is built. `RootView_iOS` publishes the folder and calls
     `refreshUserStatus()` once at launch, keys the same `(tab, folder)` statement
     `.task`, and routes the open exactly as macOS does (sentence to the screen,
-    alert only for the tab open). The Settings screen gains a LeetCode section
+    alert only for the tab open, and no tab at all once the screen's held open
+    `Task` has been cancelled — `LeetCodeRoute_iOS` cancels it on disappear for the
+    two reasons the macOS sheet's entry gives: a Done that left `isOpening` up, and
+    an editor pushed for a problem the user had walked away from). The Settings screen gains a LeetCode section
     (account, folder with Change…/Use Default, default language) and observes the
     model itself.
     **`lastError` is rendered wherever an account can be signed into** — the macOS

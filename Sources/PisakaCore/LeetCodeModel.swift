@@ -259,6 +259,22 @@ public final class LeetCodeModel: ObservableObject {
     /// problem's title is public content, not something the session revealed.
     private var titlesBySlug: [String: String] = [:]
 
+    /// The last question `statement(forFileAt:in:)` was asked, so a sign-in can
+    /// ask it again.
+    ///
+    /// The panel's refresh is driven by a view keyed on the *tab* and the folder,
+    /// which is everything the association depends on — and deliberately nothing
+    /// about the session, so that the views can go on not observing this model.
+    /// The consequence without this: a signed-out user looking at a solution file
+    /// gets an empty panel (`statement` published `nil`, no cached fragment), and
+    /// signing in changes neither half of that key, so nothing re-asks and the
+    /// panel stays empty until they switch tabs and back. Recording the question
+    /// keeps the account dimension here, where the account lives.
+    ///
+    /// Both halves or nothing: a `nil` tab or `nil` folder is "there is no
+    /// question", and re-asking it after a sign-in would only re-publish `nil`.
+    private var lastStatementRequest: (url: URL, folder: URL)?
+
     private var openGeneration = 0
     private var statementGeneration = 0
     private var accountGeneration = 0
@@ -340,6 +356,12 @@ public final class LeetCodeModel: ObservableObject {
             }
             isSignedIn = true
             signedInUsername = status.username
+            // The panel the signed-out session left empty. Nothing else will
+            // re-ask: the view's key is the tab and the folder, and neither
+            // changed. See `lastStatementRequest`.
+            if let request = lastStatementRequest {
+                await statement(forFileAt: request.url, in: request.folder)
+            }
             return status.username
         } catch let error as LeetCodeError {
             // A confirmation that could not be *made* — offline, throttled — is
@@ -598,6 +620,11 @@ public final class LeetCodeModel: ObservableObject {
         statementGeneration += 1
         let generation = statementGeneration
 
+        // Recorded before the association is even tried: a file the rule does not
+        // match is still the question this model was last asked, and a sign-in
+        // re-asking it costs one association test. See `lastStatementRequest`.
+        lastStatementRequest = url.flatMap { url in folder.map { (url: url, folder: $0) } }
+
         guard let url, let folder,
               let parts = associatedProblem(forFileAt: url, in: folder)
         else {
@@ -668,6 +695,17 @@ public final class LeetCodeModel: ObservableObject {
             return fresh
         } catch let error as LeetCodeError {
             guard generation == statementGeneration else { return published }
+            // A cancelled refresh is not a failure to report. The panel's request
+            // lives in a view's `.task`, which is cancelled when the window closes
+            // or the app is backgrounded mid-fetch; `URLSession` then throws and
+            // this arrives as `network(reason: "cancelled")`. The generation guard
+            // above covers the *replacement* case — a newer request bumped the
+            // token — but not this one, where there is no replacement, so without
+            // this a stale "Could not reach LeetCode: cancelled" would sit in
+            // Preferences until the next operation happened to clear it. It is
+            // equally not a session rejection: a request nobody waited for said
+            // nothing about the session.
+            if Task.isCancelled { return published }
             // A rejected session is worth recording whether or not the panel had
             // something to show — it changes what every *other* surface says.
             if error == .notLoggedIn { markSessionRejected() }

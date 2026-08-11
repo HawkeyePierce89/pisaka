@@ -603,6 +603,13 @@ struct RootView_iOS: View {
         }
         do {
             let outcome = try await leetCode.openProblem(input: input, language: language)
+            // Cancelled means the user left the screen while this was in flight
+            // (see `LeetCodeRoute_iOS.openTask`). The file may already have been
+            // created — it is a file in the folder they set aside, and the
+            // never-overwrite rule means reopening the problem returns to it — but
+            // pushing the editor in front of somebody who tapped Done is answering
+            // a question they withdrew.
+            if Task.isCancelled { return nil }
             switch outcome {
             case .created(let solution), .resumed(let solution):
                 showingLeetCode = false

@@ -240,6 +240,13 @@ struct LeetCodeRoute_iOS: View {
     /// Whether the login web view is up over this screen.
     @State private var isSigningIn = false
 
+    /// The open in flight, held so that leaving this screen can cancel it — the
+    /// macOS sheet's `openTask`, for the same two consequences: an unheld `Task`
+    /// outlives the screen that started it, so Done and a swipe-down left
+    /// `isOpening` up (the next open screen came up with everything disabled) and
+    /// then pushed a tab for a file the user had already walked away from.
+    @State private var openTask: Task<Void, Never>?
+
     private var parsed: LeetCodeProblemInput? { LeetCodeProblemInput.parse(text) }
 
     private var isBlank: Bool {
@@ -266,6 +273,13 @@ struct LeetCodeRoute_iOS: View {
                 LeetCodeLoginView_iOS(model: model, onDismiss: { isSigningIn = false })
             }
         }
+        // Every closing path — Done, the swipe-down, and the presenter taking the
+        // screen down after a successful open — comes through here, so this is the
+        // one place the in-flight open has to be cancelled. Straight-line work
+        // already past its last `await` is unaffected, which is why the successful
+        // path needs no special case: `openLeetCodeProblem` has opened the tab
+        // before this can run.
+        .onDisappear { openTask?.cancel() }
     }
 
     // MARK: - Sections
@@ -378,7 +392,7 @@ struct LeetCodeRoute_iOS: View {
         guard let input = parsed, !model.isOpening else { return }
         message = nil
         let language = settings.leetCodeLanguage
-        Task { message = await onOpen(input, language) }
+        openTask = Task { message = await onOpen(input, language) }
     }
 }
 #endif
