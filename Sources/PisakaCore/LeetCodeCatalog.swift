@@ -175,7 +175,20 @@ public final class LeetCodeCatalog {
     ) async throws -> String? {
         loadFromDiskIfNeeded()
         if isStale {
-            try await refresh(credentials: credentials)
+            do {
+                try await refresh(credentials: credentials)
+            } catch {
+                // **A refresh that could not be made does not invalidate what is
+                // on disk.** The catalog endpoint is the legacy REST one and 2 MB
+                // — the likeliest thing in this integration to be throttled or
+                // blocked while GraphQL still answers — and letting its failure
+                // out here would refuse a number whose slug we already hold and
+                // whose detail request would have succeeded. Age is a reason to
+                // *try* for something newer, not a reason to throw away what
+                // answers the question.
+                guard let slug = slugsByNumber[number] else { throw error }
+                return slug
+            }
         }
         if let slug = slugsByNumber[number] { return slug }
 

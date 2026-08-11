@@ -150,6 +150,16 @@ struct SettingsView_iOS: View {
                 }
             }
 
+            // The persistent home for `lastError` on this platform, for the
+            // reason its macOS twin states: sign-in is confirmed after the login
+            // cover has been dismissed, so a rejected session would otherwise
+            // just flip the row back to "Sign In…" and say nothing.
+            if let error = leetCode.lastError {
+                Text(error.errorDescription ?? "LeetCode reported a failure.")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+
             VStack(alignment: .leading, spacing: 4) {
                 Text("Solution folder")
                 Text(leetCodeFolderDescription)

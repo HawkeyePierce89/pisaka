@@ -47,6 +47,11 @@ close files with a confirmation prompt when there are unsaved changes.
   `~/.cargo/bin`), and otherwise offers once to download the official prebuilt
   binary. Without a `cargo` there is no offer and no server: Rust files behave
   exactly as every other language does, on the built-in index.
+- Optional: a **LeetCode account** and network access to `leetcode.com`, for the
+  LeetCode integration (see Features). Nothing is bundled and no dependency is
+  added for it — the login web view is WebKit and the session is stored through
+  the system Keychain. Without an account the feature is simply unused; the rest
+  of the editor is unaffected.
 
 ## Build & Run
 
@@ -108,6 +113,7 @@ involved.
 | Cmd+K       | Commit… (opens the commit dialog for the open project) |
 | Cmd+R       | Run the active file in a new terminal session |
 | Cmd+U       | Run the active test file in a new terminal session |
+| Cmd+Shift+P | Open a LeetCode problem (writes and opens its solution file) |
 | Cmd+Shift+L | Show/Hide the Git Log (commit history) bottom panel |
 | Cmd+Shift+T | Show/Hide the embedded terminal bottom panel |
 | Cmd+Shift+C | Show/Hide the Local Changes bottom panel   |
@@ -675,10 +681,34 @@ involved.
   it), theme (follow the system, or force light/dark), and a shared editor font
   size used by the editor, diff, and merge views. The font size is also
   adjustable on the fly with Cmd+scroll over any code view. All three settings
-  persist across launches. The Settings window's second tab, **Acknowledgements**,
-  lists every third-party dependency the app ships — name, SPDX identifier,
-  version/revision, and upstream origin — beside its full license text, shown
-  verbatim and selectable.
+  persist across launches. The Settings window's other tabs are **Language
+  Servers** (what may be downloaded, and what is installed), **LeetCode** (the
+  account, the solutions folder, and the language new solution files are seeded
+  in) and **Acknowledgements**, which lists every third-party dependency the app
+  ships — name, SPDX identifier, version/revision, and upstream origin — beside
+  its full license text, shown verbatim and selectable.
+- LeetCode integration, in its own **LeetCode** menu. None of it needs an open
+  project, and opening a problem never changes the project root — the solution
+  file just opens as an ordinary tab.
+  - **Sign In…** opens leetcode.com's own login page in a web view, so the SSO
+    providers (GitHub, Google, …) work exactly as they do in a browser. The
+    session it produces is kept in the Keychain; **Sign Out** clears both that
+    item and the `leetcode.com` cookies. One account at a time — switching means
+    signing out and back in.
+  - **Open Problem…** (Cmd+Shift+P) accepts a **problem number** (`1`), a
+    **slug** (`two-sum`), or a **leetcode.com problem URL**, with a language
+    picker offering Swift, Python 3, Go, Rust, TypeScript and JavaScript. The
+    choice persists, so the next problem opens in the same language.
+  - The solution file is written as `0001-two-sum.swift` into the folder you
+    chose (**Choose LeetCode Folder…**, suggested `~/Documents/LeetCode` and
+    asked for on first use), seeded with a header comment naming the problem and
+    LeetCode's own code snippet for that language. **An existing file is never
+    overwritten**: reopening a problem reopens your work untouched.
+  - The problem statement renders in a resizable pane beside the editor,
+    themed to match, and is cached on disk — so reopening a solved problem shows
+    its statement even offline. A button in the pane's header opens the problem
+    on leetcode.com for the parts it deliberately does not render (discussion,
+    submissions, the editorial).
 
 ## iOS / iPadOS
 
@@ -736,6 +766,13 @@ and iPhone. The feature scope landed so far:
   without fetching, or cancel. Note: only an **HTTPS `origin`** can be fetched with
   a PAT — an SSH remote (`git@…`) cannot, since libgit2's SSH transport is
   exec-based and there is no subprocess on iOS.
+- The same LeetCode integration, reached from the "+" toolbar menu: one screen
+  combining the account and the problem input rather than the macOS
+  menu-plus-sheet pair. Solution files default to the app container's
+  `Documents/LeetCode`, which needs no permission and no picker; **Change…**
+  points them anywhere the document picker reaches (persisted as a
+  security-scoped bookmark), and **Use Default** goes back. The statement is a
+  pane beside the editor on regular width and a toggleable sheet on compact.
 - The embedded terminal is macOS-only (SwiftTerm) and not present on iOS.
 
 ## Known Limitations (1.0)
@@ -872,6 +909,25 @@ and iPhone. The feature scope landed so far:
   sessions and no setting to turn restore off.
 - A single editor window only (diffs open in separate read-only windows on
   double-click; the bottom-panel height is not persisted across launches).
+- The LeetCode integration talks to LeetCode's **unofficial** API — the same
+  endpoints the website itself uses. It can change or be blocked with no notice,
+  which surfaces as an "API changed" error naming the field that no longer
+  matched, and is fixable only by an app update. More specifically:
+  - Running and submitting solutions is not implemented — the integration
+    fetches problems and writes files. Use leetcode.com to submit.
+  - Cached statements hold LeetCode's HTML only: **images do not load offline**,
+    and neither does anything else the page would have fetched.
+  - A solution file is tied to its problem by its **name and its location**.
+    Renaming it, or moving it out of the configured folder, detaches it — the
+    description pane goes empty for that tab.
+  - Premium problems are refused outright (no file is written) rather than opened
+    with the locked part missing.
+  - On iOS, solution files written to the default location are **not visible in
+    the Files app** (the app declares no file sharing); point the folder at a
+    Files location if you want them there.
+  - Sign Out clears `leetcode.com`'s cookies, but cookies an SSO provider set on
+    *its own* domain survive it, so signing back in may not ask for the password
+    again.
 
 ## License
 

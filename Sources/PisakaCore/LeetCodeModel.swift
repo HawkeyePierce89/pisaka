@@ -153,6 +153,16 @@ public final class LeetCodeModel: ObservableObject {
     /// spinner off.
     @Published public private(set) var isBusy = false
 
+    /// Whether an "Open Problem…" is running, counted the same way.
+    ///
+    /// Separate from `isBusy` because the two answer different questions and the
+    /// entry sheets bind their controls to this one. A statement refresh raises
+    /// `isBusy` too, and it is started by *switching tabs* — so a single counter
+    /// meant that selecting a LeetCode tab on a slow link and then pressing ⌘⇧P
+    /// produced a sheet with a disabled field and a dead Open button, waiting on
+    /// a request that has nothing to do with what the user is trying to do.
+    @Published public private(set) var isOpening = false
+
     /// The most recent failure, for the sheet's inline error and the iOS row.
     /// Cleared when a new operation starts, so a stale sentence never sits under
     /// a fresh attempt.
@@ -183,10 +193,35 @@ public final class LeetCodeModel: ObservableObject {
     /// launches; this is a cache of it, and `signOut()` clears both.
     private var cachedCredentials: LeetCodeCredentials?
 
+    /// Whether an explicit sign-out has happened this run.
+    ///
+    /// `signOut()` clears the store, but a Keychain that refuses the delete
+    /// leaves the pair on disk — and every credential lookup here falls back to
+    /// the store, so the very next open would read the session back out and
+    /// succeed while the app showed "signed out". The flag is what makes the
+    /// sign-out hold regardless of what the Keychain did; a new `signIn` clears
+    /// it, and next launch reads the store afresh (a stored pair the user asked
+    /// to forget is the residue of a Keychain failure, and one they can sign out
+    /// of again).
+    private var storedCredentialsAreDiscarded = false
+
+    /// Slugs whose statement came off the *network* during this run.
+    ///
+    /// The panel's refresh is started by a tab change, and the statement was
+    /// usually just fetched: `openProblem` already has the detail in hand and
+    /// caches it, so re-fetching when the tab it opened becomes active is a
+    /// second request for bytes we hold — against an unofficial API the whole
+    /// design is built around not annoying. Switching back and forth between two
+    /// LeetCode tabs is the same request twice more. A slug in here is refreshed
+    /// from the cache alone; `signOut()` empties it, since a session change
+    /// invalidates what was fetched under the old one.
+    private var slugsFetchedThisRun: Set<String> = []
+
     private var openGeneration = 0
     private var statementGeneration = 0
     private var accountGeneration = 0
     private var busyCount = 0
+    private var openCount = 0
 
     public init(
         transport: LeetCodeTransport,
@@ -231,6 +266,7 @@ public final class LeetCodeModel: ObservableObject {
         let generation = accountGeneration
         invalidateInFlightWork()
         cachedCredentials = credentials
+        storedCredentialsAreDiscarded = false
         isSignedIn = true
         signedInUsername = nil
         lastError = nil
@@ -273,7 +309,7 @@ public final class LeetCodeModel: ObservableObject {
     public func refreshUserStatus() async -> LeetCodeAPI.UserStatus? {
         accountGeneration += 1
         let generation = accountGeneration
-        guard let credentials = cachedCredentials ?? credentialStore.load() else {
+        guard let credentials = cachedCredentials ?? storedCredentials() else {
             markSessionRejected()
             return nil
         }
@@ -281,7 +317,22 @@ public final class LeetCodeModel: ObservableObject {
 
         beginWork()
         defer { endWork() }
-        guard let status = try? await fetchUserStatus(credentials: credentials) else { return nil }
+        let status: LeetCodeAPI.UserStatus
+        do {
+            status = try await fetchUserStatus(credentials: credentials)
+        } catch LeetCodeError.notLoggedIn {
+            // A rejection *is* an answer, and the only one this method must act
+            // on: swallowing it with the rest would leave a dead session reading
+            // as signed in — with the account name in the menu — until the user
+            // tried to open something. Everything else (offline, throttled) is
+            // still silent, which is what "the launch-time call raises no alert"
+            // means.
+            guard generation == accountGeneration else { return nil }
+            markSessionRejected()
+            return nil
+        } catch {
+            return nil
+        }
         guard generation == accountGeneration else { return status }
         if status.isSignedIn {
             isSignedIn = true
@@ -301,7 +352,12 @@ public final class LeetCodeModel: ObservableObject {
         accountGeneration += 1
         invalidateInFlightWork()
         cachedCredentials = nil
+        // Raised whether or not the delete succeeded — see the flag's own note:
+        // a Keychain that refuses it must not leave a session every later
+        // lookup can read back out.
+        storedCredentialsAreDiscarded = true
         try? credentialStore.clear()
+        slugsFetchedThisRun.removeAll()
         isSignedIn = false
         signedInUsername = nil
         statement = nil
@@ -334,7 +390,11 @@ public final class LeetCodeModel: ObservableObject {
         lastError = nil
 
         beginWork()
-        defer { endWork() }
+        beginOpen()
+        defer {
+            endOpen()
+            endWork()
+        }
         do {
             return try await performOpen(
                 input: input,
@@ -386,8 +446,6 @@ public final class LeetCodeModel: ObservableObject {
         // something to show.
         adoptStatement(from: detail)
 
-        guard !fileExists(named: name, in: folder) else { return .resumed(solution) }
-
         do {
             try fileService.ensureDirectory(at: folder)
         } catch {
@@ -396,6 +454,8 @@ public final class LeetCodeModel: ObservableObject {
             // `folderUnavailable` says.
             throw LeetCodeError.folderUnavailable
         }
+        guard !(try existingFile(named: name, in: folder)) else { return .resumed(solution) }
+
         // A language LeetCode does not offer this problem in yields the header
         // alone rather than a refusal: the file, the name and the panel are all
         // still correct, and the user can type the signature themselves.
@@ -478,7 +538,11 @@ public final class LeetCodeModel: ObservableObject {
             statement = nil
         }
 
-        guard let credentials = cachedCredentials ?? credentialStore.load() else {
+        // Already fetched this run — the cache we just published *is* that
+        // fetch's bytes. See `slugsFetchedThisRun`.
+        if let published, slugsFetchedThisRun.contains(slug) { return published }
+
+        guard let credentials = cachedCredentials ?? storedCredentials() else {
             if published == nil { publish(.notLoggedIn) }
             return published
         }
@@ -498,7 +562,12 @@ public final class LeetCodeModel: ObservableObject {
                 isFromCache: false
             )
             statementCache.store(detail.content, forSlug: slug)
+            slugsFetchedThisRun.insert(slug)
             statement = fresh
+            // The panel is showing a statement that just arrived; a sentence
+            // from an older failure sitting beside it on some other surface
+            // would be describing a state that no longer exists.
+            lastError = nil
             return fresh
         } catch let error as LeetCodeError {
             guard generation == statementGeneration else { return published }
@@ -553,9 +622,17 @@ public final class LeetCodeModel: ObservableObject {
     /// The session, or the error every operation reports without one.
     private func requireCredentials() throws -> LeetCodeCredentials {
         if let cachedCredentials { return cachedCredentials }
-        guard let stored = credentialStore.load() else { throw LeetCodeError.notLoggedIn }
+        guard let stored = storedCredentials() else { throw LeetCodeError.notLoggedIn }
         cachedCredentials = stored
         return stored
+    }
+
+    /// The persisted session — unless the user has signed out this run, in which
+    /// case there is none as far as this app is concerned, whatever the Keychain
+    /// still holds. The one place the store is read after `init`.
+    private func storedCredentials() -> LeetCodeCredentials? {
+        guard !storedCredentialsAreDiscarded else { return nil }
+        return credentialStore.load()
     }
 
     /// Record a failure, and let a rejected session change the account state as
@@ -586,6 +663,7 @@ public final class LeetCodeModel: ObservableObject {
         guard !detail.content.isEmpty else { return }
         statementGeneration += 1
         statementCache.store(detail.content, forSlug: detail.slug)
+        slugsFetchedThisRun.insert(detail.slug)
         statement = LeetCodeStatement(
             slug: detail.slug,
             number: detail.frontendID,
@@ -602,8 +680,21 @@ public final class LeetCodeModel: ObservableObject {
     /// on something that is not text — would read as "not there" and the next step
     /// would overwrite it. A listing distinguishes the two, and the folder holds a
     /// few dozen files.
-    private func fileExists(named name: String, in folder: URL) -> Bool {
-        guard let entries = try? fileService.contentsOfDirectory(at: folder) else { return false }
+    ///
+    /// **A listing that fails throws rather than answering "absent"**, which is
+    /// the same argument one step further out: a folder that is searchable but
+    /// not readable would otherwise take the identical path a read failure would
+    /// have, and destroy a half-finished solution. The caller has already made
+    /// sure the directory exists, so a failure here is a real one and
+    /// `fileSystem` says so — refusing to write is the only answer that keeps
+    /// "never overwrite" true when we cannot see what is there.
+    private func existingFile(named name: String, in folder: URL) throws -> Bool {
+        let entries: [DirectoryEntry]
+        do {
+            entries = try fileService.contentsOfDirectory(at: folder)
+        } catch {
+            throw LeetCodeError.fileSystem(reason: describe(error))
+        }
         return entries.contains { !$0.isDirectory && $0.url.lastPathComponent == name }
     }
 
@@ -621,6 +712,16 @@ public final class LeetCodeModel: ObservableObject {
     private func endWork() {
         busyCount = max(0, busyCount - 1)
         if busyCount == 0, isBusy { isBusy = false }
+    }
+
+    private func beginOpen() {
+        openCount += 1
+        if !isOpening { isOpening = true }
+    }
+
+    private func endOpen() {
+        openCount = max(0, openCount - 1)
+        if openCount == 0, isOpening { isOpening = false }
     }
 
     /// A sentence for an arbitrary error, preferring a `LocalizedError`'s own —

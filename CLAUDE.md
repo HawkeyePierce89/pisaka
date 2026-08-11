@@ -141,7 +141,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LSPInstallEngine.swift` — download → verify → unpack → one rename; state from the disk, coalescing, `sweepStaging()` (D12–D14).
 - `LSPProvisioning.swift` — `LSPServerConsent`, the row/prompt values, and `LSPProvisioningModel` (consent, installs, the published registry).
 
-`docs/architecture/core-leetcode.md` — the LeetCode integration (login, open problem, solution file, statement panel), incl. decisions L1–L12 and the known limits:
+`docs/architecture/core-leetcode.md` — the LeetCode integration (login, open problem, solution file, statement panel), incl. decisions L1–L15 and the known limits:
 - `LeetCodeTransport.swift` — the one app/Core boundary: request/response value types + the seam protocol.
 - `LeetCodeCredentials.swift` — the session pair, the pure cookies→credentials rule, the store protocol (absence ≡ signed out).
 - `LeetCodeError.swift` — the seven typed failures; `apiChanged(detail:)` names the key path.
@@ -399,10 +399,12 @@ way, and must be listed in the test target's `exclude:` (why, in `core-lsp.md`).
 Shared test helpers live in `Tests/PisakaCoreTests/Support/`: `StubFileTree` (an
 in-memory `FileServicing` project tree, with hooks for unreadable files, absent
 stamps and stamp overrides, **plus a mutable half** — empty directories,
-`createDirectory`/`ensureDirectory`/`move`/`remove`, `moveFailures`/`removeFailures`
+`createDirectory`/`ensureDirectory`/`move`/`remove`,
+`moveFailures`/`removeFailures`/`writeFailures`
 injection points, `removedPaths`/`moves` call logs and a per-path `executableFiles`
 bit carried through `move` — which is what makes the install
-engine's atomicity rules and its `.gzip` gate assertable), `Gate` (a blocking rendezvous that holds
+engine's atomicity rules, its `.gzip` gate and the LeetCode catalog's "a cache
+write may fail without failing the open" rule assertable), `Gate` (a blocking rendezvous that holds
 off-main work suspended while a test mutates model state on the main actor — how
 the folder-switch-mid-walk cases are staged), `QueryScanner`'s `ParsedQuery`, the
 `.scm` scanner `VendoredGrammarQueryTests` and `SymbolQueryTests` share,
@@ -413,7 +415,10 @@ provisioning suites drive, plus `ScriptedGoDiscovery`/`ScriptedGoInstaller`, the
 toolchain report and `go install` fakes the gopls suite drives, and
 `ScriptedRustDiscovery`, the toolchain-report fake the rust-analyzer suite drives
 — there is deliberately no Rust *installer* fake, since that install is the
-shared download-and-unpack pair). Reach for
+shared download-and-unpack pair), and `ScriptedLeetCodeTransport` (the canned
+`LeetCodeTransport` keyed by GraphQL operation name / REST path — plus
+`InMemoryLeetCodeCredentialStore` — that the LeetCode catalog and model suites
+drive). Reach for
 these before writing a new stub. A fake standing in for a `nonisolated async`
 seam runs on the cooperative pool, so anything it writes into a `StubFileTree`
 must hop to the main actor first — the engine reads that tree *from* the main

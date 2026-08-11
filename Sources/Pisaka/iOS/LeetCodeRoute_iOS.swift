@@ -264,20 +264,20 @@ struct LeetCodeRoute_iOS: View {
                 .submitLabel(.go)
                 .onSubmit { open() }
                 .onChange(of: text) { _, _ in message = nil }
-                .disabled(model.isBusy)
+                .disabled(model.isOpening)
 
             Picker("Language", selection: $settings.leetCodeLanguage) {
                 ForEach(LeetCodeSolutionFile.offerableLanguages, id: \.self) { language in
                     Text(language.displayName).tag(language)
                 }
             }
-            .disabled(model.isBusy)
+            .disabled(model.isOpening)
 
             HStack {
                 Button("Open Problem") { open() }
-                    .disabled(parsed == nil || model.isBusy)
+                    .disabled(parsed == nil || model.isOpening)
                 Spacer()
-                if model.isBusy {
+                if model.isOpening {
                     ProgressView()
                 }
             }
@@ -313,13 +313,14 @@ struct LeetCodeRoute_iOS: View {
 
     /// Hand the parsed input to the presenter and show whatever it answers.
     ///
-    /// Guarded on `isBusy` as well as on the parse, because the keyboard's Go key
-    /// reaches this even while the button is disabled: two overlapping opens are
-    /// safe by construction (the model's generation token discards the older one),
-    /// but the second would be a second round trip for a question already in
-    /// flight.
+    /// Guarded on `isOpening` as well as on the parse, because the keyboard's Go
+    /// key reaches this even while the button is disabled: two overlapping opens
+    /// are safe by construction (the model's generation token discards the older
+    /// one), but the second would be a second round trip for a question already
+    /// in flight. `isOpening` rather than `isBusy` — a statement refresh running
+    /// for some other tab must not swallow the user's Go.
     private func open() {
-        guard let input = parsed, !model.isBusy else { return }
+        guard let input = parsed, !model.isOpening else { return }
         message = nil
         let language = settings.leetCodeLanguage
         Task { message = await onOpen(input, language) }

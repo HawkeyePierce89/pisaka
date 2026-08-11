@@ -273,8 +273,10 @@ public enum LeetCodeAPI {
         guard let question = try data.optionalObject("question") else { return nil }
 
         let isPaidOnly = try question.bool("isPaidOnly")
-        let slug = try question.optionalString("titleSlug").flatMap { $0.isEmpty ? nil : $0 }
-            ?? requestedSlug
+        let slug = try slug(
+            fromWireValue: try question.optionalString("titleSlug"),
+            path: question.path(of: "titleSlug")
+        ) ?? requestedSlug
         let problem = LeetCodeProblem(
             frontendID: try question.integer("questionFrontendId"),
             slug: slug,
@@ -355,7 +357,10 @@ public enum LeetCodeAPI {
             problems.append(
                 LeetCodeProblem(
                     frontendID: try stat.integer("frontend_question_id"),
-                    slug: try stat.string("question__title_slug"),
+                    slug: try requiredSlug(
+                        fromWireValue: try stat.string("question__title_slug"),
+                        path: stat.path(of: "question__title_slug")
+                    ),
                     title: try stat.string("question__title"),
                     difficulty: try difficulty(
                         fromRESTLevel: level,
@@ -367,6 +372,54 @@ public enum LeetCodeAPI {
             )
         }
         return problems
+    }
+
+    // MARK: - Slugs off the wire
+
+    /// A slug LeetCode sent, checked against the one slug rule before anything
+    /// else is allowed to treat it as one.
+    ///
+    /// **This is the boundary at which a wire string becomes a path component.**
+    /// A slug travels from here into `LeetCodeSolutionFile.name(…)` and is
+    /// appended to the configured folder, and into `LeetCodeCacheLayout`'s file
+    /// names; `appendingPathComponent` does not resolve `..`, so a slug carrying
+    /// `/` or `..` would write outside the folder the user set aside. Worse than
+    /// the traversal: `performOpen` decides "does this file already exist" by
+    /// comparing `lastPathComponent`, which a name containing a separator can
+    /// never match — so the **never-overwrite** rule, the one failure in this
+    /// integration a user could not undo, would stop holding for exactly the
+    /// slugs that escape.
+    ///
+    /// The lesser half matters too: `LeetCodeSolutionFile.parts(fromFileName:)`
+    /// validates with the same rule, so a slug outside `[a-z0-9-]` would name a
+    /// file the statement panel could never associate back to its problem.
+    /// Checking here is what makes "the app cannot write a name it would then
+    /// fail to recognise" structural rather than hopeful.
+    ///
+    /// `apiChanged` rather than a repair, for this file's usual reason: a slug
+    /// LeetCode spells in a way this app cannot use is a schema change, and
+    /// silently rewriting it would produce a request for some other problem.
+    private static func slug(
+        fromWireValue value: String?,
+        path: String
+    ) throws -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        guard let slug = LeetCodeProblemInput.normalizedSlug(value) else {
+            throw LeetCodeError.apiChanged(detail: "\(path) = \(value)")
+        }
+        return slug
+    }
+
+    /// The same check where the slug is not optional — the catalog's rows, whose
+    /// slug *is* the identity the row exists to provide.
+    private static func requiredSlug(
+        fromWireValue value: String,
+        path: String
+    ) throws -> String {
+        guard let slug = LeetCodeProblemInput.normalizedSlug(value) else {
+            throw LeetCodeError.apiChanged(detail: "\(path) = \(value)")
+        }
+        return slug
     }
 
     // MARK: - Enumeration mappings
@@ -488,6 +541,17 @@ public enum LeetCodeAPI {
         }
 
         guard let object else {
+            // The same reasoning the 429 branch above is written on, for the
+            // other status this stack answers with a body no JSON parse
+            // survives: a 403 from a WAF or a Cloudflare interstitial is HTML,
+            // and reporting it as `apiChanged` would send whoever reads the bug
+            // report hunting a schema change instead of a dead session. With a
+            // JSON body a 403 is still decided *below*, after the GraphQL
+            // `errors` array, because that array is the more specific answer
+            // (a premium refusal arrives as one).
+            if response.statusCode == 403 {
+                throw LeetCodeError.notLoggedIn
+            }
             guard response.isSuccess else {
                 throw LeetCodeError.apiChanged(
                     detail: "\(context): HTTP \(response.statusCode)"
@@ -573,19 +637,46 @@ public enum LeetCodeAPI {
 
     /// The wait named inside DRF's own sentence ("Expected available in 42
     /// seconds."), for the case where the header was absent.
+    ///
+    /// **Anchored on the unit, not on "the first number in the string."** The
+    /// caller at the GraphQL end passes *every* error message joined together, so
+    /// an unanchored scan would read "Rate limit exceeded for user 12345. Try
+    /// again in 30 seconds." as a three-and-a-half-hour wait and say so to the
+    /// user. Only a digit run immediately followed by the word it is a count of
+    /// counts, and anything longer than an hour is refused as well: `nil` already
+    /// means "throttled, wait unknown" and renders as "in a moment", which is
+    /// strictly better than a confidently wrong number.
     private static func seconds(inThrottleMessage message: String) -> TimeInterval? {
-        var digits = ""
-        var found: TimeInterval?
-        for character in message {
-            if character.isNumber {
-                digits.append(character)
-            } else {
-                if !digits.isEmpty, found == nil { found = TimeInterval(digits) }
-                digits = ""
+        let lowered = message.lowercased()
+        let characters = Array(lowered)
+        var index = 0
+        while index < characters.count {
+            guard characters[index].isNumber else {
+                index += 1
+                continue
             }
+            var end = index
+            while end < characters.count, characters[end].isNumber { end += 1 }
+            let digits = String(characters[index..<end])
+            var unitStart = end
+            while unitStart < characters.count, characters[unitStart] == " " { unitStart += 1 }
+            let rest = String(characters[unitStart...])
+            if rest.hasPrefix("second") || rest.hasPrefix("sec") {
+                return plausibleWait(TimeInterval(digits))
+            }
+            if rest.hasPrefix("minute") || rest.hasPrefix("min") {
+                return plausibleWait(TimeInterval(digits).map { $0 * 60 })
+            }
+            index = end
         }
-        if !digits.isEmpty, found == nil { found = TimeInterval(digits) }
-        return found.flatMap { $0 > 0 ? $0 : nil }
+        return nil
+    }
+
+    /// A wait worth naming: positive, and no longer than the hour beyond which
+    /// "try again in N seconds" stops being advice a user can act on.
+    private static func plausibleWait(_ seconds: TimeInterval?) -> TimeInterval? {
+        guard let seconds, seconds > 0, seconds <= 3600 else { return nil }
+        return seconds
     }
 }
 

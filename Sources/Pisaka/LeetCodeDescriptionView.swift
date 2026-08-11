@@ -50,6 +50,10 @@ struct LeetCodeDescriptionPane: View {
     /// switches for the same reason `width` does: it is a preference about the
     /// window, not about one problem.
     @State private var isCollapsed = false
+    /// Whether the pointer is over the resize handle, tracked because a pushed
+    /// `NSCursor` has to be popped by the same view that pushed it — see the
+    /// handle's own note.
+    @State private var isHoveringHandle = false
 
     /// Narrower than this and the statement's example blocks stop being
     /// readable; wider and the editor is the one being squeezed.
@@ -139,8 +143,22 @@ struct LeetCodeDescriptionPane: View {
             .fill(Color(NSColor.separatorColor))
             .frame(width: 5)
             .contentShape(Rectangle())
+            // Paired with `onDisappear`, unlike `ContentView.panelDivider`'s
+            // otherwise identical idiom: that divider goes away only when the
+            // user toggles it, while this whole pane is removed the moment the
+            // statement does — a tab switch under the pointer would otherwise
+            // push a cursor nothing ever pops, and the resize cursor would stick
+            // application-wide.
             .onHover { hovering in
+                guard hovering != isHoveringHandle else { return }
+                isHoveringHandle = hovering
                 if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            }
+            .onDisappear {
+                if isHoveringHandle {
+                    isHoveringHandle = false
+                    NSCursor.pop()
+                }
             }
             .gesture(
                 DragGesture()

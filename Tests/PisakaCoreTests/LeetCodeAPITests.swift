@@ -465,6 +465,133 @@ final class LeetCodeAPITests: XCTestCase {
         assertAPIChanged(containing: "not JSON") { _ = try LeetCodeAPI.parseUserStatus(html) }
     }
 
+    /// The 403 counterpart of `testThrottlingIsDecidedBeforeTheBodyIsParsed`: the
+    /// likeliest 403 from this stack is a WAF interstitial, which is HTML. It has
+    /// to reach `notLoggedIn` the way a 403 with a JSON body does, or the bug
+    /// report it produces sends somebody hunting a schema change.
+    func testForbiddenWithANonJSONBodyIsStillNotLoggedIn() {
+        let interstitial = LeetCodeHTTPResponse(
+            statusCode: 403,
+            body: Data("<html><title>Attention Required!</title></html>".utf8)
+        )
+        assertThrows(.notLoggedIn) { _ = try LeetCodeAPI.parseUserStatus(interstitial) }
+        assertThrows(.notLoggedIn) { _ = try LeetCodeAPI.parseProblemList(interstitial) }
+    }
+
+    // MARK: - Slugs off the wire
+
+    /// A `titleSlug` that is not a slug is a schema change, not a file name.
+    ///
+    /// The slug becomes a path component (`0001-two-sum.swift`, appended to the
+    /// configured folder) and `appendingPathComponent` does not resolve `..`, so
+    /// this is the check between a changed upstream and a file written outside
+    /// the folder the user set aside — and, worse, one whose name the
+    /// never-overwrite comparison could never match.
+    func testAQuestionSlugThatIsNotASlugIsASchemaChange() throws {
+        for wire in ["../../etc/passwd", "two/sum", "Two Sum", "-two-sum"] {
+            let body = """
+            {"data":{"question":{"questionFrontendId":"1","title":"Two Sum",\
+            "titleSlug":"\(wire)","difficulty":"Easy","isPaidOnly":false,\
+            "content":"<p>x</p>","codeSnippets":[],"exampleTestcaseList":[]}}}
+            """
+            let response = LeetCodeHTTPResponse(statusCode: 200, body: Data(body.utf8))
+            assertAPIChanged(containing: "titleSlug") {
+                _ = try LeetCodeAPI.parseQuestionDetail(response, requestedSlug: "two-sum")
+            }
+        }
+    }
+
+    /// The same rule on the catalog side, where the slug *is* the row's identity
+    /// and becomes `resolveSlug`'s answer.
+    func testACatalogSlugThatIsNotASlugIsASchemaChange() {
+        let body = """
+        {"stat_status_pairs":[{"stat":{"frontend_question_id":1,\
+        "question__title_slug":"../escape","question__title":"Two Sum"},\
+        "difficulty":{"level":1},"paid_only":false,"status":null}]}
+        """
+        let response = LeetCodeHTTPResponse(statusCode: 200, body: Data(body.utf8))
+        assertAPIChanged(containing: "question__title_slug") {
+            _ = try LeetCodeAPI.parseProblemList(response)
+        }
+    }
+
+    /// An absent or empty `titleSlug` still falls back to what was asked for —
+    /// the validation tightened the *shape* of a slug LeetCode sends, not the
+    /// tolerance for it not sending one.
+    func testAnAbsentQuestionSlugStillFallsBackToTheRequestedOne() throws {
+        for wire in ["null", "\"\""] {
+            let body = """
+            {"data":{"question":{"questionFrontendId":"1","title":"Two Sum",\
+            "titleSlug":\(wire),"difficulty":"Easy","isPaidOnly":false,\
+            "content":"<p>x</p>","codeSnippets":[],"exampleTestcaseList":[]}}}
+            """
+            let response = LeetCodeHTTPResponse(statusCode: 200, body: Data(body.utf8))
+            let detail = try LeetCodeAPI.parseQuestionDetail(response, requestedSlug: "two-sum")
+            XCTAssertEqual(detail?.slug, "two-sum")
+        }
+    }
+
+    /// A slug LeetCode spells in capitals is the same problem, normalized —
+    /// `normalizedSlug` lowercases, and this is the one repair it makes.
+    func testAQuestionSlugIsNormalizedRatherThanRefusedForCase() throws {
+        let body = """
+        {"data":{"question":{"questionFrontendId":"1","title":"Two Sum",\
+        "titleSlug":"Two-Sum","difficulty":"Easy","isPaidOnly":false,\
+        "content":"<p>x</p>","codeSnippets":[],"exampleTestcaseList":[]}}}
+        """
+        let response = LeetCodeHTTPResponse(statusCode: 200, body: Data(body.utf8))
+        let detail = try LeetCodeAPI.parseQuestionDetail(response, requestedSlug: "two-sum")
+        XCTAssertEqual(detail?.slug, "two-sum")
+    }
+
+    // MARK: - The wait named in a throttle message
+
+    /// The wait is read from the number the *unit* belongs to, not from the first
+    /// number in the sentence: the GraphQL end joins every error message
+    /// together, so an unanchored scan turns "for user 12345 … in 30 seconds"
+    /// into a three-and-a-half-hour wait and says so to the user.
+    func testTheWaitIsReadFromTheNumberItsUnitFollows() {
+        let body = """
+        {"errors":[{"message":"Rate limit exceeded for user 12345. \
+        Try again in 30 seconds."}]}
+        """
+        let response = LeetCodeHTTPResponse(statusCode: 200, body: Data(body.utf8))
+        assertThrows(.throttled(retryAfter: 30)) {
+            _ = try LeetCodeAPI.parseQuestionDetail(response, requestedSlug: "two-sum")
+        }
+    }
+
+    /// A wait named in minutes is still a wait, in the seconds the error carries.
+    func testAWaitNamedInMinutesIsConvertedToSeconds() {
+        let body = """
+        {"detail":"Request was throttled. Expected available in 2 minutes."}
+        """
+        let response = LeetCodeHTTPResponse(statusCode: 429, body: Data(body.utf8))
+        // 429 is decided from the status before the body, and carries no header
+        // here — the *message* path is the one under test, so use a 403.
+        let forbidden = LeetCodeHTTPResponse(statusCode: 403, body: Data(body.utf8))
+        assertThrows(.throttled(retryAfter: nil)) { _ = try LeetCodeAPI.parseProblemList(response) }
+        assertThrows(.throttled(retryAfter: 120)) {
+            _ = try LeetCodeAPI.parseProblemList(forbidden)
+        }
+    }
+
+    /// A number with no unit, and a wait longer than an hour, are both `nil` —
+    /// "in a moment" is strictly better than a number that is wrong.
+    func testAnImplausibleOrUnanchoredWaitIsNoWaitAtAll() {
+        for sentence in [
+            "Request was throttled. Try again later. Ticket 90210.",
+            "Request was throttled. Expected available in 99999 seconds.",
+            "Request was throttled. Expected available in 0 seconds."
+        ] {
+            let body = "{\"detail\":\"\(sentence)\"}"
+            let response = LeetCodeHTTPResponse(statusCode: 403, body: Data(body.utf8))
+            assertThrows(.throttled(retryAfter: nil)) {
+                _ = try LeetCodeAPI.parseProblemList(response)
+            }
+        }
+    }
+
     // MARK: - Enumeration mappings
 
     /// Two wire spellings of one enum, and every case of it reachable from both —

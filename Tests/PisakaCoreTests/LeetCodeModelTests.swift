@@ -718,6 +718,11 @@ final class LeetCodeModelTests: XCTestCase {
 
     /// The busy flag is a count, so the first of two overlapping operations
     /// finishing does not switch the spinner off under the second.
+    ///
+    /// Two operations are genuinely started, because one proves nothing about a
+    /// counter: a plain `Bool` would pass a single-operation test identically.
+    /// The statement refresh and the open are held on the same route, released
+    /// one at a time.
     func testBusyTracksOverlappingOperations() async throws {
         let tree = makeTree([twoSumPath: "solution"])
         let transport = makeTransport()
@@ -726,14 +731,283 @@ final class LeetCodeModelTests: XCTestCase {
         let model = makeModel(tree: tree, transport: transport)
 
         XCTAssertFalse(model.isBusy)
-        let running = Task {
-            try await model.openProblem(input: .slug("two-sum"), language: swift)
+        let refresh = Task {
+            await model.statement(
+                forFileAt: self.solutionsFolder.appendingPathComponent("0001-two-sum.swift"),
+                in: self.solutionsFolder
+            )
         }
         await gate.waitUntilReached()
         XCTAssertTrue(model.isBusy)
+
+        let opening = Task {
+            try await model.openProblem(input: .slug("two-sum"), language: self.swift)
+        }
+        await gate.waitUntilReached()
+
+        // The first of the two finishes; the counter must keep `isBusy` up for
+        // the one still in flight.
         gate.release()
-        _ = try await running.value
+        _ = await refresh.value
+        XCTAssertTrue(model.isBusy)
+
+        gate.release()
+        _ = try await opening.value
         XCTAssertFalse(model.isBusy)
+    }
+
+    /// `isOpening` is the counter the entry sheets bind to, and a statement
+    /// refresh must not raise it.
+    ///
+    /// A single flag meant that selecting a LeetCode tab on a slow link and then
+    /// pressing ⌘⇧P produced a sheet with a disabled field and a dead Open
+    /// button, waiting on a request for a different tab.
+    func testAStatementRefreshIsBusyButNotOpening() async throws {
+        let tree = makeTree([twoSumPath: "solution"])
+        let transport = makeTransport()
+        let gate = Gate()
+        transport.hold(.question(slug: "two-sum"), on: gate)
+        let model = makeModel(tree: tree, transport: transport)
+
+        let refresh = Task {
+            await model.statement(
+                forFileAt: self.solutionsFolder.appendingPathComponent("0001-two-sum.swift"),
+                in: self.solutionsFolder
+            )
+        }
+        await gate.waitUntilReached()
+        XCTAssertTrue(model.isBusy)
+        XCTAssertFalse(model.isOpening)
+        gate.release()
+        _ = await refresh.value
+        XCTAssertFalse(model.isOpening)
+    }
+
+    func testOpeningRaisesIsOpening() async throws {
+        let tree = makeTree([twoSumPath: "solution"])
+        let transport = makeTransport()
+        let gate = Gate()
+        transport.hold(.question(slug: "two-sum"), on: gate)
+        let model = makeModel(tree: tree, transport: transport)
+
+        XCTAssertFalse(model.isOpening)
+        let opening = Task {
+            try await model.openProblem(input: .slug("two-sum"), language: self.swift)
+        }
+        await gate.waitUntilReached()
+        XCTAssertTrue(model.isOpening)
+        gate.release()
+        _ = try await opening.value
+        XCTAssertFalse(model.isOpening)
+    }
+
+    // MARK: - Not asking twice
+
+    /// Opening a problem and then activating the tab it opened is **one**
+    /// `questionData` request.
+    ///
+    /// `openProblem` already fetched the detail and cached it; the panel's
+    /// refresh runs off a tab change, so without a record of what came off the
+    /// network this run every open cost a second round trip against a
+    /// rate-limited, unofficial API.
+    func testOpeningAProblemDoesNotRefetchItsStatement() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+
+        let outcome = try await model.openProblem(input: .number(1), language: swift)
+        let url = try XCTUnwrap(outcome.solution?.url)
+        XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 1)
+
+        let published = await model.statement(forFileAt: url, in: solutionsFolder)
+        XCTAssertEqual(published?.slug, "two-sum")
+        XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 1)
+    }
+
+    /// Switching away from a LeetCode tab and back does not re-fetch either —
+    /// the same rule, applied to the way the panel is actually driven.
+    func testSwitchingBackToATabDoesNotRefetch() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        transport.serve(
+            .question(slug: "add-two-numbers"),
+            body: Self.fixture("question-detail.json")
+        )
+        let model = makeModel(tree: tree, transport: transport)
+
+        let first = try await model.openProblem(input: .number(1), language: swift)
+        let twoSum = try XCTUnwrap(first.solution?.url)
+        let other = solutionsFolder.appendingPathComponent("0002-add-two-numbers.swift")
+
+        _ = await model.statement(forFileAt: other, in: solutionsFolder)
+        _ = await model.statement(forFileAt: twoSum, in: solutionsFolder)
+        XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 1)
+    }
+
+    /// A slug this run has *not* fetched is still fetched, cache or no cache —
+    /// the disk cache is a head start, not a substitute for a refresh.
+    func testACachedStatementFromALaunchAgoIsStillRefreshed() async throws {
+        let tree = makeTree([statementPath: "<p>yesterday</p>"])
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+        let url = solutionsFolder.appendingPathComponent("0001-two-sum.swift")
+
+        let published = await model.statement(forFileAt: url, in: solutionsFolder)
+        XCTAssertEqual(published?.isFromCache, false)
+        XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 1)
+    }
+
+    /// Signing out forgets what was fetched, so the next session re-fetches
+    /// rather than showing the previous account's cache as current.
+    func testSigningOutForgetsWhatWasFetchedThisRun() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        let outcome = try await model.openProblem(input: .number(1), language: swift)
+        let url = try XCTUnwrap(outcome.solution?.url)
+        model.signOut()
+        try await model.signIn(with: credentials)
+
+        _ = await model.statement(forFileAt: url, in: solutionsFolder)
+        XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 2)
+    }
+
+    /// A statement that arrived clears a sentence describing a failure that is
+    /// no longer the state of anything.
+    func testASuccessfulStatementRefreshClearsAStaleError() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        transport.fail(.question(slug: "two-sum"), with: LeetCodeError.network(reason: "offline"))
+        let model = makeModel(tree: tree, transport: transport)
+        let url = solutionsFolder.appendingPathComponent("0001-two-sum.swift")
+
+        _ = await model.statement(forFileAt: url, in: solutionsFolder)
+        XCTAssertEqual(model.lastError, .network(reason: "offline"))
+
+        transport.serve(.question(slug: "two-sum"), body: Self.fixture("question-detail.json"))
+        _ = await model.statement(forFileAt: url, in: solutionsFolder)
+        XCTAssertNil(model.lastError)
+    }
+
+    // MARK: - The account, when the world does not cooperate
+
+    /// A launch-time refresh that LeetCode *rejects* flips the published state.
+    ///
+    /// Swallowing it with the failures that are genuinely silent (offline,
+    /// throttled) left a dead session reading as signed in — account name in the
+    /// menu and all — until the user tried to open something.
+    func testARejectedUserStatusRefreshFlipsSignedIn() async throws {
+        for status in [401, 403] {
+            let tree = makeTree()
+            let transport = ScriptedLeetCodeTransport()
+            transport.serve(.userStatus, json: "{}", statusCode: status)
+            let model = makeModel(tree: tree, transport: transport)
+
+            XCTAssertTrue(model.isSignedIn)
+            let answer = await model.refreshUserStatus()
+            XCTAssertNil(answer)
+            XCTAssertFalse(model.isSignedIn, "HTTP \(status) left the session looking alive")
+            XCTAssertNil(model.signedInUsername)
+        }
+    }
+
+    /// Everything that is *not* a rejection stays silent and optimistic: the
+    /// session is probably fine and the app must not show "signed out" because a
+    /// train went into a tunnel.
+    func testAFailedUserStatusRefreshLeavesTheSessionAlone() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.fail(.userStatus)
+        let model = makeModel(tree: tree, transport: transport)
+
+        _ = await model.refreshUserStatus()
+        XCTAssertTrue(model.isSignedIn)
+    }
+
+    /// A refresh superseded by a sign-out publishes nothing — the account
+    /// generation, which nothing else asserts.
+    func testASupersededUserStatusRefreshPublishesNothing() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let gate = Gate()
+        transport.hold(.userStatus, on: gate)
+        let model = makeModel(tree: tree, transport: transport)
+
+        let refresh = Task { await model.refreshUserStatus() }
+        await gate.waitUntilReached()
+        model.signOut()
+        gate.release()
+        _ = await refresh.value
+
+        // The fixture names an account; the sign-out must survive it landing.
+        XCTAssertFalse(model.isSignedIn)
+        XCTAssertNil(model.signedInUsername)
+    }
+
+    /// Signing out holds even when the Keychain refuses the delete.
+    ///
+    /// Every credential lookup falls back to the store, so a `clear()` that
+    /// threw used to leave the pair on disk for the very next open to read back
+    /// out — succeeding, and writing a file, while the app showed "signed out".
+    func testSigningOutHoldsWhenTheKeychainRefusesTheDelete() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        store.clearFails = true
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        model.signOut()
+        XCTAssertFalse(model.isSignedIn)
+        XCTAssertNotNil(store.stored, "the stub must still be holding the pair")
+
+        await assertThrows(.notLoggedIn) {
+            _ = try await model.openProblem(input: .number(1), language: self.swift)
+        }
+        XCTAssertTrue(self.solutionWrites(tree).isEmpty)
+    }
+
+    /// Signing back in after that re-arms the store: the flag is about the
+    /// sign-out, not a permanent refusal to read the Keychain.
+    func testSigningInAfterAFailedClearWorksAgain() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let store = InMemoryLeetCodeCredentialStore(credentials)
+        store.clearFails = true
+        let model = makeModel(tree: tree, transport: transport, store: store)
+
+        model.signOut()
+        try await model.signIn(with: credentials)
+        let outcome = try await model.openProblem(input: .number(1), language: swift)
+        XCTAssertTrue(outcome.wasCreated)
+    }
+
+    // MARK: - Never overwrite
+
+    /// A folder whose listing fails refuses the write rather than assuming the
+    /// file is not there.
+    ///
+    /// This is the one irreversible action in the integration. A folder that is
+    /// searchable but not readable used to take the identical path an absent
+    /// file takes — straight to `write` — and silently replace a half-finished
+    /// solution with a fresh snippet.
+    func testAnUnlistableFolderRefusesToWriteRatherThanOverwrite() async throws {
+        let tree = makeTree([twoSumPath: "// the user's half-finished solution"])
+        tree.unreadableDirectories = ["Solutions"]
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+
+        do {
+            _ = try await model.openProblem(input: .number(1), language: swift)
+            XCTFail("expected the open to refuse")
+        } catch let error as LeetCodeError {
+            guard case .fileSystem = error else {
+                return XCTFail("expected .fileSystem, got \(error)")
+            }
+        }
+        XCTAssertTrue(solutionWrites(tree).isEmpty)
+        XCTAssertEqual(tree.files[twoSumPath], "// the user's half-finished solution")
     }
 
     // MARK: - Not a writer

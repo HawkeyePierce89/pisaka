@@ -41,6 +41,12 @@ struct LeetCodeOpenProblemSheet: View {
     /// that put it up.
     var onCancel: () -> Void
 
+    /// Raise the sign-in web view. Owned by the presenter, which owns the sheet
+    /// state the two share: a signed-out user who reached this sheet needs the
+    /// session before anything here can work, and making them cancel, go to the
+    /// menu bar and come back is a detour the iOS screen does not have.
+    var onSignIn: () -> Void
+
     /// What the user typed. Parsed on every keystroke — the parse is pure string
     /// work over a short string — so the Open button's enablement and the hint
     /// line are always describing the current text.
@@ -59,6 +65,7 @@ struct LeetCodeOpenProblemSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
+            if !model.isSignedIn { signedOutNotice }
             input
             status
             buttons
@@ -78,6 +85,21 @@ struct LeetCodeOpenProblemSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The row a signed-out user gets: LeetCode answers no problem detail
+    /// without a session, so saying so *here*, with the action beside it, is the
+    /// difference between one click and a trip through the menu bar.
+    private var signedOutNotice: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "person.crop.circle.badge.exclamationmark")
+                .foregroundStyle(.secondary)
+            Text("Opening a problem needs a LeetCode session.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("Sign In…") { onSignIn() }
+        }
+    }
+
     private var input: some View {
         VStack(alignment: .leading, spacing: 10) {
             TextField("1, two-sum, or https://leetcode.com/problems/two-sum/", text: $text)
@@ -87,14 +109,14 @@ struct LeetCodeOpenProblemSheet: View {
                 // disagree.
                 .onSubmit { open() }
                 .onChange(of: text) { _ in message = nil }
-                .disabled(model.isBusy)
+                .disabled(model.isOpening)
 
             Picker("Language", selection: $settings.leetCodeLanguage) {
                 ForEach(LeetCodeSolutionFile.offerableLanguages, id: \.self) { language in
                     Text(language.displayName).tag(language)
                 }
             }
-            .disabled(model.isBusy)
+            .disabled(model.isOpening)
         }
     }
 
@@ -121,7 +143,7 @@ struct LeetCodeOpenProblemSheet: View {
 
     private var buttons: some View {
         HStack(spacing: 10) {
-            if model.isBusy {
+            if model.isOpening {
                 ProgressView()
                     .controlSize(.small)
                 Text("Fetching from LeetCode…")
@@ -133,18 +155,20 @@ struct LeetCodeOpenProblemSheet: View {
                 .keyboardShortcut(.cancelAction)
             Button("Open") { open() }
                 .keyboardShortcut(.defaultAction)
-                .disabled(parsed == nil || model.isBusy)
+                .disabled(parsed == nil || model.isOpening)
         }
     }
 
     /// Hand the parsed input to the presenter and show whatever it answers.
     ///
-    /// Guarded on `isBusy` as well as on the parse, because Enter reaches this
+    /// Guarded on `isOpening` as well as on the parse, because Enter reaches this
     /// even while the button is disabled: two overlapping opens are safe by
     /// construction (the model's generation token discards the older one), but
     /// the second would be a second round trip for a question already in flight.
+    /// `isOpening` rather than `isBusy` — a statement refresh for some other tab
+    /// must not swallow the user's Return.
     private func open() {
-        guard let input = parsed, !model.isBusy else { return }
+        guard let input = parsed, !model.isOpening else { return }
         message = nil
         let language = settings.leetCodeLanguage
         Task { message = await onOpen(input, language) }

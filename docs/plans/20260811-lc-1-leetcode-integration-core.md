@@ -734,10 +734,13 @@ Notes from the implementation (decisions Task 12 documents):
 
 **Files:**
 - Create: `docs/architecture/core-leetcode.md`
-- Modify: `CLAUDE.md`
+- Modify: `CLAUDE.md`, `README.md`
 
 Intent: follow the `core-provisioning.md` precedent — one doc holding the Core half and its
-app-layer seams on both platforms — and keep CLAUDE.md to index lines.
+app-layer seams on both platforms — and keep CLAUDE.md to index lines. `README.md` is the
+user-facing half and is a separate obligation: CLAUDE.md designates it as the feature list and
+shortcut table, so a whole new feature with a new menu, a new shortcut and a new Preferences tab
+is not documented until it is there too.
 
 - [x] `core-leetcode.md`: one entry per new file with its contract, invariants and the reasoning
   behind the non-obvious choices (the unofficial-API risk and the single schema file, why the
@@ -745,13 +748,23 @@ app-layer seams on both platforms — and keep CLAUDE.md to index lines.
   rule, the reader-not-writer position relative to the writer gate, the
   macOS-unsandboxed/iOS-bookmark asymmetry, the known limits).
 - [x] CLAUDE.md: a `core-leetcode.md` index block in the `PisakaCore` section, app-layer index
-  lines beside it, and a cross-cutting bullet stating that the LeetCode layer is a reader with
-  exactly one create.
+  lines beside it, a cross-cutting bullet stating that the LeetCode layer is a reader with
+  exactly one create, and `ScriptedLeetCodeTransport`/`StubFileTree.writeFailures` in the
+  shared-test-helpers paragraph (that list exists so the next contributor reaches for a helper
+  instead of writing a second one).
+- [x] README.md: the ⌘⇧P row in the shortcut table, the LeetCode feature bullet (menu, sign-in,
+  the three accepted input forms, the naming and never-overwrite rules, the statement pane), the
+  iOS paragraph's counterpart (one screen, container default, adaptive pane/sheet), the
+  Requirements line (an account and network access; nothing bundled, nothing linked) and the
+  Known Limitations entries (unofficial API, no run/submit, no offline images, renaming detaches,
+  Premium refused, not visible in Files by default, SSO cookies outlive Sign Out). The
+  Preferences bullet's stale "second tab, Acknowledgements" was corrected in the same pass — it
+  had been wrong since the Language Servers tab landed and this branch made it wrong by two.
 - [x] `swift test` — green (documentation-only, but the gate stays).
 
 Notes from the implementation (what Task 13 inherits):
 
-- **The decisions are numbered L1–L12**, in `core-leetcode.md`'s own scheme, deliberately not
+- **The decisions are numbered L1–L15**, in `core-leetcode.md`'s own scheme, deliberately not
   continuing the LSP layer's D-series: the two areas share no mechanism, and a single sequence
   would imply they do.
 - **The entries for the *modified* files were updated in their own docs rather than restated

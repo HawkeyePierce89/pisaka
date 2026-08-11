@@ -604,6 +604,70 @@ final class LeetCodeCatalogTests: XCTestCase {
         }
     }
 
+    // MARK: - A refresh that could not be made
+
+    /// A stale cache that could not be refreshed still answers.
+    ///
+    /// The catalog endpoint is the legacy REST one and 2 MB — the likeliest
+    /// thing here to be throttled or blocked while GraphQL still answers — and
+    /// throwing its failure out would refuse a number whose slug is on disk and
+    /// whose detail request would have succeeded. Age is a reason to *try* for
+    /// something newer, not to throw away what answers the question.
+    func testAStaleCacheStillAnswersWhenTheRefreshFails() async throws {
+        let tree = makeTree([
+            catalogPath: cacheJSON(
+                fetchedAt: "2026-08-01T10:00:00Z",
+                rows: [(1, "two-sum")]
+            )
+        ])
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(
+            .problemList,
+            json: "{\"detail\":\"Request was throttled.\"}",
+            statusCode: 429
+        )
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        try await assertResolves(catalog, number: 1, to: "two-sum")
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+        // The refresh was attempted and failed, so nothing was cached over the
+        // snapshot that answered.
+        XCTAssertTrue(tree.writtenPaths.isEmpty)
+    }
+
+    /// The fallback is per *number*, not blanket: a failure with nothing on disk
+    /// that answers is still the failure, or a throttle would read as "no such
+    /// problem" and the user would go looking for a typo.
+    func testAFailedRefreshStillThrowsForANumberTheCacheDoesNotHold() async throws {
+        let tree = makeTree([
+            catalogPath: cacheJSON(
+                fetchedAt: "2026-08-01T10:00:00Z",
+                rows: [(1, "two-sum")]
+            )
+        ])
+        let transport = ScriptedLeetCodeTransport()
+        transport.fail(.problemList, with: LeetCodeError.network(reason: "offline"))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        await assertThrows(.network(reason: "offline")) {
+            _ = try await catalog.resolveSlug(forNumber: 2, credentials: self.credentials)
+        }
+    }
+
+    /// With no cache at all there is nothing to fall back to, and the failure is
+    /// the answer — the pre-existing behaviour, pinned so the fallback above
+    /// cannot grow into swallowing it.
+    func testAFailedRefreshWithNoCacheThrows() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.fail(.problemList, with: LeetCodeError.network(reason: "offline"))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        await assertThrows(.network(reason: "offline")) {
+            _ = try await catalog.resolveSlug(forNumber: 1, credentials: self.credentials)
+        }
+    }
+
     // MARK: - Overlapping work
 
     /// Two problems opened at once download the 2 MB list once.

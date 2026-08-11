@@ -693,7 +693,13 @@ struct PisakaApp: App {
                         onOpen: { input, language in
                             await openLeetCodeProblem(input: input, language: language)
                         },
-                        onCancel: { leetCodeSheet = nil }
+                        onCancel: { leetCodeSheet = nil },
+                        // The two sheets share one presentation slot, so this is
+                        // a swap rather than a second presentation: the open
+                        // sheet goes down and the login one comes up in its
+                        // place, which is what makes "sign in from here" one
+                        // click instead of a trip to the menu bar.
+                        onSignIn: { leetCodeSheet = .signIn }
                     )
                 }
             }

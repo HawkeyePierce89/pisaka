@@ -73,7 +73,7 @@ on, and has no plan of its own to invalidate. Taking the writer gate would
 serialise "open a LeetCode problem" behind whatever the project's git operations
 are doing, for a write that cannot conflict with any of them.
 
-The decisions L1–L12 are written out at the end of this document, together with
+The decisions L1–L15 are written out at the end of this document, together with
 the limits the design carries.
 
 ## Files
@@ -421,12 +421,23 @@ the limits the design carries.
     comes back to find the counter moved. Signing in or out bumps all of them,
     because a session change invalidates everything in flight. `isBusy` is a
     **count** under the hood, so the first of two overlapping operations finishing
-    cannot switch the spinner off under the second.
+    cannot switch the spinner off under the second. `isOpening` is a **second**
+    counter, raised by `openProblem` alone, and it is the one the entry sheets bind
+    their controls to. The two answer different questions and conflating them was a
+    real defect: a statement refresh is started by *switching tabs*, so a single
+    counter meant selecting a LeetCode tab on a slow link and then pressing ⌘⇧P
+    produced a sheet with a disabled field and a dead Open button — Return silently
+    swallowed — waiting on a request for some other tab.
     *The account.* `isSignedIn` is **optimistic at launch**: a stored pair sets it
     before anything is confirmed, rather than showing "signed out" for the duration
     of a round trip. `refreshUserStatus()` is non-throwing and silent on failure —
     it is what the app calls at launch, and an unreachable LeetCode is not a
-    sign-out. `signIn(with:)` stores the pair, confirms it, and discards a session
+    sign-out — **but a rejection is not a failure, it is an answer**, so
+    `notLoggedIn` is caught by name and flips the state through
+    `markSessionRejected()` while everything else (offline, throttled) stays quiet.
+    Swallowing it with the rest left a dead session reading as signed in, with the
+    account name in the menu, until the user tried to open something.
+    `signIn(with:)` stores the pair, confirms it, and discards a session
     LeetCode rejects at the moment it was obtained; a confirmation that could not be
     *made* (offline, throttled) is **not** a rejection, so the cookies stay and the
     name fills in on the next refresh. **A rejected request flips `isSignedIn` but
@@ -435,7 +446,14 @@ the limits the design carries.
     clearing the Keychain on one would turn a transient failure into a mandatory
     web-view re-login. Only `signOut()` forgets them — and the app layer's half of a
     sign-out (the web view's cookies) is `LeetCodeWebSession.signOut(model:)`;
-    either half alone leaves the user half signed in.
+    either half alone leaves the user half signed in. **A sign-out holds whatever
+    the Keychain does**: every credential lookup falls back to the store, so a
+    `clear()` that threw would leave the pair on disk for the next open to read back
+    out — succeeding, and writing a file, while the app showed "signed out". A
+    `storedCredentialsAreDiscarded` flag raised by `signOut()` (and cleared by the
+    next `signIn`) makes the store unreadable for the rest of the run; the *next*
+    launch reads it afresh, since a pair the user asked to forget surviving a
+    Keychain failure is one they can sign out of again.
     *Opening.* `openProblem(input:language:)` captures the folder **synchronously**
     (it may be re-pointed while the open runs, and the file belongs where it was
     asked for), then: no folder → `folderUnavailable`; no session → `notLoggedIn`;
@@ -447,7 +465,15 @@ the limits the design carries.
     silently delete a half-finished solution, the one failure here a user could not
     undo. Existence is asked as a **directory listing**, not as a read: a read that
     failed for any reason other than absence would read as "not there" and the next
-    step would overwrite the user's work. A language LeetCode does not offer this
+    step would overwrite the user's work. **A listing that fails throws rather than
+    answering "absent"** — the same argument one step further out, and the hole the
+    first version of this left: a folder that is searchable but not readable took
+    the identical path an absent file takes. `ensureDirectory` runs *before* the
+    listing so the two cases are separable — a failure there is `folderUnavailable`
+    (the folder is gone, or something that is not a directory occupies its path),
+    and a failure after it is a real one and reported as `fileSystem`. Refusing to
+    write is the only answer that keeps "never overwrite" true when the folder
+    cannot be seen. A language LeetCode does not offer this
     problem in yields the header alone rather than a refusal — the file, the name
     and the panel are all still correct. `ensureDirectory` failing is reported as
     `folderUnavailable` (the folder is gone, or something that is not a directory
@@ -455,7 +481,15 @@ the limits the design carries.
     **Opening also caches and publishes the statement**: the fragment is already in
     hand, so fetching it again when the tab opens would be a second request for
     bytes we have — and it is what makes the offline reopen work from the first open
-    onwards.
+    onwards. Publishing it is not enough to *stop* that second request, though,
+    because the panel's refresh is keyed on the tab and the tab is about to change:
+    the model therefore keeps `slugsFetchedThisRun`, the set of slugs whose fragment
+    came off the network this run, and `statement(forFileAt:in:)` serves those from
+    the cache alone. Without it every open cost two identical `questionData`
+    requests, and switching back and forth between two LeetCode tabs cost one more
+    each way — against an unofficial, rate-limited API the whole design is built
+    around not annoying. `signOut()` empties the set, since a session change
+    invalidates what was fetched under the old one.
     *The statement.* `associatedProblem(forFileAt:in:)` is the pure half of the
     association and is exposed separately so a view can ask "is this tab a LeetCode
     problem" without starting a fetch; it checks **both** halves — the name parses
@@ -607,9 +641,16 @@ the limits the design carries.
     *is* persisting it, progress, and one status line. **While the sheet is up,
     failures are a sentence in it, not a `PlatformAlert`** — the split is by who is
     on screen, and a modal alert over a modal sheet to say "no problem with that
-    number" would make a typo look like a crash. Submitting is guarded on `isBusy`
-    as well as on the parse, because Enter reaches the action even while the button
-    is disabled.
+    number" would make a typo look like a crash. Submitting is guarded on
+    **`isOpening`** as well as on the parse, because Enter reaches the action even
+    while the button is disabled — `isOpening` rather than `isBusy` so a statement
+    refresh running for some other tab cannot disable the field or swallow the
+    user's Return (the counter's own note in this document). A signed-out user gets
+    a **row with a "Sign In…" action in the sheet itself**, which swaps the shared
+    presentation slot for the login sheet: LeetCode answers no problem detail
+    without a session, and making the user cancel, walk to the menu bar and come
+    back is a detour the iOS screen — which puts the account and the input on one
+    screen — does not have.
     `LeetCodeCommands` is a `View` **with its own `@ObservedObject`** inside
     `CommandMenu`, so the Sign In/Sign Out label tracks `isSignedIn` without making
     the scene's `body` — and with it `ContentView`, the project tree, the tab list
@@ -643,6 +684,12 @@ the limits the design carries.
     pane's own `@State` behind a `resizeLeftRight` drag handle: the `panelHeight`
     shape turned ninety degrees. Collapsing leaves a strip that is the only way
     back, so the pane can never be folded away and lost.
+    The handle's cursor push is paired with an **`onDisappear`**, unlike
+    `ContentView.panelDivider`'s otherwise identical `onHover` idiom, and the
+    difference is why: that divider goes away only when the user toggles it, while
+    this whole pane is removed the moment the statement is — a tab switch under the
+    pointer delivers no `onHover(false)`, so the pushed `NSCursor` would never be
+    popped and the resize cursor would stick application-wide.
     The web view **reloads only when the composed HTML differs**: `ContentView.body`
     re-evaluates on every keystroke, so an unconditional `loadHTMLString` would
     reload the statement and reset its scroll position once per character typed —
@@ -740,6 +787,14 @@ the limits the design carries.
     alert only for the tab open). The Settings screen gains a LeetCode section
     (account, folder with Change…/Use Default, default language) and observes the
     model itself.
+    **Both Settings surfaces are the persistent home of `lastError`** — the macOS
+    LeetCode tab and this section each render it under the account row. Everything
+    else that reports a LeetCode failure is transient (the entry sheet's own
+    sentence, which goes away with the sheet), and sign-in is confirmed *after*
+    the login view has been dismissed: without a durable surface a session LeetCode
+    rejected closed the web view and silently flipped the row back to "Sign In…"
+    with no explanation. A successful statement refresh clears it, so the sentence
+    never outlives the state it describes.
 
 ## Tests
 
@@ -753,7 +808,12 @@ the limits the design carries.
     fixture parses to the expected model; each hand-authored shape-violation fixture
     throws `apiChanged` naming its key path; logged-out, paid-only and throttled
     responses each produce their own error; and the deliberate difficulty-strict /
-    status-lenient asymmetry.
+    status-lenient asymmetry. Also the two rules that exist because a wire string
+    is not automatically usable: a `titleSlug`/`question__title_slug` that is not a
+    slug (traversal, a separator, spaces, a leading hyphen) is `apiChanged` naming
+    the key path while an absent one still falls back to what was requested (L13),
+    and the throttle wait is read from the number its unit follows rather than the
+    first number in a joined error message (L14).
   - `LeetCodeProblemInputTests` / `LeetCodeSolutionFileTests` — every accepted and
     rejected input form; the file-name round trip including padding boundaries and
     hyphenated slugs; the language mapping in both directions plus the
@@ -769,6 +829,16 @@ the limits the design carries.
     full open-problem happy path for all three input forms, the byte-identical
     re-open, every failure path leaving no partial file, two overlapping opens
     publishing only the newer one, the offline statement, and the settings keys.
+    The rules that are only visible as *counts and refusals* are asserted the same
+    way: a stale catalog whose refresh fails still answering from disk while a
+    number it does not hold still throws; an unlistable folder refusing to write
+    rather than overwriting a half-finished solution; a sign-out holding when
+    `clear()` throws (and a later sign-in re-arming the store); a rejected
+    `refreshUserStatus` flipping `isSignedIn` where an offline one does not; one
+    `questionData` request across an open plus the tab activation that follows it,
+    and across a switch away and back; and `isBusy`/`isOpening` tracked separately
+    through two genuinely overlapping operations, since one operation would pass a
+    plain `Bool` identically.
   - Fixtures live in `Tests/PisakaCoreTests/Fixtures/leetcode/`, are recorded from
     the live public endpoints (trimmed to a dozen `stat_status_pairs` for the 2 MB
     list, with a `README.md` recording provenance), are read through `#filePath`,
@@ -826,9 +896,31 @@ means, what a file is named, when a fetch happens, and what gets written.
   half signed in.
 - **L12 — never overwrite.** An existing solution file is `.resumed` untouched;
   existence is asked as a directory listing rather than as a read, so a read that
-  failed for some other reason cannot become an overwrite. This is the one failure
-  in the integration a user could not undo, so it is the one the design refuses
-  structurally.
+  failed for some other reason cannot become an overwrite — and a *listing* that
+  fails throws rather than answering "absent", so an unreadable folder cannot
+  become one either. This is the one failure in the integration a user could not
+  undo, so it is the one the design refuses structurally.
+- **L13 — a slug off the wire is validated before it is a path component.**
+  `LeetCodeAPI` runs every `titleSlug` and `question__title_slug` through
+  `LeetCodeProblemInput.normalizedSlug` and reports a failure as `apiChanged`
+  naming the key path. A slug becomes a file name appended to the user's folder,
+  and `appendingPathComponent` resolves no `..`; it also has to survive
+  `LeetCodeSolutionFile.parts(fromFileName:)`, which validates by the same rule.
+  Checking at the parse boundary is what makes "the app cannot write a name it
+  would then fail to recognise" — and "the file lands inside the folder the user
+  chose" — structural rather than hopeful. The one repair made is lowercasing,
+  because that is the one `normalizedSlug` makes.
+- **L14 — the wait in a throttle sentence is read from the unit, not from the
+  first number.** `classify(graphQLErrors:)` passes every message joined together,
+  so an unanchored scan reports "for user 12345 … in 30 seconds" as a 12345-second
+  wait. Only a digit run the word `second`/`minute` follows counts, and anything
+  over an hour is refused: `throttled(retryAfter: nil)` already renders as "in a
+  moment", which is strictly better than a confidently wrong number.
+- **L15 — the statement is fetched once per slug per run.** `openProblem` already
+  holds the detail, and the panel's refresh is keyed on the active tab — so
+  publishing the fragment is not enough to stop the tab change that follows from
+  re-requesting it. `LeetCodeModel.slugsFetchedThisRun` is the record that makes
+  the second request not happen; `signOut()` empties it.
 
 ## Known limits
 

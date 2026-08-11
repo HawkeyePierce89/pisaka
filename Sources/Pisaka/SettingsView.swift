@@ -91,6 +91,19 @@ struct LeetCodeSettingsView: View {
                         Button("Sign In…") { isSigningIn = true }
                     }
                 }
+
+                // The one persistent home for `lastError`. Everything else that
+                // reports a LeetCode failure is transient — the open sheet's own
+                // sentence, which goes away with the sheet — and sign-in is
+                // confirmed *after* the login view has been dismissed, so
+                // without this a rejected session closes the web view and
+                // silently flips back to "Sign In…" with no explanation.
+                if let error = model.lastError {
+                    Text(error.errorDescription ?? "LeetCode reported a failure.")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Section("Solution Files") {
