@@ -159,12 +159,30 @@ final class LeetCodeLoginObserver: NSObject, WKNavigationDelegate {
     /// same configuration — in particular the same data store, which is what makes
     /// `LeetCodeWebSession.signOut` purge the cookies this view will read next
     /// time.
+    ///
+    /// **The LeetCode cookies are purged before the page loads**, so what this
+    /// observer sees is a session obtained *here* and not whatever the shared
+    /// persistent store happened to be holding. Without that, the very first
+    /// `didCommit` — the login page's own — captures a stale `LEETCODE_SESSION`
+    /// left over from an expired session, which is a lock-out rather than an
+    /// inconvenience: `LeetCodeModel.signIn` rejects it, the sheet has already
+    /// dismissed, `isSignedIn` stays `false`, and Sign Out — the only thing that
+    /// clears those cookies — is rendered only when `isSignedIn`, so every later
+    /// attempt captures the same dead cookie forever. It also makes "sign in as a
+    /// different account" work at all. Only `leetcode.com` is purged, so an SSO
+    /// provider's own cookies survive and a one-tap Google/GitHub sign-in stays
+    /// one tap.
     func makeWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = LeetCodeWebSession.dataStore
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
-        webView.load(URLRequest(url: LeetCodeWebSession.loginURL))
+        Task { @MainActor in
+            await LeetCodeWebSession.clearCookies(
+                in: configuration.websiteDataStore.httpCookieStore
+            )
+            webView.load(URLRequest(url: LeetCodeWebSession.loginURL))
+        }
         return webView
     }
 
@@ -180,11 +198,12 @@ final class LeetCodeLoginObserver: NSObject, WKNavigationDelegate {
         guard !hasCaptured else { return }
         let store = webView.configuration.websiteDataStore.httpCookieStore
         Task { @MainActor in
-            // Re-checked after the hop: two navigations can be in flight, and the
-            // store read suspends.
-            guard !self.hasCaptured,
-                  let credentials = await LeetCodeWebSession.credentials(in: store)
+            guard let credentials = await LeetCodeWebSession.credentials(in: store)
             else { return }
+            // Checked and set *after* the store read's suspension, in one
+            // synchronous step: two navigations can be in flight, and a check made
+            // before the read would let both of them through it.
+            guard !self.hasCaptured else { return }
             self.hasCaptured = true
             self.onCredentials(credentials)
         }

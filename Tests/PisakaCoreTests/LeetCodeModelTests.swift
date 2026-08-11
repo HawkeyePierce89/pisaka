@@ -207,6 +207,29 @@ final class LeetCodeModelTests: XCTestCase {
         XCTAssertEqual(solutionWrites(tree), [], "an existing solution file was written to")
     }
 
+    /// The same rule, on the volume the user actually has: APFS and HFS+ are
+    /// case-insensitive by default, so a solution renamed to a different case is
+    /// still *the same file* — and an exact-name comparison would report it
+    /// absent and then write straight over it. The tab that opens is the name on
+    /// disk, which is what makes the answer right on a case-sensitive volume too.
+    func testACaseOnlyRenamedSolutionIsResumedRatherThanOverwritten() async throws {
+        let mine = "// my own work, under a name I typed myself\n"
+        let renamed = "Solutions/0001-Two-Sum.swift"
+        let tree = makeTree([renamed: mine])
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+
+        let outcome = try await model.openProblem(input: .number(1), language: swift)
+
+        guard case .resumed(let solution) = outcome else {
+            return XCTFail("expected .resumed, got \(outcome)")
+        }
+        XCTAssertEqual(solution.url, treeRoot.appendingPathComponent(renamed))
+        XCTAssertEqual(tree.files[renamed], mine)
+        XCTAssertNil(tree.files[twoSumPath], "the lowercase name was written anyway")
+        XCTAssertEqual(solutionWrites(tree), [], "an existing solution file was written to")
+    }
+
     /// Opening a problem populates the panel and the offline cache in the same
     /// step — the statement is already in hand, and fetching it twice would be a
     /// second request for bytes we have.
@@ -371,6 +394,11 @@ final class LeetCodeModelTests: XCTestCase {
             XCTAssertFalse(reason.isEmpty)
         }
         XCTAssertNil(tree.files[twoSumPath])
+        // The panel is published globally, not per tab: a statement adopted on a
+        // path that then threw would sit beside whatever unrelated file is open,
+        // describing a problem the user has no file for and with nothing to clear
+        // it until they switch tabs.
+        XCTAssertNil(model.statement, "a failed open published a statement anyway")
     }
 
     /// A language LeetCode does not offer this problem in still produces the file

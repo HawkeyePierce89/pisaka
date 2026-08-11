@@ -473,14 +473,28 @@ the limits the design carries.
     (the folder is gone, or something that is not a directory occupies its path),
     and a failure after it is a real one and reported as `fileSystem`. Refusing to
     write is the only answer that keeps "never overwrite" true when the folder
-    cannot be seen. A language LeetCode does not offer this
+    cannot be seen. **The name comparison is case-insensitive and the outcome
+    carries the entry's own URL**, which is the same rule against the volume the
+    user actually has: APFS and HFS+ are case-insensitive by default, so
+    `0001-Two-Sum.swift` *is* `0001-two-sum.swift`, and an exact comparison would
+    call it absent and then write over the user's solution — the very loss the
+    listing exists to prevent. Answering with the found entry's URL rather than the
+    composed one keeps that correct on a case-sensitive volume too: the tab that
+    opens is the file that was found, not a name that exists nowhere. A language
+    LeetCode does not offer this
     problem in yields the header alone rather than a refusal — the file, the name
     and the panel are all still correct. `ensureDirectory` failing is reported as
     `folderUnavailable` (the folder is gone, or something that is not a directory
     occupies its path), which is exactly what that sentence asks the user to fix.
-    **Opening also caches and publishes the statement**: the fragment is already in
-    hand, so fetching it again when the tab opens would be a second request for
-    bytes we have — and it is what makes the offline reopen work from the first open
+    **Opening also caches and publishes the statement — but only once the file
+    exists**: the fragment is already in hand, so fetching it again when the tab
+    opens would be a second request for bytes we have. The ordering is part of the
+    rule rather than an accident of where the call sits: the panel is published
+    globally and is *not* keyed to the active tab, so adopting the statement before
+    `ensureDirectory`/the listing/the write — each of which can throw — would leave
+    a statement for a problem the user has no file for sitting beside whatever
+    unrelated tab happened to be open, with nothing to clear it until they switch
+    tabs — and it is what makes the offline reopen work from the first open
     onwards. Publishing it is not enough to *stop* that second request, though,
     because the panel's refresh is keyed on the tab and the tab is about to change:
     the model therefore keeps `slugsFetchedThisRun`, the set of slugs whose fragment
@@ -607,12 +621,23 @@ the limits the design carries.
     sign the user out of every other site — and they are purged **before**
     `model.signOut()`, which publishes synchronously, since the other order leaves a
     window in which the UI says "signed out" and the cookies are still live.
+    **The same purge runs in `makeWebView()`, before the login page loads**, so what
+    the observer sees is a session obtained *here* rather than whatever the shared
+    persistent store was holding. Without it the very first `didCommit` — the login
+    page's own — captures a stale `LEETCODE_SESSION` from an expired session, and
+    that is a lock-out rather than an inconvenience: `signIn` rejects it, the sheet
+    has already dismissed, `isSignedIn` stays `false`, and Sign Out (the only thing
+    that clears those cookies) renders only when `isSignedIn`, so every later
+    attempt captures the same dead cookie forever. It is also what makes "sign in as
+    a different account" possible at all. Only `leetcode.com` is purged, so the SSO
+    providers' own cookies — the whole reason the store is persistent — survive.
     **Checked at `didCommit` *and* `didFinish`, fired at most once**: `didCommit` is
     when the response's `Set-Cookie` headers have landed, `didFinish` catches a
-    cookie set from script after load, and `hasCaptured` — re-checked *after* the
-    store read's suspension, since two navigations can be in flight — makes the pair
-    idempotent, because firing twice would race two `signIn`s, each a network call
-    and a Keychain write. `WKHTTPCookieStore`'s two callback APIs are awaited through
+    cookie set from script after load, and `hasCaptured` — checked *and set* in one
+    synchronous step **after** the store read's suspension, since two navigations
+    can be in flight and a check made before the read lets both through it — makes
+    the pair idempotent, because firing twice would race two `signIn`s, each a
+    network call and a Keychain write. `WKHTTPCookieStore`'s two callback APIs are awaited through
     explicit continuations rather than the compiler-generated `async` overloads,
     whose names come from a renaming rule that is invisible at the call site and has
     changed spelling across SDKs.
@@ -701,7 +726,14 @@ the limits the design carries.
     second place a leetcode.com cookie can live, beside the login view's
     deliberately persistent one), and `linkActivated` goes to `NSWorkspace` and is
     cancelled, because a related-problem or editorial link would otherwise replace
-    the statement inside a 380 pt pane with no way back. `loadHTMLString`'s base URL
+    the statement inside a 380 pt pane with no way back. **Only `http`/`https` are
+    handed over**, everything else is cancelled and nothing else happens: this
+    markup is rendered verbatim and never sanitized, so the `href` behind a click is
+    untrusted by construction, and `NSWorkspace.open` would launch a `file:` URL in
+    its default handler or give any other scheme to whichever app claims it —
+    scripting being off does not cover this, since it is the delegate and not the
+    page that performs the open. The iOS pane's `UIApplication.open` carries the
+    same gate for the same reason. `loadHTMLString`'s base URL
     matches the document's own `<base href>`, or LeetCode's relative `<img src>`s
     would resolve against `about:blank`.
   - `PisakaApp.swift` / `ContentView.swift` / `SettingsView.swift` (macOS, modified;
@@ -898,8 +930,11 @@ means, what a file is named, when a fetch happens, and what gets written.
   existence is asked as a directory listing rather than as a read, so a read that
   failed for some other reason cannot become an overwrite — and a *listing* that
   fails throws rather than answering "absent", so an unreadable folder cannot
-  become one either. This is the one failure in the integration a user could not
-  undo, so it is the one the design refuses structurally.
+  become one either — and the name comparison is **case-insensitive**, since the
+  default Apple volume is, so a solution renamed to a different case is still that
+  solution rather than a name the next open writes straight over. This is the one
+  failure in the integration a user could not undo, so it is the one the design
+  refuses structurally.
 - **L13 — a slug off the wire is validated before it is a path component.**
   `LeetCodeAPI` runs every `titleSlug` and `question__title_slug` through
   `LeetCodeProblemInput.normalizedSlug` and reports a failure as `apiChanged`

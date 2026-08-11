@@ -439,12 +439,6 @@ public final class LeetCodeModel: ObservableObject {
             language: language
         )
         let url = folder.appendingPathComponent(name)
-        let solution = LeetCodeSolution(url: url, problem: detail.problem, language: language)
-
-        // The statement is already in hand; cache and publish it here so the panel
-        // is populated the moment the tab opens, and so a later offline reopen has
-        // something to show.
-        adoptStatement(from: detail)
 
         do {
             try fileService.ensureDirectory(at: folder)
@@ -454,7 +448,14 @@ public final class LeetCodeModel: ObservableObject {
             // `folderUnavailable` says.
             throw LeetCodeError.folderUnavailable
         }
-        guard !(try existingFile(named: name, in: folder)) else { return .resumed(solution) }
+        if let existing = try existingFile(named: name, in: folder) {
+            // The file the user is returning to, at the name it actually carries
+            // on disk — see `existingFile`.
+            adoptStatement(from: detail)
+            return .resumed(
+                LeetCodeSolution(url: existing, problem: detail.problem, language: language)
+            )
+        }
 
         // A language LeetCode does not offer this problem in yields the header
         // alone rather than a refusal: the file, the name and the panel are all
@@ -473,7 +474,17 @@ public final class LeetCodeModel: ObservableObject {
         } catch {
             throw LeetCodeError.fileSystem(reason: describe(error))
         }
-        return .created(solution)
+
+        // The statement is already in hand; cache and publish it here so the panel
+        // is populated the moment the tab opens, and so a later offline reopen has
+        // something to show. **After the file exists, never before**: the panel is
+        // published globally and is not keyed to the active tab, so adopting it on
+        // a path that then throws would leave a statement for a problem the user
+        // has no file for, sitting beside whatever unrelated tab was open.
+        adoptStatement(from: detail)
+        return .created(
+            LeetCodeSolution(url: url, problem: detail.problem, language: language)
+        )
     }
 
     // MARK: - The statement panel
@@ -673,7 +684,8 @@ public final class LeetCodeModel: ObservableObject {
         )
     }
 
-    /// Whether the folder already holds a file of this name.
+    /// The file the folder already holds under this name, or `nil` when it holds
+    /// none.
     ///
     /// Asked as a **directory listing** rather than as a read: a read that failed
     /// for any reason other than absence — an unreadable file, a decoding failure
@@ -688,14 +700,27 @@ public final class LeetCodeModel: ObservableObject {
     /// sure the directory exists, so a failure here is a real one and
     /// `fileSystem` says so — refusing to write is the only answer that keeps
     /// "never overwrite" true when we cannot see what is there.
-    private func existingFile(named name: String, in folder: URL) throws -> Bool {
+    ///
+    /// **The comparison is case-insensitive, and the answer is the name on disk.**
+    /// APFS and HFS+ are case-insensitive by default, so a user who renamed
+    /// `0001-two-sum.swift` to `0001-Two-Sum.swift` and kept working in it would,
+    /// under an exact comparison, be told the file is absent — and the write that
+    /// followed would land on that very file and delete their solution, the one
+    /// loss this layer exists to make impossible. Returning the entry's *own* URL
+    /// rather than the composed one is what makes this correct on a case-sensitive
+    /// volume too: the tab that opens is the file that was found, not a name that
+    /// exists nowhere.
+    private func existingFile(named name: String, in folder: URL) throws -> URL? {
         let entries: [DirectoryEntry]
         do {
             entries = try fileService.contentsOfDirectory(at: folder)
         } catch {
             throw LeetCodeError.fileSystem(reason: describe(error))
         }
-        return entries.contains { !$0.isDirectory && $0.url.lastPathComponent == name }
+        return entries.first {
+            !$0.isDirectory
+                && $0.url.lastPathComponent.caseInsensitiveCompare(name) == .orderedSame
+        }?.url
     }
 
     /// Everything in flight is now answering a question nobody asked any more.

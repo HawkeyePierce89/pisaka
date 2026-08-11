@@ -327,6 +327,17 @@ private struct LeetCodeStatementWebView_iOS: UIViewRepresentable {
                 decisionHandler(.allow)
                 return
             }
+            // **Only the web is handed to the OS.** The statement is LeetCode's
+            // markup rendered verbatim — this layer never sanitizes it — so the
+            // `href` behind a tap is untrusted by construction, and
+            // `UIApplication.open` will hand any scheme to whichever app claims
+            // it. Disabled JavaScript does not cover this: it is the delegate, not
+            // the page, that performs the open.
+            guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https"
+            else {
+                decisionHandler(.cancel)
+                return
+            }
             UIApplication.shared.open(url)
             decisionHandler(.cancel)
         }
