@@ -482,6 +482,39 @@ final class LeetCodeAPITests: XCTestCase {
         }
     }
 
+    /// `Retry-After` is the one wait that comes straight off the wire, and
+    /// `Double("inf")`/`Double("1e400")` are both `> 0`. Letting either through
+    /// reached the `Int(_:)` in `errorDescription`, which traps on an infinite or
+    /// over-`Int.max` value — an app termination from a header a CDN in front of
+    /// LeetCode chooses. Every one of these degrades to "wait unknown" instead.
+    func testAnImplausibleRetryAfterHeaderIsRefusedRatherThanNamed() throws {
+        let implausible = [
+            "inf", "-inf", "infinity", "nan", "1e400", "99999999999999999999",
+            "7200", "0", "-30", "soon", "",
+        ]
+        for raw in implausible {
+            let throttled = try response(
+                "throttled.json",
+                statusCode: 429,
+                headers: ["Retry-After": raw]
+            )
+            do {
+                _ = try LeetCodeAPI.parseUserStatus(throttled)
+                XCTFail("expected .throttled(retryAfter: nil) for Retry-After: \(raw)")
+            } catch let error as LeetCodeError {
+                XCTAssertEqual(error, .throttled(retryAfter: nil), "Retry-After: \(raw)")
+                // The message builder is the thing that used to trap; run it.
+                XCTAssertEqual(
+                    error.errorDescription,
+                    "LeetCode is rate-limiting requests. Try again in a moment.",
+                    "Retry-After: \(raw)"
+                )
+            } catch {
+                XCTFail("expected a LeetCodeError for Retry-After: \(raw), threw \(error)")
+            }
+        }
+    }
+
     /// A rate-limited LeetCode sometimes answers with an interstitial no JSON
     /// parse survives, so 429 is decided from the status alone — before the body
     /// is looked at — rather than being reported as a shape violation.

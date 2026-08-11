@@ -286,16 +286,25 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertNil(reloaded.leetCodeFolderBookmark)
     }
 
-    func testAStoredLeetCodeFolderPathIsTrimmed() {
+    /// Blankness is decided on the trimmed value, but the path itself is stored
+    /// verbatim: both platforms permit a directory name with a trailing space, and
+    /// trimming the stored string would point every later launch at a *different*,
+    /// absent folder while this session kept writing to the real one.
+    func testALeetCodeFolderPathIsStoredVerbatim() {
         let defaults = makeDefaults()
         let store = SettingsStore(defaults: defaults)
 
-        store.leetCodeFolderPath = "  /tmp/LeetCode\n"
-        XCTAssertEqual(store.leetCodeFolderPath, "/tmp/LeetCode")
+        store.leetCodeFolderPath = "/tmp/LeetCode "
+        XCTAssertEqual(store.leetCodeFolderPath, "/tmp/LeetCode ")
         XCTAssertEqual(
             defaults.string(forKey: SettingsStore.Keys.leetCodeFolderPath),
-            "/tmp/LeetCode"
+            "/tmp/LeetCode "
         )
+        XCTAssertEqual(store.leetCodeFolderURL?.path, "/tmp/LeetCode ")
+
+        let reloaded = SettingsStore(defaults: defaults)
+        XCTAssertEqual(reloaded.leetCodeFolderPath, "/tmp/LeetCode ")
+        XCTAssertEqual(reloaded.leetCodeFolderURL?.path, "/tmp/LeetCode ")
     }
 
     /// A slug this build does not offer — LeetCode has a dozen more languages, and

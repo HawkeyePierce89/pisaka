@@ -163,8 +163,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     unchanged answer publishes nothing.
     LC-1 adds three more under the same discipline (the layer's entry is in
     `core-leetcode.md`): `leetCodeFolderPath` (the solutions folder as a plain
-    path — trimmed on write, with an empty string normalising to `nil` so "unset"
-    has exactly one spelling, and `leetCodeFolderURL` as the read side),
+    path — stored **verbatim**, with a value that is blank once trimmed
+    normalising to `nil` so "unset" has exactly one spelling, and
+    `leetCodeFolderURL` as the read side. Blankness is decided on the trimmed
+    string but the trimmed string is never what is stored: both platforms permit
+    a directory name ending in a space, and `NSOpenPanel`/the document picker
+    hand back exactly that path, so trimming it would leave the session writing
+    to the folder the user picked — the model's `solutionsFolder` is assigned the
+    untrimmed `URL` — while the next launch resolved a different, absent spelling
+    and created a second folder beside it),
     `leetCodeFolderBookmark` (the security-scoped blob for an iOS override; empty
     data is likewise `nil`, and macOS never writes it, being unsandboxed), and
     `leetCodeLanguage` — which is held as the whole `LeetCodeLanguage` **row**

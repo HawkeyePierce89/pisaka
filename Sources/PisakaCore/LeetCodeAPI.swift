@@ -717,11 +717,16 @@ public enum LeetCodeAPI {
     /// and a date form answers `nil` — which is not a loss, because `nil` already
     /// has a well-defined meaning here ("throttled, wait unknown") and the message
     /// simply says "in a moment" instead of naming a number.
+    ///
+    /// **Through `plausibleWait` like every other wait in this file**, and for a
+    /// stronger reason than the message reading oddly: `TimeInterval(_: String)`
+    /// accepts `inf`, `nan` and `1e400`, all of which are `> 0` and none of which
+    /// survive the `Int(_:)` the message builder does with them. A header is the
+    /// one wait that comes straight off the wire, so the value a CDN or a WAF in
+    /// front of LeetCode can put here is entirely outside this app's control.
     private static func retryAfter(from response: LeetCodeHTTPResponse) -> TimeInterval? {
         guard let raw = response.headerValue(forName: "Retry-After") else { return nil }
-        guard let seconds = TimeInterval(raw.trimmingCharacters(in: .whitespaces)),
-              seconds > 0 else { return nil }
-        return seconds
+        return plausibleWait(TimeInterval(raw.trimmingCharacters(in: .whitespaces)))
     }
 
     /// The wait named inside DRF's own sentence ("Expected available in 42

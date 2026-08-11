@@ -75,7 +75,13 @@ extension LeetCodeError: LocalizedError {
                 ? "This problem is available to LeetCode Premium subscribers only."
                 : "“\(trimmed)” is available to LeetCode Premium subscribers only."
         case .throttled(let retryAfter):
-            guard let retryAfter, retryAfter > 0 else {
+            // The same "a wait worth naming" rule `LeetCodeAPI` parses by, applied
+            // a second time here because this is a `public` case anyone can build:
+            // `Int(_:)` traps on an infinite or over-`Int.max` `Double`, so a value
+            // that never went through the parser would crash the app in the one
+            // path whose whole job is reporting a transient failure gracefully.
+            // NaN fails every comparison and degrades the same way.
+            guard let retryAfter, retryAfter > 0, retryAfter <= 3600 else {
                 return "LeetCode is rate-limiting requests. Try again in a moment."
             }
             let seconds = Int(retryAfter.rounded(.up))

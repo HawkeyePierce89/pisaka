@@ -121,6 +121,19 @@ final class LeetCodeErrorTests: XCTestCase {
         )
     }
 
+    /// This case is `public` and takes a bare `Double`, so the message builder
+    /// cannot assume the parser's "a wait worth naming" cap already applied:
+    /// `Int(.infinity)` and `Int(1e20)` are runtime traps, not large numbers.
+    func testThrottledWithAnUnnameableRetryAfterOmitsTheWaitRatherThanTrapping() {
+        for value in [Double.infinity, -.infinity, .nan, 1e20, -30, 3601] {
+            XCTAssertEqual(
+                LeetCodeError.throttled(retryAfter: value).errorDescription,
+                "LeetCode is rate-limiting requests. Try again in a moment.",
+                "retryAfter: \(value)"
+            )
+        }
+    }
+
     func testFolderUnavailableDirectsToChooseAFolder() {
         XCTAssertEqual(
             LeetCodeError.folderUnavailable.errorDescription,

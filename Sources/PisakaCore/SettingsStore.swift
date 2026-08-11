@@ -109,15 +109,21 @@ public final class SettingsStore: ObservableObject {
     /// trimmed — *removes* the key rather than storing `""`, so "not configured"
     /// has exactly one spelling and `LeetCodeModel` reports `folderUnavailable`
     /// instead of trying to write into the current working directory.
+    ///
+    /// **Blankness is decided on the trimmed value; the path is stored as the
+    /// user's file system spells it.** Trimming the stored string as well would
+    /// rewrite a real folder — both platforms permit a directory name with a
+    /// leading or trailing space, and `NSOpenPanel`/the document picker hand back
+    /// exactly that path — into a *different*, absent one. The session would keep
+    /// writing to the folder the user picked (the model's `solutionsFolder` is
+    /// assigned from the same `URL`, untrimmed) while the next launch resolved the
+    /// trimmed spelling and created a second folder beside it, leaving earlier
+    /// solutions in a directory the app no longer looks at.
     @Published public var leetCodeFolderPath: String? {
         didSet {
             let cleaned = leetCodeFolderPath?.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let cleaned, !cleaned.isEmpty {
-                if cleaned != leetCodeFolderPath {
-                    leetCodeFolderPath = cleaned
-                    return
-                }
-                defaults.set(cleaned, forKey: Keys.leetCodeFolderPath)
+            if let path = leetCodeFolderPath, let cleaned, !cleaned.isEmpty {
+                defaults.set(path, forKey: Keys.leetCodeFolderPath)
             } else {
                 if leetCodeFolderPath != nil {
                     leetCodeFolderPath = nil
@@ -177,9 +183,13 @@ public final class SettingsStore: ObservableObject {
 
         // Blank is absent, in both directions: a key holding `""` (an older build,
         // a hand-edited domain) must read back as "not configured" rather than as
-        // a folder whose path is the empty string.
-        let storedFolder = defaults.string(forKey: Keys.leetCodeFolderPath)?
+        // a folder whose path is the empty string. The *test* is on the trimmed
+        // value and the *answer* is the stored one, for the reason written on the
+        // property: a folder name may legitimately end in a space.
+        let storedFolder = defaults.string(forKey: Keys.leetCodeFolderPath)
+        let storedFolderIsBlank = storedFolder?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ?? true
         let storedBookmark = defaults.data(forKey: Keys.leetCodeFolderBookmark)
         // A slug this build does not offer — LeetCode's `kotlin`, or one this app
         // dropped — falls back to the default rather than leaving the picker on a
@@ -192,7 +202,7 @@ public final class SettingsStore: ObservableObject {
         self.themePreference = theme
         self.fontSize = storedFont
         self.lspServerConsent = storedConsent
-        self.leetCodeFolderPath = (storedFolder?.isEmpty ?? true) ? nil : storedFolder
+        self.leetCodeFolderPath = storedFolderIsBlank ? nil : storedFolder
         self.leetCodeFolderBookmark = (storedBookmark?.isEmpty ?? true) ? nil : storedBookmark
         self.leetCodeLanguage = storedLanguage
     }

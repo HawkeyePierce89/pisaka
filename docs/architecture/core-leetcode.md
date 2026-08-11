@@ -136,7 +136,14 @@ the limits the design carries.
     did not match (`data.question.content`, `difficulty.level = 7`), so a bug
     report names the one line of `LeetCodeAPI` to edit. `throttled` carries the
     server's own `Retry-After` when there was one and `nil` when there was not,
-    the difference being whether the sentence can name a wait. Lives in Core, like
+    the difference being whether the sentence can name a wait. **Both ends apply
+    the same "a wait worth naming" cap** (positive, at most an hour): the parser
+    puts the header through `plausibleWait` like every other wait it reads, and
+    `errorDescription` re-tests the value because the case is `public` and takes a
+    bare `Double`. `Double("inf")` and `Double("1e400")` both parse and are both
+    `> 0`, and `Int(_:)` *traps* on either — so without the cap a `Retry-After`
+    chosen by a CDN in front of LeetCode terminated the app in the one path whose
+    job is reporting a transient failure gracefully. Lives in Core, like
     `GitError`, so every sentence the user reads is unit-tested; without
     `errorDescription` these would all render as "operation couldn't be completed
     (PisakaCore.LeetCodeError error N)", throwing away the one string that says
@@ -684,8 +691,10 @@ the limits the design carries.
     not fail the sign-in (`lastCredentialSaveFailed`, the `lastCacheWriteFailed`
     shape).
   - `SettingsStore.swift` (modified; the entry is in `core-services.md`) — three
-    stable keys: `leetCodeFolderPath` (a plain path; blank-trimmed, and an empty
-    string normalises to `nil` so "unset" has one spelling),
+    stable keys: `leetCodeFolderPath` (a plain path, stored verbatim; a value
+    that is blank once trimmed normalises to `nil` so "unset" has one spelling,
+    but a real path keeps the spelling the file system gave it — a folder name
+    may end in a space),
     `leetCodeFolderBookmark` (iOS-only in practice: the security-scoped blob for a
     picked override) and `leetCodeLanguage`. The language is held as the whole
     `LeetCodeLanguage` **row** rather than as a slug, which makes "an unparsable
