@@ -433,6 +433,28 @@ final class LeetCodeAPITests: XCTestCase {
         XCTAssertEqual(problems[0].status, .notStarted)
     }
 
+    /// The leniency covers a wrong *type*, not only an unrecognised string.
+    ///
+    /// Read through `optionalString` it did not: that throws `apiChanged` for
+    /// anything present that is not a string, so a `status` LeetCode one day
+    /// spells as a number — the way it already spells `difficulty` two different
+    /// ways across its two endpoints — would have failed the entire 4000-row
+    /// catalog and taken open-by-number with it, which is precisely the outcome
+    /// the test above pins as unacceptable.
+    func testAWrongTypedStatusDegradesTheSameWay() throws {
+        let json = """
+            {"user_name":"","stat_status_pairs":[\
+            {"stat":{"frontend_question_id":1,"question__title":"Two Sum",\
+            "question__title_slug":"two-sum"},\
+            "status":3,"difficulty":{"level":1},"paid_only":false}]}
+            """
+        let odd = LeetCodeHTTPResponse(statusCode: 200, headers: [:], body: Data(json.utf8))
+        let problems = try LeetCodeAPI.parseProblemList(odd)
+        XCTAssertEqual(problems.count, 1)
+        XCTAssertEqual(problems[0].slug, "two-sum")
+        XCTAssertEqual(problems[0].status, .notStarted)
+    }
+
     // MARK: - HTTP-level failures
 
     func testTooManyRequestsIsThrottledWithTheServersWait() throws {

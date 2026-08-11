@@ -428,7 +428,15 @@ public enum LeetCodeAPI {
                         path: difficultyObject.path(of: "level")
                     ),
                     isPaidOnly: try pair.bool("paid_only"),
-                    status: status(fromRESTValue: try pair.optionalString("status"))
+                    // Read without `optionalString`, which throws `apiChanged` on
+                    // anything present that is not a string — that would have put
+                    // the whole catalog back at the mercy of one row's `status`,
+                    // which is the exact outcome `status(fromRESTValue:)` is
+                    // documented to prevent. LeetCode already spells `difficulty`
+                    // two different ways across its two endpoints; a `status` that
+                    // arrives as a number one day must cost a badge, not the
+                    // ability to open any problem at all.
+                    status: status(fromRESTValue: pair.value["status"] as? String)
                 )
             )
         }

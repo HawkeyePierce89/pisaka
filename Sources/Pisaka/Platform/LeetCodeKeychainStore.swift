@@ -93,8 +93,19 @@ final class LeetCodeKeychainStore: LeetCodeCredentialStore, @unchecked Sendable 
     }
 
     /// Persist `credentials`, replacing any previously stored pair
-    /// (delete-then-add, so the code path is a single idempotent branch rather
+    /// (delete-then-add, so the ordinary path is a single idempotent branch rather
     /// than an add/update fork whose two halves can disagree about accessibility).
+    ///
+    /// **The update is the fallback, not a second ordinary path, and it is not
+    /// optional.** The delete's failure used to be swallowed by `try?`, which made
+    /// the add return `errSecDuplicateItem` and leave the *previous* item in
+    /// place. The model's accounting for a failed save is "one sign-in next
+    /// launch" (`lastCredentialSaveFailed`), and that is true only if nothing is
+    /// stored; with the old item surviving, the next launch reads a **different
+    /// account's** session back out of the Keychain and reports it as signed in.
+    /// So a duplicate is overwritten in place — with the same accessibility, which
+    /// `SecItemUpdate` sets alongside the data precisely so the two halves cannot
+    /// disagree — and only a failure of *that* is reported.
     func save(_ credentials: LeetCodeCredentials) throws {
         try? clear()
         let data = try JSONEncoder().encode(credentials)
@@ -102,7 +113,17 @@ final class LeetCodeKeychainStore: LeetCodeCredentialStore, @unchecked Sendable 
         attributes[kSecValueData as String] = data
         attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let status = SecItemAdd(attributes as CFDictionary, nil)
-        guard status == errSecSuccess else { throw LeetCodeKeychainError(status: status) }
+        if status == errSecSuccess { return }
+        guard status == errSecDuplicateItem else { throw LeetCodeKeychainError(status: status) }
+
+        let updated = SecItemUpdate(
+            baseQuery as CFDictionary,
+            [
+                kSecValueData as String: data,
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            ] as CFDictionary
+        )
+        guard updated == errSecSuccess else { throw LeetCodeKeychainError(status: updated) }
     }
 
     /// Remove the stored session (a no-op when none is stored). Sign-out calls

@@ -223,6 +223,12 @@ the limits the design carries.
     `.notStarted`, because it is cosmetic, per-row, and being strict would let one
     odd row out of four thousand kill the whole catalog parse and with it *every
     open*. The asymmetry is asserted by a test so it cannot be "tidied" either way.
+    That leniency covers a wrong **type**, not only an unrecognised string, so the
+    field is read as `pair.value["status"] as? String` rather than through
+    `optionalString` — which throws `apiChanged` for anything present that is not a
+    string, and would have handed the whole catalog back to one row's `status` the
+    day LeetCode spells it as a number (it already spells `difficulty` two
+    different ways across its two endpoints).
     *The JSON reader* is a private `JSONObjectReader` that remembers its own path,
     rather than `Codable`: a `DecodingError` would say
     `keyNotFound(CodingKeys(...))`, and this layer's whole contract is that the
@@ -348,7 +354,28 @@ the limits the design carries.
     clock that moved backwards (or a cache file copied from another machine)
     cannot pin the catalog until the calendar catches up. `refresh` is **coalesced**
     (`refreshTask`), because two problems opened at once is the ordinary way two
-    2 MB downloads used to happen.
+    2 MB downloads used to happen. That task is unstructured, so the wait for it is
+    wrapped in `withTaskCancellationHandler`: `Task { }` inherits no cancellation
+    and `task.value` does not observe the *awaiting* task's either, so pressing Esc
+    in the Open Problem sheet used to leave `openProblem` suspended until the
+    download finished or the transport's 60-second resource timeout fired — with
+    `beginOpen()`'s counter still raised, i.e. the next sheet came up entirely
+    disabled. Cancelling the waiter now cancels the fetch; a second, uncancelled
+    caller coalesced onto it sees `network(reason: "cancelled")` and can retry,
+    which is the cheaper of the two failures. The `refreshTask` slot is cleared
+    from **inside** the task rather than in the initiating caller's `defer`, so the
+    coalescing window is the task's own lifetime — a caller that goes away while
+    the fetch runs on must not open the slot for a second 2 MB download.
+    *Off the main actor.* The catalog is ~2 MB and ~4000 rows, and all of the
+    expensive part of handling it is pure: `LeetCodeAPI.parseProblemList`, the
+    `CachedCatalog` decode and its encode each run in a `Task.detached`, because an
+    `await` inside a `@MainActor` method resumes on the main actor and left them
+    freezing the editor behind a sheet whose own spinner could not turn. **The
+    `FileServicing` calls stay on the actor**: every other reader in this app
+    reaches it from the main actor, the test doubles are plain mutable classes, and
+    a second thread in one of their dictionaries is a corrupted hash table rather
+    than a flaky assertion. So the split is per-step — read on the actor, decode
+    off it, publish on it — not per-method.
     **Not-found is a value, not an error** (L7): `resolveSlug` answers `nil`, which
     is the truthful answer to a typo, and `apiChanged` stays reserved for LeetCode
     having changed shape. **A slug input reaches neither disk nor network**: it
@@ -484,7 +511,19 @@ the limits the design carries.
     keeps the stored credentials** (L11, `markSessionRejected`): a 403 from an
     unofficial endpoint is as often a throttle in disguise as a dead session, and
     clearing the Keychain on one would turn a transient failure into a mandatory
-    web-view re-login. Only `signOut()` forgets them — and the app layer's half of a
+    web-view re-login. **And the flip is reversible**, through
+    `markSessionAccepted()` on every successfully parsed detail response: keeping
+    the credentials only makes sense if the state can come back, and until that
+    existed nothing ever put it back — `refreshUserStatus()` is the only other
+    writer and the app calls it once, at launch. One throttled response therefore
+    left every surface saying "Not signed in" for the rest of the run while
+    `requireCredentials()` went on opening problems from the same pair, and the
+    macOS menu renders Sign Out only under `isSignedIn`, so signing out became
+    unreachable. A response that came back is the same class of evidence the
+    rejection is, pointing the other way. It names no account — that stays
+    `refreshUserStatus()`'s alone — and it is guarded on the credentials rather
+    than on a generation, because the state it must not resurrect is a *sign-out*,
+    which clears them. Only `signOut()` forgets them — and the app layer's half of a
     sign-out (the web view's cookies) is `LeetCodeWebSession.signOut(model:)`;
     either half alone leaves the user half signed in. **A sign-out holds whatever
     the Keychain does**: every credential lookup falls back to the store, so a
@@ -629,7 +668,14 @@ the limits the design carries.
     opened by URL showed "1. Two Sum" while its detail was in hand and then degraded
     to "1. two-sum" the first time the user switched tabs and came back, permanently,
     because that refresh is answered from the cache and short-circuits on
-    `slugsFetchedThisRun` before any fetch could correct it. `signOut()` does *not*
+    `slugsFetchedThisRun` before any fetch could correct it. Behind that store the
+    catalog is asked through `cachedProblem(forSlug:)`, which **consults the disk
+    cache** (never the network) rather than the pure `problem(forSlug:)`: the disk
+    copy was otherwise reachable only from the number path, which a statement
+    refresh never takes, so the offline reopen this whole cache-first branch exists
+    for rendered "1. two-sum" at launch with "Two Sum" sitting unread in
+    `catalog.json` beside the fragment. Asked only when this run has no title of its
+    own, so the ordinary tab switch still touches no disk. `signOut()` does *not*
     empty it, matching the disk fragment cache it parallels: a problem's title is
     public content, not something the session revealed.
     *Plumbing.* Every request goes through one `send` that folds a non-`LeetCodeError`
@@ -716,8 +762,17 @@ the limits the design carries.
     needed to find it. `ThisDeviceOnly` matches the git PAT store (a
     browser-equivalent credential must not ride along in an encrypted backup or
     migrate on restore); `AfterFirstUnlock` keeps it readable from a background
-    refresh. `save` is delete-then-add, so the path is one idempotent branch rather
-    than an add/update fork whose halves can disagree about accessibility.
+    refresh. `save` is delete-then-add, so the ordinary path is one idempotent
+    branch rather than an add/update fork whose halves can disagree about
+    accessibility — but a **duplicate is overwritten, not reported**: the delete is
+    `try?`, so a Keychain that refuses it made the add return
+    `errSecDuplicateItem` and left the *previous* account's item in place. The
+    model prices a failed save at "one sign-in next launch"
+    (`lastCredentialSaveFailed`), which is true only if nothing is stored; with the
+    old item surviving, the next launch reads a different account's session back
+    out and reports it as signed in. So a duplicate falls through to `SecItemUpdate`
+    with the same accessibility set alongside the data (the two halves still cannot
+    disagree), and only a failure of *that* is thrown.
     `load()` treats undecodable as **absent** — same recovery, one sign-in — and the
     failure type is a local `LocalizedError`, deliberately *not* a `LeetCodeError`:
     the model already knows a save failure costs one sign-in next launch, and
@@ -897,15 +952,21 @@ the limits the design carries.
     "executable"), the data store is `.nonPersistent()` (this view must not become a
     second place a leetcode.com cookie can live, beside the login view's
     deliberately persistent one), and **the main frame only ever holds the document
-    this view loaded** — every other main-frame navigation goes to `NSWorkspace` and
-    is cancelled, because a related-problem or editorial link would otherwise
+    this view loaded** — every other main-frame navigation is cancelled, because a
+    related-problem or editorial link would otherwise
     replace the statement inside a 380 pt pane with no way back (the pane has no
     back gesture, and the reload gate above will not restore a document whose HTML
-    has not changed). The test is the *frame*, not `linkActivated`
-    alone: a click is only the navigation the user can see coming, and this
-    markup is interpolated verbatim, so a `<meta http-equiv="refresh">` or a
+    has not changed). The test for *cancelling* is the **frame**, not
+    `linkActivated`: a click is only the navigation the user can see coming, and
+    this markup is interpolated verbatim, so a `<meta http-equiv="refresh">` or a
     `<form>` in it navigates the pane just as effectively — neither needs the
-    scripting that is off. Sub-frame loads are left alone (LeetCode's own markup
+    scripting that is off. But the test for **handing it to the OS is
+    `linkActivated`**, and the two are deliberately not the same test: catching a
+    refresh tag and then opening it is the same navigation performed in the user's
+    browser instead of the pane, so a statement carrying one used to launch Safari
+    at an arbitrary URL the moment the pane rendered — no click, no confirmation,
+    and again on every theme or font-size change that reloads the document.
+    Everything that is not a click is cancelled and goes nowhere at all. Sub-frame loads are left alone (LeetCode's own markup
     embedding something), and subresource loads never reach the delegate at all.
     **The document is recognised by this view having just asked for it**, not by
     its URL: `isPerformingOwnLoad` is raised immediately before `loadHTMLString`
@@ -1020,8 +1081,8 @@ the limits the design carries.
     shows a placeholder rather than emptying itself when the statement goes away,
     because a sheet that blanks reads as a bug. The web view has the same rules as
     the macOS one (compare-then-load, scripting off, and the main frame pinned to
-    the loaded document — everything else `http`/`https` out to Safari, everything
-    else cancelled).
+    the loaded document — a tapped `http`/`https` link out to Safari, everything
+    else cancelled, including the un-tapped navigations the frame test catches).
   - `iOS/PisakaApp_iOS.swift` / `RootView_iOS.swift` / `SettingsView_iOS.swift`
     (modified; entries in `app-ios.md`) — the iOS composition and wiring.
     `PisakaApp_iOS` composes the stack inline rather than through a factory

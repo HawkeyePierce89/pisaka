@@ -662,13 +662,26 @@ public final class LeetCodeModel: ObservableObject {
         let slug = parts.slug
         var published: LeetCodeStatement?
         if let fragment = statementCache.fragment(forSlug: slug) {
+            // This run's own answer first, the catalog behind it: opening by slug
+            // or URL never loads the catalog, so it is empty on exactly the paths
+            // where the title matters most. See `titlesBySlug`.
+            //
+            // The catalog is asked through the *disk-consulting* accessor, and
+            // only when this run has no title of its own. The reopen this whole
+            // cache-first branch exists for is the offline one, and at launch
+            // `titlesBySlug` is empty and nothing has loaded the catalog — the
+            // number path is the only other thing that does, and a statement
+            // refresh resolves no numbers — so the header degraded to the slug
+            // with the title on disk the entire time.
+            var cachedTitle = titlesBySlug[slug]
+            if cachedTitle == nil {
+                cachedTitle = await catalog.cachedProblem(forSlug: slug)?.title
+                guard generation == statementGeneration else { return nil }
+            }
             published = LeetCodeStatement(
                 slug: slug,
                 number: parts.number,
-                // This run's own answer first, the catalog behind it: opening by
-                // slug or URL never loads the catalog, so it is empty on exactly
-                // the paths where the title matters most. See `titlesBySlug`.
-                title: titlesBySlug[slug] ?? catalog.problem(forSlug: slug)?.title ?? slug,
+                title: cachedTitle ?? slug,
                 fragment: fragment,
                 isFromCache: true
             )
@@ -771,7 +784,9 @@ public final class LeetCodeModel: ObservableObject {
         let response = try await send(
             LeetCodeAPI.questionDetailRequest(slug: slug, credentials: credentials)
         )
-        return try LeetCodeAPI.parseQuestionDetail(response, requestedSlug: slug)
+        let detail = try LeetCodeAPI.parseQuestionDetail(response, requestedSlug: slug)
+        markSessionAccepted()
+        return detail
     }
 
     /// Every request goes through here so a transport that throws something other
@@ -824,6 +839,34 @@ public final class LeetCodeModel: ObservableObject {
     private func markSessionRejected() {
         isSignedIn = false
         signedInUsername = nil
+    }
+
+    /// LeetCode has answered an authenticated request, so the session this app
+    /// still holds is live.
+    ///
+    /// **The counterpart `markSessionRejected()` needs to exist at all.** That
+    /// rejection deliberately keeps the credentials, because a 403 from an
+    /// unofficial endpoint is as often a throttle in disguise as a dead session —
+    /// but until this, nothing ever put the state back: `refreshUserStatus()` is
+    /// the only other writer and the app calls it exactly once, at launch. One
+    /// throttled response therefore left every surface saying "Not signed in" for
+    /// the rest of the run while `requireCredentials()` went on opening problems
+    /// from the same cached pair — and, worst of it, the macOS menu renders Sign
+    /// Out only under `isSignedIn`, so signing out became unreachable. A response
+    /// that came back is the same class of evidence the rejection is, pointing the
+    /// other way, so it is treated the same way.
+    ///
+    /// The username is deliberately *not* invented here: this says the session
+    /// works, not who it belongs to, and `refreshUserStatus()` remains the one
+    /// place that names the account.
+    ///
+    /// Guarded on the credentials rather than on a generation, because the state
+    /// this must not resurrect is a **sign-out**: that clears `cachedCredentials`
+    /// and raises `storedCredentialsAreDiscarded`, so a request still in flight
+    /// when the user signed out finds no session here to confirm.
+    private func markSessionAccepted() {
+        guard !storedCredentialsAreDiscarded, cachedCredentials != nil else { return }
+        isSignedIn = true
     }
 
     /// Adopt a freshly fetched detail as the published statement, and cache it.

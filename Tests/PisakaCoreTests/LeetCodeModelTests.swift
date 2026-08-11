@@ -697,6 +697,42 @@ final class LeetCodeModelTests: XCTestCase {
         XCTAssertNil(model.lastError, "a failure behind a cached statement is not an error")
     }
 
+    /// …and it comes back with its **title**, read out of the catalog on disk.
+    ///
+    /// The disk catalog used to be reachable only through the number path
+    /// (`resolveSlug(forNumber:)`), which a statement refresh never takes — so on
+    /// exactly the launch this cache-first branch exists for, the header rendered
+    /// "1. two-sum" with "Two Sum" sitting unread in `catalog.json` beside the
+    /// fragment.
+    func testAnOfflineCachedStatementTakesItsTitleFromTheCatalogOnDisk() async throws {
+        let tree = makeTree([
+            twoSumPath: "solution",
+            statementPath: "<p>yesterday's statement</p>",
+            catalogPath: """
+                {"fetchedAt":"2026-08-05T00:00:00Z","problems":[\
+                {"difficulty":"easy","id":1,"isPaidOnly":false,"slug":"two-sum",\
+                "status":"notStarted","title":"Two Sum"}],"schemaVersion":1}
+                """
+        ])
+        let transport = makeTransport()
+        transport.fail(.question(slug: "two-sum"))
+        transport.fail(.problemList)
+        let model = makeModel(tree: tree, transport: transport)
+
+        let published = await model.statement(
+            forFileAt: treeRoot.appendingPathComponent(twoSumPath),
+            in: solutionsFolder
+        )
+
+        XCTAssertEqual(published?.title, "Two Sum")
+        XCTAssertEqual(model.statement?.title, "Two Sum")
+        XCTAssertEqual(
+            transport.count(for: .problemList),
+            0,
+            "the disk cache answers the title; nothing may fetch 2 MB for a header"
+        )
+    }
+
     /// …and without a cache, the same failure *is* worth reporting: the panel has
     /// nothing to show.
     func testAFailedStatementWithNoCacheReportsTheFailure() async throws {
@@ -1392,6 +1428,90 @@ final class LeetCodeModelTests: XCTestCase {
         try await model.signIn(with: credentials)
         let outcome = try await model.openProblem(input: .number(1), language: swift)
         XCTAssertTrue(outcome.wasCreated)
+    }
+
+    /// A session flipped by a 403 comes back when LeetCode answers again.
+    ///
+    /// The rejection deliberately keeps the credentials — a 403 from an
+    /// unofficial endpoint is as often a throttle as a dead session — but nothing
+    /// used to put the state back: `refreshUserStatus()` is the only other writer
+    /// and the app calls it once, at launch. So one throttled response left every
+    /// surface saying "Not signed in" for the rest of the run while opens went on
+    /// succeeding from the very pair the surfaces claimed was gone, and the macOS
+    /// menu — which renders Sign Out only under `isSignedIn` — offered no way out.
+    func testASuccessfulRequestRestoresASessionARejectionFlipped() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        transport.serve(.userStatus, json: "{}", statusCode: 403)
+        let model = makeModel(tree: tree, transport: transport)
+
+        _ = await model.refreshUserStatus()
+        XCTAssertFalse(model.isSignedIn, "the 403 must flip it first, or this proves nothing")
+
+        let outcome = try await model.openProblem(input: .slug("two-sum"), language: swift)
+        XCTAssertTrue(outcome.wasCreated)
+        XCTAssertTrue(model.isSignedIn, "LeetCode answered — the session is alive")
+    }
+
+    /// …but a request still in flight when the user signs out must not undo it.
+    ///
+    /// The guard is on the credentials rather than on a generation, and this is
+    /// the case it exists for: `signOut()` clears them, so the answer that lands
+    /// afterwards finds no session here to confirm.
+    func testARequestLandingAfterASignOutDoesNotResurrectTheSession() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let gate = Gate()
+        transport.hold(.question(slug: "two-sum"), on: gate)
+        let model = makeModel(tree: tree, transport: transport)
+
+        let opening = Task {
+            try await model.openProblem(input: .slug("two-sum"), language: self.swift)
+        }
+        await gate.waitUntilReached()
+        model.signOut()
+        gate.release()
+        _ = try? await opening.value
+
+        XCTAssertFalse(model.isSignedIn)
+        XCTAssertNil(model.signedInUsername)
+    }
+
+    /// Cancelling an open while the 2 MB catalog is downloading releases the sheet.
+    ///
+    /// The coalescing `Task` is unstructured, so it inherits no cancellation, and
+    /// `task.value` does not observe the *awaiting* task's either: without the
+    /// cancellation handler this stayed suspended until the fetch finished or the
+    /// transport's 60-second resource timeout fired — with `beginOpen()`'s counter
+    /// still raised, so the next Open Problem sheet came up entirely disabled.
+    func testCancellingAnOpenReleasesItFromACatalogFetchInFlight() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        // A *sleeping* delay rather than `Gate`, which is a semaphore and so
+        // cannot be woken: the point of the test is that cancellation reaches the
+        // request, and only a cancellable wait can show that it did.
+        transport.serve(.problemList, body: Self.fixture("problem-list.json"), delay: 5)
+        let model = makeModel(tree: tree, transport: transport)
+
+        let opening = Task {
+            try await model.openProblem(input: .number(1), language: self.swift)
+        }
+        while transport.count(for: .problemList) == 0 {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTAssertTrue(model.isOpening)
+
+        let started = Date()
+        opening.cancel()
+        _ = try? await opening.value
+
+        XCTAssertLessThan(
+            Date().timeIntervalSince(started),
+            3,
+            "the cancelled open waited out the download instead of being released"
+        )
+        XCTAssertFalse(model.isOpening)
+        XCTAssertTrue(solutionWrites(tree).isEmpty)
     }
 
     // MARK: - Never overwrite

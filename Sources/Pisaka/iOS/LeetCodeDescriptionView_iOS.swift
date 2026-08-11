@@ -362,6 +362,14 @@ private struct LeetCodeStatementWebView_iOS: UIViewRepresentable {
                 decisionHandler(.cancel)
                 return
             }
+            // **Only a tap is handed to the OS** — the macOS pane's rule, for the
+            // reason written there: an unsanitized `<meta http-equiv="refresh">`
+            // in a statement would otherwise send the user out to Safari the
+            // moment the pane rendered, with nothing tapped.
+            guard navigationAction.navigationType == .linkActivated else {
+                decisionHandler(.cancel)
+                return
+            }
             UIApplication.shared.open(url)
             decisionHandler(.cancel)
         }

@@ -317,6 +317,19 @@ private struct LeetCodeStatementWebView: NSViewRepresentable {
                 decisionHandler(.cancel)
                 return
             }
+            // **Only a click is handed to the OS.** The paragraph above names the
+            // `<meta http-equiv="refresh">` and the `<form>` as the things the
+            // main-frame test catches — but catching them and then opening them
+            // is the same navigation, in the user's browser instead of this pane.
+            // A refresh tag in a statement would launch Safari at an arbitrary URL
+            // the moment the pane rendered, with no click and no confirmation, and
+            // again on every theme or font-size change that reloads the document.
+            // The verdict for everything that is not `.linkActivated` is the one
+            // the comment already promised: cancel, and go nowhere.
+            guard navigationAction.navigationType == .linkActivated else {
+                decisionHandler(.cancel)
+                return
+            }
             NSWorkspace.shared.open(url)
             decisionHandler(.cancel)
         }

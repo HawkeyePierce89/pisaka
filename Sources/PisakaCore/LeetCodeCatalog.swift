@@ -140,6 +140,19 @@ public final class LeetCodeCatalog {
         slug(forNumber: number).flatMap { problemsBySlug[$0] }
     }
 
+    /// The catalog row for a slug, **consulting the disk cache** when nothing has
+    /// yet this session. Still no network: this is the cached catalog or nothing.
+    ///
+    /// The disk copy was otherwise reachable only through `resolveSlug(forNumber:)`
+    /// — the number path — so the statement panel, which resolves nothing, could
+    /// not see it. The visible cost was the offline reopen this feature advertises:
+    /// the fragment came back from its own cache and the header read "1. two-sum",
+    /// with the real title sitting unread in `catalog.json` beside it.
+    public func cachedProblem(forSlug slug: String) async -> LeetCodeProblem? {
+        await loadFromDiskIfNeeded()
+        return problem(forSlug: slug)
+    }
+
     // MARK: - Resolution
 
     /// The slug to request a problem's detail by, or `nil` when no such problem
@@ -183,7 +196,7 @@ public final class LeetCodeCatalog {
         forNumber number: Int,
         credentials: LeetCodeCredentials
     ) async throws -> String? {
-        loadFromDiskIfNeeded()
+        await loadFromDiskIfNeeded()
         if isStale {
             do {
                 try await refresh(credentials: credentials)
@@ -218,11 +231,34 @@ public final class LeetCodeCatalog {
     /// ordinary way that happens, and two 2 MB downloads is the ordinary way it
     /// used to go wrong.
     public func refresh(credentials: LeetCodeCredentials) async throws {
-        if let existing = refreshTask {
-            _ = try await existing.value
-            return
+        let task = refreshTask ?? startRefresh(credentials: credentials)
+        // **The wait is cancellable, and cancelling it cancels the fetch.**
+        // `Task { }` is unstructured, so it inherits nothing from the caller and
+        // `task.value` does not observe the awaiting task's cancellation either:
+        // without this, pressing Esc in the Open Problem sheet left `openProblem`
+        // suspended here until the 2 MB download finished or hit the transport's
+        // 60-second resource timeout — and with it `beginOpen()`'s counter still
+        // raised, so the *next* sheet came up with everything disabled. The cost
+        // is that a second, uncancelled caller coalesced onto this fetch sees it
+        // fail as `network(reason: "cancelled")`; that is a retry, against a
+        // minute of a dead sheet.
+        _ = try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
         }
+    }
+
+    /// Start the one in-flight refresh and register it for coalescing.
+    ///
+    /// The registration is cleared from **inside** the task rather than in a
+    /// `defer` on the initiating caller: the caller can now be cancelled while the
+    /// fetch it started runs on for the others waiting on it, and clearing the
+    /// slot there would let the next open start a second 2 MB download beside the
+    /// first. The task's own lifetime is the coalescing window.
+    private func startRefresh(credentials: LeetCodeCredentials) -> Task<Snapshot, Error> {
         let task = Task { @MainActor [self] () async throws -> Snapshot in
+            defer { refreshTask = nil }
             let problems = try await fetchProblems(credentials: credentials)
             // Shape-valid and empty is not a catalog. Publishing it would cache
             // "there are no problems" for a day; see the note on this type.
@@ -231,12 +267,11 @@ public final class LeetCodeCatalog {
             }
             let snapshot = Snapshot(problems: problems, fetchedAt: now())
             publish(snapshot, fromNetwork: true)
-            writeCache(snapshot)
+            await writeCache(snapshot)
             return snapshot
         }
         refreshTask = task
-        defer { refreshTask = nil }
-        _ = try await task.value
+        return task
     }
 
     /// One catalog request, with every non-`LeetCodeError` failure folded into
@@ -255,7 +290,13 @@ public final class LeetCodeCatalog {
         } catch {
             throw LeetCodeError.network(reason: error.localizedDescription)
         }
-        return try LeetCodeAPI.parseProblemList(response)
+        // **Parsed off the main actor.** This is ~2 MB through
+        // `JSONSerialization` and then four thousand rows each built, slug-checked
+        // and status-mapped — hundreds of milliseconds on a phone, and every bit
+        // of it pure. Left where it landed (an `await` inside a `@MainActor`
+        // method resumes on the main actor) it froze the editor behind a sheet
+        // whose own spinner could not turn. Only `publish` needs the actor.
+        return try await Task.detached { try LeetCodeAPI.parseProblemList(response) }.value
     }
 
     /// Replace what is known, and rebuild the two indices with it.
@@ -294,11 +335,17 @@ public final class LeetCodeCatalog {
     /// file, and in both cases the correct move is to fetch a fresh one, which
     /// costs one request. Salvaging a partial catalog would instead produce a
     /// catalog that is silently missing problems.
-    private func loadFromDiskIfNeeded() {
+    /// **The read stays on the actor and the decode does not.** `FileServicing` is
+    /// reached from the main actor everywhere in this app (the test doubles are
+    /// plain mutable classes, and a second thread in one of their dictionaries is
+    /// a corrupted hash table rather than a flaky assertion), so the IO is not
+    /// moved; the four-thousand-row `JSONDecoder` pass and its slug validation
+    /// behind it are pure, and are, for the reason written on `fetchProblems`.
+    private func loadFromDiskIfNeeded() async {
         guard !hasConsultedDisk else { return }
         hasConsultedDisk = true
-        guard let text = try? fileService.read(url: layout.catalogFile),
-              let cached = CachedCatalog(json: text)
+        guard let text = try? fileService.read(url: layout.catalogFile) else { return }
+        guard let cached = await Task.detached(operation: { CachedCatalog(json: text) }).value
         else { return }
         publish(
             Snapshot(problems: cached.decodedProblems, fetchedAt: cached.fetchedAt),
@@ -312,9 +359,14 @@ public final class LeetCodeCatalog {
     /// problem, the catalog it needs is in memory, and a read-only cache
     /// directory is not a reason to refuse. The cost of the degradation is one
     /// extra 2 MB fetch next launch, which the user never sees.
-    private func writeCache(_ snapshot: Snapshot) {
+    ///
+    /// The encode is off the actor and the write is not — the split
+    /// `loadFromDiskIfNeeded()` makes, for the reason written there.
+    private func writeCache(_ snapshot: Snapshot) async {
         do {
-            let json = try CachedCatalog(snapshot: snapshot).json()
+            let json = try await Task.detached {
+                try CachedCatalog(snapshot: snapshot).json()
+            }.value
             try fileService.ensureDirectory(at: layout.base)
             try fileService.write(json, to: layout.catalogFile)
             lastCacheWriteFailed = false
