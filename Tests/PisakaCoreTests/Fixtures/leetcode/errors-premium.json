@@ -1,0 +1,19 @@
+{
+  "errors": [
+    {
+      "message": "This question is only available to LeetCode Premium subscribers.",
+      "locations": [
+        {
+          "line": 1,
+          "column": 9
+        }
+      ],
+      "path": [
+        "question"
+      ]
+    }
+  ],
+  "data": {
+    "question": null
+  }
+}

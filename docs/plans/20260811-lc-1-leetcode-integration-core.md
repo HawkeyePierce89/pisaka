@@ -139,24 +139,42 @@ Intent: concentrate every fact about LeetCode's wire format here — URLs, Graph
 header names, JSON key paths — so a LeetCode-side change is diagnosed and fixed in one file,
 and every shape mismatch becomes `apiChanged` rather than a silent empty result.
 
-- [ ] Request builders for the three calls (user status, question detail, the REST problem
+- [x] Request builders for the three calls (user status, question detail, the REST problem
   list): exact GraphQL query strings and variables, `Cookie`, `x-csrftoken`, `Referer`,
   `Content-Type`, `User-Agent`.
-- [ ] Parsers producing the Task 1 models. A `data` member that is absent, null, or missing a
+- [x] Parsers producing the Task 1 models. A `data` member that is absent, null, or missing a
   required key throws `apiChanged` naming the key path; a GraphQL `errors` array is inspected
   for the paid-only/authentication phrasings and mapped to `paidOnly` / `notLoggedIn`; HTTP 429
   (or a 403 with LeetCode's throttle body) maps to `throttled`; `userStatus.isSignedIn == false`
   is the logged-out verdict wherever it appears.
-- [ ] Difficulty mapping for both spellings: GraphQL's `"Easy"/"Medium"/"Hard"` and REST's
+- [x] Difficulty mapping for both spellings: GraphQL's `"Easy"/"Medium"/"Hard"` and REST's
   `level: 1/2/3`, with an unknown value being `apiChanged` rather than a silent default.
-- [ ] Record fixtures from the live endpoints (anonymous is enough for shape): a question
+- [x] Record fixtures from the live endpoints (anonymous is enough for shape): a question
   detail, a user-status response signed-in and signed-out, a paid-only detail, a trimmed
   problem list (a dozen `stat_status_pairs`), a throttle body, and hand-authored
   shape-violation variants.
-- [ ] Tests: exact request bodies/headers per call; every fixture parses to the expected model;
+- [x] Tests: exact request bodies/headers per call; every fixture parses to the expected model;
   each violation fixture throws `apiChanged`; logged-out, paid-only and throttled responses each
   produce their own error.
-- [ ] `swift test` — green.
+- [x] `swift test` — green.
+
+Notes from the implementation (decisions the later tasks inherit):
+
+- **`data.question: null` is "no such problem", not `apiChanged`** — recorded from the live
+  endpoint, which answers HTTP 200 with that body for an unknown slug. `parseQuestionDetail`
+  therefore returns an **optional** detail, which is what lets Task 4's catalog report
+  not-found without an error and Task 6 tell a typo apart from a schema change.
+- **Premium detail parses, it does not throw.** LeetCode answers a paid problem with
+  `isPaidOnly: true` *and* null `content`/`codeSnippets`; the parser tolerates both and hands
+  the flag on, so the `paidOnly` refusal stays where Task 6 puts it — the layer that knows a
+  file was about to be written.
+- **`status` is the one lenient mapping.** An unrecognised per-account `status` degrades to
+  `.notStarted` rather than failing the parse: it is cosmetic and per-row, and being strict
+  would let one odd row out of ~4000 kill the whole catalog, and with it every open. Difficulty
+  stays strict; the asymmetry is asserted by a test so it cannot be "tidied" either way.
+- `LeetCodeAPI.UserStatus` is declared in the schema file (it is a response shape, not a domain
+  model). `parseProblemList` deliberately ignores the catalog's own `user_name`, so login has
+  exactly one source of truth.
 
 ### Task 3: Core — problem input parser, solution file names, language mapping
 

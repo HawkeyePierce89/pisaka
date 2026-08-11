@@ -36,15 +36,16 @@ let package = Package(
         .testTarget(
             name: "PisakaCoreTests",
             dependencies: ["PisakaCore"],
-            // Recorded `sourcekit-lsp` transcripts. They are read through
-            // `#filePath` like every other repository-file suite here
-            // (`SymbolQueryTests`, `ReleaseMetadataTests`), so they must *not*
-            // become SwiftPM resources — declared as `.copy`/`.process` they
-            // would be bundled and reached through `Bundle.module`, which is a
-            // second way to find the same files and a warning either way:
-            // undeclared non-Swift files beside sources are an unhandled-resource
-            // build warning, and this excludes them instead.
-            exclude: ["Fixtures/LSP"]
+            // Recorded `sourcekit-lsp` transcripts and recorded LeetCode
+            // responses. They are read through `#filePath` like every other
+            // repository-file suite here (`SymbolQueryTests`,
+            // `ReleaseMetadataTests`), so they must *not* become SwiftPM
+            // resources — declared as `.copy`/`.process` they would be bundled
+            // and reached through `Bundle.module`, which is a second way to find
+            // the same files and a warning either way: undeclared non-Swift files
+            // beside sources are an unhandled-resource build warning, and this
+            // excludes them instead.
+            exclude: ["Fixtures/LSP", "Fixtures/leetcode"]
         )
     ]
 )
