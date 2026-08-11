@@ -739,15 +739,32 @@ Notes from the implementation (decisions Task 12 documents):
 Intent: follow the `core-provisioning.md` precedent — one doc holding the Core half and its
 app-layer seams on both platforms — and keep CLAUDE.md to index lines.
 
-- [ ] `core-leetcode.md`: one entry per new file with its contract, invariants and the reasoning
+- [x] `core-leetcode.md`: one entry per new file with its contract, invariants and the reasoning
   behind the non-obvious choices (the unofficial-API risk and the single schema file, why the
   catalog uses the REST list, the once-a-day + forced-on-miss staleness rule, the never-overwrite
   rule, the reader-not-writer position relative to the writer gate, the
   macOS-unsandboxed/iOS-bookmark asymmetry, the known limits).
-- [ ] CLAUDE.md: a `core-leetcode.md` index block in the `PisakaCore` section, app-layer index
+- [x] CLAUDE.md: a `core-leetcode.md` index block in the `PisakaCore` section, app-layer index
   lines beside it, and a cross-cutting bullet stating that the LeetCode layer is a reader with
   exactly one create.
-- [ ] `swift test` — green (documentation-only, but the gate stays).
+- [x] `swift test` — green (documentation-only, but the gate stays).
+
+Notes from the implementation (what Task 13 inherits):
+
+- **The decisions are numbered L1–L12**, in `core-leetcode.md`'s own scheme, deliberately not
+  continuing the LSP layer's D-series: the two areas share no mechanism, and a single sequence
+  would imply they do.
+- **The entries for the *modified* files were updated in their own docs rather than restated
+  here**, per the repository convention that a file's contract lives beside its neighbours:
+  `SettingsStore`'s three keys in `core-services.md`, `PisakaApp` and the fourth Preferences tab
+  in `app-shell.md`, `ContentView`'s pane and statement `.task` in `app-window.md`,
+  `PisakaApp_iOS`/`RootView_iOS`/`SettingsView_iOS` in `app-ios.md`, and
+  `FilePanels.showOpenFolderPanel`'s two defaulted parameters in `app-git-views.md`. Each is a
+  paragraph that points at `core-leetcode.md` for the full story.
+- **CLAUDE.md was already over its own ≈30k target before this branch** (46.8k at `master`);
+  the additions here are one-line index entries plus the cross-cutting bullet, ~3.5k in total.
+  Trimming the file back is real work that is not LC-1's, and doing it inside this branch would
+  bury the LeetCode change in unrelated churn.
 
 ### Task 13: Verify acceptance criteria
 

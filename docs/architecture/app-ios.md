@@ -197,6 +197,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     stated rather than worked around; the index moves forward on folder open, tab
     open, buffer edits, and the working-tree rewrites the app performs itself
     (`RootView_iOS.notifyIndexOfProjectFileChanges`).
+    It also composes the **LeetCode** stack (LC-1; the layer's entry is in
+    `core-leetcode.md`) inline rather than through a `makeLeetCode` factory —
+    `ContentView`'s need for a default value has no iOS counterpart — but from the
+    *same* three cross-platform seams (`LeetCodeURLSessionTransport`,
+    `LeetCodeKeychainStore`, `LeetCodeSupportDirectory.cacheLayout`), with one
+    platform difference: the file service is the **scoped** one, since a picked
+    solutions folder is only writable inside its grant while the container cache
+    simply finds no covering scope and falls through. `SettingsStore` moved into
+    `init` for the macOS app's reason — the folder has to be readable before the
+    model is built, so `isSignedIn` and `solutionsFolder` are right from the first
+    frame — and the model is a plain stored property, never `@StateObject`, for the
+    same reason the index pair is.
   - `iOS/RootView_iOS.swift` — adaptive root: `NavigationSplitView` (iPad/regular
     width: project-tree sidebar + editor detail) vs `NavigationStack`
     (iPhone/compact: tree → pushed editor), plus the Local Changes / Git Log /
@@ -274,6 +286,25 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     instead. More than one candidate is presented as a `.confirmationDialog` rather
     than a sheet: the list is short, already ranked, and its rows are the same
     `displayLabel` strings the macOS `NSMenu` shows.
+    **LeetCode** (LC-1; full entry in `core-leetcode.md`) is wired here the way the
+    macOS window wires it, adjusted for iOS's navigation: `leetCode` is a plain
+    `let` (never observed at the root), `LeetCodeFolder_iOS.publish` and one
+    unawaited `refreshUserStatus()` run in the launch `.task`, and the statement is
+    a `.task(id:)` keyed on **(selected tab path, LeetCode folder)** — the folder
+    read from `settings`, which this view observes, rather than from the model,
+    which it does not. `editorArea` was split into itself plus `tabbedEditor` so the
+    regular-width pane can be an unconditional `HStack` sibling that renders *itself*
+    away, never a conditional wrapping the editor (which would tear down the
+    `UITextView`, its undo stack and its scroll position on every LeetCode tab
+    selection); the compact-width sheet is attached at the **root**, not on the
+    pushed editor screen, so a tab switch behind it cannot tear it down mid-read.
+    The entry point is an item in the existing "+" toolbar menu rather than a fifth
+    toolbar button — an iPhone navigation bar is already carrying the branch widget
+    and four items, and "open a LeetCode problem" is the same *kind* of action as
+    the three opens above it. `openLeetCodeProblem` mirrors `PisakaApp`'s: the
+    sentence goes to the screen, `PlatformAlert` is kept for the tab open alone, and
+    the tree revision is bumped only when the file landed inside the open project,
+    because opening a problem never changes the project root.
   - `iOS/BranchSwitcherView_iOS.swift` — the iOS branch-switcher widget: the
     current branch shown in the toolbar/nav, tapped to a sheet/popover with the
     Local/Remote list (current marked), a filter field, and a "New Branch…" item. A
@@ -507,7 +538,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     sheet bound to `SettingsStore`. `SettingsView_iOS` also carries the Personal
     Access Token section (Part B): enter / save / delete a PAT by remote host via the
     `KeychainCredentialStore`, the destination the branch-create flow directs the
-    user to on a `credentialsRequired` outcome. Its last section is "About", a
+    user to on a `credentialsRequired` outcome. It also carries the **LeetCode**
+    section (LC-1, full entry in `core-leetcode.md`): the account row (Sign In…
+    raising the login cover, Sign Out always through
+    `LeetCodeWebSession.signOut(model:)` so the cookies go with the Keychain item),
+    the solutions folder with Change… (the document picker, adopted as a
+    security-scoped bookmark by `LeetCodeFolder_iOS.adopt`) and a "Use Default"
+    button shown only while an override is in force, and the default-language
+    picker bound straight to `settings.leetCodeLanguage`. It observes the
+    `LeetCodeModel` itself — unlike `RootView_iOS`, which holds it unobserved — and
+    takes the `SecurityScopedFileService` so a picked folder is registered for this
+    session while its bookmark covers the next. Its last section is "About", a
     single `NavigationLink` to `AcknowledgementsView_iOS` — a push rather than
     another sheet, the `Form` already sitting in a `NavigationStack`, and the
     peer of the macOS Preferences "Acknowledgements" tab.

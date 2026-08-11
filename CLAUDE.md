@@ -141,6 +141,19 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LSPInstallEngine.swift` — download → verify → unpack → one rename; state from the disk, coalescing, `sweepStaging()` (D12–D14).
 - `LSPProvisioning.swift` — `LSPServerConsent`, the row/prompt values, and `LSPProvisioningModel` (consent, installs, the published registry).
 
+`docs/architecture/core-leetcode.md` — the LeetCode integration (login, open problem, solution file, statement panel), incl. decisions L1–L12 and the known limits:
+- `LeetCodeTransport.swift` — the one app/Core boundary: request/response value types + the seam protocol.
+- `LeetCodeCredentials.swift` — the session pair, the pure cookies→credentials rule, the store protocol (absence ≡ signed out).
+- `LeetCodeError.swift` — the seven typed failures; `apiChanged(detail:)` names the key path.
+- `LeetCodeProblem.swift` — difficulty/status enums, the catalog row and the detail (fragment, snippets, examples).
+- `LeetCodeAPI.swift` — **the one schema file** (L1): endpoints, GraphQL documents, headers, parsers, the throttle/auth/premium classification.
+- `LeetCodeProblemInput.swift` — number / slug / URL parsing; `normalizedSlug(_:)`, the one slug rule (L4).
+- `LeetCodeSolutionFile.swift` — offerable-language rows, `0001-two-sum.swift` and its inverse (L5), the seeded contents.
+- `LeetCodeCacheLayout.swift` — pure path math over the cache base; the slug-sanitising rule.
+- `LeetCodeCatalog.swift` — number → slug: day-long staleness + forced-refresh-on-miss (L6), the versioned on-disk DTO, the degrading write (L8).
+- `LeetCodeStatementDocument.swift` — the themed statement document (colours as values) + `LeetCodeStatementCache` (blank ≡ absent).
+- `LeetCodeModel.swift` — the main-actor flow: account, `openProblem` (never overwrites, L12), the active tab's statement, three generation counters (L10).
+
 `docs/architecture/core-git.md` — git protocol, status & blame:
 - `GitError.swift` — typed `GitServicing` failures with user-facing `errorDescription`.
 - `GitServicing.swift` — the whole async git protocol (status/revert/log/merge/branch/blame/commit surfaces), defaulted so partial stubs compile.
@@ -230,6 +243,15 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 `docs/architecture/core-provisioning.md` — the macOS provisioning surfaces (same doc as the Core half above):
 - `LSPDownloadService.swift` / `LSPArchiveUnpacker.swift` — the two app-side seams: ephemeral uncached `URLSession` bytes; `/usr/bin/tar -xz` or `/usr/bin/gunzip -c` fed on stdin (the second format's stdout *is* the destination file, created `0o755`).
 - `LSPConsentBanner.swift` / `LSPServerSettingsView.swift` / `LSPInstalledLicenses.swift` — the consent strip (two actions, no dismiss), the Preferences tab, the installed components' license texts.
+
+`docs/architecture/core-leetcode.md` — the LeetCode app surfaces (same doc as the Core half above):
+- `Platform/LeetCodeURLSessionTransport.swift` / `LeetCodeKeychainStore.swift` / `LeetCodeSupportDirectory.swift` — the two app halves of the Core seams (cookie jar and URL cache off at both ends; the pair as one Keychain item) and the cache base.
+- `Platform/LeetCodeWebSession.swift` — the login URL, the shared persistent cookie store, the scoped purge, the two-halves sign-out, and `LeetCodeLoginObserver` (fires once, at `didCommit`/`didFinish`).
+- `LeetCodeLoginView.swift` / `iOS/LeetCodeLoginView_iOS.swift` — the sign-in sheet / full-screen cover: chrome around the shared observer; dismiss first, confirm behind it.
+- `LeetCodeOpenProblemSheet.swift` — the macOS sheet, the `LeetCode` menu items, and `LeetCodeFolderChooser` (an unsandboxed plain path, written to both halves).
+- `LeetCodeDescriptionView.swift` — the macOS statement pane: an `HStack` sibling, observed in the pane, reloaded only when the composed HTML differs.
+- `iOS/LeetCodeRoute_iOS.swift` — `LeetCodeFolder_iOS` (container default without a bookmark, override with one) + the one iOS account/open screen.
+- `iOS/LeetCodeDescriptionView_iOS.swift` — the adaptive statement: pane on regular width, sheet on compact, one shared content view.
 
 `docs/architecture/app-window.md` — window chrome (macOS):
 - `ContentView.swift` — window layout: splits, bottom dock, path bar, sheet wiring, deliberately non-observed `commitDialog`.
@@ -324,6 +346,14 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   a toolchain (`cargo`) is required before anything is prompted, installed or
   registered at all. It also adds the second archive format (a bare `.gz`, whose
   executable bit the engine verifies before it commits).
+- **LeetCode is a reader with exactly one create**: like the index and the LSP
+  client it never takes `autosave.suspend()`/`beginRevert()` and is never gated by
+  them — it only ever *creates* a solution file that does not exist (an existing
+  one is returned untouched), inside a folder the user set aside, plus its own two
+  caches under `…/Application Support/Pisaka/LeetCode`. It never rewrites a
+  buffered file and never touches the worktree git operates on. All schema
+  knowledge is in one Core file, every operation requires a login, and opening a
+  problem never changes the project root (`core-leetcode.md`).
 - **Open-tab resync** after an operation rewrites the worktree: buffers are
   snapshotted before the hop; a clean, unchanged tab gets `reloadFromDisk`, an
   edited one `reconcileSavedBaseline` + beep, a deleted file force-closes

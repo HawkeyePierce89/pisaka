@@ -3,7 +3,13 @@
 Design documentation moved verbatim from the root `CLAUDE.md` (which now holds only a one-line-per-file index). Each entry records a file's contract, invariants and the reasoning behind non-obvious decisions — read the relevant entry before modifying that file, and update it when behavior changes.
 
   - `FilePanels.swift` — wrappers over `NSOpenPanel`/`NSSavePanel`
-    (`showOpenFolderPanel()` chooses a directory), the confirm-close `NSAlert`,
+    (`showOpenFolderPanel(directoryURL:message:)` chooses a directory — **both
+    parameters defaulted to today's "Open Folder…" behaviour**, so no existing call
+    site changes and, in particular, `canCreateDirectories` is raised *only* when a
+    directory is suggested, keeping the New Folder button out of every
+    "open a project" panel; the LeetCode folder chooser is the one caller that
+    supplies them, because it *suggests* `~/Documents/LeetCode` rather than asking
+    the user to find something — see `core-leetcode.md`), the confirm-close `NSAlert`,
     and `confirmRevert(fileNames:)` — a warning-style destructive-confirm
     `NSAlert` (listing the affected files in `informativeText`, "Revert"/"Cancel"
     buttons, returning `true` only on Revert), mirroring `confirmClose`. For the

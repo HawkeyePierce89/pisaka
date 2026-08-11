@@ -770,6 +770,30 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     stranded), clears the previous project's selection and message and bumps the
     token an in-flight `commit()` is pinned to, so a commit composed for the folder
     the user just left can never run against the newly opened one.
+    **LeetCode** (LC-1; the layer's full entry is in `core-leetcode.md`) adds
+    `makeLeetCode(settings:)` — the stack composed once from the three
+    cross-platform seams, with the folder read out of `SettingsStore` *before* the
+    model exists, so `isSignedIn` and the folder are right from the first frame —
+    held as a **non-observed `let`** beside `commitDialog`/`symbolIndex`, since the
+    surfaces that show its state (`LeetCodeCommands`, the Open Problem sheet, the
+    login sheet, the Preferences tab and the description pane) each observe it
+    themselves. A `CommandMenu("LeetCode")` hosts `LeetCodeCommands` (Open
+    Problem… ⌘⇧P, state-dependent Sign In…/Sign Out, Choose LeetCode Folder…),
+    gated on nothing — a problem is written into the user's LeetCode folder and
+    opened as a tab whether or not a project is open. The two sheets are one
+    `.sheet(item:)` over an enum attached **outside** `ContentView` (they are
+    mutually exclusive, and the scene is where they belong if the window is to stay
+    free of the parameter and the observation). `openLeetCodeProblem` returns its
+    sentence *to the sheet* and keeps `PlatformAlert` for the one failure that
+    happens with the sheet already gone — the tab open; `openLeetCodeSolution`
+    opens the file through `model.open(url:)` like any other and bumps the tree
+    revision **only** when it landed inside the open project, because opening a
+    problem never changes the project root. Sign Out always goes through
+    `LeetCodeWebSession.signOut(model:)` (never `model.signOut()` alone, which
+    would clear the Keychain and leave the cookies), and the launch-time
+    `refreshUserStatus()` joins the one-shot `.onAppear` block beside
+    `sweepStaging()`/`lspProvisioning.refresh()` — unawaited and silent, since the
+    menu already says "signed in" optimistically from the Keychain item.
   - `ProjectWatcher.swift` — the macOS-only (`#if os(macOS)`, `import CoreServices`)
     FSEvents subscription that makes an *external* change (a generator run in the
     embedded terminal, a Finder rename, a console `git checkout`) show up in the
@@ -947,14 +971,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     observers would make it invisible and fragile — hence
     `AutosaveController.flushNow()` being internal and `PisakaApp` calling both
     back to back from one place.
-  - `SettingsView.swift` — the Preferences window (⌘,), a three-tab `TabView`:
+  - `SettingsView.swift` — the Preferences window (⌘,), a four-tab `TabView`:
     "General" (`GeneralSettingsView`, the form below), "Language Servers"
-    (`LSPServerSettingsView`, phase 2b — full entry in `core-provisioning.md`) and
-    "Acknowledgements" (`AcknowledgementsView`). A `TabView` sizes to its widest
+    (`LSPServerSettingsView`, phase 2b — full entry in `core-provisioning.md`),
+    "LeetCode" (`LeetCodeSettingsView` — the account, the solutions folder and the
+    default language; full entry in `core-leetcode.md`, and it carries its own
+    `@ObservedObject LeetCodeModel` so the Preferences host does not observe it)
+    and "Acknowledgements" (`AcknowledgementsView`). A `TabView` sizes to its widest
     tab, which is why the split is worth noting: `GeneralSettingsView` keeps its
     own `.frame(width: 340)` while the Acknowledgements tab — needing room to read
     a license — is what drives the window. `PisakaApp` constructs
-    `SettingsView(settings:provisioning:gopls:rust:installEngine:)`, threading the
+    `SettingsView(settings:provisioning:gopls:rust:installEngine:leetCode:)`,
+    threading the
     provisioning models and engine through to the tabs that read them rather
     than letting each build its own view of the install root. `gopls` and `rust`
     reach the Language Servers tab *only*, for two different reasons that land in
