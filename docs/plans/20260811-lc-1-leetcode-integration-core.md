@@ -234,23 +234,48 @@ Intent: resolve a human-visible number to a slug without a network round trip in
 case, with a refresh policy that is explicit rather than incidental. Pure path math plus a disk
 cache written through `FileServicing`, so `StubFileTree` drives the whole thing.
 
-- [ ] `LeetCodeCacheLayout` — pure `URL` math over a base directory (no `stat`, no
+- [x] `LeetCodeCacheLayout` — pure `URL` math over a base directory (no `stat`, no
   `standardizedFileURL`, the `LSPInstallLayout` discipline): `catalog.json` and
   `Statements/<slug>.html`, plus a slug-sanitising rule so a hostile slug cannot escape the
   directory.
-- [ ] `LeetCodeCatalog` — decode/encode the cached list (its own `Codable` DTO with a schema
+- [x] `LeetCodeCatalog` — decode/encode the cached list (its own `Codable` DTO with a schema
   version, so an unreadable or older cache is treated as absent rather than crashing),
   `slug(forNumber:)` and `problem(forSlug:)` lookups, `fetchedAt` staleness with the
   once-per-day rule, and the miss path: consult cache → on miss force one refresh → retry once →
   `apiChanged`-free "no such problem" result if still absent.
-- [ ] A corrupt/half-written cache file is discarded and refetched; the refresh writes through
+- [x] A corrupt/half-written cache file is discarded and refetched; the refresh writes through
   `FileServicing` (`ensureDirectory` + `write`) and a write failure degrades to an in-memory
   catalog for the session rather than failing the open.
-- [ ] Tests against `StubFileTree` + the scripted transport: cold start fetches once; a warm
+- [x] Tests against `StubFileTree` + the scripted transport: cold start fetches once; a warm
   cache within the day fetches nothing; a stale cache refreshes; a number missing from a warm
   cache forces exactly one refresh and then resolves; a number missing after the refresh reports
   not-found and does not refresh again; corrupt cache recovers; write failure is survivable.
-- [ ] `swift test` — green.
+- [x] `swift test` — green.
+
+Notes from the implementation (decisions the later tasks inherit):
+
+- **`ScriptedLeetCodeTransport` exists already**, in `Tests/PisakaCoreTests/Support/` — Task 6's
+  first bullet is written as "create" but this task needed it, so it was written here in the
+  shape that task describes (canned answers keyed by route, a recording, gates and per-step
+  delays). Task 6 extends it rather than creating it.
+- **Resolution answers `nil`, it does not throw.** "No problem with that number" is a truthful
+  answer to a typo, so `apiChanged` stays reserved for LeetCode having changed shape.
+- **A slug input reaches neither the disk nor the network.** The slug already *is* the key the
+  detail request is made by; consulting the catalog would turn opening a pasted link into a 2 MB
+  download and would refuse a problem newer than the cache. LeetCode's own `data.question: null`
+  is the authority for "no such slug".
+- **One forced refresh, tracked by `hasRefreshedFromNetwork`** — a snapshot restored from disk
+  does not set it (that is the copy that may predate the problem being asked for), so a miss
+  forces exactly one fetch and every later miss in the session is answered immediately.
+- **An empty catalog is `apiChanged`, never published or cached**: a shape-valid zero-row
+  response would poison the cache for a day and make every open report "no such problem".
+- **The cache write cannot fail the open.** `writeCache` swallows its errors into
+  `lastCacheWriteFailed` and the session runs in memory; `StubFileTree` gained a `writeFailures`
+  injection point so that degradation is assertable.
+- `LeetCodeCacheLayout.statementFile(forSlug:)` is **optional-returning**, and the sanitising
+  rule is `LeetCodeProblemInput.normalizedSlug(_:)` — the same rule the input field uses — so a
+  statement can never be cached under a name the app would later refuse to look up. Task 5
+  inherits both.
 
 ### Task 5: Core — the statement document and its cache
 

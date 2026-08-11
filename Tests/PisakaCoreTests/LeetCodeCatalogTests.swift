@@ -1,0 +1,637 @@
+import XCTest
+@testable import PisakaCore
+
+/// The catalog is the only part of this integration that decides *not* to ask
+/// LeetCode something, so almost every assertion here is a request count.
+///
+/// The behaviour under test is a policy, not a parse (that is
+/// `LeetCodeAPITests`): a day-long cache so opening a problem costs one request,
+/// one forced refresh when a number is missing so a problem added yesterday still
+/// opens, and no second refresh after that so a typo'd number cannot become a
+/// request per keystroke. Each of those is a `count(for: .problemList)` below.
+///
+/// The other half is degradation. A cache file can be absent, truncated,
+/// written by another version, or impossible to write at all, and none of those
+/// may fail the open the user actually asked for — the catalog is an
+/// optimisation, and a broken one costs a request rather than a feature.
+@MainActor
+final class LeetCodeCatalogTests: XCTestCase {
+
+    // MARK: - Harness
+
+    /// A clock the tests move by hand: staleness is the subject here, and a real
+    /// one would make "a day later" untestable.
+    private final class Clock: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value: Date
+
+        init(_ value: Date) { self.value = value }
+
+        var now: Date {
+            get { lock.lock(); defer { lock.unlock() }; return value }
+            set { lock.lock(); value = newValue; lock.unlock() }
+        }
+    }
+
+    private static let iso = ISO8601DateFormatter()
+
+    private static func date(_ text: String) -> Date {
+        guard let date = iso.date(from: text) else {
+            preconditionFailure("bad fixture date \(text)")
+        }
+        return date
+    }
+
+    /// Noon on the day the fixtures were recorded — the tests' "now".
+    private let now = LeetCodeCatalogTests.date("2026-08-11T12:00:00Z")
+
+    private let credentials = LeetCodeCredentials(
+        session: "session-value",
+        csrfToken: "csrf-value"
+    )
+
+    private static let repositoryRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()  // PisakaCoreTests
+        .deletingLastPathComponent()  // Tests
+        .deletingLastPathComponent()  // <root>
+
+    /// The recorded 12-row catalog — the one response in these tests that is
+    /// LeetCode's own bytes rather than the minimal ones composed below.
+    private static let recordedProblemList = try! Data(
+        contentsOf: repositoryRoot
+            .appendingPathComponent("Tests/PisakaCoreTests/Fixtures/leetcode/problem-list.json")
+    )
+
+    private let treeRoot = URL(fileURLWithPath: "/leetcode-tests")
+
+    /// The cache root inside the stub tree; every path assertion below is
+    /// relative to it.
+    private var cacheBase: URL { treeRoot.appendingPathComponent("cache") }
+    private let catalogPath = "cache/catalog.json"
+
+    private func makeTree(_ files: [String: String] = [:]) -> StubFileTree {
+        StubFileTree(root: treeRoot, files: files)
+    }
+
+    private func makeCatalog(
+        tree: StubFileTree,
+        transport: ScriptedLeetCodeTransport,
+        clock: Clock
+    ) -> LeetCodeCatalog {
+        LeetCodeCatalog(
+            layout: LeetCodeCacheLayout(base: cacheBase),
+            fileService: tree,
+            transport: transport,
+            now: { clock.now }
+        )
+    }
+
+    /// A minimal REST catalog body: the keys `LeetCodeAPI.parseProblemList`
+    /// reads and nothing else, so a test that is about *policy* does not restate
+    /// a 2 MB schema. The recorded fixture is what pins the real shape.
+    private func problemListJSON(_ rows: [(id: Int, slug: String)]) -> String {
+        let pairs = rows.map { row in
+            """
+            {"stat":{"frontend_question_id":\(row.id),\
+            "question__title":"\(row.slug)",\
+            "question__title_slug":"\(row.slug)"},\
+            "status":null,"difficulty":{"level":1},"paid_only":false}
+            """
+        }
+        return "{\"user_name\":\"\",\"stat_status_pairs\":[\(pairs.joined(separator: ","))]}"
+    }
+
+    /// A cache file in the documented on-disk shape, hand-written rather than
+    /// produced by the encoder — so the format is pinned by something other than
+    /// the code that writes it, and a change to it fails here first.
+    private func cacheJSON(
+        fetchedAt: String,
+        rows: [(id: Int, slug: String)],
+        schemaVersion: Int = 1,
+        difficulty: String = "easy",
+        status: String = "notStarted"
+    ) -> String {
+        let problems = rows.map { row in
+            """
+            {"difficulty":"\(difficulty)","id":\(row.id),"isPaidOnly":false,\
+            "slug":"\(row.slug)","status":"\(status)","title":"\(row.slug)"}
+            """
+        }
+        return """
+            {"fetchedAt":"\(fetchedAt)","problems":[\(problems.joined(separator: ","))],\
+            "schemaVersion":\(schemaVersion)}
+            """
+    }
+
+    /// `XCTAssertEqual` over the resolution — spelled as a helper because the
+    /// assertion macros take autoclosures, which cannot carry an `await`.
+    private func assertResolves(
+        _ catalog: LeetCodeCatalog,
+        number: Int,
+        to expected: String?,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let slug = try await catalog.resolveSlug(forNumber: number, credentials: credentials)
+        XCTAssertEqual(slug, expected, file: file, line: line)
+    }
+
+    private func assertThrows(
+        _ expected: LeetCodeError,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ body: () async throws -> Void
+    ) async {
+        do {
+            try await body()
+            XCTFail("expected \(expected), returned normally", file: file, line: line)
+        } catch let error as LeetCodeError {
+            XCTAssertEqual(error, expected, file: file, line: line)
+        } catch {
+            XCTFail("expected \(expected), threw \(error)", file: file, line: line)
+        }
+    }
+
+    // MARK: - The layout
+
+    func testLayoutPlacesTheCatalogAndStatementsUnderOneBase() {
+        let layout = LeetCodeCacheLayout(base: URL(fileURLWithPath: "/support/Pisaka/LeetCode"))
+        XCTAssertEqual(layout.catalogFile.path, "/support/Pisaka/LeetCode/catalog.json")
+        XCTAssertEqual(layout.statementsDirectory.path, "/support/Pisaka/LeetCode/Statements")
+        XCTAssertEqual(
+            layout.statementFile(forSlug: "two-sum")?.path,
+            "/support/Pisaka/LeetCode/Statements/two-sum.html"
+        )
+    }
+
+    func testLayoutNormalisesItsBaseLexically() {
+        let direct = LeetCodeCacheLayout(base: URL(fileURLWithPath: "/support/LeetCode"))
+        let roundabout = LeetCodeCacheLayout(
+            base: URL(fileURLWithPath: "/support/./Servers/../LeetCode/")
+        )
+        XCTAssertEqual(direct, roundabout)
+    }
+
+    /// The one thing that must not be a path component without being checked: a
+    /// slug arrives off the network and out of a file name, and the statement
+    /// cache turns it into a write.
+    func testLayoutRefusesASlugThatIsNotOne() {
+        let layout = LeetCodeCacheLayout(base: URL(fileURLWithPath: "/support/LeetCode"))
+        for hostile in ["../secrets", "..", "a/b", "", "   ", "/etc/passwd", "two sum", "two.sum"] {
+            XCTAssertNil(
+                layout.statementFile(forSlug: hostile),
+                "\(hostile) must not become a file name"
+            )
+        }
+        // And the normalisation the input field applies is the same one here, so
+        // a slug typed in capitals caches where it will later be looked up.
+        XCTAssertEqual(
+            layout.statementFile(forSlug: "Two-Sum")?.lastPathComponent,
+            "two-sum.html"
+        )
+    }
+
+    func testLayoutContainmentCoversItsOwnTreeOnly() {
+        let layout = LeetCodeCacheLayout(base: URL(fileURLWithPath: "/support/LeetCode"))
+        XCTAssertTrue(layout.contains(layout.catalogFile))
+        XCTAssertTrue(layout.contains(layout.statementsDirectory))
+        XCTAssertFalse(layout.contains(URL(fileURLWithPath: "/support/LeetCodeOther/x")))
+        XCTAssertFalse(layout.contains(URL(fileURLWithPath: "/support")))
+    }
+
+    // MARK: - Cold start
+
+    func testColdStartFetchesOnceAndCachesWhatItFetched() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, body: Self.recordedProblemList)
+        let clock = Clock(now)
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: clock)
+
+        let slug = try await catalog.resolveSlug(forNumber: 1, credentials: credentials)
+        XCTAssertEqual(slug, "two-sum")
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+        XCTAssertEqual(tree.writtenPaths, [catalogPath])
+        XCTAssertEqual(catalog.fetchedAt, now)
+        XCTAssertFalse(catalog.lastCacheWriteFailed)
+
+        // A second number is answered out of the same fetch.
+        let second = try await catalog.resolveSlug(forNumber: 170, credentials: credentials)
+        XCTAssertEqual(second, "two-sum-iii-data-structure-design")
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+    }
+
+    /// The recorded catalog carries more than the slug, and the lookups are what
+    /// the later problem list will be built on.
+    func testLookupsAnswerFromTheFetchedCatalog() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, body: Self.recordedProblemList)
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        _ = try await catalog.resolveSlug(forNumber: 1, credentials: credentials)
+
+        XCTAssertEqual(catalog.problems.count, 12)
+        XCTAssertEqual(catalog.slug(forNumber: 42), "trapping-rain-water")
+        XCTAssertNil(catalog.slug(forNumber: 43))
+
+        let twoSum = catalog.problem(forSlug: "two-sum")
+        XCTAssertEqual(twoSum?.frontendID, 1)
+        XCTAssertEqual(twoSum?.title, "Two Sum")
+        XCTAssertEqual(twoSum?.difficulty, .easy)
+        XCTAssertEqual(twoSum?.status, .solved)
+        // The slug rule is one rule: a lookup spelled the way a person types it
+        // finds the same row.
+        XCTAssertEqual(catalog.problem(forSlug: "Two-Sum")?.slug, "two-sum")
+
+        let premium = catalog.problem(forNumber: 170)
+        XCTAssertEqual(premium?.isPaidOnly, true)
+        XCTAssertEqual(catalog.problem(forNumber: 4)?.difficulty, .hard)
+    }
+
+    /// A slug is already the key every request is made by, so resolving one must
+    /// touch neither the disk nor the network — that is what makes opening a
+    /// pasted link work offline and work for a problem newer than the catalog.
+    func testASlugInputNeedsNeitherDiskNorNetwork() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        let slug = try await catalog.resolveSlug(
+            for: .slug("some-brand-new-problem"),
+            credentials: credentials
+        )
+        XCTAssertEqual(slug, "some-brand-new-problem")
+        XCTAssertEqual(transport.sent.count, 0)
+        XCTAssertEqual(tree.readPaths, [])
+    }
+
+    // MARK: - Staleness
+
+    func testWarmCacheWithinTheDayMakesNoRequest() async throws {
+        let tree = makeTree([
+            catalogPath: cacheJSON(
+                fetchedAt: "2026-08-11T11:00:00Z",
+                rows: [(1, "two-sum")]
+            )
+        ])
+        let transport = ScriptedLeetCodeTransport()
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        let slug = try await catalog.resolveSlug(forNumber: 1, credentials: credentials)
+        XCTAssertEqual(slug, "two-sum")
+        XCTAssertEqual(transport.sent.count, 0)
+        XCTAssertEqual(tree.readPaths, [catalogPath])
+        XCTAssertEqual(tree.writtenPaths, [])
+        XCTAssertEqual(catalog.fetchedAt, Self.date("2026-08-11T11:00:00Z"))
+        XCTAssertFalse(catalog.isStale)
+    }
+
+    func testACacheOlderThanADayIsRefreshed() async throws {
+        let tree = makeTree([
+            catalogPath: cacheJSON(
+                fetchedAt: "2026-08-10T10:00:00Z",
+                rows: [(1, "stale-two-sum")]
+            )
+        ])
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "two-sum")]))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        let slug = try await catalog.resolveSlug(forNumber: 1, credentials: credentials)
+        XCTAssertEqual(slug, "two-sum")
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+        XCTAssertEqual(catalog.fetchedAt, now)
+        XCTAssertEqual(tree.writtenPaths, [catalogPath])
+    }
+
+    /// A `fetchedAt` in the future is stale too: a clock that moved backwards
+    /// would otherwise pin the catalog until the calendar caught up.
+    func testACacheFromTheFutureIsTreatedAsStale() async throws {
+        let tree = makeTree([
+            catalogPath: cacheJSON(
+                fetchedAt: "2027-01-01T00:00:00Z",
+                rows: [(1, "stale-two-sum")]
+            )
+        ])
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "two-sum")]))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        try await assertResolves(catalog, number: 1, to: "two-sum")
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+    }
+
+    /// Time passing between two opens re-arms the daily refresh.
+    func testTheCatalogAgesOutWhileTheAppRuns() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "two-sum")]))
+        let clock = Clock(now)
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: clock)
+
+        _ = try await catalog.resolveSlug(forNumber: 1, credentials: credentials)
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+
+        clock.now = now.addingTimeInterval(LeetCodeCatalog.maximumAge + 1)
+        XCTAssertTrue(catalog.isStale)
+        _ = try await catalog.resolveSlug(forNumber: 1, credentials: credentials)
+        XCTAssertEqual(transport.count(for: .problemList), 2)
+    }
+
+    // MARK: - The miss path
+
+    /// A problem added since the cache was written is exactly what a warm cache
+    /// is missing, so a miss forces one refresh rather than reporting "no such
+    /// problem" about something the user is looking at on the site.
+    func testANumberMissingFromAWarmCacheForcesExactlyOneRefresh() async throws {
+        let tree = makeTree([
+            catalogPath: cacheJSON(
+                fetchedAt: "2026-08-11T11:00:00Z",
+                rows: [(1, "two-sum")]
+            )
+        ])
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(
+            .problemList,
+            json: problemListJSON([(1, "two-sum"), (3500, "brand-new-problem")])
+        )
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        let slug = try await catalog.resolveSlug(forNumber: 3500, credentials: credentials)
+        XCTAssertEqual(slug, "brand-new-problem")
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+        XCTAssertEqual(tree.writtenPaths, [catalogPath])
+    }
+
+    /// …and one refresh only. A number that is still absent afterwards is
+    /// reported absent, and the next mistyped number does not fetch again — the
+    /// difference between a typo costing nothing and a typo costing 2 MB per
+    /// attempt.
+    func testANumberStillMissingAfterTheRefreshDoesNotRefreshAgain() async throws {
+        let tree = makeTree([
+            catalogPath: cacheJSON(
+                fetchedAt: "2026-08-11T11:00:00Z",
+                rows: [(1, "two-sum")]
+            )
+        ])
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "two-sum")]))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        let first = try await catalog.resolveSlug(forNumber: 999_999, credentials: credentials)
+        XCTAssertNil(first)
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+
+        let second = try await catalog.resolveSlug(forNumber: 999_998, credentials: credentials)
+        XCTAssertNil(second)
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+    }
+
+    /// Not-found is a value. `apiChanged` stays reserved for LeetCode having
+    /// changed shape, so a typo does not report a broken API.
+    func testAMissingNumberIsNotAnError() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "two-sum")]))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        let slug = try await catalog.resolveSlug(for: .number(4242), credentials: credentials)
+        XCTAssertNil(slug)
+    }
+
+    // MARK: - A cache that cannot be trusted
+
+    func testACorruptCacheIsDiscardedAndRefetched() async throws {
+        let tree = makeTree([catalogPath: "{\"schemaVersion\": 1, \"problems\": [{\"id\""])
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "two-sum")]))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        try await assertResolves(catalog, number: 1, to: "two-sum")
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+        // …and the half-written file is replaced by one that reads back.
+        XCTAssertEqual(tree.writtenPaths, [catalogPath])
+    }
+
+    func testACacheWrittenByAnotherSchemaVersionIsIgnored() async throws {
+        let tree = makeTree([
+            catalogPath: cacheJSON(
+                fetchedAt: "2026-08-11T11:00:00Z",
+                rows: [(1, "two-sum")],
+                schemaVersion: 99
+            )
+        ])
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "refetched-two-sum")]))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        try await assertResolves(catalog, number: 1, to: "refetched-two-sum")
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+    }
+
+    /// A row this build cannot map invalidates the whole file rather than being
+    /// dropped: a catalog silently missing problems answers "no such problem"
+    /// forever, which is worse than one extra request.
+    func testACacheRowWithAnUnknownEnumerationIsIgnored() async throws {
+        let tree = makeTree([
+            catalogPath: cacheJSON(
+                fetchedAt: "2026-08-11T11:00:00Z",
+                rows: [(1, "two-sum")],
+                difficulty: "impossible"
+            )
+        ])
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "refetched-two-sum")]))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        try await assertResolves(catalog, number: 1, to: "refetched-two-sum")
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+    }
+
+    func testAnUnreadableCacheIsTreatedAsAbsent() async throws {
+        let tree = makeTree([
+            catalogPath: cacheJSON(fetchedAt: "2026-08-11T11:00:00Z", rows: [(1, "two-sum")])
+        ])
+        tree.unreadableFiles = [catalogPath]
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "refetched-two-sum")]))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        try await assertResolves(catalog, number: 1, to: "refetched-two-sum")
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+    }
+
+    /// What one run writes, the next run reads — the round trip through the
+    /// encoder that the hand-written fixtures above cannot assert.
+    func testTheWrittenCacheIsReadBackByAFreshCatalog() async throws {
+        let tree = makeTree()
+        let writing = ScriptedLeetCodeTransport()
+        writing.serve(.problemList, body: Self.recordedProblemList)
+        let first = makeCatalog(tree: tree, transport: writing, clock: Clock(now))
+        _ = try await first.resolveSlug(forNumber: 1, credentials: credentials)
+
+        // A second session, one minute later, with a transport that would fail
+        // if it were asked anything at all.
+        let offline = ScriptedLeetCodeTransport()
+        offline.fail(.problemList)
+        let second = makeCatalog(
+            tree: tree,
+            transport: offline,
+            clock: Clock(now.addingTimeInterval(60))
+        )
+
+        try await assertResolves(second, number: 170, to: "two-sum-iii-data-structure-design")
+        XCTAssertEqual(second.problem(forNumber: 170)?.isPaidOnly, true)
+        XCTAssertEqual(second.problem(forSlug: "two-sum")?.status, .solved)
+        XCTAssertEqual(offline.sent.count, 0)
+    }
+
+    // MARK: - Writing the cache may fail
+
+    func testAFailedCacheWriteLeavesTheCatalogUsableInMemory() async throws {
+        let tree = makeTree()
+        tree.writeFailures = [catalogPath]
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "two-sum"), (2, "add-two-numbers")]))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        try await assertResolves(catalog, number: 1, to: "two-sum")
+        XCTAssertTrue(catalog.lastCacheWriteFailed)
+        XCTAssertNil(tree.files[catalogPath])
+        // The session runs on the in-memory catalog: no second fetch.
+        try await assertResolves(catalog, number: 2, to: "add-two-numbers")
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+    }
+
+    /// The other half of the same degradation: the cache *directory* cannot be
+    /// created, because something else already occupies its path.
+    func testAnUncreatableCacheDirectoryDoesNotFailTheResolution() async throws {
+        let tree = makeTree(["cache": "not a directory"])
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "two-sum")]))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        try await assertResolves(catalog, number: 1, to: "two-sum")
+        XCTAssertTrue(catalog.lastCacheWriteFailed)
+    }
+
+    // MARK: - Failures that are the user's business
+
+    /// A shape-valid catalog with no rows would cache "there are no problems"
+    /// for a day and make every open fail with "no such problem". It is reported
+    /// as the API having changed, and nothing is published or written.
+    func testAnEmptyCatalogIsReportedRatherThanCached() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([]))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        await assertThrows(.apiChanged(detail: "stat_status_pairs: empty")) {
+            _ = try await catalog.resolveSlug(forNumber: 1, credentials: self.credentials)
+        }
+        XCTAssertEqual(tree.writtenPaths, [])
+        XCTAssertTrue(catalog.problems.isEmpty)
+        XCTAssertNil(catalog.fetchedAt)
+    }
+
+    func testThrottlingSurfacesAsThrottled() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(
+            .problemList,
+            json: "{\"detail\":\"Request was throttled.\"}",
+            statusCode: 429,
+            headers: ["Retry-After": "30"]
+        )
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        await assertThrows(.throttled(retryAfter: 30)) {
+            _ = try await catalog.resolveSlug(forNumber: 1, credentials: self.credentials)
+        }
+    }
+
+    func testASignedOutCatalogRequestSurfacesAsNotLoggedIn() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(
+            .problemList,
+            json: "{\"detail\":\"Authentication credentials were not provided.\"}",
+            statusCode: 403
+        )
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        await assertThrows(.notLoggedIn) {
+            _ = try await catalog.resolveSlug(forNumber: 1, credentials: self.credentials)
+        }
+    }
+
+    /// A transport that throws something other than a `LeetCodeError` — which
+    /// the real one does not, but a decorator or a stub might — still reads as
+    /// "could not reach LeetCode" rather than escaping this layer's error type.
+    func testATransportFailureBecomesANetworkError() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.fail(.problemList)
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        do {
+            _ = try await catalog.resolveSlug(forNumber: 1, credentials: credentials)
+            XCTFail("expected a network error")
+        } catch let error as LeetCodeError {
+            guard case .network(let reason) = error else {
+                return XCTFail("expected .network, got \(error)")
+            }
+            XCTAssertFalse(reason.isEmpty)
+        }
+        // Nothing was published, so the next attempt tries again.
+        XCTAssertTrue(catalog.problems.isEmpty)
+        transport.serve(.problemList, json: problemListJSON([(1, "two-sum")]))
+        try await assertResolves(catalog, number: 1, to: "two-sum")
+        XCTAssertEqual(transport.count(for: .problemList), 2)
+    }
+
+    /// A `LeetCodeError` thrown by the transport travels unchanged — it is
+    /// already this layer's vocabulary.
+    func testATransportsOwnNetworkErrorIsNotRewrapped() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.fail(.problemList, with: LeetCodeError.network(reason: "offline"))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        await assertThrows(.network(reason: "offline")) {
+            _ = try await catalog.resolveSlug(forNumber: 1, credentials: self.credentials)
+        }
+    }
+
+    // MARK: - Overlapping work
+
+    /// Two problems opened at once download the 2 MB list once.
+    func testOverlappingResolutionsShareOneFetch() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(
+            .problemList,
+            json: problemListJSON([(1, "two-sum"), (2, "add-two-numbers")])
+        )
+        let gate = Gate()
+        transport.hold(.problemList, on: gate)
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        let first = Task { try await catalog.resolveSlug(forNumber: 1, credentials: credentials) }
+        await gate.waitUntilReached()
+        let second = Task { try await catalog.resolveSlug(forNumber: 2, credentials: credentials) }
+        // Let the second task run up to the point where it joins the in-flight
+        // refresh rather than starting its own.
+        await Task.yield()
+        await Task.yield()
+        // Released twice so a *broken* coalescer fails the count assertion below
+        // instead of deadlocking the suite.
+        gate.release()
+        gate.release()
+
+        let slugs = [try await first.value, try await second.value]
+        XCTAssertEqual(slugs, ["two-sum", "add-two-numbers"])
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+    }
+}
