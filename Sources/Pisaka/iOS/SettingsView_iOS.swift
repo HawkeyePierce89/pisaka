@@ -16,6 +16,14 @@ struct SettingsView_iOS: View {
     /// The Keychain PAT store, managed by the Git Credentials section. Thin IO — the
     /// by-host selection logic lives in Core, so only these controls live here.
     let credentialStore: KeychainCredentialStore
+    /// Who is signed in to LeetCode, for the account row. Observed here — unlike in
+    /// `RootView_iOS`, which holds it unobserved — because this screen is a modal
+    /// that exists to show exactly this kind of state, and nothing behind it
+    /// re-renders while it is up.
+    @ObservedObject var leetCode: LeetCodeModel
+    /// The scoped file service, so a picked LeetCode folder can be registered for
+    /// this session (its bookmark covers the next one). See `LeetCodeFolder_iOS`.
+    let scopedService: SecurityScopedFileService
     /// A host to pre-fill in the token field (set when the user is directed here from
     /// a `credentialsRequired` failure); `nil` when opened directly from the toolbar.
     var prefillHost: String?
@@ -29,6 +37,10 @@ struct SettingsView_iOS: View {
     @State private var newHost: String = ""
     @State private var newToken: String = ""
     @State private var patError: String?
+    /// Whether the LeetCode login web view is up over this screen.
+    @State private var isSigningInToLeetCode = false
+    /// Whether the folder picker for the LeetCode solutions folder is up.
+    @State private var isChoosingLeetCodeFolder = false
 
     var body: some View {
         NavigationStack {
@@ -62,6 +74,8 @@ struct SettingsView_iOS: View {
 
                 gitCredentialsSection
 
+                leetCodeSection
+
                 // The peer of the macOS Preferences "Acknowledgements" tab. A push
                 // rather than a tab: the `Form` is already inside a
                 // `NavigationStack`, and a license text needs a full screen.
@@ -82,7 +96,108 @@ struct SettingsView_iOS: View {
                 storedHosts = credentialStore.storedHosts()
                 if let prefillHost, newHost.isEmpty { newHost = prefillHost }
             }
+            .fullScreenCover(isPresented: $isSigningInToLeetCode) {
+                LeetCodeLoginView_iOS(
+                    model: leetCode,
+                    onDismiss: { isSigningInToLeetCode = false }
+                )
+            }
+            .sheet(isPresented: $isChoosingLeetCodeFolder) {
+                DocumentPicker(
+                    mode: .folder,
+                    onPick: { url in
+                        isChoosingLeetCodeFolder = false
+                        LeetCodeFolder_iOS.adopt(
+                            url,
+                            settings: settings,
+                            model: leetCode,
+                            scopedService: scopedService
+                        )
+                    },
+                    onCancel: { isChoosingLeetCodeFolder = false }
+                )
+                .ignoresSafeArea()
+            }
         }
+    }
+
+    /// The LeetCode rows: the account, the folder solution files go into, and the
+    /// language new ones are seeded in — the iOS peer of the macOS Preferences
+    /// "LeetCode" tab, as a section because iOS Preferences here is one `Form`.
+    ///
+    /// Each is shown where it is *kept*: the account is the model's (a Keychain
+    /// item plus whatever LeetCode last said about it), the folder and the
+    /// language are the store's. Nothing here decides anything — signing out is
+    /// `LeetCodeWebSession.signOut`, the folder is `LeetCodeFolder_iOS`, and the
+    /// language picker writes straight through to the persisted value, so this
+    /// pane and the "Open Problem" screen cannot disagree about which language is
+    /// current.
+    @ViewBuilder
+    private var leetCodeSection: some View {
+        Section {
+            HStack {
+                Text(leetCodeAccountDescription)
+                    .foregroundStyle(leetCode.isSignedIn ? .primary : .secondary)
+                Spacer()
+                if leetCode.isSignedIn {
+                    // Never `leetCode.signOut()` on its own — that clears the
+                    // Keychain and leaves the web view's cookies behind.
+                    Button("Sign Out") {
+                        Task { await LeetCodeWebSession.signOut(model: leetCode) }
+                    }
+                } else {
+                    Button("Sign In…") { isSigningInToLeetCode = true }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Solution folder")
+                Text(leetCodeFolderDescription)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+            }
+            HStack {
+                Button("Change…") { isChoosingLeetCodeFolder = true }
+                Spacer()
+                if LeetCodeFolder_iOS.isOverridden(settings: settings) {
+                    Button("Use Default") {
+                        LeetCodeFolder_iOS.useDefault(
+                            settings: settings,
+                            model: leetCode,
+                            scopedService: scopedService
+                        )
+                    }
+                }
+            }
+
+            Picker("Default language", selection: $settings.leetCodeLanguage) {
+                ForEach(LeetCodeSolutionFile.offerableLanguages, id: \.self) { language in
+                    Text(language.displayName).tag(language)
+                }
+            }
+        } header: {
+            Text("LeetCode")
+        } footer: {
+            Text("Solution files are written into this folder, and a file there is what associates an editor tab with its problem description.")
+        }
+    }
+
+    /// "Signed in as …" once LeetCode has named the account, "Signed in" while the
+    /// launch-time confirmation is still out (the model is optimistic about a
+    /// stored session on purpose), and "Not signed in" otherwise.
+    private var leetCodeAccountDescription: String {
+        guard leetCode.isSignedIn else { return "Not signed in" }
+        guard let username = leetCode.signedInUsername else { return "Signed in" }
+        return "Signed in as \(username)"
+    }
+
+    /// The folder in force. `leetCodeFolderPath` is written by
+    /// `LeetCodeFolder_iOS.publish` at launch, so the default is shown as the real
+    /// path it is rather than as a promise.
+    private var leetCodeFolderDescription: String {
+        settings.leetCodeFolderPath ?? LeetCodeFolder_iOS.containerDefault.path
     }
 
     /// The Git Credentials section: the stored tokens (deletable) plus a form to add

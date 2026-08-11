@@ -664,16 +664,71 @@ Notes from the implementation (decisions the later tasks inherit):
 
 Intent: the same flow with iOS's navigation and file-access realities.
 
-- [ ] A LeetCode section in the root navigation: sign-in state, the same input field and
+- [x] A LeetCode section in the root navigation: sign-in state, the same input field and
   language picker, and the open action producing a normal editor tab.
-- [ ] Folder resolution: default to a `LeetCode` directory inside the app container
+- [x] Folder resolution: default to a `LeetCode` directory inside the app container
   (`LSSupportsOpeningDocumentsInPlace` already exposes it in Files), created on first use; an
   override chosen through the document picker is persisted as a security-scoped bookmark and
   reached through the existing `SecurityScopedFileService` decorator.
-- [ ] The description screen: side-by-side with the editor on regular width, a toggleable screen
+- [x] The description screen: side-by-side with the editor on regular width, a toggleable screen
   on compact, following `MergeRoute_iOS`'s adaptive pattern.
-- [ ] Settings screen gains the LeetCode rows (account, folder, default language).
-- [ ] iOS build succeeds.
+- [x] Settings screen gains the LeetCode rows (account, folder, default language).
+- [x] iOS build succeeds.
+
+Notes from the implementation (decisions Task 12 documents):
+
+- **The macOS pair collapses into one screen.** `LeetCodeCommands` (the menu) and
+  `LeetCodeOpenProblemSheet` (the dialog) are two surfaces on macOS because there is a menu bar to
+  hang account state off; iOS has none, so `LeetCodeRoute_iOS` is one sheet whose first section is
+  the account and whose second is the input field — which is also the only place a signed-out user
+  would look for the way in. Its entry point is an item in the existing "+" toolbar menu rather
+  than a fifth toolbar button: an iPhone navigation bar is already carrying the branch widget and
+  four items, and "open a LeetCode problem" is the same *kind* of action as the three opens above
+  it.
+- **The default folder needs no bookmark, and that is the point of the iOS/macOS asymmetry.**
+  `<container>/Documents/LeetCode` is ordinary unscoped storage, so the common case never involves
+  the picker, never involves a bookmark and cannot break when one goes stale; only an override is
+  a `SecurityScopedBookmarks` blob, registered with the same `SecurityScopedFileService` the
+  project root uses so the solution write and every later read run under its grant. A bookmark
+  that no longer resolves is **forgotten and the default takes over** rather than the integration
+  reporting `folderUnavailable` forever — silently continuing to work in the container beats a
+  feature that has quietly stopped. `leetCodeFolderBookmark` is therefore the *authority* on an
+  override and `leetCodeFolderPath` the *display* of whichever folder won, which is why both are
+  written on both paths.
+- **Nothing is created at launch.** `LeetCodeFolder_iOS.publish` resolves and points both halves
+  (the model's `solutionsFolder`, which `openProblem` captures synchronously, and the settings
+  path, which the statement `.task` keys on) without touching the disk; the `ensureDirectory`
+  waits for `established(…)`, so a user who never opens a problem never finds a directory this app
+  made for them. Unlike macOS there is no cancellable panel in that path — the default always
+  exists to fall back to, so an iOS open never has to ask a question before it can start.
+- **The adaptive split is two containers around one content view.** `LeetCodeDescriptionContent_iOS`
+  (header + web view) is shared; on regular width it is the trailing child of an `HStack` in
+  `editorArea`, on compact a sheet raised by a toolbar button. The `HStack` is unconditional and
+  the *pane* renders itself away, never a conditional wrapping the editor — the macOS pane's rule,
+  and here it protects the `UITextView`'s undo stack and scroll position from being torn down every
+  time a LeetCode tab is selected. `editorArea` was split into itself plus `tabbedEditor` for that
+  reason alone.
+- **The root does not observe the model, on a root that re-renders anyway.** `RootView_iOS` holds
+  `leetCode` as a plain `let` beside `symbolIndex`, and the pane, the compact toolbar toggle and
+  the screen each carry their own `@ObservedObject` and render *nothing* when `statement` is nil.
+  That is what lets the pane and the button appear and disappear without the project tree and the
+  editor being rebuilt for it, and it keeps the macOS rule true on both platforms rather than
+  true on one and merely cheap on the other.
+- **The compact sheet is attached at the root, not on the pushed editor screen**, so a tab switch
+  behind it cannot tear it down mid-read; it shows a placeholder rather than emptying itself when
+  the statement goes away, because a sheet that blanks reads as a bug.
+- `PisakaApp_iOS` composes the stack inline rather than through a `makeLeetCode` factory —
+  `ContentView`'s need for a default value has no iOS counterpart — but from the *same* three
+  cross-platform seams, with the file service as its one platform difference: the **scoped** one,
+  since a picked folder is only writable inside its grant and the container cache simply finds no
+  covering scope and falls through. `SettingsStore` moved into `init` for the macOS app's reason,
+  so the folder can be read before the model is built.
+- **Files-app visibility is the one stated gap.** The container's `Documents` directory is exposed
+  to the Files app by `UIFileSharingEnabled`, which this build does not set (`project.yml` is
+  unchanged by this branch, per Task 13); `LSSupportsOpeningDocumentsInPlace` grants in-place
+  access to what the *picker* vends, which is a different question. Solution files are fully
+  usable in the app either way, and a user who wants them visible elsewhere can point the folder
+  at a Files location through Change… — the override path this task built.
 
 ### Task 12: Documentation
 

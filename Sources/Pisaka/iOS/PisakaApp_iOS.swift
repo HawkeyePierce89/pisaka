@@ -14,7 +14,10 @@ import PisakaCore
 @main
 struct PisakaApp_iOS: App {
     @StateObject private var model: WorkspaceModel
-    @StateObject private var settings = SettingsStore()
+    /// Built in `init` rather than inline, for the reason the macOS `PisakaApp`
+    /// records: the LeetCode model is composed from it (the folder it remembers),
+    /// so a value has to exist before the `StateObject` wrapper is made.
+    @StateObject private var settings: SettingsStore
     @StateObject private var fileAccess: FileAccessController
     @StateObject private var localChanges: LocalChangesModel
     @StateObject private var commitLog: CommitLogModel
@@ -48,6 +51,15 @@ struct PisakaApp_iOS: App {
     private let symbolIndex: SymbolIndexModel
     private let symbolIndexController: SymbolIndexController
 
+    /// Who is signed in to LeetCode, the open-problem operation, and the statement
+    /// for the active tab.
+    ///
+    /// A plain `let` for the same reason as the two above and as its macOS
+    /// counterpart: the model republishes on every busy transition and every
+    /// statement fetch, and this scene's `body` reads nothing on it. The surfaces
+    /// that show its state observe it themselves.
+    private let leetCode: LeetCodeModel
+
     init() {
         // The scoped service decorates a real `FileService`; the workspace model
         // reads/writes through it so every file op is bracketed by the covering
@@ -60,6 +72,36 @@ struct PisakaApp_iOS: App {
         self.credentialStore = credentialStore
         let model = WorkspaceModel(fileService: scopedService)
         let bookmarks = BookmarkStore()
+        let settings = SettingsStore()
+        _settings = StateObject(wrappedValue: settings)
+        // The LeetCode stack, composed once — the iOS peer of
+        // `PisakaApp.makeLeetCode`, and deliberately *this* composition rather
+        // than a second one: the transport, the Keychain store and the cache
+        // layout are all cross-platform files under `Platform/`, so the only
+        // thing this platform changes is the file service. It is the **scoped**
+        // one, because a LeetCode folder the user picked outside the container is
+        // security-scoped exactly like a picked project root, and the solution
+        // write is the first thing that touches it. The cache lives in the
+        // container, where the decorator simply finds no covering scope and falls
+        // through.
+        //
+        // The folder is read out of the store here rather than at each open, so
+        // the model is pointed at it before the first `openProblem` captures it;
+        // `LeetCodeFolder_iOS` re-resolves it at launch (a bookmark has to be
+        // resolved and registered, which a `SettingsStore` cannot do) and writes
+        // both halves whenever the user changes it.
+        //
+        // Building one talks to nothing: `URLSession` opens no connection until a
+        // request is made, and the Keychain is read exactly once, in
+        // `LeetCodeModel.init`, to decide whether to show "signed in" before the
+        // launch-time confirmation lands.
+        self.leetCode = LeetCodeModel(
+            transport: LeetCodeURLSessionTransport(),
+            credentialStore: LeetCodeKeychainStore(),
+            fileService: scopedService,
+            cacheLayout: LeetCodeSupportDirectory.cacheLayout,
+            solutionsFolder: settings.leetCodeFolderURL
+        )
         _model = StateObject(wrappedValue: model)
         _fileAccess = StateObject(
             wrappedValue: FileAccessController(
@@ -130,7 +172,9 @@ struct PisakaApp_iOS: App {
                 branchSwitcher: branchSwitcher,
                 fileService: scopedService,
                 scopeProvider: scopedService,
+                scopedService: scopedService,
                 credentialStore: credentialStore,
+                leetCode: leetCode,
                 symbolIndex: symbolIndex,
                 symbolIndexController: symbolIndexController
             )
