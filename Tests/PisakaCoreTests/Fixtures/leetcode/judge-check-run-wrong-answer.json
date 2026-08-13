@@ -1,0 +1,54 @@
+{
+  "status_code": 10,
+  "lang": "swift",
+  "run_success": true,
+  "status_runtime": "9 ms",
+  "memory": 15044608,
+  "display_runtime": "9",
+  "code_answer": [
+    "[0,1]",
+    "[]",
+    "[0,1]"
+  ],
+  "code_output": [],
+  "std_output_list": [
+    "",
+    "nums = [3, 2, 4]\n",
+    "",
+    ""
+  ],
+  "elapsed_time": 79,
+  "task_finish_time": 1770000000000,
+  "task_name": "judger.runcodetask.RunCode",
+  "expected_status_code": 10,
+  "expected_lang": "cpp",
+  "expected_run_success": true,
+  "expected_status_runtime": "0",
+  "expected_memory": 6234112,
+  "expected_code_answer": [
+    "[0,1]",
+    "[1,2]",
+    "[0,1]"
+  ],
+  "expected_code_output": [],
+  "expected_std_output_list": [
+    "",
+    "",
+    "",
+    ""
+  ],
+  "expected_elapsed_time": 4,
+  "expected_task_finish_time": 1770000000000,
+  "expected_task_name": "judger.interprettask.Interpret",
+  "correct_answer": false,
+  "compare_result": "101",
+  "total_correct": 2,
+  "total_testcases": 3,
+  "runtime_percentile": null,
+  "status_memory": "14.3 MB",
+  "memory_percentile": null,
+  "pretty_lang": "Swift",
+  "submission_id": "runcode_1770000000.1234567_AbCdEfGhIj",
+  "status_msg": "Accepted",
+  "state": "SUCCESS"
+}

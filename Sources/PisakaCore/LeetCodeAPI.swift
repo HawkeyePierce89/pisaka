@@ -64,6 +64,49 @@ public enum LeetCodeAPI {
             .appendingPathComponent(slug)
     }
 
+    /// The same page as a **directory** URL, i.e. with the trailing slash.
+    ///
+    /// Not cosmetic, and not the same value as ``problemURL(slug:)``: it is the
+    /// `Referer` the three judge endpoints are sent with, and LeetCode's own
+    /// browser sends exactly this spelling. The seeded header comment keeps the
+    /// slash-less form because that is the link a human clicks, so the two are
+    /// separate functions rather than one with a flag nobody would read.
+    public static func problemPageURL(slug: String) -> URL {
+        siteURL
+            .appendingPathComponent("problems", isDirectory: true)
+            .appendingPathComponent(slug, isDirectory: true)
+    }
+
+    /// `POST` here to run code against the example test cases.
+    ///
+    /// The trailing slash is load-bearing: Django's `APPEND_SLASH` answers the
+    /// slash-less form with a 301, and a redirected `POST` is re-sent as a `GET`
+    /// by every HTTP stack that follows RFC 9110's historical behaviour — which
+    /// LeetCode then answers with a 405 that says nothing about the real cause.
+    public static func interpretURL(slug: String) -> URL {
+        problemPageURL(slug: slug).appendingPathComponent("interpret_solution", isDirectory: true)
+    }
+
+    /// `POST` here to submit against LeetCode's full test suite. Same trailing
+    /// slash, same reason.
+    public static func submitURL(slug: String) -> URL {
+        problemPageURL(slug: slug).appendingPathComponent("submit", isDirectory: true)
+    }
+
+    /// `GET` here to ask how a run or a submission is getting on.
+    ///
+    /// One endpoint for both kinds — a run's id is a `runcode_…` string and a
+    /// submission's is a number — which is exactly why the kind has to travel
+    /// with the parse (`parseJudgeCheck(_:kind:)`): the response shapes differ
+    /// and the URL does not say which one to expect.
+    public static func checkURL(id: String) -> URL {
+        siteURL
+            .appendingPathComponent("submissions", isDirectory: true)
+            .appendingPathComponent("detail", isDirectory: true)
+            .appendingPathComponent(id, isDirectory: true)
+            .appendingPathComponent("check", isDirectory: true)
+    }
+
     // MARK: - GraphQL documents
 
     /// The login-confirmation query. `userStatus.isSignedIn` is the canonical
@@ -208,13 +251,124 @@ public enum LeetCodeAPI {
     private static func commonHeaders(
         credentials: LeetCodeCredentials
     ) -> [String: String] {
+        commonHeaders(credentials: credentials, referer: siteURL.absoluteString)
+    }
+
+    /// The same headers with the `Referer` chosen by the caller.
+    ///
+    /// The GraphQL and catalog calls send the site root, which is what a browser
+    /// sitting on the home page would send. The three judge endpoints send the
+    /// **problem page**, because that is where a browser is when it runs or
+    /// submits — and LeetCode's CSRF-protected POST views are the ones most
+    /// likely to check that the referring page is the one that could plausibly
+    /// have made the request. Overloading rather than defaulting the parameter
+    /// keeps every existing call site's bytes provably unchanged.
+    private static func commonHeaders(
+        credentials: LeetCodeCredentials,
+        referer: String
+    ) -> [String: String] {
         [
             "Accept": "application/json",
             "Cookie": credentials.cookieHeaderValue,
-            "Referer": siteURL.absoluteString,
+            "Referer": referer,
             "User-Agent": userAgent,
             "x-csrftoken": credentials.csrfToken
         ]
+    }
+
+    // MARK: - Judge requests
+
+    /// `interpret_solution` — run `code` against `input`, whatever the user has
+    /// typed into the test-case box.
+    ///
+    /// `questionID` is LeetCode's **internal** id, not the number in the file
+    /// name; the two agree on old problems and disagree on everything recent, so
+    /// the parameter is spelled the way `LeetCodeProblemDetail.questionID` is and
+    /// nothing here accepts an `Int`.
+    public static func interpretRequest(
+        slug: String,
+        questionID: String,
+        langSlug: String,
+        code: String,
+        input: String,
+        credentials: LeetCodeCredentials
+    ) -> LeetCodeHTTPRequest {
+        judgeRequest(
+            url: interpretURL(slug: slug),
+            slug: slug,
+            payload: [
+                "data_input": input,
+                "lang": langSlug,
+                "question_id": questionID,
+                "typed_code": code
+            ],
+            credentials: credentials
+        )
+    }
+
+    /// `submit` — the same payload **without** `data_input`.
+    ///
+    /// Omitted rather than sent empty: a submission runs LeetCode's own suite,
+    /// and a `data_input` key on this endpoint would be either ignored or, worse,
+    /// honoured. The editable box has nothing to do with a submission, and the
+    /// byte-exact request test is what keeps that true.
+    public static func submitRequest(
+        slug: String,
+        questionID: String,
+        langSlug: String,
+        code: String,
+        credentials: LeetCodeCredentials
+    ) -> LeetCodeHTTPRequest {
+        judgeRequest(
+            url: submitURL(slug: slug),
+            slug: slug,
+            payload: [
+                "lang": langSlug,
+                "question_id": questionID,
+                "typed_code": code
+            ],
+            credentials: credentials
+        )
+    }
+
+    /// One poll of `submissions/detail/<id>/check/`.
+    ///
+    /// `slug` is carried only so the `Referer` can name the problem page the
+    /// poll is nominally happening on — the URL itself does not mention the
+    /// problem at all.
+    public static func checkRequest(
+        id: String,
+        slug: String,
+        credentials: LeetCodeCredentials
+    ) -> LeetCodeHTTPRequest {
+        LeetCodeHTTPRequest(
+            method: "GET",
+            url: checkURL(id: id),
+            headers: commonHeaders(
+                credentials: credentials,
+                referer: problemPageURL(slug: slug).absoluteString
+            )
+        )
+    }
+
+    /// The shared body of the two judge POSTs — plain JSON, not GraphQL, and
+    /// `.sortedKeys` for the same byte-reproducibility reason.
+    private static func judgeRequest(
+        url: URL,
+        slug: String,
+        payload: [String: String],
+        credentials: LeetCodeCredentials
+    ) -> LeetCodeHTTPRequest {
+        let body = (try? JSONSerialization.data(
+            withJSONObject: payload,
+            options: [.sortedKeys, .withoutEscapingSlashes]
+        )) ?? Data()
+        var headers = commonHeaders(
+            credentials: credentials,
+            referer: problemPageURL(slug: slug).absoluteString
+        )
+        headers["Content-Type"] = "application/json"
+        return LeetCodeHTTPRequest(method: "POST", url: url, headers: headers, body: body)
     }
 
     /// One GraphQL POST. The body is serialised with sorted keys so the bytes are
@@ -404,6 +558,152 @@ public enum LeetCodeAPI {
             content: content,
             codeSnippets: snippets,
             exampleTestCases: examples
+        )
+    }
+
+    // MARK: - Judge responses
+
+    /// The id `interpret_solution` answered with — a `runcode_…` string that is
+    /// the only handle on the run just started.
+    ///
+    /// Strict, and through `opaqueIdentifier` for the same reason `questionId` is:
+    /// the value is never interpreted, only put back into the check URL, so its
+    /// *form* is not a fact worth failing on — but its absence is, because a
+    /// response without it means there is nothing to poll and the run silently
+    /// never happened.
+    ///
+    /// LeetCode also answers this endpoint with `interpret_expected_id`, which is
+    /// deliberately ignored: the expected output arrives inside the same check
+    /// response the run's own id produces, so polling a second id would double
+    /// the request rate for data already in hand.
+    public static func parseInterpretID(_ response: LeetCodeHTTPResponse) throws -> String {
+        let root = try jsonObject(response, context: "interpret_solution")
+        return try root.opaqueIdentifier("interpret_id")
+    }
+
+    /// The id `submit` answered with.
+    ///
+    /// Arrives as a JSON **number** where the run's id is a string, which is
+    /// precisely what `opaqueIdentifier` exists to absorb: it is carried as the
+    /// `String` the check URL needs either way, and nothing here does arithmetic
+    /// with a submission id.
+    public static func parseSubmissionID(_ response: LeetCodeHTTPResponse) throws -> String {
+        let root = try jsonObject(response, context: "submit")
+        return try root.opaqueIdentifier("submission_id")
+    }
+
+    /// Parse one poll of the check endpoint, under the kind that started it.
+    ///
+    /// **Strict where the verdict lives, lenient around it.** `state` and
+    /// `status_code` decide what the user is told, so an unrecognised value of
+    /// either is `apiChanged` naming it — a tenth `status_code` rendered as some
+    /// default would be a confidently wrong verdict on somebody's submission, and
+    /// the whole point of this file is that such a thing must be loud. Every
+    /// other member is a *display* field, read through the `display…` readers
+    /// that never throw: LeetCode omits percentiles on a rejected submit, omits
+    /// `code_answer` on a compile error, spells runtime as a string, and has
+    /// changed which of those it sends more than once. Failing a correct verdict
+    /// because a cosmetic key moved would be the same mistake the catalog's
+    /// `status` leniency already exists to prevent.
+    ///
+    /// An absent optional stays `nil`. Nothing here substitutes a zero: a `0 ms`
+    /// invented to fill a gap reads as a measurement.
+    public static func parseJudgeCheck(
+        _ response: LeetCodeHTTPResponse,
+        kind: LeetCodeJudgeKind
+    ) throws -> LeetCodeJudgeCheck {
+        let root = try jsonObject(response, context: "check")
+        let rawState = try root.string("state")
+        guard let state = judgeState(fromWireValue: rawState) else {
+            throw LeetCodeError.apiChanged(detail: "\(root.path(of: "state")) = \(rawState)")
+        }
+
+        switch state {
+        case .pending: return .pending
+        case .started: return .started
+        case .failure: return .judgeFailed
+        case .success:
+            let verdict = try self.verdict(
+                fromStatusCode: try root.integer("status_code"),
+                path: root.path(of: "status_code")
+            )
+            switch kind {
+            case .run: return .finishedRun(runResult(verdict: verdict, from: root))
+            case .submit: return .finishedSubmit(submitResult(verdict: verdict, from: root))
+            }
+        }
+    }
+
+    /// The `state` strings, matched case-insensitively after trimming (decode
+    /// leniently as to *form*), and `nil` for anything not in the table — which
+    /// the caller turns into `apiChanged`.
+    public static func judgeState(fromWireValue value: String) -> LeetCodeJudgeState? {
+        LeetCodeJudgeState(
+            rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        )
+    }
+
+    /// The numeric `status_code` table.
+    ///
+    /// No default, exactly like `difficulty(fromGraphQLName:)` and for a sharper
+    /// version of the same reason: "every problem is Easy" is silent wrongness in
+    /// a list, while a wrong verdict is silent wrongness about the thing the user
+    /// just asked. A code this app does not know is reported as the schema change
+    /// it is, naming the number.
+    public static func verdict(
+        fromStatusCode code: Int,
+        path: String = "status_code"
+    ) throws -> LeetCodeVerdict {
+        guard let verdict = LeetCodeVerdict(rawValue: code) else {
+            throw LeetCodeError.apiChanged(detail: "\(path) = \(code)")
+        }
+        return verdict
+    }
+
+    /// The run half of a finished check. Every field below is a display field;
+    /// see `parseJudgeCheck` for why none of them throws.
+    private static func runResult(
+        verdict: LeetCodeVerdict,
+        from root: JSONObjectReader
+    ) -> LeetCodeRunResult {
+        LeetCodeRunResult(
+            verdict: verdict,
+            // Read separately from `status_code` on purpose: on a run, code 10
+            // means "it executed", and this is the only member that says whether
+            // the output was right. Conflating them is the mistake this type's
+            // documentation exists to prevent.
+            matchedExpected: root.displayBool("correct_answer"),
+            // LeetCode echoes the submitted input back on some shapes and not on
+            // others; the flow model already knows what it sent, so an absence
+            // costs nothing and is not worth failing on.
+            inputs: root.displayLines("test_case"),
+            answers: root.displayStrings("code_answer"),
+            expectedAnswers: root.displayStrings("expected_code_answer"),
+            stdOutputs: root.displayStrings("std_output_list"),
+            runtime: root.displayString("status_runtime"),
+            memory: root.displayString("status_memory"),
+            errorText: root.judgeErrorText()
+        )
+    }
+
+    /// The submit half of a finished check.
+    private static func submitResult(
+        verdict: LeetCodeVerdict,
+        from root: JSONObjectReader
+    ) -> LeetCodeSubmitResult {
+        LeetCodeSubmitResult(
+            verdict: verdict,
+            runtime: root.displayString("status_runtime"),
+            runtimePercentile: root.displayNumber("runtime_percentile"),
+            memory: root.displayString("status_memory"),
+            memoryPercentile: root.displayNumber("memory_percentile"),
+            totalCorrect: root.displayInteger("total_correct"),
+            totalTestcases: root.displayInteger("total_testcases"),
+            lastTestcaseInput: root.displayString("last_testcase"),
+            codeOutput: root.displayString("code_output"),
+            expectedOutput: root.displayString("expected_output"),
+            stdOutput: root.displayString("std_output"),
+            errorText: root.judgeErrorText()
         )
     }
 
@@ -916,6 +1216,95 @@ private struct JSONObjectReader {
             return String(number.intValue)
         }
         throw LeetCodeError.apiChanged(detail: "\(path(of: key)) = \(raw)")
+    }
+
+    // MARK: Display fields
+
+    // The readers below are the judge's deliberate leniency, and they are grouped
+    // here so the asymmetry is visible: **none of them throws.** They read the
+    // decorations around a verdict — a runtime string, a percentile, the printed
+    // output — on an endpoint that omits half of them depending on the outcome
+    // and has re-spelled several of them over the years. The verdict itself
+    // (`state`, `status_code`) goes through the strict readers above, so a
+    // schema change where it matters is still loud; a schema change in a
+    // decoration costs that decoration and nothing else. The reasoning is the
+    // catalog's `status(fromRESTValue:)` reasoning, applied where the same
+    // trade-off appears: a missing detail line against no verdict at all.
+
+    /// A string for display, or `nil`.
+    ///
+    /// Empty and whitespace-only fold into `nil` because LeetCode spells "no
+    /// value" as `""` about as often as it omits the key (`last_testcase` on an
+    /// Accepted submission is `""`), and a view has nothing to do with the
+    /// difference. A number is rendered rather than refused — `display_runtime`
+    /// has arrived both ways.
+    func displayString(_ key: String) -> String? {
+        guard let raw = value[key], !(raw is NSNull) else { return nil }
+        let text: String
+        if let string = raw as? String {
+            text = string
+        } else if let number = raw as? NSNumber {
+            text = number.stringValue
+        } else {
+            return nil
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+    }
+
+    /// A list of strings for display; absent, null or anything not an array is
+    /// `[]`. Non-string elements are rendered rather than dropped, so a count
+    /// never silently disagrees with the number of test cases.
+    func displayStrings(_ key: String) -> [String] {
+        guard let array = value[key] as? [Any] else { return [] }
+        return array.compactMap { element in
+            if let string = element as? String { return string }
+            if let number = element as? NSNumber { return number.stringValue }
+            return nil
+        }
+    }
+
+    /// A newline-separated string read as its lines — how LeetCode spells a
+    /// multi-case input in one field.
+    func displayLines(_ key: String) -> [String] {
+        guard let text = displayString(key) else { return [] }
+        return text.components(separatedBy: "\n")
+    }
+
+    /// A number for display (a percentile), or `nil`.
+    func displayNumber(_ key: String) -> Double? {
+        guard let number = value[key] as? NSNumber, !(value[key] is NSString) else { return nil }
+        let double = number.doubleValue
+        return double.isFinite ? double : nil
+    }
+
+    /// A count for display, or `nil` — never a substituted zero, because "0 of
+    /// 63 passed" and "the judge never got that far" are different things to say.
+    func displayInteger(_ key: String) -> Int? {
+        if let number = value[key] as? NSNumber, !(value[key] is NSString) {
+            return number.intValue
+        }
+        if let string = value[key] as? String { return Int(string) }
+        return nil
+    }
+
+    /// A boolean for display, or `nil`.
+    func displayBool(_ key: String) -> Bool? {
+        guard let number = value[key] as? NSNumber else { return nil }
+        return number.boolValue
+    }
+
+    /// The compile or runtime error, in the fullest form this response carries.
+    ///
+    /// The order is the point. LeetCode sends both a one-line summary and a full
+    /// text for each, and the full one is the entire reason somebody would rather
+    /// read the verdict here than in the browser — a compiler diagnostic cut to
+    /// its first line is not a diagnosis. Compile is preferred over runtime
+    /// because a response carrying both compiled nothing.
+    func judgeErrorText() -> String? {
+        for key in ["full_compile_error", "compile_error", "full_runtime_error", "runtime_error"] {
+            if let text = displayString(key) { return text }
+        }
+        return nil
     }
 
     func optionalArray(_ key: String) throws -> [Any]? {

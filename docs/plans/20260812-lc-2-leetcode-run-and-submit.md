@@ -106,13 +106,13 @@ Parse **strictly where the verdict lives** (`state`, `status_code`) and **lenien
 
 Fixtures: `judge-check-pending.json`, `judge-check-started.json`, and finished pairs for Accepted / Wrong Answer / TLE / Runtime Error / Compile Error on both the run and submit shapes, plus `judge-interpret-id.json`, `judge-submit-id.json`, an unknown-`status_code` and an unknown-`state` violation. These require a session and so are **authored** to the documented DRF shapes — the README's "Authored, not recorded" section grows a subsection saying exactly that, in its own voice, with the note that a future session holding a real cookie should re-record and delete the label.
 
-- [ ] add `LeetCodeJudge.swift` with the kind/verdict/state/result/check types
-- [ ] add the three endpoints, the `Referer` overload, the two POST builders and the GET builder to `LeetCodeAPI`
-- [ ] add `parseInterpretID`, `parseSubmissionID`, `parseJudgeCheck(_:kind:)` with strict tables and lenient fields
-- [ ] add the two `LeetCodeError` cases and their sentences
-- [ ] author the judge fixtures and extend the README with a labelled section
-- [ ] write `LeetCodeJudgeAPITests`: byte-exact bodies and headers (question id, problem-page `Referer`), both id parses, every fixture-driven verdict on both shapes, unknown code and unknown state as `apiChanged`, a 429 and a DRF auth body on a check
-- [ ] run `swift test` — must pass before Task 3
+- [x] add `LeetCodeJudge.swift` with the kind/verdict/state/result/check types
+- [x] add the three endpoints, the `Referer` overload, the two POST builders and the GET builder to `LeetCodeAPI`
+- [x] add `parseInterpretID`, `parseSubmissionID`, `parseJudgeCheck(_:kind:)` with strict tables and lenient fields
+- [x] add the two `LeetCodeError` cases and their sentences
+- [x] author the judge fixtures and extend the README with a labelled section
+- [x] write `LeetCodeJudgeAPITests`: byte-exact bodies and headers (question id, problem-page `Referer`), both id parses, every fixture-driven verdict on both shapes, unknown code and unknown state as `apiChanged`, a 429 and a DRF auth body on a check
+- [x] run `swift test` — must pass before Task 3
 
 ### Task 3: The judge context memo and the scripted transport's new routes
 

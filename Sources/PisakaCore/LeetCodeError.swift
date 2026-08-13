@@ -44,6 +44,26 @@ public enum LeetCodeError: Error, Equatable {
     /// Reading or writing on disk failed — creating the folder, or writing the
     /// seeded solution file. `reason` carries the underlying description.
     case fileSystem(reason: String)
+    /// The judge was asked, answered, and then never finished within the budget
+    /// the run was given. `seconds` is that budget, so the sentence can name it.
+    ///
+    /// **A product refusal, not a wire mismatch** — nothing about the response
+    /// was wrong; LeetCode simply kept saying `PENDING`. It exists so that the
+    /// one thing a poll loop must never do is possible to state: hang. The
+    /// submission itself is *not* undone by this — LeetCode has it, and the
+    /// verdict appears on the site — which is why the sentence says so rather
+    /// than implying the attempt was lost.
+    case judgeTimedOut(seconds: TimeInterval)
+    /// Run or Submit cannot be offered for this file at all: not signed in, not
+    /// a LeetCode solution file, a language LeetCode does not accept, or a
+    /// problem it no longer knows. `reason` is the already-user-facing half of
+    /// the sentence, decided one layer up where the file and the session are
+    /// both in view.
+    ///
+    /// Also a product refusal, and separate from `apiChanged` on purpose: none
+    /// of these mean LeetCode changed anything, so none of them should send
+    /// somebody hunting a schema change.
+    case judgeUnavailable(reason: String)
 }
 
 extension LeetCodeError: LocalizedError {
@@ -92,6 +112,22 @@ extension LeetCodeError: LocalizedError {
         case .fileSystem(let reason):
             let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? "Could not write the solution file." : trimmed
+        case .judgeTimedOut(let seconds):
+            // The same "a wait worth naming" guard the throttle case carries, and
+            // for the identical reason: this is a `public` case anyone can build,
+            // and `Int(_:)` traps on an infinite or over-`Int.max` `Double`.
+            let suffix = "LeetCode still has the submission — its result is on the site."
+            guard seconds > 0, seconds <= 3600 else {
+                return "LeetCode did not return a result in time. " + suffix
+            }
+            let whole = Int(seconds.rounded(.up))
+            return "LeetCode did not return a result within \(whole) "
+                + (whole == 1 ? "second. " : "seconds. ") + suffix
+        case .judgeUnavailable(let reason):
+            let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty
+                ? "This file cannot be run on LeetCode."
+                : trimmed
         }
     }
 }
