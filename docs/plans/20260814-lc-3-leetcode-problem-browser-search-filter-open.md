@@ -192,11 +192,11 @@ Known limits gain: the per-account status is as old as the catalog fetch (with t
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] run `swift test` — full suite green
-- [ ] run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
-- [ ] run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
-- [ ] confirm with `git diff --name-only` that `project.yml`, `Package.resolved`, `Package.swift`, `Resources/Licenses/licenses.json` and **`Sources/PisakaCore/LeetCodeAPI.swift`** are untouched
-- [ ] confirm the new Core suites cover every acceptance bullet: filter table, cache-served load, forced refresh, refresh failure keeping rows, superseded load publishing nothing, signed-out as a value, session change re-arming
+- [x] run `swift test` — full suite green (2685 tests, 0 failures)
+- [x] run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build` — BUILD SUCCEEDED
+- [x] run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build` — BUILD SUCCEEDED
+- [x] confirm with `git diff --name-only` that `project.yml`, `Package.resolved`, `Package.swift`, `Resources/Licenses/licenses.json` and **`Sources/PisakaCore/LeetCodeAPI.swift`** are untouched — none appear in `git diff --name-only master...HEAD`
+- [x] confirm the new Core suites cover every acceptance bullet: filter table (24 cases incl. exact-number, whitespace, case, paid rows, order), cache-served load (`testLoadIfNeededServesAWarmCacheWithoutARequest`, `testAWarmDiskCacheLoadsWithoutARequest`), forced refresh (`testRefreshFetchesInsideTheStalenessWindow`), refresh failure keeping rows (`testAFailingRefreshKeepsTheRowsAndPublishesTheError`), superseded load publishing nothing (`testALoadSupersededByASignOutPublishesNothing`), signed-out as a value (`testSignedOutPublishesTheOfferAndMakesNoRequest`), session change re-arming (`testSigningInReArmsAvailabilityAndSigningOutClearsTheRows`)
 
 ## Post-Completion (manual, user-run)
 
