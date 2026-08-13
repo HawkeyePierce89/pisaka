@@ -163,10 +163,10 @@ Opening reuses `PisakaApp.openLeetCodeProblem(input:language:)` with `.slug(row.
 
 Tapping a row calls the route's existing `onOpen(.slug(row.slug), settings.leetCodeLanguage)`; a `nil` sentence means it opened, so the screen calls the route's `onDone` and the whole sheet dismisses with the tab open behind it — LC-1's open behaviour, including the compact-width push. A sentence is shown inline. Signed out, the screen shows the same offer as the account row and no list.
 
-- [ ] write `LeetCodeBrowserView_iOS` (searchable, filter menu, refreshable, lazy list, open on tap, signed-out offer)
-- [ ] add the `NavigationLink` destination in `LeetCodeRoute_iOS`, forwarding `onOpen`/`onDone`
-- [ ] build: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
-- [ ] run `swift test` — must pass before Task 6
+- [x] write `LeetCodeBrowserView_iOS` (searchable, filter menu, refreshable, lazy list, open on tap, signed-out offer)
+- [x] add the `NavigationLink` destination in `LeetCodeRoute_iOS`, forwarding `onOpen`/`onDone`
+- [x] build: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
+- [x] run `swift test` — must pass before Task 6
 
 ### Task 6: Documentation
 
