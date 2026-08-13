@@ -44,6 +44,19 @@ struct LeetCodeDescriptionPane_iOS: View {
     /// Compact width has no room for two columns; the screen is used there.
     let isCompact: Bool
 
+    /// The editor, handed straight down to the judge section and **deliberately
+    /// not** `@ObservedObject` — the macOS pane's rule, arriving one level deeper:
+    /// observing it here would re-evaluate this pane on every keystroke in the file
+    /// being solved. Nothing in this pane reads a buffer; the judge reads one
+    /// synchronously when a button is pressed. Defaults to `nil` so a
+    /// default-constructed pane (previews) still compiles.
+    var workspace: WorkspaceModel?
+
+    /// The active tab's file, passed in rather than read off `workspace` for the
+    /// same reason it is not observed: this value is what re-runs the judge's
+    /// `prepare`, so it has to come from a view that *is* watching the selection.
+    var activeFileURL: URL?
+
     /// The pane's width, held here so it survives every statement change and every
     /// tab switch. `@State` only; cross-launch persistence is YAGNI.
     @State private var width: CGFloat = 360
@@ -72,6 +85,9 @@ struct LeetCodeDescriptionPane_iOS: View {
                     LeetCodeDescriptionContent_iOS(
                         statement: statement,
                         settings: settings,
+                        judge: model.judge,
+                        workspace: workspace,
+                        activeFileURL: activeFileURL,
                         onCollapse: { isCollapsed = true }
                     )
                     .frame(width: clamped(width))
@@ -129,6 +145,10 @@ struct LeetCodeDescriptionPane_iOS: View {
 struct LeetCodeDescriptionScreen_iOS: View {
     @ObservedObject var model: LeetCodeModel
     @ObservedObject var settings: SettingsStore
+    /// The editor and the active tab, for the judge section inside the shared
+    /// content. Non-observed, for the reason stated on the pane.
+    var workspace: WorkspaceModel?
+    var activeFileURL: URL?
     var onDone: () -> Void
 
     var body: some View {
@@ -138,6 +158,9 @@ struct LeetCodeDescriptionScreen_iOS: View {
                     LeetCodeDescriptionContent_iOS(
                         statement: statement,
                         settings: settings,
+                        judge: model.judge,
+                        workspace: workspace,
+                        activeFileURL: activeFileURL,
                         onCollapse: nil
                     )
                 } else {
@@ -183,12 +206,26 @@ struct LeetCodeDescriptionToggle_iOS: View {
 
 // MARK: - Shared content
 
-/// The header plus the rendered document — everything both shapes have in common.
-/// `onCollapse` is the pane's fold-away button and is `nil` on the screen, which
-/// has a Done button instead.
+/// The header, the rendered document and the judge section — everything both
+/// shapes have in common. `onCollapse` is the pane's fold-away button and is `nil`
+/// on the screen, which has a Done button instead.
+///
+/// **Run and Submit live here, not in the two containers.** This view is already
+/// what the regular-width pane and the compact-width sheet share, so hosting the
+/// judge here is what makes the adaptive pattern carry it for free — one section,
+/// rendered in whichever shape the width chose, with no second copy to drift.
 private struct LeetCodeDescriptionContent_iOS: View {
     let statement: LeetCodeStatement
     @ObservedObject var settings: SettingsStore
+
+    /// The judge, handed down to the section that observes it. Held here as a
+    /// plain `let`: this view must not re-render on a keystroke in the test-case
+    /// box, which is the whole reason the judge is a companion model.
+    let judge: LeetCodeJudgeModel
+    /// The editor and the active tab — non-observed, per the pane's note.
+    let workspace: WorkspaceModel?
+    let activeFileURL: URL?
+
     let onCollapse: (() -> Void)?
 
     /// The appearance the view is *actually* drawn in, which is what resolves
@@ -202,7 +239,19 @@ private struct LeetCodeDescriptionContent_iOS: View {
         VStack(spacing: 0) {
             header
             Divider()
+            // The web view is the flexible child and the judge section is the
+            // intrinsically-sized one, which is what keeps the controls above the
+            // keyboard on a compact width: when the keyboard shrinks the safe area,
+            // the statement gives up the height and the section stays put.
             LeetCodeStatementWebView_iOS(html: html)
+                .frame(maxHeight: .infinity)
+            Divider()
+            LeetCodeJudgeSection_iOS(
+                judge: judge,
+                workspace: workspace,
+                fileURL: activeFileURL,
+                folder: settings.leetCodeFolderURL
+            )
         }
         .frame(maxHeight: .infinity)
     }

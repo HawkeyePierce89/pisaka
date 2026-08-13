@@ -189,11 +189,11 @@ The same content, added to `LeetCodeDescriptionContent_iOS` — the one view bot
 
 Input editing must be keyboard-friendly: a `TextEditor` that scrolls clear of the keyboard, a Done affordance to dismiss it, and no layout that puts Run under the keyboard on a compact width.
 
-- [ ] add the iOS judge section view
-- [ ] host it in the shared `LeetCodeDescriptionContent_iOS`; hand it the non-observed workspace from `RootView_iOS`
-- [ ] keyboard handling: dismissal affordance, no control trapped under the keyboard on compact width
-- [ ] build: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build` must succeed
-- [ ] run `swift test` — must pass before Task 7
+- [x] add the iOS judge section view
+- [x] host it in the shared `LeetCodeDescriptionContent_iOS`; hand it the non-observed workspace from `RootView_iOS`
+- [x] keyboard handling: dismissal affordance, no control trapped under the keyboard on compact width
+- [x] build: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build` must succeed
+- [x] run `swift test` — must pass before Task 7
 
 ### Task 7: Documentation
 
