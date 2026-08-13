@@ -28,6 +28,51 @@ public enum LeetCodeJudgeKind: String, CaseIterable, Sendable {
     case submit
 }
 
+// MARK: - What the judge has to know about a problem
+
+/// The two facts a judge call needs about a problem, beside the code itself.
+///
+/// It exists because **neither of the two things this app already keeps about a
+/// problem holds them**: a solution file's name carries the frontend number and
+/// the slug, and the statement disk cache carries the HTML fragment and nothing
+/// else. The judge payloads are addressed by LeetCode's *internal* id, and Run
+/// prefills its box from the examples, so a judge surface that had only a file
+/// name in hand would have to re-fetch the detail every single time it appeared.
+///
+/// Modelled as its own value rather than by keeping whole
+/// `LeetCodeProblemDetail`s around: the detail carries the statement and every
+/// language's starter code, which is the large half of that response and exactly
+/// the half the judge never reads. The statement is cached on disk already; this
+/// is the small remainder, memoised in memory for the run (see
+/// `LeetCodeModel.judgeContext(forSlug:)`), and the disk cache format is
+/// deliberately untouched by it.
+public struct LeetCodeJudgeContext: Equatable, Sendable {
+    /// The problem, as every LeetCode URL spells it.
+    public let slug: String
+    /// LeetCode's internal `questionId` — what `question_id` in the run and
+    /// submit payloads must be, and never the number in the file name. See
+    /// ``LeetCodeProblemDetail/questionID``.
+    public let questionID: String
+    /// The statement's own examples, one per element, in LeetCode's order —
+    /// what Run's editable input box is prefilled from.
+    public let exampleTestCases: [String]
+
+    public init(slug: String, questionID: String, exampleTestCases: [String]) {
+        self.slug = slug
+        self.questionID = questionID
+        self.exampleTestCases = exampleTestCases
+    }
+
+    /// The projection of a detail response onto what the judge uses.
+    public init(detail: LeetCodeProblemDetail) {
+        self.init(
+            slug: detail.slug,
+            questionID: detail.questionID,
+            exampleTestCases: detail.exampleTestCases
+        )
+    }
+}
+
 // MARK: - The verdict
 
 /// LeetCode's numeric `status_code`, as the nine outcomes it actually spells.

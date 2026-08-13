@@ -126,11 +126,11 @@ The `nil` return is L7 applied on a new axis: "LeetCode does not know this probl
 
 `ScriptedLeetCodeTransport` grows `.interpret(slug:)`, `.submit(slug:)` and `.check(id:)`, recognised by path shape in `route(of:)` — so a request nobody expected still lands in `.other(path:)` and names itself in the failure. The existing sticky-last-step and gate behaviours carry over unchanged and are what make a `PENDING → STARTED → SUCCESS` script one line.
 
-- [ ] add `LeetCodeJudgeContext` and the memo, recorded at all three existing detail sites
-- [ ] add `judgeContext(forSlug:)` with the memo-first / one-lazy-fetch rule; clear the memo on sign-in and sign-out
-- [ ] add the three routes to `ScriptedLeetCodeTransport`
-- [ ] test: memo warm after an open and after a statement refresh (no extra request); cold slug fetches exactly once and then never again; unknown slug answers `nil`; sign-out empties it
-- [ ] run `swift test` — must pass before Task 4
+- [x] add `LeetCodeJudgeContext` and the memo, recorded at all three existing detail sites (written in `fetchDetail`, the one funnel all three pass through — so the judge's own lazy fetch records it too and a fourth caller cannot forget to)
+- [x] add `judgeContext(forSlug:)` with the memo-first / one-lazy-fetch rule; clear the memo on sign-in and sign-out
+- [x] add the three routes to `ScriptedLeetCodeTransport`
+- [x] test: memo warm after an open and after a statement refresh (no extra request); cold slug fetches exactly once and then never again; unknown slug answers `nil`; sign-out empties it
+- [x] run `swift test` — must pass before Task 4
 
 ### Task 4: `LeetCodeJudgeModel` — the flow
 

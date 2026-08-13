@@ -135,6 +135,77 @@ final class LeetCodeJudgeAPITests: XCTestCase {
         )
     }
 
+    // MARK: - The scripted transport's routes
+
+    /// The fake recognises the three judge endpoints from the URLs `LeetCodeAPI`
+    /// actually composes.
+    ///
+    /// Asserted here rather than in the model suite because it is a statement
+    /// about the *wire*: the routing reads the slug and the id back out of the
+    /// path, so a builder that changed shape — or a trailing slash that turned
+    /// into a path component of its own — would land every judge request in
+    /// `.other(path:)` and take a whole suite's scripts down with it. Getting a
+    /// named failure for that is the point of the `.other` fallback, and this is
+    /// what keeps it a fallback rather than the normal case.
+    func testTheScriptedTransportRecognisesTheJudgeEndpoints() {
+        let interpret = LeetCodeAPI.interpretRequest(
+            slug: "two-sum",
+            questionID: "1",
+            langSlug: "swift",
+            code: "class Solution {}",
+            input: "[2,7,11,15]\n9",
+            credentials: credentials
+        )
+        let submit = LeetCodeAPI.submitRequest(
+            slug: "score-of-a-string",
+            questionID: "3403",
+            langSlug: "swift",
+            code: "class Solution {}",
+            credentials: credentials
+        )
+        let runCheck = LeetCodeAPI.checkRequest(
+            id: "runcode_1770000000.1234567_AbCdEfGhIj",
+            slug: "two-sum",
+            credentials: credentials
+        )
+        let submitCheck = LeetCodeAPI.checkRequest(
+            id: "1234567890",
+            slug: "two-sum",
+            credentials: credentials
+        )
+
+        XCTAssertEqual(
+            ScriptedLeetCodeTransport.route(of: interpret),
+            .interpret(slug: "two-sum")
+        )
+        XCTAssertEqual(
+            ScriptedLeetCodeTransport.route(of: submit),
+            .submit(slug: "score-of-a-string")
+        )
+        XCTAssertEqual(
+            ScriptedLeetCodeTransport.route(of: runCheck),
+            .check(id: "runcode_1770000000.1234567_AbCdEfGhIj")
+        )
+        XCTAssertEqual(
+            ScriptedLeetCodeTransport.route(of: submitCheck),
+            .check(id: "1234567890")
+        )
+        // The endpoints that existed before still route where they did — the new
+        // path-shape branch runs after them and must not have caught either.
+        XCTAssertEqual(
+            ScriptedLeetCodeTransport.route(
+                of: LeetCodeAPI.questionDetailRequest(slug: "two-sum", credentials: credentials)
+            ),
+            .question(slug: "two-sum")
+        )
+        XCTAssertEqual(
+            ScriptedLeetCodeTransport.route(
+                of: LeetCodeAPI.problemListRequest(credentials: credentials)
+            ),
+            .problemList
+        )
+    }
+
     // MARK: - Requests
 
     /// The judge calls send the **problem page** as `Referer` where the GraphQL

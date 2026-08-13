@@ -262,6 +262,27 @@ public final class LeetCodeModel: ObservableObject {
     /// problem's title is public content, not something the session revealed.
     private var titlesBySlug: [String: String] = [:]
 
+    /// What the judge needs about each slug a detail has arrived for this run.
+    ///
+    /// The judge is addressed by LeetCode's internal `questionId` and prefills its
+    /// input box from the statement's examples, and **nothing else in this app
+    /// keeps either**: the file name carries the frontend number and the slug, the
+    /// statement disk cache carries markup. Without this, pressing Run — or merely
+    /// switching to a LeetCode tab, which is what resolves the judge's context —
+    /// would issue a detail request for bytes that had just been fetched, against
+    /// an unofficial API this whole design is built around not annoying.
+    ///
+    /// Written by `fetchDetail` rather than at its three call sites on purpose:
+    /// that method is the one place a detail response passes through, so opening a
+    /// problem, refreshing the statement and the judge's own lazy fetch all record
+    /// it by construction, and a fourth caller added later cannot forget to.
+    ///
+    /// In memory only, and per run: the disk cache stores the bare HTML fragment
+    /// and its format is deliberately untouched by the judge. Emptied by
+    /// `signIn(with:)` and `signOut()` with `slugsFetchedThisRun`, for the same
+    /// reason — a session change invalidates what was fetched under the old one.
+    private var judgeContexts: [String: LeetCodeJudgeContext] = [:]
+
     /// The last question `statement(forFileAt:in:)` was asked, so a sign-in can
     /// ask it again.
     ///
@@ -335,6 +356,7 @@ public final class LeetCodeModel: ObservableObject {
         // even after the user signs back in.
         slugsFetchedThisRun.removeAll()
         slugsKnownAbsent.removeAll()
+        judgeContexts.removeAll()
         cachedCredentials = credentials
         storedCredentialsAreDiscarded = false
         isSignedIn = true
@@ -454,6 +476,7 @@ public final class LeetCodeModel: ObservableObject {
         try? credentialStore.clear()
         slugsFetchedThisRun.removeAll()
         slugsKnownAbsent.removeAll()
+        judgeContexts.removeAll()
         isSignedIn = false
         signedInUsername = nil
         lastError = nil
@@ -765,6 +788,52 @@ public final class LeetCodeModel: ObservableObject {
         }
     }
 
+    // MARK: - The judge's context
+
+    /// What the judge needs to know about `slug`, or `nil` when LeetCode does not
+    /// know the problem at all.
+    ///
+    /// **The memo first, one lazy fetch behind it.** Every path that already
+    /// fetches a detail — opening a problem, refreshing the statement panel —
+    /// records this pair on the way past (see `judgeContexts`), so the ordinary
+    /// case is that the answer is already in hand and the judge surface costs no
+    /// request at all. The lazy fetch is for the slug this run has *never* fetched:
+    /// a solution file left over from a previous launch, opened straight into the
+    /// editor without going through "Open Problem…" and with a statement served
+    /// off the disk cache. One request, and the memo answers every time after it.
+    ///
+    /// **`nil` is a value, not an error** — L7 applied on a new axis. "LeetCode
+    /// does not know this problem" is the honest answer to a file the folder
+    /// happens to hold (the name rule is deliberately permissive: a `2024-notes.md`
+    /// parses as problem 2024, slug `notes`), and reporting it as `apiChanged`
+    /// would tell someone with a stray file that LeetCode's API had changed. The
+    /// judge turns it into a stated refusal instead.
+    ///
+    /// That negative answer is memoised too, in the same `slugsKnownAbsent` the
+    /// statement panel keeps it in and for the identical reason: this is asked
+    /// every time the judge surface resolves its problem, so without it a stray
+    /// file would issue a request that is *permanently* going to answer "no such
+    /// problem", once per visit, forever.
+    ///
+    /// - Throws: `notLoggedIn` without a session, and whatever the detail request
+    ///   failed with — the judge publishes the sentence, so nothing is published
+    ///   from here.
+    public func judgeContext(forSlug slug: String) async throws -> LeetCodeJudgeContext? {
+        // Before the session is even required: the memo is a fact about a problem,
+        // and a sign-out empties it rather than leaving it to be re-checked.
+        if let known = judgeContexts[slug] { return known }
+        if slugsKnownAbsent.contains(slug) { return nil }
+
+        let credentials = try requireCredentials()
+        beginWork()
+        defer { endWork() }
+        guard let detail = try await fetchDetail(slug: slug, credentials: credentials) else {
+            slugsKnownAbsent.insert(slug)
+            return nil
+        }
+        return LeetCodeJudgeContext(detail: detail)
+    }
+
     // MARK: - Requests
 
     private func fetchUserStatus(
@@ -786,6 +855,9 @@ public final class LeetCodeModel: ObservableObject {
         )
         let detail = try LeetCodeAPI.parseQuestionDetail(response, requestedSlug: slug)
         markSessionAccepted()
+        // The one place a detail passes through, and therefore the one place the
+        // judge's memo is written. See `judgeContexts`.
+        if let detail { judgeContexts[detail.slug] = LeetCodeJudgeContext(detail: detail) }
         return detail
     }
 
