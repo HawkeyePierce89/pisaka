@@ -76,11 +76,13 @@ struct LeetCodeBrowserView_iOS: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { filterMenu }
             }
-            // Keyed on availability so one rule covers both halves: the load on
-            // appear, and the re-arm after a sign-in — which flips `availability`
-            // through the owner's `isSignedIn` observer. Inside the catalog's
-            // staleness window a `load()` costs no request at all.
-            .task(id: browser.availability) {
+            // Keyed on `loadKey` so one rule covers every half: the load on
+            // appear, the re-arm after a sign-in that flips `availability`, and
+            // the re-arm after a session *replacement*, which clears the rows
+            // while leaving `availability` where it was — the case availability
+            // alone cannot see. Inside the catalog's staleness window a `load()`
+            // costs no request at all.
+            .task(id: browser.loadKey) {
                 guard browser.availability.isReady else { return }
                 await browser.load()
             }

@@ -444,6 +444,57 @@ final class LeetCodeBrowserModelTests: XCTestCase {
         XCTAssertFalse(browser.isLoading)
     }
 
+    /// **Clearing the rows re-arms the load.** The other half of the hook above:
+    /// both surfaces run their automatic load from `.task(id: browser.loadKey)`,
+    /// so a session replacement that cleared the rows without moving that key
+    /// would leave the browser sitting on an empty list after a *successful*
+    /// sign-in until the user pressed Refresh by hand.
+    ///
+    /// `availability` alone cannot be that key, and this is exactly the case that
+    /// proves it: it is `.ready` on both sides of the replacement. The epoch is
+    /// what moves.
+    func testSigningInUnderAnAlreadyRaisedFlagReArmsTheLoad() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+        let browser = model.browser
+
+        await browser.load()
+        let before = browser.loadKey
+        XCTAssertEqual(before.availability, .ready)
+
+        XCTAssertTrue(model.isSignedIn)
+        try await model.signIn(with: credentials)
+        XCTAssertTrue(model.isSignedIn)
+
+        // Availability did not move — the whole point — so the key had to.
+        XCTAssertEqual(browser.loadKey.availability, .ready)
+        XCTAssertNotEqual(browser.loadKey, before)
+        XCTAssertGreaterThan(browser.loadKey.sessionEpoch, before.sessionEpoch)
+
+        // And the re-armed load is the one that puts the rows back.
+        await browser.load()
+        XCTAssertEqual(browser.problems.count, 12)
+        XCTAssertEqual(browser.visibleProblems.count, 12)
+        XCTAssertNotNil(browser.fetchedAt)
+    }
+
+    /// Signing out moves the key too, so the surface's task re-runs and answers
+    /// the sign-in offer rather than holding the previous account's list.
+    func testSigningOutMovesTheLoadKey() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+        let browser = model.browser
+
+        await browser.load()
+        let before = browser.loadKey
+
+        model.signOut()
+        XCTAssertNotEqual(browser.loadKey, before)
+        XCTAssertEqual(browser.loadKey.availability, .notSignedIn)
+    }
+
     /// The same hole on the token's axis: a load held mid-fetch while a sign-in
     /// under an already-raised flag replaces the session publishes **nothing at
     /// all** — the rule `testALoadSupersededByASignOutPublishesNothing` states,

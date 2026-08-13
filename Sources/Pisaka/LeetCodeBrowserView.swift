@@ -84,12 +84,14 @@ struct LeetCodeBrowserView: View {
         }
         .frame(minWidth: 620, minHeight: 380)
         .preferredColorScheme(settings.themePreference.colorScheme)
-        // Keyed on availability so this covers both halves with one rule: the
-        // load on appear, and the re-arm after a sign-in — which flips
-        // `availability` through the owner's `isSignedIn` observer. Inside the
+        // Keyed on `loadKey` so this covers every half with one rule: the load on
+        // appear, the re-arm after a sign-in that flips `availability`, and the
+        // re-arm after a session *replacement*, which clears the rows while
+        // leaving `availability` exactly where it was — the case availability
+        // alone cannot see, and the reason that key is a pair. Inside the
         // catalog's staleness window a `load()` costs no request at all, which is
         // what makes re-entering the window free.
-        .task(id: browser.availability) {
+        .task(id: browser.loadKey) {
             guard browser.availability.isReady else { return }
             await browser.load()
         }

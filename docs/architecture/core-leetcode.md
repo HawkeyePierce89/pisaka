@@ -1203,6 +1203,17 @@ the limits the design carries.
     It is exactly `sessionDidChange()`'s work (here the two questions have one
     answer: every row is per-account) and idempotent, which is what lets both hooks
     fire on the paths that trigger both.
+    *Clearing the rows and re-arming the load are one act*, which is why
+    `sessionDidChange()` also bumps `sessionEpoch` and why `loadKey` — the
+    `LeetCodeBrowserLoadKey` pair of `(availability, sessionEpoch)` — rather than
+    `availability` alone is what both surfaces run their `.task(id:)` from.
+    Availability cannot be that key by itself, and the second door is exactly the
+    case that proves it: on a *replacement* the flag never moves, so `availability`
+    is `.ready` on both sides of a hook that just emptied the list, the surface's
+    task is never re-run, and a **successful** sign-in leaves the browser on "No
+    problems loaded." until the user presses Refresh by hand. The epoch is what
+    moves there; `loadKey` is computed from the two published halves rather than
+    stored, so no third piece of state can fall out of step with them.
   - `SettingsStore.swift` (modified; the entry is in `core-services.md`) — three
     stable keys: `leetCodeFolderPath` (a plain path, stored verbatim; a value
     that is blank once trimmed normalises to `nil` so "unset" has one spelling,
@@ -1588,10 +1599,12 @@ the limits the design carries.
     the nested `LeetCodeLoginView`; whether this window shows a list or a sign-in
     offer comes from `browser.availability`, which the owner's `isSignedIn`
     observer keeps current, so nothing here watches the model to stay right.
-    The load is a `.task(id: browser.availability)`, which covers both halves with
-    one rule: the load on appear, and the re-arm after a sign-in that flips
-    availability. Inside the staleness window that load costs no request, which is
-    what makes re-entering the window free.
+    The load is a `.task(id: browser.loadKey)`, which covers every half with one
+    rule: the load on appear, the re-arm after a sign-in that flips availability,
+    and the re-arm after a session *replacement*, which clears the rows while
+    leaving availability where it was (the case availability alone cannot see —
+    `LeetCodeBrowserLoadKey`). Inside the staleness window that load costs no
+    request, which is what makes re-entering the window free.
     The language `Picker` is bound to `settings.leetCodeLanguage` — the *same*
     persisted setting the Open Problem sheet writes, so the two surfaces cannot
     disagree about the language the next solution file is seeded in. The filter
@@ -1728,9 +1741,9 @@ the limits the design carries.
     disagree about what a query matches, when a fetch happens or what opening a row
     does — only about the idioms carrying it. Here those are `.searchable` bound to
     `browser.filter.query`, a toolbar `Menu` of difficulty and status toggles,
-    `.refreshable` mapped to `browser.refresh()`, a `.task(id: browser.availability)`
+    `.refreshable` mapped to `browser.refresh()`, a `.task(id: browser.loadKey)`
     load (the macOS window's key, covering the load on appear and the re-arm after
-    a sign-in with one rule),
+    both a sign-in and a session replacement with one rule),
     and a `List` of rows keyed `id: \.slug` (so `LeetCodeProblem` needs no
     `Identifiable` conformance it does not otherwise want) carrying the number, the
     title, the Premium lock and the status mark, with a footer row showing
@@ -1924,7 +1937,10 @@ the limits the design carries.
     failing refresh keeping the previous rows beside the typed error; a failing
     first load publishing the error with no rows; signed out publishing
     `.notSignedIn` and making no request at all; a sign-in re-arming availability
-    and a sign-out clearing the rows; a `load()` held on a `Gate` while a sign-out
+    and a sign-out clearing the rows; **a sign-in under an already-raised flag
+    moving `loadKey` while `availability` stays `.ready` on both sides of it** (the
+    re-arm the surfaces run their `.task(id:)` from, which availability alone
+    cannot express) and a sign-out moving it too; a `load()` held on a `Gate` while a sign-out
     bumps the token publishing **nothing**; setting `filter` republishing
     `visibleProblems` without touching the transport; and a load cancelled mid-fetch
     publishing nothing *while the shared catalog fetch still lands* — the shield,
@@ -2099,7 +2115,12 @@ means, what a file is named, when a fetch happens, and what gets written.
   by `load()`, `refresh()` and — like the judge's — by **both** session hooks
   (`sessionDidChange()` for a flag that moved, `invalidateInFlightWork()` for a
   session replaced under a flag that did not), and superseded work publishes
-  nothing at all. And an all-digit query is a **number attempt and nothing else** —
+  nothing at all. Both hooks also bump a published `sessionEpoch`, because clearing
+  the rows and re-arming the surfaces' load is **one act**: the surfaces key their
+  `.task(id:)` on `loadKey`, the `(availability, sessionEpoch)` pair, since on a
+  replacement availability is `.ready` on both sides of the hook that just emptied
+  the list and a key of availability alone would leave a *successful* sign-in
+  showing "No problems loaded." until a manual Refresh. And an all-digit query is a **number attempt and nothing else** —
   L4 reused through `LeetCodeProblemInput.parse` rather than restated — matching
   `frontendID` exactly rather than by prefix, so `1` answers problem 1 instead of
   the thousand rows whose number starts with a 1.

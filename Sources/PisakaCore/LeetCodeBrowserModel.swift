@@ -1,5 +1,31 @@
 import Foundation
 
+/// What both surfaces key their automatic load on.
+///
+/// **Availability alone is not that key**, which is the whole reason this type
+/// exists. A surface re-arms its load when this value changes, and a session can
+/// be *replaced* without the availability moving at all: `signIn(with:)` is
+/// reached with `isSignedIn` already `true` whenever `markSessionAccepted()` has
+/// put a rejected session back, so `LeetCodeBrowserModel/invalidateInFlightWork()`
+/// clears the previous account's rows while `availability` stays `.ready`. Keyed
+/// on availability alone, the surface would then sit on an empty list after a
+/// *successful* sign-in until the user pressed Refresh by hand — the clearing half
+/// of that hook landing without the reloading half.
+///
+/// It is one `Equatable` value rather than two things each view remembers to
+/// combine, so the two platforms cannot disagree about when a load re-arms.
+public struct LeetCodeBrowserLoadKey: Equatable, Sendable {
+    /// Whether the list is offered at all.
+    public let availability: LeetCodeBrowserAvailability
+    /// How many times the session behind the rows has been changed or replaced.
+    public let sessionEpoch: Int
+
+    public init(availability: LeetCodeBrowserAvailability, sessionEpoch: Int) {
+        self.availability = availability
+        self.sessionEpoch = sessionEpoch
+    }
+}
+
 /// Whether the problem list can be shown — and, when it cannot, the sentence the
 /// surface shows in its place.
 ///
@@ -112,6 +138,23 @@ public final class LeetCodeBrowserModel: ObservableObject {
 
     /// Whether the list is offered, and what the surface says when it is not.
     @Published public private(set) var availability: LeetCodeBrowserAvailability
+
+    /// How many times the session behind the rows has been changed or replaced.
+    ///
+    /// Bumped by ``sessionDidChange()``, so it moves on *both* of this model's
+    /// session doors — including the one where `availability` does not. Only
+    /// ``loadKey`` reads it; see that property for why the surfaces need it.
+    @Published public private(set) var sessionEpoch = 0
+
+    /// The value both surfaces key their automatic load on — see
+    /// ``LeetCodeBrowserLoadKey``.
+    ///
+    /// Computed rather than stored: both halves are published already, so a view
+    /// observing this model re-evaluates and sees the new key without a third
+    /// piece of state that could fall out of step with them.
+    public var loadKey: LeetCodeBrowserLoadKey {
+        LeetCodeBrowserLoadKey(availability: availability, sessionEpoch: sessionEpoch)
+    }
 
     // MARK: - Private state
 
@@ -274,6 +317,12 @@ public final class LeetCodeBrowserModel: ObservableObject {
     /// marks until a `refresh()` — the limit L24 states rather than hides).
     func sessionDidChange() {
         generation += 1
+        // **Rows cleared and the load re-armed are one act, not two.** The token
+        // above stops the old session's work from publishing; this one tells the
+        // surfaces that what they are showing is gone and has to be fetched again
+        // — necessary because on the replacement door below `availability`, the
+        // other half of the key, does not move. See ``LeetCodeBrowserLoadKey``.
+        sessionEpoch += 1
         availability = owner.isSignedIn ? .ready : .notSignedIn
         lastError = nil
         problems = []
