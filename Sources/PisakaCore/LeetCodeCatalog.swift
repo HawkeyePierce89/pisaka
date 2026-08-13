@@ -441,7 +441,7 @@ public final class LeetCodeCatalog {
                 return snapshot
             }
             publish(snapshot, fromNetwork: true)
-            await writeCache(snapshot)
+            await writeCache(snapshot, generation: generation, credentials: credentials)
             return snapshot
         }
         refreshTask = task
@@ -567,11 +567,32 @@ public final class LeetCodeCatalog {
     ///
     /// The encode is off the actor and the write is not — the split
     /// `loadFromDiskIfNeeded()` makes, for the reason written there.
-    private func writeCache(_ snapshot: Snapshot) async {
+    ///
+    /// **And that encode is a suspension, so the caller's guard is re-asserted on
+    /// the far side of it.** `startRefresh` checks the generation and the session
+    /// before it publishes, but the ~2 MB encode below hands the actor back for
+    /// the whole of its duration, and a sign-out — or a sign-in as somebody else —
+    /// runs synchronously on that actor. Without the re-check the one thing the
+    /// guard exists to prevent arrives one line later and *durably*: the departing
+    /// account's `status` column lands in `catalog.json` stamped `fetchedAt = now`,
+    /// so the next launch restores it, finds it fresh, and shows one account's
+    /// solved marks under another's name for a day (the L24 window) rather than
+    /// for the rest of this session. The publish above is deliberately not undone
+    /// — it was correct at the instant it happened, it dies with the process, and
+    /// the browser clears its rows on the same hook — but nothing that outlives the
+    /// process may be written for a session this app has left.
+    private func writeCache(
+        _ snapshot: Snapshot,
+        generation: Int,
+        credentials: LeetCodeCredentials
+    ) async {
         do {
             let json = try await Task.detached {
                 try CachedCatalog(snapshot: snapshot).json()
             }.value
+            // Nothing was attempted, so nothing failed: `lastCacheWriteFailed`
+            // keeps whatever the last real attempt left it as.
+            guard refreshGeneration == generation, isCurrentSession(credentials) else { return }
             try fileService.ensureDirectory(at: layout.base)
             try fileService.write(json, to: layout.catalogFile)
             lastCacheWriteFailed = false

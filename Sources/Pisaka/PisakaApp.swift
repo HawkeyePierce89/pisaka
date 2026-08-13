@@ -1071,9 +1071,17 @@ struct PisakaApp: App {
     /// input, refuses a Premium problem before writing anything, and **never
     /// overwrites** an existing file. This function's whole contribution is the
     /// folder (asked for on first use) and the tab.
+    ///
+    /// `onOpened` fires on the one outcome that put a tab up, which is *not* the
+    /// same question as "was there anything to say": `nil` is also the answer to a
+    /// withdrawn open and to a superseded one, and a caller that reads it as
+    /// success acts on an open that never happened. The browser's window-raise is
+    /// the caller that noticed — it reordered the windows under a click that had
+    /// opened nothing.
     private func openLeetCodeProblem(
         input: LeetCodeProblemInput,
-        language: LeetCodeLanguage
+        language: LeetCodeLanguage,
+        onOpened: () -> Void = {}
     ) async -> String? {
         // Cancelling the folder panel is an answer, not a failure: the user was
         // asked where solutions go and declined to say, so the sheet stays up
@@ -1094,6 +1102,7 @@ struct PisakaApp: App {
             case .created(let solution), .resumed(let solution):
                 leetCodeSheet = nil
                 openLeetCodeSolution(solution, wasCreated: outcome.wasCreated)
+                onOpened()
                 return nil
             case .noSuchProblem:
                 return "LeetCode has no problem matching that."
@@ -1123,9 +1132,11 @@ struct PisakaApp: App {
             settings: settings,
             model: leetCode,
             onOpen: { input, language in
-                let message = await openLeetCodeProblem(input: input, language: language)
-                if message == nil { raiseEditorWindowBehindBrowser() }
-                return message
+                await openLeetCodeProblem(
+                    input: input,
+                    language: language,
+                    onOpened: { raiseEditorWindowBehindBrowser() }
+                )
             }
         )
         leetCodeBrowserWindows.show(content: content)

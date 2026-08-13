@@ -598,7 +598,17 @@ the limits the design carries.
     starts no refresh of its own: a sign-out mid-fetch leaves the generation
     unmoved, and the fetch already running would otherwise land the departing
     account's marks in the cache with a fresh `fetchedAt` for the next account to
-    inherit for a day. **Undeclared means unconstrained**, deliberately — a catalog
+    inherit for a day. **And once more on the far side of the cache encode**, which
+    is the last suspension before the write: the ~2 MB `CachedCatalog(…).json()`
+    runs off the actor and hands it back for the whole of its duration, so a
+    sign-out landing *there* used to walk straight through the post-download guard
+    one line above it and write the departing account's `status` column to
+    `catalog.json` anyway — the same failure, made durable, since a file stamped
+    `fetchedAt = now` outlives the process the in-memory publish dies with. The
+    publish itself is deliberately **not** undone on that path (it was correct when
+    it happened, and the browser clears its rows on the same hook); the rule is only
+    that nothing outliving the process may be written for a session this app has
+    left. **Undeclared means unconstrained**, deliberately — a catalog
     nobody has told about sessions behaves exactly as it did before — which is why
     the owner declares at launch only when it *has* a stored session: one the
     Keychain hands back later, having been locked at launch, must not be mistaken
@@ -1727,7 +1737,12 @@ the limits the design carries.
     (L23) — and hands it `openLeetCodeProblem(input:language:)` itself as the open
     handler, so a row and a typed number reach LC-1's flow through the same
     function: **there is no second open path.** The only thing this route adds is
-    `raiseEditorWindowBehindBrowser()`, and the rule it needs is written down where
+    `raiseEditorWindowBehindBrowser()`, passed as `openLeetCodeProblem`'s `onOpened`
+    hook rather than inferred from its `nil` return: `nil` means "there is nothing
+    left to say", which is the answer to a *withdrawn* open and a *superseded* one
+    as well as to a successful one, so reading it as success reordered the windows
+    under a click that had opened no tab and shown no sentence. The hook fires on
+    the one outcome that put a tab up. The rule it needs is written down where
     it is used: this app has exactly one `WindowGroup` window and every auxiliary
     window it makes is an `EscClosableWindow` (diff, merge, Find in Files, the
     source viewers, the browser itself), so **the frontmost visible, main-capable

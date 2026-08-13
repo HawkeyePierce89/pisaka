@@ -1310,6 +1310,43 @@ final class LeetCodeCatalogTests: XCTestCase {
         XCTAssertTrue(tree.writtenPaths.isEmpty)
     }
 
+    /// And a session replaced **while the cache is being encoded** — the suspension
+    /// on the far side of the guard — reaches the disk no more than one replaced
+    /// mid-fetch does.
+    ///
+    /// The narrow window the guard before the publish cannot see: the ~2 MB encode
+    /// hands the actor back, and a sign-out runs on it. The in-memory publish has
+    /// already happened and stands (it was correct when it happened, and it dies
+    /// with the process); the file must not, because `fetchedAt = now` in
+    /// `catalog.json` is what carries the departing account's solved marks into the
+    /// next launch and pins them under the next account's name for a day.
+    ///
+    /// Staged deterministically: the fetch is released, and the actor is handed
+    /// back until the rows are published — the fetch's very next step is the
+    /// off-actor encode, and this test then holds the actor from the moment it
+    /// observes them through the `sessionDidChange` below without suspending, so
+    /// the write can only be attempted after it.
+    func testASessionReplacedWhileTheCacheIsEncodedIsNeverWritten() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "two-sum")], status: "ac"))
+        let gate = Gate()
+        transport.hold(.problemList, on: gate)
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        catalog.sessionDidChange(to: credentials)
+        let refresh = Task { try await catalog.refresh(credentials: credentials) }
+        await gate.waitUntilReached()
+        gate.release()
+        while catalog.problems.isEmpty { await Task.yield() }
+        catalog.sessionDidChange(to: nil)
+        try await refresh.value
+
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+        XCTAssertTrue(tree.writtenPaths.isEmpty)
+        XCTAssertFalse(catalog.lastCacheWriteFailed)
+    }
+
     /// The current session's own refresh is untouched by any of it, and so is a
     /// catalog nobody has told about sessions at all — the state every other test
     /// in this file runs in, pinned here so "undeclared" cannot quietly become
