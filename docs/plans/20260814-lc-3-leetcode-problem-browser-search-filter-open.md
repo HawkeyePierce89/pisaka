@@ -143,11 +143,11 @@ Opening reuses `PisakaApp.openLeetCodeProblem(input:language:)` with `.slug(row.
 
 `LeetCodeCommands` gains `Button("Browse Problems…")` with ⌘⇧B (free — the shortcut audit in this repo shows ⌘⇧B unused), above the divider beside "Open Problem…", gated on nothing: a LeetCode problem needs no open project.
 
-- [ ] write the window controller (single window, held delegate, `closeAll()`)
-- [ ] write `LeetCodeBrowserView` (search, filters, language picker, table with lock marker, footer with fetched-at + Refresh, double-click and Open, signed-out offer with the nested login sheet)
-- [ ] add the menu item and its ⌘⇧B shortcut; wire the controller, the open handler and the terminate `closeAll()` in `PisakaApp`
-- [ ] build: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build` (untested by convention; the build is the gate)
-- [ ] run `swift test` — must pass before Task 5
+- [x] write the window controller (single window, held delegate, `closeAll()`)
+- [x] write `LeetCodeBrowserView` (search, filters, language picker, table with lock marker, footer with fetched-at + Refresh, double-click and Open, signed-out offer with the nested login sheet)
+- [x] add the menu item and its ⌘⇧B shortcut; wire the controller, the open handler and the terminate `closeAll()` in `PisakaApp`
+- [x] build: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build` (untested by convention; the build is the gate)
+- [x] run `swift test` — must pass before Task 5
 
 ### Task 5: The iOS browser screen
 

@@ -567,6 +567,11 @@ struct PisakaApp: App {
     /// from the same `willTerminateNotification` observer.
     private let projectSearchWindows = ProjectSearchWindowController()
 
+    /// Owns the single, non-modal LeetCode problem browser window (⌘⇧B). A plain
+    /// stored reference like `projectSearchWindows`, and `closeAll()` is invoked
+    /// from the same `willTerminateNotification` observer.
+    private let leetCodeBrowserWindows = LeetCodeBrowserWindowController()
+
     /// Owns the separate, non-modal read-only source viewer windows a Go to
     /// Definition opens when the declaration lives *outside* the opened folder — an
     /// SDK interface, a dependency checkout (D3). A plain stored reference and a
@@ -799,6 +804,7 @@ struct PisakaApp: App {
                         diffWindows.closeAll()
                         mergeWindows.closeAll()
                         projectSearchWindows.closeAll()
+                        leetCodeBrowserWindows.closeAll()
                         sourceViewers.closeAll()
                         // And every language server, for the terminal sessions'
                         // reason: a `sourcekit-lsp` left behind is an orphan process
@@ -1024,6 +1030,7 @@ struct PisakaApp: App {
                 LeetCodeCommands(
                     model: leetCode,
                     onOpenProblem: { leetCodeSheet = .openProblem },
+                    onBrowseProblems: { openLeetCodeBrowser() },
                     onSignIn: { leetCodeSheet = .signIn },
                     onSignOut: { signOutOfLeetCode() },
                     onChooseFolder: {
@@ -1099,6 +1106,47 @@ struct PisakaApp: App {
         } catch {
             return error.localizedDescription
         }
+    }
+
+    /// Show the LeetCode problem browser window (⌘⇧B), or focus the one already
+    /// open.
+    ///
+    /// The browser model comes off `leetCode` — the *one* catalog the rest of this
+    /// area already reads (L23) — and the open handler is
+    /// `openLeetCodeProblem(input:language:)` itself, so a row and a typed number
+    /// reach LC-1's flow through the same function. **There is no second open
+    /// path**; the only thing added on this route is raising the editor window
+    /// afterwards, because this window stays up.
+    private func openLeetCodeBrowser() {
+        let content = LeetCodeBrowserView(
+            browser: leetCode.browser,
+            settings: settings,
+            model: leetCode,
+            onOpen: { input, language in
+                let message = await openLeetCodeProblem(input: input, language: language)
+                if message == nil { raiseEditorWindowBehindBrowser() }
+                return message
+            }
+        )
+        leetCodeBrowserWindows.show(content: content)
+    }
+
+    /// Bring the editor window forward, but **below** the browser window — the tab
+    /// the user just opened is what they asked for, and the list they opened it
+    /// from is what they are still working through.
+    ///
+    /// The rule for which window that is, written down where it is used: this app
+    /// has exactly one `WindowGroup` window and every auxiliary window it makes is
+    /// an `EscClosableWindow` (diff, merge, Find in Files, the source viewers and
+    /// the browser itself), so **the first visible, main-capable window that is
+    /// not one of ours** is the editor. A no-op when there is none — the window
+    /// can be closed while the app runs.
+    private func raiseEditorWindowBehindBrowser() {
+        guard let browserNumber = leetCodeBrowserWindows.windowNumber else { return }
+        guard let editor = NSApp.windows.first(where: { window in
+            window.isVisible && window.canBecomeMain && !(window is EscClosableWindow)
+        }) else { return }
+        editor.order(.below, relativeTo: browserNumber)
     }
 
     /// Open a solution file as an ordinary editor tab.

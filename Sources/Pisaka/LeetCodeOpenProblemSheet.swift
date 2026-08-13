@@ -223,6 +223,7 @@ struct LeetCodeCommands: View {
     @ObservedObject var model: LeetCodeModel
 
     var onOpenProblem: () -> Void
+    var onBrowseProblems: () -> Void
     var onSignIn: () -> Void
     var onSignOut: () -> Void
     var onChooseFolder: () -> Void
@@ -231,6 +232,13 @@ struct LeetCodeCommands: View {
         // ⌘⇧P — free on macOS and beside the other ⌘⇧ panel/window commands.
         Button("Open Problem…") { onOpenProblem() }
             .keyboardShortcut("p", modifiers: [.command, .shift])
+
+        // ⌘⇧B — free on macOS, and beside "Open Problem…" because the two are the
+        // same action reached two ways: type a problem you know, or find one you
+        // do not. Gated on nothing, like its neighbour: a LeetCode problem needs
+        // no open project.
+        Button("Browse Problems…") { onBrowseProblems() }
+            .keyboardShortcut("b", modifiers: [.command, .shift])
 
         Divider()
 
