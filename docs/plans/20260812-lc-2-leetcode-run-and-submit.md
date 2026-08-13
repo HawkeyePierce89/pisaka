@@ -216,11 +216,11 @@ Known limits gain: a Run/Submit that outruns its budget **does not undo the subm
 
 `README.md`'s LeetCode feature bullet describes Run and Submit on both platforms, and the Known Limitations line that currently says submissions are not implemented ("Use leetcode.com to submit") is corrected.
 
-- [ ] add per-file entries and decisions L16–L22 to `docs/architecture/core-leetcode.md`
-- [ ] extend its Known limits and Tests sections
-- [ ] add the `CLAUDE.md` index lines and refresh the LeetCode reader invariant
-- [ ] update the README feature bullet and Known Limitations
-- [ ] run `swift test` — must pass before Task 8
+- [x] add per-file entries and decisions L16–L22 to `docs/architecture/core-leetcode.md`
+- [x] extend its Known limits and Tests sections
+- [x] add the `CLAUDE.md` index lines and refresh the LeetCode reader invariant
+- [x] update the README feature bullet and Known Limitations
+- [x] run `swift test` — must pass before Task 8
 
 ### Task 8: Verify acceptance criteria
 

@@ -709,6 +709,17 @@ involved.
     its statement even offline. A button in the pane's header opens the problem
     on leetcode.com for the parts it deliberately does not render (discussion,
     submissions, the editorial).
+  - **Run and Submit**, in a section under the statement in that same pane.
+    Run executes what is in the editor against the problem's example test cases,
+    which are prefilled into an editable box — change them and Run again to try
+    your own input. Submit sends the same code to LeetCode's full test suite. Both
+    judge **what is in the editor right now**, so there is no need to save first,
+    and the verdict comes back where you are reading the problem: Accepted or the
+    failure, the runtime and memory (with percentiles when LeetCode sends them),
+    how many cases passed, the failing case's input, your output and the expected
+    one — and compile or runtime errors **in full**, monospaced and selectable,
+    rather than clipped to a line. A disabled button always says why (not signed
+    in, not a solution file, a language LeetCode does not accept).
 
 ## iOS / iPadOS
 
@@ -772,7 +783,10 @@ and iPhone. The feature scope landed so far:
   `Documents/LeetCode`, which needs no permission and no picker; **Change…**
   points them anywhere the document picker reaches (persisted as a
   security-scoped bookmark), and **Use Default** goes back. The statement is a
-  pane beside the editor on regular width and a toggleable sheet on compact.
+  pane beside the editor on regular width and a toggleable sheet on compact, and
+  **Run and Submit** sit under it in both shapes — the same editable test-case box
+  and the same verdicts as on macOS, with the controls kept above the keyboard and
+  a Done affordance to dismiss it.
 - The embedded terminal is macOS-only (SwiftTerm) and not present on iOS.
 
 ## Known Limitations (1.0)
@@ -913,8 +927,18 @@ and iPhone. The feature scope landed so far:
   endpoints the website itself uses. It can change or be blocked with no notice,
   which surfaces as an "API changed" error naming the field that no longer
   matched, and is fixable only by an app update. More specifically:
-  - Running and submitting solutions is not implemented — the integration
-    fetches problems and writes files. Use leetcode.com to submit.
+  - Running and submitting work, but there is **no submission history**: the
+    section shows the attempt you just made. Earlier submissions, their diffs and
+    the editorial stay on leetcode.com.
+  - A Run or Submit that takes longer than the app waits for (30 s and 60 s) is
+    reported as a timeout — but the submission is **not** undone. LeetCode has it,
+    and its result is on the site; do not submit again on the strength of that
+    message. The same is true if you close the tab or sign out mid-run.
+  - Edited test cases are not persisted: switching problems resets the box to the
+    statement's own examples, and quitting forgets it.
+  - Runtime and memory percentiles are absent on anything that is not Accepted,
+    and the case counts are absent on a compile error — LeetCode does not send
+    them, and nothing is invented to fill the gap.
   - Cached statements hold LeetCode's HTML only: **images do not load offline**,
     and neither does anything else the page would have fetched.
   - A solution file is tied to its problem by its **name and its location**.

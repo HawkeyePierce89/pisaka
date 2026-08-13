@@ -1,8 +1,9 @@
-# PisakaCore — the LeetCode integration (LC-1: login, open problem, solution file, description panel)
+# PisakaCore — the LeetCode integration (LC-1: login, open problem, solution file, description panel; LC-2: Run and Submit)
 
 Design documentation for the layer that signs in to LeetCode, turns a number, a
 slug or a pasted URL into a solution file inside a folder the user set aside for
-it, and renders the problem statement beside the editor. Each entry records a
+it, renders the problem statement beside the editor, and runs or submits what the
+user has typed there. Each entry records a
 file's contract, invariants and the reasoning behind non-obvious decisions —
 read the relevant entry before modifying that file, and update it when behavior
 changes.
@@ -10,11 +11,13 @@ changes.
 **What this layer is.** A transport seam whose only real implementation is
 app-side, one file holding every fact about LeetCode's wire format, two pure
 string layers (what the user typed, and how a file name names a problem), a
-disk-cached problem catalog, a composed HTML document for the statement, and one
-`@MainActor ObservableObject` that sequences the awaits. On top of that sit the
-app halves: a `URLSession` transport, a cross-platform Keychain store, a shared
+disk-cached problem catalog, a composed HTML document for the statement, one
+`@MainActor ObservableObject` that sequences the awaits, and a second one beside
+it — a companion model — holding the judge's own state machine. On top of that sit
+the app halves: a `URLSession` transport, a cross-platform Keychain store, a shared
 `WKNavigationDelegate` that watches the login cookie store, and per-platform
-chrome (a macOS menu + sheet + pane, an iOS screen + adaptive pane/sheet).
+chrome (a macOS menu + sheet + pane, an iOS screen + adaptive pane/sheet), the
+last two of which host the judge section under the statement.
 
 **The API is unofficial, and the whole design is shaped by that.** LeetCode
 publishes no contract, no versioning and no deprecation notice. Three rules
@@ -55,11 +58,13 @@ split, for the same reason: `swift test` needs neither a network nor a Keychain
 to exercise the part with the decisions in it.
 
 **The stack, bottom to top.** `LeetCodeTransport` + `LeetCodeCredentials` +
-`LeetCodeError` + `LeetCodeProblem` (the vocabulary) → `LeetCodeAPI` (what to
+`LeetCodeError` + `LeetCodeProblem` + `LeetCodeJudge` (the vocabulary) →
+`LeetCodeAPI` (what to
 send, and what an answer means) → `LeetCodeProblemInput` + `LeetCodeSolutionFile`
 (the two pure string layers) → `LeetCodeCacheLayout` + `LeetCodeCatalog` (number
 → slug, cached for a day) + `LeetCodeStatementDocument`/`LeetCodeStatementCache`
-(the panel's bytes) → `LeetCodeModel` (the one place that sequences awaits) →
+(the panel's bytes) → `LeetCodeModel` (the one place that sequences awaits) +
+`LeetCodeJudgeModel` (the companion it owns, which sequences the judge's) →
 the app surfaces.
 
 **A reader with exactly one create.** The model never calls
@@ -72,8 +77,13 @@ file the editor may have buffered, never touches the worktree git is operating
 on, and has no plan of its own to invalidate. Taking the writer gate would
 serialise "open a LeetCode problem" behind whatever the project's git operations
 are doing, for a write that cannot conflict with any of them.
+**Run and Submit do not weaken that sentence, they narrow it**: the judge is a
+pure reader. It takes the *live editor buffer* — never the disk copy, so nobody
+has to save first — posts it, polls for a verdict and publishes value types. It
+creates nothing, rewrites nothing, and touches neither the solution file nor
+either cache, so the one create the sentence names is still `openProblem`'s.
 
-The decisions L1–L15 are written out at the end of this document, together with
+The decisions L1–L22 are written out at the end of this document, together with
 the limits the design carries.
 
 ## Files
@@ -131,7 +141,24 @@ the limits the design carries.
   - `LeetCodeError.swift` — every way an operation can fail, as one
     `Error`/`LocalizedError`: `notLoggedIn`, `network(reason:)`,
     `apiChanged(detail:)`, `paidOnly(slug:)`, `throttled(retryAfter:)`,
-    `folderUnavailable`, `fileSystem(reason:)`. `apiChanged`'s `detail` is the
+    `folderUnavailable`, `fileSystem(reason:)`, and the judge's two:
+    `judgeTimedOut(seconds:)` and `judgeUnavailable(reason:)`. **Those two are
+    product refusals, not wire mismatches**, and that is why they are cases here
+    rather than `apiChanged` details: nothing about the response was wrong when a
+    poll runs out its budget (LeetCode simply kept saying `PENDING`) or when the
+    file on screen is a Markdown note, so neither must send anybody hunting a
+    schema change. `judgeTimedOut` carries the budget so the sentence can name it,
+    and that sentence **says the submission was not undone** — LeetCode has it and
+    the verdict is on the site — because the alternative reading (that the attempt
+    was lost) is the one that makes a user submit twice. It re-applies the
+    throttle case's "a wait worth naming" cap for the identical reason: the case is
+    `public`, takes a bare `Double`, and `Int(_:)` *traps* on an infinite or
+    over-`Int.max` one. `judgeUnavailable`'s `reason` is already user-facing,
+    decided one layer up where the file and the session are both in view
+    (`LeetCodeJudgeAvailability`), and it carries one answer that is not about the
+    file at all: LeetCode's own `state: "FAILURE"`, its judge giving up — a state
+    LeetCode documents by sending it, so it is stated rather than reported as a
+    schema change. `apiChanged`'s `detail` is the
     whole diagnosis for an unofficial API — it names the key path or value that
     did not match (`data.question.content`, `difficulty.level = 7`), so a bug
     report names the one line of `LeetCodeAPI` to edit. `throttled` carries the
@@ -154,16 +181,73 @@ the limits the design carries.
     and both strict. `LeetCodeProblemStatus` (`notStarted`/`attempted`/`solved`)
     is carried because it arrives with the catalog anyway.
     `LeetCodeProblem` is frontend id + slug + title + difficulty + paid-only +
-    status: the identifier that matters is `frontendID` (the number on the site
-    and the number a user types), and LeetCode's internal `question_id`, which
-    drifts from it for newer problems, is deliberately **not** modelled. It is
+    status: the identifier that matters *there* is `frontendID` (the number on the
+    site and the number a user types), and LeetCode's internal `questionId` stays
+    off the catalog row, which has no use for it. It is
     **not** `Codable`: the on-disk cache has its own versioned DTO, so this model
     can be renamed or extended without invalidating every user's cache.
     `LeetCodeProblemDetail` composes it — rather than restating its fields, so the
     catalog and the detail can never disagree about what a problem *is* — and adds
     the HTML `content` **fragment**, `codeSnippets` keyed by LeetCode's language
-    slug, and `exampleTestCases` in LeetCode's own order (the default input for
-    LC-2's Run).
+    slug, `exampleTestCases` in LeetCode's own order (what Run's input box is
+    prefilled from), and **`questionID`** (L16). That last one is the internal id,
+    modelled here and only here because the judge payloads are the only thing in
+    the app that speaks it: `question_id` is how `interpret_solution` and `submit`
+    say *which problem* is being answered, and LeetCode accepts no other spelling.
+    **It is not `frontendID` and the two must never be swapped** — they agree on
+    the older problems and drift freely for newer ones, so a mix-up looks perfectly
+    correct on Two Sum and judges a different problem entirely on anything recent.
+    It is a `String` because that is what the payload sends and because nothing
+    arithmetic is ever done with it; there is deliberately no `Int` accessor to
+    reach for by mistake.
+  - `LeetCodeJudge.swift` — the judge's whole vocabulary as Foundation-only value
+    types, with no behaviour beyond naming itself: the *wire* half (which URL,
+    which payload keys, which numeric code) stays in `LeetCodeAPI`, and these are
+    what it parses into, so the flow model and both views talk about a verdict
+    without ever having seen a JSON key.
+    `LeetCodeJudgeKind` (`.run`/`.submit`) **travels with every judge call rather
+    than being inferred**, because it decides three separate things — which URL is
+    posted to, whether the payload carries `data_input`, and which of two entirely
+    different finished shapes a check response is read as. The last is the sharp
+    one: both kinds are polled from the *same* `submissions/detail/<id>/check/`
+    endpoint with overlapping-but-different key sets, so a check parsed under the
+    wrong kind reads plausible and is wrong.
+    `LeetCodeJudgeContext` (slug + `questionID` + `exampleTestCases`) is the small
+    projection of a detail that the judge actually uses, and it exists because
+    **neither thing this app already keeps about a problem holds it**: a file name
+    carries the frontend number and the slug, the statement disk cache carries
+    markup. Modelled as its own value rather than by keeping whole details around,
+    since the statement and every language's starter code are the large half of
+    that response and exactly the half the judge never reads (L21).
+    `LeetCodeVerdict` is LeetCode's numeric `status_code` as its nine outcomes,
+    with the wire codes *as the raw values* so the mapping is one line rather than
+    a switch that can drift from the table it mirrors, and with a `displayName`
+    spelled the way LeetCode spells it so a user comparing against the site reads
+    the same words. **No `unknown` case and no `default`** (L22): a tenth outcome
+    silently rendered as "Unknown Error" would be indistinguishable from LeetCode's
+    *own* code 21, which it sends on purpose. `isAccepted` is documented as the
+    whole answer on a submit and deliberately *not* the headline on a run — code 10
+    there means "your code executed", and whether the output was right is
+    `LeetCodeRunResult.matchedExpected`.
+    `LeetCodeJudgeState` is `PENDING`/`STARTED`/`SUCCESS`/`FAILURE`. The fourth is
+    a small, deliberate extension beyond the three the happy path walks: LeetCode
+    does answer `FAILURE` when its own judge gives up, and mapping that to a stated
+    "the judge did not finish" beats reporting a state LeetCode documents by
+    sending it as a schema change.
+    `LeetCodeRunResult` and `LeetCodeSubmitResult` are the two finished shapes.
+    Every decoration on them is optional and **an absence stays an absence** —
+    LeetCode omits the runtime on a compile error, the percentiles on anything that
+    is not Accepted, and the counts when nothing reached a test case, and a `0 ms`
+    or a `0 / 63` invented to fill the gap would read as a measurement. Runtime and
+    memory are `String`s because they are display strings on the wire and nothing
+    here computes with them; `errorText` is the compile-or-runtime diagnostic in
+    the fullest form LeetCode sent, because a diagnostic cut to its first line is
+    precisely what sends a user back to the browser.
+    `LeetCodeJudgeCheck` (`.pending`/`.started`/`.finishedRun`/`.finishedSubmit`/
+    `.judgeFailed`) is what the poll loop's whole control flow switches over.
+    Modelling "not finished yet" as a *case* rather than as a nil result is what
+    makes publishing a half-built verdict impossible: until the check says there is
+    a result, there is no value that could be published.
   - `LeetCodeAPI.swift` — **the one schema file** (L1). Endpoints
     (`https://leetcode.com/`, `/graphql`, `/api/problems/all/`), the two GraphQL
     documents and their operation names, the `User-Agent`, `problemURL(slug:)`,
@@ -245,6 +329,66 @@ the limits the design carries.
     fixtures); a non-numeric string is still `apiChanged`, naming the value.
     Absent and explicitly-null are not distinguished, because on this API they
     mean the same thing everywhere they are read optionally.
+    *The judge's three endpoints* are `interpretURL(slug:)`, `submitURL(slug:)`
+    and `checkURL(id:)`, all built on `problemPageURL(slug:)` — the same page as
+    `problemURL(slug:)` but **with the trailing slash**, which is not cosmetic and
+    is why the two are separate functions rather than one with a flag nobody would
+    read. Django's `APPEND_SLASH` answers the slash-less form with a 301, and a
+    redirected `POST` is re-sent as a `GET` by every stack that follows RFC 9110's
+    historical behaviour, which LeetCode then answers with a 405 that says nothing
+    about the real cause. The seeded header comment keeps the slash-less form,
+    because that is the link a human clicks.
+    A second `commonHeaders(credentials:referer:)` **overload** — not a defaulted
+    parameter, so every pre-existing call site's bytes are provably unchanged —
+    lets those three send the **problem page** as `Referer` where the GraphQL and
+    catalog calls send the site root: that is where a browser is when it runs or
+    submits, and LeetCode's CSRF-protected POST views are the ones most likely to
+    check it. `interpretRequest`/`submitRequest` compose
+    `{"data_input", "lang", "question_id", "typed_code"}` as plain JSON (not
+    GraphQL) with the same `.sortedKeys` byte-reproducibility, and **submit omits
+    `data_input` rather than sending it empty** (L20): a submission runs LeetCode's
+    own suite, and that key on that endpoint would be either ignored or, worse,
+    honoured. `checkRequest(id:slug:credentials:)` is a bodyless `GET` that carries
+    the slug for one reason only — the `Referer` — since the URL itself does not
+    mention the problem.
+    *Reading the judge's answers.* `parseInterpretID`/`parseSubmissionID` both go
+    through a new `opaqueIdentifier(_:)` reader, and so does the detail's
+    `questionId`: an identifier this app never interprets and only ever sends back.
+    It is lenient about *form* for `integer(_:)`'s reason (a run's id is the string
+    `runcode_…`, a submission's is a JSON number, and `questionId` has arrived both
+    ways) and strict about there being a value at all, because a response without
+    one means there is nothing to poll and the run silently never happened. A
+    non-numeric string is deliberately accepted — the value is opaque and its only
+    requirement is to round-trip into a payload verbatim. `questionId` is demanded
+    **for every problem including a locked one**, since a Premium problem is still
+    a problem the judge would have to be addressed about, and substituting
+    `questionFrontendId` would be the one repair that looks right on Two Sum and
+    judges something else on anything recent. `interpret_expected_id` is
+    deliberately ignored: the expected output arrives inside the run's own check
+    response, so polling a second id would double the request rate for data already
+    in hand.
+    `parseJudgeCheck(_:kind:)` is **strict where the verdict lives and lenient
+    around it** (L22). `state` and `status_code` decide what the user is told, so an
+    unrecognised value of either is `apiChanged` naming it — a tenth code rendered
+    as some default is a confidently wrong verdict on somebody's submission, which
+    is the loudest version of the wrongness this whole file exists to prevent.
+    Everything else is a *display* field read through a grouped family of
+    `display…` readers, **none of which throws**: LeetCode omits the percentiles on
+    a rejected submit, omits `code_answer` on a compile error, spells runtime as a
+    string (and has spelled it as a number), and folds "not applicable" to `""`
+    about as often as it omits the key. That asymmetry is the catalog's
+    `status(fromRESTValue:)` trade-off appearing again — a missing detail line
+    against no verdict at all — and it is grouped in one block in the source so it
+    stays visible. `judgeErrorText()`'s *order* is part of the contract: full
+    compile, short compile, full runtime, short runtime, with compile preferred
+    because a response carrying both compiled nothing, and the full form preferred
+    because reading the whole diagnostic in the editor is the entire reason not to
+    go back to the browser. `displayNumber` refuses a non-finite value and
+    `displayInteger` never substitutes a zero, since "0 of 63 passed" and "the
+    judge never got that far" are different things to say. The `state` table is
+    matched case-insensitively after trimming — lenient as to *form*, strict as to
+    the set — and `judgeState(fromWireValue:)` answers `nil` for anything outside
+    it, which the caller turns into `apiChanged`.
   - `LeetCodeProblemInput.swift` — what the user typed, once understood:
     `.number(Int)` or `.slug(String)`, or `nil`. Pure and here rather than in
     either entry point because both are untested view code and the field is
@@ -285,8 +429,20 @@ the limits the design carries.
     language, so a seeded file always highlights as what it is.
     `offerableLanguages` is a deliberate subset of both LeetCode's ~20 languages
     and the editor's cases — a language belongs only if the editor can highlight it
-    *and* LeetCode accepts submissions in it — and both directions of the mapping
-    go through that one list. Note the two non-obvious slugs: LeetCode says
+    *and* LeetCode accepts submissions in it — and all three directions of the
+    mapping go through that one list. The third is
+    `language(forFileExtension:)` (L19), which exists because the judge has to name
+    a `lang` in its payload and the file on screen is all it has: the extension is
+    where a solution file's language is written down. It goes through
+    `offerableLanguages` rather than through `SyntaxLanguage` — which knows `.rb`
+    and `.cpp` this app does not offer — so a file this app *wrote* always maps back
+    to what it was written in, and a file it did not write maps either to something
+    LeetCode will accept or to nothing at all. `nil` is the honest answer for
+    `0001-two-sum.md`, and the judge turns it into a stated refusal rather than
+    guessing a language and submitting prose. Matched case-insensitively (a `.PY`
+    on a case-insensitive volume is the same file) and tolerant of a leading dot,
+    since callers pass `URL.pathExtension`, which carries none, but a hand-written
+    `".py"` must not silently answer `nil`. Note the two non-obvious slugs: LeetCode says
     `python3` (plain `python` is Python 2, still listed and still accepted, and
     seeding a Python 2 snippet would be a bug) and `golang`.
     **The name is the association** (L5). This integration keeps no side-car
@@ -700,11 +856,132 @@ the limits the design carries.
     own, so the ordinary tab switch still touches no disk. `signOut()` does *not*
     empty it, matching the disk fragment cache it parallels: a problem's title is
     public content, not something the session revealed.
+    *The judge's context.* `judgeContexts` is a `[String: LeetCodeJudgeContext]`
+    memo of what Run and Submit need about each slug a detail has arrived for this
+    run — the internal `questionId` and the examples — because **nothing else in
+    this app keeps either** (L21). It is written in `fetchDetail`, *not* at that
+    method's three call sites: it is the one place a detail response passes
+    through, so opening a problem, refreshing the statement and the judge's own
+    lazy fetch all record it by construction and a fourth caller added later
+    cannot forget to. In memory and per run — the statement disk cache stores the
+    bare fragment and its format is deliberately untouched — and emptied by
+    `signIn(with:)` and `signOut()` alongside `slugsFetchedThisRun`, for the same
+    reason: a session change invalidates what was fetched under the old one.
+    `judgeContext(forSlug:)` is **the memo first, one lazy fetch behind it**: the
+    ordinary case costs no request at all, and the slug this run never fetched —
+    a solution file left over from a previous launch, opened straight into the
+    editor with its statement served off the disk cache — costs exactly one, after
+    which the memo answers. Its `nil` is L7 on a new axis: "LeetCode does not know
+    this problem" is a *value*, the honest answer for a file the folder happens to
+    hold (the name rule is deliberately permissive), and reporting it as
+    `apiChanged` would tell someone with a stray note that the API had changed. That
+    negative is recorded in the same `slugsKnownAbsent` the statement panel uses,
+    for the identical reason: this question is asked every time a judge surface
+    resolves its problem, so without it a stray file re-issues a request that is
+    permanently going to answer "no such problem".
+    *What the companion may reach.* `send`, `requireCredentials`,
+    `markSessionRejected()` and `markSessionAccepted()` are **internal rather than
+    private** so `LeetCodeJudgeModel` can use them: it is a companion of this
+    model, not a stranger, and a second transport call site would be a second place
+    the `network` fold could be forgotten. `isSignedIn` gained a `didSet` that tells
+    the judge its buttons' answer moved — placed on the property rather than at the
+    three sites that write it, because two of those (`markSessionRejected()`/
+    `markSessionAccepted()`) are reached from arbitrary request paths including the
+    judge's own: one writer, one hook. `invalidateInFlightWork()` bumps the judge's
+    token with the other two (L17), since a poll in flight is invalidated by a
+    session change exactly as a fetch is.
     *Plumbing.* Every request goes through one `send` that folds a non-`LeetCodeError`
     into `network`, so a decorator or a stub cannot escape this layer's vocabulary
     (the same fold `LeetCodeCatalog` applies). A Keychain that refuses the item does
     not fail the sign-in (`lastCredentialSaveFailed`, the `lastCacheWriteFailed`
-    shape).
+    shape). `judge` is owned here the way `catalog` is — and is a `lazy var` for
+    the one reason lazy is ever right: it is constructed with `self`, which does
+    not exist until this initialiser has run. Nothing observable happens on first
+    access, so where it is first touched does not matter.
+  - `LeetCodeJudgeModel.swift` — the second `@MainActor ObservableObject` of this
+    area: the editable input, the POST, the poll and the verdict. **A companion
+    model owned by `LeetCodeModel` the way `catalog` is** (L17), for two structural
+    reasons: the owner is already the largest file here and this is a whole second
+    state machine, and the judge surfaces observe *this* object, so a keystroke in
+    the test-case box invalidates one section of one pane instead of every surface
+    bound to the account and the statement. The back-reference is `unowned` and
+    deliberately **not** a protocol seam — what it needs (the session, the
+    question-id memo, the two session transitions) is `LeetCodeModel`'s and nothing
+    else's, this object is reachable only through its owner, and the suites drive
+    it through a real model over the scripted transport, so a host protocol would
+    be a fourth abstraction standing in for one the tests already build.
+    *Availability is a pure, synchronous decision, not a `Bool`.*
+    `LeetCodeJudgeAvailability` is `.ready(LeetCodeLanguage)` / `.notASolutionFile`
+    / `.unsupportedLanguage(String)` / `.notSignedIn` / `.busy`, **each carrying
+    the sentence the disabled button explains itself with** — which is what makes
+    "a dead control with nothing to say" a state this layer cannot reach. The
+    static `availability(problemSlug:fileExtension:isSignedIn:isRunning:)` is
+    resolved from four facts and no request, so it is answered the instant a tab
+    becomes active and unit-tested as a table. **The order is the rule**, most
+    permanent fact first: what the *file* is cannot be fixed by signing in or
+    waiting, the session is fixed by one action, and `busy` resolves itself in
+    seconds — reporting "a run is already in progress" for a Markdown file would be
+    true and useless. The language half comes from
+    `LeetCodeSolutionFile.language(forFileExtension:)` (L19), so the two directions
+    can never disagree.
+    *Preparing.* `prepare(forFileAt:in:)` is driven by the view's `.task(id:)` on
+    the same tab-and-folder key the statement pane uses (the LC-1 pattern), and two
+    rules follow from that. **Re-preparing the same file changes nothing** — the
+    key fires again on every re-render of the host, and a prepare that reset the box
+    would throw away what the user typed and cancel a poll in flight for no reason.
+    **A different file is a different problem**: the box, both results and the last
+    error are reset and a poll still running is superseded, because its verdict has
+    nowhere to go. The context comes from the owner's memo (one lazy fetch at
+    worst), and the `nil` answer degrades availability to `.notASolutionFile`
+    rather than raising an error. Nothing is asked at all for a surface whose
+    buttons are already disabled — a request spent on a signed-out or unsupported
+    tab is a request against an unofficial API for nothing.
+    *The flow.* `run()` and `submit()` share one `start(kind:)`: resolve readiness,
+    read the **live editor buffer** synchronously — never the disk copy, so the user
+    does not have to save first and what they see is what is judged — capture the
+    generation, POST, take the id, then poll `check` at a fixed interval until the
+    state is terminal. **A second press supersedes rather than being refused**:
+    `availability` reports `.busy` so the button can disable itself, but the model's
+    own readiness check ignores that, and the first attempt — whose generation has
+    just moved — publishes nothing at all. The refusal path still *states* itself
+    (`judgeUnavailable`) rather than returning silently, because a button that does
+    nothing is the one outcome this area does not allow.
+    *Budgets are data* (L18): `Budgets(run: 30, submit: 60)`, defaulted and
+    injectable, enforced against a `now()` **deadline rather than an attempt
+    count**, so a network that slows down cannot silently double the wait the user
+    was promised. Exhaustion publishes the typed `judgeTimedOut`; the one thing a
+    poll loop must never do is hang. Submit gets twice Run's because it queues
+    behind LeetCode's own judge on the full suite. `pollInterval` is 1 s — about
+    what LeetCode's own page uses, and a shorter one on an unofficial API is
+    exactly what gets rate-limited — and both `now` and `sleep` are seams, so the
+    whole state machine including a thirty-sleep budget exhaustion runs
+    deterministically and `swift test` gains no wall-clock time.
+    *The fourth generation token* obeys the other three's rule exactly (L17):
+    captured synchronously before the first `await`, checked after every
+    suspension, and an attempt that comes back to find it moved publishes
+    **nothing at all** — not the result, not an error, and *not the phase*, since
+    clearing that would switch off a spinner the newer attempt turned on. It is
+    bumped by a new attempt, by `cancel()` and by a sign-in or sign-out through the
+    owner's `invalidateInFlightWork()`. Cancellation is separate from supersedence
+    and handled by `Task.isCancelled`, the LC-1 rule restated: the view's task going
+    away makes `URLSession` throw, and a request nobody waited for must not put a
+    sentence on screen or say anything about the session. `cancel()` does **not**
+    undo the submission — LeetCode has it — which is the same statement
+    `judgeTimedOut` makes and the reason neither pretends otherwise.
+    *Session transitions on this axis.* A `notLoggedIn` arriving anywhere in the
+    flow flips the account state through the owner's `markSessionRejected()`, and
+    every parsed judge response calls `markSessionAccepted()` — the owner's rule
+    applied wherever a response arrives. `sessionDidChange()` is deliberately
+    separate from `invalidateInFlightWork()`, because the two happen at different
+    moments: signing in bumps the token *before* the state flips, and the two
+    `markSession…` transitions move it with no invalidation at all. Without it,
+    signing in while looking at a solution file left the buttons disabled until the
+    user switched tabs and back — the stale-key problem `lastStatementRequest`
+    solves one layer up.
+    *The test-case box* is session state and only that (L20): prefilled from the
+    problem's own examples joined by LeetCode's newline convention, sent verbatim
+    by Run, **ignored entirely by Submit**, never written to disk, never carried
+    across launches, reset when the problem changes.
   - `SettingsStore.swift` (modified; the entry is in `core-services.md`) — three
     stable keys: `leetCodeFolderPath` (a plain path, stored verbatim; a value
     that is blank once trimmed normalises to `nil` so "unset" has one spelling,
@@ -1014,6 +1291,40 @@ the limits the design carries.
     same gate for the same reason. `loadHTMLString`'s base URL
     matches the document's own `<base href>`, or LeetCode's relative `<img src>`s
     would resolve against `about:blank`.
+  - `LeetCodeJudgeView.swift` (macOS) — `LeetCodeJudgeSection`, hosted by
+    `LeetCodeDescriptionPane` below the statement web view and inside the same
+    pane, because Run and Submit are about the problem the user is reading.
+    **It observes `model.judge`, not `model`** — the whole reason the judge is a
+    companion object: this view binds a `TextEditor` to `judge.testInput` and so
+    re-renders on every keystroke in the box, and observing the owner would put the
+    account state, the statement and the web view above it on that path.
+    **The editor arrives deliberately non-observed**, a plain `WorkspaceModel?`
+    handed down from `ContentView` — the `commitDialog`/`symbolIndex` rule arriving
+    two levels deeper, and for the sharper version of its reason: an
+    `@ObservedObject` would re-render this section on every keystroke *in the file
+    being solved*, which is the text the user types the most. Nothing here reads a
+    buffer at render time; the judge reads one synchronously when a button is
+    pressed, which is also what makes "what you see is what is judged" true without
+    a save. The **selection travels separately** (`activeFileURL`) precisely because
+    the workspace is not observed: that value is what re-runs `prepare`, so it has
+    to come from a view that *is* watching it. The `.task(id:)` key is the
+    statement's own two halves — the tab and the folder — since re-pointing the
+    folder has to re-ask the question for the tab already open.
+    The view makes **no decision of its own**: availability, the phase, every
+    verdict and every sentence come from Core. What is left is layout plus one
+    piece of presentation state, `shownKind`, which only says which of the two
+    finished results is on screen — set when a button is pressed rather than
+    derived, because "the one the user just asked for" is a fact about this surface
+    and not about the judge (`lastRun` and `lastSubmit` are separate published
+    values on purpose: they are different shapes, and a submit must not erase what
+    a run just showed). The run header's colour comes from `matchedExpected`, not
+    from the verdict, for the reason `LeetCodeVerdict.isAccepted` documents. The
+    compile/runtime diagnostic is rendered **in full** — monospaced, selectable,
+    wrapped rather than clipped, scrolling with the rest inside a capped result
+    area so a Wrong Answer with four long fields cannot push the statement off the
+    top. The disabled buttons carry `availability.reason` as their help text and as
+    a badge beside them, which stands down while a run is in flight because the
+    spinner already says the same thing.
   - `PisakaApp.swift` / `ContentView.swift` / `SettingsView.swift` (macOS, modified;
     entries in `app-shell.md` and `app-window.md`) — the orchestration.
     `makeLeetCode(settings:)` composes the stack once (transport, Keychain store,
@@ -1107,6 +1418,23 @@ the limits the design carries.
     the macOS one (compare-then-load, scripting off, and the main frame pinned to
     the loaded document — a tapped `http`/`https` link out to Safari, everything
     else cancelled, including the un-tapped navigations the frame test catches).
+  - `iOS/LeetCodeJudgeView_iOS.swift` — `LeetCodeJudgeSection_iOS`, the peer of the
+    macOS section, **written once into `LeetCodeDescriptionContent_iOS`**: that
+    view is already what the regular-width pane and the compact-width sheet share,
+    so the adaptive pattern LC-1 established carries the judge for free and there
+    is no second copy to drift. It observes the judge and not its owner, and takes
+    the workspace and the active file non-observed from `RootView_iOS`, both for
+    the macOS section's stated reasons.
+    What this file has that macOS does not is **keyboard discipline**, and it is
+    three rules. The controls sit *above* the input, so the box grows towards the
+    bottom of the screen and the buttons never follow it under the keyboard. The
+    box carries its own Done affordance (an inline button plus a keyboard
+    accessory), so a focused editor is never a trap. And the result area stands
+    down while the box is focused, so on a compact width the keyboard, the box and
+    both buttons fit at once. In the shared content the web view is the flexible
+    child and the judge section the intrinsically-sized one, which is what makes
+    the statement — not the controls — give up height when the keyboard shrinks the
+    safe area.
   - `iOS/PisakaApp_iOS.swift` / `RootView_iOS.swift` / `SettingsView_iOS.swift`
     (modified; entries in `app-ios.md`) — the iOS composition and wiring.
     `PisakaApp_iOS` composes the stack inline rather than through a factory
@@ -1185,11 +1513,44 @@ the limits the design carries.
     and across a switch away and back; and `isBusy`/`isOpening` tracked separately
     through two genuinely overlapping operations, since one operation would pass a
     plain `Bool` identically.
+  - `LeetCodeJudgeAPITests` — the wire half of the judge: byte-exact
+    `interpret_solution` and `submit` bodies (the internal `question_id`, and
+    Submit carrying **no** `data_input` at all), the trailing slashes, the
+    problem-page `Referer` beside the site-root one the GraphQL calls keep, both id
+    parses in both forms they arrive in, every fixture-driven verdict on **both**
+    finished shapes, and the two strict tables failing loudly — an unknown
+    `status_code` and an unknown `state` are each `apiChanged` naming the value.
+    The asymmetry has its own test: a *display* field respelled costs that field
+    and not the verdict. Plus a 429 and a DRF auth body on a check, so the
+    plain-REST classification is pinned on the judge endpoints too, and the
+    formatter guard that keeps an implausible budget from trapping.
+  - `LeetCodeJudgeModelTests` — the flow, driven through a real `LeetCodeModel`
+    over `ScriptedLeetCodeTransport` (which grew `.interpret(slug:)`,
+    `.submit(slug:)` and `.check(id:)`, recognised by **path shape**, so a request
+    nobody expected still lands in `.other(path:)` and names itself). The
+    availability table including the not-offerable refusal and the order refusals
+    are reported in; `PENDING → STARTED → SUCCESS` for both kinds, which the
+    sticky-last-step queue makes one line; budget exhaustion publishing the typed
+    timeout; a throttle mid-poll published and stopping the poll; a logged-out
+    check flipping the account state; and the three rules that are only visible as
+    a **refusal to publish** — a superseded attempt, a cancelled one and a sign-out
+    mid-poll each publishing nothing at all. Also that the edited box reaches the
+    interpret payload verbatim while Submit sends none, and that the **live buffer**
+    is what is judged rather than any saved copy. The memo's rules are in
+    `LeetCodeModelTests` beside the other request-count assertions: warm after an
+    open and after a statement refresh, a cold slug fetched exactly once and never
+    again, an unknown slug answering `nil`, and a sign-out emptying it.
   - Fixtures live in `Tests/PisakaCoreTests/Fixtures/leetcode/`, are recorded from
     the live public endpoints (trimmed to a dozen `stat_status_pairs` for the 2 MB
     list, with a `README.md` recording provenance), are read through `#filePath`,
     and are listed in the test target's `exclude:` — they are data the tests read,
-    not a SwiftPM resource.
+    not a SwiftPM resource. The README labels every file as **verbatim,
+    hand-edited or authored**, and the judge's are all authored — categorically, not
+    incidentally: all three endpoints require a session and two of them *write* to
+    an account, so recording one would mean submitting somebody's code to LeetCode
+    from a test run. The `questionId` added by hand to the recorded details is
+    labelled the same way rather than passed off as a recording, with the note that
+    a re-record makes the label disappear on its own.
 
 The app layer is untested by repository convention, which is why every decision
 worth being right about is in Core: what counts as a session, what a typed string
@@ -1270,6 +1631,48 @@ means, what a file is named, when a fetch happens, and what gets written.
   publishing the fragment is not enough to stop the tab change that follows from
   re-requesting it. `LeetCodeModel.slugsFetchedThisRun` is the record that makes
   the second request not happen; `signOut()` empties it.
+- **L16 — the internal `questionId` is modelled now, and only because the judge
+  needs it.** LC-1 deliberately did not carry it; `interpret_solution` and
+  `submit` address a problem by it and accept no other spelling, so
+  `LeetCodeProblemDetail` carries it beside `frontendID` with both documented as
+  the pair they must never be confused for. It never reaches a file name, a URL or
+  anything a user types, it is a `String` because that is what the payload sends,
+  and it is demanded strictly — including for a Premium problem, since substituting
+  `questionFrontendId` is the repair that looks right on Two Sum and judges
+  something else on anything recent.
+- **L17 — the judge is a companion model with its own generation token.** Owned by
+  `LeetCodeModel` the way `catalog` is, so the surfaces observe the narrower
+  object and a keystroke in the test-case box invalidates neither the statement nor
+  the account. Its token is the **fourth**, beside open, statement and account, so
+  a poll and a statement refresh cannot cancel each other — and it is bumped by a
+  sign-in or sign-out with the other three, because a session change invalidates a
+  poll in flight as surely as a fetch.
+- **L18 — polling is a fixed interval against a hard deadline.** One second
+  between checks, `Budgets(run: 30, submit: 60)` as injectable data, and the budget
+  enforced against a `now()` deadline rather than an attempt count, so a slow
+  network cannot silently double the promised wait. Exhaustion is the typed
+  `judgeTimedOut`, never a hang — and its sentence says the submission still
+  reached LeetCode, because a user who thinks it was lost submits twice.
+- **L19 — the submission language is the file extension**, resolved through the
+  one `offerableLanguages` list that already answers the other two directions, so
+  a file this app wrote always maps back to what it wrote. A file that maps to no
+  offerable language is refused with a stated reason rather than guessed at.
+- **L20 — the test-case box is session state.** Prefilled from the problem's own
+  examples, sent verbatim by Run, **ignored entirely by Submit** (whose payload
+  omits `data_input` rather than sending it empty), reset when the problem changes
+  and never written anywhere.
+- **L21 — the judge context is memoised in memory per run.** Every detail fetch
+  that already happens records `(questionId, examples)` by slug — written in
+  `fetchDetail`, the one funnel all callers pass through — and a slug this run has
+  never fetched costs exactly one lazy request. The statement disk cache goes on
+  storing the bare HTML fragment; its format is untouched by any of this.
+- **L22 — the verdict and state tables are strict, with no default.** An
+  unrecognised `status_code` or `state` is `apiChanged` naming the value, because a
+  tenth outcome rendered as some fallback would be a confidently wrong verdict on
+  somebody's submission — while the *decorations* around the verdict (percentiles,
+  runtime strings, echoed inputs) are read leniently and an absence stays `nil`.
+  `FAILURE` is the one addition to the state table rather than an exception to it:
+  LeetCode documents that state by sending it.
 
 ## Known limits
 
@@ -1308,3 +1711,19 @@ means, what a file is named, when a fetch happens, and what gets written.
   deliberately leaving every other site a web view in this app has loaded alone.
 - **One account at a time.** The Keychain item *is* the session, filed under a
   constant account; switching accounts is a sign-out followed by a sign-in.
+- **A Run or Submit that outruns its budget does not undo the submission.**
+  LeetCode has it the moment the POST succeeds, and its verdict appears on the
+  site; the budget bounds how long *this app* waits, nothing more. The same is true
+  of a cancel and of a sign-out mid-poll. Both sentences say so rather than
+  implying the attempt was lost, because the failure mode of the other reading is a
+  user submitting twice.
+- **Edited test cases are not persisted.** The box is session state: switching
+  problems resets it to the statement's own examples and quitting forgets it
+  entirely. Persisting it would mean a fourth thing on disk keyed by problem, and
+  the examples are one request away.
+- **Percentiles are absent on most verdicts**, and counts on some. LeetCode simply
+  omits them for anything that is not Accepted, and a compile error never reached a
+  test case at all; those stay absences rather than being shown as zeros.
+- **No submission history and no per-case editing beyond the one box.** The judge
+  shows the attempt it just made; earlier submissions, their diffs and the
+  editorial stay on leetcode.com, which the pane's header button opens.
