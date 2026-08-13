@@ -82,10 +82,17 @@ public enum LeetCodeAPI {
 
     /// Everything the open-problem flow needs about one problem, in one round
     /// trip: the number for the file name, the statement for the panel, the
-    /// starter code to seed the file with, and the examples LC-2's Run will use.
+    /// starter code to seed the file with, the examples Run prefills its input
+    /// box from, and the internal id the judge payloads are addressed by.
+    ///
+    /// `questionId` and `questionFrontendId` are both asked for on purpose: they
+    /// are different identifiers that agree on the old problems, and asking for
+    /// only one of them would mean guessing the other (see
+    /// `LeetCodeProblemDetail.questionID`).
     public static let questionDetailQuery = """
         query questionData($titleSlug: String!) {
           question(titleSlug: $titleSlug) {
+            questionId
             questionFrontendId
             title
             titleSlug
@@ -320,6 +327,12 @@ public enum LeetCodeAPI {
         guard let question = try data.optionalObject("question") else { return nil }
 
         let isPaidOnly = try question.bool("isPaidOnly")
+        // Strict, and strict for every problem including a locked one: the judge
+        // payloads carry no other spelling of *which* problem is being answered,
+        // so a detail without it is a detail Run and Submit cannot use. Substituting
+        // `questionFrontendId` would be the one repair that looks right on Two Sum
+        // and judges some other problem on anything recent.
+        let questionID = try question.opaqueIdentifier("questionId")
         let slug = try slug(
             fromWireValue: try question.optionalString("titleSlug"),
             path: question.path(of: "titleSlug")
@@ -344,7 +357,12 @@ public enum LeetCodeAPI {
             guard isPaidOnly else {
                 throw LeetCodeError.apiChanged(detail: question.path(of: "content"))
             }
-            return LeetCodeProblemDetail(problem: problem, content: "", codeSnippets: [:])
+            return LeetCodeProblemDetail(
+                problem: problem,
+                questionID: questionID,
+                content: "",
+                codeSnippets: [:]
+            )
         }
 
         var snippets: [String: String] = [:]
@@ -382,6 +400,7 @@ public enum LeetCodeAPI {
 
         return LeetCodeProblemDetail(
             problem: problem,
+            questionID: questionID,
             content: content,
             codeSnippets: snippets,
             exampleTestCases: examples
@@ -865,6 +884,36 @@ private struct JSONObjectReader {
         }
         if let string = raw as? String, let parsed = Int(string) {
             return parsed
+        }
+        throw LeetCodeError.apiChanged(detail: "\(path(of: key)) = \(raw)")
+    }
+
+    /// An identifier this app never interprets and only ever sends back, carried
+    /// as the `String` a request payload puts on the wire.
+    ///
+    /// Lenient about the *form* for the same reason `integer(_:)` is — LeetCode
+    /// already spells one id as the string `"1"` and the same number as the JSON
+    /// number `1` on its other endpoint, so which of the two `questionId` arrives
+    /// as is not a fact worth failing on — and strict about there being a value at
+    /// all: absent, null, an empty string or a non-scalar is `apiChanged` naming
+    /// the key path.
+    ///
+    /// A non-numeric string is deliberately *accepted*. The value is opaque; this
+    /// layer's only requirement is that it round-trips into a payload verbatim,
+    /// and demanding digits would fail a perfectly usable id the day LeetCode
+    /// changes what its keys look like.
+    func opaqueIdentifier(_ key: String) throws -> String {
+        guard let raw = value[key], !(raw is NSNull) else {
+            throw LeetCodeError.apiChanged(detail: path(of: key))
+        }
+        if let string = raw as? String {
+            guard !string.isEmpty else {
+                throw LeetCodeError.apiChanged(detail: "\(path(of: key)) = \(raw)")
+            }
+            return string
+        }
+        if let number = raw as? NSNumber {
+            return String(number.intValue)
         }
         throw LeetCodeError.apiChanged(detail: "\(path(of: key)) = \(raw)")
     }

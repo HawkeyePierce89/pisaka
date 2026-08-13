@@ -35,8 +35,8 @@ no key, value or ordering is otherwise altered.
 
 | File | How it was produced |
 | --- | --- |
-| `question-detail.json` | verbatim — `questionData(titleSlug: "two-sum")`. Note `questionFrontendId` is the **string** `"1"` while the REST catalog spells the same number as the integer `1`; that disagreement is exactly why the parser reads a number leniently from either form. |
-| `question-detail-paid-only.json` | verbatim — problem 170, LeetCode Premium. `isPaidOnly: true` arrives with `content: null` **and** `codeSnippets: null`, so the parser must not demand either when the flag is set: the rejection is the model's job (it reports `paidOnly`), not the parser's. |
+| `question-detail.json` | verbatim **except `questionId`** — `questionData(titleSlug: "two-sum")`. The recording predates the query asking for that field, and this environment cannot re-record, so `"questionId": "1"` was added by hand at the position LeetCode returns it (Two Sum is old enough that the internal id and the frontend id agree, which is why it is safe to write down by hand at all — for a newer problem it would be a guess, and that case is covered by the authored `question-detail-newer-problem.json` instead). Re-record to make this file verbatim again. Note `questionFrontendId` is the **string** `"1"` while the REST catalog spells the same number as the integer `1`; that disagreement is exactly why the parser reads a number leniently from either form. |
+| `question-detail-paid-only.json` | verbatim **except `questionId`**, added by hand for the reason above (problem 170's two ids also agree). Problem 170, LeetCode Premium: `isPaidOnly: true` arrives with `content: null` **and** `codeSnippets: null`, so the parser must not demand either when the flag is set — the rejection is the model's job (it reports `paidOnly`), not the parser's. `questionId` *is* demanded even here, because a locked problem is still a problem the judge would have to be addressed about. |
 | `question-detail-unknown-slug.json` | verbatim — a slug that does not exist answers `{"data":{"question":null}}` with HTTP 200. An explicit `null` here is "no such problem", **not** a shape violation, which is why the detail parser returns an optional instead of throwing. |
 | `user-status-signed-out.json` | verbatim — `globalData` anonymous: `isSignedIn: false`, `username: ""`, and `isPremium: null` (absent-as-null, not `false`). |
 | `problem-list.json` | verbatim **except trimmed and re-statused** — the real response is 2.0 MB / 4018 `stat_status_pairs`, of which 12 are kept in their recorded order, chosen to cover all three difficulty levels, a `paid_only: true` row (170) and both ends of the id range. The top-level counters (`num_total: 4018`, …) are left as recorded and deliberately disagree with the trimmed array: nothing parses them, and a fixture that quietly "fixed" them would hide that. Anonymous reports `status: null` for every row, so `"ac"` (1) and `"notac"` (2) were injected by hand — the only edit to any row. |
@@ -44,14 +44,15 @@ no key, value or ordering is otherwise altered.
 
 ### Authored, not recorded
 
-Five shapes could not be obtained anonymously and without abusing the service, so
-they are hand-written to the shape LeetCode's stack (Django REST Framework +
+These shapes could not be obtained anonymously and without abusing the service,
+so they are hand-written to the shape LeetCode's stack (Django REST Framework +
 Graphene) produces and labelled here rather than passed off as recordings. If a
 future session ever captures a real one, re-record it and delete the note.
 
 | File | Why it is authored |
 | --- | --- |
 | `user-status-signed-in.json` | Requires a real session cookie, which is not committed. |
+| `question-detail-newer-problem.json` | The case a hand-edited recording cannot honestly cover: a problem whose internal `questionId` (`3403`) and user-visible `questionFrontendId` (`3110`) **disagree**, which is true of every problem added after LeetCode's numbering diverged. Authored to the recorded shape, with a trimmed statement and two snippets, because its only job is to pin that the parser keeps the two identifiers apart — swapping them looks correct on Two Sum and judges a different problem here. |
 | `question-detail-paid-only-subscriber.json` | The *other* Premium shape: requires a Premium session cookie, which is not committed. Same problem (170) and the same `isPaidOnly: true`, but with `content` and `codeSnippets` present — because the flag describes the **problem**, not the caller's access, and LeetCode withholds those two only from a caller who is not subscribed. It is what the model's refusal distinguishes: the locked answer is refused, this one opens. |
 | `errors-not-authenticated.json` | Requires provoking an auth-gated field; the phrasing is Graphene's. |
 | `errors-premium.json` | LeetCode answers a premium question with a null `content` (see above) rather than an error, but the errors-array phrasing exists on other premium surfaces; pinned so the classifier's paid-only branch is exercised. |
@@ -64,9 +65,14 @@ mismatch so a test can assert that `apiChanged` names the key path rather than
 some other error being reported or — far worse — an empty result being returned.
 
 `invalid-no-data.json`, `invalid-null-data.json`,
-`question-detail-missing-content.json`, `question-detail-unknown-difficulty.json`,
+`question-detail-missing-content.json`, `question-detail-missing-question-id.json`,
+`question-detail-unknown-difficulty.json`,
 `question-detail-unnumbered.json`, `problem-list-missing-pairs.json`,
 `problem-list-missing-slug.json`, `problem-list-unknown-level.json`.
+
+The `question-detail-*` derivatives carry the same hand-added `questionId` as the
+recording they are derived from — except `question-detail-missing-question-id.json`,
+whose entire purpose is that the key is gone.
 
 `problem-list-unknown-status.json` is the one violation that is *not* an error:
 it pins the single deliberate leniency in this layer (an unrecognised per-account
@@ -78,5 +84,8 @@ reasoning is on `LeetCodeAPI.status(fromRESTValue:)`.
 Re-record with the requests `LeetCodeAPI` builds — they are printed by
 `LeetCodeAPITests.testRequestBodiesAreExact`'s expectations — and re-apply the
 two documented edits to `problem-list.json` (trim to the same 12 ids, re-inject
-the two statuses). Then run `swift test`: a real LeetCode change shows up as a
-failing parse, which is the point of recording them at all.
+the two statuses). A fresh `questionData` recording carries `questionId` on its
+own, so the hand edit noted above disappears with it: drop the "except
+`questionId`" label from those rows rather than re-applying anything. Then run
+`swift test`: a real LeetCode change shows up as a failing parse, which is the
+point of recording them at all.

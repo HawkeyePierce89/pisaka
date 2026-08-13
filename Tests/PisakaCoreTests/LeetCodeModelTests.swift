@@ -440,7 +440,7 @@ final class LeetCodeModelTests: XCTestCase {
         transport.serve(
             .question(slug: "two-sum"),
             json: """
-                {"data":{"question":{"questionFrontendId":"1","title":"Two Sum",\
+                {"data":{"question":{"questionId":"1","questionFrontendId":"1","title":"Two Sum",\
                 "titleSlug":"two-sum","content":"<p>x</p>","difficulty":"Easy",\
                 "isPaidOnly":false,"exampleTestcaseList":[],"codeSnippets":[]}}}
                 """
@@ -835,7 +835,7 @@ final class LeetCodeModelTests: XCTestCase {
         transport.serve(
             .question(slug: "add-two-numbers"),
             json: """
-                {"data":{"question":{"questionFrontendId":"2","title":"Add Two Numbers",\
+                {"data":{"question":{"questionId":"2","questionFrontendId":"2","title":"Add Two Numbers",\
                 "titleSlug":"add-two-numbers","content":"<p>second</p>","difficulty":"Medium",\
                 "isPaidOnly":false,"exampleTestcaseList":[],"codeSnippets":[\
                 {"lang":"Swift","langSlug":"swift","code":"class Solution {}"}]}}}

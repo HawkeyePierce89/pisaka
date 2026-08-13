@@ -74,12 +74,12 @@ Read it strictly — absent or null is `apiChanged` naming `data.question.questi
 
 The recorded fixtures predate the field, and this environment cannot re-record. Add `questionId` by hand to the recorded detail fixtures and say so **explicitly** in the README's provenance table — "verbatim except `questionId`, added by hand because the recording predates the query asking for it; re-record to make it verbatim again" — rather than silently letting a hand edit pass as a recording. Add one authored fixture whose `questionId` differs from `questionFrontendId` (the newer-problem case), so the suite pins the very confusion the ticket warns about, plus a shape-violation derivative with the key missing.
 
-- [ ] add `questionId` to `questionDetailQuery` and to `parseQuestionDetail`, strict, key-path-naming
-- [ ] add `questionID` to `LeetCodeProblemDetail` with the two-identifiers note; retire the stale comment in `LeetCodeProblem`
-- [ ] hand-add `questionId` to the recorded detail fixtures; author a differs-from-frontend-id fixture and a missing-key violation
-- [ ] update the fixtures README provenance table honestly (verbatim vs. hand-edited vs. authored)
-- [ ] extend `LeetCodeAPITests`: the exact new request body, the parse, the differing-id case, the missing-key `apiChanged`
-- [ ] run `swift test` — must pass before Task 2
+- [x] add `questionId` to `questionDetailQuery` and to `parseQuestionDetail`, strict, key-path-naming
+- [x] add `questionID` to `LeetCodeProblemDetail` with the two-identifiers note; retire the stale comment in `LeetCodeProblem`
+- [x] hand-add `questionId` to the recorded detail fixtures; author a differs-from-frontend-id fixture and a missing-key violation
+- [x] update the fixtures README provenance table honestly (verbatim vs. hand-edited vs. authored)
+- [x] extend `LeetCodeAPITests`: the exact new request body, the parse, the differing-id case, the missing-key `apiChanged`
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: The judge wire — interpret, submit, check
 
