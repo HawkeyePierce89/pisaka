@@ -73,9 +73,9 @@ The rules, each stated on the type:
 
 Add `var isEmpty: Bool` (no query, no difficulty selection, no status selection) so a surface can tell "no problems match your filter" from "no problems at all".
 
-- [ ] write `LeetCodeProblemFilter.swift` with the value type, `apply(to:)`, `isEmpty`, and the rules documented on the type
-- [ ] write `LeetCodeProblemFilterTests` as a table over a fixed, deliberately out-of-order row set: exact number query; a number with no such problem; leading/trailing whitespace; title substring; slug substring; mixed-case query both ways; empty query; each difficulty set and a two-element one; each status set; difficulty ∩ status ∩ query combined; paid rows present under every combination including a query that matches only paid rows; catalog order preserved when the input order is not sorted; `isEmpty`
-- [ ] run `swift test` — must pass before Task 2
+- [x] write `LeetCodeProblemFilter.swift` with the value type, `apply(to:)`, `isEmpty`, and the rules documented on the type
+- [x] write `LeetCodeProblemFilterTests` as a table over a fixed, deliberately out-of-order row set: exact number query; a number with no such problem; leading/trailing whitespace; title substring; slug substring; mixed-case query both ways; empty query; each difficulty set and a two-element one; each status set; difficulty ∩ status ∩ query combined; paid rows present under every combination including a query that matches only paid rows; catalog order preserved when the input order is not sorted; `isEmpty`
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: The catalog's browsing entry point
 
