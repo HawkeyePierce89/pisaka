@@ -224,6 +224,20 @@ public final class LeetCodeJudgeModel: ObservableObject {
     /// `nil` means "not resolved yet", not "there is none".
     private var context: LeetCodeJudgeContext?
 
+    /// The context resolution in flight and the slug it is for, so the three
+    /// entry points that can want one share a request rather than race to make
+    /// the same one. See `resolveContext(forSlug:)`.
+    private var contextResolution: (slug: String, task: Task<LeetCodeJudgeContext?, Error>)?
+
+    /// The resolution a sign-in started, held rather than dropped.
+    ///
+    /// It is the one piece of work here that no caller is awaiting — the box just
+    /// fills in when the answer lands — which is exactly why it is kept: without a
+    /// handle it could not be waited for, and `awaitSessionResolution()` is how the
+    /// suites drive that path deterministically instead of racing a `Task.yield()`
+    /// against it.
+    private var sessionResolution: Task<Void, Never>?
+
     public init(owner: LeetCodeModel) {
         self.owner = owner
     }
@@ -286,6 +300,13 @@ public final class LeetCodeJudgeModel: ObservableObject {
     public func prepare(forFileAt url: URL?, in folder: URL?) async {
         if isPrepared(forFileAt: url) {
             refreshAvailability()
+            // Same file, but the context behind it may still be missing: the first
+            // pass returns below without resolving anything when there is no
+            // session, and gives up on a resolution that failed. Nothing else ever
+            // asks again — the host's `.task(id:)` key is the file and the folder,
+            // and neither moved — so a repeat is the one chance to fill a box an
+            // earlier pass left empty.
+            await resolveContextIfNeeded()
             return
         }
 
@@ -307,19 +328,30 @@ public final class LeetCodeJudgeModel: ObservableObject {
         // Signed out, not one of ours, or a language LeetCode will not take: there
         // is nothing to resolve, and asking anyway would spend a request on a
         // surface whose buttons are disabled.
-        guard availability.isReady, let slug = preparedSlug else { return }
+        await resolveContextIfNeeded(generation: generation)
+    }
+
+    /// Resolve the prepared problem's judge context, if it is not resolved
+    /// already, and prefill the test-case box from its examples.
+    ///
+    /// Reachable from three places, which is the whole reason it is a method:
+    /// `prepare` on a new file, `prepare` again on the *same* file (the retry
+    /// above), and `sessionDidChange()` when a sign-in turns a surface that could
+    /// not ask into one that can. Every one of them is a no-op once the context is
+    /// in hand.
+    private func resolveContextIfNeeded(generation: Int? = nil) async {
+        let generation = generation ?? self.generation
+        guard availability.isReady, context == nil, !problemIsUnknown,
+              let slug = preparedSlug
+        else { return }
         do {
-            let resolved = try await owner.judgeContext(forSlug: slug)
+            let resolved = try await resolveContext(forSlug: slug)
             guard generation == self.generation, !Task.isCancelled else { return }
-            guard let resolved else {
+            guard resolved != nil else {
                 problemIsUnknown = true
                 refreshAvailability()
                 return
             }
-            context = resolved
-            // LeetCode's own convention: the cases are one after another, newline
-            // separated, exactly as they arrive in `data_input`.
-            testInput = resolved.exampleTestCases.joined(separator: "\n")
         } catch let error as LeetCodeError {
             guard generation == self.generation, !Task.isCancelled else { return }
             // A rejected session is worth acting on even here — it changes what
@@ -331,6 +363,22 @@ public final class LeetCodeJudgeModel: ObservableObject {
             // vocabulary.
             guard generation == self.generation, !Task.isCancelled else { return }
             publish(.network(reason: error.localizedDescription))
+        }
+    }
+
+    /// Keep a resolved context and prefill the test-case box from its examples.
+    ///
+    /// The box is **prefilled, never overwritten**. A resolution can land long
+    /// after the surface was prepared — it was signed out at the time, or the
+    /// first attempt failed — and by then the user may have typed their own case
+    /// into the box; throwing that away because an answer finally arrived would be
+    /// the one thing this section must not do to text somebody wrote.
+    private func adopt(context resolved: LeetCodeJudgeContext) {
+        context = resolved
+        // LeetCode's own convention: the cases are one after another, newline
+        // separated, exactly as they arrive in `data_input`.
+        if testInput.isEmpty {
+            testInput = resolved.exampleTestCases.joined(separator: "\n")
         }
     }
 
@@ -468,7 +516,7 @@ public final class LeetCodeJudgeModel: ObservableObject {
         generation: Int
     ) async throws -> LeetCodeJudgeCheck? {
         let credentials = try owner.requireCredentials()
-        let context = try await resolvedContext(forSlug: slug)
+        let context = try await resolveContext(forSlug: slug)
         guard generation == self.generation, !Task.isCancelled else { return nil }
         guard let context else {
             // Between preparing the surface and pressing the button, LeetCode
@@ -483,12 +531,19 @@ public final class LeetCodeJudgeModel: ObservableObject {
         let request: LeetCodeHTTPRequest
         switch kind {
         case .run:
+            // The box, or — when the context only resolved just now, so nothing
+            // ever prefilled it — the problem's own examples. An empty
+            // `data_input` is not "run against no cases": LeetCode answers it with
+            // a verdict on input the user never chose, which is worse than any
+            // refusal this layer could make.
             request = LeetCodeAPI.interpretRequest(
                 slug: slug,
                 questionID: context.questionID,
                 langSlug: language.langSlug,
                 code: code,
-                input: input,
+                input: input.isEmpty
+                    ? context.exampleTestCases.joined(separator: "\n")
+                    : input,
                 credentials: credentials
             )
         case .submit:
@@ -527,12 +582,29 @@ public final class LeetCodeJudgeModel: ObservableObject {
         }
     }
 
-    /// The prepared context, resolving it now for a surface that could not (it was
-    /// signed out when it was prepared, or the memo was emptied under it).
-    private func resolvedContext(forSlug slug: String) async throws -> LeetCodeJudgeContext? {
-        if let context { return context }
-        let resolved = try await owner.judgeContext(forSlug: slug)
-        if let resolved, slug == preparedSlug { context = resolved }
+    /// The prepared problem's context — from hand, from a resolution already in
+    /// flight, or from one request made here.
+    ///
+    /// **Coalescing is the point.** `prepare`, `sessionDidChange()` and a button
+    /// press can each discover the context is missing, and signing in and then
+    /// immediately pressing Run would otherwise ask LeetCode the very same
+    /// question twice. It is the "one lazy fetch"
+    /// `LeetCodeModel.judgeContext(forSlug:)` promises, kept on this side too.
+    ///
+    /// The shared work is an **unstructured** `Task`, deliberately: it must not be
+    /// cancelled because whichever caller happened to start it went away, since
+    /// the others are still waiting on the answer. The slug travels with it so a
+    /// resolution for the previous problem is never handed to the next one.
+    private func resolveContext(forSlug slug: String) async throws -> LeetCodeJudgeContext? {
+        if let context, context.slug == slug { return context }
+        if let pending = contextResolution, pending.slug == slug {
+            return try await pending.task.value
+        }
+        let task = Task { [owner] in try await owner.judgeContext(forSlug: slug) }
+        contextResolution = (slug, task)
+        defer { if contextResolution?.task == task { contextResolution = nil } }
+        let resolved = try await task.value
+        if let resolved, slug == preparedSlug { adopt(context: resolved) }
         return resolved
     }
 
@@ -600,6 +672,31 @@ public final class LeetCodeJudgeModel: ObservableObject {
     /// same stale-key problem `lastStatementRequest` exists to solve one layer up.
     func sessionDidChange() {
         refreshAvailability()
+        // Signing in with a solution file already on screen. `prepare` returned
+        // without resolving anything — every judge call needs a session — and its
+        // host's `.task(id:)` key has not moved, so nothing else is going to ask.
+        // Without this the test-case box stays empty and the first Run posts an
+        // empty `data_input`: the examples the user can read in the statement
+        // directly above never run.
+        guard availability.isReady, context == nil, !problemIsUnknown,
+              preparedSlug != nil
+        else { return }
+        // One request, guarded by the generation captured here. Nobody is waiting
+        // on it — the box simply fills in when the answer lands, exactly as it
+        // would have if the user had been signed in when the file was opened.
+        let generation = self.generation
+        sessionResolution = Task { [weak self] in
+            await self?.resolveContextIfNeeded(generation: generation)
+        }
+    }
+
+    /// Wait for the resolution a sign-in started, if there is one.
+    ///
+    /// Internal, and for the suites: the sign-in path is the one here that hands
+    /// its work to a task no caller holds, and a test that asserted on the box
+    /// without this would be racing that task rather than testing it.
+    func awaitSessionResolution() async {
+        await sessionResolution?.value
     }
 
     private func refreshAvailability() {

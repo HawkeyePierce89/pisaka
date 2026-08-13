@@ -146,7 +146,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LeetCodeCredentials.swift` — the session pair, the pure cookies→credentials rule, the store protocol (absence ≡ signed out).
 - `LeetCodeError.swift` — the nine typed failures; `apiChanged(detail:)` names the key path, the judge's two are product refusals.
 - `LeetCodeProblem.swift` — difficulty/status enums, the catalog row and the detail (fragment, snippets, examples, the internal `questionID`, L16).
-- `LeetCodeJudge.swift` — the judge vocabulary: kind, context, the strict verdict/state tables (L22), the two finished shapes, the check.
+- `LeetCodeJudge.swift` — the judge vocabulary: kind, context, the strict verdict/state tables (L22), the two finished shapes (incl. `caseCount`), the check.
 - `LeetCodeAPI.swift` — **the one schema file** (L1): endpoints, GraphQL documents, headers, parsers, the throttle/auth/premium classification, the three judge calls.
 - `LeetCodeProblemInput.swift` — number / slug / URL parsing; `normalizedSlug(_:)`, the one slug rule (L4).
 - `LeetCodeSolutionFile.swift` — offerable-language rows, `0001-two-sum.swift` and its inverse (L5), extension → language (L19), the seeded contents.

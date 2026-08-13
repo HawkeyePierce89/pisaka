@@ -578,7 +578,10 @@ public enum LeetCodeAPI {
     /// the request rate for data already in hand.
     public static func parseInterpretID(_ response: LeetCodeHTTPResponse) throws -> String {
         let root = try jsonObject(response, context: "interpret_solution")
-        return try root.opaqueIdentifier("interpret_id")
+        return try judgeID(
+            try root.opaqueIdentifier("interpret_id"),
+            path: root.path(of: "interpret_id")
+        )
     }
 
     /// The id `submit` answered with.
@@ -589,7 +592,34 @@ public enum LeetCodeAPI {
     /// with a submission id.
     public static func parseSubmissionID(_ response: LeetCodeHTTPResponse) throws -> String {
         let root = try jsonObject(response, context: "submit")
-        return try root.opaqueIdentifier("submission_id")
+        return try judgeID(
+            try root.opaqueIdentifier("submission_id"),
+            path: root.path(of: "submission_id")
+        )
+    }
+
+    /// The one shape rule for a judge id, applied where it leaves the wire.
+    ///
+    /// **Both ids become path components of the check URL**, and
+    /// `appendingPathComponent` percent-encodes almost everything *except* the two
+    /// spellings that matter here: it passes `/` and `..` through verbatim. An id
+    /// of `../../logout`, or one carrying a slash, would therefore send this app's
+    /// session cookie to a leetcode.com URL nothing in this file chose — the same
+    /// hazard `normalizedSlug(_:)` exists to close for the other wire value that
+    /// becomes a path component (L4), closed the same way rather than left to the
+    /// URL loader's discretion.
+    ///
+    /// LeetCode spells a run's id as `runcode_1770000000.1234567_AbCdEfGhIj` and a
+    /// submission's as a decimal number, so unreserved ASCII is not a guess about
+    /// the format; it is what both are. Anything else is `apiChanged` naming the
+    /// key, which is this file's standing answer to "the wire stopped looking like
+    /// the wire".
+    private static func judgeID(_ raw: String, path: String) throws -> String {
+        let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+        guard raw != ".", raw != "..", raw.allSatisfy({ allowed.contains($0) }) else {
+            throw LeetCodeError.apiChanged(detail: "\(path) = \(raw)")
+        }
+        return raw
     }
 
     /// Parse one poll of the check endpoint, under the kind that started it.
@@ -675,8 +705,10 @@ public enum LeetCodeAPI {
             matchedExpected: root.displayBool("correct_answer"),
             // LeetCode echoes the submitted input back on some shapes and not on
             // others; the flow model already knows what it sent, so an absence
-            // costs nothing and is not worth failing on.
-            inputs: root.displayLines("test_case"),
+            // costs nothing and is not worth failing on. Carried as the one block
+            // it is on the wire — see `LeetCodeRunResult.input` for why splitting
+            // it per case is wrong.
+            input: root.displayString("test_case"),
             answers: root.displayStrings("code_answer"),
             expectedAnswers: root.displayStrings("expected_code_answer"),
             stdOutputs: root.displayStrings("std_output_list"),
@@ -1252,22 +1284,21 @@ private struct JSONObjectReader {
     }
 
     /// A list of strings for display; absent, null or anything not an array is
-    /// `[]`. Non-string elements are rendered rather than dropped, so a count
-    /// never silently disagrees with the number of test cases.
+    /// `[]`.
+    ///
+    /// Every element **keeps its position**, which is the whole point: these
+    /// arrays are read by index against each other and against the case count, so
+    /// an element dropped for being an unexpected shape would silently shift every
+    /// later case's output under the wrong heading. A `null` or an object LeetCode
+    /// starts sending therefore becomes an empty string — an absence the surface
+    /// already knows how to render as nothing — rather than a missing slot.
     func displayStrings(_ key: String) -> [String] {
         guard let array = value[key] as? [Any] else { return [] }
-        return array.compactMap { element in
+        return array.map { element in
             if let string = element as? String { return string }
             if let number = element as? NSNumber { return number.stringValue }
-            return nil
+            return ""
         }
-    }
-
-    /// A newline-separated string read as its lines — how LeetCode spells a
-    /// multi-case input in one field.
-    func displayLines(_ key: String) -> [String] {
-        guard let text = displayString(key) else { return [] }
-        return text.components(separatedBy: "\n")
     }
 
     /// A number for display (a percentile), or `nil`.

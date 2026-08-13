@@ -159,9 +159,17 @@ public struct LeetCodeRunResult: Equatable, Sendable {
     /// expected one. `nil` when nothing executed (a compile error), which is a
     /// different statement from `false`.
     public let matchedExpected: Bool?
-    /// The inputs the judge says it ran, one per case, when it echoed them back.
-    /// Empty when it did not — the flow model already knows what it submitted.
-    public let inputs: [String]
+    /// The input the judge says it ran, echoed back as **one block** in exactly
+    /// the spelling it was posted in, or `nil` when LeetCode did not echo it.
+    ///
+    /// Deliberately *not* split into cases. `data_input` carries one line per
+    /// *parameter*, not one per case — Two Sum's single case is `[2,7,11,15]`
+    /// then `9`, and the three examples are six lines — so pairing its lines with
+    /// the per-case arrays below labels the wrong text as every case's input on
+    /// any problem taking more than one argument. The flow model already knows
+    /// what it submitted, so one verbatim block is both the honest shape and the
+    /// useful one.
+    public let input: String?
     /// The submitted code's output, one entry per example.
     public let answers: [String]
     /// LeetCode's own reference output for the same examples.
@@ -178,10 +186,24 @@ public struct LeetCodeRunResult: Equatable, Sendable {
     /// user goes back to the browser.
     public let errorText: String?
 
+    /// How many example cases the judge answered about.
+    ///
+    /// Read off the two arrays that are genuinely one entry per case, and
+    /// **`stdOutputs` is excluded on purpose**: LeetCode sends it with a trailing
+    /// extra element on an accepted run (four entries for three cases, as
+    /// `judge-check-run-accepted.json` records), so taking the longest of all
+    /// three would render an empty phantom final case on the happy path. It is
+    /// still read *per* case, defensively, because it can also be shorter — a
+    /// runtime error stops printing where it stopped running.
+    ///
+    /// It lives here rather than in the two views because it is a decision about
+    /// LeetCode's shapes, and Core is where those are decided and tested.
+    public var caseCount: Int { max(answers.count, expectedAnswers.count) }
+
     public init(
         verdict: LeetCodeVerdict,
         matchedExpected: Bool? = nil,
-        inputs: [String] = [],
+        input: String? = nil,
         answers: [String] = [],
         expectedAnswers: [String] = [],
         stdOutputs: [String] = [],
@@ -191,7 +213,7 @@ public struct LeetCodeRunResult: Equatable, Sendable {
     ) {
         self.verdict = verdict
         self.matchedExpected = matchedExpected
-        self.inputs = inputs
+        self.input = input
         self.answers = answers
         self.expectedAnswers = expectedAnswers
         self.stdOutputs = stdOutputs

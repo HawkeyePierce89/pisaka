@@ -56,7 +56,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the folder is read from `settings` (observed here) rather than from
     `model.solutionsFolder` (not) — `LeetCodeFolderChooser` writes both halves and
     only one of them invalidates this view. The pane cannot start the request
-    itself, since it does not exist until the statement does. The editor's 320pt
+    itself, since it does not exist until the statement does.
+    LC-2 puts two more values through the same hand-off, for the judge section the
+    pane now hosts under the statement: `workspace: model` and
+    `activeFileURL: model.selectedFile?.url`. The workspace is a **plain value**,
+    the `commitDialog`/`symbolIndex` rule again and for its sharpest reason — an
+    `@ObservedObject` would re-render that section on every keystroke *in the file
+    being solved* — and nothing down there reads a buffer at render time; the judge
+    reads one synchronously when a button is pressed. The selection travels
+    **separately** precisely *because* the workspace is not observed: that value is
+    what re-runs the judge's `prepare`, so it has to come from a view that is
+    watching it, and this is that view. The editor's 320pt
     `minWidth` stays on `editorZone` (the horizontal branch: on the `VStack` that is
     the tab strip plus the editor) rather than moving to the new `HStack`: on the
     wrapper it would be the floor for *editor + pane*, so a wide statement would

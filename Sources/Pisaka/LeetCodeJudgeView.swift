@@ -44,6 +44,13 @@ struct LeetCodeJudgeSection: View {
     /// just asked for" is a fact about this surface and not about the judge.
     @State private var shownKind: LeetCodeJudgeKind = .run
 
+    /// The run or submission in flight, held so leaving the surface can stop it.
+    ///
+    /// A `Task { }` started from a button inherits **no** cancellation from the
+    /// enclosing `.task`, so without holding it a poll outlives the section it was
+    /// going to answer — the `LeetCodeOpenProblemSheet` rule, on this axis.
+    @State private var judgeTask: Task<Void, Never>?
+
     /// How tall the result area may grow before it scrolls. The statement above
     /// is what the pane is mostly for; a Wrong Answer with four long fields must
     /// not push it off the top.
@@ -64,6 +71,16 @@ struct LeetCodeJudgeSection: View {
             judge.workspace = workspace
             await judge.prepare(forFileAt: fileURL, in: folder)
         }
+        // Leaving the surface — the pane folded away, the statement cleared, the
+        // window closed — abandons whatever is in flight. Both halves are needed:
+        // cancelling the task is what makes `URLSession` stop, and `cancel()` is
+        // what moves the generation so a request already past its last suspension
+        // publishes nothing. Neither undoes a submission LeetCode already has.
+        .onDisappear {
+            judgeTask?.cancel()
+            judgeTask = nil
+            judge.cancel()
+        }
     }
 
     private var preparationKey: String {
@@ -76,13 +93,13 @@ struct LeetCodeJudgeSection: View {
         HStack(spacing: 8) {
             Button("Run") {
                 shownKind = .run
-                Task { await judge.run() }
+                judgeTask = Task { await judge.run() }
             }
             .disabled(!judge.availability.isReady)
 
             Button("Submit") {
                 shownKind = .submit
-                Task { await judge.submit() }
+                judgeTask = Task { await judge.submit() }
             }
             .disabled(!judge.availability.isReady)
 
@@ -176,12 +193,15 @@ struct LeetCodeJudgeSection: View {
                 .foregroundColor(.secondary)
         }
         measurements(runtime: result.runtime, memory: result.memory)
-        ForEach(Array(0..<caseCount(of: result)), id: \.self) { index in
+        // The echoed input, once and whole: LeetCode spells it one line per
+        // *parameter*, so there is no per-case slice of it to show. See
+        // `LeetCodeRunResult.input`.
+        field("Input", result.input)
+        ForEach(Array(0..<result.caseCount), id: \.self) { index in
             VStack(alignment: .leading, spacing: 2) {
                 Text("Case \(index + 1)")
                     .font(.caption.weight(.semibold))
                     .foregroundColor(.secondary)
-                field("Input", result.inputs[safe: index])
                 field("Output", result.answers[safe: index])
                 field("Expected", result.expectedAnswers[safe: index])
                 field("Stdout", result.stdOutputs[safe: index])
@@ -266,16 +286,6 @@ struct LeetCodeJudgeSection: View {
                 .textSelection(.enabled)
                 .padding(.top, 2)
         }
-    }
-
-    /// How many example cases the judge answered about — the longest of the four
-    /// parallel arrays, since LeetCode omits some of them on some verdicts and a
-    /// shorter one must not hide a case the others describe.
-    private func caseCount(of result: LeetCodeRunResult) -> Int {
-        max(
-            max(result.inputs.count, result.answers.count),
-            max(result.expectedAnswers.count, result.stdOutputs.count)
-        )
     }
 }
 

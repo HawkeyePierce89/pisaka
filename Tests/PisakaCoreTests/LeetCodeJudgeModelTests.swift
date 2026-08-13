@@ -683,4 +683,251 @@ final class LeetCodeJudgeModelTests: XCTestCase {
         XCTAssertEqual(body["question_id"] as? String, "1")
         XCTAssertEqual(world.judge.lastRun?.verdict, .accepted)
     }
+
+    /// **The box is filled in by the sign-in, not left empty.**
+    ///
+    /// `prepare` returns before resolving anything when there is no session, and
+    /// its host's `.task(id:)` key does not move when one arrives — so without
+    /// `sessionDidChange()` asking again, nothing ever prefills the test-case box
+    /// and the first Run posts an empty `data_input`. That is not "run against no
+    /// cases": LeetCode answers it with a verdict on input the user never chose,
+    /// while the examples sit visible in the statement directly above.
+    func testSigningInPrefillsTheBoxThePreparedSurfaceCouldNotFill() async throws {
+        let world = try makeWorld(signedIn: false)
+        await world.judge.prepare(forFileAt: world.url, in: solutionsFolder)
+        XCTAssertEqual(world.judge.testInput, "")
+
+        try await world.model.signIn(with: credentials)
+        await world.judge.awaitSessionResolution()
+
+        XCTAssertEqual(world.judge.testInput, "[2,7,11,15]\n9\n[3,2,4]\n6\n[3,3]\n6")
+        // One request between the sign-in and the run: the button press finds the
+        // context already in hand rather than asking the same question again.
+        XCTAssertEqual(world.transport.count(for: .question(slug: "two-sum")), 1)
+        serveChecks(world, id: runID, ["judge-check-run-accepted.json"])
+
+        await world.judge.run()
+
+        let body = try payload(world, .interpret(slug: "two-sum"))
+        XCTAssertEqual(body["data_input"] as? String, "[2,7,11,15]\n9\n[3,2,4]\n6\n[3,3]\n6")
+        XCTAssertEqual(world.transport.count(for: .question(slug: "two-sum")), 1)
+    }
+
+    /// A box the user typed into while signed out is **theirs**, and a resolution
+    /// that lands afterwards prefills nothing over it.
+    func testALateResolutionDoesNotOverwriteWhatTheUserTyped() async throws {
+        let world = try makeWorld(signedIn: false)
+        await world.judge.prepare(forFileAt: world.url, in: solutionsFolder)
+        world.judge.testInput = "[1]\n1"
+
+        try await world.model.signIn(with: credentials)
+        await world.judge.awaitSessionResolution()
+
+        XCTAssertEqual(world.judge.testInput, "[1]\n1")
+    }
+
+    /// The other half of the same hole: the surface *was* signed in, but the one
+    /// resolution it made failed. Re-preparing the same file — every re-render of
+    /// the host does it — is the only thing that will ever ask again.
+    func testAFailedResolutionIsRetriedWhenTheSameFileIsPreparedAgain() async throws {
+        let world = try makeWorld()
+        world.transport.serve(
+            .question(slug: "two-sum"),
+            sequence: [
+                LeetCodeHTTPResponse(statusCode: 500, body: Data()),
+                Self.response("question-detail.json")
+            ]
+        )
+
+        await world.judge.prepare(forFileAt: world.url, in: solutionsFolder)
+        XCTAssertNotNil(world.judge.lastError)
+        XCTAssertEqual(world.judge.testInput, "")
+
+        await world.judge.prepare(forFileAt: world.url, in: solutionsFolder)
+
+        XCTAssertEqual(world.judge.testInput, "[2,7,11,15]\n9\n[3,2,4]\n6\n[3,3]\n6")
+        XCTAssertEqual(world.transport.count(for: .question(slug: "two-sum")), 2)
+    }
+
+    /// Re-preparing a file whose context is already in hand asks LeetCode
+    /// nothing — the retry above must not become a request per re-render.
+    func testRePreparingAResolvedSurfaceAsksNothing() async throws {
+        let world = try await makePreparedWorld()
+        XCTAssertEqual(world.transport.count(for: .question(slug: "two-sum")), 1)
+        world.judge.testInput = "[1]\n1"
+
+        await world.judge.prepare(forFileAt: world.url, in: solutionsFolder)
+
+        XCTAssertEqual(world.transport.count(for: .question(slug: "two-sum")), 1)
+        XCTAssertEqual(world.judge.testInput, "[1]\n1")
+    }
+
+    // MARK: - The phase, and what it disables
+
+    /// The spinner and the `.busy` sentence exist for the window between the
+    /// press and the verdict, and nothing else observes that window — so it is
+    /// asserted from inside the poll.
+    func testARunInFlightReportsItsPhaseAndDisablesTheButtons() async throws {
+        let world = try await makePreparedWorld()
+        serveChecks(
+            world,
+            id: runID,
+            ["judge-check-pending.json", "judge-check-run-accepted.json"]
+        )
+        var midFlight: (phase: LeetCodeJudgePhase, availability: LeetCodeJudgeAvailability)?
+        world.judge.sleep = { [judge = world.judge, clock = world.clock] seconds in
+            clock.now += seconds
+            if midFlight == nil { midFlight = (judge.phase, judge.availability) }
+        }
+
+        await world.judge.run()
+
+        XCTAssertEqual(midFlight?.phase, .running(.run))
+        XCTAssertEqual(midFlight?.availability, .busy)
+        XCTAssertFalse(midFlight?.availability.isReady ?? true)
+        // And it is put back down afterwards, whatever happened.
+        XCTAssertEqual(world.judge.phase, .idle)
+        XCTAssertEqual(world.judge.availability, .ready(swift))
+    }
+
+    func testASubmitInFlightReportsItsOwnKind() async throws {
+        let world = try await makePreparedWorld()
+        serveChecks(
+            world,
+            id: submissionID,
+            ["judge-check-pending.json", "judge-check-submit-accepted.json"]
+        )
+        var midFlight: LeetCodeJudgePhase?
+        world.judge.sleep = { [judge = world.judge, clock = world.clock] seconds in
+            clock.now += seconds
+            if midFlight == nil { midFlight = judge.phase }
+        }
+
+        await world.judge.submit()
+
+        XCTAssertEqual(midFlight, .running(.submit))
+        XCTAssertEqual(world.judge.phase, .idle)
+    }
+
+    /// Submit gets **twice** Run's budget, because it queues behind LeetCode's own
+    /// judge on the full suite. Asserted through the typed failure, which carries
+    /// the number the user is told.
+    func testSubmitIsGivenTwiceTheRunBudget() async throws {
+        let world = try await makePreparedWorld()
+        world.judge.budgets = LeetCodeJudgeModel.Budgets(run: 4, submit: 8)
+        serveChecks(world, id: runID, ["judge-check-pending.json"])
+        serveChecks(world, id: submissionID, ["judge-check-pending.json"])
+
+        await world.judge.run()
+        XCTAssertEqual(world.judge.lastError, .judgeTimedOut(seconds: 4))
+
+        await world.judge.submit()
+        XCTAssertEqual(world.judge.lastError, .judgeTimedOut(seconds: 8))
+    }
+
+    // MARK: - Preparing a different file mid-poll
+
+    /// Switching files while a poll is running supersedes it: the verdict for the
+    /// problem the user walked away from has nowhere to go, and publishing it
+    /// would put another problem's answer under this one's statement.
+    func testPreparingADifferentFileMidPollSupersedesTheRun() async throws {
+        let world = try await makePreparedWorld()
+        let other = solutionsFolder.appendingPathComponent("0002-add-two-numbers.swift")
+        try world.tree.write("class Solution {}\n", to: other)
+        try world.workspace.open(url: other)
+        world.transport.serve(
+            .question(slug: "add-two-numbers"),
+            body: Self.fixture("question-detail-newer-problem.json")
+        )
+        serveChecks(
+            world,
+            id: runID,
+            ["judge-check-pending.json", "judge-check-run-accepted.json"]
+        )
+        var switched = false
+        world.judge.sleep = { [judge = world.judge, clock = world.clock] seconds in
+            clock.now += seconds
+            guard !switched else { return }
+            switched = true
+            await judge.prepare(forFileAt: other, in: self.solutionsFolder)
+        }
+
+        await world.judge.run()
+
+        XCTAssertNil(world.judge.lastRun)
+        XCTAssertNil(world.judge.lastError)
+        // One check, then nothing: the superseded poll stopped asking rather than
+        // running its budget out against a surface showing something else.
+        XCTAssertEqual(world.transport.count(for: .check(id: runID)), 1)
+    }
+
+    /// A session change empties the owner's memo, so the question id the judge is
+    /// holding is about a session that no longer exists and must go with it.
+    func testASessionChangeDropsTheResolvedContext() async throws {
+        let world = try await makePreparedWorld()
+        XCTAssertEqual(world.transport.count(for: .question(slug: "two-sum")), 1)
+
+        world.model.signOut()
+        try await world.model.signIn(with: credentials)
+        await world.judge.awaitSessionResolution()
+
+        // Asked again rather than answered from a context resolved under the
+        // previous session.
+        XCTAssertEqual(world.transport.count(for: .question(slug: "two-sum")), 2)
+    }
+
+    /// LeetCode stopped knowing the problem between the prepare and the press —
+    /// a stated refusal, not a schema change, and the buttons stand down with it.
+    func testAProblemLeetCodeForgetsBetweenPrepareAndPressIsARefusal() async throws {
+        let world = try makeWorld()
+        world.transport.serve(
+            .question(slug: "two-sum"),
+            body: Data(#"{"data":{"question":null}}"#.utf8)
+        )
+
+        await world.judge.prepare(forFileAt: world.url, in: solutionsFolder)
+
+        XCTAssertEqual(world.judge.availability, .notASolutionFile)
+        XCTAssertNil(world.judge.lastError)
+
+        await world.judge.run()
+
+        XCTAssertEqual(
+            world.judge.lastError,
+            .judgeUnavailable(reason: LeetCodeJudgeAvailability.notASolutionFile.reason ?? "")
+        )
+        XCTAssertEqual(world.transport.count(for: .interpret(slug: "two-sum")), 0)
+    }
+
+    /// A failure while merely *switching tabs* is still worth a sentence: it is
+    /// what the surface says instead of showing an empty box with live buttons.
+    func testAFailureWhilePreparingIsPublished() async throws {
+        let world = try makeWorld()
+        world.transport.serve(
+            .question(slug: "two-sum"),
+            body: Data(),
+            statusCode: 429
+        )
+
+        await world.judge.prepare(forFileAt: world.url, in: solutionsFolder)
+
+        XCTAssertEqual(world.judge.lastError, .throttled(retryAfter: nil))
+    }
+
+    /// The same file reached by a different spelling is the same file — the
+    /// canonical comparison every "same file?" question in this app uses, applied
+    /// to the one that decides whether a poll survives a re-render.
+    func testTheSameFileSpelledDifferentlyIsNotAReprepare() async throws {
+        let world = try await makePreparedWorld()
+        world.judge.testInput = "[1]\n1"
+        let awkward = solutionsFolder
+            .appendingPathComponent("..")
+            .appendingPathComponent("Solutions")
+            .appendingPathComponent("0001-two-sum.swift")
+
+        await world.judge.prepare(forFileAt: awkward, in: solutionsFolder)
+
+        XCTAssertEqual(world.judge.testInput, "[1]\n1", "the box was reset, so this re-prepared")
+        XCTAssertEqual(world.transport.count(for: .question(slug: "two-sum")), 1)
+    }
 }

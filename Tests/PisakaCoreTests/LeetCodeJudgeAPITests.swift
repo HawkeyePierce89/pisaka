@@ -513,7 +513,9 @@ final class LeetCodeJudgeAPITests: XCTestCase {
         XCTAssertEqual(result.matchedExpected, false)
         XCTAssertEqual(result.answers, ["[0,1]", "[]", "[0,1]"])
         XCTAssertEqual(result.expectedAnswers, ["[0,1]", "[1,2]", "[0,1]"])
-        XCTAssertEqual(result.stdOutputs[1], "nums = [3, 2, 4]\n")
+        // Indexed defensively: a trap here takes the whole test binary down with
+        // it, and a length this parser got wrong is exactly what would trip it.
+        XCTAssertEqual(result.stdOutputs.dropFirst().first, "nums = [3, 2, 4]\n")
     }
 
     /// Nothing measurable, and nothing invented: LeetCode spells the runtime
@@ -590,9 +592,11 @@ final class LeetCodeJudgeAPITests: XCTestCase {
     }
 
     /// LeetCode echoes the submitted input back on some shapes and not others.
-    /// When it does, it is one newline-separated string; when it does not, the
-    /// absence costs nothing — the flow model already knows what it sent.
-    func testAnEchoedInputIsReadAsItsLinesAndAnAbsentOneIsEmpty() throws {
+    /// When it does it is **one block**, kept verbatim rather than split: the two
+    /// cases below are four lines, because `data_input` spells one line per
+    /// *parameter*, so lines and cases are not the same thing and pairing them
+    /// would label the wrong text as each case's input.
+    func testAnEchoedInputIsKeptWholeAndAnAbsentOneIsNil() throws {
         let echoed = try runResult(
             try LeetCodeAPI.parseJudgeCheck(
                 body(
@@ -602,7 +606,7 @@ final class LeetCodeJudgeAPITests: XCTestCase {
                 kind: .run
             )
         )
-        XCTAssertEqual(echoed.inputs, ["[2,7,11,15]", "9", "[3,3]", "6"])
+        XCTAssertEqual(echoed.input, "[2,7,11,15]\n9\n[3,3]\n6")
 
         let silent = try runResult(
             try LeetCodeAPI.parseJudgeCheck(
@@ -610,7 +614,94 @@ final class LeetCodeJudgeAPITests: XCTestCase {
                 kind: .run
             )
         )
-        XCTAssertTrue(silent.inputs.isEmpty)
+        XCTAssertNil(silent.input)
+    }
+
+    /// The case count comes off the two per-case arrays and deliberately ignores
+    /// `std_output_list`, which LeetCode sends one element longer than there are
+    /// cases on an accepted run — the shipped fixture has four entries for three.
+    /// Taking the longest array would render a phantom empty final case on the
+    /// happy path, every time.
+    func testTheCaseCountIgnoresTheTrailingExtraStandardOutput() throws {
+        let accepted = try runResult(
+            try LeetCodeAPI.parseJudgeCheck(
+                response("judge-check-run-accepted.json"),
+                kind: .run
+            )
+        )
+        XCTAssertEqual(accepted.stdOutputs.count, 4)
+        XCTAssertEqual(accepted.answers.count, 3)
+        XCTAssertEqual(accepted.caseCount, 3)
+
+        // A compile error executed nothing, so `code_answer` is absent — the
+        // expected answers are what still say how many cases there were.
+        let compileError = try runResult(
+            try LeetCodeAPI.parseJudgeCheck(
+                response("judge-check-run-compile-error.json"),
+                kind: .run
+            )
+        )
+        XCTAssertTrue(compileError.answers.isEmpty)
+        XCTAssertEqual(compileError.caseCount, 3)
+
+        // Nothing at all: no case rows rather than a row of empty fields.
+        XCTAssertEqual(LeetCodeRunResult(verdict: .accepted).caseCount, 0)
+    }
+
+    /// A display array keeps every element's **position**. These arrays are read
+    /// by index against each other, so an element dropped for being an unexpected
+    /// shape would shift every later case's output under the wrong heading —
+    /// which is why an unreadable element is an empty slot and not a missing one.
+    func testADisplayArrayKeepsUnreadableElementsAsEmptySlots() throws {
+        let result = try runResult(
+            try LeetCodeAPI.parseJudgeCheck(
+                body(
+                    #"{"state":"SUCCESS","status_code":10,"correct_answer":true,"#
+                        + #""code_answer":["a",null,{"x":1},2,"b"]}"#
+                ),
+                kind: .run
+            )
+        )
+        XCTAssertEqual(result.answers, ["a", "", "", "2", "b"])
+    }
+
+    // MARK: - The ids that become path components
+
+    /// Both judge ids are appended to the check URL as path components, and
+    /// `appendingPathComponent` passes `/` and `..` through unencoded — so an id
+    /// carrying either would send the session cookie to a URL nothing in this app
+    /// chose. The same discipline the slug rule applies (L4), on the two other
+    /// wire values that become path components.
+    func testAJudgeIDThatCouldTraverseTheCheckPathIsRejected() throws {
+        for hostile in ["../../logout", "a/b", "..", "."] {
+            let escaped = hostile.replacingOccurrences(of: "\\", with: "\\\\")
+            XCTAssertThrowsError(
+                try LeetCodeAPI.parseInterpretID(body(#"{"interpret_id":"\#(escaped)"}"#)),
+                "interpret_id \(hostile)"
+            ) { error in
+                guard case .apiChanged(let detail)? = error as? LeetCodeError else {
+                    return XCTFail("expected apiChanged, got \(error)")
+                }
+                XCTAssertTrue(detail.contains("interpret_id"), detail)
+            }
+            XCTAssertThrowsError(
+                try LeetCodeAPI.parseSubmissionID(body(#"{"submission_id":"\#(escaped)"}"#)),
+                "submission_id \(hostile)"
+            )
+        }
+    }
+
+    /// The shapes LeetCode actually sends still pass, including the run's dotted,
+    /// underscored, mixed-case token and the submission's bare number.
+    func testTheRealJudgeIDShapesArePassedThrough() throws {
+        XCTAssertEqual(
+            try LeetCodeAPI.parseInterpretID(response("judge-interpret-id.json")),
+            "runcode_1770000000.1234567_AbCdEfGhIj"
+        )
+        XCTAssertEqual(
+            try LeetCodeAPI.parseSubmissionID(response("judge-submit-id.json")),
+            "1234567890"
+        )
     }
 
     // MARK: - Finished submissions

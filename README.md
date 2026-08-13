@@ -936,6 +936,14 @@ and iPhone. The feature scope landed so far:
     message. The same is true if you close the tab or sign out mid-run.
   - Edited test cases are not persisted: switching problems resets the box to the
     statement's own examples, and quitting forgets it.
+  - Run and Submit live **inside the description pane**, so they are only offered
+    while it is showing: a problem whose statement has never been fetched and is
+    not cached (a first open while offline) has no judge controls at all, folding
+    the pane away to its strip hides them with it, and on iPhone width they are
+    inside the description sheet rather than beside the editor.
+  - The echoed input a Run comes back with is shown as **one block**, not split
+    per case: LeetCode spells it one line per argument, so on a problem taking
+    more than one there is no per-case slice of it to label.
   - Runtime and memory percentiles are absent on anything that is not Accepted,
     and the case counts are absent on a compile error — LeetCode does not send
     them, and nothing is invented to fill the gap.

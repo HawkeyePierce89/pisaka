@@ -243,6 +243,21 @@ the limits the design carries.
     here computes with them; `errorText` is the compile-or-runtime diagnostic in
     the fullest form LeetCode sent, because a diagnostic cut to its first line is
     precisely what sends a user back to the browser.
+    *Two shapes on the run result are where LeetCode's own arrays are easy to
+    misread, and both are decided here rather than in a view.* `input` is the
+    echoed `data_input` as **one block**, deliberately not split into cases:
+    LeetCode spells that field one line per *parameter*, so Two Sum's single case
+    is `[2,7,11,15]` then `9` and its three examples are six lines — pairing those
+    lines with the per-case arrays labels the wrong text as every case's input on
+    any problem taking more than one argument. `caseCount` is read off `answers`
+    and `expectedAnswers` and **excludes `stdOutputs`**, which arrives one element
+    longer than there are cases on an accepted run (four entries for three, as
+    `judge-check-run-accepted.json` records); taking the longest array instead
+    rendered an empty phantom final case on the happy path, every time. It is
+    still read *per* case, defensively, because it can also be shorter — a runtime
+    error stops printing where it stopped running. Both live on the value because
+    they are statements about LeetCode's shapes, and this is where those are
+    decided and tested; the two untested views only index.
     `LeetCodeJudgeCheck` (`.pending`/`.started`/`.finishedRun`/`.finishedSubmit`/
     `.judgeFailed`) is what the poll loop's whole control flow switches over.
     Modelling "not finished yet" as a *case* rather than as a nil result is what
@@ -367,6 +382,17 @@ the limits the design carries.
     deliberately ignored: the expected output arrives inside the run's own check
     response, so polling a second id would double the request rate for data already
     in hand.
+    Both ids then pass a second, narrower gate — `judgeID(_:path:)` — for a reason
+    `opaqueIdentifier` cannot cover: they **become path components of the check
+    URL**, and `appendingPathComponent` percent-encodes almost everything *except*
+    the two spellings that matter, passing `/` and `..` through verbatim. An id
+    carrying either would send this app's session cookie to a leetcode.com URL
+    nothing in this file chose, so unreserved ASCII is required and anything else
+    is `apiChanged` naming the key — the same discipline `normalizedSlug(_:)`
+    applies to the other wire value that becomes a path component (L4), rather
+    than leaving it to the URL loader's discretion. It is not a guess about the
+    format: a run's id is `runcode_1770000000.1234567_AbCdEfGhIj` and a
+    submission's is a decimal number, and both are in the fixtures.
     `parseJudgeCheck(_:kind:)` is **strict where the verdict lives and lenient
     around it** (L22). `state` and `status_code` decide what the user is told, so an
     unrecognised value of either is `apiChanged` naming it — a tenth code rendered
@@ -385,7 +411,12 @@ the limits the design carries.
     because reading the whole diagnostic in the editor is the entire reason not to
     go back to the browser. `displayNumber` refuses a non-finite value and
     `displayInteger` never substitutes a zero, since "0 of 63 passed" and "the
-    judge never got that far" are different things to say. The `state` table is
+    judge never got that far" are different things to say. `displayStrings` keeps
+    **every element's position**, rendering an unreadable one as `""` rather than
+    dropping it: these arrays are read by index against each other and against
+    `caseCount`, so a dropped element would shift every later case's output under
+    the wrong heading — a silent misattribution, where an empty field is merely an
+    absence the surface already knows how to draw as nothing. The `state` table is
     matched case-insensitively after trimming — lenient as to *form*, strict as to
     the set — and `judgeState(fromWireValue:)` answers `nil` for anything outside
     it, which the caller turns into `apiChanged`.
@@ -926,7 +957,7 @@ the limits the design carries.
     can never disagree.
     *Preparing.* `prepare(forFileAt:in:)` is driven by the view's `.task(id:)` on
     the same tab-and-folder key the statement pane uses (the LC-1 pattern), and two
-    rules follow from that. **Re-preparing the same file changes nothing** — the
+    rules follow from that. **Re-preparing the same file resets nothing** — the
     key fires again on every re-render of the host, and a prepare that reset the box
     would throw away what the user typed and cancel a poll in flight for no reason.
     **A different file is a different problem**: the box, both results and the last
@@ -936,6 +967,33 @@ the limits the design carries.
     rather than raising an error. Nothing is asked at all for a surface whose
     buttons are already disabled — a request spent on a signed-out or unsupported
     tab is a request against an unofficial API for nothing.
+    *Resolving the context is separate from preparing, and reachable three ways*,
+    because "nothing is asked for a disabled surface" left a hole big enough to
+    send an empty run through. A surface prepared while signed out returns before
+    resolving anything, and one whose resolution failed gives up — and in both
+    cases the `.task(id:)` key has not moved, so nothing was ever going to ask
+    again: the box stayed empty and the first Run posted an empty `data_input`,
+    which is not "run against no cases" but a verdict on input the user never
+    chose, while the examples sat visible in the statement directly above. So
+    `resolveContextIfNeeded` is called by `prepare` on a new file, by `prepare`
+    again on the *same* file (the repeat that used to be a pure no-op), and by
+    `sessionDidChange()` when a sign-in turns a surface that could not ask into one
+    that can. It is a no-op once the context is in hand, so a re-render still costs
+    nothing. `resolveContext(forSlug:)` underneath it **coalesces**: the three
+    entry points and a button press can each discover the context missing, and
+    signing in then immediately pressing Run would otherwise ask LeetCode the same
+    question twice, so the work is one *unstructured* `Task` they share — unstructured
+    precisely so it is not cancelled because whichever caller started it went away —
+    keyed by the slug, so a resolution for the previous problem is never handed to
+    the next one. `adopt(context:)` **prefills the box and never overwrites it**:
+    a resolution can land long after the user typed their own case into it, and
+    throwing that away because an answer finally arrived is the one thing this
+    section must not do to text somebody wrote. The run path holds the matching
+    belt-and-braces rule — an empty box on a context that only just resolved sends
+    the problem's own examples rather than nothing at all.
+    `sessionResolution` is held (and awaited by the suites through
+    `awaitSessionResolution()`) because the sign-in path is the one piece of work
+    here that no caller is waiting on; without a handle a test could only race it.
     *The flow.* `run()` and `submit()` share one `start(kind:)`: resolve readiness,
     read the **live editor buffer** synchronously — never the disk copy, so the user
     does not have to save first and what they see is what is judged — capture the
@@ -1325,6 +1383,19 @@ the limits the design carries.
     top. The disabled buttons carry `availability.reason` as their help text and as
     a badge beside them, which stands down while a run is in flight because the
     spinner already says the same thing.
+    The two buttons' `Task`s are **held in `judgeTask` and cancelled on
+    disappear**, alongside `judge.cancel()` — the `LeetCodeOpenProblemSheet` rule
+    on this axis. A `Task { }` started from a button inherits no cancellation from
+    the enclosing `.task`, so without holding it a poll outlived the section it was
+    going to answer and ran its whole budget out against a surface showing
+    something else; the two halves do different jobs, since cancelling the task is
+    what makes `URLSession` stop and `cancel()` is what moves the generation so a
+    request already past its last suspension publishes nothing. Neither undoes a
+    submission LeetCode already has.
+    The echoed input is drawn **once and whole**, above the cases rather than
+    inside them, and the case rows are `result.caseCount` — both decisions live on
+    `LeetCodeRunResult` rather than here, since they are statements about
+    LeetCode's arrays and this file is meant to hold none.
   - `PisakaApp.swift` / `ContentView.swift` / `SettingsView.swift` (macOS, modified;
     entries in `app-shell.md` and `app-window.md`) — the orchestration.
     `makeLeetCode(settings:)` composes the stack once (transport, Keychain store,
@@ -1727,3 +1798,19 @@ means, what a file is named, when a fetch happens, and what gets written.
 - **No submission history and no per-case editing beyond the one box.** The judge
   shows the attempt it just made; earlier submissions, their diffs and the
   editorial stay on leetcode.com, which the pane's header button opens.
+- **Run and Submit are reachable only while the statement surface is showing.**
+  The section is a child of the pane's `pane(_:)` / `LeetCodeDescriptionContent_iOS`,
+  both of which render only under `if let statement = model.statement` and not at
+  all when the macOS pane is collapsed — so a solution file whose statement was
+  never fetched and is not on disk (a first open while offline) offers no judge
+  controls, folding the pane away hides them, and on compact iOS width they live
+  inside the toggled sheet. The judge itself needs none of that: its inputs are the
+  file, the session and the memoised question id, and it fetches the last of those
+  lazily. It is therefore a **placement decision, not a dependency** — Run and
+  Submit are about the problem being read, and lifting them out would mean a second
+  surface with its own visibility rule and its own answer to "which file is this
+  for", which is the coupling the single `.task(id:)` key currently avoids.
+- **A run's echoed input is shown as one block, not per case.** `data_input` is
+  one line per *argument*, so on any problem taking more than one there is no
+  per-case slice of it that could be labelled; the per-case rows carry the output,
+  the expected answer and stdout, which genuinely are one entry each.

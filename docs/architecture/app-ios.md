@@ -298,6 +298,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `UITextView`, its undo stack and its scroll position on every LeetCode tab
     selection); the compact-width sheet is attached at the **root**, not on the
     pushed editor screen, so a tab switch behind it cannot tear it down mid-read.
+    LC-2 hands both of those call sites — the sheet and the pane — two more values
+    for the judge section: `workspace` as a plain, **non-observed** `let` (an
+    `@ObservedObject` would re-render it on every keystroke in the file being
+    solved) and `activeFileURL` travelling separately for exactly that reason,
+    since the selection is what re-runs `prepare` and only an observing view can
+    supply it. The section itself is written once, into
+    `LeetCodeDescriptionContent_iOS`, so the sheet and the pane get it from the
+    same place and cannot drift.
     The entry point is an item in the existing "+" toolbar menu rather than a fifth
     toolbar button — an iPhone navigation bar is already carrying the branch widget
     and four items, and "open a LeetCode problem" is the same *kind* of action as
