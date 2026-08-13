@@ -606,9 +606,13 @@ final class LeetCodeBrowserModelTests: XCTestCase {
         gate.release()
         await load.value
 
-        // The catalog itself did publish — it is a cache, not a surface — and the
-        // browser deliberately did not.
-        XCTAssertEqual(model.catalog.problems.count, 12)
+        // **Nor did the catalog**, which is the one place a superseded session can
+        // still do damage: those rows carry the departing account's `status`, and
+        // publishing them stamps a fresh `fetchedAt` on a cache the *next* account
+        // then inherits for a day (the L24 window) instead of fetching its own. A
+        // sign-out starts no refresh of its own, so the catalog's generation never
+        // moves and only the session it was told about answers this.
+        XCTAssertTrue(model.catalog.problems.isEmpty)
         XCTAssertTrue(browser.problems.isEmpty)
         XCTAssertTrue(browser.visibleProblems.isEmpty)
         XCTAssertNil(browser.fetchedAt)

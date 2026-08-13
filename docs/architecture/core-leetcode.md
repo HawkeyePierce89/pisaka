@@ -561,7 +561,49 @@ the limits the design carries.
     clock that moved backwards (or a cache file copied from another machine)
     cannot pin the catalog until the calendar catches up. `refresh` is **coalesced**
     (`refreshTask`), because two problems opened at once is the ordinary way two
-    2 MB downloads used to happen. That task is unstructured, so the wait for it is
+    2 MB downloads used to happen — **and coalesced per session**
+    (`refreshCredentials`), because the rows carry a per-account `status` and a
+    fetch made under one session is not an answer to a caller holding another. Every
+    caller in the case coalescing exists for holds the same pair; a caller holding a
+    different one pays for its own download instead of being handed the previous
+    account's solved marks. Without that key, a browser `refresh()` right after
+    signing in as somebody else joined the previous account's in-flight fetch and
+    published *its* marks under the new account's name — the one thing that surface
+    must never show — and, because the publish stamps a fresh `fetchedAt`, pinned
+    them for a day against the very Refresh that L24 names as the way out.
+    Two fetches can therefore be alive at once, which is what `refreshGeneration`
+    is for: only the newest may publish (an older one that lands last returns its
+    snapshot to whoever awaited it and writes nothing — publishing would put the
+    previous session's rows back over the current one's, cache file included) and
+    only the newest may clear the `refreshTask` slot, so an older one's `defer`
+    cannot open the coalescing window while the newer download is still running.
+    **Start order is not session currency, though, so the catalog is *told* which
+    session is the current one** (`sessionDidChange(to:)`/`declaredSession`), from
+    `LeetCodeModel.invalidateInFlightWork(newSession:)` and at launch. The
+    generation orders refreshes by the moment they *start*, and a caller holding a
+    replaced session can start one **last**: every door into this type suspends
+    before it fetches (the disk read, and the browser's catalog work is deliberately
+    shielded in an unstructured task a session change does not cancel), so a
+    straggler resumes after the new account has already asked, finds a session key
+    that no longer matches, and starts a fetch that is the newest by start order —
+    publishing the previous account's `status` column over the current account's,
+    fresh `fetchedAt` and cache file included. Only the app knows which session it
+    still holds, so it says, and that is what the guard asks: a refresh under a
+    replaced session is **not made at all** (its rows could never be published, and
+    the request would carry a cookie the user has replaced, whose 403 is classified
+    as `notLoggedIn` — a sentence about the *current* session that is not true of
+    it), it does not throw (the caller was invalidated by the same hook, so its
+    result is already discarded), and it does not disturb the current session's
+    fetch. The check is made **after** the download too, because a session change
+    starts no refresh of its own: a sign-out mid-fetch leaves the generation
+    unmoved, and the fetch already running would otherwise land the departing
+    account's marks in the cache with a fresh `fetchedAt` for the next account to
+    inherit for a day. **Undeclared means unconstrained**, deliberately — a catalog
+    nobody has told about sessions behaves exactly as it did before — which is why
+    the owner declares at launch only when it *has* a stored session: one the
+    Keychain hands back later, having been locked at launch, must not be mistaken
+    for one this app has superseded.
+    That task is unstructured, so the wait for it is
     wrapped in `withTaskCancellationHandler`: `Task { }` inherits no cancellation
     and `task.value` does not observe the *awaiting* task's either, so pressing Esc
     in the Open Problem sheet used to leave `openProblem` suspended until the
@@ -998,6 +1040,13 @@ the limits the design carries.
     reached with it already `true` whenever `markSessionAccepted()` has put a
     rejected session back. Both companions therefore hear about a session through
     both doors: this one for a replacement, the observer for a change.
+    **The catalog is *told the new session* rather than merely invalidated**
+    (`invalidateInFlightWork(newSession:)` → `catalog.sessionDidChange(to:)`, and
+    the stored session at launch): everything else here is superseded by start
+    order, but the catalog's callers all suspend before they reach it, so one
+    holding the replaced session can start its fetch after the new one and be the
+    newest by that measure. Which session's rows may still land is a question only
+    this model can answer — the reasoning is on `LeetCodeCatalog` above.
     *Plumbing.* Every request goes through one `send` that folds a non-`LeetCodeError`
     into `network`, so a decorator or a stub cannot escape this layer's vocabulary
     (the same fold `LeetCodeCatalog` applies). A Keychain that refuses the item does
@@ -2107,7 +2156,13 @@ means, what a file is named, when a fetch happens, and what gets written.
   puts the error beside them (`resolveSlug`'s degradation rule on a new axis),
   because blanking a list somebody is reading is worse than showing it a little
   old. Signing in as a different account shows the previous account's marks until a
-  refresh, because the cache is per app, not per account.
+  refresh, because the cache is per app, not per account — and that refresh is a
+  guarantee rather than a hope: `LeetCodeCatalog`'s coalescing is keyed by the
+  session, so a refresh under the new account never joins the old account's
+  in-flight download, and no fetch made under a session this app has replaced ever
+  publishes — whether it started before the new account's (superseded by the
+  generation), after it (refused by the session the catalog was told about), or
+  during a sign-out that started no refresh at all.
 - **L25 — the browser is the fifth generation token, and a number query is
   exact.** A companion model like the judge, owned by `LeetCodeModel` and observed
   by the browser surfaces alone, so a keystroke in the search field invalidates
@@ -2199,7 +2254,10 @@ means, what a file is named, when a fetch happens, and what gets written.
   Refresh, and the automatic refresh is the catalog's day-long staleness rule. The
   cross-account form of the same limit: the cache is per app rather than per
   account, so signing in as somebody else shows the previous account's marks until
-  the first refresh under the new session.
+  the first refresh under the new session — which is bounded rather than open-ended,
+  since that refresh cannot be answered by the previous session's fetch (the
+  coalescing is keyed by credentials, and no fetch under a replaced session
+  publishes or caches, whenever it started).
 - **The browser filters by difficulty, status and text, and by nothing else.** No
   topic/tag, company, favourites or study-plan filters, because each of those needs
   a GraphQL surface this design deliberately avoids (L23) — and no sorting beyond

@@ -38,7 +38,12 @@ import Foundation
 /// and written by the LeetCode model between `await`s, and the actor is what makes
 /// "two opens at once" a question about ordering rather than about locking. The
 /// in-flight refresh is coalesced (`refreshTask`) so two simultaneous opens
-/// download the 2 MB list once.
+/// download the 2 MB list once — **keyed by the session it was started under**,
+/// because the rows carry a per-account `status` and a fetch made for one account
+/// is not an answer to a caller holding another (`refreshCredentials`). Which
+/// session that is, this type is *told* (`sessionDidChange(to:)`): a fetch made
+/// under a replaced one neither happens nor publishes, whatever order it started
+/// in (`declaredSession`).
 @MainActor
 public final class LeetCodeCatalog {
 
@@ -85,6 +90,49 @@ public final class LeetCodeCatalog {
     /// one refresh is that the disk copy may predate the problem being asked for.
     private var hasRefreshedFromNetwork = false
     private var refreshTask: Task<Snapshot, Error>?
+    /// The session the in-flight refresh was started under — what makes the
+    /// coalescing above **per-session** rather than global.
+    ///
+    /// The catalog's rows carry a per-account `status`, so a fetch made under one
+    /// session is not an answer to a caller holding another. Without this key, a
+    /// browser `refresh()` immediately after signing in as somebody else joined the
+    /// previous account's in-flight download and published *its* solved/attempted
+    /// marks under the new account's name — the one thing that surface must never
+    /// show — and, because the publish stamps a fresh `fetchedAt`, pinned them for
+    /// a day against the very `refresh()` that is meant to be the way out (L24).
+    private var refreshCredentials: LeetCodeCredentials?
+    /// Which refresh is the current one. Only the newest may publish, and only the
+    /// newest may clear the slot above: with two fetches alive at once (the ordinary
+    /// consequence of the key above), an older one completing last would otherwise
+    /// overwrite the newer session's rows, and its `defer` would open the coalescing
+    /// window while the newer download is still running.
+    private var refreshGeneration = 0
+    /// The session this app currently holds, as its owner last stated it — and
+    /// whether it has been stated at all, which is a third state rather than a
+    /// synonym for "there is none".
+    ///
+    /// **Start order is not session currency**, which is why the generation above
+    /// cannot be the whole guard. A caller holding a session this app has replaced
+    /// can reach `refresh` *after* the current one has started its own: every path
+    /// into this type suspends before it fetches (`loadFromDiskIfNeeded`, and the
+    /// browser's catalog work is deliberately shielded in an unstructured task a
+    /// session change does not cancel), so the straggler resumes, finds a session
+    /// key that no longer matches, starts a fetch of its own — and is now the
+    /// *newest* refresh by start order. By that guard alone it would publish the
+    /// previous account's `status` column over the current account's, with a fresh
+    /// `fetchedAt` and a cache file to match. Only the app knows which session is
+    /// current, so it says (`sessionDidChange(to:)`) and that is what the guard
+    /// asks.
+    ///
+    /// **Undeclared means unconstrained**, deliberately: a catalog nobody has told
+    /// about sessions — every test that is about the caching policy, and any caller
+    /// that only ever has one — behaves exactly as it did before. A declared `nil`
+    /// (a sign-out) is the opposite and lets nothing publish, which is why the
+    /// owner declares at launch only when it *has* a session: a session the
+    /// Keychain hands back later, having been locked at launch, must not be
+    /// mistaken for a superseded one.
+    private var declaredSession: LeetCodeCredentials?
+    private var sessionHasBeenDeclared = false
     /// The one in-flight disk read, coalesced for the same reason `refreshTask`
     /// is: the read suspends across the decode, and a second caller arriving in
     /// that window must *wait for the cache* rather than conclude there is none.
@@ -254,16 +302,57 @@ public final class LeetCodeCatalog {
         return slugsByNumber[number]
     }
 
+    // MARK: - The session behind the rows
+
+    /// The session this app now holds, or `nil` when it holds none.
+    ///
+    /// Called by `LeetCodeModel` from the one hook that fires on every session
+    /// *replacement*, beside the judge's and the browser's. It publishes nothing,
+    /// cancels nothing and fetches nothing: what it changes is whose fetch may
+    /// still land. A download already in flight for the previous account finishes
+    /// into nothing, and one a straggler holding that account starts afterwards is
+    /// never made at all.
+    ///
+    /// Necessary because this type cannot work the answer out for itself — see
+    /// `declaredSession`, which is also where the two states of "nobody has said"
+    /// and "there is no session" are told apart.
+    public func sessionDidChange(to credentials: LeetCodeCredentials?) {
+        declaredSession = credentials
+        sessionHasBeenDeclared = true
+    }
+
+    /// Whether these credentials are the session this app holds — `true` for as
+    /// long as nobody has said, see `declaredSession`.
+    private func isCurrentSession(_ credentials: LeetCodeCredentials) -> Bool {
+        guard sessionHasBeenDeclared else { return true }
+        return declaredSession == credentials
+    }
+
     // MARK: - Refresh
 
     /// Fetch the catalog and publish it, whatever its current age.
     ///
-    /// Coalesced: a second caller arriving while one fetch is in flight awaits
-    /// that fetch instead of starting another. Two problems opened at once is the
-    /// ordinary way that happens, and two 2 MB downloads is the ordinary way it
-    /// used to go wrong.
+    /// Coalesced **per session**: a second caller arriving while one fetch is in
+    /// flight awaits that fetch instead of starting another, *provided it is asking
+    /// under the same credentials*. Two problems opened at once is the ordinary way
+    /// that happens, and two 2 MB downloads is the ordinary way it used to go
+    /// wrong; a caller holding a different session is the case the key exists for
+    /// (see `refreshCredentials`), and it pays for its own download rather than
+    /// being handed another account's per-row `status`.
+    ///
+    /// **A session this app has moved on from asks nothing at all.** Its rows could
+    /// never be published (see `declaredSession`), so the download would be 2 MB
+    /// spent on an answer with nowhere to go — and worse than wasted: the request
+    /// would carry a cookie the user has replaced, and LeetCode's 403 to it is
+    /// classified as `notLoggedIn`, a sentence about the *current* session that is
+    /// not true of it. It returns rather than throws because the caller holding
+    /// those credentials was invalidated by the same hook that told this type about
+    /// the new session, so its whole result is already discarded; an error would be
+    /// a second answer to a question nobody is holding any more.
     public func refresh(credentials: LeetCodeCredentials) async throws {
-        let task = refreshTask ?? startRefresh(credentials: credentials)
+        guard isCurrentSession(credentials) else { return }
+        let coalesced = refreshCredentials == credentials ? refreshTask : nil
+        let task = coalesced ?? startRefresh(credentials: credentials)
         // **The wait is cancellable, and cancelling it cancels the fetch.**
         // `Task { }` is unstructured, so it inherits nothing from the caller and
         // `task.value` does not observe the awaiting task's cancellation either:
@@ -288,9 +377,32 @@ public final class LeetCodeCatalog {
     /// fetch it started runs on for the others waiting on it, and clearing the
     /// slot there would let the next open start a second 2 MB download beside the
     /// first. The task's own lifetime is the coalescing window.
+    ///
+    /// **A superseded fetch returns its snapshot without publishing it.** Since the
+    /// coalescing is keyed by session, two fetches can be alive at once, and the
+    /// older one is answering for a session this app has moved on from — publishing
+    /// it would put the previous account's `status` column back over the current
+    /// one's *and* stamp a fresh `fetchedAt` that keeps it there for a day. The
+    /// value still goes back to whoever awaited this task, which is the honest
+    /// answer to "what did the fetch you were waiting on return"; every caller that
+    /// reads the *catalog* reads the published one. Nothing is written to disk on
+    /// that path either, for the same reason.
+    ///
+    /// **Superseded means either older or answering for a replaced session.** The
+    /// generation covers the first; a session change alone starts no new refresh,
+    /// so a sign-out — or a sign-in as somebody else that the browser has not yet
+    /// asked anything under — would otherwise let the fetch already in flight land
+    /// the departing account's marks in the cache with a fresh `fetchedAt`.
     private func startRefresh(credentials: LeetCodeCredentials) -> Task<Snapshot, Error> {
+        refreshGeneration += 1
+        let generation = refreshGeneration
         let task = Task { @MainActor [self] () async throws -> Snapshot in
-            defer { refreshTask = nil }
+            defer {
+                if refreshGeneration == generation {
+                    refreshTask = nil
+                    refreshCredentials = nil
+                }
+            }
             let problems = try await fetchProblems(credentials: credentials)
             // Shape-valid and empty is not a catalog. Publishing it would cache
             // "there are no problems" for a day; see the note on this type.
@@ -298,11 +410,15 @@ public final class LeetCodeCatalog {
                 throw LeetCodeError.apiChanged(detail: "stat_status_pairs: empty")
             }
             let snapshot = Snapshot(problems: problems, fetchedAt: now())
+            guard refreshGeneration == generation, isCurrentSession(credentials) else {
+                return snapshot
+            }
             publish(snapshot, fromNetwork: true)
             await writeCache(snapshot)
             return snapshot
         }
         refreshTask = task
+        refreshCredentials = credentials
         return task
     }
 

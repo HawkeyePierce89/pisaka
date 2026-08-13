@@ -89,13 +89,21 @@ final class LeetCodeCatalogTests: XCTestCase {
     /// A minimal REST catalog body: the keys `LeetCodeAPI.parseProblemList`
     /// reads and nothing else, so a test that is about *policy* does not restate
     /// a 2 MB schema. The recorded fixture is what pins the real shape.
-    private func problemListJSON(_ rows: [(id: Int, slug: String)]) -> String {
+    ///
+    /// `status` is a parameter because it is the one field in this response that
+    /// is **per account**, which is what makes two sessions' answers to the same
+    /// request distinguishable.
+    private func problemListJSON(
+        _ rows: [(id: Int, slug: String)],
+        status: String? = nil
+    ) -> String {
+        let statusJSON = status.map { "\"\($0)\"" } ?? "null"
         let pairs = rows.map { row in
             """
             {"stat":{"frontend_question_id":\(row.id),\
             "question__title":"\(row.slug)",\
             "question__title_slug":"\(row.slug)"},\
-            "status":null,"difficulty":{"level":1},"paid_only":false}
+            "status":\(statusJSON),"difficulty":{"level":1},"paid_only":false}
             """
         }
         return "{\"user_name\":\"\",\"stat_status_pairs\":[\(pairs.joined(separator: ","))]}"
@@ -945,5 +953,333 @@ final class LeetCodeCatalogTests: XCTestCase {
         // And the catalog in memory is the one that was on disk, not a fetch that
         // landed and was then overwritten by it.
         XCTAssertEqual(catalog.problems.count, 2)
+    }
+
+    // MARK: - Coalescing is per session
+
+    /// A refresh under a *different* session does not join the one in flight.
+    ///
+    /// The coalescing exists so two opens cost one download, and every caller in
+    /// that case holds the same session. A caller holding another one is a
+    /// different question: the rows carry a per-account `status`, so handing it the
+    /// previous account's fetch publishes that account's solved marks under the new
+    /// account's name — and the publish stamps a fresh `fetchedAt`, so the browser's
+    /// Refresh, which is the documented way out of exactly that (L24), would have
+    /// been the thing that pinned it for a day.
+    func testARefreshUnderANewSessionDoesNotJoinThePreviousAccountsFetch() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(
+            .problemList,
+            sequence: [
+                LeetCodeHTTPResponse(
+                    statusCode: 200,
+                    headers: [:],
+                    body: Data(problemListJSON([(1, "two-sum")], status: "ac").utf8)
+                ),
+                LeetCodeHTTPResponse(
+                    statusCode: 200,
+                    headers: [:],
+                    body: Data(problemListJSON([(1, "two-sum")], status: nil).utf8)
+                )
+            ]
+        )
+        let gate = Gate()
+        transport.hold(.problemList, on: gate)
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        let other = LeetCodeCredentials(session: "other-session", csrfToken: "other-csrf")
+        let first = Task { try await catalog.refresh(credentials: credentials) }
+        await gate.waitUntilReached()
+        let second = Task { try await catalog.refresh(credentials: other) }
+        // Let the second run up to the point where it would have joined.
+        await Task.yield()
+        await Task.yield()
+        gate.release()
+        gate.release()
+
+        try await first.value
+        try await second.value
+
+        XCTAssertEqual(transport.count(for: .problemList), 2)
+        // The newer session's answer is the published one, whichever download
+        // happened to land last.
+        XCTAssertEqual(catalog.problems.map(\.status), [.notStarted])
+        XCTAssertEqual(catalog.problem(forSlug: "two-sum")?.status, .notStarted)
+    }
+
+    /// The superseded fetch does not reach the disk either: a cache file carrying
+    /// the previous account's marks would survive the launch and be restored as if
+    /// it were the current account's.
+    func testASupersededRefreshWritesNoCache() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(
+            .problemList,
+            sequence: [
+                LeetCodeHTTPResponse(
+                    statusCode: 200,
+                    headers: [:],
+                    body: Data(problemListJSON([(1, "two-sum")], status: "ac").utf8)
+                ),
+                LeetCodeHTTPResponse(
+                    statusCode: 200,
+                    headers: [:],
+                    body: Data(problemListJSON([(1, "two-sum")], status: nil).utf8)
+                )
+            ]
+        )
+        let gate = Gate()
+        transport.hold(.problemList, on: gate)
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        let other = LeetCodeCredentials(session: "other-session", csrfToken: "other-csrf")
+        let first = Task { try await catalog.refresh(credentials: credentials) }
+        await gate.waitUntilReached()
+        let second = Task { try await catalog.refresh(credentials: other) }
+        await Task.yield()
+        await Task.yield()
+        gate.release()
+        gate.release()
+
+        try await first.value
+        try await second.value
+
+        // One write, and it is the newer session's rows — read back the way the
+        // next launch would read them.
+        XCTAssertEqual(tree.writtenPaths, [catalogPath])
+        let offline = ScriptedLeetCodeTransport()
+        offline.fail(.problemList)
+        let restored = makeCatalog(tree: tree, transport: offline, clock: Clock(now))
+        let row = await restored.cachedProblem(forSlug: "two-sum")
+        XCTAssertEqual(row?.status, .notStarted)
+        XCTAssertEqual(offline.count(for: .problemList), 0)
+    }
+
+    /// The previous session's fetch landing **last** still publishes nothing.
+    ///
+    /// The other half of the key: two fetches can now be alive at once, so the
+    /// order they come back in is the network's to decide. Staged deterministically
+    /// — each request is held on its own gate, and the older one is released after
+    /// the newer has already published — because "whichever finished last wins"
+    /// would put the previous account's marks back over the current account's, with
+    /// a fresh `fetchedAt` keeping them for a day.
+    func testThePreviousSessionsFetchLandingLastPublishesNothing() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(
+            .problemList,
+            sequence: [
+                LeetCodeHTTPResponse(
+                    statusCode: 200,
+                    headers: [:],
+                    body: Data(problemListJSON([(1, "two-sum")], status: "ac").utf8)
+                ),
+                LeetCodeHTTPResponse(
+                    statusCode: 200,
+                    headers: [:],
+                    body: Data(problemListJSON([(1, "two-sum")], status: nil).utf8)
+                )
+            ]
+        )
+        let old = Gate()
+        transport.hold(.problemList, on: old)
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        let other = LeetCodeCredentials(session: "other-session", csrfToken: "other-csrf")
+        let first = Task { try await catalog.refresh(credentials: credentials) }
+        await old.waitUntilReached()
+        // The second request is held on a gate of its own, so the two can be
+        // released in the order this test is about.
+        let new = Gate()
+        transport.hold(.problemList, on: new)
+        let second = Task { try await catalog.refresh(credentials: other) }
+        await new.waitUntilReached()
+
+        new.release()
+        try await second.value
+        XCTAssertEqual(catalog.problems.map(\.status), [.notStarted])
+
+        old.release()
+        try await first.value
+        XCTAssertEqual(catalog.problems.map(\.status), [.notStarted])
+        XCTAssertEqual(catalog.fetchedAt, now)
+        // And the late one wrote nothing over the cache the newer session left.
+        XCTAssertEqual(tree.writtenPaths, [catalogPath])
+    }
+
+    /// The same session still coalesces — the behaviour the key above must not
+    /// have cost, restated against `refresh` itself rather than through
+    /// `loadIfNeeded`.
+    func testTwoRefreshesUnderOneSessionStillShareOneFetch() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "two-sum")]))
+        let gate = Gate()
+        transport.hold(.problemList, on: gate)
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        let first = Task { try await catalog.refresh(credentials: credentials) }
+        await gate.waitUntilReached()
+        let second = Task { try await catalog.refresh(credentials: credentials) }
+        await Task.yield()
+        await Task.yield()
+        // Released twice so a *broken* coalescer fails the count assertion below
+        // instead of deadlocking the suite.
+        gate.release()
+        gate.release()
+
+        try await first.value
+        try await second.value
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+    }
+
+    /// And a refresh started *after* the previous one finished reuses nothing:
+    /// the slot is open again, so the second session fetches on its own.
+    func testARefreshAfterASessionChangeFetchesAgain() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "two-sum")], status: "ac"))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        try await catalog.refresh(credentials: credentials)
+        transport.serve(.problemList, json: problemListJSON([(1, "two-sum")]))
+        let other = LeetCodeCredentials(session: "other-session", csrfToken: "other-csrf")
+        try await catalog.refresh(credentials: other)
+
+        XCTAssertEqual(transport.count(for: .problemList), 2)
+        XCTAssertEqual(catalog.problems.map(\.status), [.notStarted])
+    }
+
+    // MARK: - Which session is the current one
+
+    /// A refresh under a session this app has replaced is **not made at all**.
+    ///
+    /// The hole the generation above cannot see: it orders refreshes by the moment
+    /// they *start*, and a caller holding the previous session can start one last —
+    /// every door into this type suspends before it fetches, so a straggler resumes
+    /// after the new session has already asked. By start order it would be the
+    /// newest and would publish the previous account's `status` column over the
+    /// current account's. Which session is current is a question only the app can
+    /// answer, so it says so, and the answer is what decides this.
+    ///
+    /// Not made rather than merely not published, because the request would carry a
+    /// cookie the user has replaced and LeetCode's 403 to it is classified as
+    /// `notLoggedIn` — a sentence about the *current* session that is not true of
+    /// it.
+    func testARefreshUnderAReplacedSessionIsNeverMade() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "two-sum")], status: "ac"))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        let other = LeetCodeCredentials(session: "other-session", csrfToken: "other-csrf")
+        catalog.sessionDidChange(to: other)
+        try await catalog.refresh(credentials: credentials)
+
+        XCTAssertEqual(transport.count(for: .problemList), 0)
+        XCTAssertTrue(catalog.problems.isEmpty)
+        XCTAssertNil(catalog.fetchedAt)
+        XCTAssertTrue(tree.writtenPaths.isEmpty)
+    }
+
+    /// And the straggler does not disturb the current session's fetch either — the
+    /// half a "last refresh wins" rule gets wrong in the other direction.
+    ///
+    /// Staged as the app stages it: the current session's download is in flight,
+    /// the previous session's caller resumes and asks, and the current one then
+    /// lands. It must publish, because nothing newer ever happened — the later
+    /// refresh was answering for a session that no longer exists.
+    func testAStragglerFromTheOldSessionDoesNotSupersedeTheCurrentFetch() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(
+            .problemList,
+            sequence: [
+                LeetCodeHTTPResponse(
+                    statusCode: 200,
+                    headers: [:],
+                    body: Data(problemListJSON([(1, "two-sum")]).utf8)
+                ),
+                // Only a regression asks for this one, and it is deliberately
+                // distinguishable so the assertions below say which fetch published.
+                LeetCodeHTTPResponse(
+                    statusCode: 200,
+                    headers: [:],
+                    body: Data(problemListJSON([(2, "add-two-numbers")], status: "ac").utf8)
+                )
+            ]
+        )
+        let gate = Gate()
+        transport.hold(.problemList, on: gate)
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        let other = LeetCodeCredentials(session: "other-session", csrfToken: "other-csrf")
+        catalog.sessionDidChange(to: other)
+        let current = Task { try await catalog.refresh(credentials: other) }
+        await gate.waitUntilReached()
+        // The previous session's caller, resuming from its own suspension after the
+        // current one had already started. Driven as a task and released twice so a
+        // regression fails the count below instead of deadlocking the suite.
+        let straggler = Task { try await catalog.refresh(credentials: credentials) }
+        await Task.yield()
+        await Task.yield()
+        gate.release()
+        gate.release()
+        try await current.value
+        try await straggler.value
+
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+        XCTAssertEqual(catalog.problems.map(\.slug), ["two-sum"])
+        XCTAssertEqual(catalog.fetchedAt, now)
+        XCTAssertEqual(tree.writtenPaths, [catalogPath])
+    }
+
+    /// A session replaced **while a fetch is in flight** takes that fetch with it,
+    /// even though no newer refresh was ever started.
+    ///
+    /// A sign-out starts nothing, so the generation never moves and the download
+    /// already running would otherwise land the departing account's solved marks in
+    /// the cache — with a fresh `fetchedAt`, so the next account inherits them for a
+    /// day (the L24 window) instead of fetching its own.
+    func testAFetchInFlightWhenTheSessionGoesAwayPublishesNothing() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "two-sum")], status: "ac"))
+        let gate = Gate()
+        transport.hold(.problemList, on: gate)
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        catalog.sessionDidChange(to: credentials)
+        let refresh = Task { try await catalog.refresh(credentials: credentials) }
+        await gate.waitUntilReached()
+        catalog.sessionDidChange(to: nil)
+        gate.release()
+        try await refresh.value
+
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+        XCTAssertTrue(catalog.problems.isEmpty)
+        XCTAssertNil(catalog.fetchedAt)
+        XCTAssertTrue(tree.writtenPaths.isEmpty)
+    }
+
+    /// The current session's own refresh is untouched by any of it, and so is a
+    /// catalog nobody has told about sessions at all — the state every other test
+    /// in this file runs in, pinned here so "undeclared" cannot quietly become
+    /// "blocked".
+    func testTheDeclaredSessionRefreshesAndAnUndeclaredOneIsUnconstrained() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "two-sum")], status: "ac"))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        try await catalog.refresh(credentials: credentials)
+        XCTAssertEqual(catalog.problems.map(\.status), [.solved])
+
+        let told = makeCatalog(tree: makeTree(), transport: transport, clock: Clock(now))
+        told.sessionDidChange(to: credentials)
+        try await told.refresh(credentials: credentials)
+        XCTAssertEqual(told.problems.map(\.status), [.solved])
+        XCTAssertEqual(transport.count(for: .problemList), 2)
     }
 }

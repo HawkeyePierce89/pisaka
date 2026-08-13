@@ -514,6 +514,44 @@ final class LeetCodeModelTests: XCTestCase {
 
     // MARK: - Signing in
 
+    /// The catalog is told which session its rows belong to, on every door a
+    /// session changes through.
+    ///
+    /// `LeetCodeCatalog` cannot work this out for itself — it sees credentials
+    /// passed in, not which of them the app still holds — and a generation token
+    /// cannot stand in for the answer: the callers that reach it all suspend first
+    /// (the disk read, and the browser's shielded catalog task), so one holding the
+    /// previous account's session can start its refresh *after* the new account's,
+    /// be the newest by start order, and publish the previous account's solved
+    /// marks over the current account's with a fresh `fetchedAt` to keep them there
+    /// for a day. This is the wiring that makes the catalog's rule reachable; the
+    /// rule itself is pinned in `LeetCodeCatalogTests`.
+    func testASessionChangeTellsTheCatalogWhoseRowsMayStillLand() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+        let other = LeetCodeCredentials(session: "other-session", csrfToken: "other-csrf")
+
+        try await model.signIn(with: other)
+        let asked = transport.count(for: .problemList)
+
+        // The straggler, arriving with the session the sign-in replaced.
+        try await model.catalog.refresh(credentials: credentials)
+        XCTAssertEqual(transport.count(for: .problemList), asked)
+        XCTAssertTrue(model.catalog.problems.isEmpty)
+
+        // The account this app now holds still fetches, so nothing was merely
+        // switched off.
+        try await model.catalog.refresh(credentials: other)
+        XCTAssertEqual(transport.count(for: .problemList), asked + 1)
+        XCTAssertEqual(model.catalog.problems.count, 12)
+
+        // …and a sign-out replaces it with nothing, which is the same answer.
+        model.signOut()
+        try await model.catalog.refresh(credentials: other)
+        XCTAssertEqual(transport.count(for: .problemList), asked + 1)
+    }
+
     func testSigningInConfirmsTheSessionAndStoresIt() async throws {
         let tree = makeTree()
         let transport = makeTransport()
