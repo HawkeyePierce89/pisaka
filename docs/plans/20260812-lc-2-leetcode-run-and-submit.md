@@ -224,12 +224,12 @@ Known limits gain: a Run/Submit that outruns its budget **does not undo the subm
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] `swift test` fully green
-- [ ] `xcodebuild` macOS build succeeds
-- [ ] `xcodebuild` iOS Simulator build succeeds
-- [ ] `git diff --stat` confirms `project.yml`, `Package.resolved`, `Package.swift` and `Resources/Licenses/licenses.json` are untouched
-- [ ] confirm by inspection that no Core file imports anything outside Foundation and no new file IO was added to the judge path
-- [ ] confirm the new fixtures are all under `Tests/PisakaCoreTests/Fixtures/leetcode/` and labelled in the README as verbatim, hand-edited or authored
+- [x] `swift test` fully green — 2631 tests, 0 failures
+- [x] `xcodebuild` macOS build succeeds
+- [x] `xcodebuild` iOS Simulator build succeeds (iPhone 17 Pro)
+- [x] `git diff --stat` confirms `project.yml`, `Package.resolved`, `Package.swift` and `Resources/Licenses/licenses.json` are untouched — the branch diff over those four paths is empty (the tracked `Package.resolved` is the workspace one under `Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/`)
+- [x] confirm by inspection that no Core file imports anything outside Foundation and no new file IO was added to the judge path — every Core file this branch touched imports Foundation alone (the single `CoreGraphics` import in Core is `MinimapGeometry.swift`, untouched here); `LeetCodeJudge.swift`/`LeetCodeJudgeModel.swift` contain no `FileManager`/`Data(contentsOf:)`/`write(to:)`/`FileServicing` reference, and the `LeetCodeModel` diff adds no persistence call
+- [x] confirm the new fixtures are all under `Tests/PisakaCoreTests/Fixtures/leetcode/` and labelled in the README as verbatim, hand-edited or authored — no new fixture lands outside that directory, and the README carries the three labels distinctly: "verbatim", "verbatim **except `questionId`**" with the re-record instruction, and the "every one of them authored" judge section
 
 ## Post-Completion (manual, user-run)
 
