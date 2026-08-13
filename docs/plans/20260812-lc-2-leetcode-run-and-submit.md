@@ -173,11 +173,11 @@ It observes `model.judge` and not `model`, so typing in the box does not invalid
 
 Buttons disable themselves from `judge.availability` and explain why in a help tooltip beside them.
 
-- [ ] add `LeetCodeJudgeSection` (`#if os(macOS)`) observing `model.judge`
-- [ ] host it in `LeetCodeDescriptionPane` below the statement; hand it the non-observed workspace from `ContentView`
-- [ ] drive `judge.prepare(...)` from the pane's `.task(id:)` on the same tab+folder key the statement uses
-- [ ] build: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build` must succeed
-- [ ] run `swift test` — must pass before Task 6
+- [x] add `LeetCodeJudgeSection` (`#if os(macOS)`) observing `model.judge`
+- [x] host it in `LeetCodeDescriptionPane` below the statement; hand it the non-observed workspace from `ContentView`
+- [x] drive `judge.prepare(...)` from the pane's `.task(id:)` on the same tab+folder key the statement uses
+- [x] build: `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build` must succeed
+- [x] run `swift test` — must pass before Task 6
 
 ### Task 6: The iOS judge section
 

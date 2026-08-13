@@ -479,7 +479,17 @@ struct ContentView: View {
     /// `leetCode` itself (see the note on that property, and the one on the
     /// pane).
     private var descriptionPane: some View {
-        LeetCodeDescriptionPane(model: leetCode, settings: settings)
+        // The workspace goes down as a plain value, not as an observed object:
+        // the judge section reads the live buffer only when a button is pressed,
+        // and this is the same non-observed hand-off `commitDialog` gets. The
+        // *selection* travels separately because it is what re-prepares the judge
+        // — and this view is already watching it.
+        LeetCodeDescriptionPane(
+            model: leetCode,
+            settings: settings,
+            workspace: model,
+            activeFileURL: model.selectedFile?.url
+        )
     }
 
     /// The text editor for the selected tab, or a placeholder when no file is open.
