@@ -185,10 +185,10 @@ Known limits gain: the per-account status is as old as the catalog fetch (with t
 
 `README.md` gains the browser to the LeetCode bullets on both platforms (the ⌘⇧B menu item on macOS, the Browse Problems screen on iOS) and to the shortcut list.
 
-- [ ] update `docs/architecture/core-leetcode.md`: file entries, L23–L25, known limits
-- [ ] update `CLAUDE.md` index lines and the LeetCode invariant clause
-- [ ] update `README.md` features and shortcuts
-- [ ] run `swift test` — must pass before Task 7
+- [x] update `docs/architecture/core-leetcode.md`: file entries, L23–L25, known limits
+- [x] update `CLAUDE.md` index lines and the LeetCode invariant clause
+- [x] update `README.md` features and shortcuts
+- [x] run `swift test` — must pass before Task 7
 
 ### Task 7: Verify acceptance criteria
 

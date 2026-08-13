@@ -114,6 +114,7 @@ involved.
 | Cmd+R       | Run the active file in a new terminal session |
 | Cmd+U       | Run the active test file in a new terminal session |
 | Cmd+Shift+P | Open a LeetCode problem (writes and opens its solution file) |
+| Cmd+Shift+B | Browse LeetCode problems (search and filter the problem list) |
 | Cmd+Shift+L | Show/Hide the Git Log (commit history) bottom panel |
 | Cmd+Shift+T | Show/Hide the embedded terminal bottom panel |
 | Cmd+Shift+C | Show/Hide the Local Changes bottom panel   |
@@ -699,6 +700,16 @@ involved.
     **slug** (`two-sum`), or a **leetcode.com problem URL**, with a language
     picker offering Swift, Python 3, Go, Rust, TypeScript and JavaScript. The
     choice persists, so the next problem opens in the same language.
+  - **Browse Problems…** (Cmd+Shift+B) opens the whole problem list in its own
+    window: search by number, title or slug (a number matches that problem exactly,
+    text matches anywhere in either), narrow by difficulty and by your own progress
+    (solved, attempted, not started), and open a row by double-clicking it or with
+    the Open button — into the same solution file, under the same rules, as if you
+    had typed its number. Premium problems are always listed, marked with a lock,
+    and refused on open with the reason. Search is instant and works offline: the
+    list is the one cached catalog, not a request per keystroke. Because the solved
+    marks come from that cache, the window shows when it was last fetched and has a
+    **Refresh** beside it.
   - The solution file is written as `0001-two-sum.swift` into the folder you
     chose (**Choose LeetCode Folder…**, suggested `~/Documents/LeetCode` and
     asked for on first use), seeded with a header comment naming the problem and
@@ -786,7 +797,10 @@ and iPhone. The feature scope landed so far:
   pane beside the editor on regular width and a toggleable sheet on compact, and
   **Run and Submit** sit under it in both shapes — the same editable test-case box
   and the same verdicts as on macOS, with the controls kept above the keyboard and
-  a Done affordance to dismiss it.
+  a Done affordance to dismiss it. **Browse Problems** pushes the same problem
+  list from that screen: a search bar, difficulty and progress filters in a toolbar
+  menu, pull to refresh, and a tap to open — which dismisses the sheet and leaves
+  you in the solution file.
 - The embedded terminal is macOS-only (SwiftTerm) and not present on iOS.
 
 ## Known Limitations (1.0)
