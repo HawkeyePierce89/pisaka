@@ -132,6 +132,36 @@ public enum LeetCodeSolutionFile {
         offerableLanguages.first { $0.language == language }
     }
 
+    /// The language a solution file's **extension** says it is written in, or
+    /// `nil` when the extension names none.
+    ///
+    /// This is the reverse of the one thing ``name(number:slug:language:)``
+    /// encodes that the number and the slug do not, and it exists because the
+    /// judge has to name a `lang` in its payload: the file on screen is all the
+    /// judge has, and the extension is where its language is written down. Going
+    /// through ``offerableLanguages`` — rather than through `SyntaxLanguage`,
+    /// which knows `.rb` and `.cpp` this app does not offer — is what keeps the
+    /// two directions from ever disagreeing: a file this app *wrote* always maps
+    /// back to the language it was written in, and a file it did not write maps
+    /// to something LeetCode will accept or to nothing at all.
+    ///
+    /// `nil` is the honest answer for `0001-two-sum.md`, and the judge turns it
+    /// into a stated refusal rather than guessing a language and submitting
+    /// prose to the judge.
+    ///
+    /// Matched case-insensitively (a `.PY` on a case-insensitive volume is the
+    /// same file), and a leading dot is tolerated: callers pass
+    /// `URL.pathExtension`, which carries none, but a hand-written `".py"` must
+    /// not silently answer `nil`.
+    public static func language(forFileExtension fileExtension: String) -> LeetCodeLanguage? {
+        var needle = fileExtension
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if needle.hasPrefix(".") { needle.removeFirst() }
+        guard !needle.isEmpty else { return nil }
+        return offerableLanguages.first { $0.fileExtension == needle }
+    }
+
     /// The picker's fallback, used when nothing has been persisted yet and when
     /// a persisted slug no longer names an offerable language.
     public static var defaultLanguage: LeetCodeLanguage { offerableLanguages[0] }

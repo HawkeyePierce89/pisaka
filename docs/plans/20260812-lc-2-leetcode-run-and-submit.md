@@ -151,15 +151,15 @@ The LC-1 rules applied to the new axis, each its own test: a superseded operatio
 
 Sleeping goes through an injectable seam so the suite runs the whole state machine deterministically and `swift test` gains no wall-clock time.
 
-- [ ] add `LeetCodeSolutionFile.language(forFileExtension:)`
-- [ ] add `LeetCodeJudgeAvailability` and its sentences
-- [ ] add `LeetCodeJudgeModel`: published state, `prepare`, `run`, `submit`, `cancel`, budgets-as-data, injectable sleep/now, fourth generation token
-- [ ] wire `public let judge` onto `LeetCodeModel`; bump the judge generation from `invalidateInFlightWork()`/sign-in/sign-out
-- [ ] test the availability table including the not-offerable refusal
-- [ ] test the poll machine: `PENDING → STARTED → SUCCESS` for both kinds, budget exhaustion, throttled mid-poll, logged-out mid-poll, supersedence, cancellation — each publishing exactly what the LC-1 rules dictate
-- [ ] test that the prefilled-then-edited input reaches the interpret payload verbatim and that Submit's payload carries no input
-- [ ] test that the live buffer text is what is submitted, not any saved copy
-- [ ] run `swift test` — must pass before Task 5
+- [x] add `LeetCodeSolutionFile.language(forFileExtension:)`
+- [x] add `LeetCodeJudgeAvailability` and its sentences
+- [x] add `LeetCodeJudgeModel`: published state, `prepare`, `run`, `submit`, `cancel`, budgets-as-data, injectable sleep/now, fourth generation token
+- [x] wire `public let judge` onto `LeetCodeModel` (a `lazy var`, since the judge is constructed with `self`); bump the judge generation from `invalidateInFlightWork()`/sign-in/sign-out
+- [x] test the availability table including the not-offerable refusal
+- [x] test the poll machine: `PENDING → STARTED → SUCCESS` for both kinds, budget exhaustion, throttled mid-poll, logged-out mid-poll, supersedence, cancellation — each publishing exactly what the LC-1 rules dictate
+- [x] test that the prefilled-then-edited input reaches the interpret payload verbatim and that Submit's payload carries no input
+- [x] test that the live buffer text is what is submitted, not any saved copy
+- [x] run `swift test` — must pass before Task 5
 
 ### Task 5: The macOS judge section
 

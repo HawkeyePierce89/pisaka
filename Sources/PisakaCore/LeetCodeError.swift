@@ -60,6 +60,12 @@ public enum LeetCodeError: Error, Equatable {
     /// the sentence, decided one layer up where the file and the session are
     /// both in view.
     ///
+    /// It carries one answer that is not about the *file*: LeetCode's own
+    /// `state: "FAILURE"`, its judge giving up on an attempt. That belongs here
+    /// rather than beside `apiChanged` for the same reason as the rest — LeetCode
+    /// documents that state by sending it, so nobody should be sent hunting a
+    /// schema change — and the sentence tells the user to try again.
+    ///
     /// Also a product refusal, and separate from `apiChanged` on purpose: none
     /// of these mean LeetCode changed anything, so none of them should send
     /// somebody hunting a schema change.

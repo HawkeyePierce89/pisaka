@@ -133,6 +133,21 @@ public final class LeetCodeModel: ObservableObject {
     /// staleness rules and this model does not second-guess them.
     public let catalog: LeetCodeCatalog
 
+    /// Run and Submit, and the editable test-case box they share.
+    ///
+    /// Owned here the way `catalog` is, and for the same reason it is a separate
+    /// object rather than more members on this one: the judge surfaces observe
+    /// *it*, so typing in the test-case box does not invalidate the account and
+    /// statement surfaces bound to this model. It holds an `unowned` reference
+    /// back here for the session, the question-id memo and the two session
+    /// transitions — see `LeetCodeJudgeModel`.
+    ///
+    /// `lazy` for the one reason lazy is ever right: the judge is constructed
+    /// with `self`, which does not exist until this initialiser has run. Nothing
+    /// observable happens on first access, so where it is first touched does not
+    /// matter.
+    public private(set) lazy var judge = LeetCodeJudgeModel(owner: self)
+
     // MARK: - Published state
 
     /// The account name LeetCode last confirmed, or `nil` when signed out or not
@@ -146,7 +161,17 @@ public final class LeetCodeModel: ObservableObject {
     /// been confirmed, because the alternative is showing "signed out" for the
     /// duration of a network round trip to somebody who is signed in. LeetCode's
     /// own `isSignedIn == false`, wherever it appears, is what clears it.
-    @Published public private(set) var isSignedIn: Bool
+    ///
+    /// The observer is how the judge's buttons hear about a session change. It is
+    /// here rather than at the three places that write this property because two
+    /// of them (`markSessionRejected()`/`markSessionAccepted()`) are reached from
+    /// arbitrary request paths, including the judge's own — one writer, one hook.
+    @Published public private(set) var isSignedIn: Bool {
+        didSet {
+            guard oldValue != isSignedIn else { return }
+            judge.sessionDidChange()
+        }
+    }
 
     /// Whether any LeetCode operation is running — a count under the hood, so two
     /// overlapping operations do not have the first one's completion switch the
@@ -865,7 +890,12 @@ public final class LeetCodeModel: ObservableObject {
     /// than a `LeetCodeError` — which the real one does not, but a decorator or a
     /// stub might — still reads as "could not reach LeetCode" rather than escaping
     /// this layer's vocabulary. The same fold `LeetCodeCatalog` applies.
-    private func send(_ request: LeetCodeHTTPRequest) async throws -> LeetCodeHTTPResponse {
+    ///
+    /// Internal rather than private because the judge sends its own three
+    /// requests through it: that model is a companion of this one, not a
+    /// stranger, and a second transport call site would be a second place for
+    /// this fold to be forgotten.
+    func send(_ request: LeetCodeHTTPRequest) async throws -> LeetCodeHTTPResponse {
         do {
             return try await transport.send(request)
         } catch let error as LeetCodeError {
@@ -877,8 +907,9 @@ public final class LeetCodeModel: ObservableObject {
 
     // MARK: - Plumbing
 
-    /// The session, or the error every operation reports without one.
-    private func requireCredentials() throws -> LeetCodeCredentials {
+    /// The session, or the error every operation reports without one — the
+    /// judge's included, which is why this is internal.
+    func requireCredentials() throws -> LeetCodeCredentials {
         if let cachedCredentials { return cachedCredentials }
         guard let stored = storedCredentials() else { throw LeetCodeError.notLoggedIn }
         cachedCredentials = stored
@@ -908,7 +939,7 @@ public final class LeetCodeModel: ObservableObject {
     /// session, and clearing the Keychain on one would turn a transient failure
     /// into a mandatory re-login through a web view. Signing out is the explicit
     /// act that forgets them.
-    private func markSessionRejected() {
+    func markSessionRejected() {
         isSignedIn = false
         signedInUsername = nil
     }
@@ -936,7 +967,7 @@ public final class LeetCodeModel: ObservableObject {
     /// this must not resurrect is a **sign-out**: that clears `cachedCredentials`
     /// and raises `storedCredentialsAreDiscarded`, so a request still in flight
     /// when the user signed out finds no session here to confirm.
-    private func markSessionAccepted() {
+    func markSessionAccepted() {
         guard !storedCredentialsAreDiscarded, cachedCredentials != nil else { return }
         isSignedIn = true
     }
@@ -1003,9 +1034,14 @@ public final class LeetCodeModel: ObservableObject {
     }
 
     /// Everything in flight is now answering a question nobody asked any more.
+    ///
+    /// The judge's token is bumped here with the other two — a poll in flight is
+    /// invalidated by a session change exactly as a fetch is, and the memo its
+    /// question id came from is emptied by the same two callers.
     private func invalidateInFlightWork() {
         openGeneration += 1
         statementGeneration += 1
+        judge.invalidateInFlightWork()
     }
 
     private func beginWork() {
