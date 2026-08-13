@@ -148,6 +148,17 @@ public final class LeetCodeModel: ObservableObject {
     /// matter.
     public private(set) lazy var judge = LeetCodeJudgeModel(owner: self)
 
+    /// The problem browser: the search field, the filters and the rows they leave.
+    ///
+    /// Owned here exactly as `judge` is, `lazy` for the same one reason lazy is
+    /// ever right (it is constructed with `self`), and separate for the same
+    /// reason: the browser surfaces observe *it*, so typing in the search field
+    /// invalidates the list rather than every view bound to the account, the
+    /// statement or the judge. It reads the `catalog` above — there is one
+    /// catalog, one disk cache and one staleness clock — and holds an `unowned`
+    /// reference back here for the session; see `LeetCodeBrowserModel`.
+    public private(set) lazy var browser = LeetCodeBrowserModel(owner: self)
+
     // MARK: - Published state
 
     /// The account name LeetCode last confirmed, or `nil` when signed out or not
@@ -162,14 +173,16 @@ public final class LeetCodeModel: ObservableObject {
     /// duration of a network round trip to somebody who is signed in. LeetCode's
     /// own `isSignedIn == false`, wherever it appears, is what clears it.
     ///
-    /// The observer is how the judge's buttons hear about a session change. It is
-    /// here rather than at the three places that write this property because two
-    /// of them (`markSessionRejected()`/`markSessionAccepted()`) are reached from
+    /// The observer is how the judge's buttons and the browser's list hear about a
+    /// session change. It is here rather than at the three places that write this
+    /// property because two of them
+    /// (`markSessionRejected()`/`markSessionAccepted()`) are reached from
     /// arbitrary request paths, including the judge's own — one writer, one hook.
     @Published public private(set) var isSignedIn: Bool {
         didSet {
             guard oldValue != isSignedIn else { return }
             judge.sessionDidChange()
+            browser.sessionDidChange()
         }
     }
 

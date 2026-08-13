@@ -124,10 +124,10 @@ Behaviour:
 
 In `LeetCodeModel`: add the `lazy var browser`, and call `browser.sessionDidChange()` in `isSignedIn`'s `didSet` beside `judge.sessionDidChange()` — one writer, one hook, exactly as that property already documents.
 
-- [ ] write `LeetCodeBrowserModel.swift` (+ `LeetCodeBrowserAvailability`) with the notes above
-- [ ] wire `browser` and its `sessionDidChange()` into `LeetCodeModel`
-- [ ] write `LeetCodeBrowserModelTests` driving a real `LeetCodeModel` over `ScriptedLeetCodeTransport` + `StubFileTree` with an injected clock: a warm disk cache loads with zero requests; a cold one fetches once and publishes rows, `fetchedAt` and no error; `refresh()` fetches again inside the staleness window and republishes; a failing refresh keeps the previous rows and publishes the typed error; a failing first load publishes the error with no rows; signed out publishes `.notSignedIn` and makes no request; a sign-in re-arms availability and a sign-out clears the rows; a `load()` held on a `Gate` while a sign-out bumps the token publishes **nothing**; setting `filter` republishes `visibleProblems` without touching the transport
-- [ ] run `swift test` — must pass before Task 4
+- [x] write `LeetCodeBrowserModel.swift` (+ `LeetCodeBrowserAvailability`) with the notes above
+- [x] wire `browser` and its `sessionDidChange()` into `LeetCodeModel`
+- [x] write `LeetCodeBrowserModelTests` driving a real `LeetCodeModel` over `ScriptedLeetCodeTransport` + `StubFileTree` with an injected clock: a warm disk cache loads with zero requests; a cold one fetches once and publishes rows, `fetchedAt` and no error; `refresh()` fetches again inside the staleness window and republishes; a failing refresh keeps the previous rows and publishes the typed error; a failing first load publishes the error with no rows; signed out publishes `.notSignedIn` and makes no request; a sign-in re-arms availability and a sign-out clears the rows; a `load()` held on a `Gate` while a sign-out bumps the token publishes **nothing**; setting `filter` republishes `visibleProblems` without touching the transport
+- [x] run `swift test` — must pass before Task 4
 
 ### Task 4: The macOS browser window
 
