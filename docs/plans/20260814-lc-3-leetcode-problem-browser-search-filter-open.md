@@ -93,9 +93,9 @@ Consult the disk cache once (the existing coalesced `loadFromDiskIfNeeded()`), t
 
 It **throws whatever the refresh threw**, deliberately: the degradation rule ("stale rows beat no rows") belongs to the surface that has rows on screen, not to the catalog, and `problems` is right there for the caller to check. Document that in one sentence on the method, pointing at `resolveSlug`'s own version of the rule.
 
-- [ ] add `loadIfNeeded(credentials:)` with its note; no other catalog change
-- [ ] extend `LeetCodeCatalogTests`: a cache written inside the staleness window makes **zero** `problemList` requests; an absent cache makes exactly one; a cache older than `maximumAge` makes exactly one; two overlapping `loadIfNeeded` calls (staged with `Gate`) coalesce onto one request; a refresh failure with a warm disk cache throws while `problems` stays populated
-- [ ] run `swift test` — must pass before Task 3
+- [x] add `loadIfNeeded(credentials:)` with its note; no other catalog change
+- [x] extend `LeetCodeCatalogTests`: a cache written inside the staleness window makes **zero** `problemList` requests; an absent cache makes exactly one; a cache older than `maximumAge` makes exactly one; two overlapping `loadIfNeeded` calls (staged with `Gate`) coalesce onto one request; a refresh failure with a warm disk cache throws while `problems` stays populated
+- [x] run `swift test` — must pass before Task 3
 
 ### Task 3: `LeetCodeBrowserModel` — the companion
 

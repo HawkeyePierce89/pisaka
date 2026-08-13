@@ -729,6 +729,132 @@ final class LeetCodeCatalogTests: XCTestCase {
         }
     }
 
+    // MARK: - Browsing
+
+    /// The browser's entry point pays the same price every other reader does:
+    /// inside the staleness window, nothing at all.
+    func testLoadIfNeededServesAWarmCacheWithoutARequest() async throws {
+        let tree = makeTree([
+            catalogPath: cacheJSON(
+                fetchedAt: "2026-08-11T11:00:00Z",
+                rows: [(1, "two-sum"), (2, "add-two-numbers")]
+            )
+        ])
+        let transport = ScriptedLeetCodeTransport()
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        try await catalog.loadIfNeeded(credentials: credentials)
+
+        XCTAssertEqual(transport.count(for: .problemList), 0)
+        XCTAssertEqual(catalog.problems.map(\.slug), ["two-sum", "add-two-numbers"])
+        XCTAssertEqual(catalog.fetchedAt, Self.date("2026-08-11T11:00:00Z"))
+        XCTAssertEqual(tree.readPaths, [catalogPath])
+        XCTAssertEqual(tree.writtenPaths, [])
+
+        // …and a second surface appearing costs nothing either: the list is now in
+        // memory and the disk is not consulted twice.
+        try await catalog.loadIfNeeded(credentials: credentials)
+        XCTAssertEqual(transport.count(for: .problemList), 0)
+        XCTAssertEqual(tree.readPaths, [catalogPath])
+    }
+
+    /// No cache is stale, so the first open of the browser fetches — once.
+    func testLoadIfNeededFetchesOnceWithNoCache() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, body: Self.recordedProblemList)
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        try await catalog.loadIfNeeded(credentials: credentials)
+
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+        XCTAssertEqual(catalog.problems.count, 12)
+        XCTAssertEqual(catalog.fetchedAt, now)
+        XCTAssertEqual(tree.writtenPaths, [catalogPath])
+
+        // The fetch it just made is warm, so re-entering the surface is free.
+        try await catalog.loadIfNeeded(credentials: credentials)
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+    }
+
+    /// A cache past `maximumAge` is refreshed, and the rows the browser then reads
+    /// are the fetched ones rather than the file's.
+    func testLoadIfNeededRefreshesACacheOlderThanADay() async throws {
+        let tree = makeTree([
+            catalogPath: cacheJSON(
+                fetchedAt: "2026-08-10T10:00:00Z",
+                rows: [(1, "stale-two-sum")]
+            )
+        ])
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(
+            .problemList,
+            json: problemListJSON([(1, "two-sum"), (3500, "brand-new-problem")])
+        )
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        try await catalog.loadIfNeeded(credentials: credentials)
+
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+        XCTAssertEqual(catalog.problems.map(\.slug), ["two-sum", "brand-new-problem"])
+        XCTAssertEqual(catalog.fetchedAt, now)
+        XCTAssertEqual(tree.writtenPaths, [catalogPath])
+    }
+
+    /// Two surfaces appearing at once — the window and a `.task` on the list —
+    /// download the 2 MB catalog once, because this method adds no fetch of its
+    /// own and joins the coalesced one.
+    func testOverlappingLoadIfNeededCallsShareOneFetch() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "two-sum")]))
+        let gate = Gate()
+        transport.hold(.problemList, on: gate)
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        let first = Task { try await catalog.loadIfNeeded(credentials: credentials) }
+        await gate.waitUntilReached()
+        let second = Task { try await catalog.loadIfNeeded(credentials: credentials) }
+        // Let the second run up to the point where it joins the in-flight refresh
+        // rather than starting its own.
+        await Task.yield()
+        await Task.yield()
+        // Released twice so a *broken* coalescer fails the count assertion below
+        // instead of deadlocking the suite.
+        gate.release()
+        gate.release()
+
+        try await first.value
+        try await second.value
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+        XCTAssertEqual(catalog.problems.map(\.slug), ["two-sum"])
+    }
+
+    /// The one place this method deliberately does *not* apply `resolveSlug`'s
+    /// degradation rule: a refresh that could not be made throws, and the rows the
+    /// disk had are still there for the caller to keep showing beside the error.
+    func testLoadIfNeededThrowsButLeavesAWarmCachePopulated() async throws {
+        let tree = makeTree([
+            catalogPath: cacheJSON(
+                fetchedAt: "2026-08-01T10:00:00Z",
+                rows: [(1, "two-sum"), (2, "add-two-numbers")]
+            )
+        ])
+        let transport = ScriptedLeetCodeTransport()
+        transport.fail(.problemList, with: LeetCodeError.network(reason: "offline"))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        await assertThrows(.network(reason: "offline")) {
+            try await catalog.loadIfNeeded(credentials: self.credentials)
+        }
+
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+        XCTAssertEqual(catalog.problems.map(\.slug), ["two-sum", "add-two-numbers"])
+        XCTAssertEqual(catalog.fetchedAt, Self.date("2026-08-01T10:00:00Z"))
+        // Nothing was written over the snapshot that survived.
+        XCTAssertEqual(tree.writtenPaths, [])
+    }
+
     // MARK: - Overlapping work
 
     /// Two problems opened at once download the 2 MB list once.

@@ -157,6 +157,34 @@ public final class LeetCodeCatalog {
         return problem(forSlug: slug)
     }
 
+    // MARK: - Browsing
+
+    /// Have the whole catalog in hand, at the cost the policy on this type allows:
+    /// the disk cache once, and a network refresh **only when it is stale**.
+    ///
+    /// The one entry point for a reader that wants the list rather than a single
+    /// answer. `resolveSlug(forNumber:)` is the wrong door for it — it forces a
+    /// refresh when the number it was asked about is missing, and a browser asks
+    /// about no number at all, so every empty search field would have paid for a
+    /// 2 MB download. Nothing new is decided here: `loadFromDiskIfNeeded()` and
+    /// `refresh(credentials:)` are the existing coalesced ones, so two surfaces
+    /// appearing at once still read the file once and fetch once, and `maximumAge`
+    /// still says what "stale" means.
+    ///
+    /// **It throws whatever the refresh threw**, deliberately — this is the one
+    /// place the "stale rows beat no rows" degradation `resolveSlug(forNumber:)`
+    /// applies is *not* applied. That rule needs to know what the caller is going
+    /// to do with the rows, and here the caller is a surface with a list already on
+    /// screen: it keeps what it is showing, puts the error beside it, and reads the
+    /// still-populated `problems` off the same accessor every other reader uses.
+    /// Swallowing the failure here would instead leave that surface unable to tell
+    /// a refresh that landed from one that never happened.
+    public func loadIfNeeded(credentials: LeetCodeCredentials) async throws {
+        await loadFromDiskIfNeeded()
+        guard isStale else { return }
+        try await refresh(credentials: credentials)
+    }
+
     // MARK: - Resolution
 
     /// The slug to request a problem's detail by, or `nil` when no such problem
