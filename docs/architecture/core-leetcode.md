@@ -86,10 +86,15 @@ pure reader. It takes the *live editor buffer* — never the disk copy, so nobod
 has to save first — posts it, polls for a verdict and publishes value types. It
 creates nothing, rewrites nothing, and touches neither the solution file nor
 either cache, so the one create the sentence names is still `openProblem`'s.
-**The browser narrows it further still**: it writes *nothing at all*, not even a
-cache of its own — it reads the catalog the rest of the area already keeps,
-filters it in memory, and opens a row through `openProblem` itself, so there is
-no second open path and no second write anywhere in this area.
+**The browser narrows it further still**: it *creates* nothing and owns no cache
+of its own — it reads the catalog the rest of the area already keeps, filters it
+in memory, and opens a row through `openProblem` itself, so there is no second
+open path and no second cache anywhere in this area. What it is not is
+write-free: a `load()` that finds the catalog stale, and every `refresh()`,
+rewrite `catalog.json` through `LeetCodeCatalog` — the catalog's own write, in
+the catalog's one file, on the catalog's schedule, but reachable from a button
+where before LC-3 only an open could reach it. Neither the write nor the gate
+changes: the file is under `Application Support`, not in the worktree.
 
 The decisions L1–L25 are written out at the end of this document, together with
 the limits the design carries.
@@ -2056,10 +2061,13 @@ means, what a file is named, when a fetch happens, and what gets written.
   no paging, **no new entry in `LeetCodeAPI.swift`**, instant results, and a browser
   that works offline off the disk cache. It reads the *existing*
   `LeetCodeModel.catalog`, because a second catalog would mean a second disk cache
-  and a second staleness clock disagreeing with it. The layer writes nothing at all
-  — not even a cache of its own — and opening a row goes through `openProblem`,
-  so LC-1's one create stays the only write in the area and there is no second open
-  path.
+  and a second staleness clock disagreeing with it. The layer creates nothing and
+  owns no cache of its own, and opening a row goes through `openProblem`, so LC-1's
+  one create stays the only create in the area and there is no second open path.
+  The one thing it does write is not its own: a `load()` that finds the catalog
+  stale, and every `refresh()`, have `LeetCodeCatalog` rewrite `catalog.json` from
+  the response — the same write an open has always caused, now also reachable from
+  the Refresh button.
 - **L24 — status freshness is the catalog's fetch time, and the surface says so.**
   A row's solved/attempted mark is whatever the account looked like when the list
   was fetched, so a problem solved five minutes ago shows as solved only after a

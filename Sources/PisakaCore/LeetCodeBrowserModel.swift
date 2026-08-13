@@ -53,10 +53,19 @@ public enum LeetCodeBrowserAvailability: Equatable, Sendable {
 ///
 /// **A reader with no create at all** (L23). It never raises
 /// `autosave.suspend()`/`beginRevert()` and is never gated by them, and unlike
-/// `openProblem` it writes nothing whatsoever: it reads the catalog the rest of
-/// the area already keeps, filters it in memory, and publishes value types. The
-/// one create in this integration remains `openProblem`'s, which is also the one
-/// path a row in this list opens through — there is no second open path.
+/// `openProblem` it creates nothing: it reads the catalog the rest of the area
+/// already keeps, filters it in memory, and publishes value types. The one create
+/// in this integration remains `openProblem`'s, which is also the one path a row
+/// in this list opens through — there is no second open path.
+///
+/// **It does own no cache, but it is not write-free** — the distinction matters
+/// enough to state. A fetch that `load()` finds stale, and *every* `refresh()`,
+/// goes through `LeetCodeCatalog`, which rewrites its own `catalog.json` from the
+/// response. That write is the catalog's, on the catalog's schedule and in the
+/// catalog's one file, so this layer adds no second cache and no second staleness
+/// clock — but ``refresh()`` is a new *trigger* for it, where before LC-3 only an
+/// open could cause one. It is still nothing the writer gate covers: the file is
+/// under `Application Support`, not in the worktree git operates on.
 ///
 /// **Freshness is the catalog's fetch time, and the surface says so** (L24). A
 /// row's solved/attempted mark is whatever the account looked like when the list

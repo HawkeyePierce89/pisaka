@@ -363,10 +363,11 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   editor buffer* (never the disk copy — nobody has to save first), posts it, polls
   for a verdict and publishes value types, creating and rewriting nothing at all,
   so the one create is still `openProblem`'s. **The problem browser narrows it
-  further**: it writes nothing at all, not even a cache of its own — it filters the
+  further**: it creates nothing and owns no cache of its own — it filters the
   catalog already in hand (no new wire surface, L23) and opens a row through
   `openProblem` itself, so there is no second open path and LC-1's one create stays
-  the only write in the area. All schema
+  the only create in the area. Not write-*free*, though: a stale `load()` and every
+  `refresh()` rewrite the catalog's own `catalog.json` (`core-leetcode.md`). All schema
   knowledge is in one Core file, every operation requires a login, and opening a
   problem never changes the project root (`core-leetcode.md`).
 - **Open-tab resync** after an operation rewrites the worktree: buffers are
