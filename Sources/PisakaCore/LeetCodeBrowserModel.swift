@@ -282,4 +282,28 @@ public final class LeetCodeBrowserModel: ObservableObject {
         // Nothing in flight will clear this now — its generation has moved.
         isLoading = false
     }
+
+    /// The session is being *replaced*, whether or not the flag moves — the hook
+    /// `LeetCodeModel.invalidateInFlightWork()` calls beside the judge's.
+    ///
+    /// **The observer above cannot be the only hook**, which is why the judge has
+    /// two and this now does as well. `isSignedIn`'s `didSet` is guarded on the
+    /// flag actually moving, so a `signIn(with:)` under a flag already `true`
+    /// reaches nothing here — and that is an ordinary shape rather than a corner:
+    /// `markSessionAccepted()` puts a rejected session back the moment any
+    /// authenticated request answers, so a sign-in completing in the sheet the
+    /// rejection opened finds the flag already raised. Without this, the previous
+    /// account's rows and its **per-account solved marks** stayed standing under
+    /// the new account's name — the single wrong thing this surface can show, and
+    /// the one ``sessionDidChange()`` exists to prevent — and the token stayed
+    /// unmoved, so a `load()` still in flight under the old session published over
+    /// the new one.
+    ///
+    /// It is exactly ``sessionDidChange()``'s work because here the two questions
+    /// have one answer: every row is per-account, so a session being replaced
+    /// invalidates them as surely as one already replaced. Idempotent, which is
+    /// what lets both hooks fire on the paths that trigger both.
+    func invalidateInFlightWork() {
+        sessionDidChange()
+    }
 }

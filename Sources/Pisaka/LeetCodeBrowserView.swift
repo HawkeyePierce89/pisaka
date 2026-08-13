@@ -100,7 +100,15 @@ struct LeetCodeBrowserView: View {
         // this route creates a file. Keyed on the two things that can change the
         // visible set rather than on `visibleProblems` itself, whose equality
         // check is four thousand rows on every body evaluation.
-        .onChange(of: browser.filter) { _ in pruneSelection() }
+        // The refusal from the last open ("that one is Premium") is about a row,
+        // so it goes stale the moment the list under it does — the Open Problem
+        // sheet clears its sentence on every edit of the field for the same
+        // reason. Without this it sat in red above a table it no longer described
+        // until the *next* open cleared it.
+        .onChange(of: browser.filter) { _ in
+            pruneSelection()
+            message = nil
+        }
         .onChange(of: browser.fetchedAt) { _ in pruneSelection() }
         .onDisappear {
             openTask?.cancel()
@@ -330,6 +338,15 @@ struct LeetCodeBrowserView: View {
 
     // MARK: - Opening
 
+    /// Drop a selection the table is no longer showing. See the two `onChange`
+    /// hooks on `body`.
+    private func pruneSelection() {
+        guard let slug = selection else { return }
+        if !browser.visibleProblems.contains(where: { $0.slug == slug }) {
+            selection = nil
+        }
+    }
+
     /// Hand the row's slug to the app's one open handler and show whatever it
     /// answers.
     ///
@@ -342,15 +359,6 @@ struct LeetCodeBrowserView: View {
     /// **The window stays open.** Browsing several problems in a row is the point,
     /// so the app raises the editor window *behind* this one instead of taking it
     /// down.
-    /// Drop a selection the table is no longer showing. See the two `onChange`
-    /// hooks on `body`.
-    private func pruneSelection() {
-        guard let slug = selection else { return }
-        if !browser.visibleProblems.contains(where: { $0.slug == slug }) {
-            selection = nil
-        }
-    }
-
     private func open(slug: String?) {
         guard let slug, !isOpening else { return }
         message = nil

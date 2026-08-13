@@ -1051,10 +1051,19 @@ public final class LeetCodeModel: ObservableObject {
     /// The judge's token is bumped here with the other two — a poll in flight is
     /// invalidated by a session change exactly as a fetch is, and the memo its
     /// question id came from is emptied by the same two callers.
+    ///
+    /// **The browser's is bumped here for the reason the observer below is not
+    /// enough.** `isSignedIn`'s `didSet` only fires when the flag *moves*, and
+    /// `signIn(with:)` is reached with it already `true` whenever
+    /// `markSessionAccepted()` has put a rejected session back — so that path
+    /// alone would leave one account's rows and solved marks standing under the
+    /// next account's name. Both companions therefore hear about a session from
+    /// both doors: this one for a replacement, the observer for a change.
     private func invalidateInFlightWork() {
         openGeneration += 1
         statementGeneration += 1
         judge.invalidateInFlightWork()
+        browser.invalidateInFlightWork()
     }
 
     private func beginWork() {

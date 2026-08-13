@@ -84,6 +84,12 @@ struct LeetCodeBrowserView_iOS: View {
                 guard browser.availability.isReady else { return }
                 await browser.load()
             }
+            // The refusal from the last open ("that one is Premium") is about a
+            // row, so it goes stale the moment the list under it does — the same
+            // rule the macOS window follows, and the account screen's field
+            // already does. Without this it led the list, in red, above rows it
+            // no longer described until the *next* tap cleared it.
+            .onChange(of: browser.filter) { _, _ in message = nil }
             .onDisappear {
                 openTask?.cancel()
                 openTask = nil

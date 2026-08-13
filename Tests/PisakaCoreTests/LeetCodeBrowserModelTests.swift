@@ -411,6 +411,68 @@ final class LeetCodeBrowserModelTests: XCTestCase {
         XCTAssertFalse(browser.isLoading)
     }
 
+    /// **Signing in under a flag that is already raised still clears the rows.**
+    ///
+    /// The hole the `isSignedIn` observer alone leaves: its `didSet` is guarded on
+    /// the flag *moving*, and `signIn(with:)` is reached with it already `true`
+    /// whenever `markSessionAccepted()` has put a rejected session back — the
+    /// ordinary shape when a request answers while the login sheet the rejection
+    /// opened is still up. Without the second hook
+    /// (`LeetCodeModel.invalidateInFlightWork()` → `browser`), the previous
+    /// account's rows and its per-account solved marks stayed standing under the
+    /// next account's name, which is the one wrong thing this list can show.
+    func testSigningInUnderAnAlreadyRaisedFlagStillClearsTheRows() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+        let browser = model.browser
+
+        await browser.load()
+        XCTAssertEqual(browser.problems.first?.status, .solved)
+        XCTAssertNotNil(browser.fetchedAt)
+
+        // No sign-out in between: the flag never moves, so the observer never runs.
+        XCTAssertTrue(model.isSignedIn)
+        try await model.signIn(with: credentials)
+        XCTAssertTrue(model.isSignedIn)
+
+        XCTAssertEqual(browser.availability, .ready)
+        XCTAssertTrue(browser.problems.isEmpty)
+        XCTAssertTrue(browser.visibleProblems.isEmpty)
+        XCTAssertNil(browser.fetchedAt)
+        XCTAssertNil(browser.lastError)
+        XCTAssertFalse(browser.isLoading)
+    }
+
+    /// The same hole on the token's axis: a load held mid-fetch while a sign-in
+    /// under an already-raised flag replaces the session publishes **nothing at
+    /// all** — the rule `testALoadSupersededByASignOutPublishesNothing` states,
+    /// through the door the observer cannot see.
+    func testALoadSupersededBySigningInUnderARaisedFlagPublishesNothing() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let gate = Gate()
+        transport.hold(.problemList, on: gate)
+        let model = makeModel(tree: tree, transport: transport)
+        let browser = model.browser
+
+        let load = Task { await browser.load() }
+        await gate.waitUntilReached()
+        try await model.signIn(with: credentials)
+        gate.release()
+        await load.value
+
+        // The catalog published — it is a cache, not a surface — and the browser,
+        // whose rows are per-account, did not.
+        XCTAssertEqual(model.catalog.problems.count, 12)
+        XCTAssertTrue(browser.problems.isEmpty)
+        XCTAssertTrue(browser.visibleProblems.isEmpty)
+        XCTAssertNil(browser.fetchedAt)
+        XCTAssertNil(browser.lastError)
+        XCTAssertFalse(browser.isLoading)
+        XCTAssertEqual(browser.availability, .ready)
+    }
+
     /// A catalog response that says logged-out flips the account state here too —
     /// the rule the model and the judge both follow, on the browser's axis.
     ///

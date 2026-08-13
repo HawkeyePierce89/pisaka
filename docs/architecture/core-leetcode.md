@@ -993,7 +993,11 @@ the limits the design carries.
     `markSessionAccepted()`) are reached from arbitrary request paths including the
     judge's own: one writer, one hook. `invalidateInFlightWork()` bumps the judge's
     token with the other two (L17), since a poll in flight is invalidated by a
-    session change exactly as a fetch is.
+    session change exactly as a fetch is — **and the browser's with them** (L25),
+    because that observer only fires when the flag *moves* and `signIn(with:)` is
+    reached with it already `true` whenever `markSessionAccepted()` has put a
+    rejected session back. Both companions therefore hear about a session through
+    both doors: this one for a replacement, the observer for a change.
     *Plumbing.* Every request goes through one `send` that folds a non-`LeetCodeError`
     into `network`, so a decorator or a stub cannot escape this layer's vocabulary
     (the same fold `LeetCodeCatalog` applies). A Keychain that refuses the item does
@@ -1166,7 +1170,7 @@ the limits the design carries.
     (the view's task going away makes `URLSession` throw, and a request nobody
     waited for must not put a sentence on screen), but the spinner *is* cleared on
     that path, because nobody else will. It is bumped by `load()`, `refresh()` and
-    `sessionDidChange()`.
+    both session hooks below.
     *The one shield in this area.* `update` runs the catalog call inside an
     **unstructured `Task` it then awaits**, so this task's cancellation does not
     reach it. `LeetCodeCatalog.refresh` cancels the *shared*, coalesced 2 MB fetch
@@ -1179,15 +1183,26 @@ the limits the design carries.
     cancellation and `value` does not observe the awaiting task's either, so the
     fetch runs on for whoever is waiting on it while this browser still publishes
     nothing — the `Task.isCancelled` check above is what makes both true at once.
-    *The session hook.* `sessionDidChange()` is called from `LeetCodeModel`'s
-    `isSignedIn` observer beside the judge's — one writer, one hook — and it bumps
-    the token, recomputes `availability`, clears the error and **clears the rows**.
-    That last is the point: the status column is per-account, so leaving one
+    *The session hooks — two of them, like the judge's.* `sessionDidChange()` is
+    called from `LeetCodeModel`'s `isSignedIn` observer beside the judge's, and it
+    bumps the token, recomputes `availability`, clears the error and **clears the
+    rows**. That last is the point: the status column is per-account, so leaving one
     account's solved marks standing under another's name is the single wrong thing
     this surface could show. The catalog's own cache is per app rather than per
     account, so the next `load()` republishes from it — and inside the staleness
     window republishes the *previous* account's marks until a `refresh()`, which is
     the limit L24 states rather than hides.
+    `invalidateInFlightWork()` is the second door, called from
+    `LeetCodeModel.invalidateInFlightWork()` beside the judge's, and it exists
+    because the observer **is guarded on the flag actually moving**: `signIn(with:)`
+    is reached with `isSignedIn` already `true` whenever `markSessionAccepted()` has
+    put a rejected session back — the ordinary shape when an authenticated request
+    answers while the login sheet that rejection opened is still up — so that path
+    alone left the previous account's rows and marks standing and the token unmoved,
+    and a `load()` still in flight under the old session published over the new one.
+    It is exactly `sessionDidChange()`'s work (here the two questions have one
+    answer: every row is per-account) and idempotent, which is what lets both hooks
+    fire on the paths that trigger both.
   - `SettingsStore.swift` (modified; the entry is in `core-services.md`) — three
     stable keys: `leetCodeFolderPath` (a plain path, stored verbatim; a value
     that is blank once trimmed normalises to `nil` so "unset" has one spelling,
@@ -2081,7 +2096,9 @@ means, what a file is named, when a fetch happens, and what gets written.
   exact.** A companion model like the judge, owned by `LeetCodeModel` and observed
   by the browser surfaces alone, so a keystroke in the search field invalidates
   neither the account, the statement nor the judge; its token is the fifth, bumped
-  by `load()`, `refresh()` and `sessionDidChange()`, and superseded work publishes
+  by `load()`, `refresh()` and — like the judge's — by **both** session hooks
+  (`sessionDidChange()` for a flag that moved, `invalidateInFlightWork()` for a
+  session replaced under a flag that did not), and superseded work publishes
   nothing at all. And an all-digit query is a **number attempt and nothing else** —
   L4 reused through `LeetCodeProblemInput.parse` rather than restated — matching
   `frontendID` exactly rather than by prefix, so `1` answers problem 1 instead of
