@@ -109,11 +109,26 @@ struct LeetCodeBrowserView_iOS: View {
 
     private var list: some View {
         List {
-            if let message {
+            // Both sentences lead the list, and the failure one deliberately does
+            // **not** live in the footer beside the count: the footer sits after
+            // four thousand rows, so an error placed there is unreachable — a
+            // pull-to-refresh that failed with the catalog on screen would leave
+            // the screen looking untouched, which is the silent failure the
+            // "keep the rows, publish the error beside them" rule exists to
+            // avoid. The count and the fetch time stay below; they are a fact
+            // about the list, not something the user has to be told.
+            if message != nil || browser.lastError != nil {
                 Section {
-                    Text(message)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
+                    if let message {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                    if let error = browser.lastError?.errorDescription {
+                        Text(error)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
                 }
             }
 
@@ -298,9 +313,8 @@ struct LeetCodeBrowserView_iOS: View {
 
     // MARK: - The footer
 
-    /// "Showing X of Y" and the fetch time, plus whatever the last catalog request
-    /// failed with — beside the rows rather than instead of them, which is the
-    /// degradation rule `LeetCodeBrowserModel` implements and this line reports.
+    /// "Showing X of Y" and the fetch time. The last failure is **not** here — it
+    /// leads the list instead, for the reason written where it does.
     @ViewBuilder
     private var footer: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -309,10 +323,6 @@ struct LeetCodeBrowserView_iOS: View {
             // than pretending the per-account marks are live (L24).
             if let fetchedAt = browser.fetchedAt {
                 Text("Updated \(fetchedAt.formatted(date: .abbreviated, time: .shortened))")
-            }
-            if let error = browser.lastError?.errorDescription {
-                Text(error)
-                    .foregroundStyle(.red)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -595,7 +595,15 @@ the limits the design carries.
     too is that the rule must not hold merely because `parse(_:)` happens to be the
     only producer today. **An empty catalog is never published or cached**: a
     shape-valid zero-row response would poison the cache for a day and make every
-    open report "no such problem", so it is `apiChanged`.
+    open report "no such problem", so it is `apiChanged`. That rule is enforced at
+    **both** doors — `CachedCatalog.init?(json:)` rejects a zero-row file exactly
+    as it rejects an unknown difficulty, because a file with no rows and a recent
+    `fetchedAt` decodes cleanly (the row validation has nothing to run over) and
+    would publish a snapshot that is not stale, so `loadIfNeeded` would return
+    without fetching and the browser would sit on "No problems loaded." with no
+    error for a day. `resolveSlug(forNumber:)` has the forced-refresh-on-miss
+    escape hatch from that; `loadIfNeeded` has none, so the rule belongs on the
+    file rather than on either reader.
     `publish` rebuilds two indices (`number → slug`, `slug → problem`) rather than
     searching four thousand rows per keystroke, and on a duplicate number or slug
     the **first** row wins, so the answer is LeetCode's own ordering.
@@ -1154,6 +1162,18 @@ the limits the design carries.
     waited for must not put a sentence on screen), but the spinner *is* cleared on
     that path, because nobody else will. It is bumped by `load()`, `refresh()` and
     `sessionDidChange()`.
+    *The one shield in this area.* `update` runs the catalog call inside an
+    **unstructured `Task` it then awaits**, so this task's cancellation does not
+    reach it. `LeetCodeCatalog.refresh` cancels the *shared*, coalesced 2 MB fetch
+    when the caller awaiting it is cancelled — the right trade where that caller is
+    the Open Problem sheet, whose canceller is an explicit Esc. Here the canceller
+    is SwiftUI tearing down a `.task` because a window closed or a screen was
+    popped: routine, and no withdrawal of anybody *else's* question, so an open
+    coalesced onto the same download would have failed with `network(reason:
+    "cancelled")` on a catalog it still needed. An unstructured `Task` inherits no
+    cancellation and `value` does not observe the awaiting task's either, so the
+    fetch runs on for whoever is waiting on it while this browser still publishes
+    nothing — the `Task.isCancelled` check above is what makes both true at once.
     *The session hook.* `sessionDidChange()` is called from `LeetCodeModel`'s
     `isSignedIn` observer beside the judge's — one writer, one hook — and it bumps
     the token, recomputes `availability`, clears the error and **clears the rows**.
@@ -1560,8 +1580,16 @@ the limits the design carries.
     filtered out. `Row` is a view-layer wrapper for its `Identifiable` conformance
     alone (`Table` requires one; `LeetCodeProblem` gains none it does not otherwise
     need). The footer's `countLine` renders the two empty states as two different
-    sentences, which is what `LeetCodeProblemFilter.isEmpty` exists to tell apart,
+    sentences — a filter that matches nothing is not a list with nothing in it —
     and shows `lastError` **beside** the rows rather than instead of them.
+    **The selection is pruned, because SwiftUI keeps one whose row is gone.**
+    `selection` is a slug, and both narrowing the filter and a landed refresh can
+    take that row out of the table; left alone, Open stayed enabled and opened a
+    problem the user could not see and did not mean — which on this route creates a
+    file. Two `onChange` hooks (`browser.filter`, `browser.fetchedAt`) clear it,
+    keyed on the two things that can change the visible set rather than on
+    `visibleProblems` itself, whose equality check is four thousand rows on every
+    body evaluation.
     Opening hands `.slug(_:)` — the row already carries the slug every detail
     request is made by, so no resolution step is spent — to the app's one open
     handler, so the folder rules, the Premium refusal and the never-overwrite
@@ -1687,6 +1715,14 @@ the limits the design carries.
     `Identifiable` conformance it does not otherwise want) carrying the number, the
     title, the Premium lock and the status mark, with a footer row showing
     "showing X of Y" and the fetch time.
+    **`lastError` leads the list; it is deliberately not in that footer.** The
+    footer sits after four thousand rows, so an error placed there is unreachable —
+    a pull-to-refresh that failed with the catalog on screen left the screen
+    looking untouched, which is exactly the silent failure the "keep the rows,
+    publish the error beside them" rule exists to avoid. It shares the leading
+    section with the open attempt's sentence; the count and the fetch time stay
+    below, because they are a fact about the list rather than something the user
+    has to be told.
     It observes the **browser** and takes the owner as a non-observed plain `let`
     for the macOS view's reasons, and it offers **no language picker of its own**:
     the screen that pushed it has one and the setting is persisted, so there is no
@@ -1869,13 +1905,17 @@ the limits the design carries.
     first load publishing the error with no rows; signed out publishing
     `.notSignedIn` and making no request at all; a sign-in re-arming availability
     and a sign-out clearing the rows; a `load()` held on a `Gate` while a sign-out
-    bumps the token publishing **nothing**; and setting `filter` republishing
-    `visibleProblems` without touching the transport. The catalog half lives in
+    bumps the token publishing **nothing**; setting `filter` republishing
+    `visibleProblems` without touching the transport; and a load cancelled mid-fetch
+    publishing nothing *while the shared catalog fetch still lands* — the shield,
+    asserted with a sleeping delay rather than a `Gate`, because only a cancellable
+    wait can show whether cancellation reached the request. The catalog half lives in
     `LeetCodeCatalogTests` beside the other request-count assertions: a cache
     inside the window costing zero `problemList` requests, an absent one and a
     day-old one costing exactly one, two overlapping `loadIfNeeded` calls (staged
-    with `Gate`) coalescing onto one, and a refresh failure throwing while
-    `problems` stays populated.
+    with `Gate`) coalescing onto one, a refresh failure throwing while
+    `problems` stays populated, and a fresh-looking but **zero-row** cache file
+    being treated as absent instead of suppressing the fetch for a day.
   - Fixtures live in `Tests/PisakaCoreTests/Fixtures/leetcode/`, are recorded from
     the live public endpoints (trimmed to a dozen `stat_status_pairs` for the 2 MB
     list, with a `README.md` recording provenance), are read through `#filePath`,

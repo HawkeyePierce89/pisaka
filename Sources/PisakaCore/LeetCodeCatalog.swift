@@ -495,7 +495,18 @@ private struct CachedCatalog: Codable {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard let decoded = try? decoder.decode(CachedCatalog.self, from: data),
-              decoded.schemaVersion == Self.currentSchemaVersion
+              decoded.schemaVersion == Self.currentSchemaVersion,
+              // **Empty is absent at this door too.** The policy on this type is
+              // that an empty catalog is never published or cached, and only the
+              // network path enforced it (`startRefresh` throws `apiChanged`).
+              // A file with zero rows decoded cleanly — the validation loop below
+              // simply does not run — and published a snapshot whose `fetchedAt`
+              // is recent, so `isStale` was false and nothing fetched for a day:
+              // `loadIfNeeded` returned immediately and the browser showed "No
+              // problems loaded." with no error and no way back. The file is this
+              // app's own, so zero rows in it means what every other mismatch here
+              // means — there is no cache.
+              !decoded.problems.isEmpty
         else { return nil }
         for problem in decoded.problems {
             guard LeetCodeDifficulty(rawValue: problem.difficulty) != nil,

@@ -280,6 +280,41 @@ final class LeetCodeBrowserModelTests: XCTestCase {
         XCTAssertEqual(browser.availability, .ready)
     }
 
+    /// The browser's cancellation stops at the browser: the **shared** catalog
+    /// fetch it was waiting on runs on to completion.
+    ///
+    /// `LeetCodeCatalog.refresh` cancels the one coalesced 2 MB download when the
+    /// caller awaiting it is cancelled — right for the Open Problem sheet, whose
+    /// canceller is an explicit Esc. This surface's canceller is SwiftUI tearing
+    /// down a `.task` because a window closed, and an open coalesced onto the same
+    /// download would then have failed with "cancelled" for a question its user
+    /// never withdrew. A *sleeping* delay rather than `Gate`, for the reason
+    /// `LeetCodeModelTests` states: only a cancellable wait can show whether
+    /// cancellation reached the request.
+    func testACancelledLoadLeavesTheSharedCatalogFetchRunning() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.userStatus, body: Self.fixture("user-status-signed-in.json"))
+        transport.serve(.problemList, body: Self.fixture("problem-list.json"), delay: 0.2)
+        let model = makeModel(tree: tree, transport: transport)
+
+        let load = Task { await model.browser.load() }
+        while transport.count(for: .problemList) == 0 {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        load.cancel()
+        await load.value
+
+        // The browser itself publishes nothing — its own question was withdrawn.
+        XCTAssertTrue(model.browser.problems.isEmpty)
+        XCTAssertNil(model.browser.lastError)
+        XCTAssertFalse(model.browser.isLoading)
+        // But the download landed, so anything coalesced onto it was answered
+        // rather than failed.
+        XCTAssertEqual(model.catalog.problems.count, 12)
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+    }
+
     // MARK: - Degradation
 
     /// `resolveSlug`'s rule on a new axis: a refresh that could not be made must

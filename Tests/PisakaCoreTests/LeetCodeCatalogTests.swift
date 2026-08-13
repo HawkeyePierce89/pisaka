@@ -510,6 +510,29 @@ final class LeetCodeCatalogTests: XCTestCase {
         }
     }
 
+    /// "An empty catalog is never published or cached" has to hold at the *disk*
+    /// door as well as the network one.
+    ///
+    /// A zero-row file decodes cleanly — the row validation simply has nothing to
+    /// run over — and publishing it made a recent `fetchedAt` mean "not stale", so
+    /// `loadIfNeeded` returned without fetching and the browser sat on "No problems
+    /// loaded." with no error for a day. `resolveSlug(forNumber:)` had the
+    /// forced-refresh-on-miss escape hatch; `loadIfNeeded` has none, which is why
+    /// the rule belongs on the file rather than on either reader.
+    func testAnEmptyCacheFileIsTreatedAsAbsent() async throws {
+        let tree = makeTree([
+            catalogPath: cacheJSON(fetchedAt: "2026-08-11T11:00:00Z", rows: [])
+        ])
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.problemList, json: problemListJSON([(1, "refetched-two-sum")]))
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        // The browser's door: a fresh-looking but empty file must not suppress it.
+        try await catalog.loadIfNeeded(credentials: credentials)
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+        XCTAssertEqual(catalog.problems.map(\.slug), ["refetched-two-sum"])
+    }
+
     func testAnUnreadableCacheIsTreatedAsAbsent() async throws {
         let tree = makeTree([
             catalogPath: cacheJSON(fetchedAt: "2026-08-11T11:00:00Z", rows: [(1, "two-sum")])

@@ -161,11 +161,27 @@ public final class LeetCodeBrowserModel: ObservableObject {
 
         var failure: LeetCodeError?
         do {
-            if forced {
-                try await owner.catalog.refresh(credentials: credentials)
-            } else {
-                try await owner.catalog.loadIfNeeded(credentials: credentials)
+            // **The catalog call is shielded from this task's cancellation.**
+            // `LeetCodeCatalog.refresh` cancels the *shared*, coalesced 2 MB fetch
+            // when the caller awaiting it is cancelled — the right trade where the
+            // canceller is Esc in the Open Problem sheet, which is a question that
+            // user withdrew. Here the canceller is SwiftUI tearing down a `.task`
+            // because a window closed or a screen was popped, which is routine and
+            // withdraws nobody *else's* question: an open coalesced onto the same
+            // download would have failed with "cancelled" for a reason that was
+            // never true of it, on a catalog it still needed. An unstructured
+            // `Task` inherits no cancellation and `value` does not observe the
+            // awaiting task's either, so the fetch runs on for whoever is waiting
+            // on it — while this browser still publishes nothing, because the
+            // `Task.isCancelled` check below is unchanged.
+            let fetch = Task { @MainActor [owner] in
+                if forced {
+                    try await owner.catalog.refresh(credentials: credentials)
+                } else {
+                    try await owner.catalog.loadIfNeeded(credentials: credentials)
+                }
             }
+            try await fetch.value
         } catch let error as LeetCodeError {
             failure = error
         } catch {

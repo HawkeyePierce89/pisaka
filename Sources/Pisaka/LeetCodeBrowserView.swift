@@ -93,6 +93,15 @@ struct LeetCodeBrowserView: View {
             guard browser.availability.isReady else { return }
             await browser.load()
         }
+        // **The selection has to be pruned, because SwiftUI keeps one whose row is
+        // gone.** `selection` is a slug, and both narrowing the filter and a
+        // landed refresh can take that row out of the table — leaving Open enabled
+        // and opening a problem the user cannot see and did not mean, which on
+        // this route creates a file. Keyed on the two things that can change the
+        // visible set rather than on `visibleProblems` itself, whose equality
+        // check is four thousand rows on every body evaluation.
+        .onChange(of: browser.filter) { _ in pruneSelection() }
+        .onChange(of: browser.fetchedAt) { _ in pruneSelection() }
         .onDisappear {
             openTask?.cancel()
             openTask = nil
@@ -333,6 +342,15 @@ struct LeetCodeBrowserView: View {
     /// **The window stays open.** Browsing several problems in a row is the point,
     /// so the app raises the editor window *behind* this one instead of taking it
     /// down.
+    /// Drop a selection the table is no longer showing. See the two `onChange`
+    /// hooks on `body`.
+    private func pruneSelection() {
+        guard let slug = selection else { return }
+        if !browser.visibleProblems.contains(where: { $0.slug == slug }) {
+            selection = nil
+        }
+    }
+
     private func open(slug: String?) {
         guard let slug, !isOpening else { return }
         message = nil
