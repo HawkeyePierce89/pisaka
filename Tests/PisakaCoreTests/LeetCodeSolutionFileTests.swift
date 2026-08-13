@@ -70,6 +70,42 @@ final class LeetCodeSolutionFileTests: XCTestCase {
         XCTAssertEqual(LeetCodeSolutionFile.language(forLangSlug: " Python3 ")?.langSlug, "python3")
     }
 
+    /// The judge names its `lang` from the file's extension, so every language
+    /// this app can *write* a file in must map back from the extension it wrote —
+    /// otherwise Run refuses a file the picker just created.
+    func testEveryOfferableExtensionResolvesBackToItsLanguage() {
+        for entry in LeetCodeSolutionFile.offerableLanguages {
+            XCTAssertEqual(
+                LeetCodeSolutionFile.language(forFileExtension: entry.fileExtension),
+                entry,
+                "\(entry.fileExtension) does not resolve back to \(entry.displayName)"
+            )
+        }
+    }
+
+    /// A file the folder happens to hold, and a language LeetCode accepts but
+    /// this app does not offer: both answer `nil`, which the judge turns into a
+    /// stated refusal rather than a guessed language.
+    func testUnofferedExtensionsResolveToNil() {
+        XCTAssertNil(LeetCodeSolutionFile.language(forFileExtension: "md"))
+        XCTAssertNil(LeetCodeSolutionFile.language(forFileExtension: "rb"))
+        XCTAssertNil(LeetCodeSolutionFile.language(forFileExtension: "cpp"))
+        XCTAssertNil(LeetCodeSolutionFile.language(forFileExtension: ""))
+        XCTAssertNil(LeetCodeSolutionFile.language(forFileExtension: "."))
+    }
+
+    /// Case-insensitively, because the volume is: `0001-two-sum.PY` is the same
+    /// file as `0001-two-sum.py` on APFS. A leading dot is tolerated for a
+    /// caller that spells the extension the way a human does.
+    func testFileExtensionLookupToleratesCaseDotAndWhitespace() {
+        XCTAssertEqual(LeetCodeSolutionFile.language(forFileExtension: "PY")?.langSlug, "python3")
+        XCTAssertEqual(LeetCodeSolutionFile.language(forFileExtension: ".py")?.langSlug, "python3")
+        XCTAssertEqual(
+            LeetCodeSolutionFile.language(forFileExtension: " .Swift ")?.langSlug,
+            "swift"
+        )
+    }
+
     func testDefaultLanguageIsSwift() {
         XCTAssertEqual(LeetCodeSolutionFile.defaultLanguage.language, .swift)
     }

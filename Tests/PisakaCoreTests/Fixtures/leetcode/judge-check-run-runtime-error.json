@@ -1,0 +1,43 @@
+{
+  "status_code": 15,
+  "lang": "swift",
+  "run_success": false,
+  "runtime_error": "Fatal error: Index out of range",
+  "full_runtime_error": "Solution.swift:7: Fatal error: Index out of range\nCurrent runtime error:\n    Line 7: Fatal error: Index out of range",
+  "status_runtime": "N/A",
+  "memory": 15003648,
+  "code_answer": [],
+  "code_output": [],
+  "std_output_list": [
+    "checking pair 0\n"
+  ],
+  "elapsed_time": 41,
+  "task_finish_time": 1770000000000,
+  "task_name": "judger.runcodetask.RunCode",
+  "expected_status_code": 10,
+  "expected_lang": "cpp",
+  "expected_run_success": true,
+  "expected_code_answer": [
+    "[0,1]",
+    "[1,2]",
+    "[0,1]"
+  ],
+  "expected_code_output": [],
+  "expected_std_output_list": [
+    "",
+    "",
+    "",
+    ""
+  ],
+  "correct_answer": false,
+  "compare_result": "",
+  "total_correct": 0,
+  "total_testcases": 3,
+  "runtime_percentile": null,
+  "status_memory": "N/A",
+  "memory_percentile": null,
+  "pretty_lang": "Swift",
+  "submission_id": "runcode_1770000000.1234567_AbCdEfGhIj",
+  "status_msg": "Runtime Error",
+  "state": "SUCCESS"
+}

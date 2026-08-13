@@ -31,6 +31,20 @@ struct LeetCodeDescriptionPane: View {
     /// either re-renders the pane live.
     @ObservedObject var settings: SettingsStore
 
+    /// The editor, handed straight down to the judge section and **deliberately
+    /// not** `@ObservedObject` — the `commitDialog`/`symbolIndex` rule
+    /// `ContentView` states, arriving one level deeper: observing it here would
+    /// re-render this pane (and reload nothing, but re-evaluate everything) on
+    /// every keystroke in the file being solved. Nothing in this pane reads a
+    /// buffer; the judge reads one synchronously when a button is pressed.
+    /// Defaults to `nil` so a default-constructed pane (previews) still compiles.
+    var workspace: WorkspaceModel?
+
+    /// The active tab's file, passed in rather than read off `workspace` for the
+    /// same reason it is not observed: this value is what re-runs the judge's
+    /// `prepare`, so it has to come from a view that *is* watching the selection.
+    var activeFileURL: URL?
+
     /// The appearance the window is *actually* drawn in, which is what resolves
     /// `ThemePreference.system` — `Theme.resolved(_:systemPrefersDark:)` needs an
     /// answer to that question and Core may not ask AppKit for one. `ContentView`
@@ -85,6 +99,17 @@ struct LeetCodeDescriptionPane: View {
             header(statement)
             Divider()
             LeetCodeStatementWebView(html: html(for: statement))
+            Divider()
+            // Below the statement, and inside the same pane: Run and Submit are
+            // about the problem the user is reading, and the section observes
+            // `model.judge` rather than `model`, so typing in its test-case box
+            // invalidates it alone — not this pane, and not the web view above it.
+            LeetCodeJudgeSection(
+                judge: model.judge,
+                workspace: workspace,
+                fileURL: activeFileURL,
+                folder: settings.leetCodeFolderURL
+            )
         }
         .frame(maxHeight: .infinity)
     }

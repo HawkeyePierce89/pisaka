@@ -440,7 +440,7 @@ final class LeetCodeModelTests: XCTestCase {
         transport.serve(
             .question(slug: "two-sum"),
             json: """
-                {"data":{"question":{"questionFrontendId":"1","title":"Two Sum",\
+                {"data":{"question":{"questionId":"1","questionFrontendId":"1","title":"Two Sum",\
                 "titleSlug":"two-sum","content":"<p>x</p>","difficulty":"Easy",\
                 "isPaidOnly":false,"exampleTestcaseList":[],"codeSnippets":[]}}}
                 """
@@ -835,7 +835,7 @@ final class LeetCodeModelTests: XCTestCase {
         transport.serve(
             .question(slug: "add-two-numbers"),
             json: """
-                {"data":{"question":{"questionFrontendId":"2","title":"Add Two Numbers",\
+                {"data":{"question":{"questionId":"2","questionFrontendId":"2","title":"Add Two Numbers",\
                 "titleSlug":"add-two-numbers","content":"<p>second</p>","difficulty":"Medium",\
                 "isPaidOnly":false,"exampleTestcaseList":[],"codeSnippets":[\
                 {"lang":"Swift","langSlug":"swift","code":"class Solution {}"}]}}}
@@ -1539,6 +1539,160 @@ final class LeetCodeModelTests: XCTestCase {
         }
         XCTAssertTrue(solutionWrites(tree).isEmpty)
         XCTAssertEqual(tree.files[twoSumPath], "// the user's half-finished solution")
+    }
+
+    // MARK: - The judge's context
+
+    /// Opening a problem leaves the judge everything it needs, at no extra
+    /// request.
+    ///
+    /// The pair is recorded on the way past the detail response `openProblem`
+    /// already made, so the judge surface that appears with the new tab costs
+    /// nothing. The internal id is asserted by value because it is the whole
+    /// point: it is what `question_id` in a run payload has to be.
+    func testOpeningAProblemLeavesTheJudgeContextWarm() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+
+        _ = try await model.openProblem(input: .number(1), language: swift)
+        XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 1)
+
+        let context = try await model.judgeContext(forSlug: "two-sum")
+        XCTAssertEqual(context?.slug, "two-sum")
+        XCTAssertEqual(context?.questionID, "1")
+        XCTAssertEqual(
+            context?.exampleTestCases,
+            ["[2,7,11,15]\n9", "[3,2,4]\n6", "[3,3]\n6"]
+        )
+        XCTAssertEqual(
+            transport.count(for: .question(slug: "two-sum")),
+            1,
+            "the memo answers; the judge must not re-fetch what the open just read"
+        )
+    }
+
+    /// A statement refresh warms it too — the other path a detail already takes.
+    func testAStatementRefreshLeavesTheJudgeContextWarm() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+        let url = solutionsFolder.appendingPathComponent("0001-two-sum.swift")
+
+        _ = await model.statement(forFileAt: url, in: solutionsFolder)
+        XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 1)
+
+        let context = try await model.judgeContext(forSlug: "two-sum")
+        XCTAssertEqual(context?.questionID, "1")
+        XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 1)
+    }
+
+    /// A slug this run has never fetched costs exactly one request, and then
+    /// never another.
+    ///
+    /// The case is a solution file left over from a previous launch, opened
+    /// straight into the editor with its statement served off the disk cache —
+    /// which holds markup and neither of the two things the judge needs.
+    ///
+    /// The fixture is the newer-problem one on purpose: its internal id (3403)
+    /// and its frontend number (3110) disagree, so a context that had quietly
+    /// carried the number in the file name would fail here rather than passing on
+    /// Two Sum, where the two happen to agree.
+    func testAColdSlugIsFetchedExactlyOnce() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        transport.serve(
+            .question(slug: "score-of-a-string"),
+            body: Self.fixture("question-detail-newer-problem.json")
+        )
+        let model = makeModel(tree: tree, transport: transport)
+
+        let first = try await model.judgeContext(forSlug: "score-of-a-string")
+        XCTAssertEqual(first?.questionID, "3403")
+        XCTAssertEqual(first?.exampleTestCases, ["\"hello\"", "\"zaz\""])
+        XCTAssertEqual(transport.count(for: .question(slug: "score-of-a-string")), 1)
+
+        let second = try await model.judgeContext(forSlug: "score-of-a-string")
+        XCTAssertEqual(second, first)
+        XCTAssertEqual(transport.count(for: .question(slug: "score-of-a-string")), 1)
+    }
+
+    /// A slug LeetCode does not know answers `nil` — a value, not an error — and
+    /// is asked about once.
+    ///
+    /// The stray-file case the association rule deliberately admits: a
+    /// `2024-notes.md` in the LeetCode folder parses as problem 2024, slug
+    /// `notes`, and the judge surface resolves its context every time that tab is
+    /// looked at.
+    func testASlugLeetCodeDoesNotKnowAnswersNilAndIsAskedAboutOnce() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        transport.serve(
+            .question(slug: "notes"),
+            body: Self.fixture("question-detail-unknown-slug.json")
+        )
+        let model = makeModel(tree: tree, transport: transport)
+
+        let first = try await model.judgeContext(forSlug: "notes")
+        XCTAssertNil(first)
+        XCTAssertNil(model.lastError, "an unknown problem is an answer, not a failure")
+
+        let second = try await model.judgeContext(forSlug: "notes")
+        XCTAssertNil(second)
+        XCTAssertEqual(transport.count(for: .question(slug: "notes")), 1)
+    }
+
+    /// Signing out empties the memo.
+    ///
+    /// Asserted through the refusal because the memo is consulted *before* the
+    /// session is required: a context left standing would have been answered from
+    /// it here, signed out or not.
+    func testSigningOutEmptiesTheJudgeContextMemo() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+
+        _ = try await model.openProblem(input: .number(1), language: swift)
+        let warm = try await model.judgeContext(forSlug: "two-sum")
+        XCTAssertNotNil(warm)
+
+        model.signOut()
+        await assertThrows(.notLoggedIn) {
+            _ = try await model.judgeContext(forSlug: "two-sum")
+        }
+    }
+
+    /// So does signing in: a session change starts this run's conclusions over,
+    /// exactly as it does for the statement.
+    func testSigningInEmptiesTheJudgeContextMemo() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+
+        _ = try await model.openProblem(input: .number(1), language: swift)
+        XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 1)
+
+        try await model.signIn(with: credentials)
+        let context = try await model.judgeContext(forSlug: "two-sum")
+
+        XCTAssertEqual(context?.questionID, "1")
+        XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 2)
+    }
+
+    /// Without a session there is nothing to ask with, and nothing is asked.
+    func testTheJudgeContextRefusesWithoutASession() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(
+            tree: tree,
+            transport: transport,
+            store: InMemoryLeetCodeCredentialStore()
+        )
+
+        await assertThrows(.notLoggedIn) {
+            _ = try await model.judgeContext(forSlug: "two-sum")
+        }
+        XCTAssertEqual(transport.count(for: .question(slug: "two-sum")), 0)
     }
 
     // MARK: - Not a writer

@@ -30,10 +30,12 @@ public enum LeetCodeProblemStatus: String, Equatable, Sendable, CaseIterable {
 /// One problem as the catalog knows it — everything needed to name a file and
 /// show a row, and nothing that requires a second request.
 ///
-/// The identifier that matters is `frontendID`: the number a user types and the
-/// number on the site ("1" is Two Sum). LeetCode also has an internal
-/// `question_id` which drifts from it for newer problems; this layer never uses
-/// it, so it is deliberately not modelled.
+/// The identifier that matters here is `frontendID`: the number a user types and
+/// the number on the site ("1" is Two Sum). LeetCode also has an internal
+/// `questionId` which drifts from it for newer problems; the catalog row has no
+/// use for it, so it stays off this type — it is modelled one level up, on
+/// `LeetCodeProblemDetail`, because the judge payloads are the only thing that
+/// speaks it.
 ///
 /// Not `Codable`: the cached catalog on disk has its own versioned DTO
 /// (`LeetCodeCatalog`), so this model can be renamed or extended without
@@ -81,6 +83,20 @@ public struct LeetCodeProblem: Equatable, Sendable {
 public struct LeetCodeProblemDetail: Equatable, Sendable {
     /// The catalog-level facts.
     public let problem: LeetCodeProblem
+    /// LeetCode's **internal** question id (`questionId`) — an opaque, wire-shaped
+    /// identifier that exists for one purpose here: the run and submit payloads
+    /// send it as `question_id`, and LeetCode's judge accepts no other spelling of
+    /// which problem is being answered.
+    ///
+    /// **It is not `frontendID` and the two must never be swapped.** `frontendID`
+    /// is the number a user types, the number on the site and the number in a
+    /// solution file's name; `questionID` is a database key that agrees with it
+    /// for the older problems and drifts freely for the newer ones — which is
+    /// exactly why a mix-up would look correct on Two Sum and judge some other
+    /// problem entirely on a recent one. Carried as a `String` because that is
+    /// what the payload sends and because nothing arithmetic is ever done with it;
+    /// there is deliberately no `Int` accessor to reach for by mistake.
+    public let questionID: String
     /// The statement as LeetCode's own HTML **fragment** — not a document. It is
     /// wrapped in the app's themed document by `LeetCodeStatementDocument` before
     /// any web view sees it, and cached verbatim so an offline reopen still shows
@@ -96,11 +112,13 @@ public struct LeetCodeProblemDetail: Equatable, Sendable {
 
     public init(
         problem: LeetCodeProblem,
+        questionID: String,
         content: String,
         codeSnippets: [String: String],
         exampleTestCases: [String] = []
     ) {
         self.problem = problem
+        self.questionID = questionID
         self.content = content
         self.codeSnippets = codeSnippets
         self.exampleTestCases = exampleTestCases

@@ -228,6 +228,31 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(items.map(\.text), ["GreeterFromTheServer"])
     }
 
+    // MARK: - Waiting
+
+    /// Poll `condition` until it holds, or fail after `timeout` seconds.
+    ///
+    /// The honest shape for asserting on work this layer runs *unstructured*: the
+    /// router hands the caller its answer and lets the loser unwind on its own, so
+    /// "the cancellation reached the wire" and "the handshake finished" are things
+    /// that become true shortly afterwards rather than at a moment a test can name.
+    /// A fixed `Task.sleep` in their place is a bet on how busy the machine is, and
+    /// this class lost that bet whenever the case before it left work running.
+    private func untilTrue(
+        _ what: String,
+        timeout: TimeInterval = 5,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ condition: @MainActor () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertTrue(condition(), "timed out waiting until \(what)", file: file, line: line)
+    }
+
     // MARK: - Timeout
 
     /// The budget the *user* waits, which is the router's and not the session's:
@@ -245,10 +270,21 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
         // The index's answer, not the server's.
         XCTAssertEqual(candidates.map(\.relativePath), ["Sources/Legacy/Greeter.swift"])
         XCTAssertEqual(candidates.first?.kind, .type)
-        // The server was asked, and then told to stop — by the time the fallback
-        // was returned, not at some later point.
+        // The server was asked, and then told to stop.
+        //
+        // **Waited for rather than asserted outright.** `withBudget` says so in as
+        // many words: the losing racer is an unstructured task, so by the time the
+        // caller sees the fallback the cancellation is *scheduled* and not yet
+        // written to the wire. Asserting it synchronously is a race against the
+        // cooperative pool that this class loses whenever the case before it left
+        // work running — which is exactly why it passed alone and failed with its
+        // own suite. What is under test is that the question is withdrawn at all;
+        // that it is withdrawn within a beat of the fallback is the strongest
+        // statement the implementation actually makes.
         XCTAssertEqual(transport.requests(for: LSPMethod.definition).count, 1)
-        XCTAssertEqual(transport.notifications(for: LSPMethod.cancelRequest).count, 1)
+        await untilTrue("the abandoned definition is cancelled") {
+            self.transport.notifications(for: LSPMethod.cancelRequest).count == 1
+        }
         let cancelled = transport.notifications(for: LSPMethod.cancelRequest)
             .first?.params?["id"]?.intValue
         XCTAssertEqual(
@@ -292,7 +328,12 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
 
         // And abandoning the attempt did not abandon the launch: it is an
         // unstructured task the workspace owns, so the next jump is semantic.
-        try? await Task.sleep(nanoseconds: 1_300_000_000)
+        // Waited for rather than slept through: the scripted `initialize` reply is
+        // a second of wall clock, and a fixed sleep only a little longer than that
+        // is a bet on the machine being idle.
+        await untilTrue("the handshake the abandoned attempt started completes") {
+            self.transport.sentMethods.contains(LSPMethod.initialized)
+        }
         let afterwards = await router.definitions(for: definitionRequest())
         XCTAssertEqual(afterwards.map(\.relativePath), ["Sources/Core/Greeter.swift"])
         XCTAssertEqual(harness.launches, 1, "the server was started once and kept")

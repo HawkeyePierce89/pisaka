@@ -46,6 +46,18 @@ final class ScriptedLeetCodeTransport: LeetCodeTransport, @unchecked Sendable {
         case question(slug: String)
         /// The legacy REST catalog.
         case problemList
+        /// `POST /problems/<slug>/interpret_solution/` — a Run.
+        case interpret(slug: String)
+        /// `POST /problems/<slug>/submit/` — a Submit.
+        case submit(slug: String)
+        /// `GET /submissions/detail/<id>/check/` — one poll.
+        ///
+        /// Keyed by the id and not by the kind, because the endpoint genuinely is
+        /// one endpoint: a run's id and a submission's id are both routed here and
+        /// the test scripts the *sequence* of states an id walks through
+        /// (`PENDING → STARTED → SUCCESS`), which the sticky-last-step queue makes
+        /// one call to `serve(_:sequence:)`.
+        case check(id: String)
         /// Anything else, by path — so a request nobody expected is nameable in
         /// the failure message rather than silently matching something.
         case other(path: String)
@@ -206,6 +218,20 @@ final class ScriptedLeetCodeTransport: LeetCodeTransport, @unchecked Sendable {
                 return .question(slug: slug)
             }
             return .graphQL(operation: operation ?? "")
+        }
+        // By path *shape*, not by reconstructing the URL `LeetCodeAPI` would have
+        // built: the slug and the id are what the test is keyed on, and reading
+        // them back out of the path keeps the fake honest about the URL that was
+        // actually composed — trailing slashes included, which is the one detail
+        // these three endpoints are unforgiving about. Anything that does not
+        // match falls through to `.other(path:)` and names itself in the failure.
+        let parts = request.url.pathComponents.filter { $0 != "/" }
+        if parts.count == 3, parts[0] == "problems" {
+            if parts[2] == "interpret_solution" { return .interpret(slug: parts[1]) }
+            if parts[2] == "submit" { return .submit(slug: parts[1]) }
+        }
+        if parts.count == 4, parts[0] == "submissions", parts[1] == "detail", parts[3] == "check" {
+            return .check(id: parts[2])
         }
         return .other(path: request.url.path)
     }

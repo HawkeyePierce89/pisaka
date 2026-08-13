@@ -1,0 +1,36 @@
+{
+  "status_code": 20,
+  "lang": "swift",
+  "run_success": false,
+  "compile_error": "Line 4: error: expected '}' in class",
+  "full_compile_error": "Solution.swift:4:5: error: expected '}' in class\n    func twoSum(_ nums: [Int], _ target: Int) -> [Int] {\n    ^\nSolution.swift:2:16: note: to match this opening '{'\nclass Solution {\n               ^",
+  "status_runtime": "N/A",
+  "memory": 0,
+  "elapsed_time": 6,
+  "task_finish_time": 1770000000000,
+  "task_name": "judger.runcodetask.RunCode",
+  "expected_status_code": 10,
+  "expected_lang": "cpp",
+  "expected_run_success": true,
+  "expected_code_answer": [
+    "[0,1]",
+    "[1,2]",
+    "[0,1]"
+  ],
+  "expected_code_output": [],
+  "expected_std_output_list": [
+    "",
+    "",
+    "",
+    ""
+  ],
+  "total_correct": null,
+  "total_testcases": null,
+  "runtime_percentile": null,
+  "status_memory": "N/A",
+  "memory_percentile": null,
+  "pretty_lang": "Swift",
+  "submission_id": "runcode_1770000000.1234567_AbCdEfGhIj",
+  "status_msg": "Compile Error",
+  "state": "SUCCESS"
+}

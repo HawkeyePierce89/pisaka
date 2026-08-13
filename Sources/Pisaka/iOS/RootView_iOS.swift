@@ -237,6 +237,13 @@ struct RootView_iOS: View {
                 LeetCodeDescriptionScreen_iOS(
                     model: leetCode,
                     settings: settings,
+                    // The workspace goes down as a plain value, not as an observed
+                    // object: the judge section reads the live buffer only when a
+                    // button is pressed. The *selection* travels separately because
+                    // it is what re-prepares the judge — and this view is already
+                    // watching it.
+                    workspace: model,
+                    activeFileURL: model.selectedFile?.url,
                     onDone: { showingDescription = false }
                 )
             }
@@ -398,7 +405,11 @@ struct RootView_iOS: View {
             LeetCodeDescriptionPane_iOS(
                 model: leetCode,
                 settings: settings,
-                isCompact: isCompact
+                isCompact: isCompact,
+                // Non-observed, and the selection separately — see the same
+                // hand-off on the compact-width screen above.
+                workspace: model,
+                activeFileURL: model.selectedFile?.url
             )
         }
     }

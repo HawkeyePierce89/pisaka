@@ -136,7 +136,7 @@ final class LeetCodeAPITests: XCTestCase {
         XCTAssertEqual(request.url.absoluteString, "https://leetcode.com/graphql")
         XCTAssertEqual(
             request.body.flatMap { String(data: $0, encoding: .utf8) },
-            #"{"operationName":"questionData","query":"query questionData($titleSlug: String!) {\n  question(titleSlug: $titleSlug) {\n    questionFrontendId\n    title\n    titleSlug\n    content\n    difficulty\n    isPaidOnly\n    exampleTestcaseList\n    codeSnippets {\n      lang\n      langSlug\n      code\n    }\n  }\n}","variables":{"titleSlug":"two-sum"}}"#
+            #"{"operationName":"questionData","query":"query questionData($titleSlug: String!) {\n  question(titleSlug: $titleSlug) {\n    questionId\n    questionFrontendId\n    title\n    titleSlug\n    content\n    difficulty\n    isPaidOnly\n    exampleTestcaseList\n    codeSnippets {\n      lang\n      langSlug\n      code\n    }\n  }\n}","variables":{"titleSlug":"two-sum"}}"#
         )
     }
 
@@ -287,6 +287,69 @@ final class LeetCodeAPITests: XCTestCase {
         XCTAssertNil(detail.snippet(forLanguageSlug: "no-such-language"))
 
         XCTAssertEqual(detail.exampleTestCases, ["[2,7,11,15]\n9", "[3,2,4]\n6", "[3,3]\n6"])
+
+        // The internal id the judge payloads are addressed by. On problem 1 it
+        // reads like the frontend number because the two agree here; the test
+        // below is the one that proves they are actually kept apart.
+        XCTAssertEqual(detail.questionID, "1")
+    }
+
+    /// The two identifiers are different identifiers, and on any problem added
+    /// after LeetCode's numbering diverged they disagree. Swapping them would look
+    /// correct on Two Sum and address the judge about some other problem entirely,
+    /// so the case where they differ is pinned rather than assumed.
+    func testTheInternalQuestionIdIsNotTheNumberTheUserTypes() throws {
+        let detail = try XCTUnwrap(
+            try LeetCodeAPI.parseQuestionDetail(
+                response("question-detail-newer-problem.json"),
+                requestedSlug: "score-of-a-string"
+            )
+        )
+        XCTAssertEqual(detail.frontendID, 3110)
+        XCTAssertEqual(detail.questionID, "3403")
+        XCTAssertEqual(detail.slug, "score-of-a-string")
+    }
+
+    /// No fallback to `questionFrontendId`, and no empty string: without the
+    /// internal id there is nothing to address the judge with, and a repair here
+    /// would be a request about a different problem.
+    func testAMissingQuestionIdIsAPIChanged() throws {
+        let broken = try response("question-detail-missing-question-id.json")
+        assertAPIChanged(containing: "data.question.questionId") {
+            _ = try LeetCodeAPI.parseQuestionDetail(broken, requestedSlug: "two-sum")
+        }
+
+        for wire in ["null", "\"\"", "[]"] {
+            let body = """
+            {"data":{"question":{"questionId":\(wire),"questionFrontendId":"1",\
+            "title":"Two Sum","titleSlug":"two-sum","difficulty":"Easy",\
+            "isPaidOnly":false,"content":"<p>x</p>","codeSnippets":[],\
+            "exampleTestcaseList":[]}}}
+            """
+            let response = LeetCodeHTTPResponse(statusCode: 200, body: Data(body.utf8))
+            assertAPIChanged(containing: "data.question.questionId") {
+                _ = try LeetCodeAPI.parseQuestionDetail(response, requestedSlug: "two-sum")
+            }
+        }
+    }
+
+    /// LeetCode spells one id as a string on one endpoint and the same number as a
+    /// JSON number on another, so which form `questionId` arrives in is not a fact
+    /// worth failing on — it is carried as the `String` the payload sends either
+    /// way. A non-numeric id is accepted too: the value is opaque and only ever
+    /// travels back out verbatim.
+    func testTheQuestionIdIsReadFromEitherWireFormAndKeptVerbatim() throws {
+        for (wire, expected) in [("2011", "2011"), ("\"2011\"", "2011"), ("\"q-2011\"", "q-2011")] {
+            let body = """
+            {"data":{"question":{"questionId":\(wire),"questionFrontendId":"1",\
+            "title":"Two Sum","titleSlug":"two-sum","difficulty":"Easy",\
+            "isPaidOnly":false,"content":"<p>x</p>","codeSnippets":[],\
+            "exampleTestcaseList":[]}}}
+            """
+            let response = LeetCodeHTTPResponse(statusCode: 200, body: Data(body.utf8))
+            let detail = try LeetCodeAPI.parseQuestionDetail(response, requestedSlug: "two-sum")
+            XCTAssertEqual(detail?.questionID, expected, wire)
+        }
     }
 
     /// A premium problem answers with the flag set and *null* `content` and
@@ -304,6 +367,9 @@ final class LeetCodeAPITests: XCTestCase {
         XCTAssertEqual(detail.difficulty, .easy)
         XCTAssertEqual(detail.content, "")
         XCTAssertEqual(detail.codeSnippets, [:])
+        // Withheld: `content` and `codeSnippets`. Not withheld, and not tolerated
+        // as absent either: the id a locked problem would still be judged by.
+        XCTAssertEqual(detail.questionID, "170")
     }
 
     /// `{"data":{"question":null}}` is LeetCode saying "no such slug", with HTTP
@@ -599,7 +665,7 @@ final class LeetCodeAPITests: XCTestCase {
     func testAQuestionSlugThatIsNotASlugIsASchemaChange() throws {
         for wire in ["../../etc/passwd", "two/sum", "Two Sum", "-two-sum"] {
             let body = """
-            {"data":{"question":{"questionFrontendId":"1","title":"Two Sum",\
+            {"data":{"question":{"questionId":"1","questionFrontendId":"1","title":"Two Sum",\
             "titleSlug":"\(wire)","difficulty":"Easy","isPaidOnly":false,\
             "content":"<p>x</p>","codeSnippets":[],"exampleTestcaseList":[]}}}
             """
@@ -631,7 +697,7 @@ final class LeetCodeAPITests: XCTestCase {
     func testAQuestionNumberThatIsNotPositiveIsASchemaChange() {
         for wire in ["0", "-5"] {
             let body = """
-            {"data":{"question":{"questionFrontendId":"\(wire)","title":"Two Sum",\
+            {"data":{"question":{"questionId":"1","questionFrontendId":"\(wire)","title":"Two Sum",\
             "titleSlug":"two-sum","difficulty":"Easy","isPaidOnly":false,\
             "content":"<p>x</p>","codeSnippets":[],"exampleTestcaseList":[]}}}
             """
@@ -665,7 +731,7 @@ final class LeetCodeAPITests: XCTestCase {
     func testAnAbsentExampleTestcaseListOnAFreeProblemIsAPIChanged() {
         for wire in ["", "\"exampleTestcaseList\":null,"] {
             let body = """
-            {"data":{"question":{"questionFrontendId":"1","title":"Two Sum",\
+            {"data":{"question":{"questionId":"1","questionFrontendId":"1","title":"Two Sum",\
             "titleSlug":"two-sum","difficulty":"Easy","isPaidOnly":false,\
             "content":"<p>x</p>","codeSnippets":[],\(wire)"__pad":0}}}
             """
@@ -699,7 +765,7 @@ final class LeetCodeAPITests: XCTestCase {
     func testAnAbsentQuestionSlugStillFallsBackToTheRequestedOne() throws {
         for wire in ["null", "\"\""] {
             let body = """
-            {"data":{"question":{"questionFrontendId":"1","title":"Two Sum",\
+            {"data":{"question":{"questionId":"1","questionFrontendId":"1","title":"Two Sum",\
             "titleSlug":\(wire),"difficulty":"Easy","isPaidOnly":false,\
             "content":"<p>x</p>","codeSnippets":[],"exampleTestcaseList":[]}}}
             """
@@ -713,7 +779,7 @@ final class LeetCodeAPITests: XCTestCase {
     /// `normalizedSlug` lowercases, and this is the one repair it makes.
     func testAQuestionSlugIsNormalizedRatherThanRefusedForCase() throws {
         let body = """
-        {"data":{"question":{"questionFrontendId":"1","title":"Two Sum",\
+        {"data":{"question":{"questionId":"1","questionFrontendId":"1","title":"Two Sum",\
         "titleSlug":"Two-Sum","difficulty":"Easy","isPaidOnly":false,\
         "content":"<p>x</p>","codeSnippets":[],"exampleTestcaseList":[]}}}
         """

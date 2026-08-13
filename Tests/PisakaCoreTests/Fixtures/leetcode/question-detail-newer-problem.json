@@ -1,0 +1,29 @@
+{
+  "data": {
+    "question": {
+      "questionId": "3403",
+      "questionFrontendId": "3110",
+      "title": "Score of a String",
+      "titleSlug": "score-of-a-string",
+      "content": "<p>You are given a string <code>s</code>. The <strong>score</strong> of a string is defined as the sum of the absolute difference between the <strong>ASCII</strong> values of adjacent characters.</p>\n\n<p>Return the <strong>score</strong> of <code>s</code>.</p>",
+      "difficulty": "Easy",
+      "isPaidOnly": false,
+      "exampleTestcaseList": [
+        "\"hello\"",
+        "\"zaz\""
+      ],
+      "codeSnippets": [
+        {
+          "lang": "Swift",
+          "langSlug": "swift",
+          "code": "class Solution {\n    func scoreOfString(_ s: String) -> Int {\n        \n    }\n}"
+        },
+        {
+          "lang": "Python3",
+          "langSlug": "python3",
+          "code": "class Solution:\n    def scoreOfString(self, s: str) -> int:\n        "
+        }
+      ]
+    }
+  }
+}
