@@ -1134,6 +1134,53 @@ final class LeetCodeCatalogTests: XCTestCase {
         XCTAssertEqual(transport.count(for: .problemList), 1)
     }
 
+    /// Coalescing must not make one caller's Esc into another caller's failure.
+    ///
+    /// The cancellation in `refresh` reaches the *shared* task, so pressing Esc in
+    /// the Open Problem sheet used to kill a download the browser had merely joined
+    /// — and the browser, never cancelled itself, published
+    /// `network(reason: "cancelled")` about a question its user never asked, over
+    /// an empty list that only a by-hand Refresh re-armed. The survivor asks again
+    /// on its own behalf instead: two requests, one of them nobody's failure.
+    func testACallerThatJoinedACancelledFetchAsksAgainRatherThanFailing() async throws {
+        let tree = makeTree()
+        let transport = ScriptedLeetCodeTransport()
+        transport.fail(
+            .problemList,
+            once: LeetCodeError.network(reason: "cancelled"),
+            thenServe: LeetCodeHTTPResponse(
+                statusCode: 200,
+                headers: [:],
+                body: Data(problemListJSON([(1, "two-sum")]).utf8)
+            )
+        )
+        let gate = Gate()
+        transport.hold(.problemList, on: gate)
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+
+        let first = Task { try await catalog.refresh(credentials: credentials) }
+        await gate.waitUntilReached()
+        let second = Task { try await catalog.refresh(credentials: credentials) }
+        // Let the second run up to the point where it joins the in-flight refresh.
+        await Task.yield()
+        await Task.yield()
+        first.cancel()
+        // Once for the fetch that was cancelled, once for the retry — and released
+        // unconditionally so a regression fails the assertions below instead of
+        // deadlocking the suite.
+        gate.release()
+        gate.release()
+
+        do {
+            try await first.value
+            XCTFail("the caller that withdrew still gets its failure")
+        } catch {}
+        // The one that did not withdraw gets the catalog.
+        try await second.value
+        XCTAssertEqual(transport.count(for: .problemList), 2)
+        XCTAssertEqual(catalog.problems.map(\.slug), ["two-sum"])
+    }
+
     /// And a refresh started *after* the previous one finished reuses nothing:
     /// the slot is open again, so the second session fetches on its own.
     func testARefreshAfterASessionChangeFetchesAgain() async throws {

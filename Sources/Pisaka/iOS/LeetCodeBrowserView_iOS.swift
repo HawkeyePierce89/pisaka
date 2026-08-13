@@ -168,12 +168,18 @@ struct LeetCodeBrowserView_iOS: View {
         // minutes ago reaches the screen (L24).
         .refreshable { await browser.refresh() }
         .overlay {
-            if browser.visibleProblems.isEmpty, !browser.isLoading {
+            if browser.visibleProblems.isEmpty, !browser.isLoading, let emptyLine {
                 Text(emptyLine)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding()
+                    // The sentence sits *over* the list, so without this a pull
+                    // that starts on it is swallowed before it reaches the scroll
+                    // view — and the sentence it swallows says "Pull down to
+                    // refresh", on the one screen where that gesture is the only
+                    // retry there is.
+                    .allowsHitTesting(false)
             }
         }
     }
@@ -346,11 +352,15 @@ struct LeetCodeBrowserView_iOS: View {
     /// The two different empty states: a filter that matches nothing is not the
     /// same problem as a list that has nothing in it, which is what
     /// `LeetCodeProblemFilter.isEmpty` exists to tell apart.
-    private var emptyLine: String {
+    ///
+    /// **A failure is a third thing, and it is not this view's to say.** The
+    /// leading section already carries `lastError`'s own sentence — the specific
+    /// one, naming what went wrong — so a generic "could not be loaded" here would
+    /// be a second sentence about one failure, drawn on top of the first.
+    private var emptyLine: String? {
         if browser.problems.isEmpty {
-            return browser.lastError == nil
-                ? "No problems loaded. Pull down to refresh."
-                : "The problem list could not be loaded."
+            guard browser.lastError == nil else { return nil }
+            return "No problems loaded. Pull down to refresh."
         }
         return "No problems match the filter."
     }

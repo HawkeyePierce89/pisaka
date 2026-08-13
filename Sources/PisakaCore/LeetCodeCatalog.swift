@@ -350,23 +350,50 @@ public final class LeetCodeCatalog {
     /// the new session, so its whole result is already discarded; an error would be
     /// a second answer to a question nobody is holding any more.
     public func refresh(credentials: LeetCodeCredentials) async throws {
-        guard isCurrentSession(credentials) else { return }
-        let coalesced = refreshCredentials == credentials ? refreshTask : nil
-        let task = coalesced ?? startRefresh(credentials: credentials)
-        // **The wait is cancellable, and cancelling it cancels the fetch.**
-        // `Task { }` is unstructured, so it inherits nothing from the caller and
-        // `task.value` does not observe the awaiting task's cancellation either:
-        // without this, pressing Esc in the Open Problem sheet left `openProblem`
-        // suspended here until the 2 MB download finished or hit the transport's
-        // 60-second resource timeout — and with it `beginOpen()`'s counter still
-        // raised, so the *next* sheet came up with everything disabled. The cost
-        // is that a second, uncancelled caller coalesced onto this fetch sees it
-        // fail as `network(reason: "cancelled")`; that is a retry, against a
-        // minute of a dead sheet.
-        _ = try await withTaskCancellationHandler {
-            try await task.value
-        } onCancel: {
-            task.cancel()
+        var retriedAfterAnotherCallerWithdrew = false
+        while true {
+            guard isCurrentSession(credentials) else { return }
+            let coalesced = refreshCredentials == credentials ? refreshTask : nil
+            let task = coalesced ?? startRefresh(credentials: credentials)
+            do {
+                // **The wait is cancellable, and cancelling it cancels the fetch.**
+                // `Task { }` is unstructured, so it inherits nothing from the caller
+                // and `task.value` does not observe the awaiting task's cancellation
+                // either: without this, pressing Esc in the Open Problem sheet left
+                // `openProblem` suspended here until the 2 MB download finished or
+                // hit the transport's 60-second resource timeout — and with it
+                // `beginOpen()`'s counter still raised, so the *next* sheet came up
+                // with everything disabled.
+                _ = try await withTaskCancellationHandler {
+                    try await task.value
+                } onCancel: {
+                    task.cancel()
+                }
+                return
+            } catch {
+                // **Somebody else's withdrawal is not this caller's failure.** The
+                // cancellation above reaches the *shared* task, so an Esc in the
+                // Open Problem sheet used to kill a download the browser had merely
+                // coalesced onto — and the browser, never cancelled itself, published
+                // `network(reason: "cancelled")` about a question the user never
+                // asked, with an empty list under it that nothing re-arms. So a
+                // caller that joined a fetch it did not start, was not cancelled
+                // itself, and saw that fetch cancelled out from under it asks again
+                // on its own behalf.
+                //
+                // **At most once.** The retry starts its own task, so the next turn
+                // has `coalesced == nil` and the guard below rethrows; the flag
+                // covers the one remaining shape — a third caller having opened the
+                // slot again in between — so the loop is bounded whatever the
+                // interleaving.
+                guard
+                    coalesced != nil,
+                    !retriedAfterAnotherCallerWithdrew,
+                    task.isCancelled,
+                    !Task.isCancelled
+                else { throw error }
+                retriedAfterAnotherCallerWithdrew = true
+            }
         }
     }
 

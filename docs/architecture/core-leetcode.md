@@ -609,9 +609,20 @@ the limits the design carries.
     in the Open Problem sheet used to leave `openProblem` suspended until the
     download finished or the transport's 60-second resource timeout fired — with
     `beginOpen()`'s counter still raised, i.e. the next sheet came up entirely
-    disabled. Cancelling the waiter now cancels the fetch; a second, uncancelled
-    caller coalesced onto it sees `network(reason: "cancelled")` and can retry,
-    which is the cheaper of the two failures. The `refreshTask` slot is cleared
+    disabled. Cancelling the waiter now cancels the fetch — **and the caller that
+    merely joined that fetch retries it rather than reporting it**. That
+    cancellation reaches the *shared* task, so one surface's Esc is another
+    surface's failure: the browser, never cancelled itself, published
+    `network(reason: "cancelled")` about a question its user never asked, over an
+    empty list that nothing re-arms (only a by-hand Refresh did). So a caller that
+    joined a fetch it did not start, was not cancelled itself, and saw that fetch
+    cancelled out from under it asks again on its own behalf. **At most once**: the
+    retry starts its own task, so the next turn coalesces onto nothing and rethrows,
+    and a flag covers the one remaining shape — a third caller having reopened the
+    slot in between — so the loop is bounded whatever the interleaving. The cost is
+    one extra request in a case that only a withdrawal produces; the alternative was
+    a sticky error sentence on a surface that renders errors permanently. The
+    `refreshTask` slot is cleared
     from **inside** the task rather than in the initiating caller's `defer`, so the
     coalescing window is the task's own lifetime — a caller that goes away while
     the fetch runs on must not open the slot for a second 2 MB download.
@@ -1232,6 +1243,9 @@ the limits the design carries.
     cancellation and `value` does not observe the awaiting task's either, so the
     fetch runs on for whoever is waiting on it while this browser still publishes
     nothing — the `Task.isCancelled` check above is what makes both true at once.
+    The shield is one direction only, and `refresh`'s retry is the other: this
+    keeps the browser's teardown from failing somebody else's open, and that keeps
+    somebody else's Esc from failing the browser's load.
     *The session hooks — two of them, like the judge's.* `sessionDidChange()` is
     called from `LeetCodeModel`'s `isSignedIn` observer beside the judge's, and it
     bumps the token, recomputes `availability`, clears the error and **clears the
@@ -1805,6 +1819,16 @@ the limits the design carries.
     section with the open attempt's sentence; the count and the fetch time stay
     below, because they are a fact about the list rather than something the user
     has to be told.
+    **The centred empty-state sentence yields to it, and never takes a touch.**
+    That sentence is an `.overlay` over the `List`, and it covers the two empty
+    states the leading section says nothing about — a filter matching nothing, and a
+    catalog that was never loaded. On a *failure* it renders nothing at all: the
+    section above already carries `lastError`'s own sentence, the specific one, so a
+    generic "could not be loaded" would be a second sentence about one failure drawn
+    on top of the first. It is also `.allowsHitTesting(false)`, because an overlay is
+    not inside the list's scroll view and swallowed a pull that began on it — on the
+    one platform where pull-to-refresh *is* the retry, under a sentence reading
+    "Pull down to refresh".
     It observes the **browser** and takes the owner as a non-observed plain `let`
     for the macOS view's reasons, and it offers **no language picker of its own**:
     the screen that pushed it has one and the setting is persisted, so there is no
@@ -2178,7 +2202,13 @@ means, what a file is named, when a fetch happens, and what gets written.
   showing "No problems loaded." until a manual Refresh. And an all-digit query is a **number attempt and nothing else** —
   L4 reused through `LeetCodeProblemInput.parse` rather than restated — matching
   `frontendID` exactly rather than by prefix, so `1` answers problem 1 instead of
-  the thousand rows whose number starts with a 1.
+  the thousand rows whose number starts with a 1. **Including the digits that name
+  no problem**: `parse` folds "not digits at all" and "digits naming no problem"
+  (`0`, or more digits than an `Int` holds) into one `nil`, and the browser owes
+  those two different answers, so the digit test is asked separately through
+  `LeetCodeProblemInput.isNumberAttempt` — exported for exactly this, so the rule
+  keeps one spelling. Without it a rejected number fell through to the substring
+  branch and `0` listed `01-matrix`, which is a real slug and problem 542.
 
 ## Known limits
 

@@ -87,10 +87,31 @@ final class LeetCodeProblemFilterTests: XCTestCase {
         XCTAssertEqual(ids(query: "158"), [158])
     }
 
-    /// `0` is not a problem number, so `LeetCodeProblemInput` rejects it and it
-    /// falls through to the substring branch — where no title or slug contains it.
-    func testZeroFallsThroughToSubstringAndMatchesNothing() {
+    /// `0` is not a problem number, and an all-digit query is a number attempt and
+    /// nothing else — so it matches nothing rather than searching for the
+    /// character.
+    func testZeroIsARejectedNumberAndMatchesNothing() {
         XCTAssertEqual(ids(query: "0"), [])
+    }
+
+    /// The same rule where it is actually visible: LeetCode really does ship a
+    /// problem whose slug is `01-matrix`, so a `0` that fell through to the
+    /// substring branch would answer a query the user typed as a number with a row
+    /// whose number is 542.
+    func testARejectedNumberIsNotSearchedForAsText() {
+        let matrix = LeetCodeProblem(
+            frontendID: 542, slug: "01-matrix", title: "01 Matrix",
+            difficulty: .medium, isPaidOnly: false, status: .notStarted
+        )
+        let filter = LeetCodeProblemFilter(query: "0")
+        XCTAssertEqual(filter.apply(to: rows + [matrix]).map(\.frontendID), [])
+    }
+
+    /// More digits than an `Int` holds is the other input `parse` rejects, and it
+    /// is the same answer for the same reason — not a substring search for a
+    /// thirty-character number.
+    func testADigitStringPastIntMatchesNothing() {
+        XCTAssertEqual(ids(query: String(repeating: "1", count: 30)), [])
     }
 
     // MARK: - The query as text

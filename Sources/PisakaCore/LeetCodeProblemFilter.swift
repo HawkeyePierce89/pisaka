@@ -52,6 +52,12 @@ public struct LeetCodeProblemFilter: Equatable, Sendable {
     ///   `.number(n)` matches `frontendID == n` **exactly and matches nothing
     ///   else**: typing `1` answers problem 1, not the ~1000 rows whose number
     ///   begins with a 1.
+    /// - **An all-digit query that is not a valid number matches nothing**, which
+    ///   is the same rule and not a second one. `parse` answers `nil` for `0` and
+    ///   for a digit string too long to be an `Int`, and letting those fall
+    ///   through would quietly turn "an all-digit input is a number attempt and
+    ///   nothing else" into a substring search: `0` would list `01-matrix` under
+    ///   a query the user meant as a problem number.
     /// - Every other parse result — a slug, a URL, or nothing at all — falls
     ///   through to a substring match on the **raw trimmed query**, so a pasted
     ///   problem URL matches nothing here (the Open Problem field is that
@@ -70,22 +76,49 @@ public struct LeetCodeProblemFilter: Equatable, Sendable {
     /// field rather than as a flag defaulted to `false` is what makes it
     /// structural instead of a default someone can flip.
     public func apply(to rows: [LeetCodeProblem]) -> [LeetCodeProblem] {
-        let query = trimmedQuery
-        let number: Int? = {
-            guard !query.isEmpty, case .number(let value)? = LeetCodeProblemInput.parse(query) else {
-                return nil
-            }
-            return value
-        }()
+        let match = queryMatch
 
         return rows.filter { row in
             if !difficulties.isEmpty, !difficulties.contains(row.difficulty) { return false }
             if !statuses.isEmpty, !statuses.contains(row.status) { return false }
-            guard !query.isEmpty else { return true }
-            if let number { return row.frontendID == number }
-            return row.title.range(of: query, options: .caseInsensitive) != nil
-                || row.slug.range(of: query, options: .caseInsensitive) != nil
+            switch match {
+            case .everything:
+                return true
+            case .number(let number):
+                return row.frontendID == number
+            case .substring(let query):
+                return row.title.range(of: query, options: .caseInsensitive) != nil
+                    || row.slug.range(of: query, options: .caseInsensitive) != nil
+            case .nothing:
+                return false
+            }
         }
+    }
+
+    /// What the query narrows to, decided once per pass rather than per row.
+    private enum QueryMatch {
+        /// An empty (or all-whitespace) field narrows nothing.
+        case everything
+        /// A problem number, matched exactly.
+        case number(Int)
+        /// A case-insensitive substring of the title or the slug.
+        case substring(String)
+        /// A number attempt that names no problem — `0`, or digits past `Int`.
+        case nothing
+    }
+
+    /// Read the query once, through `LeetCodeProblemInput` rather than beside it.
+    ///
+    /// The two questions are asked separately — "is this a number attempt" and
+    /// "which number" — because `parse` folds "not digits at all" and "digits that
+    /// name no problem" into the same `nil`, and the browser owes those two
+    /// different answers: a slug searches, a rejected number matches nothing.
+    private var queryMatch: QueryMatch {
+        let query = trimmedQuery
+        guard !query.isEmpty else { return .everything }
+        guard LeetCodeProblemInput.isNumberAttempt(query) else { return .substring(query) }
+        guard case .number(let value)? = LeetCodeProblemInput.parse(query) else { return .nothing }
+        return .number(value)
     }
 
     /// The query with surrounding whitespace and newlines removed — the form
