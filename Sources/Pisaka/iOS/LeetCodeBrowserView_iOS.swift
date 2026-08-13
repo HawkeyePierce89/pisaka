@@ -53,11 +53,6 @@ struct LeetCodeBrowserView_iOS: View {
     /// same Premium refusal and the same never-overwrite guarantee.
     var onOpen: (LeetCodeProblemInput, LeetCodeLanguage) async -> String?
 
-    /// Take the whole LeetCode sheet down. Called on a successful open, so the tab
-    /// the open pushed is what the user is left looking at rather than this list on
-    /// top of it.
-    var onDone: () -> Void
-
     /// The outcome of the last open attempt, or `nil` before the first one.
     @State private var message: String?
 
@@ -351,11 +346,17 @@ struct LeetCodeBrowserView_iOS: View {
     /// every detail request is made by, so this costs no resolution step — and it
     /// is the same input a typed slug produces, through the same handler.
     ///
-    /// `nil` means it opened, so the whole sheet comes down and the tab is behind
-    /// it (on compact width, the editor the open pushed). A sentence — "that one is
-    /// Premium", "no problem matching that" — is shown inline instead, for
-    /// `LeetCodeRoute_iOS`'s reason: an alert stacked on the screen the user is
-    /// looking at makes a refusal look like a failure.
+    /// **Nothing is dismissed from here**, which is `LeetCodeRoute_iOS.open()`'s
+    /// rule and for a reason this screen makes sharper: `nil` is the answer to
+    /// three different questions — it opened, the user left mid-open (`onDisappear`
+    /// cancels `openTask`), or a newer open superseded this one — and only the
+    /// first of them wants the sheet down. The handler takes it down itself on
+    /// that one, so taking it down here as well would close the whole LeetCode
+    /// screen out from under somebody who had just tapped Back.
+    ///
+    /// A sentence — "that one is Premium", "no problem matching that" — is shown
+    /// inline instead, for `LeetCodeRoute_iOS`'s reason: an alert stacked on the
+    /// screen the user is looking at makes a refusal look like a failure.
     private func open(_ problem: LeetCodeProblem) {
         guard openingSlug == nil else { return }
         message = nil
@@ -365,7 +366,6 @@ struct LeetCodeBrowserView_iOS: View {
             let outcome = await onOpen(.slug(problem.slug), language)
             openingSlug = nil
             message = outcome
-            if outcome == nil { onDone() }
         }
     }
 

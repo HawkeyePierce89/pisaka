@@ -254,7 +254,7 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `LeetCodeLoginView.swift` / `iOS/LeetCodeLoginView_iOS.swift` — the sign-in sheet / full-screen cover: chrome around the shared observer; dismiss first, confirm behind it.
 - `LeetCodeOpenProblemSheet.swift` — the macOS sheet, the `LeetCode` menu items, and `LeetCodeFolderChooser` (an unsandboxed plain path, written to both halves).
 - `LeetCodeDescriptionView.swift` — the macOS statement pane: an `HStack` sibling, observed in the pane, reloaded only when the composed HTML differs.
-- `iOS/LeetCodeRoute_iOS.swift` — `LeetCodeFolder_iOS` (container default without a bookmark, override with one) + the one iOS account/open screen.
+- `iOS/LeetCodeRoute_iOS.swift` — `LeetCodeFolder_iOS` (container default without a bookmark, override with one) + the one iOS account/open screen (and the push to the browser).
 - `iOS/LeetCodeDescriptionView_iOS.swift` — the adaptive statement: pane on regular width, sheet on compact, one shared content view.
 - `LeetCodeJudgeView.swift` / `iOS/LeetCodeJudgeView_iOS.swift` — the judge section under the statement: observes `model.judge`, non-observed workspace, full error text; iOS adds the keyboard rules.
 - `LeetCodeBrowserWindowController.swift` / `LeetCodeBrowserView.swift` — the single macOS browser window (⌘⇧B, `ProjectSearchWindowController`'s shape) and its search/filters/table/footer, observing `model.browser`.

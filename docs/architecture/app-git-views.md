@@ -450,8 +450,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `willTerminateNotification`).
   - `EscClosableWindow.swift` — a tiny `final class EscClosableWindow: NSWindow`
     used for the separate diff (`DiffWindowController`), merge
-    (`MergeWindowController`) and Find in Files (`ProjectSearchWindowController`)
-    windows so Esc closes them. It overrides
+    (`MergeWindowController`), Find in Files (`ProjectSearchWindowController`),
+    LeetCode problem browser (`LeetCodeBrowserWindowController`) and source viewer
+    (`SourceViewerWindowController`) windows so Esc closes them. It overrides
     `cancelOperation(_:)` (which AppKit dispatches down the responder chain on Esc,
     and a plain `NSWindow` ignores) to call `performClose(_:)`, routing the close
     through the standard `windowShouldClose`/`windowWillClose` path — exactly like

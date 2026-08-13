@@ -125,6 +125,24 @@ final class LeetCodeBrowserModelTests: XCTestCase {
             """
     }
 
+    /// A catalog response in the wire shape, for the one thing the recorded
+    /// fixture cannot express: the *same* rows under a different account's status
+    /// marks, which is what the second fetch in the cross-account test returns.
+    private func problemListJSON(
+        _ rows: [(id: Int, slug: String)],
+        status: String = "null"
+    ) -> String {
+        let pairs = rows.map { row in
+            """
+            {"stat":{"frontend_question_id":\(row.id),\
+            "question__title":"\(row.slug)",\
+            "question__title_slug":"\(row.slug)"},\
+            "status":\(status),"difficulty":{"level":1},"paid_only":false}
+            """
+        }
+        return "{\"user_name\":\"\",\"stat_status_pairs\":[\(pairs.joined(separator: ","))]}"
+    }
+
     /// A cache written an hour ago: warm, so nothing may be fetched for it.
     private func warmCache() -> [String: String] {
         [
@@ -203,6 +221,63 @@ final class LeetCodeBrowserModelTests: XCTestCase {
         XCTAssertEqual(browser.fetchedAt, now)
         XCTAssertNil(browser.lastError)
         XCTAssertFalse(browser.isLoading)
+    }
+
+    /// The spinner is on **while** the fetch is out, not merely off once it lands.
+    ///
+    /// Asserted mid-flight because every surface hangs something on it that the
+    /// end state cannot see: the macOS footer's `ProgressView` and its "Loading…"
+    /// line, its disabled Refresh button, and the iOS empty-state overlay, which is
+    /// suppressed by exactly this flag — with it stuck off, a cold first fetch
+    /// renders "No problems loaded" over a list that is on its way.
+    func testTheSpinnerIsOnWhileTheFetchIsInFlight() async {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let gate = Gate()
+        transport.hold(.problemList, on: gate)
+        let model = makeModel(tree: tree, transport: transport)
+        let browser = model.browser
+
+        let load = Task { await browser.load() }
+        await gate.waitUntilReached()
+
+        XCTAssertTrue(browser.isLoading)
+        XCTAssertTrue(browser.problems.isEmpty)
+        XCTAssertNil(browser.lastError)
+
+        gate.release()
+        await load.value
+
+        XCTAssertFalse(browser.isLoading)
+        XCTAssertEqual(browser.problems.count, 12)
+    }
+
+    /// The view's task went away mid-fetch (the window closed, the screen was
+    /// popped): that publishes **nothing** — the user withdrew the question — but
+    /// the spinner still has to come down, because nobody else will lower it.
+    func testACancelledLoadPublishesNothingAndStillClearsTheSpinner() async {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let gate = Gate()
+        transport.hold(.problemList, on: gate)
+        let model = makeModel(tree: tree, transport: transport)
+        let browser = model.browser
+
+        let load = Task { await browser.load() }
+        await gate.waitUntilReached()
+        load.cancel()
+        gate.release()
+        await load.value
+
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+        XCTAssertTrue(browser.problems.isEmpty)
+        XCTAssertTrue(browser.visibleProblems.isEmpty)
+        XCTAssertNil(browser.fetchedAt)
+        // A cancellation is not a failure the user asked about, so no sentence is
+        // published for it either.
+        XCTAssertNil(browser.lastError)
+        XCTAssertFalse(browser.isLoading)
+        XCTAssertEqual(browser.availability, .ready)
     }
 
     // MARK: - Degradation
@@ -301,6 +376,71 @@ final class LeetCodeBrowserModelTests: XCTestCase {
         XCTAssertFalse(browser.isLoading)
     }
 
+    /// A catalog response that says logged-out flips the account state here too —
+    /// the rule the model and the judge both follow, on the browser's axis.
+    ///
+    /// **And the sentence survives the flip**, which is the assertion with teeth:
+    /// `markSessionRejected()` re-enters `sessionDidChange()`, which clears
+    /// `lastError` with the rows, so recording the failure *before* it — the order
+    /// `LeetCodeModel.publish` happens to use — would leave the footer blank about
+    /// a browser that had just emptied itself.
+    func testANotLoggedInCatalogFailureFlipsTheAccountAndKeepsTheSentence() async {
+        let tree = makeTree(warmCache())
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+        let browser = model.browser
+
+        await browser.load()
+        XCTAssertEqual(browser.problems.count, 2)
+
+        transport.fail(.problemList, with: LeetCodeError.notLoggedIn)
+        await browser.refresh()
+
+        XCTAssertFalse(model.isSignedIn)
+        XCTAssertEqual(browser.availability, .notSignedIn)
+        XCTAssertEqual(browser.lastError, .notLoggedIn)
+        // The rows went with the session: the status column is per-account.
+        XCTAssertTrue(browser.problems.isEmpty)
+        XCTAssertTrue(browser.visibleProblems.isEmpty)
+        XCTAssertNil(browser.fetchedAt)
+        XCTAssertFalse(browser.isLoading)
+    }
+
+    /// The limit L24 states rather than hides: the catalog's cache is per *app*,
+    /// not per account, so signing in as somebody else inside the staleness window
+    /// republishes the previous account's marks — and Refresh is what corrects
+    /// them. Pinned in both directions so neither half can drift from the doc.
+    func testAnotherAccountSeesTheCachedMarksUntilARefresh() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+        let browser = model.browser
+
+        await browser.load()
+        XCTAssertEqual(browser.problems.first?.status, .solved)
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+
+        model.signOut()
+        try await model.signIn(with: credentials)
+        // The next account solved none of them.
+        transport.serve(
+            .problemList,
+            json: problemListJSON([(1, "two-sum"), (2, "add-two-numbers")])
+        )
+
+        await browser.load()
+        // Still warm, so no request was made and the marks are the last account's.
+        XCTAssertEqual(transport.count(for: .problemList), 1)
+        XCTAssertEqual(browser.problems.count, 12)
+        XCTAssertEqual(browser.problems.first?.status, .solved)
+
+        await browser.refresh()
+
+        XCTAssertEqual(transport.count(for: .problemList), 2)
+        XCTAssertEqual(browser.problems.map(\.slug), ["two-sum", "add-two-numbers"])
+        XCTAssertEqual(browser.problems.map(\.status), [.notStarted, .notStarted])
+    }
+
     /// The fifth generation token: a load held mid-fetch while the session goes
     /// away publishes **nothing at all** — not the rows it fetched, not an error,
     /// and not a spinner left running.
@@ -330,6 +470,33 @@ final class LeetCodeBrowserModelTests: XCTestCase {
     }
 
     // MARK: - Filtering
+
+    /// Rows landing under a filter that is *already* set arrive narrowed.
+    ///
+    /// The realistic first run, and the one order the "set the filter, then look"
+    /// test cannot see: the surface appears, the cold fetch goes out, the user
+    /// starts typing, and the rows come back. Adopting the catalog has to re-run
+    /// the filter rather than show everything until the next keystroke.
+    func testRowsLandingUnderAFilterAlreadySetArriveNarrowed() async {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+        let browser = model.browser
+
+        browser.filter.query = "two"
+        await browser.load()
+
+        XCTAssertEqual(browser.problems.count, 12)
+        XCTAssertEqual(
+            browser.visibleProblems.map(\.slug),
+            [
+                "two-sum",
+                "add-two-numbers",
+                "median-of-two-sorted-arrays",
+                "two-sum-iii-data-structure-design"
+            ]
+        )
+    }
 
     /// Setting the filter republishes the visible rows and touches nothing else —
     /// the browser searches instantly because the whole list is already in hand.

@@ -1606,9 +1606,17 @@ the limits the design carries.
     `raiseEditorWindowBehindBrowser()`, and the rule it needs is written down where
     it is used: this app has exactly one `WindowGroup` window and every auxiliary
     window it makes is an `EscClosableWindow` (diff, merge, Find in Files, the
-    source viewers, the browser itself), so **the first visible, main-capable
-    window that is not one of ours** is the editor — a no-op when there is none,
-    since that window can be closed while the app runs.
+    source viewers, the browser itself), so **the frontmost visible, main-capable
+    window that is neither one of ours nor Preferences** is the editor — a no-op
+    when there is none, since that window can be closed while the app runs. Both
+    qualifiers are load-bearing, because this is identification by exclusion and
+    exclusion rots quietly: `NSApp.windows` is in *unspecified* order (so the scan
+    is over `orderedWindows`, which is documented front-to-back), and the `Settings`
+    window is made by SwiftUI rather than by this app — no `EscClosableWindow`, and
+    main-capable — so without naming it the plain rule sends *Preferences* behind
+    the browser and leaves the editor where it was. It is excluded by the
+    identifier SwiftUI gives that scene, and a future SwiftUI that stops setting it
+    costs this one cosmetic re-order, nothing else.
     The launch-time `refreshUserStatus()` joins the existing one-shot `.onAppear`
     block beside `sweepStaging()`/`lspProvisioning.refresh()`, unawaited and silent.
     `ContentView` drives the statement from a `.task(id:)` keyed on **(selected tab,
@@ -1663,14 +1671,18 @@ the limits the design carries.
     second sheet, because this screen already hosts the `NavigationStack` — the
     browser pushes onto it and the back button returns here, where a sheet over a
     sheet would have to re-present the sign-in cover from a third level.
-    `onOpen`/`onDone` are forwarded unchanged, so a row tapped there runs exactly
-    the open a slug typed here does.
+    `onOpen` is forwarded unchanged, so a row tapped there runs exactly the open a
+    slug typed here does; **`onDone` deliberately is not** — see the browser
+    screen's entry for why a surface that cannot tell "it opened" from "it was
+    withdrawn" must not be handed the sheet's dismissal.
   - `iOS/LeetCodeBrowserView_iOS.swift` — the pushed browser screen: the peer of
     the macOS window over the **same** Core model, so the two platforms cannot
     disagree about what a query matches, when a fetch happens or what opening a row
     does — only about the idioms carrying it. Here those are `.searchable` bound to
     `browser.filter.query`, a toolbar `Menu` of difficulty and status toggles,
-    `.refreshable` mapped to `browser.refresh()`, `.task { await browser.load() }`,
+    `.refreshable` mapped to `browser.refresh()`, a `.task(id: browser.availability)`
+    load (the macOS window's key, covering the load on appear and the re-arm after
+    a sign-in with one rule),
     and a `List` of rows keyed `id: \.slug` (so `LeetCodeProblem` needs no
     `Identifiable` conformance it does not otherwise want) carrying the number, the
     title, the Premium lock and the status mark, with a footer row showing
@@ -1684,10 +1696,16 @@ the limits the design carries.
     shown as they are. If a device ever says otherwise the answer is a stated "keep
     typing to narrow" affordance, never a silent cut — a list that quietly stops at
     row 500 tells the user problem 3000 does not exist.
-    A tap runs the route's `onOpen(.slug(_:), settings.leetCodeLanguage)`; a `nil`
-    sentence means it opened, so the screen calls `onDone` and the whole sheet
-    dismisses with the tab open behind it (on compact width, pushed). A sentence is
-    shown inline. `openTask` is held and cancelled on disappear —
+    A tap runs the route's `onOpen(.slug(_:), settings.leetCodeLanguage)` and shows
+    whatever sentence comes back, inline; **it dismisses nothing itself**, which is
+    `LeetCodeRoute_iOS.open()`'s rule and the one thing this screen must not get
+    wrong. `nil` answers three different questions — it opened, the user left
+    mid-open (`onDisappear` cancels `openTask`), or a newer open superseded this
+    one — and only the first wants the sheet down; the handler already takes it
+    down on that one, so calling `onDone` on `nil` here would close the whole
+    LeetCode screen out from under somebody who had just tapped Back. The tab is
+    open behind the dismissed sheet either way (on compact width, pushed).
+    `openTask` is held and cancelled on disappear —
     `LeetCodeRoute_iOS`'s rule, for its reason. Signed out, the screen shows
     `availability`'s sentence and the same sign-in offer the account row makes,
     with the login cover presented from here.

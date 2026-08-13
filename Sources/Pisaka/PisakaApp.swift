@@ -1138,16 +1138,34 @@ struct PisakaApp: App {
     /// The rule for which window that is, written down where it is used: this app
     /// has exactly one `WindowGroup` window and every auxiliary window it makes is
     /// an `EscClosableWindow` (diff, merge, Find in Files, the source viewers and
-    /// the browser itself), so **the first visible, main-capable window that is
-    /// not one of ours** is the editor. A no-op when there is none — the window
-    /// can be closed while the app runs.
+    /// the browser itself), so **the frontmost visible, main-capable window that is
+    /// neither one of ours nor the Preferences window** is the editor. A no-op when
+    /// there is none — the window can be closed while the app runs.
+    ///
+    /// Two things the obvious spelling gets wrong, both stated because this is
+    /// identification by exclusion and exclusion rots quietly. `NSApp.windows` is
+    /// in *unspecified* order, so "the first match" is only meaningful over
+    /// `orderedWindows`, which is documented front-to-back. And the exclusion is
+    /// not complete: `Settings` is a window SwiftUI makes rather than this app, so
+    /// it is no `EscClosableWindow` and it is main-capable — with Preferences open,
+    /// the plain rule sends *it* behind the browser and leaves the editor where it
+    /// was. It is excluded by the identifier SwiftUI gives that scene; should a
+    /// future SwiftUI stop setting it, the cost is this one cosmetic re-order, so
+    /// the miss stays silent by design.
     private func raiseEditorWindowBehindBrowser() {
         guard let browserNumber = leetCodeBrowserWindows.windowNumber else { return }
-        guard let editor = NSApp.windows.first(where: { window in
-            window.isVisible && window.canBecomeMain && !(window is EscClosableWindow)
+        guard let editor = NSApp.orderedWindows.first(where: { window in
+            window.isVisible
+                && window.canBecomeMain
+                && !(window is EscClosableWindow)
+                && window.identifier?.rawValue != Self.settingsWindowIdentifier
         }) else { return }
         editor.order(.below, relativeTo: browserNumber)
     }
+
+    /// The identifier SwiftUI gives its `Settings` scene window — see
+    /// `raiseEditorWindowBehindBrowser()`, its one reader.
+    private static let settingsWindowIdentifier = "com_apple_SwiftUI_Settings_window"
 
     /// Open a solution file as an ordinary editor tab.
     ///

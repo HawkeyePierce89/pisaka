@@ -366,9 +366,13 @@ struct LeetCodeRoute_iOS: View {
     /// it and the back button returns here — and a sheet over a sheet would have to
     /// re-present the sign-in cover from a third level.
     ///
-    /// `onOpen`/`onDone` are forwarded unchanged, so a row tapped over there runs
-    /// exactly the open a slug typed over here does. `model.browser` is the
-    /// companion model the owner already holds; reaching it does not observe it.
+    /// `onOpen` is forwarded unchanged, so a row tapped over there runs exactly the
+    /// open a slug typed over here does — `onDone` deliberately is *not*: that
+    /// handler already takes this sheet down on a successful open, and the browser
+    /// cannot tell that outcome from a withdrawn one (both answer `nil`), so
+    /// forwarding it would let a cancelled open dismiss the whole screen.
+    /// `model.browser` is the companion model the owner already holds; reaching it
+    /// does not observe it.
     @ViewBuilder
     private var browseSection: some View {
         Section {
@@ -377,8 +381,7 @@ struct LeetCodeRoute_iOS: View {
                     browser: model.browser,
                     settings: settings,
                     model: model,
-                    onOpen: onOpen,
-                    onDone: onDone
+                    onOpen: onOpen
                 )
             }
         } footer: {
