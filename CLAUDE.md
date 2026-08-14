@@ -141,7 +141,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LSPInstallEngine.swift` — download → verify → unpack → one rename; state from the disk, coalescing, `sweepStaging()` (D12–D14).
 - `LSPProvisioning.swift` — `LSPServerConsent`, the row/prompt values, and `LSPProvisioningModel` (consent, installs, the published registry).
 
-`docs/architecture/core-leetcode.md` — the LeetCode integration (login, open problem, solution file, statement panel, Run/Submit), incl. decisions L1–L22 and the known limits:
+`docs/architecture/core-leetcode.md` — the LeetCode integration (login, open problem, solution file, statement panel, Run/Submit, the problem browser), incl. decisions L1–L25 and the known limits:
 - `LeetCodeTransport.swift` — the one app/Core boundary: request/response value types + the seam protocol.
 - `LeetCodeCredentials.swift` — the session pair, the pure cookies→credentials rule, the store protocol (absence ≡ signed out).
 - `LeetCodeError.swift` — the nine typed failures; `apiChanged(detail:)` names the key path, the judge's two are product refusals.
@@ -151,10 +151,12 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LeetCodeProblemInput.swift` — number / slug / URL parsing; `normalizedSlug(_:)`, the one slug rule (L4).
 - `LeetCodeSolutionFile.swift` — offerable-language rows, `0001-two-sum.swift` and its inverse (L5), extension → language (L19), the seeded contents.
 - `LeetCodeCacheLayout.swift` — pure path math over the cache base; the slug-sanitising rule.
-- `LeetCodeCatalog.swift` — number → slug: day-long staleness + forced-refresh-on-miss (L6), the versioned on-disk DTO, the degrading write (L8).
+- `LeetCodeCatalog.swift` — number → slug: day-long staleness + forced-refresh-on-miss (L6), the versioned on-disk DTO, the degrading write (L8), `loadIfNeeded` (the browser's entry point).
+- `LeetCodeProblemFilter.swift` — the browser's one pure filter: exact number query (L4 reused), case-insensitive title/slug substring, set membership, no `isPaidOnly` dimension (L23).
 - `LeetCodeStatementDocument.swift` — the themed statement document (colours as values) + `LeetCodeStatementCache` (blank ≡ absent).
 - `LeetCodeModel.swift` — the main-actor flow: account, `openProblem` (never overwrites, L12), the active tab's statement, three generation counters (L10), the judge-context memo (L21).
 - `LeetCodeJudgeModel.swift` — the judge flow (L17): availability as sentences, `prepare`, run/submit, the deadline-bounded poll (L18), the fourth generation token, the session-state input box (L20).
+- `LeetCodeBrowserModel.swift` — the browser companion (L25): filter/rows/fetch-time, `load`/`refresh`, availability as a sentence, the fifth generation token, rows cleared on a session change (L24).
 
 `docs/architecture/core-git.md` — git protocol, status & blame:
 - `GitError.swift` — typed `GitServicing` failures with user-facing `errorDescription`.
@@ -252,9 +254,11 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `LeetCodeLoginView.swift` / `iOS/LeetCodeLoginView_iOS.swift` — the sign-in sheet / full-screen cover: chrome around the shared observer; dismiss first, confirm behind it.
 - `LeetCodeOpenProblemSheet.swift` — the macOS sheet, the `LeetCode` menu items, and `LeetCodeFolderChooser` (an unsandboxed plain path, written to both halves).
 - `LeetCodeDescriptionView.swift` — the macOS statement pane: an `HStack` sibling, observed in the pane, reloaded only when the composed HTML differs.
-- `iOS/LeetCodeRoute_iOS.swift` — `LeetCodeFolder_iOS` (container default without a bookmark, override with one) + the one iOS account/open screen.
+- `iOS/LeetCodeRoute_iOS.swift` — `LeetCodeFolder_iOS` (container default without a bookmark, override with one) + the one iOS account/open screen (and the push to the browser).
 - `iOS/LeetCodeDescriptionView_iOS.swift` — the adaptive statement: pane on regular width, sheet on compact, one shared content view.
 - `LeetCodeJudgeView.swift` / `iOS/LeetCodeJudgeView_iOS.swift` — the judge section under the statement: observes `model.judge`, non-observed workspace, full error text; iOS adds the keyboard rules.
+- `LeetCodeBrowserWindowController.swift` / `LeetCodeBrowserView.swift` — the single macOS browser window (⌘⇧B, `ProjectSearchWindowController`'s shape) and its search/filters/table/footer, observing `model.browser`.
+- `iOS/LeetCodeBrowserView_iOS.swift` — the pushed iOS browser screen: `.searchable`, a filter `Menu`, `.refreshable`, a lazy uncapped list, open on tap.
 
 `docs/architecture/app-window.md` — window chrome (macOS):
 - `ContentView.swift` — window layout: splits, bottom dock, path bar, sheet wiring, deliberately non-observed `commitDialog`.
@@ -358,7 +362,12 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   keep that sentence true rather than weakening it**: the judge reads the *live
   editor buffer* (never the disk copy — nobody has to save first), posts it, polls
   for a verdict and publishes value types, creating and rewriting nothing at all,
-  so the one create is still `openProblem`'s. All schema
+  so the one create is still `openProblem`'s. **The problem browser narrows it
+  further**: it creates nothing and owns no cache of its own — it filters the
+  catalog already in hand (no new wire surface, L23) and opens a row through
+  `openProblem` itself, so there is no second open path and LC-1's one create stays
+  the only create in the area. Not write-*free*, though: a stale `load()` and every
+  `refresh()` rewrite the catalog's own `catalog.json` (`core-leetcode.md`). All schema
   knowledge is in one Core file, every operation requires a login, and opening a
   problem never changes the project root (`core-leetcode.md`).
 - **Open-tab resync** after an operation rewrites the worktree: buffers are

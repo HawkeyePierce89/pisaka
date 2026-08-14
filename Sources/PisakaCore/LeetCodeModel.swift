@@ -148,6 +148,17 @@ public final class LeetCodeModel: ObservableObject {
     /// matter.
     public private(set) lazy var judge = LeetCodeJudgeModel(owner: self)
 
+    /// The problem browser: the search field, the filters and the rows they leave.
+    ///
+    /// Owned here exactly as `judge` is, `lazy` for the same one reason lazy is
+    /// ever right (it is constructed with `self`), and separate for the same
+    /// reason: the browser surfaces observe *it*, so typing in the search field
+    /// invalidates the list rather than every view bound to the account, the
+    /// statement or the judge. It reads the `catalog` above — there is one
+    /// catalog, one disk cache and one staleness clock — and holds an `unowned`
+    /// reference back here for the session; see `LeetCodeBrowserModel`.
+    public private(set) lazy var browser = LeetCodeBrowserModel(owner: self)
+
     // MARK: - Published state
 
     /// The account name LeetCode last confirmed, or `nil` when signed out or not
@@ -162,14 +173,16 @@ public final class LeetCodeModel: ObservableObject {
     /// duration of a network round trip to somebody who is signed in. LeetCode's
     /// own `isSignedIn == false`, wherever it appears, is what clears it.
     ///
-    /// The observer is how the judge's buttons hear about a session change. It is
-    /// here rather than at the three places that write this property because two
-    /// of them (`markSessionRejected()`/`markSessionAccepted()`) are reached from
+    /// The observer is how the judge's buttons and the browser's list hear about a
+    /// session change. It is here rather than at the three places that write this
+    /// property because two of them
+    /// (`markSessionRejected()`/`markSessionAccepted()`) are reached from
     /// arbitrary request paths, including the judge's own — one writer, one hook.
     @Published public private(set) var isSignedIn: Bool {
         didSet {
             guard oldValue != isSignedIn else { return }
             judge.sessionDidChange()
+            browser.sessionDidChange()
         }
     }
 
@@ -355,6 +368,13 @@ public final class LeetCodeModel: ObservableObject {
         let stored = credentialStore.load()
         self.cachedCredentials = stored
         self.isSignedIn = stored != nil
+        // The catalog's rows carry a per-account `status`, and it cannot tell on
+        // its own which account is the current one — so it is told, here and from
+        // `invalidateInFlightWork()`. **Only when there is something to tell:** an
+        // undeclared catalog is unconstrained, and a session the Keychain hands
+        // back later (locked at launch is the ordinary way that happens) must not
+        // be mistaken for one this app has superseded.
+        if let stored { catalog.sessionDidChange(to: stored) }
     }
 
     // MARK: - The account
@@ -371,7 +391,7 @@ public final class LeetCodeModel: ObservableObject {
     public func signIn(with credentials: LeetCodeCredentials) async throws -> String? {
         accountGeneration += 1
         let generation = accountGeneration
-        invalidateInFlightWork()
+        invalidateInFlightWork(newSession: credentials)
         // The same clearing `signOut()` does, and for the same reason: these two
         // sets are this *session's* conclusions about slugs, so a session change
         // starts them over. Both directions matter — a session can end without a
@@ -492,7 +512,7 @@ public final class LeetCodeModel: ObservableObject {
     /// would re-ask the question until they switched tabs and back.
     public func signOut() {
         accountGeneration += 1
-        invalidateInFlightWork()
+        invalidateInFlightWork(newSession: nil)
         cachedCredentials = nil
         // Raised whether or not the delete succeeded — see the flag's own note:
         // a Keychain that refuses it must not leave a session every later
@@ -1038,10 +1058,29 @@ public final class LeetCodeModel: ObservableObject {
     /// The judge's token is bumped here with the other two — a poll in flight is
     /// invalidated by a session change exactly as a fetch is, and the memo its
     /// question id came from is emptied by the same two callers.
-    private func invalidateInFlightWork() {
+    ///
+    /// **The browser's is bumped here for the reason the observer below is not
+    /// enough.** `isSignedIn`'s `didSet` only fires when the flag *moves*, and
+    /// `signIn(with:)` is reached with it already `true` whenever
+    /// `markSessionAccepted()` has put a rejected session back — so that path
+    /// alone would leave one account's rows and solved marks standing under the
+    /// next account's name. Both companions therefore hear about a session from
+    /// both doors: this one for a replacement, the observer for a change.
+    ///
+    /// **The catalog is told the new session rather than merely invalidated**,
+    /// because a generation cannot answer the question it has. Everything else here
+    /// is superseded by *start order* — a token bumped before the first `await`, and
+    /// work that comes back to find it moved publishes nothing — but the catalog's
+    /// callers suspend before they reach it, so one holding the old session can
+    /// start its fetch *after* the new session has started one and be the newest by
+    /// that measure. What may publish is decided by whose session it is, and this
+    /// is the only place that knows (`LeetCodeCatalog.declaredSession`).
+    private func invalidateInFlightWork(newSession: LeetCodeCredentials?) {
         openGeneration += 1
         statementGeneration += 1
+        catalog.sessionDidChange(to: newSession)
         judge.invalidateInFlightWork()
+        browser.invalidateInFlightWork()
     }
 
     private func beginWork() {

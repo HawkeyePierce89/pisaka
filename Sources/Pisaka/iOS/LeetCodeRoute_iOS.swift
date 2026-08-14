@@ -258,6 +258,7 @@ struct LeetCodeRoute_iOS: View {
             Form {
                 accountSection
                 problemSection
+                browseSection
             }
             .navigationTitle("LeetCode")
             .navigationBarTitleDisplayMode(.inline)
@@ -354,6 +355,37 @@ struct LeetCodeRoute_iOS: View {
             Text("Open Problem")
         } footer: {
             status
+        }
+    }
+
+    /// The way to the problem browser — the one new entry point on this platform,
+    /// and the peer of the macOS `LeetCode ▸ Browse Problems…` menu item.
+    ///
+    /// A `NavigationLink` in a section of its own rather than a second sheet:
+    /// this screen already hosts the `NavigationStack`, so the browser pushes onto
+    /// it and the back button returns here — and a sheet over a sheet would have to
+    /// re-present the sign-in cover from a third level.
+    ///
+    /// `onOpen` is forwarded unchanged, so a row tapped over there runs exactly the
+    /// open a slug typed over here does — `onDone` deliberately is *not*: that
+    /// handler already takes this sheet down on a successful open, and the browser
+    /// cannot tell that outcome from a withdrawn one (both answer `nil`), so
+    /// forwarding it would let a cancelled open dismiss the whole screen.
+    /// `model.browser` is the companion model the owner already holds; reaching it
+    /// does not observe it.
+    @ViewBuilder
+    private var browseSection: some View {
+        Section {
+            NavigationLink("Browse Problems") {
+                LeetCodeBrowserView_iOS(
+                    browser: model.browser,
+                    settings: settings,
+                    model: model,
+                    onOpen: onOpen
+                )
+            }
+        } footer: {
+            Text("Search the problem list by number, title or slug.")
         }
     }
 

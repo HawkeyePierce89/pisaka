@@ -61,6 +61,18 @@ public enum LeetCodeProblemInput: Equatable, Hashable, Sendable {
         return nil
     }
 
+    /// Whether this text is reaching for a problem *number* — rule 3's own test,
+    /// asked on its own.
+    ///
+    /// ``parse(_:)`` answers `nil` both to "these are not digits" and to "these
+    /// are digits that name no problem" (`0`, or more digits than an `Int` holds),
+    /// and a caller that must tell those apart would otherwise restate the digit
+    /// rule beside this type — which is how the browser's filter came to search
+    /// titles for `0`. Exported so it stays one rule with one spelling.
+    public static func isNumberAttempt(_ text: String) -> Bool {
+        isAllDigits(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     /// The canonical answer to "is this a slug, and how is it spelled".
     ///
     /// Written down once and reused by `LeetCodeSolutionFile`'s reverse

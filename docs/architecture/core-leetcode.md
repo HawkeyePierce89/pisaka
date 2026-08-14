@@ -1,9 +1,10 @@
-# PisakaCore — the LeetCode integration (LC-1: login, open problem, solution file, description panel; LC-2: Run and Submit)
+# PisakaCore — the LeetCode integration (LC-1: login, open problem, solution file, description panel; LC-2: Run and Submit; LC-3: the problem browser)
 
 Design documentation for the layer that signs in to LeetCode, turns a number, a
 slug or a pasted URL into a solution file inside a folder the user set aside for
-it, renders the problem statement beside the editor, and runs or submits what the
-user has typed there. Each entry records a
+it, renders the problem statement beside the editor, runs or submits what the
+user has typed there, and browses the whole problem list to find the next one.
+Each entry records a
 file's contract, invariants and the reasoning behind non-obvious decisions —
 read the relevant entry before modifying that file, and update it when behavior
 changes.
@@ -12,12 +13,14 @@ changes.
 app-side, one file holding every fact about LeetCode's wire format, two pure
 string layers (what the user typed, and how a file name names a problem), a
 disk-cached problem catalog, a composed HTML document for the statement, one
-`@MainActor ObservableObject` that sequences the awaits, and a second one beside
-it — a companion model — holding the judge's own state machine. On top of that sit
+`@MainActor ObservableObject` that sequences the awaits, and two companion models
+beside it — one holding the judge's own state machine, one holding the browser's
+filter and rows. On top of that sit
 the app halves: a `URLSession` transport, a cross-platform Keychain store, a shared
 `WKNavigationDelegate` that watches the login cookie store, and per-platform
-chrome (a macOS menu + sheet + pane, an iOS screen + adaptive pane/sheet), the
-last two of which host the judge section under the statement.
+chrome (a macOS menu + sheet + pane + browser window, an iOS screen + adaptive
+pane/sheet + pushed browser screen), the pane and the sheet of which host the
+judge section under the statement.
 
 **The API is unofficial, and the whole design is shaped by that.** LeetCode
 publishes no contract, no versioning and no deprecation notice. Three rules
@@ -63,9 +66,10 @@ to exercise the part with the decisions in it.
 send, and what an answer means) → `LeetCodeProblemInput` + `LeetCodeSolutionFile`
 (the two pure string layers) → `LeetCodeCacheLayout` + `LeetCodeCatalog` (number
 → slug, cached for a day) + `LeetCodeStatementDocument`/`LeetCodeStatementCache`
-(the panel's bytes) → `LeetCodeModel` (the one place that sequences awaits) +
-`LeetCodeJudgeModel` (the companion it owns, which sequences the judge's) →
-the app surfaces.
+(the panel's bytes) + `LeetCodeProblemFilter` (the browser's one pure pass over
+catalog rows) → `LeetCodeModel` (the one place that sequences awaits) +
+`LeetCodeJudgeModel` and `LeetCodeBrowserModel` (the two companions it owns,
+which sequence the judge's awaits and the browser's) → the app surfaces.
 
 **A reader with exactly one create.** The model never calls
 `autosave.suspend()`/`localChanges.beginRevert()` and is never gated by them —
@@ -82,8 +86,17 @@ pure reader. It takes the *live editor buffer* — never the disk copy, so nobod
 has to save first — posts it, polls for a verdict and publishes value types. It
 creates nothing, rewrites nothing, and touches neither the solution file nor
 either cache, so the one create the sentence names is still `openProblem`'s.
+**The browser narrows it further still**: it *creates* nothing and owns no cache
+of its own — it reads the catalog the rest of the area already keeps, filters it
+in memory, and opens a row through `openProblem` itself, so there is no second
+open path and no second cache anywhere in this area. What it is not is
+write-free: a `load()` that finds the catalog stale, and every `refresh()`,
+rewrite `catalog.json` through `LeetCodeCatalog` — the catalog's own write, in
+the catalog's one file, on the catalog's schedule, but reachable from a button
+where before LC-3 only an open could reach it. Neither the write nor the gate
+changes: the file is under `Application Support`, not in the worktree.
 
-The decisions L1–L22 are written out at the end of this document, together with
+The decisions L1–L25 are written out at the end of this document, together with
 the limits the design carries.
 
 ## Files
@@ -548,15 +561,78 @@ the limits the design carries.
     clock that moved backwards (or a cache file copied from another machine)
     cannot pin the catalog until the calendar catches up. `refresh` is **coalesced**
     (`refreshTask`), because two problems opened at once is the ordinary way two
-    2 MB downloads used to happen. That task is unstructured, so the wait for it is
+    2 MB downloads used to happen — **and coalesced per session**
+    (`refreshCredentials`), because the rows carry a per-account `status` and a
+    fetch made under one session is not an answer to a caller holding another. Every
+    caller in the case coalescing exists for holds the same pair; a caller holding a
+    different one pays for its own download instead of being handed the previous
+    account's solved marks. Without that key, a browser `refresh()` right after
+    signing in as somebody else joined the previous account's in-flight fetch and
+    published *its* marks under the new account's name — the one thing that surface
+    must never show — and, because the publish stamps a fresh `fetchedAt`, pinned
+    them for a day against the very Refresh that L24 names as the way out.
+    Two fetches can therefore be alive at once, which is what `refreshGeneration`
+    is for: only the newest may publish (an older one that lands last returns its
+    snapshot to whoever awaited it and writes nothing — publishing would put the
+    previous session's rows back over the current one's, cache file included) and
+    only the newest may clear the `refreshTask` slot, so an older one's `defer`
+    cannot open the coalescing window while the newer download is still running.
+    **Start order is not session currency, though, so the catalog is *told* which
+    session is the current one** (`sessionDidChange(to:)`/`declaredSession`), from
+    `LeetCodeModel.invalidateInFlightWork(newSession:)` and at launch. The
+    generation orders refreshes by the moment they *start*, and a caller holding a
+    replaced session can start one **last**: every door into this type suspends
+    before it fetches (the disk read, and the browser's catalog work is deliberately
+    shielded in an unstructured task a session change does not cancel), so a
+    straggler resumes after the new account has already asked, finds a session key
+    that no longer matches, and starts a fetch that is the newest by start order —
+    publishing the previous account's `status` column over the current account's,
+    fresh `fetchedAt` and cache file included. Only the app knows which session it
+    still holds, so it says, and that is what the guard asks: a refresh under a
+    replaced session is **not made at all** (its rows could never be published, and
+    the request would carry a cookie the user has replaced, whose 403 is classified
+    as `notLoggedIn` — a sentence about the *current* session that is not true of
+    it), it does not throw (the caller was invalidated by the same hook, so its
+    result is already discarded), and it does not disturb the current session's
+    fetch. The check is made **after** the download too, because a session change
+    starts no refresh of its own: a sign-out mid-fetch leaves the generation
+    unmoved, and the fetch already running would otherwise land the departing
+    account's marks in the cache with a fresh `fetchedAt` for the next account to
+    inherit for a day. **And once more on the far side of the cache encode**, which
+    is the last suspension before the write: the ~2 MB `CachedCatalog(…).json()`
+    runs off the actor and hands it back for the whole of its duration, so a
+    sign-out landing *there* used to walk straight through the post-download guard
+    one line above it and write the departing account's `status` column to
+    `catalog.json` anyway — the same failure, made durable, since a file stamped
+    `fetchedAt = now` outlives the process the in-memory publish dies with. The
+    publish itself is deliberately **not** undone on that path (it was correct when
+    it happened, and the browser clears its rows on the same hook); the rule is only
+    that nothing outliving the process may be written for a session this app has
+    left. **Undeclared means unconstrained**, deliberately — a catalog
+    nobody has told about sessions behaves exactly as it did before — which is why
+    the owner declares at launch only when it *has* a stored session: one the
+    Keychain hands back later, having been locked at launch, must not be mistaken
+    for one this app has superseded.
+    That task is unstructured, so the wait for it is
     wrapped in `withTaskCancellationHandler`: `Task { }` inherits no cancellation
     and `task.value` does not observe the *awaiting* task's either, so pressing Esc
     in the Open Problem sheet used to leave `openProblem` suspended until the
     download finished or the transport's 60-second resource timeout fired — with
     `beginOpen()`'s counter still raised, i.e. the next sheet came up entirely
-    disabled. Cancelling the waiter now cancels the fetch; a second, uncancelled
-    caller coalesced onto it sees `network(reason: "cancelled")` and can retry,
-    which is the cheaper of the two failures. The `refreshTask` slot is cleared
+    disabled. Cancelling the waiter now cancels the fetch — **and the caller that
+    merely joined that fetch retries it rather than reporting it**. That
+    cancellation reaches the *shared* task, so one surface's Esc is another
+    surface's failure: the browser, never cancelled itself, published
+    `network(reason: "cancelled")` about a question its user never asked, over an
+    empty list that nothing re-arms (only a by-hand Refresh did). So a caller that
+    joined a fetch it did not start, was not cancelled itself, and saw that fetch
+    cancelled out from under it asks again on its own behalf. **At most once**: the
+    retry starts its own task, so the next turn coalesces onto nothing and rethrows,
+    and a flag covers the one remaining shape — a third caller having reopened the
+    slot in between — so the loop is bounded whatever the interleaving. The cost is
+    one extra request in a case that only a withdrawal produces; the alternative was
+    a sticky error sentence on a surface that renders errors permanently. The
+    `refreshTask` slot is cleared
     from **inside** the task rather than in the initiating caller's `defer`, so the
     coalescing window is the task's own lifetime — a caller that goes away while
     the fetch runs on must not open the slot for a second 2 MB download.
@@ -587,7 +663,15 @@ the limits the design carries.
     too is that the rule must not hold merely because `parse(_:)` happens to be the
     only producer today. **An empty catalog is never published or cached**: a
     shape-valid zero-row response would poison the cache for a day and make every
-    open report "no such problem", so it is `apiChanged`.
+    open report "no such problem", so it is `apiChanged`. That rule is enforced at
+    **both** doors — `CachedCatalog.init?(json:)` rejects a zero-row file exactly
+    as it rejects an unknown difficulty, because a file with no rows and a recent
+    `fetchedAt` decodes cleanly (the row validation has nothing to run over) and
+    would publish a snapshot that is not stale, so `loadIfNeeded` would return
+    without fetching and the browser would sit on "No problems loaded." with no
+    error for a day. `resolveSlug(forNumber:)` has the forced-refresh-on-miss
+    escape hatch from that; `loadIfNeeded` has none, so the rule belongs on the
+    file rather than on either reader.
     `publish` rebuilds two indices (`number → slug`, `slug → problem`) rather than
     searching four thousand rows per keystroke, and on a duplicate number or slug
     the **first** row wins, so the answer is LeetCode's own ordering.
@@ -633,6 +717,58 @@ the limits the design carries.
     user asked to open a problem and that succeeded; the cost of the degradation is
     one extra fetch next launch, which they never see. (`StubFileTree` gained a
     `writeFailures` injection point so it is assertable.)
+    *The browsing entry point.* `loadIfNeeded(credentials:)` is the one door for a
+    reader that wants **the whole list** rather than one answer: the disk cache
+    once (`loadFromDiskIfNeeded()`), then a fetch **only when `isStale`**
+    (`refresh(credentials:)`). Both are the existing coalesced ones, so two
+    surfaces appearing at once still read the file once and fetch once, and
+    nothing new is decided — `maximumAge`, the DTO and `currentSchemaVersion` are
+    untouched, and the result is read off the same public `problems`/`fetchedAt`
+    accessors every other reader uses. `resolveSlug(forNumber:)` is the *wrong*
+    door for it, which is why this exists at all: that one forces a refresh when
+    the number it was asked about is missing, and a browser asks about no number,
+    so every empty search field would have paid for a 2 MB download. **It throws
+    whatever the refresh threw**, deliberately — the one place `resolveSlug`'s
+    "stale rows beat no rows" degradation is *not* applied, because that rule needs
+    to know what the caller will do with the rows and here the caller is a surface
+    with a list already on screen: it keeps what it shows, puts the error beside
+    it, and reads the still-populated `problems` off the same accessor. Swallowing
+    the failure here would leave that surface unable to tell a refresh that landed
+    from one that never happened (L23/L24).
+  - `LeetCodeProblemFilter.swift` — what the browser is currently showing, as one
+    pure `Equatable, Sendable` value: `query`, `difficulties`, `statuses`, and
+    `apply(to rows:)`. **The browser is a client-side filter over the one catalog**
+    (L23) — every row is already in hand, so narrowing is a pass over an array
+    rather than an endpoint, which is why nothing was added to `LeetCodeAPI.swift`
+    for any of this.
+    It is *one value* rather than three fields on the model so there is exactly one
+    place to recompute from, and so no surface can set a field and forget to re-run
+    the filter. `apply(to:)` is **one pass and no sort**, so catalog order is
+    preserved *by construction* rather than by a sort that could later drift out of
+    agreement with LeetCode's own ordering.
+    The rules: the query is trimmed of whitespace and newlines and an empty (or
+    all-whitespace) one matches everything; **whether it is a number is asked
+    through `LeetCodeProblemInput.parse(_:)`**, so L4 is reused rather than
+    restated, and a `.number(n)` matches `frontendID == n` **exactly and nothing
+    else** — typing `1` answers problem 1, not the ~1000 rows whose number begins
+    with a 1; every other parse result (a slug, a URL, nothing at all) falls
+    through to a substring match on the raw trimmed query, so a pasted problem URL
+    matches nothing here and the Open Problem field stays that paste's surface;
+    the substring match is case-insensitive over the **title or the slug** through
+    `range(of:options:)` and deliberately *not* the `localized…` variants, so the
+    answer does not depend on the device's locale and the table test is stable; and
+    difficulty and status are set membership where an **empty set means no
+    filtering**, so "nothing selected" and "everything selected" behave identically
+    — which is exactly what a row of toggles needs and why neither surface has an
+    "All" case to keep in sync.
+    **`isPaidOnly` is not a dimension of this type at all.** Premium rows are always
+    listed (with a lock marker on the surface) and can never be hidden: hiding them
+    would leave gaps in LeetCode's numbering that read as missing problems. Stating
+    that as an *absent field* rather than as a flag defaulted to `false` is what
+    makes it structural instead of a default somebody can flip.
+    `isEmpty` (no query, no difficulty selection, no status selection) exists so a
+    surface can tell "no problems match your filter" from "no problems at all" —
+    two different sentences with two different fixes.
   - `LeetCodeStatementDocument.swift` — the panel's whole document, composed here
     so both platforms' web views are thin. LeetCode answers `question.content` with
     an HTML **fragment**: no `<html>`, no charset, no stylesheet, and `<img src>`s
@@ -920,7 +1056,18 @@ the limits the design carries.
     `markSessionAccepted()`) are reached from arbitrary request paths including the
     judge's own: one writer, one hook. `invalidateInFlightWork()` bumps the judge's
     token with the other two (L17), since a poll in flight is invalidated by a
-    session change exactly as a fetch is.
+    session change exactly as a fetch is — **and the browser's with them** (L25),
+    because that observer only fires when the flag *moves* and `signIn(with:)` is
+    reached with it already `true` whenever `markSessionAccepted()` has put a
+    rejected session back. Both companions therefore hear about a session through
+    both doors: this one for a replacement, the observer for a change.
+    **The catalog is *told the new session* rather than merely invalidated**
+    (`invalidateInFlightWork(newSession:)` → `catalog.sessionDidChange(to:)`, and
+    the stored session at launch): everything else here is superseded by start
+    order, but the catalog's callers all suspend before they reach it, so one
+    holding the replaced session can start its fetch after the new one and be the
+    newest by that measure. Which session's rows may still land is a question only
+    this model can answer — the reasoning is on `LeetCodeCatalog` above.
     *Plumbing.* Every request goes through one `send` that folds a non-`LeetCodeError`
     into `network`, so a decorator or a stub cannot escape this layer's vocabulary
     (the same fold `LeetCodeCatalog` applies). A Keychain that refuses the item does
@@ -1040,6 +1187,106 @@ the limits the design carries.
     problem's own examples joined by LeetCode's newline convention, sent verbatim
     by Run, **ignored entirely by Submit**, never written to disk, never carried
     across launches, reset when the problem changes.
+  - `LeetCodeBrowserModel.swift` — the third `@MainActor ObservableObject` of this
+    area: the filter the user is typing into, the rows it leaves, and the two ways
+    the catalog behind them is brought up to date. **A companion model owned by
+    `LeetCodeModel` the way `catalog` and `judge` are** (L25), for the judge's two
+    reasons: the owner is already the largest file here, and the browser surfaces
+    observe *this* object, so a keystroke in the search field invalidates the list
+    alone rather than every view bound to the account, the statement or the judge.
+    The back-reference is `unowned` and deliberately not a protocol seam — what it
+    needs (the session and the one catalog) is `LeetCodeModel`'s and nothing
+    else's, and the suite drives it through a real model over the scripted
+    transport. It is a `lazy var` for the judge's reason: it is constructed with
+    `self`.
+    *What it publishes.* `filter` (the one bindable value, whose `didSet` is **the
+    one place filtering is recomputed**, so a surface cannot set a field and forget
+    to re-run it — and which takes no generation token, because
+    `LeetCodeProblemFilter.apply(to:)` is synchronous and pure and there is nothing
+    to supersede); `problems` (everything the catalog knows) and `visibleProblems`
+    (what the filter leaves), both **stored rather than computed**, since a
+    computed `visible` would re-filter four thousand rows on every SwiftUI body
+    evaluation, which is several per keystroke; `fetchedAt` (what the "Updated …"
+    line renders from); `isLoading`; the typed `lastError`; and `availability`.
+    `LeetCodeBrowserAvailability` is the judge's availability shape narrowed to two
+    cases — `.ready` / `.notSignedIn`, the refusal carrying **the sentence the
+    surface shows** ("Sign in to LeetCode to browse problems."). **Signed out is a
+    value this browser renders, not an error it dumps**: nobody asked a question
+    that failed, there is simply no session yet, and neither platform view has to
+    invent a sentence for a `Bool`.
+    *The two entries.* `load()` is the idempotent one both surfaces call on appear
+    — it goes through `catalog.loadIfNeeded`, so re-entering the browser inside the
+    staleness window costs **no request at all**. `refresh()` is the explicit
+    affordance, through `catalog.refresh`, and is the only way a solved mark from
+    five minutes ago reaches the screen (L24). Both share one private `update`,
+    which resolves the session **synchronously before anything suspends**: no
+    session publishes `.notSignedIn`, clears no rows and records no error.
+    **A failure with rows in hand keeps them** — `resolveSlug`'s degradation rule
+    on this axis — so the typed error is published *beside* the rows rather than
+    instead of them; with no rows anywhere it stands alone. `adoptCatalog()` is
+    guarded on the catalog holding anything at all, so a failed refresh can still
+    surface rows the disk read produced and can never blank a populated list.
+    `publish(_:)` runs `markSessionRejected()` **before** setting the sentence,
+    because that flips `isSignedIn`, which calls `sessionDidChange()` here, which
+    clears `lastError` — the reverse order would wipe the very sentence it is
+    reporting. `currentCredentials()` asks *both* halves (`isSignedIn` and the
+    store), so the browser cannot go on fetching under a session every other
+    surface has already stopped believing in (L11).
+    *The fifth generation token* obeys the other four's rule exactly: bumped
+    synchronously before the first `await`, checked after every suspension, and an
+    attempt that comes back to find it moved publishes **nothing at all, the
+    spinner included** — clearing `isLoading` there would switch off one a newer
+    attempt turned on. Cancellation is separate and handled by `Task.isCancelled`
+    (the view's task going away makes `URLSession` throw, and a request nobody
+    waited for must not put a sentence on screen), but the spinner *is* cleared on
+    that path, because nobody else will. It is bumped by `load()`, `refresh()` and
+    both session hooks below.
+    *The one shield in this area.* `update` runs the catalog call inside an
+    **unstructured `Task` it then awaits**, so this task's cancellation does not
+    reach it. `LeetCodeCatalog.refresh` cancels the *shared*, coalesced 2 MB fetch
+    when the caller awaiting it is cancelled — the right trade where that caller is
+    the Open Problem sheet, whose canceller is an explicit Esc. Here the canceller
+    is SwiftUI tearing down a `.task` because a window closed or a screen was
+    popped: routine, and no withdrawal of anybody *else's* question, so an open
+    coalesced onto the same download would have failed with `network(reason:
+    "cancelled")` on a catalog it still needed. An unstructured `Task` inherits no
+    cancellation and `value` does not observe the awaiting task's either, so the
+    fetch runs on for whoever is waiting on it while this browser still publishes
+    nothing — the `Task.isCancelled` check above is what makes both true at once.
+    The shield is one direction only, and `refresh`'s retry is the other: this
+    keeps the browser's teardown from failing somebody else's open, and that keeps
+    somebody else's Esc from failing the browser's load.
+    *The session hooks — two of them, like the judge's.* `sessionDidChange()` is
+    called from `LeetCodeModel`'s `isSignedIn` observer beside the judge's, and it
+    bumps the token, recomputes `availability`, clears the error and **clears the
+    rows**. That last is the point: the status column is per-account, so leaving one
+    account's solved marks standing under another's name is the single wrong thing
+    this surface could show. The catalog's own cache is per app rather than per
+    account, so the next `load()` republishes from it — and inside the staleness
+    window republishes the *previous* account's marks until a `refresh()`, which is
+    the limit L24 states rather than hides.
+    `invalidateInFlightWork()` is the second door, called from
+    `LeetCodeModel.invalidateInFlightWork()` beside the judge's, and it exists
+    because the observer **is guarded on the flag actually moving**: `signIn(with:)`
+    is reached with `isSignedIn` already `true` whenever `markSessionAccepted()` has
+    put a rejected session back — the ordinary shape when an authenticated request
+    answers while the login sheet that rejection opened is still up — so that path
+    alone left the previous account's rows and marks standing and the token unmoved,
+    and a `load()` still in flight under the old session published over the new one.
+    It is exactly `sessionDidChange()`'s work (here the two questions have one
+    answer: every row is per-account) and idempotent, which is what lets both hooks
+    fire on the paths that trigger both.
+    *Clearing the rows and re-arming the load are one act*, which is why
+    `sessionDidChange()` also bumps `sessionEpoch` and why `loadKey` — the
+    `LeetCodeBrowserLoadKey` pair of `(availability, sessionEpoch)` — rather than
+    `availability` alone is what both surfaces run their `.task(id:)` from.
+    Availability cannot be that key by itself, and the second door is exactly the
+    case that proves it: on a *replacement* the flag never moves, so `availability`
+    is `.ready` on both sides of a hook that just emptied the list, the surface's
+    task is never re-run, and a **successful** sign-in leaves the browser on "No
+    problems loaded." until the user presses Refresh by hand. The epoch is what
+    moves there; `loadKey` is computed from the two published halves rather than
+    stored, so no third piece of state can fall out of step with them.
   - `SettingsStore.swift` (modified; the entry is in `core-services.md`) — three
     stable keys: `leetCodeFolderPath` (a plain path, stored verbatim; a value
     that is blank once trimmed normalises to `nil` so "unset" has one spelling,
@@ -1267,7 +1514,11 @@ the limits the design carries.
     the scene's `body` — and with it `ContentView`, the project tree, the tab list
     and `CodeEditorView.updateNSView` — a subscriber to every statement fetch: the
     `commitDialog`/`symbolIndex` rule applied to a surface that genuinely does need
-    to observe. Nothing in the menu is gated on a project being open.
+    to observe. Nothing in the menu is gated on a project being open — including
+    **"Browse Problems…" (⌘⇧B)**, which sits beside "Open Problem…" above the
+    divider because the two are the same action reached two ways: type a problem
+    you know, or find one you do not. The shortcut was free in this app's audit.
+
     `LeetCodeFolderChooser` is **a plain persisted path with no security-scoped
     bookmark**, because this app ships no `.entitlements` and `project.yml` enables
     no App Sandbox — the macOS build is unsandboxed and reaches any path the user
@@ -1396,6 +1647,66 @@ the limits the design carries.
     inside them, and the case rows are `result.caseCount` — both decisions live on
     `LeetCodeRunResult` rather than here, since they are statements about
     LeetCode's arrays and this file is meant to hold none.
+  - `LeetCodeBrowserWindowController.swift` (macOS) — owns the single, non-modal
+    problem browser window (⌘⇧B). `ProjectSearchWindowController` verbatim in
+    shape — a retained `EscClosableWindow` hosting a SwiftUI root through an
+    `NSHostingController`, released on close by a per-window delegate held
+    alongside it (`NSWindow.delegate` is `weak`), with `closeAll()` wired into the
+    app's `willTerminateNotification` observer beside the diff/merge/search/
+    source-viewer controllers — and for exactly its reason: there is **one**
+    `LeetCodeBrowserModel` behind this window, carrying one filter and one row
+    list, so two windows over it would fight over that filter the way two Find in
+    Files windows would fight over one query. A repeat ⌘⇧B therefore focuses the
+    window that exists, and an existing window has its root view *replaced* rather
+    than reused, so it picks up the app's current closures. `windowNumber` is
+    exposed for one caller: raising the editor window *behind* this one is an
+    `order(.below, relativeTo:)` and needs it.
+  - `LeetCodeBrowserView.swift` (macOS) — the window's contents: the search field,
+    the language picker and the two rows of filter toggles at the top, the `Table`
+    below, the count/error/fetch-time/Refresh footer at the bottom.
+    **It observes `LeetCodeBrowserModel`, not `LeetCodeModel`** — which is the
+    whole reason the browser is a companion model: a text field bound to
+    `browser.filter.query` re-renders this view on every keystroke, and observing
+    the owner would put the account state, the statement and the judge on that
+    path. The owner arrives as a **non-observed plain `let`**, held only to hand to
+    the nested `LeetCodeLoginView`; whether this window shows a list or a sign-in
+    offer comes from `browser.availability`, which the owner's `isSignedIn`
+    observer keeps current, so nothing here watches the model to stay right.
+    The load is a `.task(id: browser.loadKey)`, which covers every half with one
+    rule: the load on appear, the re-arm after a sign-in that flips availability,
+    and the re-arm after a session *replacement*, which clears the rows while
+    leaving availability where it was (the case availability alone cannot see —
+    `LeetCodeBrowserLoadKey`). Inside the staleness window that load costs no
+    request, which is what makes re-entering the window free.
+    The language `Picker` is bound to `settings.leetCodeLanguage` — the *same*
+    persisted setting the Open Problem sheet writes, so the two surfaces cannot
+    disagree about the language the next solution file is seeded in. The filter
+    toggles need no "All" case, because an empty set and a full one are the same
+    list (`LeetCodeProblemFilter`). Premium rows carry a lock marker and are never
+    filtered out. `Row` is a view-layer wrapper for its `Identifiable` conformance
+    alone (`Table` requires one; `LeetCodeProblem` gains none it does not otherwise
+    need). The footer's `countLine` renders the two empty states as two different
+    sentences — a filter that matches nothing is not a list with nothing in it —
+    and shows `lastError` **beside** the rows rather than instead of them.
+    **The selection is pruned, because SwiftUI keeps one whose row is gone.**
+    `selection` is a slug, and both narrowing the filter and a landed refresh can
+    take that row out of the table; left alone, Open stayed enabled and opened a
+    problem the user could not see and did not mean — which on this route creates a
+    file. Two `onChange` hooks (`browser.filter`, `browser.fetchedAt`) clear it,
+    keyed on the two things that can change the visible set rather than on
+    `visibleProblems` itself, whose equality check is four thousand rows on every
+    body evaluation.
+    Opening hands `.slug(_:)` — the row already carries the slug every detail
+    request is made by, so no resolution step is spent — to the app's one open
+    handler, so the folder rules, the Premium refusal and the never-overwrite
+    guarantee are LC-1's. A refusal is a sentence in the window rather than an
+    alert, the sheet's rule for the sheet's reason. The window **stays open** (the
+    point is browsing several problems), so the app raises the editor window behind
+    it. `openTask` is held and cancelled on disappear, `LeetCodeOpenProblemSheet`'s
+    rule on this surface, and the sign-in sheet is presented from *here* rather
+    than through the app's shared slot, for that file's reason: the shared slot
+    would raise it on the editor window, where the user who pressed the button is
+    not looking.
   - `PisakaApp.swift` / `ContentView.swift` / `SettingsView.swift` (macOS, modified;
     entries in `app-shell.md` and `app-window.md`) — the orchestration.
     `makeLeetCode(settings:)` composes the stack once (transport, Keychain store,
@@ -1421,6 +1732,30 @@ the limits the design carries.
     open LeetCode tab's own statement rather than merely blanking it — served from
     the cache under `slugsFetchedThisRun`, so it costs no request.
     Sign Out always goes through `LeetCodeWebSession.signOut`.
+    `openLeetCodeBrowser()` shows (or focuses) the browser window over
+    `leetCode.browser` — the *one* catalog the rest of this area already reads
+    (L23) — and hands it `openLeetCodeProblem(input:language:)` itself as the open
+    handler, so a row and a typed number reach LC-1's flow through the same
+    function: **there is no second open path.** The only thing this route adds is
+    `raiseEditorWindowBehindBrowser()`, passed as `openLeetCodeProblem`'s `onOpened`
+    hook rather than inferred from its `nil` return: `nil` means "there is nothing
+    left to say", which is the answer to a *withdrawn* open and a *superseded* one
+    as well as to a successful one, so reading it as success reordered the windows
+    under a click that had opened no tab and shown no sentence. The hook fires on
+    the one outcome that put a tab up. The rule it needs is written down where
+    it is used: this app has exactly one `WindowGroup` window and every auxiliary
+    window it makes is an `EscClosableWindow` (diff, merge, Find in Files, the
+    source viewers, the browser itself), so **the frontmost visible, main-capable
+    window that is neither one of ours nor Preferences** is the editor — a no-op
+    when there is none, since that window can be closed while the app runs. Both
+    qualifiers are load-bearing, because this is identification by exclusion and
+    exclusion rots quietly: `NSApp.windows` is in *unspecified* order (so the scan
+    is over `orderedWindows`, which is documented front-to-back), and the `Settings`
+    window is made by SwiftUI rather than by this app — no `EscClosableWindow`, and
+    main-capable — so without naming it the plain rule sends *Preferences* behind
+    the browser and leaves the editor where it was. It is excluded by the
+    identifier SwiftUI gives that scene, and a future SwiftUI that stops setting it
+    costs this one cosmetic re-order, nothing else.
     The launch-time `refreshUserStatus()` joins the existing one-shot `.onAppear`
     block beside `sweepStaging()`/`lspProvisioning.refresh()`, unawaited and silent.
     `ContentView` drives the statement from a `.task(id:)` keyed on **(selected tab,
@@ -1470,6 +1805,67 @@ the limits the design carries.
     problem never finds a directory this app made for them. Unlike macOS there is no
     cancellable panel in that path — the default always exists to fall back to, so
     an iOS open never has to ask a question before it can start.
+    `browseSection` is the one new entry point on this platform and the peer of the
+    macOS menu item: a `NavigationLink` in a section of its own rather than a
+    second sheet, because this screen already hosts the `NavigationStack` — the
+    browser pushes onto it and the back button returns here, where a sheet over a
+    sheet would have to re-present the sign-in cover from a third level.
+    `onOpen` is forwarded unchanged, so a row tapped there runs exactly the open a
+    slug typed here does; **`onDone` deliberately is not** — see the browser
+    screen's entry for why a surface that cannot tell "it opened" from "it was
+    withdrawn" must not be handed the sheet's dismissal.
+  - `iOS/LeetCodeBrowserView_iOS.swift` — the pushed browser screen: the peer of
+    the macOS window over the **same** Core model, so the two platforms cannot
+    disagree about what a query matches, when a fetch happens or what opening a row
+    does — only about the idioms carrying it. Here those are `.searchable` bound to
+    `browser.filter.query`, a toolbar `Menu` of difficulty and status toggles,
+    `.refreshable` mapped to `browser.refresh()`, a `.task(id: browser.loadKey)`
+    load (the macOS window's key, covering the load on appear and the re-arm after
+    both a sign-in and a session replacement with one rule),
+    and a `List` of rows keyed `id: \.slug` (so `LeetCodeProblem` needs no
+    `Identifiable` conformance it does not otherwise want) carrying the number, the
+    title, the Premium lock and the status mark, with a footer row showing
+    "showing X of Y" and the fetch time.
+    **`lastError` leads the list; it is deliberately not in that footer.** The
+    footer sits after four thousand rows, so an error placed there is unreachable —
+    a pull-to-refresh that failed with the catalog on screen left the screen
+    looking untouched, which is exactly the silent failure the "keep the rows,
+    publish the error beside them" rule exists to avoid. It shares the leading
+    section with the open attempt's sentence; the count and the fetch time stay
+    below, because they are a fact about the list rather than something the user
+    has to be told.
+    **The centred empty-state sentence yields to it, and never takes a touch.**
+    That sentence is an `.overlay` over the `List`, and it covers the two empty
+    states the leading section says nothing about — a filter matching nothing, and a
+    catalog that was never loaded. On a *failure* it renders nothing at all: the
+    section above already carries `lastError`'s own sentence, the specific one, so a
+    generic "could not be loaded" would be a second sentence about one failure drawn
+    on top of the first. It is also `.allowsHitTesting(false)`, because an overlay is
+    not inside the list's scroll view and swallowed a pull that began on it — on the
+    one platform where pull-to-refresh *is* the retry, under a sentence reading
+    "Pull down to refresh".
+    It observes the **browser** and takes the owner as a non-observed plain `let`
+    for the macOS view's reasons, and it offers **no language picker of its own**:
+    the screen that pushed it has one and the setting is persisted, so there is no
+    second place to change it that could disagree.
+    **No cap and no truncation.** `List` is lazy, the rows are plain text, and
+    filtering the whole catalog is one pure pass; the unfiltered ~4000 rows are
+    shown as they are. If a device ever says otherwise the answer is a stated "keep
+    typing to narrow" affordance, never a silent cut — a list that quietly stops at
+    row 500 tells the user problem 3000 does not exist.
+    A tap runs the route's `onOpen(.slug(_:), settings.leetCodeLanguage)` and shows
+    whatever sentence comes back, inline; **it dismisses nothing itself**, which is
+    `LeetCodeRoute_iOS.open()`'s rule and the one thing this screen must not get
+    wrong. `nil` answers three different questions — it opened, the user left
+    mid-open (`onDisappear` cancels `openTask`), or a newer open superseded this
+    one — and only the first wants the sheet down; the handler already takes it
+    down on that one, so calling `onDone` on `nil` here would close the whole
+    LeetCode screen out from under somebody who had just tapped Back. The tab is
+    open behind the dismissed sheet either way (on compact width, pushed).
+    `openTask` is held and cancelled on disappear —
+    `LeetCodeRoute_iOS`'s rule, for its reason. Signed out, the screen shows
+    `availability`'s sentence and the same sign-in offer the account row makes,
+    with the login cover presented from here.
   - `iOS/LeetCodeDescriptionView_iOS.swift` — the statement in the two shapes iOS
     needs, **adaptive the way `MergeRoute_iOS` is**: a pane beside the editor on
     regular width, a sheet raised by a toolbar button on compact, with
@@ -1611,6 +2007,39 @@ the limits the design carries.
     `LeetCodeModelTests` beside the other request-count assertions: warm after an
     open and after a statement refresh, a cold slug fetched exactly once and never
     again, an unknown slug answering `nil`, and a sign-out emptying it.
+  - `LeetCodeProblemFilterTests` — the filter as a **table over one fixed,
+    deliberately out-of-order row set**: an exact number query and the prefix rows
+    it must *not* match, a padded number, a number nothing holds, a number reaching
+    a paid row, `0` falling through to the substring branch, title and slug
+    substrings, a query matching only paid rows, mixed case in both directions, a
+    trimmed query, empty and all-whitespace queries, a pasted problem URL matching
+    nothing, each difficulty set plus a two-element one, each status set, the
+    empty-and-full-set agreement on both dimensions, query ∩ difficulty ∩ status, a
+    combination matching nothing, paid rows surviving **every** combination,
+    catalog order preserved from unsorted input, and `isEmpty`.
+  - `LeetCodeBrowserModelTests` — the flow, driven through a **real
+    `LeetCodeModel`** over `ScriptedLeetCodeTransport` + `StubFileTree` with the
+    catalog suite's injected clock: a warm disk cache loading with **zero**
+    requests; a cold one fetching exactly once and publishing the rows, the fetch
+    time and no error; `refresh()` fetching again *inside* the staleness window; a
+    failing refresh keeping the previous rows beside the typed error; a failing
+    first load publishing the error with no rows; signed out publishing
+    `.notSignedIn` and making no request at all; a sign-in re-arming availability
+    and a sign-out clearing the rows; **a sign-in under an already-raised flag
+    moving `loadKey` while `availability` stays `.ready` on both sides of it** (the
+    re-arm the surfaces run their `.task(id:)` from, which availability alone
+    cannot express) and a sign-out moving it too; a `load()` held on a `Gate` while a sign-out
+    bumps the token publishing **nothing**; setting `filter` republishing
+    `visibleProblems` without touching the transport; and a load cancelled mid-fetch
+    publishing nothing *while the shared catalog fetch still lands* — the shield,
+    asserted with a sleeping delay rather than a `Gate`, because only a cancellable
+    wait can show whether cancellation reached the request. The catalog half lives in
+    `LeetCodeCatalogTests` beside the other request-count assertions: a cache
+    inside the window costing zero `problemList` requests, an absent one and a
+    day-old one costing exactly one, two overlapping `loadIfNeeded` calls (staged
+    with `Gate`) coalescing onto one, a refresh failure throwing while
+    `problems` stays populated, and a fresh-looking but **zero-row** cache file
+    being treated as absent instead of suppressing the fetch for a day.
   - Fixtures live in `Tests/PisakaCoreTests/Fixtures/leetcode/`, are recorded from
     the live public endpoints (trimmed to a dozen `stat_status_pairs` for the 2 MB
     list, with a `README.md` recording provenance), are read through `#filePath`,
@@ -1744,6 +2173,57 @@ means, what a file is named, when a fetch happens, and what gets written.
   runtime strings, echoed inputs) are read leniently and an absence stays `nil`.
   `FAILURE` is the one addition to the state table rather than an exception to it:
   LeetCode documents that state by sending it.
+- **L23 — the browser is a client-side filter over the one catalog.** The whole
+  list is already in hand — `LeetCodeCatalog` holds every row from one REST
+  request, cached on disk for a day, per-account status included — so searching is
+  a pure pass over an array rather than an endpoint: no GraphQL problem-list query,
+  no paging, **no new entry in `LeetCodeAPI.swift`**, instant results, and a browser
+  that works offline off the disk cache. It reads the *existing*
+  `LeetCodeModel.catalog`, because a second catalog would mean a second disk cache
+  and a second staleness clock disagreeing with it. The layer creates nothing and
+  owns no cache of its own, and opening a row goes through `openProblem`, so LC-1's
+  one create stays the only create in the area and there is no second open path.
+  The one thing it does write is not its own: a `load()` that finds the catalog
+  stale, and every `refresh()`, have `LeetCodeCatalog` rewrite `catalog.json` from
+  the response — the same write an open has always caused, now also reachable from
+  the Refresh button.
+- **L24 — status freshness is the catalog's fetch time, and the surface says so.**
+  A row's solved/attempted mark is whatever the account looked like when the list
+  was fetched, so a problem solved five minutes ago shows as solved only after a
+  refresh. Rather than pretending otherwise, both surfaces show the fetch time
+  beside an explicit Refresh — and a refresh that fails keeps the rows it has and
+  puts the error beside them (`resolveSlug`'s degradation rule on a new axis),
+  because blanking a list somebody is reading is worse than showing it a little
+  old. Signing in as a different account shows the previous account's marks until a
+  refresh, because the cache is per app, not per account — and that refresh is a
+  guarantee rather than a hope: `LeetCodeCatalog`'s coalescing is keyed by the
+  session, so a refresh under the new account never joins the old account's
+  in-flight download, and no fetch made under a session this app has replaced ever
+  publishes — whether it started before the new account's (superseded by the
+  generation), after it (refused by the session the catalog was told about), or
+  during a sign-out that started no refresh at all.
+- **L25 — the browser is the fifth generation token, and a number query is
+  exact.** A companion model like the judge, owned by `LeetCodeModel` and observed
+  by the browser surfaces alone, so a keystroke in the search field invalidates
+  neither the account, the statement nor the judge; its token is the fifth, bumped
+  by `load()`, `refresh()` and — like the judge's — by **both** session hooks
+  (`sessionDidChange()` for a flag that moved, `invalidateInFlightWork()` for a
+  session replaced under a flag that did not), and superseded work publishes
+  nothing at all. Both hooks also bump a published `sessionEpoch`, because clearing
+  the rows and re-arming the surfaces' load is **one act**: the surfaces key their
+  `.task(id:)` on `loadKey`, the `(availability, sessionEpoch)` pair, since on a
+  replacement availability is `.ready` on both sides of the hook that just emptied
+  the list and a key of availability alone would leave a *successful* sign-in
+  showing "No problems loaded." until a manual Refresh. And an all-digit query is a **number attempt and nothing else** —
+  L4 reused through `LeetCodeProblemInput.parse` rather than restated — matching
+  `frontendID` exactly rather than by prefix, so `1` answers problem 1 instead of
+  the thousand rows whose number starts with a 1. **Including the digits that name
+  no problem**: `parse` folds "not digits at all" and "digits naming no problem"
+  (`0`, or more digits than an `Int` holds) into one `nil`, and the browser owes
+  those two different answers, so the digit test is asked separately through
+  `LeetCodeProblemInput.isNumberAttempt` — exported for exactly this, so the rule
+  keeps one spelling. Without it a rejected number fell through to the substring
+  branch and `0` listed `01-matrix`, which is a real slug and problem 542.
 
 ## Known limits
 
@@ -1814,3 +2294,23 @@ means, what a file is named, when a fetch happens, and what gets written.
   one line per *argument*, so on any problem taking more than one there is no
   per-case slice of it that could be labelled; the per-case rows carry the output,
   the expected answer and stdout, which genuinely are one entry each.
+- **The browser's per-account status is as old as the catalog fetch** (L24). A
+  problem solved on leetcode.com a minute ago is still "not started" here until a
+  Refresh, and the automatic refresh is the catalog's day-long staleness rule. The
+  cross-account form of the same limit: the cache is per app rather than per
+  account, so signing in as somebody else shows the previous account's marks until
+  the first refresh under the new session — which is bounded rather than open-ended,
+  since that refresh cannot be answered by the previous session's fetch (the
+  coalescing is keyed by credentials, and no fetch under a replaced session
+  publishes or caches, whenever it started).
+- **The browser filters by difficulty, status and text, and by nothing else.** No
+  topic/tag, company, favourites or study-plan filters, because each of those needs
+  a GraphQL surface this design deliberately avoids (L23) — and no sorting beyond
+  LeetCode's own ordering, which the one-pass filter preserves by construction. A
+  pasted problem URL matches nothing in the search field: the query falls through to
+  a substring match on the raw text, and the Open Problem field is where a pasted
+  URL is understood.
+- **Premium rows cannot be hidden.** `isPaidOnly` is not a filter dimension at all,
+  by design: filtering them out would leave gaps in LeetCode's numbering that read
+  as missing problems. They are listed with a lock and refused on open with the
+  Premium sentence, which is the same refusal a typed number gets.

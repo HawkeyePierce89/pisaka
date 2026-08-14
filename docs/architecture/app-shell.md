@@ -67,7 +67,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     editor's coordinator) and `@StateObject reveal = EditorRevealState()`, plus the
     `@StateObject projectSearch: ProjectSearchModel` and a `private let
     projectSearchWindows = ProjectSearchWindowController()` whose `closeAll()` joins
-    the diff/merge controllers in the `willTerminateNotification` observer. The
+    the diff/merge controllers in the `willTerminateNotification` observer — as does
+    `private let leetCodeBrowserWindows = LeetCodeBrowserWindowController()`, the
+    single ⌘⇧B problem-browser window (`core-leetcode.md`), held the same way and
+    for the same reason. The
     project-search model is the reason `PisakaApp` has an `init()` at all: its two
     buffer closures are `let`s taken at construction and must close over the *very*
     `WorkspaceModel` the app publishes (Core deliberately keeps no reference to the
@@ -307,9 +310,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     when the resolved file is gone from disk (a modify/delete staged as a deletion).
     A successful Apply then closes the window itself.
     The `willTerminateNotification` observer calls `diffWindows.closeAll()`,
-    `mergeWindows.closeAll()` and `sourceViewers.closeAll()` alongside
-    `terminalSessions.terminateAll()` so no diff, merge or source-viewer window
-    lingers past termination — and `lspWorkspace.terminateNow()` beside them, for the
+    `mergeWindows.closeAll()`, `projectSearchWindows.closeAll()`,
+    `leetCodeBrowserWindows.closeAll()` and `sourceViewers.closeAll()` alongside
+    `terminalSessions.terminateAll()` so no diff, merge, Find in Files, LeetCode
+    browser or source-viewer window lingers past termination — and `lspWorkspace.terminateNow()` beside them, for the
     terminal sessions' reason: a `sourcekit-lsp` left behind is an orphan process
     holding a build-system cache open, which the release check
     (`pgrep -fl sourcekit-lsp`) is specifically looking for. **`terminateNow()`

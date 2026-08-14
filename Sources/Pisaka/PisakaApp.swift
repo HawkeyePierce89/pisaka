@@ -567,6 +567,11 @@ struct PisakaApp: App {
     /// from the same `willTerminateNotification` observer.
     private let projectSearchWindows = ProjectSearchWindowController()
 
+    /// Owns the single, non-modal LeetCode problem browser window (⌘⇧B). A plain
+    /// stored reference like `projectSearchWindows`, and `closeAll()` is invoked
+    /// from the same `willTerminateNotification` observer.
+    private let leetCodeBrowserWindows = LeetCodeBrowserWindowController()
+
     /// Owns the separate, non-modal read-only source viewer windows a Go to
     /// Definition opens when the declaration lives *outside* the opened folder — an
     /// SDK interface, a dependency checkout (D3). A plain stored reference and a
@@ -799,6 +804,7 @@ struct PisakaApp: App {
                         diffWindows.closeAll()
                         mergeWindows.closeAll()
                         projectSearchWindows.closeAll()
+                        leetCodeBrowserWindows.closeAll()
                         sourceViewers.closeAll()
                         // And every language server, for the terminal sessions'
                         // reason: a `sourcekit-lsp` left behind is an orphan process
@@ -1024,6 +1030,7 @@ struct PisakaApp: App {
                 LeetCodeCommands(
                     model: leetCode,
                     onOpenProblem: { leetCodeSheet = .openProblem },
+                    onBrowseProblems: { openLeetCodeBrowser() },
                     onSignIn: { leetCodeSheet = .signIn },
                     onSignOut: { signOutOfLeetCode() },
                     onChooseFolder: {
@@ -1064,9 +1071,17 @@ struct PisakaApp: App {
     /// input, refuses a Premium problem before writing anything, and **never
     /// overwrites** an existing file. This function's whole contribution is the
     /// folder (asked for on first use) and the tab.
+    ///
+    /// `onOpened` fires on the one outcome that put a tab up, which is *not* the
+    /// same question as "was there anything to say": `nil` is also the answer to a
+    /// withdrawn open and to a superseded one, and a caller that reads it as
+    /// success acts on an open that never happened. The browser's window-raise is
+    /// the caller that noticed — it reordered the windows under a click that had
+    /// opened nothing.
     private func openLeetCodeProblem(
         input: LeetCodeProblemInput,
-        language: LeetCodeLanguage
+        language: LeetCodeLanguage,
+        onOpened: () -> Void = {}
     ) async -> String? {
         // Cancelling the folder panel is an answer, not a failure: the user was
         // asked where solutions go and declined to say, so the sheet stays up
@@ -1087,6 +1102,7 @@ struct PisakaApp: App {
             case .created(let solution), .resumed(let solution):
                 leetCodeSheet = nil
                 openLeetCodeSolution(solution, wasCreated: outcome.wasCreated)
+                onOpened()
                 return nil
             case .noSuchProblem:
                 return "LeetCode has no problem matching that."
@@ -1100,6 +1116,67 @@ struct PisakaApp: App {
             return error.localizedDescription
         }
     }
+
+    /// Show the LeetCode problem browser window (⌘⇧B), or focus the one already
+    /// open.
+    ///
+    /// The browser model comes off `leetCode` — the *one* catalog the rest of this
+    /// area already reads (L23) — and the open handler is
+    /// `openLeetCodeProblem(input:language:)` itself, so a row and a typed number
+    /// reach LC-1's flow through the same function. **There is no second open
+    /// path**; the only thing added on this route is raising the editor window
+    /// afterwards, because this window stays up.
+    private func openLeetCodeBrowser() {
+        let content = LeetCodeBrowserView(
+            browser: leetCode.browser,
+            settings: settings,
+            model: leetCode,
+            onOpen: { input, language in
+                await openLeetCodeProblem(
+                    input: input,
+                    language: language,
+                    onOpened: { raiseEditorWindowBehindBrowser() }
+                )
+            }
+        )
+        leetCodeBrowserWindows.show(content: content)
+    }
+
+    /// Bring the editor window forward, but **below** the browser window — the tab
+    /// the user just opened is what they asked for, and the list they opened it
+    /// from is what they are still working through.
+    ///
+    /// The rule for which window that is, written down where it is used: this app
+    /// has exactly one `WindowGroup` window and every auxiliary window it makes is
+    /// an `EscClosableWindow` (diff, merge, Find in Files, the source viewers and
+    /// the browser itself), so **the frontmost visible, main-capable window that is
+    /// neither one of ours nor the Preferences window** is the editor. A no-op when
+    /// there is none — the window can be closed while the app runs.
+    ///
+    /// Two things the obvious spelling gets wrong, both stated because this is
+    /// identification by exclusion and exclusion rots quietly. `NSApp.windows` is
+    /// in *unspecified* order, so "the first match" is only meaningful over
+    /// `orderedWindows`, which is documented front-to-back. And the exclusion is
+    /// not complete: `Settings` is a window SwiftUI makes rather than this app, so
+    /// it is no `EscClosableWindow` and it is main-capable — with Preferences open,
+    /// the plain rule sends *it* behind the browser and leaves the editor where it
+    /// was. It is excluded by the identifier SwiftUI gives that scene; should a
+    /// future SwiftUI stop setting it, the cost is this one cosmetic re-order, so
+    /// the miss stays silent by design.
+    private func raiseEditorWindowBehindBrowser() {
+        guard let browserNumber = leetCodeBrowserWindows.windowNumber else { return }
+        guard let editor = NSApp.orderedWindows.first(where: { window in
+            window.isVisible
+                && window.canBecomeMain
+                && !(window is EscClosableWindow)
+                && window.identifier?.rawValue != Self.settingsWindowIdentifier
+        }) else { return }
+        editor.order(.below, relativeTo: browserNumber)
+    }
+
+    /// The identifier SwiftUI gives its `Settings` scene window — see
+    /// `raiseEditorWindowBehindBrowser()`, its one reader.
+    private static let settingsWindowIdentifier = "com_apple_SwiftUI_Settings_window"
 
     /// Open a solution file as an ordinary editor tab.
     ///
