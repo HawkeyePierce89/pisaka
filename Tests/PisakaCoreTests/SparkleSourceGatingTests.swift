@@ -28,7 +28,14 @@ import XCTest
 /// the reason `LSPSourceGatingTests` states: `SoftwareUpdater.swift`'s own
 /// documentation discusses `SPUStandardUpdaterController` and `SPUUpdater` at
 /// length, `PisakaApp.swift` names the framework in prose, and rewording
-/// documentation to appease a test is the wrong direction entirely.
+/// documentation to appease a test is the wrong direction entirely. That suite's
+/// `strippingCommentsAndStringLiterals` is reused rather than reimplemented: it
+/// is a single-pass state machine that understands nested block comments and
+/// multi-line literals, and it carries its own self-test. The line-at-a-time
+/// version this file grew first stripped `//` *before* literals, so any line
+/// carrying a URL — of which `Sources/Pisaka` has many — was truncated at the
+/// `//` inside the string and everything after it became invisible to a sweep
+/// whose only value is being exhaustive.
 final class SparkleSourceGatingTests: XCTestCase {
     /// The one file allowed to touch Sparkle.
     private static let updaterFile = "SoftwareUpdater.swift"
@@ -59,10 +66,16 @@ final class SparkleSourceGatingTests: XCTestCase {
 
         let importIndex = try XCTUnwrap(lines.firstIndex(of: "import Sparkle"),
                                         "\(Self.updaterFile) no longer imports Sparkle")
-        XCTAssertTrue(lines[..<importIndex].contains("#if !DEBUG"), """
-            `import Sparkle` must sit inside `#if !DEBUG`. Importing it unconditionally is not a \
-            harmless tidy-up: see this suite's doc comment — it is the first half of arming the \
-            updater in development builds, whose consent answer is then inherited by release \
+        // The *live* directive stack at the import, not "`#if !DEBUG` appears
+        // somewhere earlier in the file": a closed `#if !DEBUG` … `#endif` block
+        // followed by a bare `import Sparkle` would satisfy the weaker reading
+        // while importing the framework unconditionally, which is precisely the
+        // change this asserts against.
+        let stacks = try conditionStacks(of: lines)
+        XCTAssertTrue(stacks[importIndex].contains(.notDebug), """
+            `import Sparkle` must sit inside a live `#if !DEBUG`. Importing it unconditionally is \
+            not a harmless tidy-up: see this suite's doc comment — it is the first half of arming \
+            the updater in development builds, whose consent answer is then inherited by release \
             builds through the shared bundle identifier.
             """)
     }
@@ -88,29 +101,95 @@ final class SparkleSourceGatingTests: XCTestCase {
 
         // Walk the file's conditional-compilation nesting and record the branch
         // each `SPU…` reference is in.
-        var stack: [String] = []
-        var inDebugBranch = false
-        var offenders: [String] = []
-        for line in code(of: try updaterURL()) {
-            if line.hasPrefix("#if ") {
-                stack.append(String(line.dropFirst(4)))
-            } else if line == "#else" {
-                if let last = stack.last { stack[stack.count - 1] = "!(\(last))" }
-            } else if line == "#endif" {
-                stack.removeLast()
-            }
-            inDebugBranch = stack.contains("DEBUG")
-
-            if line.contains(Self.sparkleTypePrefix) && inDebugBranch {
-                offenders.append(line)
-            }
-        }
+        let lines = code(of: try updaterURL())
+        let stacks = try conditionStacks(of: lines)
+        let offenders = zip(lines, stacks)
+            .filter { $0.0.contains(Self.sparkleTypePrefix) && $0.1.contains(.debug) }
+            .map(\.0)
 
         XCTAssertTrue(offenders.isEmpty, """
             \(Self.updaterFile) references Sparkle from inside a `#if DEBUG` branch: \(offenders). \
             The DEBUG branch must construct no updater at all — that absence *is* the mechanism, \
             and there is deliberately no stub, scheme argument or defaults key behind it.
             """)
+    }
+
+    // MARK: - Conditional-compilation nesting
+
+    /// What one `#if` condition says about `DEBUG`.
+    ///
+    /// Modelling this as three cases rather than matching the condition *text*
+    /// is the fix for a real hole: the first version of this walker pushed
+    /// `"!DEBUG"` and rewrote its `#else` to `"!(!DEBUG)"`, then asked whether
+    /// the stack contained the literal `"DEBUG"` — so the most natural
+    /// restructuring of `SoftwareUpdater.swift` (collapsing its two `#if`s into
+    /// one `#if !DEBUG` / `#else`) moved the DEBUG branch somewhere the walker
+    /// could no longer see, and an `SPU…` reference placed there would compile in
+    /// both configurations and ship an armed updater in development builds.
+    enum DebugCondition: Equatable {
+        /// Compiled only when `DEBUG` is defined.
+        case debug
+        /// Compiled only when it is not.
+        case notDebug
+        /// Says nothing about `DEBUG` (`os(macOS)`, and everything else).
+        case unrelated
+
+        var negated: DebugCondition {
+            switch self {
+            case .debug: return .notDebug
+            case .notDebug: return .debug
+            case .unrelated: return .unrelated
+            }
+        }
+
+        /// Strict on purpose. Anything mentioning `DEBUG` that is not exactly
+        /// `!DEBUG` counts as a DEBUG branch, so a compound condition
+        /// (`#if DEBUG && FOO`) is *flagged* rather than waved through — the
+        /// right direction for a check whose failure asks a human to look.
+        init(condition: String) {
+            let normalized = condition
+                .replacingOccurrences(of: " ", with: "")
+                .replacingOccurrences(of: "(", with: "")
+                .replacingOccurrences(of: ")", with: "")
+            guard normalized.contains("DEBUG") else { self = .unrelated; return }
+            self = normalized == "!DEBUG" ? .notDebug : .debug
+        }
+    }
+
+    /// The directive stack in force at each line, parallel to `lines`.
+    ///
+    /// `#endif` pops defensively rather than with a bare `removeLast()`: an
+    /// unbalanced file would otherwise trap and take the whole test process down,
+    /// turning "one rule is violated" into "no rule was checked". The balance is
+    /// asserted instead, as its own failure.
+    private func conditionStacks(of lines: [String],
+                                 file: StaticString = #filePath,
+                                 line: UInt = #line) throws -> [[DebugCondition]] {
+        var stack: [DebugCondition] = []
+        var stacks: [[DebugCondition]] = []
+        var unbalanced = false
+
+        for entry in lines {
+            if entry.hasPrefix("#if ") {
+                stack.append(DebugCondition(condition: String(entry.dropFirst(4))))
+            } else if entry.hasPrefix("#elseif ") {
+                if stack.isEmpty { unbalanced = true }
+                else { stack[stack.count - 1] = DebugCondition(condition: String(entry.dropFirst(8))) }
+            } else if entry == "#else" {
+                if stack.isEmpty { unbalanced = true }
+                else { stack[stack.count - 1] = stack[stack.count - 1].negated }
+            } else if entry == "#endif" {
+                if stack.isEmpty { unbalanced = true } else { stack.removeLast() }
+            }
+            stacks.append(stack)
+        }
+
+        XCTAssertFalse(unbalanced || !stack.isEmpty, """
+            \(Self.updaterFile)'s conditional-compilation directives do not balance, so this \
+            suite cannot tell which branch anything is in. Fix the file — or, if the directives \
+            are fine, this walker no longer understands the shape they are written in.
+            """, file: file, line: line)
+        return stacks
     }
 
     // MARK: - Reading the app sources
@@ -142,38 +221,13 @@ final class SparkleSourceGatingTests: XCTestCase {
 
     /// A file's code: comments and string literals stripped, blank lines
     /// dropped, each line trimmed. See the type doc for why this is mandatory
-    /// rather than tidy.
+    /// rather than tidy, and why the stripping itself is `LSPSourceGatingTests`'
+    /// state machine rather than a second line-at-a-time one.
     private func code(of url: URL) -> [String] {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-
-        var result: [String] = []
-        var inBlockComment = false
-        for raw in text.components(separatedBy: .newlines) {
-            var line = raw
-            if inBlockComment {
-                guard let end = line.range(of: "*/") else { continue }
-                line = String(line[end.upperBound...])
-                inBlockComment = false
-            }
-            if let start = line.range(of: "/*") {
-                if let end = line.range(of: "*/", range: start.upperBound ..< line.endIndex) {
-                    line = String(line[..<start.lowerBound]) + String(line[end.upperBound...])
-                } else {
-                    line = String(line[..<start.lowerBound])
-                    inBlockComment = true
-                }
-            }
-            if let comment = line.range(of: "//") {
-                line = String(line[..<comment.lowerBound])
-            }
-            // Strip string literals: a documentation-shaped assertion message
-            // must not satisfy or break a source-level check.
-            line = line.replacingOccurrences(of: #""(\\.|[^"\\])*""#,
-                                             with: #""""#,
-                                             options: .regularExpression)
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if !trimmed.isEmpty { result.append(trimmed) }
-        }
-        return result
+        return LSPSourceGatingTests.strippingCommentsAndStringLiterals(text)
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
 }

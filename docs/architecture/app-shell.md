@@ -863,16 +863,44 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `SPU…` type is referenced from the DEBUG branch. Comments and string literals
     are stripped before matching — this file's own documentation discusses
     `SPUStandardUpdaterController` at length, and rewording documentation to
-    appease a test would be the wrong direction.
+    appease a test would be the wrong direction — and the stripping is
+    `LSPSourceGatingTests.strippingCommentsAndStringLiterals` itself rather than a
+    second implementation: a line-at-a-time stripper that removed `//` *before*
+    string literals truncated every line carrying a URL at the `//` inside it,
+    which is a silent hole in a sweep whose only value is being exhaustive.
+
+    **Two details of that suite are load-bearing rather than incidental.** It
+    classifies each `#if` condition as "requires DEBUG" / "requires not-DEBUG" /
+    "unrelated" instead of comparing condition *text*, because the obvious text
+    walker (push `!DEBUG`, rewrite its `#else` to `!(!DEBUG)`, ask whether the
+    stack contains `DEBUG`) goes blind to exactly the most natural restructuring
+    of this file — collapsing its two `#if`s into one `#if !DEBUG` / `#else` —
+    and an `SPU…` reference placed in that `#else` compiles in both
+    configurations and ships an armed updater in development builds. A condition
+    that mentions `DEBUG` but is not exactly `!DEBUG` counts as a DEBUG branch, so
+    a compound condition is flagged rather than waved through. And the import
+    check reads the *live* directive stack at the import line rather than asking
+    whether `#if !DEBUG` appeared somewhere earlier, which a closed
+    `#if !DEBUG` … `#endif` followed by a bare `import Sparkle` would satisfy
+    while importing the framework unconditionally.
 
     The related gap on the *other* side is closed in CI rather than here: because
     everything above is behind `#if !DEBUG`, a Debug-only build gate would never
     compile the shipping code path at all, and a Sparkle API change would first
     surface inside the release workflow's archive step after a tag was already
-    pushed. `ci.yml`'s macOS job therefore builds `-configuration Release` (the
-    iOS job stays Debug, so both configurations are still compiled on every PR),
-    and `release.yml` passes `-configuration Release` explicitly rather than
-    relying on Xcode's implicit archive default.
+    pushed. `ci.yml`'s macOS job therefore builds `-configuration Release`, and
+    `release.yml` passes `-configuration Release` explicitly rather than relying
+    on Xcode's implicit archive default.
+
+    That trade is worth stating exactly, because it was made in the *switching*
+    direction rather than by adding a job: the macOS job no longer builds Debug,
+    and the iOS job cannot stand in for it — every file here is inside
+    `#if os(macOS)`, so the iOS compile never reaches them. Debug is still
+    compiled on every PR (by the iOS job), but *macOS-gated code under
+    `#if DEBUG`* is now compiled by no CI job at all. The residual exposure is
+    bounded and checked: the app layer outside `Sources/Pisaka/iOS/` contains
+    exactly one `#if DEBUG`, and it is this updater's two no-op declarations. Any
+    macOS Debug-conditional code with real content would need a third job.
 
     In a release build `SPUStandardUpdaterController(startingUpdater: true, …)`
     creates the updater and the standard user driver and starts it immediately,

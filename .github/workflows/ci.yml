@@ -63,9 +63,16 @@ jobs:
       # `SPUStandardUpdaterController` or the `canCheckForUpdates` republish at
       # all — they would first be built inside the release workflow's archive
       # step, after a tag is already pushed, where a rename in a pinned Sparkle
-      # version surfaces as a release-only failure. The iOS job stays Debug, so
-      # both configurations are still compiled somewhere on every PR, and the one
-      # `#if DEBUG` in the app layer is this updater's no-op branch.
+      # version surfaces as a release-only failure.
+      #
+      # This *switched* the macOS job rather than adding one, so be precise about
+      # what is no longer covered. Debug is still compiled on every PR by the iOS
+      # job — but that job cannot stand in for this one, because every macOS file
+      # is inside `#if os(macOS)` and the iOS compile never reaches it. So
+      # macOS-gated code under `#if DEBUG` is now built by no CI job. That is
+      # acceptable only because there is exactly one such block outside
+      # `Sources/Pisaka/iOS/` and it is the updater's two no-op declarations;
+      # anything with real content there needs a third, macOS-Debug job.
       - name: Build (macOS, Release — the configuration that ships)
         run: >
           xcodebuild -project Pisaka.xcodeproj -scheme Pisaka

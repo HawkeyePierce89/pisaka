@@ -411,10 +411,12 @@ setting), `ReleaseWorkflowTests` (`.github/workflows/release.yml`: the `v*`
 trigger and `contents: write` scoping *by set equality over the parsed block*,
 the `needs: test` gate, the concurrency group, `-configuration Release`, the
 per-key `plutil -extract` verification, `ditto -c -k`, the `github.run_number`
-build number, all four preflight refusals **asserted by mechanism — the guard's
+build number, the four preflight refusals and the unsigned-appcast refusal after
+it, **asserted by mechanism — the guard's
 branch must `exit 1`, not merely mention the variable** — the Sparkle-tools and
 XcodeGen pins (the latter compared against `ci.yml`), and two cross-file pairs
-against `Resources/Info.plist`: the asset name and the repository ↔ `SUFeedURL`),
+against `Resources/Info.plist`: the asset name and the repository ↔ `SUFeedURL`;
+command assertions are scoped to the step that runs the command, not the file),
 `LicenseCoverageTests`
 (`licenses.json` vs. `project.yml`/`Package.resolved`/`Vendor/`),
 `LSPSourceGatingTests` (the LSP layer's platform split, by set equality over both

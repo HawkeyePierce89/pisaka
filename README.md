@@ -87,12 +87,17 @@ iOS app uses the document picker with security-scoped bookmarks for file access.
 
 Downloads from [GitHub Releases](../../releases) are **ad-hoc signed and not
 notarized** — there is no Apple Developer Program membership behind this project
-yet — so Gatekeeper refuses the first double-click. Open it once with
-**right-click → Open → Open**, or clear the quarantine flag yourself:
+yet — so Gatekeeper refuses the first double-click. Clear the quarantine flag
+yourself:
 
 ```sh
 xattr -d com.apple.quarantine /Applications/Pisaka.app
 ```
+
+Or double-click it once, let macOS refuse, and then allow it from **System
+Settings → Privacy & Security → Open Anyway**. On macOS 13 and 14 the older
+**right-click → Open → Open** also works; macOS 15 removed that override for
+apps that are not notarized.
 
 You only do this for the first manual install. Sparkle's in-place updates do not
 repeat it.

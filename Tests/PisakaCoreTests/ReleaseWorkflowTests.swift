@@ -201,19 +201,19 @@ final class ReleaseWorkflowTests: XCTestCase {
     func testPreflightRefusesEveryUnshippableRelease() throws {
         let script = try preflightScript()
 
-        assertGuardExits(#""$VERSION" != "$DECLARED""#, in: script, because: """
+        assertGuardExits(#""$VERSION" != "$DECLARED""#, in: script, step: "Preflight", because: """
             the tag's version and the MARKETING_VERSION the bundle will report must agree — a \
             mismatch ships an appcast advertising a version the app does not have
             """)
-        assertGuardExits(#"-z "$DECLARED""#, in: script, because: """
+        assertGuardExits(#"-z "$DECLARED""#, in: script, step: "Preflight", because: """
             an unparseable MARKETING_VERSION must be reported as a parse failure rather than \
             compared as an empty string
             """)
-        assertGuardExits(#"-z "${SPARKLE_PRIVATE_EDDSA_KEY}""#, in: script, because: """
+        assertGuardExits(#"-z "${SPARKLE_PRIVATE_EDDSA_KEY}""#, in: script, step: "Preflight", because: """
             without the private key nothing can sign the appcast, and Sparkle rejects an unsigned \
             update outright — this must fail in the first seconds, not after a 20-minute archive
             """)
-        assertGuardExits(Self.placeholderPublicKey, in: script, because: """
+        assertGuardExits(Self.placeholderPublicKey, in: script, step: "Preflight", because: """
             while the committed placeholder SUPublicEDKey is still in Resources/Info.plist, every \
             copy in the wild would verify updates against a key whose private half does not exist
             """)
@@ -232,14 +232,21 @@ final class ReleaseWorkflowTests: XCTestCase {
 
     /// Assert that `condition` appears on an `if` line inside `script` and that
     /// the branch it opens reaches `exit 1` before its `fi`.
+    ///
+    /// `step` names the step being asserted about, so the failure says which one:
+    /// this is used for the preflight's four refusals *and* for the
+    /// unsigned-appcast refusal, which cannot live in the preflight because it
+    /// can only be made after `generate_appcast` has run.
     private func assertGuardExits(_ condition: String,
                                   in script: [String],
+                                  step: String,
                                   because reason: String,
                                   file: StaticString = #filePath,
                                   line: UInt = #line) {
         guard let start = script.firstIndex(where: { $0.hasPrefix("if ") && $0.contains(condition) }) else {
             XCTFail("""
-                release.yml's preflight has no `if` testing \(condition). It must, because \(reason).
+                release.yml's `\(step)` step has no `if` testing \(condition). It must, because \
+                \(reason).
                 """, file: file, line: line)
             return
         }
@@ -250,9 +257,9 @@ final class ReleaseWorkflowTests: XCTestCase {
             if entry == "exit 1" { refuses = true; break }
         }
         XCTAssertTrue(refuses, """
-            release.yml's preflight tests \(condition) but its branch does not `exit 1` — so the \
-            run continues and publishes anyway. A `::warning::` here is not a softer guard, it is \
-            no guard: \(reason).
+            release.yml's `\(step)` step tests \(condition) but its branch does not `exit 1` — so \
+            the run continues and publishes anyway. A `::warning::` here is not a softer guard, it \
+            is no guard: \(reason).
             """, file: file, line: line)
     }
 
@@ -262,13 +269,28 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// step no longer runs before the expensive work, which is the entire reason
     /// the step exists.
     private func preflightScript() throws -> [String] {
+        try stepScript(named: "Preflight", because: """
+            Everything that can refuse a release cheaply belongs in one step that runs before the \
+            archive.
+            """)
+    }
+
+    /// One step's body, comment- and blank-stripped.
+    ///
+    /// Every assertion about a command belongs against the step that runs it,
+    /// not against the whole file. A workflow-wide `contains` stays green when
+    /// the setting it names moves to some other step — the same silent-drift
+    /// failure the comment-stripping in this suite exists to catch, one level up.
+    private func stepScript(named name: String,
+                            because reason: String,
+                            file: StaticString = #filePath,
+                            line: UInt = #line) throws -> [String] {
         let raw = try workflowText().components(separatedBy: .newlines)
         let start = try XCTUnwrap(raw.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces) == "- name: Preflight"
+            $0.trimmingCharacters(in: .whitespaces) == "- name: \(name)"
         }), """
-            release.yml has no step named `Preflight`. Everything that can refuse a release cheaply \
-            belongs in one step that runs before the archive.
-            """)
+            release.yml has no step named `\(name)`. \(reason)
+            """, file: file, line: line)
 
         var body: [String] = []
         for entry in raw[(start + 1)...] {
@@ -318,11 +340,69 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// archive still embeds `Sparkle.framework` (the package dependency links
     /// unconditionally), so every other check in this workflow would pass while
     /// the release shipped with "Check for Updates…" permanently disabled.
+    ///
+    /// Scoped to the archive step rather than to the whole file, for the reason
+    /// `stepScript(named:because:)` states: a later step that happened to carry
+    /// `-configuration Release` would keep a file-wide `contains` green while the
+    /// archive itself silently went back to Xcode's implicit default.
     func testArchiveIsPinnedToTheReleaseConfiguration() throws {
-        XCTAssertTrue(try activeText().contains("-configuration Release"), """
-            release.yml's archive step must pass `-configuration Release` explicitly. See this \
-            test's doc comment: a Debug archive ships an app whose updater was compiled out, and \
-            nothing else in this workflow can tell the difference.
+        let script = try stepScript(named: Self.archiveStepName, because: """
+            It is the step whose configuration decides whether the shipped app can update at all.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("-configuration Release") }, """
+            release.yml's `\(Self.archiveStepName)` step must pass `-configuration Release` \
+            explicitly. See this test's doc comment: a Debug archive ships an app whose updater \
+            was compiled out, and nothing else in this workflow can tell the difference.
+            """)
+    }
+
+    /// The name of the step that produces the archive. A constant because two
+    /// tests scope themselves to it, and a renamed step must fail loudly rather
+    /// than silently check nothing.
+    private static let archiveStepName = "Archive (macOS, ad-hoc signed)"
+
+    /// The signature check `generate_appcast` does not make for us.
+    ///
+    /// This is the one way a fully green run can still publish a release that
+    /// every installed copy rejects, and it is invisible from the exit code.
+    /// Sparkle 2.9.5's `generate_appcast/Appcast.swift` compares the app's
+    /// `SUPublicEDKey` against the public half of the private key it was given;
+    /// on a mismatch it prints a *warning*, leaves `edSignature` nil and — unlike
+    /// the neighbouring "no private key" branch — deliberately does not set
+    /// `signingError`, which is the only thing the tool rethrows. `FeedXML.swift`
+    /// then just omits the `sparkle:edSignature` attribute, and the process exits
+    /// 0. The feed is well-formed, advertises a real enclosure, and carries
+    /// nothing to verify it against.
+    ///
+    /// The preflight cannot cover this: it can see that the committed key is no
+    /// longer the placeholder, but not that it pairs with a secret it must never
+    /// read. So the guard is on the artefact, and the consequence of losing it is
+    /// the same one the placeholder refusal exists to prevent — an installed base
+    /// that rejects every future update, recoverable only by a manual
+    /// re-download by every user.
+    func testTheAppcastIsRefusedWhenItCarriesNoEdDSASignature() throws {
+        let script = try stepScript(named: "Generate and sign the appcast", because: """
+            It is the step that signs the feed, and the only place the missing signature is \
+            observable before publication.
+            """)
+
+        assertGuardExits("sparkle:edSignature", in: script, step: "Generate and sign the appcast", because: """
+            generate_appcast exits 0 when the app's SUPublicEDKey does not match the private key \
+            it was handed — it warns, omits the signature and writes the feed anyway. Publishing \
+            that feed offers every installed copy an update it must reject, permanently
+            """)
+
+        // The guard has to run before the release exists, not after.
+        let steps = try activeLines()
+        let guardIndex = try XCTUnwrap(steps.firstIndex(where: { $0.contains("sparkle:edSignature") }), """
+            release.yml no longer checks the generated appcast for a sparkle:edSignature.
+            """)
+        let publishIndex = try XCTUnwrap(steps.firstIndex(where: { $0.contains("gh release create") }), """
+            release.yml no longer creates the release with `gh release create`.
+            """)
+        XCTAssertLessThan(guardIndex, publishIndex, """
+            The unsigned-appcast guard must run before `gh release create`. Once the release is \
+            published, `releases/latest` already points at the broken feed.
             """)
     }
 

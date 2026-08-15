@@ -40,8 +40,19 @@ on:
 # is `github.run_number`, and `releases/latest` is whichever release was
 # *published* last, so two interleaved runs can leave the feed advertising a
 # lower build number than copies already installed — which Sparkle will never
-# offer an update over, stranding them silently. Never cancel: a half-published
-# release (zip attached, appcast not) is worse than a queued one.
+# offer an update over, stranding them silently.
+#
+# `cancel-in-progress: false` buys less than it reads like, and the cost is the
+# price of the shared group. It protects the run that is *already running*; a run
+# still **pending** in the group is cancelled when a newer one queues into it —
+# the exact GitHub behaviour `ci.yml`'s own concurrency comment documents, which
+# is why that file gives every push to master a unique group. Here the shared
+# group is deliberate anyway (serializing releases matters more), so the
+# consequence is accepted and stated rather than designed away: pushing three
+# `v*` tags in quick succession can leave the middle tag with no release and no
+# failure anywhere. Recovering is deleting and re-pushing that tag — `on:` is
+# tags-only, so there is no `workflow_dispatch` re-run. Push release tags one at
+# a time and confirm each run finished.
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
@@ -262,6 +273,24 @@ jobs:
             build/release-assets
           cat appcast.xml
 
+          # The one failure `generate_appcast` does *not* report through its exit
+          # code. When the app's SUPublicEDKey is not the mate of the private key
+          # on stdin, the tool prints "Warning: SUPublicEDKey in the app … does
+          # not match key EdDSA in the Keychain", leaves the signature nil and
+          # exits 0 (Appcast.swift only rethrows `signingError`, which that branch
+          # deliberately does not set; FeedXML.swift then simply omits the
+          # attribute). The result is a well-formed feed advertising a real update
+          # with nothing to verify it — which every installed copy rejects, and
+          # which is unrecoverable for them in exactly the way the placeholder
+          # refusal in the preflight exists to prevent. The preflight cannot catch
+          # this: it can see that the committed key is no longer the placeholder,
+          # but not that it pairs with a secret it must never read. So the check
+          # is on the artefact instead, and it is the last thing before publishing.
+          if ! grep -q 'sparkle:edSignature=' appcast.xml; then
+            echo "::error::The generated appcast carries no sparkle:edSignature. Almost certainly SUPublicEDKey in Resources/Info.plist is not the public half of the SPARKLE_PRIVATE_EDDSA_KEY secret — generate_appcast warns and exits 0 in that case. On the machine holding the pair run bin/generate_keys -p to print the public half, check it against Resources/Info.plist and against what the secret was set to, fix whichever is wrong, and re-tag. Publishing this feed would offer every installed copy an update it must reject. See docs/RELEASING.md."
+            exit 1
+          fi
+
       # Exactly two assets. `appcast.xml` must keep that literal name: it is the
       # last path component of SUFeedURL in Resources/Info.plist, and GitHub's
       # releases/latest/download/<asset> redirect resolves by asset name.
@@ -274,6 +303,6 @@ jobs:
           VERSION="${TAG#v}"
           gh release create "$TAG" \
             --title "$TAG" \
-            --notes "Pisaka ${VERSION} (build ${{ github.run_number }}). macOS app, ad-hoc signed: on the first manual install use right-click → Open, or run \`xattr -d com.apple.quarantine\` on the app. In-place Sparkle updates do not repeat that step." \
+            --notes "Pisaka ${VERSION} (build ${{ github.run_number }}). macOS app, ad-hoc signed and not notarized, so the first manual install trips Gatekeeper. Clear it with \`xattr -d com.apple.quarantine /Applications/Pisaka.app\` (works on every supported macOS), or open the app once and allow it from System Settings → Privacy & Security → Open Anyway. Right-click → Open also works on macOS 13 and 14, but macOS 15 removed that override for unnotarized apps. In-place Sparkle updates do not repeat any of this." \
             "build/release-assets/Pisaka-${VERSION}.zip" \
             "appcast.xml"

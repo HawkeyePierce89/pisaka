@@ -254,11 +254,15 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ws.karmanov.pisaka
         PRODUCT_NAME: Pisaka
-        # `Resources/Info.plist` is a *partial* plist: it carries only the two
-        # keys App Store Connect validation wants and that Xcode has no
-        # `INFOPLIST_KEY_*` equivalent worth using here —
-        # `LSApplicationCategoryType` and a real-Boolean
-        # `ITSAppUsesNonExemptEncryption`. `GENERATE_INFOPLIST_FILE` stays YES,
+        # `Resources/Info.plist` is a *partial* plist: it carries only the keys
+        # Xcode has no `INFOPLIST_KEY_*` equivalent worth using for — the two App
+        # Store Connect validation wants (`LSApplicationCategoryType` and a
+        # real-Boolean `ITSAppUsesNonExemptEncryption`) plus the two Sparkle
+        # reads out of the main bundle (`SUFeedURL`, `SUPublicEDKey`), which
+        # `GENERATE_INFOPLIST_FILE` cannot produce at all.
+        # `ReleaseMetadataTests` pins that set of four, and the release workflow
+        # re-checks each one on the *archived* app.
+        # `GENERATE_INFOPLIST_FILE` stays YES,
         # so Xcode merges its generated per-destination keys (CFBundleName,
         # CFBundleShortVersionString, the scene/principal-class keys, every
         # `INFOPLIST_KEY_*` below) *into* this file's contents rather than

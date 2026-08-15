@@ -152,6 +152,16 @@ installed, which Sparkle will never offer an update over. `cancel-in-progress` i
 `false` — a half-published release (zip attached, appcast not) is worse than a
 queued one.
 
+**Push release tags one at a time and wait for each run to finish.**
+`cancel-in-progress: false` protects the run that is already *running*; a run
+still **pending** in the group is cancelled when a newer one queues into it, the
+same GitHub behaviour `ci.yml`'s concurrency comment documents (and works around
+by giving every push to master a unique group). Here the shared group is worth
+that cost, so the consequence is accepted rather than designed away: three `v*`
+tags pushed in quick succession can leave the middle one with no release and no
+failure anywhere. `on:` is tags-only, so there is no `workflow_dispatch` re-run —
+recovering means deleting and re-pushing that tag.
+
 The workflow then, in order:
 
 - **`test` job** — `swift test`, pinned identically to `ci.yml` (same SHA-pinned
@@ -209,10 +219,21 @@ The workflow then, in order:
     which the unzipped framework fails its own signature check. The directory is
     dedicated because `generate_appcast` reads *every* update it finds in the
     directory it is pointed at.
-  - Sparkle 2.9.5's release tools, pinned exactly as XcodeGen is (the tarball URL
-    plus `shasum -a 256 -c -` against the digest above), then `generate_appcast`
-    with `--ed-key-file -` so the private key travels on stdin and never lands on
-    disk.
+  - `generate_appcast` (from the tools fetched beside the preflight, above) with
+    `--ed-key-file -`, so the private key travels on stdin and never lands on
+    disk — **followed by a refusal if the feed it wrote carries no
+    `sparkle:edSignature`**. That check exists because it is the one way a fully
+    green run can still publish a release every installed copy rejects, and it is
+    invisible from the exit code: when the app's `SUPublicEDKey` is not the mate
+    of the private key on stdin, `generate_appcast` prints a *warning*, leaves
+    the signature nil and exits 0 (`Appcast.swift` only rethrows `signingError`,
+    which that branch deliberately does not set; `FeedXML.swift` then just omits
+    the attribute). The preflight cannot cover it — it can see that the committed
+    key is no longer the placeholder, but not that it pairs with a secret it must
+    never read — so the guard is on the artefact, and it runs before
+    `gh release create`. If it fires, run `bin/generate_keys -p` on the machine
+    holding the pair, compare its output against both `Resources/Info.plist` and
+    the stored secret, fix whichever is wrong, and re-tag.
   - `gh release create` attaching the zip and `appcast.xml`. That asset name is
     load-bearing: `releases/latest/download/appcast.xml` resolves by asset name,
     so it must stay exactly the last path component of `SUFeedURL`.
@@ -221,7 +242,9 @@ The workflow then, in order:
 permission split (by set equality over the parsed blocks, so an added
 `workflow_dispatch:` or `packages: write` fails rather than slipping past a
 substring match), the `needs: test` gate, the concurrency group,
-`-configuration Release`, the per-key `plutil -extract` verification,
+`-configuration Release` (scoped to the archive step, so a later step carrying
+the flag cannot stand in for it), the unsigned-appcast refusal and its position
+before `gh release create`, the per-key `plutil -extract` verification,
 `ditto -c -k`, the run-number build number, the Sparkle and XcodeGen pins (the
 latter compared against `ci.yml`, since drift between the two files is otherwise
 silent), the tools-before-archive ordering, and two cross-file pairs against
@@ -262,8 +285,15 @@ number already released.
 The app is ad-hoc signed, not Developer ID signed and not notarized, so a zip
 downloaded from GitHub carries the quarantine flag and macOS refuses to open it
 on the first double-click. The documented workaround, repeated in every release's
-notes: **right-click → Open** (then Open in the dialog), or
-`xattr -d com.apple.quarantine /Applications/Pisaka.app`.
+notes: `xattr -d com.apple.quarantine /Applications/Pisaka.app`, or open the app
+once and allow it from **System Settings → Privacy & Security → Open Anyway**.
+
+The order matters and is not cosmetic. **Right-click → Open is listed last and
+qualified**, because macOS 15 removed that Control-click override for
+unnotarized apps — and the release runner is `macos-15` while the supported floor
+is macOS 13, so a large share of users would be following an instruction that
+does nothing at all. It still works on macOS 13 and 14; the two paths above work
+everywhere.
 
 This is friction on the *first manual install only*. Sparkle's in-place updates
 do not repeat it: the updater unarchives and swaps the app itself rather than
