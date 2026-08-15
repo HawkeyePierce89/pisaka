@@ -151,20 +151,20 @@ one store property.
 - Modify: `Sources/Pisaka/iOS/RootView_iOS.swift`
 - Modify: `Sources/Pisaka/iOS/SettingsView_iOS.swift`
 
-- [ ] give `CodeEditorCoordinator_iOS` a `completionEnabled` flag with a setter that
+- [x] give `CodeEditorCoordinator_iOS` a `completionEnabled` flag with a setter that
       ignores an unchanged value and, on being turned off, calls `clearCompletions()`
       — which cancels the in-flight debounce/provider task, bumps the generation and
       removes the accessory strip (`showCompletions([])` also drops `answeredMember`,
       so no receiver outlives the bar)
-- [ ] `updateCompletions(in:)` returns at the top when disabled (after hiding the
+- [x] `updateCompletions(in:)` returns at the top when disabled (after hiding the
       strip), before the prefix scan and the request — so a keystroke or caret move
       costs nothing while off
-- [ ] `CodeEditorView_iOS` gains `var completionEnabled: Bool = true`, applied in
+- [x] `CodeEditorView_iOS` gains `var completionEnabled: Bool = true`, applied in
       `makeUIView` and `updateUIView` next to the existing font-size/`symbolIndex`
       wiring; `RootView_iOS` passes `settings.completionEnabled`
-- [ ] add `Toggle("Offer completions as you type", isOn: $settings.completionEnabled)`
+- [x] add `Toggle("Offer completions as you type", isOn: $settings.completionEnabled)`
       to the "Editor" section of `SettingsView_iOS`, beside the font-size stepper
-- [ ] no unit tests (view layer); verified by the iOS build in Task 6
+- [x] no unit tests (view layer); verified by the iOS build in Task 6
 
 ### Task 5: Documentation
 

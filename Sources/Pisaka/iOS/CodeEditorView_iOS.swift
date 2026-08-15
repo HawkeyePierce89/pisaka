@@ -47,6 +47,21 @@ struct CodeEditorView_iOS: UIViewRepresentable {
     /// clamps.
     let onStepFontSize: (Double) -> Void
 
+    /// Whether the completion strip is offered at all —
+    /// `SettingsStore.completionEnabled`, which `RootView_iOS` already observes and
+    /// passes down.
+    ///
+    /// A **plain value**, exactly like `fontSize`, rather than a second observed
+    /// object: the store is observed once, where the view is built, and the flag
+    /// simply travels with the update that observation already causes. Making the
+    /// editor observe anything itself would add a per-keystroke re-render path to
+    /// the one view in the app that must not have one. It is applied in
+    /// `makeUIView` and re-applied in `updateUIView`, so flipping the Settings row
+    /// takes effect on the next SwiftUI update — no restart, no tab switch.
+    /// Defaults to `true` (the store's own default) so a default-constructed view
+    /// still compiles.
+    var completionEnabled: Bool = true
+
     /// Keeps the shown file's symbols current: an immediate re-index on tab open or
     /// switch, a debounced one while typing — the same controller and the same two
     /// triggers as macOS. Defaults to a controller over a fresh, never-walked index
@@ -131,6 +146,10 @@ struct CodeEditorView_iOS: UIViewRepresentable {
         context.coordinator.symbolIndex = symbolIndex
         context.coordinator.definitionRoute = definitionRoute
         context.coordinator.fileURL = fileURL
+        // ...and whether it may offer anything at all. Applied here as well as in
+        // `updateUIView` so an editor built while the preference is already off
+        // never asks the provider even once.
+        context.coordinator.setCompletionEnabled(completionEnabled)
         context.coordinator.reindexSymbols(text: text, language: language, immediate: true)
         return textView
     }
@@ -148,6 +167,13 @@ struct CodeEditorView_iOS: UIViewRepresentable {
             textView.font = editorFont()
         }
         context.coordinator.onStepFontSize = onStepFontSize
+
+        // Forward the completion preference on every update; the coordinator itself
+        // ignores an unchanged value, and a *change* to `false` additionally cancels
+        // whatever was pending and removes a strip that is on screen — which is why
+        // this runs before the buffer/index reconciliation below rather than after
+        // it.
+        context.coordinator.setCompletionEnabled(completionEnabled)
 
         let switchedFile = context.coordinator.fileID != fileID
         context.coordinator.fileID = fileID
