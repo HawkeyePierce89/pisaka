@@ -63,6 +63,20 @@ struct CodeEditorView: NSViewRepresentable {
     /// `-1`; the store clamps. Wired to `SettingsStore.stepFontSize(by:)`.
     let onStepFontSize: (Double) -> Void
 
+    /// Whether the completion popup is offered at all — `SettingsStore.completionEnabled`,
+    /// which `ContentView` already observes and passes down.
+    ///
+    /// A **plain value**, exactly like `fontSize`, rather than a second observed
+    /// object: the store is observed once, where the view is built, and the flag
+    /// simply travels with the update that observation already causes. Making the
+    /// editor observe anything itself would add a per-keystroke re-render path to
+    /// the one view in the app that must not have one. It is applied in
+    /// `makeNSView` (beside `attachCompletion`) and re-applied in `updateNSView`,
+    /// so flipping the toggle takes effect on the next SwiftUI update — no
+    /// restart, no tab switch. Defaults to `true` (the store's own default) so a
+    /// default-constructed view still compiles.
+    var completionEnabled: Bool = true
+
     /// The find/replace bar's state. Window-scoped and owned by `PisakaApp` so
     /// the pattern and toggles survive a tab switch; the coordinator's
     /// `EditorSearchController` registers itself as its executor on attach.
@@ -311,6 +325,10 @@ struct CodeEditorView: NSViewRepresentable {
         // the list is asked for on the first keystroke (or an explicit ⌃Space),
         // never on a tab that has only been looked at.
         context.coordinator.attachCompletion(textView: textView)
+        // ...and whether it may offer anything at all. Applied here as well as in
+        // `updateNSView` so an editor built while the preference is already off
+        // never asks the provider even once.
+        context.coordinator.setCompletionEnabled(completionEnabled)
         // Record which file the gutter would annotate (enabling/disabling its menu
         // item). Nothing loads here: annotate starts off for every tab and is only
         // turned on from the context menu.
@@ -355,6 +373,13 @@ struct CodeEditorView: NSViewRepresentable {
             context.coordinator.lineNumberRuler?.editorFontChanged()
             context.coordinator.refreshGeometry()
         }
+
+        // Re-apply the completion preference. Unconditional because the controller
+        // itself ignores an unchanged value; a *change* to `false` additionally
+        // cancels whatever was pending and dismisses a popup that is on screen,
+        // which is why this runs before the buffer/blame/index reconciliation
+        // below rather than after it.
+        context.coordinator.setCompletionEnabled(completionEnabled)
 
         let switchedFile = context.coordinator.fileID != fileID
         context.coordinator.fileID = fileID
@@ -688,6 +713,17 @@ struct CodeEditorView: NSViewRepresentable {
             completion.noteProgrammaticEdit = { [weak self] isApplying in
                 self?.isApplyingProgrammaticEdit = isApplying
             }
+        }
+
+        /// Forward the completion on/off preference to the controller
+        /// (`makeNSView`/`updateNSView`).
+        ///
+        /// A thin forwarder rather than a stored flag here: the controller owns
+        /// the state, ignores an unchanged value, and is the only thing that can
+        /// act on a change — cancelling in-flight work and dismissing a live
+        /// popup. Nothing in the symbol index or the LSP layer is touched.
+        func setCompletionEnabled(_ enabled: Bool) {
+            completion.setEnabled(enabled)
         }
 
         /// Recompute the popup's candidates for what is being typed.

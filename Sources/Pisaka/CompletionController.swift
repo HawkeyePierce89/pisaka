@@ -117,6 +117,51 @@ final class CompletionController {
     /// exactly as the `Coordinator` holds it.
     private weak var textView: NSTextView?
 
+    /// Whether completion is offered at all — `SettingsStore.completionEnabled`,
+    /// forwarded here by `CodeEditorView.updateNSView`.
+    ///
+    /// The switch is **binary and total**: off silences the as-you-type popup
+    /// *and* every explicit invocation (⌃Space, Find > Complete, AppKit's stock
+    /// ⌥⎋/F5), which is why it is enforced in two places rather than one — at the
+    /// entry of `update(…)`, the per-keystroke path, and again in
+    /// `completions(forPartialWordRange:in:)`, the delegate answer the stock
+    /// commands reach without passing through `update`. The narrower JetBrains
+    /// behaviour (auto-popup off, explicit invocation alive) was considered and
+    /// deliberately rejected as a complication; it is a possible follow-up.
+    ///
+    /// **Nothing in the intelligence stack is torn down** by turning this off: no
+    /// LSP server is stopped, no session shut down, the registry is untouched and
+    /// the symbol index keeps walking and refreshing. Only completion *requests*
+    /// stop being made and completion *UI* stops being shown, which is what makes
+    /// the toggle instant and free in both directions — and why go-to-definition,
+    /// which shares the same provider, is entirely unaffected.
+    private(set) var isEnabled = true
+
+    /// Turn completion on or off, taking effect on the very next keystroke.
+    ///
+    /// An unchanged value is ignored, so the per-update forwarding from
+    /// `updateNSView` costs nothing on the overwhelmingly common path.
+    ///
+    /// Turning it *off* is not merely a gate raised for future keystrokes: it
+    /// `reset()`s — cancelling the pending debounce/provider task, bumping the
+    /// generation, dropping the snapshot and every prefetched or in-flight
+    /// resolve — and then, only if a snapshot was live, asks the text view to
+    /// re-query. `complete(nil)` reaches the delegate, which now answers `[]`,
+    /// and an empty answer is what closes a popup that is already on screen.
+    /// The snapshot's existence is the proxy for "the popup may be up": this
+    /// controller is the only thing that ever supplies AppKit a list here, so a
+    /// popup cannot be showing rows that did not come from one.
+    func setEnabled(_ enabled: Bool) {
+        guard enabled != isEnabled else { return }
+        isEnabled = enabled
+        guard !enabled else { return }
+        let wasShowingList = snapshot != nil
+        reset()
+        if wasShowingList, let textView {
+            textView.complete(nil)
+        }
+    }
+
     /// The candidates the delegate serves, and the prefix they answer.
     ///
     /// The prefix is stored *with* them because it is the only thing that makes an
@@ -234,6 +279,12 @@ final class CompletionController {
     /// session that outlived an edit shrinking the buffer would otherwise index
     /// out of bounds.
     func completions(forPartialWordRange charRange: NSRange, in textView: NSTextView) -> [String] {
+        // The second half of the on/off gate, and the load-bearing one for the
+        // commands that never pass through `update(…)`: AppKit's stock ⌥⎋ and F5
+        // reach this delegate answer directly. `[]` is also what dismisses a
+        // popup that was on screen when the toggle was flipped — `setEnabled`
+        // re-queries for exactly that.
+        guard isEnabled else { return [] }
         // One read: `NSTextView.string` copies the whole buffer out of the mutable
         // text storage on every access, and this runs while AppKit is already
         // putting the popup on screen.
@@ -311,6 +362,17 @@ final class CompletionController {
         // typed, and a late auto-import must not land on a buffer the user has
         // since changed (D4's stated condition).
         forgetList()
+
+        // The on/off gate at the *entry* of the per-keystroke path, so while
+        // completion is off a keystroke costs nothing at all: no debounce task,
+        // no provider call, no resolve prefetch — not merely a result that is
+        // computed and then discarded. Nothing is left standing for the delegate
+        // to serve either, which is what makes turning the switch back on start
+        // from a clean list rather than a stale one.
+        guard isEnabled else {
+            snapshot = nil
+            return
+        }
 
         guard let textView, let provider else {
             snapshot = nil

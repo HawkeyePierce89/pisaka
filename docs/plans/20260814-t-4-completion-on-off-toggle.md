@@ -94,31 +94,31 @@ one store property.
 - Modify: `Sources/Pisaka/CodeEditorView.swift`
 - Modify: `Sources/Pisaka/ContentView.swift`
 
-- [ ] give `CompletionController` a `private(set) var isEnabled = true` plus
+- [x] give `CompletionController` a `private(set) var isEnabled = true` plus
       `setEnabled(_:)`, ignoring an unchanged value
-- [ ] turning it off calls `reset()` (cancelling the pending debounce/provider task,
+- [x] turning it off calls `reset()` (cancelling the pending debounce/provider task,
       bumping the generation, dropping the snapshot and every prefetched/in-flight
       resolve) and then, only if a snapshot was live, asks the text view to re-query
       — `textView.complete(nil)` — so the delegate, which now answers `[]`, closes a
       popup that is on screen; document that the snapshot's existence is the proxy
       for "the popup may be up", since only this controller ever supplies it
-- [ ] `update(provider:fileURL:language:explicit:)` returns immediately when
+- [x] `update(provider:fileURL:language:explicit:)` returns immediately when
       disabled, after clearing the snapshot and forgetting the list, and *before*
       building the request or spawning the task: no debounce, no provider call, no
       resolve prefetch on any keystroke while off
-- [ ] `completions(forPartialWordRange:in:)` returns `[]` when disabled — this is
+- [x] `completions(forPartialWordRange:in:)` returns `[]` when disabled — this is
       what silences AppKit's stock ⌥⎋/F5, which reach the delegate without passing
       through `update`
-- [ ] `CodeEditorView` gains `var completionEnabled: Bool = true` (defaulted like
+- [x] `CodeEditorView` gains `var completionEnabled: Bool = true` (defaulted like
       `fontSize`'s neighbours so a default-constructed view still compiles),
       documented as a plain value rather than a new observed object so the editor
       gains no per-keystroke re-render path
-- [ ] apply it in `makeNSView` (beside `attachCompletion`) and in `updateNSView`
+- [x] apply it in `makeNSView` (beside `attachCompletion`) and in `updateNSView`
       through a coordinator method that forwards to the controller, so flipping the
       toggle takes effect on the very next SwiftUI update — no restart, no tab switch
-- [ ] `ContentView` passes `completionEnabled: settings.completionEnabled` to
+- [x] `ContentView` passes `completionEnabled: settings.completionEnabled` to
       `CodeEditorView` (it already observes the store)
-- [ ] no unit tests: this layer is untested by convention; verified by the macOS
+- [x] no unit tests: this layer is untested by convention; verified by the macOS
       build in Task 6
 
 ### Task 3: The macOS surfaces
