@@ -100,11 +100,17 @@ copy offers as an update through Sparkle's own UI.
 
 ### One-time setup: the EdDSA key pair
 
-The app ships a **placeholder** public key today
-(`UExBQ0VIT0xERVItUkVQTEFDRS1XSVRILVJFQUwtS1k=`, base64 of the ASCII string
-`PLACEHOLDER-REPLACE-WITH-REAL-KY`). It is structurally valid — 32 bytes, so
-`swift test`'s shape assertion passes — and deliberately obvious. Before the
-first real release, once and by hand:
+**Done (2026-08-16).** The real pair exists: the public half is committed in
+`Resources/Info.plist` (`SUPublicEDKey`), the private half lives in the
+`SPARKLE_PRIVATE_EDDSA_KEY` repository secret and in an offline backup. The
+original state — a deliberate, structurally valid placeholder
+(`UExBQ0VIT0xERVItUkVQTEFDRS1XSVRILVJFQUwtS1k=`, base64 of
+`PLACEHOLDER-REPLACE-WITH-REAL-KY`) — is retired, and the workflow's preflight
+still refuses to release if that value ever reappears in the plist (a revert
+would ship a release no installed copy trusts). The procedure is kept below for
+a future re-key — with the warning that **rotation orphans every installed
+copy** (they verify against the key baked into their own bundle), so it is a
+last resort, not maintenance:
 
 ```sh
 curl -fsSL -o Sparkle-2.9.5.tar.xz \
@@ -136,9 +142,9 @@ to download a fresh build by hand. Treat the private half as backed-up state
 that lives outside this repository (a password manager, an offline copy), not as
 something the keychain happens to hold.
 
-Until step 2 is done the workflow refuses to release: its preflight greps the
-placeholder value out of `Resources/Info.plist` and fails, so a release signed by
-a key no installed copy trusts cannot be produced by accident.
+The preflight's placeholder grep stays in the workflow permanently: it is what
+turns "someone reverted the key commit" into a refused release instead of a
+release signed by a key no installed copy trusts.
 
 ### Cutting a release
 
@@ -359,12 +365,12 @@ else in the workflow changes, and this whole section goes away.
 
 ### Manual verification owed for this feature
 
-None of these is reachable from `swift test` — the first two need the real key
-and a network, the third needs two published releases:
+None of these is reachable from `swift test` — the first needs a network, the
+second needs two published releases:
 
-- **Swap in the real key.** After replacing `SUPublicEDKey`, confirm `swift test`
-  still passes (the shape assertions) and that the placeholder string appears
-  nowhere in `Resources/Info.plist`.
+- ~~**Swap in the real key.**~~ Done 2026-08-16: the real `SUPublicEDKey` is
+  committed, `swift test` passes the shape assertions against it, and the
+  placeholder string appears nowhere in `Resources/Info.plist`.
 - **The first tag push.** Confirm the workflow creates the release with both
   assets and the expected build number, and — deliberately — that a tag whose
   version does not match `MARKETING_VERSION` fails in the preflight, *before*

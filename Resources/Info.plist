@@ -52,25 +52,20 @@
 	<key>SUFeedURL</key>
 	<string>https://github.com/HawkeyePierce89/pisaka/releases/latest/download/appcast.xml</string>
 	<!-- The public half of the EdDSA (ed25519) key pair Sparkle verifies every
-	     downloaded update against. THIS IS A PLACEHOLDER — base64 of the ASCII
-	     string `PLACEHOLDER-REPLACE-WITH-REAL-KY` (32 bytes, so structurally a
-	     valid key, obviously fake, and greppable). It is well-formed on purpose:
-	     `swift test` can then assert the *shape* of whatever is here, and the
-	     placeholder passes that assertion by design.
+	     downloaded update against. This is the REAL key, generated 2026-08-16
+	     with `bin/generate_keys` from the pinned Sparkle 2.9.5 tarball
+	     (procedure in docs/RELEASING.md). The private half lives only in the
+	     `SPARKLE_PRIVATE_EDDSA_KEY` GitHub repository secret and in an offline
+	     backup — never in this repository. The release workflow still greps this
+	     file for the retired placeholder value and refuses to run if it ever
+	     reappears (a revert of this key would ship a release signed by a key no
+	     installed copy trusts).
 
-	     The real pair is generated once, by hand, with `bin/generate_keys` from
-	     the pinned Sparkle 2.9.5 tarball (procedure in docs/RELEASING.md). The
-	     private half goes into the `SPARKLE_PRIVATE_EDDSA_KEY` GitHub repository
-	     secret and nowhere else — never into this repository — and the public
-	     half replaces the string below. Until then the release workflow refuses
-	     to run: its preflight fails when it finds this placeholder value here,
-	     so a release can never ship signed by a key no installed copy trusts.
-
-	     Losing the private key is unrecoverable for copies already installed:
-	     they will reject every update signed by any other key, and the only way
-	     out is for each user to download a new build by hand. Back it up outside
-	     this repository. -->
+	     Changing or losing the private half is unrecoverable for copies already
+	     installed: they verify against the string below, baked into their own
+	     bundle, and will reject every update signed by any other key — the only
+	     way out is each user downloading a new build by hand. -->
 	<key>SUPublicEDKey</key>
-	<string>UExBQ0VIT0xERVItUkVQTEFDRS1XSVRILVJFQUwtS1k=</string>
+	<string>IgLR74DklU05BloO6JbnXcm4cwUaCLUABRDpP5ZZcYQ=</string>
 </dict>
 </plist>
