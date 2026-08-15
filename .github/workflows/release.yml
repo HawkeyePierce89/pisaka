@@ -1,9 +1,9 @@
 name: Release
 
 # Tag-triggered macOS release. Pushing `vX.Y` re-runs the `swift test` gate, then
-# archives an ad-hoc-signed macOS app, zips it, signs it with Sparkle's EdDSA key
-# and publishes a GitHub Release carrying exactly two assets: the zip and a
-# signed `appcast.xml`.
+# archives a Developer ID signed macOS app with the hardened runtime, notarizes
+# it, zips it, signs the zip with Sparkle's EdDSA key and publishes a GitHub
+# Release carrying exactly two assets: the zip and a signed `appcast.xml`.
 #
 # ## Why the build number is `github.run_number`
 #
@@ -22,13 +22,21 @@ name: Release
 # replacement must add a fixed offset (`$((github.run_number + <last shipped>))`)
 # large enough to clear every number already released.
 #
-# ## The signing seam
+# ## The two independent signatures
 #
-# The archive is *ad-hoc* signed (`CODE_SIGN_IDENTITY=-`): there is no Apple
-# Developer Program membership yet (`docs/RELEASING.md`, "Not here yet"), and
-# Sparkle's integrity chain here is the EdDSA signature over the zip, not the
-# code signature. The step that archives marks where Developer ID +
-# notarization plugs in.
+# A published release carries two, and they answer different questions. Apple's
+# — a Developer ID Application signature plus a stapled notarization ticket —
+# is what lets a *downloaded* copy launch without Gatekeeper stopping it.
+# Sparkle's is the EdDSA signature over the zip in the appcast, and it is what
+# an *installed* copy checks before replacing itself. Neither substitutes for
+# the other: an unnotarized build updates in place perfectly well and cannot be
+# opened from a fresh download, and a notarized build with an unsigned appcast
+# is one every installed copy refuses.
+#
+# They also fail independently, which is why the certificate secrets and the
+# EdDSA secret are refused separately in the preflight: an expired Developer ID
+# certificate breaks new releases and nothing already installed, while a lost
+# EdDSA key strands the entire installed base forever.
 
 on:
   push:
@@ -288,15 +296,30 @@ jobs:
       - name: Resolve package dependencies
         run: xcodebuild -project Pisaka.xcodeproj -resolvePackageDependencies -clonedSourcePackagesDirPath SourcePackages
 
-      # Ad-hoc signed, with every signing setting overridden on the command line
-      # only: `project.yml` keeps `CODE_SIGNING_ALLOWED: NO` so dev and CI builds
-      # stay signing-free, and a command-line build setting beats the project
-      # value for this invocation alone.
+      # Developer ID signed with the hardened runtime, and *every* signing
+      # setting is still overridden on the command line only.
       #
-      # DEVELOPER ID / NOTARIZATION SEAM: swap CODE_SIGN_IDENTITY=- for the
-      # "Developer ID Application" identity, add DEVELOPMENT_TEAM, import the
-      # certificate into a temporary keychain, and add a notarize-and-staple step
-      # between this and the zip. Nothing else in this workflow changes.
+      # That is a choice, not an omission. `project.yml` keeps
+      # `CODE_SIGNING_ALLOWED: NO` and names no team and no identity, so a fresh
+      # clone plus `xcodegen generate` plus a build stays signing-free — no
+      # certificate, no prompt, no "development team required" error for anyone
+      # who has never joined the program. A command-line build setting beats the
+      # project value for this one invocation, which is exactly the scope the
+      # release needs. (docs/RELEASING.md used to say the base setting would have
+      # to move or be dropped once a team existed. It does not, and this is why.)
+      #
+      # `ENABLE_HARDENED_RUNTIME=YES` is a notarization requirement, and no
+      # entitlements file goes with it: the hardened runtime permits `fork`/`exec`
+      # by default and library validation is per-process, so the `git` subprocess,
+      # the PTY shell and the downloaded language servers all launch with nothing
+      # declared. An entitlement is added when a concrete failure demands one and
+      # not in anticipation — every entitlement widens what the shipped app is
+      # allowed to do.
+      #
+      # `--timestamp` is passed rather than assumed. A secure timestamp is a
+      # notarization requirement; leaving it to an Xcode default would move the
+      # discovery of a missing one to the notary service's rejection, twenty
+      # minutes and a full archive later.
       #
       # `-configuration Release` is not decoration. The whole updater is behind
       # `#if !DEBUG` (`SoftwareUpdater.swift`), so the configuration is what
@@ -307,7 +330,7 @@ jobs:
       # pins it: the scheme is auto-created by xcodebuild (Pisaka.xcodeproj is
       # generated and gitignored, and project.yml declares no `schemes:`), so
       # "archive uses Release" would otherwise rest on an implicit Xcode default.
-      - name: Archive (macOS, ad-hoc signed)
+      - name: Archive (macOS, Developer ID signed, hardened runtime)
         run: >
           xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
           -configuration Release
@@ -317,11 +340,35 @@ jobs:
           -archivePath build/Pisaka-macOS.xcarchive
           CURRENT_PROJECT_VERSION=${{ github.run_number }}
           CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES
-          CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=-
+          CODE_SIGN_STYLE=Manual
+          CODE_SIGN_IDENTITY="Developer ID Application"
+          DEVELOPMENT_TEAM=XJT3LK36GS
+          ENABLE_HARDENED_RUNTIME=YES
+          OTHER_CODE_SIGN_FLAGS=--timestamp
           archive
 
-      # The app is taken straight out of the archive: `-exportArchive` needs an
-      # export options plist naming a team, and there is none.
+      # The app is taken straight out of the archive, deliberately: it already
+      # carries the shipping Developer ID signature and the hardened runtime, so
+      # `-exportArchive` would only re-sign it under a second configuration — an
+      # export options plist whose team, identity and signing style have to be
+      # kept in step with the archive's command line forever, with the two
+      # disagreeing failing at the notary service rather than here.
+      #
+      # What this step proves is the signature *is* what notarization requires,
+      # rather than assuming that `codesign --verify` passing means the right
+      # certificate was used: an ad-hoc signature, an Apple Development identity
+      # and a Developer ID one all verify happily. The three facts the notary
+      # service checks — a Developer ID Application authority, this team, and the
+      # hardened runtime flag — are therefore read back off the bundle, on the app
+      # and on the embedded framework both. The framework is not decoration: it is
+      # signed by Xcode as part of the archive, and it is the one piece of nested
+      # code whose signature Sparkle itself re-checks on the user's machine.
+      #
+      # These checks are not exhaustive and are not meant to be. `--deep --strict`
+      # covers nested code validity, and the notary service remains the authority
+      # on every nested executable, every timestamp and every hardened-runtime
+      # violation. This is the cheap subset that catches the whole-build mistakes
+      # locally, twenty minutes before the notary would.
       - name: Verify the archived app
         run: |
           set -euo pipefail
@@ -333,6 +380,33 @@ jobs:
             exit 1
           }
           codesign --verify --deep --strict --verbose=2 "$APP"
+
+          # `codesign --display` writes to stderr, hence the redirect. Each of the
+          # three facts is matched on its own line of that dump rather than as one
+          # regular expression over the whole thing, for the reason the plist loop
+          # below spells out: an alternation succeeds on any one alternative.
+          verify_developer_id_signature() {
+            LABEL="$1"
+            TARGET="$2"
+            SIGNATURE="$(codesign --display --verbose=4 "$TARGET" 2>&1)"
+
+            if ! printf '%s\n' "$SIGNATURE" | grep -q '^Authority=Developer ID Application:'; then
+              echo "::error::${LABEL} is not signed by a Developer ID Application certificate. An ad-hoc signature and an Apple Development identity both pass codesign --verify and are both rejected by the notary service. Check the identity the archive step selected and the certificate in DEVELOPER_ID_CERT_P12. See docs/RELEASING.md."
+              exit 1
+            fi
+            if ! printf '%s\n' "$SIGNATURE" | grep -q '^TeamIdentifier=XJT3LK36GS'; then
+              echo "::error::${LABEL} carries a team identifier other than XJT3LK36GS. Notarization is per-team, and a build signed under another team is one this team's App Store Connect key cannot submit. See docs/RELEASING.md."
+              exit 1
+            fi
+            if ! printf '%s\n' "$SIGNATURE" | grep -q 'flags=.*runtime'; then
+              echo "::error::${LABEL} was not signed with the hardened runtime. ENABLE_HARDENED_RUNTIME=YES stopped reaching the archive; the notary service refuses any build without it. See docs/RELEASING.md."
+              exit 1
+            fi
+            echo "${LABEL}: Developer ID, team XJT3LK36GS, hardened runtime"
+          }
+
+          verify_developer_id_signature "The archived app" "$APP"
+          verify_developer_id_signature "The embedded Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 
           # One extraction per key, not one `grep -E` alternation over the whole
           # dump: `grep` succeeds when *any* alternative matches, and

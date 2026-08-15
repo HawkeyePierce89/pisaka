@@ -603,10 +603,187 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
     }
 
-    /// The name of the step that produces the archive. A constant because two
-    /// tests scope themselves to it, and a renamed step must fail loudly rather
-    /// than silently check nothing.
-    private static let archiveStepName = "Archive (macOS, ad-hoc signed)"
+    /// The name of the step that produces the archive. A constant because
+    /// several tests scope themselves to it, and a renamed step must fail loudly
+    /// rather than silently check nothing.
+    private static let archiveStepName = "Archive (macOS, Developer ID signed, hardened runtime)"
+
+    /// The name of the step that verifies the archived bundle before anything is
+    /// zipped, notarized or published.
+    private static let verifyStepName = "Verify the archived app"
+
+    /// Everything the archive must sign *with*, asserted against the one step
+    /// that signs.
+    ///
+    /// None of these four is verifiable from the outcome of the archive itself —
+    /// `xcodebuild` succeeds either way. Each fails somewhere later and worse:
+    ///
+    ///  * a missing or wrong `CODE_SIGN_IDENTITY` produces a build the notary
+    ///    service rejects after the full archive *and* the submission queue,
+    ///    with a status that names no certificate;
+    ///  * a missing `DEVELOPMENT_TEAM` leaves Xcode to pick among whatever
+    ///    identities the run's keychain holds, which is a choice this workflow
+    ///    must make rather than discover;
+    ///  * `ENABLE_HARDENED_RUNTIME` is a notarization requirement and nothing
+    ///    local objects to its absence — `codesign --verify` passes on a bundle
+    ///    without it;
+    ///  * `--timestamp` is likewise a notarization requirement, and relying on an
+    ///    Xcode default for it moves its discovery to the same rejection.
+    ///
+    /// The ad-hoc `CODE_SIGN_IDENTITY=-` this replaces is asserted *absent*
+    /// rather than deleted from the suite: it shipped in R-1 and reverting to it
+    /// would leave every other assertion in this file green while publishing a
+    /// build no download can open.
+    func testTheArchiveIsSignedWithTheDeveloperIDIdentityAndTheHardenedRuntime() throws {
+        let script = try stepScript(named: Self.archiveStepName, because: """
+            It is the step that signs the app, and the signature it applies is the shipped one — \
+            nothing downstream re-signs.
+            """)
+
+        XCTAssertTrue(script.contains { $0.contains(#"CODE_SIGN_IDENTITY="Developer ID Application""#) }, """
+            release.yml's `\(Self.archiveStepName)` step must pass \
+            `CODE_SIGN_IDENTITY="Developer ID Application"`. It is the only certificate type the \
+            notary service accepts for software distributed outside the App Store; every other \
+            identity signs the archive just as happily and is rejected twenty minutes later.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("DEVELOPMENT_TEAM=\(Self.developerIDTeam)") }, """
+            release.yml's `\(Self.archiveStepName)` step must pass \
+            `DEVELOPMENT_TEAM=\(Self.developerIDTeam)`. Without it Xcode chooses among whatever \
+            identities the run's keychain happens to hold — and the team is what notarization is \
+            scoped to, so the choice belongs in this file rather than in Xcode's search order.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("ENABLE_HARDENED_RUNTIME=YES") }, """
+            release.yml's `\(Self.archiveStepName)` step must pass `ENABLE_HARDENED_RUNTIME=YES`. \
+            The notary service refuses any build without it, and nothing local does: \
+            `codesign --verify` passes on a bundle signed without the runtime flag.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("OTHER_CODE_SIGN_FLAGS=--timestamp") }, """
+            release.yml's `\(Self.archiveStepName)` step must pass \
+            `OTHER_CODE_SIGN_FLAGS=--timestamp`. A secure timestamp is a notarization requirement; \
+            leaving it to an Xcode default makes a missing one surface as a notary rejection after \
+            the whole archive.
+            """)
+
+        // Signing has to be on at all — the committed project value is NO (see
+        // `testTheCommittedProjectStaysSigningFree`), so these three overrides
+        // are what make this one invocation sign.
+        for override in ["CODE_SIGNING_ALLOWED=YES", "CODE_SIGNING_REQUIRED=YES", "CODE_SIGN_STYLE=Manual"] {
+            XCTAssertTrue(script.contains { $0.contains(override) }, """
+                release.yml's `\(Self.archiveStepName)` step must pass `\(override)`. project.yml \
+                commits `CODE_SIGNING_ALLOWED: NO` so ordinary builds need no certificate, which \
+                means the release archive signs only because it overrides that here.
+                """)
+        }
+
+        XCTAssertFalse(try activeText().contains("CODE_SIGN_IDENTITY=-"), """
+            release.yml still ad-hoc signs somewhere (`CODE_SIGN_IDENTITY=-`). An ad-hoc signature \
+            cannot be notarized, and a downloaded copy of an ad-hoc signed app is one macOS 15 \
+            offers no way to open at all — the whole reason this release is signed with a \
+            Developer ID certificate.
+            """)
+    }
+
+    /// The archive's signature is *read back off the bundle*, on the app and on
+    /// the embedded framework both.
+    ///
+    /// `codesign --verify --deep --strict` — which this step already ran before
+    /// this ticket — answers "is this signature internally valid", and an ad-hoc
+    /// signature, an Apple Development identity and a Developer ID one all pass
+    /// it. The three facts notarization actually depends on are invisible to it,
+    /// so each is matched on its own line of `codesign --display`: the authority,
+    /// the team identifier, and the hardened-runtime flag.
+    ///
+    /// The framework half is the claim "Xcode re-signs the embedded framework
+    /// with the same identity", verified rather than believed. It is also the one
+    /// piece of nested code whose signature Sparkle re-checks on the user's
+    /// machine after an update is unpacked, so a framework signed differently
+    /// from its host is a failure that happens after publication, on somebody
+    /// else's computer.
+    func testTheArchivedAppAndItsFrameworkAreCheckedForTheDeveloperIDSignature() throws {
+        let script = try stepScript(named: Self.verifyStepName, because: """
+            It is the last place the signature can be inspected before the app is notarized and \
+            published.
+            """)
+
+        XCTAssertTrue(script.contains { $0.contains("codesign --display") }, """
+            release.yml's `\(Self.verifyStepName)` step must read the signature back with \
+            `codesign --display`. `--verify` alone cannot tell a Developer ID signature from an \
+            ad-hoc one — both are valid signatures.
+            """)
+
+        assertGuardExits("^Authority=Developer ID Application:", in: script, step: Self.verifyStepName, because: """
+            an ad-hoc signature and an Apple Development identity both pass `codesign --verify`, \
+            and the difference between them and a Developer ID certificate is the difference \
+            between a release that can be notarized and one the notary service rejects after the \
+            full archive
+            """)
+        assertGuardExits("^TeamIdentifier=\(Self.developerIDTeam)", in: script, step: Self.verifyStepName, because: """
+            notarization is scoped to a team, so a build signed under another team is one this \
+            team's App Store Connect key cannot submit at all
+            """)
+        assertGuardExits("flags=.*runtime", in: script, step: Self.verifyStepName, because: """
+            the hardened runtime is a notarization requirement that nothing local objects to the \
+            absence of — the bundle verifies, launches and behaves identically right up to the \
+            submission
+            """)
+
+        // Both bundles, not just the app. The framework is separately signed and
+        // separately re-checked on the user's machine.
+        let checks = script.filter { $0.hasPrefix("verify_developer_id_signature ") }
+        XCTAssertEqual(checks.count, 2, """
+            release.yml's `\(Self.verifyStepName)` step must apply its signature check to exactly \
+            two bundles — the app and the embedded Sparkle.framework. It currently applies it to \
+            \(checks.count): \(checks).
+            """)
+        XCTAssertTrue(checks.contains { $0.hasSuffix(#""$APP""#) }, """
+            The signature check must run against the archived app itself ("$APP"). Got \(checks).
+            """)
+        XCTAssertTrue(checks.contains { $0.contains("Sparkle.framework") }, """
+            The signature check must also run against the embedded Sparkle.framework. Xcode signs \
+            it as part of the archive with the same identity, which is a claim worth verifying \
+            rather than believing — and it is the one nested bundle Sparkle itself re-checks on \
+            the user's machine after unpacking an update. Got \(checks).
+            """)
+
+        // The nested-code check the three above do not replace.
+        XCTAssertTrue(script.contains { $0.contains("codesign --verify --deep --strict") }, """
+            release.yml's `\(Self.verifyStepName)` step must keep `codesign --verify --deep \
+            --strict`. The Developer ID / team / runtime checks say the *right certificate* was \
+            used; they say nothing about whether every nested executable is validly signed.
+            """)
+    }
+
+    /// The committed project stays signing-free — which is Decision 1 of this
+    /// ticket, and the reason a fresh clone still builds.
+    ///
+    /// Every signing setting the release needs is passed on the `xcodebuild`
+    /// command line, where it applies to that one invocation. Moving any of them
+    /// into `project.yml` would look tidier and would break the thing this
+    /// repository actually optimizes for: `xcodegen generate` followed by a build
+    /// on a machine with no certificate, no team membership and no keychain
+    /// entry. `CODE_SIGNING_ALLOWED: NO` is what makes that work, and a
+    /// `DEVELOPMENT_TEAM` or `CODE_SIGN_IDENTITY` committed beside it fails
+    /// exactly the contributors who cannot fix it.
+    func testTheCommittedProjectStaysSigningFree() throws {
+        let lines = activeYAMLLines(of: try text(atRepositoryPath: "project.yml"))
+
+        XCTAssertTrue(lines.contains("CODE_SIGNING_ALLOWED: NO"), """
+            project.yml must keep `CODE_SIGNING_ALLOWED: NO` in its base settings. The release \
+            workflow overrides it (CODE_SIGNING_ALLOWED=YES) for the archive alone, so the \
+            committed value is what a clone with no certificate builds under — dropping it makes \
+            `xcodegen generate` + build demand a signing identity from everyone.
+            """)
+
+        for setting in ["DEVELOPMENT_TEAM", "CODE_SIGN_IDENTITY", "PROVISIONING_PROFILE_SPECIFIER"] {
+            let committed = lines.filter { $0.hasPrefix("\(setting):") }
+            XCTAssertTrue(committed.isEmpty, """
+                project.yml commits \(committed) — but \(setting) belongs on the release archive's \
+                command line only. Committing it makes every local and CI build try to resolve a \
+                signing identity that only the release runner has. See release.yml's archive step \
+                and docs/RELEASING.md.
+                """)
+        }
+    }
 
     /// The signature check `generate_appcast` does not make for us.
     ///

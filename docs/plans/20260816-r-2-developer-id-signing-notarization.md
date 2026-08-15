@@ -157,19 +157,19 @@ cover nested code validity, and the notary service remains the authority for
 every nested executable, which the comment says plainly instead of pretending the
 local checks are exhaustive.
 
-- [ ] rewrite the archive step's signing settings and its comment; rename the
+- [x] rewrite the archive step's signing settings and its comment; rename the
       step
-- [ ] extend `Verify the archived app` with the authority / team-identifier /
+- [x] extend `Verify the archived app` with the authority / team-identifier /
       `runtime`-flag checks on the app and on `Sparkle.framework`, each refusing
       with an actionable message
-- [ ] tests: update the `archiveStepName` constant; add a test scoped to the
+- [x] tests: update the `archiveStepName` constant; add a test scoped to the
       archive step asserting the identity, the team, `ENABLE_HARDENED_RUNTIME=YES`
       and `--timestamp`, and asserting `CODE_SIGN_IDENTITY=-` appears nowhere
       active (the deliberate update of the old ad-hoc pin, not its deletion); add
       a test that the archived app and the embedded framework are checked for the
       Developer ID authority, the team and the hardened-runtime flag; add the
       `project.yml`-stays-signing-free test from Decision 1
-- [ ] run `swift test` — must pass before Task 3
+- [x] run `swift test` — must pass before Task 3
 
 ### Task 3: Notarize, staple, and prove the result
 
