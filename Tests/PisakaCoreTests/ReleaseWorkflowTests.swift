@@ -416,6 +416,68 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
     }
 
+    /// Publication has to be atomic from an installed copy's point of view, and
+    /// `gh release create` is not.
+    ///
+    /// It creates the release first and uploads each asset afterwards, so a
+    /// failure on the second upload — a 5xx, a network blip, a cancelled job —
+    /// leaves a *published* release carrying the zip and no `appcast.xml`.
+    /// `SUFeedURL` resolves through `releases/latest/download/appcast.xml`, which
+    /// picks whichever release was published last and resolves the asset by name,
+    /// so that state 404s the feed for every installed copy — silently, with the
+    /// run already red and nobody's app saying anything. A draft is excluded from
+    /// `releases/latest` entirely, so nothing is visible until both assets are
+    /// confirmed on it; the promotion is then the one irreversible line.
+    func testTheReleaseIsPublishedOnlyOnceBothAssetsAreOnIt() throws {
+        let script = try stepScript(named: "Publish the GitHub Release", because: """
+            It is the step that makes the release visible to every installed copy.
+            """)
+
+        let create = try XCTUnwrap(script.firstIndex(where: { $0.contains("gh release create") }), """
+            release.yml no longer creates the release with `gh release create`.
+            """)
+
+        // The whole line-continued invocation, so `--draft` is looked for on the
+        // command that actually creates the release rather than anywhere in the
+        // step.
+        var invocation = [script[create]]
+        var index = create
+        while script[index].hasSuffix("\\"), index + 1 < script.count {
+            index += 1
+            invocation.append(script[index])
+        }
+        XCTAssertTrue(invocation.contains { $0.contains("--draft") && !$0.contains("--draft=false") }, """
+            `gh release create` must pass `--draft`. It uploads assets *after* creating the \
+            release, so without it a failed second upload leaves a published release carrying the \
+            zip and no appcast.xml — and releases/latest/download/appcast.xml, which is SUFeedURL, \
+            then 404s for every installed copy until someone notices.
+            """)
+
+        assertGuardExits(#""$NAMES" != "$EXPECTED""#, in: script, step: "Publish the GitHub Release", because: """
+            the draft must be checked for exactly the two assets the feed contract describes before \
+            it is promoted — a missing appcast.xml 404s SUFeedURL for every installed copy and a \
+            missing zip advertises an enclosure with nothing behind it
+            """)
+
+        let guardIndex = try XCTUnwrap(script.firstIndex(where: { $0.contains(#""$NAMES" != "$EXPECTED""#) }), """
+            release.yml no longer compares the draft release's asset names against the expected pair.
+            """)
+        let promote = try XCTUnwrap(script.firstIndex(where: { $0.contains("--draft=false") }), """
+            release.yml creates a draft release and never promotes it — the release would never \
+            become visible, and `releases/latest` would keep pointing at the previous one.
+            """)
+        XCTAssertLessThan(guardIndex, promote, """
+            The asset-set check must run *before* `gh release edit --draft=false`. Promoting first \
+            and checking afterwards is the same non-atomic publication `--draft` exists to avoid: \
+            releases/latest already points at the incomplete release by the time the check fails.
+            """)
+        XCTAssertEqual(promote, script.count - 1, """
+            The promotion must be the last thing this step does. Anything after it runs against an \
+            already-visible release, so a failure there leaves exactly the half-published state the \
+            draft was for.
+            """)
+    }
+
     /// The keys Sparkle reads come from the *partial* `Resources/Info.plist`,
     /// merged into Xcode's generated one — a merge that can stop happening
     /// without failing a build. Verifying them one at a time is the point: a
@@ -464,6 +526,43 @@ final class ReleaseWorkflowTests: XCTestCase {
             Shipping the committed placeholder build number instead of this run's is invisible \
             everywhere else — the key is present, non-empty and structurally fine — and strands \
             every installed copy on a higher build permanently
+            """)
+    }
+
+    /// The second value-carrying key in that loop, and the one the whole "tag and
+    /// version agree" invariant is actually about.
+    ///
+    /// The preflight already compares the tag against `MARKETING_VERSION`, but it
+    /// does so by `sed`-parsing `project.yml` and taking the first match — which
+    /// is a *textual* read, not the effective build setting. A per-configuration
+    /// or per-destination override under `configs:`/`settings:`, or simply a
+    /// second occurrence sorting first, makes the preflight compare the tag
+    /// against a value the archive never uses: it passes, and the release ships an
+    /// appcast advertising a `sparkle:shortVersionString` the app does not report,
+    /// under a zip filename that matches neither. Comparing the *archived* value
+    /// against the tag makes the artefact the authority, which is the same
+    /// argument the `CFBundleVersion` check above already makes.
+    func testArchivedAppsMarketingVersionIsCheckedAgainstTheTag() throws {
+        let script = try stepScript(named: "Verify the archived app", because: """
+            The archived bundle is the last place the version the app will report can be read \
+            before it is zipped, named, advertised and published.
+            """)
+
+        assertGuardExits(#""$KEY" = CFBundleShortVersionString"#, in: script, step: "Verify the archived app", because: """
+            CFBundleShortVersionString is what the appcast advertises and what the release's zip is \
+            named after. The preflight's project.yml parse is textual and can disagree with the \
+            effective build setting, and when it does every other check in this workflow stays \
+            green while the published feed names a version the app does not have
+            """)
+
+        // The comparison has to be against the tag, not against some other
+        // string that happens to be in scope: `VERSION` is `${GITHUB_REF_NAME#v}`
+        // and is what the zip name and the download prefix are built from too.
+        XCTAssertTrue(script.contains { $0.contains(#"VERSION="${GITHUB_REF_NAME#v}""#) }, """
+            release.yml's `Verify the archived app` step must derive VERSION from GITHUB_REF_NAME, \
+            so the value it compares CFBundleShortVersionString against is the tag itself rather \
+            than anything re-read from project.yml — which is the source the check exists to stop \
+            trusting.
             """)
     }
 

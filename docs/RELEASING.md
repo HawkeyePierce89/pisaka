@@ -165,7 +165,11 @@ by giving every push to master a unique group). Here the shared group is worth
 that cost, so the consequence is accepted rather than designed away: three `v*`
 tags pushed in quick succession can leave the middle one with no release and no
 failure anywhere. `on:` is tags-only, so there is no `workflow_dispatch` re-run —
-recovering means deleting and re-pushing that tag.
+recovering means deleting and re-pushing that tag. If the run got as far as
+creating the release, delete that too before re-pushing: `gh release create`
+refuses a tag that already has one, and a run that failed at or after the publish
+step leaves the release behind as a **draft** (below), which is invisible on the
+releases page's default view but still occupies the tag.
 
 The workflow then, in order:
 
@@ -218,6 +222,19 @@ The workflow then, in order:
     Sparkle keys could stop being merged in from the partial
     `Resources/Info.plist` with the step still green, shipping an app that can
     never find an update.
+
+    Two of those four keys are checked by **value** rather than by presence.
+    `CFBundleVersion` must equal this run's `github.run_number` (see below), and
+    `CFBundleShortVersionString` must equal the tag's version. The second is not
+    a duplicate of the preflight's tag-vs-`MARKETING_VERSION` refusal: that one
+    reads `project.yml` with `sed` and takes the first match, which is a textual
+    read rather than the *effective* build setting, so a per-configuration or
+    per-destination override under `configs:`/`settings:` — or simply a second
+    occurrence sorting first — would have it compare the tag against a value the
+    archive never uses. It would pass, and the release would advertise a
+    `sparkle:shortVersionString` the app does not report under a zip named after
+    neither. Here the archive is the authority, which is the same argument the
+    `CFBundleVersion` check makes.
   - `ditto -c -k --sequesterRsrc --keepParent` into a staging directory that
     holds nothing else. `ditto` and not `zip`: the embedded framework is a bundle
     of symlinks, and a plain `zip` stores them as duplicated regular files, after
@@ -239,9 +256,22 @@ The workflow then, in order:
     `gh release create`. If it fires, run `bin/generate_keys -p` on the machine
     holding the pair, compare its output against both `Resources/Info.plist` and
     the stored secret, fix whichever is wrong, and re-tag.
-  - `gh release create` attaching the zip and `appcast.xml`. That asset name is
-    load-bearing: `releases/latest/download/appcast.xml` resolves by asset name,
-    so it must stay exactly the last path component of `SUFeedURL`.
+  - `gh release create --draft` attaching the zip and `appcast.xml`, then a check
+    that the draft carries **exactly** those two asset names, then
+    `gh release edit --draft=false`. That asset name is load-bearing:
+    `releases/latest/download/appcast.xml` resolves by asset name, so it must
+    stay exactly the last path component of `SUFeedURL`.
+
+    The draft is what makes publication atomic from an installed copy's point of
+    view. `gh release create` is not transactional — it creates the release first
+    and uploads each asset afterwards — so a transient failure on the second
+    upload would otherwise leave a *published* release carrying the zip and no
+    feed. `releases/latest` is exactly what `SUFeedURL` resolves through and it
+    skips drafts, so nothing is visible to anybody until both assets are
+    confirmed; a published release missing `appcast.xml` would instead 404 that
+    URL for every installed copy, silently, until someone noticed. The promotion
+    is deliberately the last line of the step: anything after it would run
+    against an already-visible release.
 
 `ReleaseWorkflowTests` pins all of the above statically — the tag trigger and the
 permission split (by set equality over the parsed blocks, so an added
@@ -249,8 +279,11 @@ permission split (by set equality over the parsed blocks, so an added
 substring match), the `needs: test` gate, the concurrency group,
 `-configuration Release` (scoped to the archive step, so a later step carrying
 the flag cannot stand in for it), the unsigned-appcast refusal and its position
-before `gh release create`, the per-key `plutil -extract` verification,
-`ditto -c -k`, the run-number build number, the Sparkle and XcodeGen pins (the
+before `gh release create`, the per-key `plutil -extract` verification, the two
+value checks inside it (`CFBundleVersion` against the run number,
+`CFBundleShortVersionString` against the tag), the draft-then-promote publication
+(the `--draft` flag on the create, the asset-set refusal, and the promotion as
+the step's last line), `ditto -c -k`, the run-number build number, the Sparkle and XcodeGen pins (the
 latter compared against `ci.yml`, since drift between the two files is otherwise
 silent), the tools-before-archive ordering, and two cross-file pairs against
 `Resources/Info.plist`: the asset name and the repository, both against

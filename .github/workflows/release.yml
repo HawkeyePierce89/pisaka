@@ -211,6 +211,7 @@ jobs:
       - name: Verify the archived app
         run: |
           set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
           APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
           test -d "$APP" || { echo "::error::no app at ${APP}"; exit 1; }
           test -d "$APP/Contents/Frameworks/Sparkle.framework" || {
@@ -245,6 +246,23 @@ jobs:
             # carries is compared to the number this run means.
             if [ "$KEY" = CFBundleVersion ] && [ "$VALUE" != "${{ github.run_number }}" ]; then
               echo "::error::The archived app carries CFBundleVersion ${VALUE}, but this run's build number is ${{ github.run_number }}. The CURRENT_PROJECT_VERSION override stopped reaching the merged Info.plist; publishing this would offer installed copies a build that is not newer than theirs. See docs/RELEASING.md."
+              exit 1
+            fi
+
+            # CFBundleShortVersionString is the second value-carrying key, and
+            # the one the whole "tag and version agree" invariant is about. The
+            # preflight already compares the tag against MARKETING_VERSION — but
+            # it does so by parsing `project.yml` with `sed` and taking the first
+            # match, which is not the *effective* build setting: a
+            # per-configuration or per-destination override under `configs:`/
+            # `settings:`, or simply a second occurrence sorting first, would let
+            # the preflight compare the tag against a value the archive does not
+            # use. Publishing then advertises a version the app does not have,
+            # which is precisely what the preflight exists to prevent, with every
+            # other check green. So the archive — not the parse — is the
+            # authority here, exactly as it is for CFBundleVersion above.
+            if [ "$KEY" = CFBundleShortVersionString ] && [ "$VALUE" != "$VERSION" ]; then
+              echo "::error::The archived app carries CFBundleShortVersionString ${VALUE}, but tag ${GITHUB_REF_NAME} means version ${VERSION}. The preflight's project.yml parse and the effective build setting disagree; publishing this would ship an appcast advertising a version the app does not report. See docs/RELEASING.md."
               exit 1
             fi
 
@@ -310,6 +328,17 @@ jobs:
       # Exactly two assets. `appcast.xml` must keep that literal name: it is the
       # last path component of SUFeedURL in Resources/Info.plist, and GitHub's
       # releases/latest/download/<asset> redirect resolves by asset name.
+      #
+      # Created as a **draft** and promoted only once both assets are on it.
+      # `gh release create` is not transactional: it creates the release first
+      # and uploads each asset afterwards, so a transient failure on the second
+      # upload — a 5xx, a network blip, a cancelled job — leaves a *published*
+      # release carrying the zip and no feed. `releases/latest` is exactly what
+      # SUFeedURL resolves through and it skips drafts, so a draft is invisible
+      # to every installed copy while a published release missing `appcast.xml`
+      # makes that URL 404 for all of them, silently, until someone notices. The
+      # whole concurrency comment at the top of this file reasons about avoiding
+      # that state; this is what actually prevents it.
       - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -318,7 +347,23 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           VERSION="${TAG#v}"
           gh release create "$TAG" \
+            --draft \
             --title "$TAG" \
             --notes "Pisaka ${VERSION} (build ${{ github.run_number }}). macOS app, ad-hoc signed and not notarized, so the first manual install trips Gatekeeper. Clear it with \`xattr -d com.apple.quarantine /Applications/Pisaka.app\` (works on every supported macOS), or open the app once and allow it from System Settings → Privacy & Security → Open Anyway. Right-click → Open also works on macOS 13 and 14, but macOS 15 removed that override for unnotarized apps. In-place Sparkle updates do not repeat any of this." \
             "build/release-assets/Pisaka-${VERSION}.zip" \
             "appcast.xml"
+
+          # Set equality over the asset names, both sides sorted by jq so the
+          # comparison does not depend on shell locale collation. An extra asset
+          # is as much a reason to stop as a missing one: it means this step
+          # attached something the feed contract does not describe.
+          NAMES="$(gh release view "$TAG" --json assets --jq '[.assets[].name] | sort | join(", ")')"
+          EXPECTED="$(jq -rn --arg zip "Pisaka-${VERSION}.zip" '[$zip, "appcast.xml"] | sort | join(", ")')"
+          if [ "$NAMES" != "$EXPECTED" ]; then
+            echo "::error::The draft release carries assets [${NAMES}] rather than exactly [${EXPECTED}] — an upload failed part-way. The release is still a draft and so is invisible to installed copies; delete it, delete and re-push the tag, and let the run start over. Promoting it as-is would publish a release that either 404s SUFeedURL for every installed copy or offers a feed with no update behind it. See docs/RELEASING.md."
+            exit 1
+          fi
+
+          # The one irreversible line in this workflow: after it, releases/latest
+          # is this release and every installed copy reads its appcast.
+          gh release edit "$TAG" --draft=false

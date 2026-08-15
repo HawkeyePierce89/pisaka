@@ -410,7 +410,9 @@ shape, `PrivacyInfo.xcprivacy`, the
 setting), `ReleaseWorkflowTests` (`.github/workflows/release.yml`: the `v*`
 trigger and `contents: write` scoping *by set equality over the parsed block*,
 the `needs: test` gate, the concurrency group, `-configuration Release`, the
-per-key `plutil -extract` verification, `ditto -c -k`, the `github.run_number`
+per-key `plutil -extract` verification and its two *value* checks
+(`CFBundleVersion` against the run number, `CFBundleShortVersionString` against
+the tag), the draft-then-promote publication, `ditto -c -k`, the `github.run_number`
 build number, the four preflight refusals and the unsigned-appcast refusal after
 it, **asserted by mechanism — the guard's
 branch must `exit 1`, not merely mention the variable** — the Sparkle-tools and

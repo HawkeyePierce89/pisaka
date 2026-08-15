@@ -871,9 +871,10 @@ and iPhone. The feature scope landed so far:
 
 ## Known Limitations (1.0)
 
-- Automatic updates are macOS-only and have no settings of ours: the only choice
-  offered is Sparkle's own first-launch "check automatically?" prompt, and there
-  is no update channel, no check interval, no "skip this version" control and no
+- Automatic updates are macOS-only and have no settings of ours: the only
+  choices offered are the ones Sparkle's own UI provides — the first-launch
+  "check automatically?" prompt, and Skip This Version / Remind Me Later on the
+  update alert itself. There is no update channel, no check interval and no
   release-notes pane beyond what the appcast carries. Builds are ad-hoc signed
   rather than notarized, so the *first* manual install trips Gatekeeper (see
   Installing a released build); in-place updates afterwards do not. DEBUG builds
