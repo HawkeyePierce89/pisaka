@@ -975,8 +975,13 @@ struct PisakaApp: App {
                 // focused embedded terminal, which needs it as NUL. The item stays
                 // for discoverability and still works while the editor is focused,
                 // via the same responder hop as ⌃⌘J.
+                //
+                // Additionally gated on `settings.completionEnabled`: while the
+                // toggle is off the delegate answers `[]`, so leaving the item
+                // live would make an explicitly-invoked command a silent no-op.
+                // Greying it out says *why* nothing happens.
                 Button("Complete") { completeAtCaret() }
-                    .disabled(model.selectedID == nil)
+                    .disabled(model.selectedID == nil || !settings.completionEnabled)
             }
 
             CommandMenu("Git") {

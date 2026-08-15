@@ -128,20 +128,20 @@ one store property.
 - Modify: `Sources/Pisaka/SettingsView.swift`
 - Modify: `Sources/Pisaka/PisakaApp.swift`
 
-- [ ] add a compact toggle button at the **trailing end of `bottomBar`**, after
+- [x] add a compact toggle button at the **trailing end of `bottomBar`**, after
       `BranchSwitcherView`, in the existing plain-button idiom: an SF Symbol that
       reflects state (`lightbulb` when on, `lightbulb.slash` when off),
       accent-tinted when on and secondary when off, with a `.help(…)` tooltip naming
       the state ("Code completion: On" / "Code completion: Off")
-- [ ] the button writes straight through to `settings.completionEnabled` — no local
+- [x] the button writes straight through to `settings.completionEnabled` — no local
       `@State`, so the status bar and Preferences can never disagree
-- [ ] add `Toggle("Offer completions as you type", isOn: $settings.completionEnabled)`
+- [x] add `Toggle("Offer completions as you type", isOn: $settings.completionEnabled)`
       to `GeneralSettingsView`'s `Form`
-- [ ] disable the Find menu's "Complete" item while completion is off
+- [x] disable the Find menu's "Complete" item while completion is off
       (`model.selectedID == nil || !settings.completionEnabled`), so an
       explicitly-invoked command is never a silent no-op; `PisakaApp` already holds
       the store as a `@StateObject`
-- [ ] no unit tests (view layer); verified by the macOS build in Task 6
+- [x] no unit tests (view layer); verified by the macOS build in Task 6
 
 ### Task 4: Gate and expose the setting on iOS
 
