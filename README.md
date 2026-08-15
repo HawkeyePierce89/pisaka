@@ -1001,9 +1001,10 @@ and iPhone. The feature scope landed so far:
     subscription opens them normally — LeetCode sends the statement and the
     snippet, and the refusal is on the locked answer, not on the problem's
     Premium flag.
-  - On iOS, solution files written to the default location are **not visible in
-    the Files app** (the app declares no file sharing); point the folder at a
-    Files location if you want them there.
+  - On iOS, solution files written to the default location are visible in the
+    Files app under **On My iPhone → Pisaka → LeetCode** — which also means the
+    app's whole `Documents` directory is browsable there (today the LeetCode
+    folder is the only thing the app keeps in it).
   - Sign Out clears `leetcode.com`'s cookies, but cookies an SSO provider set on
     *its own* domain survive it, so signing back in may not ask for the password
     again.

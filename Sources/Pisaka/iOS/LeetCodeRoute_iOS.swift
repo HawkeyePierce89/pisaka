@@ -35,9 +35,9 @@ import SwiftUI
 /// whichever folder won.
 @MainActor
 enum LeetCodeFolder_iOS {
-    /// `<container>/Documents/LeetCode` — visible in the Files app on a build that
-    /// exposes the container's Documents directory, and reachable by this app
-    /// regardless.
+    /// `<container>/Documents/LeetCode` — visible in the Files app under
+    /// "On My iPhone → Pisaka" (`UIFileSharingEnabled` in `project.yml`, pinned
+    /// by `ReleaseMetadataTests`), and reachable by this app regardless.
     ///
     /// The fallback is unreachable in practice and exists so this is a `URL`
     /// rather than an optional threaded through every caller, the shape
