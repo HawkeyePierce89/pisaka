@@ -638,18 +638,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     runs on every SwiftUI update), and turning it *off* is not merely a gate
     raised for future keystrokes: it `reset()`s — cancelling the pending
     debounce/provider task, bumping the generation, dropping the snapshot and
-    every prefetched or in-flight resolve — and then, **only if a popup may be
+    every prefetched or in-flight resolve — and then, **only if a popup is
     up**, asks the text view to `complete(nil)`. That re-query reaches the
     delegate, which now answers `[]`, and an empty answer is what dismisses a
-    popup that is already on screen. "May be up" is a live snapshot **in the
-    editor the user is actually typing in**, and the focus half is load-bearing
-    rather than decorative: a
-    snapshot is stored by `apply(…)` *before* its own focus/caret guards and is
-    not dropped when a popup closes (Esc and an accepted row both leave it
-    standing until the next keystroke), so a snapshot routinely outlives — or
-    never had — a visible list; without the guard `setEnabled(false)` would break
-    the very rule `apply(…)` states, reaching AppKit's completion machinery on a
-    text view the user is not typing in.
+    popup that is already on screen. "Is up" is `isServingPopup`, **what the
+    delegate last actually served** in the editor the user is typing in: the
+    answer AppKit builds the list from, so a non-empty return opens or keeps one,
+    `[]` closes it, a final `insert(…)` (the accepted row *and* the Esc restore,
+    which AppKit routes through the same call) ends the session and `reset()`
+    gives up the claim. It is maintained in a thin wrapper over the delegate body
+    rather than at that body's six exits, so the two cannot disagree, and it is an
+    *upper* bound — AppKit can also close the list without telling us (a click
+    outside, a window resigning key) — never a claim that no popup is up.
+    The **snapshot is not that question**, and asking it was the original bug: it
+    is stored by `apply(…)` *before* its own focus/caret guards and is not dropped
+    when a popup closes, so it routinely outlives — or never had — a visible list,
+    and `complete(nil)` on an invocation that finds no completions makes AppKit
+    *beep*. Every "type a word, dismiss the list, switch completion off" would
+    have sounded an unexplained alert. The focus half is load-bearing for a second
+    reason: without it `setEnabled(false)` would break the very rule `apply(…)`
+    states, reaching AppKit's completion machinery on a text view the user is not
+    typing in.
     **Focus is two questions, not one**, and asking only the obvious one gets the
     Preferences case exactly backwards: `NSWindow.firstResponder` is *not* cleared
     when its window stops being key, so an editor in a background window — which
