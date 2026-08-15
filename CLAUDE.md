@@ -53,12 +53,17 @@ The app target is built through the XcodeGen-generated Xcode project, *not*
   tree-sitter grammars link on all platforms; **SwiftTerm** (embedded terminal)
   is used only by macOS-gated code; **libgit2** (`ibrahimcetin/libgit2`, built
   from C source so every Apple destination gets a natively-compiled slice — no
-  binary-xcframework slice-coverage problem) is used only by iOS-gated code. A
-  single multiplatform target links every SPM product into every destination
-  (package-product deps are all-or-nothing per target, not per-destination
-  filterable), so SwiftTerm links as unused dead weight on iOS and libgit2 links
-  as unused dead weight on macOS; the *real* restriction is enforced at the
-  source level with `#if os(macOS)` / `#if os(iOS)`.
+  binary-xcframework slice-coverage problem) is used only by iOS-gated code;
+  **Sparkle** (macOS auto-update) is macOS-only *by declaration* — its manifest
+  says `platforms: [.macOS(.v10_13)]`, so an unfiltered dependency would break
+  the iOS build rather than go unused. A package-product dependency **can** be
+  filtered per destination (`destinationFilters: [macOS]` → `platformFilters` on
+  the build file, verified against `generic/platform=iOS`); Sparkle is the one
+  dependency that carries such a filter. SwiftTerm and libgit2 do not, so they
+  link as unused dead weight on the other destination — giving them the same
+  filter is a noted follow-up, deliberately out of scope. Either way the *real*
+  restriction is enforced at the source level with `#if os(macOS)` /
+  `#if os(iOS)`.
 
 ## Architecture
 
@@ -238,6 +243,7 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 
 `docs/architecture/app-shell.md` — app orchestration (macOS):
 - `PisakaApp.swift` — `@main`: menus/shortcuts, folder-open registrations, every writer-coordination bracket (revert / merge apply / branch ops / Replace All / commit), session restore, run/test, panel toggling.
+- `SoftwareUpdater.swift` — the whole Sparkle 2 surface (macOS-only): one `SPUStandardUpdaterController`, the "Check for Updates…" command, inert in DEBUG by not compiling the updater in.
 - `ProjectWatcher.swift` — FSEvents subscription (realpath'd root, `IgnoreSelf`, dir-level events).
 - `AutosaveController.swift` — idle/tab-switch/focus-loss/termination autosave; two suspension counters.
 - `SessionController.swift` — debounced session writer (`dropFirst`/`lastWritten` rules).
@@ -398,9 +404,14 @@ coverage by set equality against `SyntaxLanguage.allCases`, emitted captures vs.
 `SymbolKind`, node names against `node-types.json` or a by-hand pin),
 `DependencyPinTests` (`Package.resolved` schema and pins,
 and that each pin matches the requirement `project.yml` states for it),
-`ReleaseMetadataTests` (`Resources/Info.plist`, `PrivacyInfo.xcprivacy`, the
+`ReleaseMetadataTests` (`Resources/Info.plist` — incl. the two Sparkle keys'
+shape, `PrivacyInfo.xcprivacy`, the
 `project.yml` lines that wire them into the bundle, and the iOS launch-screen
-setting), `LicenseCoverageTests`
+setting), `ReleaseWorkflowTests` (`.github/workflows/release.yml`: the `v*`
+trigger, the `contents: write` scoping, `ditto -c -k`, the `github.run_number`
+build number, both preflight refusals, the Sparkle-tools and XcodeGen pins — the
+latter compared against `ci.yml` — and the asset name ↔ `SUFeedURL` cross-file
+pair), `LicenseCoverageTests`
 (`licenses.json` vs. `project.yml`/`Package.resolved`/`Vendor/`) and
 `LSPSourceGatingTests` (the LSP layer's platform split, by set equality over both
 sides). Follow that
@@ -621,10 +632,15 @@ covering libgit2 linking) in parallel. No signing, secrets, or simulator.
   `queries/highlights.scm` — and the only substantive local change is one line:
   `src/scanner.c` added to `sources:`. If upstream ever fixes their manifest,
   drop the directory and restore a remote `exactVersion` pin.
-- A multiplatform Xcode target links every SPM product into every destination,
-  so SwiftTerm links unused on iOS and libgit2 links unused on macOS; the actual
-  platform restriction is enforced at the source level with
-  `#if os(macOS)` / `#if os(iOS)`, not by dependency filtering.
+- A multiplatform Xcode target links every SPM product into every destination
+  *unless the dependency carries a `destinationFilters:`* — which works
+  (`platformFilters` on the generated build file, iOS build green), correcting an
+  earlier note here that claimed package-product deps were all-or-nothing per
+  target. Only Sparkle uses it, because its manifest is macOS-only and an
+  unfiltered dependency would fail the iOS build; SwiftTerm still links unused on
+  iOS and libgit2 unused on macOS, and filtering those two is an explicitly
+  out-of-scope follow-up. The actual platform restriction stays the source-level
+  `#if os(macOS)` / `#if os(iOS)` gating, not the filter.
 - The iOS branch-switcher's network fetch is **HTTPS-only** (libgit2 over the
   built-in Apple TLS backend, PAT from the Keychain). SSH is out on iOS: this
   libgit2's SSH transport is `GIT_SSH_EXEC` (it execs the system `ssh` binary),

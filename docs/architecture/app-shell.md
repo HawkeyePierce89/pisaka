@@ -816,6 +816,74 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `refreshUserStatus()` joins the one-shot `.onAppear` block beside
     `sweepStaging()`/`lspProvisioning.refresh()` — unawaited and silent, since the
     menu already says "signed in" optimistically from the Keychain item.
+  - `SoftwareUpdater.swift` — the app's **entire** Sparkle 2 surface, wholly
+    inside `#if os(macOS)`: a small `ObservableObject` owning one
+    `SPUStandardUpdaterController`, plus `CheckForUpdatesCommand`, the one-button
+    view the app menu's command group holds. Sparkle is imported here and
+    nowhere else; nothing in `Sources/Pisaka/iOS/` or `PisakaCore` may name any
+    of its types.
+
+    **Why nothing lives in Core.** Sparkle here is *configuration*, not a
+    decision. What feed to read and which key verifies it are `SUFeedURL` and
+    `SUPublicEDKey` in `Resources/Info.plist`, read by Sparkle itself (entry in
+    `core-services.md`); when to check, what to show, and how to install are
+    Sparkle's own standard behaviour, deliberately left untouched — both
+    delegates are `nil`, there is no custom UI, and no key answers the
+    automatic-check question on the user's behalf. That leaves no pure rule to
+    extract, so this file follows the app layer's convention and carries no unit
+    test. **The absence is a recorded decision rather than an omission**, and the
+    file's own doc comment says so: the static guarantees for the feature live
+    where the facts do — `ReleaseMetadataTests` pins the two plist keys,
+    `ReleaseWorkflowTests` pins the workflow that produces what the feed points
+    at. If a real decision ever appears here (a version-comparison rule, a
+    channel policy, an eligibility gate) it belongs in Core with tests, and this
+    file goes back to being glue.
+
+    **Inert in DEBUG, and not compiling the updater in is the whole mechanism.**
+    Under `#if DEBUG` the framework is not even imported and no controller is
+    constructed: `canCheckForUpdates` stays `false` forever (so the menu item is
+    permanently disabled), and `checkForUpdates()` returns without doing
+    anything — it stays callable so the two builds share one call site instead of
+    gating the command itself. Nothing schedules a background check, nothing
+    fetches the feed, and Sparkle's first-launch "check automatically?" consent
+    prompt never appears. Both halves of that matter: a development build would
+    otherwise raise the prompt against a feed that may carry no releases yet, and
+    the *answer* is persisted per bundle identifier, so a later release build
+    would silently inherit whatever a developer clicked. There is no scheme
+    argument, no defaults key and no stub updater behind this.
+
+    In a release build `SPUStandardUpdaterController(startingUpdater: true, …)`
+    creates the updater and the standard user driver and starts it immediately,
+    which is what arms the scheduled check and the first-launch prompt.
+    `startingUpdater: true` makes a misconfigured bundle a hard failure at launch
+    (Sparkle aborts when it cannot start — a malformed `SUPublicEDKey`, say),
+    which is the deliberate choice: the alternative is an app that silently never
+    updates. Both routes to that failure are closed before a build ships — the
+    plist keys are pinned by `swift test`, and the release workflow refuses to
+    publish while the placeholder key is in place. The published
+    `canCheckForUpdates` republishes Sparkle's own KVO-compliant
+    `SPUUpdater.canCheckForUpdates` (upstream's documented property for
+    validating exactly this menu item: `false` while an update session or
+    background download is in flight) through `assign(to: &$…)`, which keeps the
+    subscription owned by the object — no stored cancellable, no retain cycle to
+    weaken. Republishing rather than exposing the updater is what keeps Sparkle's
+    types out of the rest of the app: the menu item needs one `Bool`.
+
+    **Menu wiring.** `PisakaApp` holds one instance as a plain `let` (the
+    `commitDialog`/`leetCode` precedent — the `@main` App is created once, so a
+    `let` is a stable instance) and adds
+    `CommandGroup(after: .appInfo) { CheckForUpdatesCommand(updater:) }` beside
+    the existing `.newItem`/`.saveItem` groups: `after:` rather than `replacing:`,
+    so "About Pisaka" stays and the item lands directly beneath it, which is both
+    Sparkle's recommended placement and where macOS users look. The scene body
+    reads nothing published on the updater — `CheckForUpdatesCommand` observes it
+    with its own `@ObservedObject`, so an update session toggling
+    `canCheckForUpdates` re-renders one button instead of re-creating
+    `ContentView`. That is the same invalidation argument every other
+    non-`@StateObject` model in `PisakaApp` states. `checkForUpdates()` runs a
+    *user-initiated* check, which shows Sparkle's standard UI including its
+    "you're up to date" alert — hence it is called from the menu item and never
+    on a timer.
   - `ProjectWatcher.swift` — the macOS-only (`#if os(macOS)`, `import CoreServices`)
     FSEvents subscription that makes an *external* change (a generator run in the
     embedded terminal, a Finder rename, a console `git checkout`) show up in the

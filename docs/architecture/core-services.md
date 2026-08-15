@@ -322,10 +322,11 @@ They live under `Resources/` and are verified statically by
 — the `VendoredGrammarQueryTests`/`DependencyPinTests` precedent — so the checks
 run in `swift test` rather than needing an Xcode build.
 
-  - `Resources/Info.plist` — a *partial* Info.plist carrying only the two keys
-    App Store Connect validation wants: `LSApplicationCategoryType` =
-    `public.app-category.developer-tools` and `ITSAppUsesNonExemptEncryption` =
-    Boolean `false`. `GENERATE_INFOPLIST_FILE` stays `YES` and `INFOPLIST_FILE`
+  - `Resources/Info.plist` — a *partial* Info.plist carrying only the keys Xcode
+    cannot generate: two that App Store Connect validation wants —
+    `LSApplicationCategoryType` = `public.app-category.developer-tools` and
+    `ITSAppUsesNonExemptEncryption` = Boolean `false` — and two Sparkle reads
+    (below). `GENERATE_INFOPLIST_FILE` stays `YES` and `INFOPLIST_FILE`
     points here, so Xcode merges its generated per-destination keys and every
     `INFOPLIST_KEY_*` build setting *into* this file's contents — the built plist
     is the union, not a replacement. Two failure modes drive the tests: a
@@ -335,10 +336,63 @@ run in `swift test` rather than needing an Xcode build.
     export-compliance check ignores it, so every upload keeps asking the question
     the key exists to pre-answer — hence the assertion goes through
     `CFBooleanGetTypeID`, on the type and not just the truthiness. A third test
-    pins the key *set* to exactly those two, keeping anything Xcode can generate
+    pins the key *set* to exactly those four, keeping anything Xcode can generate
     out of the hand-written file. Release versioning
     (`MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` and the per-upload
     command-line build-number override) is documented in `docs/RELEASING.md`.
+
+    **The two Sparkle keys** (`SUFeedURL`, `SUPublicEDKey`) are here rather than
+    in `project.yml` for a mechanical reason: neither has an `INFOPLIST_KEY_*`
+    equivalent, so `GENERATE_INFOPLIST_FILE` cannot produce them at all. They are
+    also the release-metadata case where *nothing in this repository reads the
+    value* — Sparkle reads them out of the built bundle at runtime, on an
+    end user's machine — so a typo is invisible until an installed copy silently
+    stops finding updates. Hence a test per key, each asserting the strongest
+    property that is checkable without the network:
+
+      - `testPartialInfoPlistCarriesAWellFormedSparkleFeedURL` — parses as a URL,
+        scheme `https` (Sparkle 2 refuses a plain-HTTP feed unless the app opts
+        out, which it does not), host `github.com`, last path component exactly
+        `appcast.xml`. The feed is
+        `…/releases/latest/download/appcast.xml` deliberately: GitHub's
+        latest-download redirect resolves by *asset name*, so that one URL always
+        points at the newest release's feed, whereas a per-release URL would be
+        baked into the shipped binary and go stale the moment the next version
+        exists. The last-component check is half of a cross-file invariant —
+        `ReleaseWorkflowTests` asserts from the other side that the release
+        workflow attaches the asset under exactly that name.
+      - `testPartialInfoPlistCarriesAWellFormedSparklePublicKey` — the value is
+        base64 decoding to exactly 32 bytes (an ed25519 public key). A key short
+        by a character or two still base64-decodes, so the byte count is what
+        catches a truncated paste.
+
+    **The placeholder-key scheme, and what it can and cannot guarantee.** The
+    committed `SUPublicEDKey` is `UExBQ0VIT0xERVItUkVQTEFDRS1XSVRILVJFQUwtS1k=`
+    — base64 of the ASCII `PLACEHOLDER-REPLACE-WITH-REAL-KY`. It is *structurally
+    valid on purpose*: `swift test` can then assert the shape of whatever is in
+    the file, and the placeholder passes that assertion by design rather than the
+    suite having to special-case it. Asserting the key is the *right* one is
+    structurally impossible here — the matching private half exists only in the
+    `SPARKLE_PRIVATE_EDDSA_KEY` repository secret, which nothing in `swift test`
+    can reach. The two checks that do cover it live elsewhere and are named so
+    the gap is not mistaken for coverage: the release workflow's preflight greps
+    this exact string out of the plist and refuses to publish while it is there
+    (so no release can ship signed by a key installed copies do not trust), and
+    the one-time manual end-to-end update pass in `docs/RELEASING.md`.
+
+    Deliberately **absent**: `SUEnableAutomaticChecks` and
+    `SUScheduledCheckInterval`. With neither key present Sparkle asks the user
+    once, on first launch, whether it may check automatically — the wanted UX at
+    no cost in machinery; either key would answer that on the user's behalf. The
+    key-set test spells this out, so restoring one is a deliberate act.
+
+    Both Sparkle keys also land in the **iOS** bundle — there is one partial
+    plist and it is merged into both destinations — where nothing reads them:
+    Sparkle links on macOS only (the `destinationFilters: [macOS]` dependency)
+    and every line of `SoftwareUpdater.swift` is inside `#if os(macOS)`. That is
+    the same deliberate spill `INFOPLIST_KEY_UILaunchScreen_Generation` and
+    `INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace` already make in the other
+    direction; two inert strings are cheaper than splitting the plist in two.
   - `Resources/PrivacyInfo.xcprivacy` — the privacy manifest. Declared in
     `project.yml` as a single-file resource (a plain file reference, not a folder
     reference, and not via the recursive `Sources/Pisaka` entry), which is what
