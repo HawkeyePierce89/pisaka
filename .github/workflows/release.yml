@@ -457,6 +457,127 @@ jobs:
             echo "${KEY} = ${VALUE}"
           done
 
+      # Notarization: Apple's service inspects the signed app and, if it accepts
+      # it, records a ticket against its code directory hash. Nothing about the
+      # app changes here — the acceptance lives on Apple's side until the next
+      # step staples it into the bundle.
+      #
+      # The zip submitted here is **not** the zip that ships. It is a scratch
+      # artefact whose only job is to carry the bundle to the notary service in
+      # one piece; the shipped one is produced after stapling, from the same
+      # `.app`, by the existing "Stage the update archive" step. Producing it
+      # twice is deliberate: the ticket has to be inside the bundle *before* the
+      # copy users download is made, and reusing this zip would ship an
+      # unstapled app that needs Apple's server reachable on first launch.
+      # It is `ditto` for the same symlink reason the shipped zip is — the
+      # notary service unpacks what it is given and checks the framework inside.
+      #
+      # The API key is written to disk because `notarytool` takes a path and not
+      # a value. It lands under $RUNNER_TEMP and is removed by a `trap` on exit
+      # rather than by a line at the end of the script: every path out of this
+      # step — the submission failing, the status check refusing, `set -e`
+      # firing on anything above — must still take the key with it, and only the
+      # trap covers the ones that do not reach the end.
+      #
+      # The exit code is deliberately not trusted to distinguish a rejected
+      # build from an accepted one. `notarytool submit --wait` reports transport
+      # and authentication failures through it, but the *verdict* is a field in
+      # the JSON, and a workflow that reads only `$?` can publish an `Invalid`
+      # submission on a service change or read a network error as a rejection.
+      # So the status is read explicitly, and anything other than `Accepted`
+      # fetches the log first: a rejection names the offending binary and the
+      # reason, and a rejection with no log printed is a rejection nobody can
+      # act on without re-running the whole release to see it.
+      - name: Notarize the archived app
+        env:
+          APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
+          API_KEY="${RUNNER_TEMP}/notary-key.p8"
+          SUBMISSION="${RUNNER_TEMP}/notarization.json"
+          trap 'rm -f "$API_KEY"' EXIT
+
+          printf '%s' "$APP_STORE_CONNECT_API_KEY_P8" > "$API_KEY"
+          chmod 600 "$API_KEY"
+
+          rm -rf build/notarization
+          mkdir -p build/notarization
+          ditto -c -k --sequesterRsrc --keepParent "$APP" build/notarization/Pisaka.zip
+
+          # `|| SUBMIT_EXIT=$?` rather than a bare invocation: `set -e` would
+          # otherwise end the step on a rejected submission before the status
+          # check below could read the verdict or fetch the log, which is the
+          # one case this step exists to report properly.
+          SUBMIT_EXIT=0
+          xcrun notarytool submit build/notarization/Pisaka.zip \
+            --key "$API_KEY" \
+            --key-id "$APP_STORE_CONNECT_KEY_ID" \
+            --issuer "$APP_STORE_CONNECT_ISSUER_ID" \
+            --wait \
+            --timeout 30m \
+            --output-format json > "$SUBMISSION" || SUBMIT_EXIT=$?
+          cat "$SUBMISSION"
+
+          STATUS="$(jq -r '.status // "no status"' "$SUBMISSION")"
+          SUBMISSION_ID="$(jq -r '.id // ""' "$SUBMISSION")"
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "::error::The notary service returned status \"${STATUS}\" (notarytool exit ${SUBMIT_EXIT}) for submission ${SUBMISSION_ID}. The log follows; it names the binary and the reason — a missing hardened runtime, a missing secure timestamp, an unsigned nested executable, or an identity the service does not accept. Nothing has been published: fix the cause, delete and re-push the tag. See docs/RELEASING.md."
+            xcrun notarytool log "$SUBMISSION_ID" \
+              --key "$API_KEY" \
+              --key-id "$APP_STORE_CONNECT_KEY_ID" \
+              --issuer "$APP_STORE_CONNECT_ISSUER_ID" \
+              || echo "::error::The notarization log for submission \"${SUBMISSION_ID}\" could not be fetched. Read it by hand with: xcrun notarytool log <submission-id> --key-id … --issuer …"
+            exit 1
+          fi
+          echo "Notarization accepted (submission ${SUBMISSION_ID})."
+
+      # Stapling writes the ticket Apple issued into the bundle, which is what
+      # makes a *downloaded* copy launch on a machine that cannot reach Apple —
+      # an accepted-but-unstapled app is one whose first launch depends on the
+      # network and on the notary service being up.
+      #
+      # `stapler validate` is not the same statement as `stapler staple`
+      # succeeding: it re-reads the ticket back out of the bundle and checks it
+      # against the bundle's own code directory hash, which is what catches a
+      # ticket stapled to something other than what was submitted.
+      #
+      # The signature is re-verified afterwards because stapling modifies the
+      # bundle. It is supposed to be signature-neutral — the ticket is stored
+      # outside the sealed resources for exactly that reason — and this step
+      # proves it for this build instead of taking it on trust, before the zip
+      # every user downloads is made from the result.
+      #
+      # `spctl --assess` is the assertion this whole ticket exists for, and it
+      # is the only check here that answers the actual question: would Gatekeeper
+      # let this app run. It is the *system* policy talking rather than
+      # `codesign`, so it covers the combination — Developer ID signature, plus
+      # hardened runtime, plus a stapled ticket — that no individual check above
+      # can. What a runner structurally cannot do is a real double-click of a
+      # real download, which is why docs/RELEASING.md keeps that as a manual pass.
+      - name: Staple the notarization ticket
+        run: |
+          set -euo pipefail
+          APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
+
+          xcrun stapler staple "$APP"
+          if ! xcrun stapler validate "$APP"; then
+            echo "::error::The notarization ticket does not validate against the archived app. The ticket is issued for the code directory hash that was submitted, so this means the bundle changed between submission and stapling. Nothing has been published; re-run the release. See docs/RELEASING.md."
+            exit 1
+          fi
+
+          # Stapling must not disturb the signature. If it ever did, the failure
+          # would surface as a rejected *update* on the user's machine, because
+          # Sparkle re-checks the signature of what it unpacks.
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          if ! spctl --assess --type execute --verbose=4 "$APP"; then
+            echo "::error::Gatekeeper refuses the stapled app (spctl --assess). This is the one check that answers the question the release is for — whether a downloaded copy runs — and it failing here means it would fail on every user's machine instead. Read the assessment above; it names which of the signature, the hardened runtime or the ticket is the problem. See docs/RELEASING.md."
+            exit 1
+          fi
+
       # `ditto -c -k` and not `zip`: the embedded Sparkle.framework is a bundle
       # of symlinks (Versions/Current, the top-level links), and a plain `zip`
       # stores them as duplicated regular files — the unzipped framework then
@@ -465,6 +586,12 @@ jobs:
       # The staging directory holds the zip and nothing else, because
       # generate_appcast reads *every* update it finds in the directory it is
       # pointed at.
+      #
+      # This step is unchanged by notarization and its position is not: it runs
+      # after the staple, so the bundle it archives already carries the ticket.
+      # Moving it above the staple would ship an app whose first launch needs
+      # Apple's service reachable — green here, and a spinner on a user's
+      # machine.
       - name: Stage the update archive
         run: |
           set -euo pipefail

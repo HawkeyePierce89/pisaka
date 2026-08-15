@@ -198,21 +198,21 @@ existing "Stage the update archive" step is unchanged and now necessarily runs
 downstream — `generate_appcast`, the draft, the asset-set check, the promotion —
 is untouched.
 
-- [ ] add the notarize step: scratch zip, `.p8` written and `trap`-removed,
+- [x] add the notarize step: scratch zip, `.p8` written and `trap`-removed,
       `notarytool submit --wait`, explicit status check, log fetch, `exit 1` on
       anything but `Accepted`
-- [ ] add the staple step: `stapler staple` the `.app`, `stapler validate`,
+- [x] add the staple step: `stapler staple` the `.app`, `stapler validate`,
       re-verify the signature, `spctl --assess`
-- [ ] tests: a notarization test asserting the submit invocation carries `--wait`
+- [x] tests: a notarization test asserting the submit invocation carries `--wait`
       and the API-key trio, that the non-`Accepted` branch exits 1 and that the
       step fetches the notarization log; a stapling test asserting `stapler
       staple` and `stapler validate`; an ordering test pinning archive < notarize
       < staple < the shipped zip < `generate_appcast` < `gh release create`; a
       test that the `.p8` is removed by the step that writes it
-- [ ] confirm the R-1 publication tests
+- [x] confirm the R-1 publication tests
       (`testTheReleaseIsPublishedOnlyOnceBothAssetsAreOnIt`, the appcast-signature
       guard and its position) still pass unchanged
-- [ ] run `swift test` — must pass before Task 4
+- [x] run `swift test` — must pass before Task 4
 
 ### Task 4: Delete the Gatekeeper story, document the new one
 

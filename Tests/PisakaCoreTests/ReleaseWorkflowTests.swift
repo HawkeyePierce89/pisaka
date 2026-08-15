@@ -785,6 +785,274 @@ final class ReleaseWorkflowTests: XCTestCase {
         }
     }
 
+    // MARK: - Notarization and stapling
+
+    /// The name of the step that submits the signed app to the notary service.
+    private static let notarizeStepName = "Notarize the archived app"
+
+    /// The name of the step that staples Apple's ticket into the bundle and
+    /// asks Gatekeeper whether the result would run.
+    private static let stapleStepName = "Staple the notarization ticket"
+
+    /// The submission itself: it has to wait for a verdict, authenticate with
+    /// the App Store Connect key trio, and be *read* rather than inferred from
+    /// an exit code.
+    ///
+    /// Each half fails differently and none of them fails loudly:
+    ///
+    ///  * without `--wait`, `notarytool submit` returns as soon as the upload is
+    ///    accepted — not the build. The step goes green in about a minute, the
+    ///    staple that follows fails with no ticket to staple, and the *reason*
+    ///    (whatever the service would have said minutes later) is never fetched;
+    ///  * the key/key-id/issuer trio is the whole authentication, and a missing
+    ///    one is an error from a service the run has already spent 20 minutes
+    ///    getting to;
+    ///  * trusting `$?` alone is the subtle one. The verdict is a JSON field. A
+    ///    submission can end `Invalid` and a workflow reading only the exit code
+    ///    can carry on to staple, publish, or — worse in the other direction —
+    ///    report a network hiccup as a rejected build. So the status is compared
+    ///    to `Accepted` explicitly, and anything else fetches the log before it
+    ///    refuses: a rejection names the offending binary, and a rejection with
+    ///    no log printed costs a whole release run to see.
+    func testTheAppIsSubmittedForNotarizationAndTheVerdictIsReadNotInferred() throws {
+        let script = try stepScript(named: Self.notarizeStepName, because: """
+            A Developer ID signature alone is not enough for a downloaded copy to launch — the \
+            notary service's verdict is the other half.
+            """)
+
+        // The whole line-continued invocation, so the flags are asserted against
+        // the command that actually submits rather than anywhere in the step —
+        // `notarytool log` below carries the same key trio.
+        let start = try XCTUnwrap(script.firstIndex(where: { $0.contains("notarytool submit") }), """
+            release.yml's `\(Self.notarizeStepName)` step must submit the app with \
+            `xcrun notarytool submit`.
+            """)
+        var invocation = [script[start]]
+        var index = start
+        while script[index].hasSuffix("\\"), index + 1 < script.count {
+            index += 1
+            invocation.append(script[index])
+        }
+
+        XCTAssertTrue(invocation.contains { $0.contains("--wait") }, """
+            `notarytool submit` must pass `--wait`. Without it the command returns once the upload \
+            is accepted rather than once the *build* is, so this step goes green in a minute, the \
+            staple that follows fails with no ticket to staple, and the verdict that explains why \
+            is never fetched. Got \(invocation).
+            """)
+        for flag in [#"--key "$API_KEY""#,
+                     #"--key-id "$APP_STORE_CONNECT_KEY_ID""#,
+                     #"--issuer "$APP_STORE_CONNECT_ISSUER_ID""#] {
+            XCTAssertTrue(invocation.contains { $0.contains(flag) }, """
+                `notarytool submit` must pass `\(flag)`. The key, its id and the team's issuer id \
+                are the whole authentication to the notary service, and a missing one is an error \
+                from a service this run has already spent a 20-minute archive getting to. Got \
+                \(invocation).
+                """)
+        }
+        XCTAssertTrue(invocation.contains { $0.contains("--timeout") }, """
+            `notarytool submit --wait` must carry a `--timeout`. Without one a stuck submission \
+            waits until the job's own 60-minute budget kills it, which reports as a cancelled \
+            release rather than as a notarization that never came back.
+            """)
+
+        for secret in ["APP_STORE_CONNECT_API_KEY_P8",
+                       "APP_STORE_CONNECT_KEY_ID",
+                       "APP_STORE_CONNECT_ISSUER_ID"] {
+            XCTAssertTrue(script.contains { $0 == "\(secret): ${{ secrets.\(secret) }}" }, """
+                release.yml's `\(Self.notarizeStepName)` step must receive \(secret) through its \
+                `env:` block. The preflight refuses a run without it, so a missing mapping *here* \
+                is the case where every guard passed and the submission still cannot authenticate.
+                """)
+        }
+
+        // The verdict, read explicitly and refused by mechanism.
+        assertGuardExits(#""$STATUS" != "Accepted""#, in: script, step: Self.notarizeStepName, because: """
+            the notary service's verdict is a field in its JSON, not an exit code — a workflow that \
+            reads only `$?` can staple and publish a submission that came back `Invalid`, and can \
+            equally report a transport failure as a rejected build
+            """)
+        XCTAssertTrue(script.contains { $0.contains("notarytool log") }, """
+            release.yml's `\(Self.notarizeStepName)` step must fetch `xcrun notarytool log` for the \
+            submission when the status is not `Accepted`. The status alone says "Invalid" and \
+            nothing else; the log is what names the binary and the reason. A rejection with no log \
+            printed costs another full release run just to find out what was wrong.
+            """)
+
+        // The log has to be fetched for *this* submission, which means the id
+        // has to be read off the JSON rather than hoped for.
+        XCTAssertTrue(script.contains { $0.contains("SUBMISSION_ID=") }, """
+            release.yml's `\(Self.notarizeStepName)` step must read the submission id out of \
+            notarytool's JSON. `notarytool log` takes an id, and without one there is nothing to \
+            fetch the failure explanation with.
+            """)
+    }
+
+    /// The App Store Connect private key is written to disk — `notarytool` takes
+    /// a path, not a value — and must not outlive the step that writes it.
+    ///
+    /// The removal has to be a `trap`, not a line at the end of the script. Every
+    /// path out of this step that matters is an *early* one: `set -e` firing on
+    /// the `ditto`, the status guard refusing, the submission failing to
+    /// authenticate. A trailing `rm` runs on exactly the path where nothing went
+    /// wrong, which is the path where it matters least.
+    func testTheNotarizationKeyIsRemovedByTheStepThatWritesIt() throws {
+        let script = try stepScript(named: Self.notarizeStepName, because: """
+            It is the step that writes the App Store Connect private key to the runner's disk.
+            """)
+
+        XCTAssertTrue(script.contains { $0.contains(#"API_KEY="${RUNNER_TEMP}/"#) }, """
+            The notarization key must be written under $RUNNER_TEMP, like the signing keychain — \
+            not into the checkout, where a later step could archive or upload it.
+            """)
+
+        let trap = try XCTUnwrap(script.firstIndex(where: {
+            $0.hasPrefix("trap ") && $0.contains("rm -f") && $0.contains("API_KEY")
+        }), """
+            release.yml's `\(Self.notarizeStepName)` step must remove the .p8 with a `trap … EXIT`. \
+            A plain `rm` at the end of the script runs only when nothing failed — and every \
+            interesting exit from this step is an early one: `set -e` on the ditto, an \
+            authentication failure, or the non-Accepted refusal.
+            """)
+        let write = try XCTUnwrap(script.firstIndex(where: { $0.contains(#"> "$API_KEY""#) }), """
+            release.yml's `\(Self.notarizeStepName)` step no longer writes the API key to a file. \
+            notarytool takes a path rather than a value, so it has to be written somewhere.
+            """)
+        XCTAssertLessThan(trap, write, """
+            The `trap` must be installed *before* the key is written. Installed afterwards it \
+            covers everything except the window in which the key exists and the step has not yet \
+            reached the trap — which includes the write itself failing part-way.
+            """)
+    }
+
+    /// The ticket is stapled into the bundle, validated, and the result is put to
+    /// Gatekeeper.
+    ///
+    /// An accepted-but-unstapled app is the failure worth naming: it launches
+    /// fine on the runner, passes every `codesign` check, and needs Apple's
+    /// service reachable on the *user's* first launch — so it fails offline, on
+    /// a captive network, or during a notary outage, and nowhere else.
+    /// `stapler validate` is a different statement from `stapler staple`
+    /// succeeding: it reads the ticket back out and checks it against the
+    /// bundle's own hash. And `spctl --assess` is the only check in this whole
+    /// workflow that asks the system policy the actual question — would this run
+    /// — rather than asking `codesign` a question that a correctly signed,
+    /// un-notarized app also passes.
+    func testTheNotarizationTicketIsStapledAndTheResultIsAssessed() throws {
+        let script = try stepScript(named: Self.stapleStepName, because: """
+            An accepted submission whose ticket is not stapled ships an app whose first launch \
+            depends on Apple's service being reachable from the user's machine.
+            """)
+
+        XCTAssertTrue(script.contains { $0.contains("stapler staple") }, """
+            release.yml's `\(Self.stapleStepName)` step must run `xcrun stapler staple` on the \
+            .app. Notarization without stapling is an acceptance that lives only on Apple's \
+            servers.
+            """)
+        assertGuardExits("xcrun stapler validate", in: script, step: Self.stapleStepName, because: """
+            `stapler staple` succeeding says a ticket was written; `stapler validate` says the \
+            ticket in the bundle is the one issued for *this* bundle, which is what catches a \
+            staple onto something other than what was submitted
+            """)
+        XCTAssertTrue(script.contains { $0.contains("codesign --verify --deep --strict") }, """
+            release.yml's `\(Self.stapleStepName)` step must re-verify the signature after \
+            stapling. Stapling modifies the bundle and is supposed to be signature-neutral; if it \
+            ever were not, the failure would surface as a rejected *update* on the user's machine, \
+            because Sparkle re-checks the signature of what it unpacks.
+            """)
+        assertGuardExits("spctl --assess", in: script, step: Self.stapleStepName, because: """
+            it is the only check in this workflow that asks the system policy whether a downloaded \
+            copy would actually run — the combination of Developer ID signature, hardened runtime \
+            and stapled ticket that no individual codesign check can see — and it is the literal \
+            goal of signing and notarizing at all
+            """)
+    }
+
+    /// The order the release is assembled in, pinned end to end.
+    ///
+    /// Every neighbouring pair here is a way to publish something broken with
+    /// every other assertion in this file green:
+    ///
+    ///  * notarizing before the archive finishes has nothing to submit;
+    ///  * stapling before the verdict staples a ticket that does not exist;
+    ///  * **zipping before the staple** is the quiet one — the shipped zip then
+    ///    carries an accepted-but-unstapled app, which passes `spctl` on the
+    ///    runner (the ticket is fetched online) and needs Apple reachable on
+    ///    every user's first launch;
+    ///  * generating the appcast before the zip signs an enclosure that is not
+    ///    there, and publishing before the appcast attaches a feed that was
+    ///    never signed.
+    func testTheReleaseIsAssembledInTheOnlyOrderThatShipsAWorkingApp() throws {
+        let lines = try activeLines()
+
+        let sequence = [
+            Self.archiveStepName,
+            Self.verifyStepName,
+            Self.notarizeStepName,
+            Self.stapleStepName,
+            "Stage the update archive",
+            "Generate and sign the appcast",
+            "Publish the GitHub Release",
+        ]
+
+        var positions: [(String, Int)] = []
+        for step in sequence {
+            let index = try XCTUnwrap(lines.firstIndex(of: "- name: \(step)"), """
+                release.yml has no step named `\(step)`. The release is assembled by these steps in \
+                this order: \(sequence).
+                """)
+            positions.append((step, index))
+        }
+
+        for (earlier, later) in zip(positions, positions.dropFirst()) {
+            XCTAssertLessThan(earlier.1, later.1, """
+                release.yml runs `\(later.0)` before `\(earlier.0)`. The release must be assembled \
+                in this order: \(sequence.joined(separator: " → ")). See this test's doc comment \
+                for what each inversion ships.
+                """)
+        }
+    }
+
+    /// The zip submitted to the notary service and the zip that ships are two
+    /// different artefacts, and the shipped one is made from the stapled bundle.
+    ///
+    /// They look interchangeable and are not. The submitted zip is a snapshot of
+    /// the app *before* the ticket exists; reusing it as the release asset would
+    /// publish an unstapled app — the exact failure
+    /// `testTheReleaseIsAssembledInTheOnlyOrderThatShipsAWorkingApp` pins the
+    /// ordering against, arriving instead by way of a shortcut that saves one
+    /// `ditto`.
+    func testTheSubmittedZipIsNotTheShippedZip() throws {
+        let notarize = try stepScript(named: Self.notarizeStepName, because: """
+            It is the step that packs the app for submission.
+            """)
+        let stage = try stepScript(named: "Stage the update archive", because: """
+            It is the step that packs the app for the release.
+            """)
+
+        // Both use ditto for the same symlink reason — the notary service
+        // unpacks what it is given, and a flattened Sparkle.framework fails
+        // there too.
+        XCTAssertTrue(notarize.contains { $0.contains("ditto -c -k") }, """
+            The zip submitted for notarization must be produced with `ditto -c -k`, like the \
+            shipped one: a plain `zip` flattens the embedded Sparkle.framework's symlinks, and the \
+            notary service inspects the framework it unpacks.
+            """)
+
+        let submitted = notarize.filter { $0.contains("ditto -c -k") }
+        XCTAssertFalse(submitted.contains { $0.contains("build/release-assets") }, """
+            The notarization step must pack the app into a scratch directory of its own, not into \
+            build/release-assets. That directory is what generate_appcast is pointed at — it reads \
+            *every* update it finds there — and its contents are what the release attaches, so a \
+            pre-staple zip landing in it ships an app whose first launch needs Apple's service \
+            reachable. Got \(submitted).
+            """)
+        XCTAssertTrue(stage.contains { $0.contains("build/release-assets") }, """
+            The shipped zip must still be staged in build/release-assets, the directory \
+            generate_appcast reads and the release attaches from.
+            """)
+    }
+
     /// The signature check `generate_appcast` does not make for us.
     ///
     /// This is the one way a fully green run can still publish a release that
