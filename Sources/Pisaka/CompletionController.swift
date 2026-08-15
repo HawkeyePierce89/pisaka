@@ -149,34 +149,55 @@ final class CompletionController {
     /// re-query. `complete(nil)` reaches the delegate, which now answers `[]`,
     /// and an empty answer is what closes a popup that is already on screen.
     ///
-    /// "May be up" is **a live snapshot in the focused editor**, and the focus
-    /// half is not decoration: a snapshot is stored by `apply(…)` *before* its
-    /// own focus/caret guards and is not dropped when a popup closes (Esc and an
-    /// accepted row both leave it standing until the next keystroke), so a
-    /// snapshot routinely outlives — or never had — a visible list. Calling
-    /// `complete(nil)` on that would break the very rule `apply` states: only the
-    /// focused editor may reach AppKit's completion machinery, or a list floats
-    /// over whatever the user *is* typing in. The toggle is flipped from
-    /// Preferences — a different window — so every unfocused editor takes this
-    /// path, which makes the guard the ordinary case rather than the exotic one.
+    /// "May be up" is **a live snapshot in the editor the user is actually typing
+    /// in**, and the focus half is not decoration: a snapshot is stored by
+    /// `apply(…)` *before* its own focus/caret guards and is not dropped when a
+    /// popup closes (Esc and an accepted row both leave it standing until the next
+    /// keystroke), so a snapshot routinely outlives — or never had — a visible
+    /// list. Calling `complete(nil)` on that would break the very rule `apply`
+    /// states: only the focused editor may reach AppKit's completion machinery, or
+    /// a list floats over whatever the user *is* typing in.
+    ///
+    /// **Focus is two questions, not one.** `NSWindow.firstResponder` is *not*
+    /// cleared when its window stops being key, so an editor in a background
+    /// window — which is every open editor when the toggle is flipped from the
+    /// Preferences window — still answers `firstResponder === textView`. The
+    /// responder test alone would therefore pass for precisely the editors it is
+    /// meant to exclude, which is why `isKeyWindow` is asked as well. Nothing
+    /// dismissable is lost to the narrower test: a completion popup can only be on
+    /// screen in the key window.
+    ///
+    /// **The re-query is deferred by one run-loop turn**, because this runs inside
+    /// `updateNSView`. Dismissing a live popup makes AppKit restore the typed word
+    /// through `insertCompletion(…isFinal:)` — a real buffer edit, which fires
+    /// `textDidChange`, which writes the SwiftUI text binding: mutating observed
+    /// state from within a view update. Hopping out of that pass is the same move
+    /// `EditorSearchController.setNeedsRefresh` makes and costs nothing the user
+    /// can perceive. Every condition is re-asked on the hop, since the toggle may
+    /// have been flipped back and the editor may have lost focus, gained marked
+    /// text or been torn down in between.
     func setEnabled(_ enabled: Bool) {
         guard enabled != isEnabled else { return }
         isEnabled = enabled
         guard !enabled else { return }
-        // Bound before `reset()` drops the snapshot. `textView` is unwrapped
-        // rather than compared through the optional chain: `nil === nil` is
-        // *true*, so an `Optional` first-responder test would pass for a
-        // controller that has no text view at all.
-        let focusedTextView: NSTextView? = {
-            guard snapshot != nil,
-                  let textView,
-                  textView.window?.firstResponder === textView,
-                  !textView.hasMarkedText()
-            else { return nil }
-            return textView
-        }()
+        // Read before `reset()` drops it.
+        let mayHavePopup = snapshot != nil
         reset()
-        focusedTextView?.complete(nil)
+        guard mayHavePopup else { return }
+        DispatchQueue.main.async { [weak self] in
+            // `textView` is unwrapped rather than compared through the optional
+            // chain: `nil === nil` is *true*, so an `Optional` first-responder
+            // test would pass for a controller that has no text view at all.
+            guard let self,
+                  !self.isEnabled,
+                  let textView = self.textView,
+                  let window = textView.window,
+                  window.isKeyWindow,
+                  window.firstResponder === textView,
+                  !textView.hasMarkedText()
+            else { return }
+            textView.complete(nil)
+        }
     }
 
     /// The candidates the delegate serves, and the prefix they answer.

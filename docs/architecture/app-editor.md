@@ -642,17 +642,34 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     up**, asks the text view to `complete(nil)`. That re-query reaches the
     delegate, which now answers `[]`, and an empty answer is what dismisses a
     popup that is already on screen. "May be up" is a live snapshot **in the
-    focused editor**, and the focus half is load-bearing rather than decorative: a
+    editor the user is actually typing in**, and the focus half is load-bearing
+    rather than decorative: a
     snapshot is stored by `apply(…)` *before* its own focus/caret guards and is
     not dropped when a popup closes (Esc and an accepted row both leave it
     standing until the next keystroke), so a snapshot routinely outlives — or
-    never had — a visible list. Since the toggle is flipped from Preferences or
-    the bottom bar, every *other* open editor is unfocused when this runs, which
-    makes the guard the ordinary case; without it `setEnabled(false)` would break
+    never had — a visible list; without the guard `setEnabled(false)` would break
     the very rule `apply(…)` states, reaching AppKit's completion machinery on a
-    text view the user is not typing in. (The unwrap is written out rather than
+    text view the user is not typing in.
+    **Focus is two questions, not one**, and asking only the obvious one gets the
+    Preferences case exactly backwards: `NSWindow.firstResponder` is *not* cleared
+    when its window stops being key, so an editor in a background window — which
+    is every open editor while the Preferences window is up — still answers
+    `firstResponder === textView` and would pass a responder-only test. `isKeyWindow`
+    is therefore asked alongside it, and costs nothing real: a completion popup can
+    only be on screen in the key window, so the narrower test skips no dismissal.
+    (The unwrap is written out rather than
     chained through the optional, because `nil === nil` is `true` and would let a
-    controller with no text view pass.) Nothing in the intelligence stack is stopped: no LSP session
+    controller with no text view pass.)
+    **The re-query is deferred by one run-loop turn**, because `setEnabled(_:)` is
+    called from `updateNSView`: dismissing a live popup makes AppKit restore the
+    typed word through `insertCompletion(…isFinal:)`, a real buffer edit that fires
+    `textDidChange`, which writes the SwiftUI text binding — observed state mutated
+    from inside a view update, the hazard `CodeEditorCoordinator_iOS.applyReveal`
+    hops out of for the same reason. The hop is `EditorSearchController.setNeedsRefresh`'s
+    (same run-loop iteration, nothing drawn in between) and re-asks every condition,
+    since the toggle may have been flipped back and the editor may have lost focus,
+    gained marked text or been torn down before it lands.
+    Nothing in the intelligence stack is stopped: no LSP session
     is shut down, the registry is untouched, the symbol index keeps walking and
     refreshing, and go-to-definition — which asks the same provider — is entirely
     unaffected. The decision that off is *total* (and that the auto-popup-only
