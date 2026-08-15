@@ -31,7 +31,8 @@ It is the *store* version and nothing else: `PisakaCore.version` is an unrelated
 library constant and does not track it. Feature scope is a separate axis — the
 first App Store release ships as `1.0` because a store listing numbered `0.1`
 reads as unfinished, not because the feature set changed. `README.md`'s "Known
-limitations" section is the list of what 1.0 does not do.
+Limitations" section carries the headline list of what 1.0 does not do; the
+complete, per-item list is in `docs/FEATURES.md`.
 
 ### The build number
 
