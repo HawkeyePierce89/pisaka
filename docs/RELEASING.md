@@ -444,7 +444,7 @@ Program membership exists:
 None of the repository-side work above depends on a signing team existing;
 adding these steps is a separate change to this document.
 
-## Open compliance question: statically linked LGPL
+## Resolved compliance question: statically linked LGPL
 
 **Both** shipped binaries link libgit2, whose SwiftPM target compiles
 `deps/xdiff` (LibXDiff, LGPL-2.1-or-later) — see the sub-dependency section of
@@ -468,15 +468,30 @@ recipient can relink against a modified LibXDiff. libgit2's own
 GPLv2-with-linking-exception covers libgit2's files and not the LGPL-headered
 xdiff tree, so it does not cover this.
 
-Nothing in the repository can resolve that — it is a decision, and the options
-are: accept the risk deliberately and in writing; publish an
-"object files available on request" offer alongside the store listing; or drop
-`deps/xdiff` from the compiled sources and supply the diff implementation
-another way (or give libgit2 the same `destinationFilters: [iOS]` treatment
-Sparkle gets, which would at least remove the macOS half of the question).
+**Decision (2026-08-16): satisfied by the app being open source.** Pisaka's
+complete source is public in this repository under the MIT license (the root
+`LICENSE`), and every release the tag-triggered workflow publishes is built by
+`.github/workflows/release.yml` from a tagged commit of that same public
+repository. A recipient of the binary can therefore obtain the full application
+source, modify or replace the vendored LibXDiff (`deps/xdiff` inside the pinned
+libgit2 package), and rebuild — which is the ability LGPL-2.1 §6 exists to
+guarantee, provided in its strongest form (complete corresponding source, not an
+object-file offer). The "closed-source binary" scenario the paragraph above
+describes does not apply here; no object-file offer, no `deps/xdiff` removal
+and no `destinationFilters: [iOS]` workaround is needed.
 
-**Decide it before the first `v*` tag is pushed** — not, as this section
-previously said, before the first iOS submission. The tag-triggered workflow
-publishes a macOS app to GitHub Releases, and that is a distribution to the
-public: it starts the clock on the same obligation, and it will almost certainly
-happen long before anything reaches App Store Connect. Record the decision here.
+Two conditions keep this decision true, and both would reopen it:
+
+- **The repository stays public and MIT-licensed.** Taking the source private,
+  or relicensing it under terms that forbid rebuilding, removes the very thing
+  that satisfies §6 — from that moment every distributed build (GitHub Releases
+  and any store) needs one of the previously listed alternatives: an
+  object-files offer, or dropping/replacing `deps/xdiff`.
+- **Shipped binaries are built from committed, tagged source.** A release built
+  from uncommitted local changes would distribute a binary whose corresponding
+  source is not actually available; the workflow's tags-only trigger makes this
+  structurally hard to do by accident.
+
+The same reasoning covers a future App Store submission unchanged: source
+availability satisfies the relinking half regardless of the distribution
+channel, and the attribution half already ships inside the app.
