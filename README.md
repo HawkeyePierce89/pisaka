@@ -333,7 +333,16 @@ involved.
   mouse choose, Return inserts, Esc dismisses, and the insertion is a single undo
   step. Ctrl+Space (Find > Complete) asks for the list explicitly, from the first
   character, and works after a dot too. Nothing pops up mid-composition with an
-  input method.
+  input method. If you would rather it stayed out of the way, there is a
+  **lightbulb button at the right end of the status bar** (and a matching "Offer
+  completions as you type" checkbox in Preferences → General — the two are the
+  same switch) that turns completion off entirely: no popup as you type, and
+  Ctrl+Space / Find > Complete do nothing either, the menu item greying out to
+  say so. The choice is remembered across launches, takes effect on the next
+  keystroke in either direction, and dismisses a popup that is already open.
+  Go to Definition is unaffected — the symbol index and any running language
+  server keep working exactly as before, so turning completion back on costs
+  nothing.
   Both features are backed by a project-wide symbol index built from the same
   tree-sitter parse trees that drive the syntax highlighting — no network, and
   (except for Swift on macOS, below) no language server either. It is built when
@@ -765,12 +774,16 @@ and iPhone. The feature scope landed so far:
   that receiver's members), offers the same fuzzy/camelCase matches and language
   keywords as macOS, scrolls horizontally, tapping a word
   inserts it as one undo step, and it disappears when there is nothing to offer,
-  so it works the same with the on-screen and a hardware keyboard. iOS has no
+  so it works the same with the on-screen and a hardware keyboard. The strip can
+  be switched off with "Offer completions as you type" in Settings → Editor — the
+  same preference as the macOS status-bar lightbulb, remembered across launches
+  — which makes it disappear on the next keystroke and come back as soon as you
+  turn it on; Go to Definition keeps working either way. iOS has no
   file-system watcher, so the index is built when you open a folder and kept
   current as you open tabs and type, but it does not notice changes made to the
   files by another app.
 - A Preferences sheet bound to the same `SettingsStore` (theme, tab orientation,
-  font size), with an **About → Acknowledgements** screen listing the same
+  font size, completions on/off), with an **About → Acknowledgements** screen listing the same
   third-party dependencies and their full license texts as the macOS tab.
 - Git features backed by **libgit2** in-process (no `git` binary): Local Changes
   (flat / by-folder list, status badges, side-by-side diff, multi-file revert),

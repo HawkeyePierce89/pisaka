@@ -171,6 +171,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     editor text view, not `MinimapView`, so it never conflicts with the minimap
     wheel handler or the diff synced-scroll. `DiffView`/`MergeView` take the same
     `fontSize` and apply it uniformly across their panes (so rows stay aligned).
+    Completion on/off (T-4) follows that same shape exactly: `completionEnabled:
+    Bool` is a **plain value** with a `true` default (so a default-constructed
+    view still compiles), threaded from `settings.completionEnabled` by
+    `ContentView` — which already observes the store — and *not* a second
+    observed object. The store is observed once, where the view is built, and the
+    flag travels with the update that observation already causes; making this
+    view observe anything itself would add a per-keystroke re-render path to the
+    one view in the app that must not have one. It is applied in `makeNSView`
+    (beside `attachCompletion`, so an editor built while the preference is
+    already off never asks the provider even once) and re-applied
+    unconditionally near the top of `updateNSView`, before the buffer/blame/index
+    reconciliation — the controller ignores an unchanged value, and a *change* to
+    `false` cancels what is pending and dismisses a live popup, which should
+    happen before the rest of the update runs. The coordinator's
+    `setCompletionEnabled(_:)` is a thin forwarder rather than a stored flag:
+    `CompletionController` owns the state and is the only thing that can act on a
+    change.
     Bracket highlighting (both mechanics — the caret's matched pair and the
     rainbow by depth) is wired in the same `Coordinator`, again pure-engine +
     thin view glue: `makeNSView` installs a `BracketOverlayLayoutManager` on the
@@ -591,6 +608,37 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     prefetch on a caret move would only throw away the resolve for a list still on
     screen. A resolve started late by `scheduleFollowUp` is filed in the same
     `resolveTasks` table, so it is cancelled by the same two events.
+    **T-4: the whole thing has an off switch, and it is enforced twice.**
+    `isEnabled` (`private(set)`, default `true`) mirrors
+    `SettingsStore.completionEnabled` — see `core-services.md` for the flag, and
+    `app-window.md` for the status-bar surface — forwarded here by
+    `CodeEditorView.updateNSView` through the coordinator. Two enforcement points
+    rather than one, because the two paths into this class are genuinely
+    different: at the **entry** of `update(…)`, which returns after clearing the
+    snapshot and forgetting the list and *before* the request is built or a task
+    spawned — so while completion is off a keystroke costs no debounce, no
+    provider call and no resolve prefetch, rather than computing a result that is
+    then discarded — and again at the top of
+    `completions(forPartialWordRange:in:)`, which answers `[]`. The second is
+    load-bearing on its own: AppKit's stock ⌥⎋ and F5 reach the delegate
+    **without** passing through `update(…)`, exactly as the member-state re-check
+    above documents, so a gate only at the request entry would leave the switch
+    silently partial. `setEnabled(_:)` ignores an unchanged value (the forwarding
+    runs on every SwiftUI update), and turning it *off* is not merely a gate
+    raised for future keystrokes: it `reset()`s — cancelling the pending
+    debounce/provider task, bumping the generation, dropping the snapshot and
+    every prefetched or in-flight resolve — and then, **only if a snapshot was
+    live**, asks the text view to `complete(nil)`. That re-query reaches the
+    delegate, which now answers `[]`, and an empty answer is what dismisses a
+    popup that is already on screen. The snapshot's existence is the proxy for
+    "the popup may be up" because this controller is the only thing that ever
+    supplies AppKit a list here, so a popup cannot be showing rows that did not
+    come from one. Nothing in the intelligence stack is stopped: no LSP session
+    is shut down, the registry is untouched, the symbol index keeps walking and
+    refreshing, and go-to-definition — which asks the same provider — is entirely
+    unaffected. The decision that off is *total* (and that the auto-popup-only
+    variant was rejected rather than overlooked) is recorded in
+    `core-services.md`.
   - `LSPProcessTransport.swift` — the real `LSPTransport`: one language-server
     process, three pipes, and no opinion whatsoever about what the bytes mean. The
     entire macOS half of the LSP client, written in `GitCLIService`'s idiom for the

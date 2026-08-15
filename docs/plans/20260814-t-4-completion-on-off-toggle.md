@@ -173,25 +173,25 @@ one store property.
   `docs/architecture/app-window.md`, `docs/architecture/app-ios.md`, `README.md`,
   `CLAUDE.md`
 
-- [ ] `core-services.md`: extend the `SettingsStore` entry with `completionEnabled` —
+- [x] `core-services.md`: extend the `SettingsStore` entry with `completionEnabled` —
       the key string, the default-on lenient read (and why `object(forKey:)` rather
       than `bool(forKey:)`), that it is the single flag both platforms consult, that
       off is total (automatic *and* explicit), and that the auto-popup-only variant
       was considered and rejected as a follow-up
-- [ ] `app-editor.md`: update the `CompletionController` entry (the `isEnabled` gate
+- [x] `app-editor.md`: update the `CompletionController` entry (the `isEnabled` gate
       at both the request entry and the delegate answer, the dismissal of a live
       popup, and that nothing in the LSP layer or the index is stopped) and the
       `CodeEditorView` entry (the plain-value flag, no new observation path)
-- [ ] `app-window.md`: note the status-bar toggle in the `ContentView` entry
+- [x] `app-window.md`: note the status-bar toggle in the `ContentView` entry
       (trailing edge of the bottom bar, writes straight through to the store, mirrors
       the Preferences checkbox)
-- [ ] `app-ios.md`: note the gate in the `CodeEditorView_iOS` /
+- [x] `app-ios.md`: note the gate in the `CodeEditorView_iOS` /
       `CodeEditorCoordinator_iOS` and `CompletionBar_iOS` entries, and the new row in
       the `SettingsView_iOS` entry
-- [ ] `README.md`: mention the toggle where completion is described — the macOS
+- [x] `README.md`: mention the toggle where completion is described — the macOS
       autocompletion paragraph (status bar + Preferences, persisted, definition
       unaffected) and the iOS completion-strip paragraph (Settings row)
-- [ ] `CLAUDE.md`: update index one-liners only where a file's one-liner actually
+- [x] `CLAUDE.md`: update index one-liners only where a file's one-liner actually
       changed (the `SettingsStore.swift` line)
 
 ### Task 6: Verify acceptance criteria

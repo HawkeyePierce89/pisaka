@@ -202,7 +202,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `BottomPanel.swift` — bottom-dock panel toggle state.
 - `DiffWindowTitle.swift` — diff-window titles (short hash).
 - `TabOrientation.swift` / `ThemePreference.swift` — persisted preference enums.
-- `SettingsStore.swift` — persisted preferences with clamped font size; per-server LSP consent (D15, entry in `core-provisioning.md`).
+- `SettingsStore.swift` — persisted preferences with clamped font size; the one `completionEnabled` flag both platforms consult; per-server LSP consent (D15, entry in `core-provisioning.md`).
 - `EditorSession.swift` — session persistence (forward-compatible `SessionTab`, snapshot rules, `SessionStore`).
 - `ScopedFileAccess.swift` — iOS security-scope helpers + `BookmarkStore`; `path(_:isWithin:)`.
 - `TabLayout.swift` — iOS tab-presentation decision.
