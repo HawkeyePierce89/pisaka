@@ -91,7 +91,7 @@ yet — so Gatekeeper refuses the first double-click. Clear the quarantine flag
 yourself:
 
 ```sh
-xattr -d com.apple.quarantine /Applications/Pisaka.app
+xattr -dr com.apple.quarantine /Applications/Pisaka.app
 ```
 
 Or double-click it once, let macOS refuse, and then allow it from **System

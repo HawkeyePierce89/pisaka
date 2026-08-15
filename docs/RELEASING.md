@@ -122,7 +122,7 @@ mkdir -p sparkle-tools && tar -xJf Sparkle-2.9.5.tar.xz -C sparkle-tools ./bin
    must never be committed. The export path is outside the checkout on purpose:
    a `git add -A` in the window between writing that file and deleting it would
    otherwise commit a private key, and pushed history is not something deleting
-   the file undoes. `.gitignore` carries `private-key.txt` as a second guard for
+   the file undoes. `.gitignore` carries `*private-key*.txt` as a second guard for
    anyone who exports into the tree anyway, along with `sparkle-tools/`, the
    tarball and a locally generated `appcast.xml`.
 2. Replace the placeholder `SUPublicEDKey` in `Resources/Info.plist` with the
@@ -323,8 +323,19 @@ number already released.
 The app is ad-hoc signed, not Developer ID signed and not notarized, so a zip
 downloaded from GitHub carries the quarantine flag and macOS refuses to open it
 on the first double-click. The documented workaround, repeated in every release's
-notes: `xattr -d com.apple.quarantine /Applications/Pisaka.app`, or open the app
+notes: `xattr -dr com.apple.quarantine /Applications/Pisaka.app`, or open the app
 once and allow it from **System Settings → Privacy & Security → Open Anyway**.
+
+The `-r` in that command is load-bearing, not defensive typing. An unarchived
+download carries the quarantine flag on **every file in the bundle**, and this
+bundle is not a single executable: Sparkle embeds
+`Contents/Frameworks/Sparkle.framework`, which contains `Autoupdate`,
+`Updater.app` and `Downloader.xpc` — three separately signed executables the
+updater spawns as their own processes when it installs an update. A non-recursive
+`xattr -d` clears the flag on the `.app` directory alone and leaves all three
+quarantined, so the user who followed the instruction and believes Gatekeeper is
+settled meets it again at the exact moment the first auto-update runs — the one
+path this whole document exists to make work. Clear the tree, not the top of it.
 
 The order matters and is not cosmetic. **Right-click → Open is listed last and
 qualified**, because macOS 15 removed that Control-click override for

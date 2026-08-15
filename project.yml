@@ -197,9 +197,11 @@ packages:
   #     the acceptance gate for that filter.
   #   * Everything that imports it (`SoftwareUpdater.swift`) is inside
   #     `#if os(macOS)`, as always.
-  # Its LICENSE already aggregates the external notices for bsdiff, sais and
-  # pdqsort, so `Resources/Licenses/Sparkle.txt` is that file verbatim with
-  # nothing appended — pinned by `LicenseCoverageTests`.
+  # Its LICENSE already aggregates the external notices for bsdiff (Colin
+  # Percival), sais-lite (Yuta Mori), the portable C ed25519 implementation
+  # (orlp/ed25519, Orson Peters) and SUSignatureVerifier.m (Mark Hamlin), so
+  # `Resources/Licenses/Sparkle.txt` is that file verbatim with nothing
+  # appended — pinned by `LicenseCoverageTests`.
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     exactVersion: "2.9.5"

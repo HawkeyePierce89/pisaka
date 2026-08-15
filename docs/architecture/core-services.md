@@ -741,7 +741,13 @@ comparison can notice:
   - **Sparkle** is the third, and the one where upstream already did the
     aggregating: its own `LICENSE` ends in an `EXTERNAL LICENSES` section
     covering the third-party sources it compiles into the framework — bsdiff
-    (Colin Percival), sais-lite (Yuta Mori) and pdqsort (Orson Peters). So unlike
+    (Colin Percival), sais-lite (Yuta Mori), the portable C implementation of
+    ed25519 from `github.com/orlp/ed25519` (Orson Peters) and
+    `SUSignatureVerifier.m` (Mark Hamlin). Four entries, and the third is
+    ed25519 rather than pdqsort: Orson Peters wrote both, Sparkle vendors only
+    the former, and the mistake is easy to make from the copyright line alone —
+    which is precisely why this record names the file each notice covers rather
+    than only its author. So unlike
     the two above there is **no appendix**: the verbatim copy already *is* the
     whole obligation, and the thing that has to be pinned is the opposite one —
     that the copy stays whole. A re-copy that grabbed only the MIT grant at the
@@ -749,7 +755,7 @@ comparison can notice:
     silently drop four attributions while every other check in the suite still
     passed (the text would be present, non-empty and would still name Andy
     Matuschak). `testTextsCarryTheirBundledSubDependencyNotices` asserts the
-    `EXTERNAL LICENSES` heading and all three copyright holders for exactly that
+    `EXTERNAL LICENSES` heading and all four copyright holders for exactly that
     reason. Worth stating plainly, because "no appendix" and "nobody checked"
     look identical in the directory listing.
 

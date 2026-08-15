@@ -22,9 +22,14 @@ build/
 # copy already installed — they verify updates against the public half baked
 # into their own bundle. The doc exports it outside the tree; this is the second
 # guard, so that a `git add -A` between exporting and deleting it cannot commit
-# a private key into history. The tools directory, the tarball and a locally
-# generated feed are the rest of that ceremony's untracked debris.
-private-key.txt
+# a private key into history. The pattern is a glob rather than a bare
+# `private-key.txt` on purpose: gitignore matches a name-only pattern against the
+# whole basename, so `private-key.txt` would not cover
+# `pisaka-sparkle-private-key.txt` — the exact filename `docs/RELEASING.md` tells
+# you to export to. A guard that misses the documented name is no guard at all.
+# The tools directory, the tarball and a locally generated feed are the rest of
+# that ceremony's untracked debris.
+*private-key*.txt
 sparkle-tools/
 Sparkle-*.tar.xz
 /appcast.xml
