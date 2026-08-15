@@ -189,6 +189,20 @@ struct PisakaApp: App {
     /// unit-tested without a network or a Keychain.
     private let leetCode: LeetCodeModel
 
+    /// The Sparkle updater behind the "Check for Updates…" item in the app menu.
+    ///
+    /// A plain stored reference for the `commitDialog`/`leetCode` reason: the
+    /// `@main` App is created once, so a `let` is a stable instance, and this
+    /// scene's `body` reads nothing published on it — the one published value
+    /// (`canCheckForUpdates`) is observed by `CheckForUpdatesCommand` itself, so
+    /// an update session toggling it re-renders one menu item rather than
+    /// re-creating `ContentView`.
+    ///
+    /// Constructing it *is* starting the updater on a release build (see
+    /// `SoftwareUpdater`); in DEBUG it holds no Sparkle object at all, so a
+    /// development build neither checks nor prompts.
+    private let softwareUpdater = SoftwareUpdater()
+
     /// Wire the workspace, the project-search model and the symbol index together.
     ///
     /// `ProjectSearchModel`'s buffer closures are `let`s taken at construction, and
@@ -864,6 +878,13 @@ struct PisakaApp: App {
             }
         }
         .commands {
+            // Sparkle's own recommended placement: directly under "About Pisaka"
+            // in the app menu, which is where macOS users look for it. `after:`
+            // rather than `replacing:` — the About item stays.
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesCommand(updater: softwareUpdater)
+            }
+
             CommandGroup(replacing: .newItem) {
                 Button("New File") { model.newFile() }
                     .keyboardShortcut("n", modifiers: .command)

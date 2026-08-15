@@ -146,13 +146,13 @@ swapping it in is a documented one-time manual step.
 - Create: `Sources/Pisaka/SoftwareUpdater.swift`
 - Modify: `Sources/Pisaka/PisakaApp.swift`
 
-- [ ] Create `SoftwareUpdater.swift`, entirely inside `#if os(macOS)`: a small `ObservableObject` owning an `SPUStandardUpdaterController` (`startingUpdater: true`, no delegates — standard Sparkle behaviour, no custom UI), republishing the updater's KVO `canCheckForUpdates`, and exposing `checkForUpdates()`.
-- [ ] Make it inert in DEBUG the cheap way Sparkle supports: under `#if DEBUG` hold no controller at all, leave `canCheckForUpdates` false, and make `checkForUpdates()` a no-op. A development build then never schedules a check, never shows the first-launch consent prompt against a feed that has no releases yet, and needs no extra machinery. Record in the file's doc comment that this is the whole of the "inert in DEBUG" requirement.
-- [ ] Hold one instance in `PisakaApp` as a plain `let` (matching the `commitDialog`/`diffWindows` precedent — the `@main` App is created once, and nothing in the scene body needs to observe it) and add `CommandGroup(after: .appInfo) { Button("Check for Updates…") { … }.disabled(!canCheck) }` to the existing `.commands` block, next to the current `.newItem`/`.saveItem` groups.
-- [ ] Keep every Sparkle import and type inside the macOS-gated file; nothing in `Sources/Pisaka/iOS/` or `PisakaCore` may reference it.
-- [ ] Tests: no unit test — the view layer is untested by convention and Sparkle here is configuration with no pure decision to extract. The static guarantees are Task 2's plist pins and Task 4's workflow pins; state this explicitly in the file's doc comment so the absence is a recorded decision rather than an omission.
-- [ ] Run `swift test` — must pass (unchanged Core).
-- [ ] Run both destination builds; the iOS build must stay green with the new file present.
+- [x] Create `SoftwareUpdater.swift`, entirely inside `#if os(macOS)`: a small `ObservableObject` owning an `SPUStandardUpdaterController` (`startingUpdater: true`, no delegates — standard Sparkle behaviour, no custom UI), republishing the updater's KVO `canCheckForUpdates`, and exposing `checkForUpdates()`.
+- [x] Make it inert in DEBUG the cheap way Sparkle supports: under `#if DEBUG` hold no controller at all, leave `canCheckForUpdates` false, and make `checkForUpdates()` a no-op. A development build then never schedules a check, never shows the first-launch consent prompt against a feed that has no releases yet, and needs no extra machinery. Record in the file's doc comment that this is the whole of the "inert in DEBUG" requirement.
+- [x] Hold one instance in `PisakaApp` as a plain `let` (matching the `commitDialog`/`diffWindows` precedent — the `@main` App is created once, and nothing in the scene body needs to observe it) and add `CommandGroup(after: .appInfo) { Button("Check for Updates…") { … }.disabled(!canCheck) }` to the existing `.commands` block, next to the current `.newItem`/`.saveItem` groups.
+- [x] Keep every Sparkle import and type inside the macOS-gated file; nothing in `Sources/Pisaka/iOS/` or `PisakaCore` may reference it.
+- [x] Tests: no unit test — the view layer is untested by convention and Sparkle here is configuration with no pure decision to extract. The static guarantees are Task 2's plist pins and Task 4's workflow pins; state this explicitly in the file's doc comment so the absence is a recorded decision rather than an omission.
+- [x] Run `swift test` — must pass (unchanged Core).
+- [x] Run both destination builds; the iOS build must stay green with the new file present.
 
 ### Task 4: The tag-triggered release workflow and its static pins
 
