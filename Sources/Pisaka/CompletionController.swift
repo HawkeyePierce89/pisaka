@@ -135,7 +135,7 @@ final class CompletionController {
     /// stop being made and completion *UI* stops being shown, which is what makes
     /// the toggle instant and free in both directions — and why go-to-definition,
     /// which shares the same provider, is entirely unaffected.
-    private(set) var isEnabled = true
+    private var isEnabled = true
 
     /// Turn completion on or off, taking effect on the very next keystroke.
     ///
@@ -145,21 +145,38 @@ final class CompletionController {
     /// Turning it *off* is not merely a gate raised for future keystrokes: it
     /// `reset()`s — cancelling the pending debounce/provider task, bumping the
     /// generation, dropping the snapshot and every prefetched or in-flight
-    /// resolve — and then, only if a snapshot was live, asks the text view to
+    /// resolve — and then, only if a popup may be up, asks the text view to
     /// re-query. `complete(nil)` reaches the delegate, which now answers `[]`,
     /// and an empty answer is what closes a popup that is already on screen.
-    /// The snapshot's existence is the proxy for "the popup may be up": this
-    /// controller is the only thing that ever supplies AppKit a list here, so a
-    /// popup cannot be showing rows that did not come from one.
+    ///
+    /// "May be up" is **a live snapshot in the focused editor**, and the focus
+    /// half is not decoration: a snapshot is stored by `apply(…)` *before* its
+    /// own focus/caret guards and is not dropped when a popup closes (Esc and an
+    /// accepted row both leave it standing until the next keystroke), so a
+    /// snapshot routinely outlives — or never had — a visible list. Calling
+    /// `complete(nil)` on that would break the very rule `apply` states: only the
+    /// focused editor may reach AppKit's completion machinery, or a list floats
+    /// over whatever the user *is* typing in. The toggle is flipped from
+    /// Preferences — a different window — so every unfocused editor takes this
+    /// path, which makes the guard the ordinary case rather than the exotic one.
     func setEnabled(_ enabled: Bool) {
         guard enabled != isEnabled else { return }
         isEnabled = enabled
         guard !enabled else { return }
-        let wasShowingList = snapshot != nil
+        // Bound before `reset()` drops the snapshot. `textView` is unwrapped
+        // rather than compared through the optional chain: `nil === nil` is
+        // *true*, so an `Optional` first-responder test would pass for a
+        // controller that has no text view at all.
+        let focusedTextView: NSTextView? = {
+            guard snapshot != nil,
+                  let textView,
+                  textView.window?.firstResponder === textView,
+                  !textView.hasMarkedText()
+            else { return nil }
+            return textView
+        }()
         reset()
-        if wasShowingList, let textView {
-            textView.complete(nil)
-        }
+        focusedTextView?.complete(nil)
     }
 
     /// The candidates the delegate serves, and the prefix they answer.
@@ -279,11 +296,16 @@ final class CompletionController {
     /// session that outlived an edit shrinking the buffer would otherwise index
     /// out of bounds.
     func completions(forPartialWordRange charRange: NSRange, in textView: NSTextView) -> [String] {
-        // The second half of the on/off gate, and the load-bearing one for the
-        // commands that never pass through `update(…)`: AppKit's stock ⌥⎋ and F5
-        // reach this delegate answer directly. `[]` is also what dismisses a
-        // popup that was on screen when the toggle was flipped — `setEnabled`
-        // re-queries for exactly that.
+        // The second half of the on/off gate, covering the commands that never
+        // pass through `update(…)`: AppKit's stock ⌥⎋ and F5 reach this delegate
+        // answer directly. `[]` is also what dismisses a popup that was on screen
+        // when the toggle was flipped — `setEnabled` re-queries for exactly that.
+        //
+        // Stated locally rather than left to the `guard let snapshot` below, which
+        // today happens to answer `[]` too (nothing can populate a snapshot while
+        // off: `setEnabled` resets and `update` returns at its entry). That is a
+        // non-local proof about three other methods; "off answers nothing" is the
+        // rule this switch is, so it is written where the answer is given.
         guard isEnabled else { return [] }
         // One read: `NSTextView.string` copies the whole buffer out of the mutable
         // text storage on every access, and this runs while AppKit is already

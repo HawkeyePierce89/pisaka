@@ -170,8 +170,8 @@ one store property.
 
 **Files:**
 - Modify: `docs/architecture/core-services.md`, `docs/architecture/app-editor.md`,
-  `docs/architecture/app-window.md`, `docs/architecture/app-ios.md`, `README.md`,
-  `CLAUDE.md`
+  `docs/architecture/app-window.md`, `docs/architecture/app-ios.md`,
+  `docs/architecture/app-shell.md`, `README.md`, `CLAUDE.md`
 
 - [x] `core-services.md`: extend the `SettingsStore` entry with `completionEnabled` —
       the key string, the default-on lenient read (and why `object(forKey:)` rather
@@ -188,6 +188,11 @@ one store property.
 - [x] `app-ios.md`: note the gate in the `CodeEditorView_iOS` /
       `CodeEditorCoordinator_iOS` and `CompletionBar_iOS` entries, and the new row in
       the `SettingsView_iOS` entry
+- [x] `app-shell.md`: the two files modified by Tasks 3–4 have their entries here —
+      the `GeneralSettingsView` form enumeration gains the `Toggle` (and the
+      settings-application list its fourth path), and the `PisakaApp` menu entry
+      records "Complete"'s second gate plus the ⌃Space / ⌥⎋ / F5 asymmetry the
+      greyed-out item cannot cover
 - [x] `README.md`: mention the toggle where completion is described — the macOS
       autocompletion paragraph (status bar + Preferences, persisted, definition
       unaffected) and the iOS completion-strip paragraph (Settings row)

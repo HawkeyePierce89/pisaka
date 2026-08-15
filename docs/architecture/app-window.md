@@ -124,7 +124,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `bottomBarButton` idiom (plain button style, accent tint when active,
     secondary when not), showing `lightbulb` when on and `lightbulb.slash` when
     off with a `.help(…)` naming the state ("Code completion: On" / "Code
-    completion: Off"). It writes **straight through** to
+    completion: Off"). Unlike its siblings it is deliberately icon-only, so it
+    carries no `Label` title to serve as its accessibility name and `.help` is a
+    tooltip rather than a name: the label and the state are therefore spelled out
+    with `.accessibilityLabel("Code completion")` + `.accessibilityValue(…)`,
+    without which the one bottom-bar control that silently changes how the editor
+    behaves could not be identified without sight. It writes **straight through** to
     `settings.completionEnabled` with no local `@State`, which is what makes it
     impossible for this icon and the Preferences → General checkbox to disagree:
     both are views of the one stored flag (`core-services.md`), as is the iOS

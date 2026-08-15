@@ -172,10 +172,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     wheel handler or the diff synced-scroll. `DiffView`/`MergeView` take the same
     `fontSize` and apply it uniformly across their panes (so rows stay aligned).
     Completion on/off (T-4) follows that same shape exactly: `completionEnabled:
-    Bool` is a **plain value** with a `true` default (so a default-constructed
-    view still compiles), threaded from `settings.completionEnabled` by
+    Bool` is a **plain value**, undefaulted like `fontSize` beside it, threaded
+    from `settings.completionEnabled` by
     `ContentView` — which already observes the store — and *not* a second
-    observed object. The store is observed once, where the view is built, and the
+    observed object. The undefaulting is deliberate and is the one place this
+    differs from the optional/no-op conveniences around it: the only possible
+    default is `true`, so a second editor host added later would compile clean and
+    offer completions to a user who turned them off — a silent regression of the
+    whole feature that nothing in the repo can catch, since `swift test` compiles
+    Core alone and the view layer is untested by convention. Requiring the
+    argument makes it a compile error instead.
+    The store is observed once, where the view is built, and the
     flag travels with the update that observation already causes; making this
     view observe anything itself would add a per-keystroke re-render path to the
     one view in the app that must not have one. It is applied in `makeNSView`
@@ -609,9 +616,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     screen. A resolve started late by `scheduleFollowUp` is filed in the same
     `resolveTasks` table, so it is cancelled by the same two events.
     **T-4: the whole thing has an off switch, and it is enforced twice.**
-    `isEnabled` (`private(set)`, default `true`) mirrors
+    `isEnabled` (`private`, default `true`) mirrors
     `SettingsStore.completionEnabled` — see `core-services.md` for the flag, and
-    `app-window.md` for the status-bar surface — forwarded here by
+    `app-window.md` for the bottom-bar surface — forwarded here by
     `CodeEditorView.updateNSView` through the coordinator. Two enforcement points
     rather than one, because the two paths into this class are genuinely
     different: at the **entry** of `update(…)`, which returns after clearing the
@@ -619,21 +626,33 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     spawned — so while completion is off a keystroke costs no debounce, no
     provider call and no resolve prefetch, rather than computing a result that is
     then discarded — and again at the top of
-    `completions(forPartialWordRange:in:)`, which answers `[]`. The second is
-    load-bearing on its own: AppKit's stock ⌥⎋ and F5 reach the delegate
-    **without** passing through `update(…)`, exactly as the member-state re-check
-    above documents, so a gate only at the request entry would leave the switch
-    silently partial. `setEnabled(_:)` ignores an unchanged value (the forwarding
+    `completions(forPartialWordRange:in:)`, which answers `[]`. The second covers
+    the paths that never pass through `update(…)`: AppKit's stock ⌥⎋ and F5 reach
+    the delegate directly, exactly as the member-state re-check above documents,
+    so a gate only at the request entry would leave the switch silently partial.
+    It is stated there rather than left to the `guard let snapshot` below it —
+    which today answers `[]` too, since nothing can populate a snapshot while off
+    — because that is a non-local proof about three other methods, and "off
+    answers nothing" is the rule this switch *is*.
+    `setEnabled(_:)` ignores an unchanged value (the forwarding
     runs on every SwiftUI update), and turning it *off* is not merely a gate
     raised for future keystrokes: it `reset()`s — cancelling the pending
     debounce/provider task, bumping the generation, dropping the snapshot and
-    every prefetched or in-flight resolve — and then, **only if a snapshot was
-    live**, asks the text view to `complete(nil)`. That re-query reaches the
+    every prefetched or in-flight resolve — and then, **only if a popup may be
+    up**, asks the text view to `complete(nil)`. That re-query reaches the
     delegate, which now answers `[]`, and an empty answer is what dismisses a
-    popup that is already on screen. The snapshot's existence is the proxy for
-    "the popup may be up" because this controller is the only thing that ever
-    supplies AppKit a list here, so a popup cannot be showing rows that did not
-    come from one. Nothing in the intelligence stack is stopped: no LSP session
+    popup that is already on screen. "May be up" is a live snapshot **in the
+    focused editor**, and the focus half is load-bearing rather than decorative: a
+    snapshot is stored by `apply(…)` *before* its own focus/caret guards and is
+    not dropped when a popup closes (Esc and an accepted row both leave it
+    standing until the next keystroke), so a snapshot routinely outlives — or
+    never had — a visible list. Since the toggle is flipped from Preferences or
+    the bottom bar, every *other* open editor is unfocused when this runs, which
+    makes the guard the ordinary case; without it `setEnabled(false)` would break
+    the very rule `apply(…)` states, reaching AppKit's completion machinery on a
+    text view the user is not typing in. (The unwrap is written out rather than
+    chained through the optional, because `nil === nil` is `true` and would let a
+    controller with no text view pass.) Nothing in the intelligence stack is stopped: no LSP session
     is shut down, the registry is untouched, the symbol index keeps walking and
     refreshing, and go-to-definition — which asks the same provider — is entirely
     unaffected. The decision that off is *total* (and that the auto-popup-only

@@ -73,9 +73,15 @@ struct CodeEditorView: NSViewRepresentable {
     /// the one view in the app that must not have one. It is applied in
     /// `makeNSView` (beside `attachCompletion`) and re-applied in `updateNSView`,
     /// so flipping the toggle takes effect on the next SwiftUI update — no
-    /// restart, no tab switch. Defaults to `true` (the store's own default) so a
-    /// default-constructed view still compiles.
-    var completionEnabled: Bool = true
+    /// restart, no tab switch.
+    ///
+    /// Undefaulted, unlike the optional/no-op conveniences below and exactly like
+    /// `fontSize`: a default would have to be `true`, so a second editor host
+    /// added later would compile clean and offer completions to a user who turned
+    /// them off — a silent regression of the whole feature that nothing in the
+    /// repo could catch (`swift test` compiles Core alone and the view layer is
+    /// untested by convention). Requiring it makes that a compile error.
+    let completionEnabled: Bool
 
     /// The find/replace bar's state. Window-scoped and owned by `PisakaApp` so
     /// the pattern and toggles survive a tab switch; the coordinator's

@@ -106,7 +106,7 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// working. Only completion *requests* stop being made and the *strip* stops
     /// being shown, which is what makes the toggle instant and free in both
     /// directions.
-    private(set) var completionEnabled = true
+    private var completionEnabled = true
 
     /// The in-flight completion debounce/provider task; cancelled when a newer
     /// keystroke or caret move lands.

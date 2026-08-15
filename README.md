@@ -334,8 +334,9 @@ involved.
   step. Ctrl+Space (Find > Complete) asks for the list explicitly, from the first
   character, and works after a dot too. Nothing pops up mid-composition with an
   input method. If you would rather it stayed out of the way, there is a
-  **lightbulb button at the right end of the status bar** (and a matching "Offer
-  completions as you type" checkbox in Preferences → General — the two are the
+  **lightbulb button at the right end of the always-visible bottom bar** (beside
+  the branch switcher, and with a matching "Offer completions as you type"
+  checkbox in Preferences → General — the two are the
   same switch) that turns completion off entirely: no popup as you type, and
   Ctrl+Space / Find > Complete do nothing either, the menu item greying out to
   say so. The choice is remembered across launches, takes effect on the next
@@ -686,12 +687,13 @@ involved.
   Swift `swift test`. Like Run File, the file's dirty tab is saved first, the
   session starts in the project folder (or the file's folder), and re-running the
   same file reuses its dedicated "Test:" tab.
-- Preferences (Cmd+,): a Settings window with three persisted options — tab
+- Preferences (Cmd+,): a Settings window with four persisted options — tab
   orientation (a vertical column beside the editor, or a horizontal strip above
-  it), theme (follow the system, or force light/dark), and a shared editor font
-  size used by the editor, diff, and merge views. The font size is also
-  adjustable on the fly with Cmd+scroll over any code view. All three settings
-  persist across launches. The Settings window's other tabs are **Language
+  it), theme (follow the system, or force light/dark), a shared editor font
+  size used by the editor, diff, and merge views, and whether the editor offers
+  completions as you type (the same switch as the bottom bar's lightbulb). The
+  font size is also adjustable on the fly with Cmd+scroll over any code view.
+  All four settings persist across launches. The Settings window's other tabs are **Language
   Servers** (what may be downloaded, and what is installed), **LeetCode** (the
   account, the solutions folder, and the language new solution files are seeded
   in) and **Acknowledgements**, which lists every third-party dependency the app

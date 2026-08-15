@@ -453,15 +453,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `dismantleUIView` tears the strip down alongside the highlighter, since an
     accessory view is attached to the *responder* and nothing else would drop it.
     **T-4: all of that is behind an off switch.** The coordinator's
-    `completionEnabled` (`private(set)`, default `true`) mirrors
+    `completionEnabled` (`private`, default `true`) mirrors
     `SettingsStore.completionEnabled` — the one flag both platforms consult
     (`core-services.md`), whose macOS peer is `CompletionController.isEnabled`
     (`app-editor.md`) — forwarded by `CodeEditorView_iOS`, which takes it as
-    `var completionEnabled: Bool = true`: a **plain value** like `fontSize`, not a
+    `let completionEnabled: Bool`: a **plain value** like `fontSize`, not a
     second observed object, so the editor gains no per-keystroke re-render path
     (the store is observed once, in `RootView_iOS`, and the flag travels with the
-    update that observation already causes; the `true` default keeps a
-    default-constructed view compiling). It is applied in `makeUIView`, next to
+    update that observation already causes). Undefaulted, for the reason spelled
+    out on the macOS peer in `app-editor.md`: the only possible default is `true`,
+    so a second editor host added later would compile clean and complete for a
+    user who turned completion off, and nothing in the repo could catch it.
+    It is applied in `makeUIView`, next to
     the `symbolIndex`/`definitionRoute` wiring — so an editor built while the
     preference is already off never asks the provider even once — and re-applied
     in `updateUIView` *before* the buffer/index reconciliation, since a change to

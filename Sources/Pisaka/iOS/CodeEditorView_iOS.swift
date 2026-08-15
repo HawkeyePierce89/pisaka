@@ -58,9 +58,14 @@ struct CodeEditorView_iOS: UIViewRepresentable {
     /// the one view in the app that must not have one. It is applied in
     /// `makeUIView` and re-applied in `updateUIView`, so flipping the Settings row
     /// takes effect on the next SwiftUI update — no restart, no tab switch.
-    /// Defaults to `true` (the store's own default) so a default-constructed view
-    /// still compiles.
-    var completionEnabled: Bool = true
+    ///
+    /// Undefaulted, unlike the conveniences below and exactly like `fontSize`: a
+    /// default would have to be `true`, so a second editor host added later would
+    /// compile clean and offer completions to a user who turned them off — a
+    /// silent regression of the whole feature that nothing in the repo could catch
+    /// (`swift test` compiles Core alone and the view layer is untested by
+    /// convention). Requiring it makes that a compile error.
+    let completionEnabled: Bool
 
     /// Keeps the shown file's symbols current: an immediate re-index on tab open or
     /// switch, a debounced one while typing — the same controller and the same two

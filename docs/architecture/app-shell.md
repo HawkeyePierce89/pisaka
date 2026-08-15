@@ -232,7 +232,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     gated on a tab being open rather than on a project — a symbol declared in the
     buffer itself is indexed from that buffer, so a lone open file can still jump
     within itself — and anything else focused beeps rather than acting somewhere the
-    user is not typing.
+    user is not typing. "Complete" carries a **second** gate that "Go to
+    Definition" does not: `!settings.completionEnabled` greys it out while the
+    completion toggle is off (`core-services.md`), so an explicitly-invoked
+    command is never a silent no-op. Only the menu item can say so, though —
+    ⌃Space is deliberately not a menu equivalent (above) and AppKit's ⌥⎋/F5 are
+    not ours — so those keystrokes still fire while off and are silenced one level
+    down, by the delegate answering `[]` (`app-editor.md`). That asymmetry is why
+    the toggle is enforced in the controller as well as here. Go to Definition is
+    untouched by the toggle throughout: it shares the provider, not the gate.
     `reindexReloadedBuffer(id:url:)` is the counterpart of `forgetIndexedBuffer` on
     the *success* side of the three post-git resyncs **and of Replace All**: a tab
     whose buffer `reloadFromDisk` — or `applyBufferText` — just replaced is still
@@ -1010,8 +1018,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `GeneralSettingsView` is the former Preferences form, verbatim: a thin
     `@ObservedObject
     SettingsStore` view (a `Form` with a `Picker` for tab orientation, a `Picker`
-    for theme, and a `Stepper` + numeric "Editor font size: N pt" display bound to
-    `settings.fontSize`, ranged/stepped through the store's constants). Hosted by
+    for theme, a `Stepper` + numeric "Editor font size: N pt" display bound to
+    `settings.fontSize`, ranged/stepped through the store's constants, and a
+    `Toggle` bound to `settings.completionEnabled`, "Offer completions as you
+    type"). That last row is the *same flag* the bottom bar's lightbulb writes
+    (`app-window.md`): both bind straight through to the store with no local
+    `@State`, which is what makes it impossible for the two surfaces to disagree —
+    they are two views of one stored value, not two states to keep in sync. The
+    flag itself, and the decision that off is **total** (no automatic popup and no
+    explicit invocation) while nothing in the intelligence stack is torn down, are
+    in `core-services.md`. Hosted by
     the `Settings { SettingsView(settings:) }` scene `PisakaApp` declares alongside
     its `WindowGroup`, which gives the standard Preferences menu item and ⌘,
     shortcut for free. `PisakaApp` owns the single `@StateObject private var
@@ -1020,8 +1036,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     wiring only (untested like the rest of the view layer). Settings application is
     spread across the views that read `settings`: the theme via
     `.preferredColorScheme` on the window content root (`ContentView`), the tab
-    layout in `ContentView`, and the shared editor font size + Cmd+scroll in the
-    code views (`CodeEditorView`/`DiffView`/`MergeView`).
+    layout in `ContentView`, the shared editor font size + Cmd+scroll in the
+    code views (`CodeEditorView`/`DiffView`/`MergeView`), and completion on/off
+    as a plain (undefaulted) value on `CodeEditorView` plus the Find > "Complete"
+    item's `.disabled` in `PisakaApp`.
   - `Platform/LicenseCatalogLoader.swift` — the non-gated shim both
     Acknowledgements screens read (documented here rather than in `app-ios.md`
     because nothing about it is platform-specific: `Resources/Licenses` is a

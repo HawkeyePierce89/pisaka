@@ -420,6 +420,14 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
         .help(isOn ? "Code completion: On" : "Code completion: Off")
+        // Its siblings carry a `Label`, whose title *is* their accessibility
+        // name; this one is deliberately icon-only, and `.help` is a tooltip
+        // rather than a name — so the label and the state are spelled out here.
+        // Without them this is the one bottom-bar control that cannot be
+        // identified without sight, and it silently changes how the editor
+        // behaves.
+        .accessibilityLabel("Code completion")
+        .accessibilityValue(isOn ? "On" : "Off")
     }
 
     private func bottomBarButton(title: String, systemImage: String, panel: BottomPanel) -> some View {
