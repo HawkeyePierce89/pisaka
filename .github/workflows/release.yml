@@ -232,6 +232,22 @@ jobs:
               exit 1
             }
             test -n "$VALUE" || { echo "::error::${KEY} is present but empty in the archived app's Info.plist."; exit 1; }
+
+            # CFBundleVersion is the one key in this loop whose *value* matters
+            # rather than its presence. `project.yml` commits
+            # `CURRENT_PROJECT_VERSION: 1` and the archive overrides it on the
+            # command line; anything that stopped that override reaching the
+            # merged plist (a hardcoded value, an INFOPLIST_KEY_CFBundleVersion,
+            # a settings file that wins over the command line) would ship build 1
+            # with every presence check above still green — and a build numbered
+            # 1 published after 12 is one Sparkle will never offer, stranding
+            # every installed copy silently. So the number the app actually
+            # carries is compared to the number this run means.
+            if [ "$KEY" = CFBundleVersion ] && [ "$VALUE" != "${{ github.run_number }}" ]; then
+              echo "::error::The archived app carries CFBundleVersion ${VALUE}, but this run's build number is ${{ github.run_number }}. The CURRENT_PROJECT_VERSION override stopped reaching the merged Info.plist; publishing this would offer installed copies a build that is not newer than theirs. See docs/RELEASING.md."
+              exit 1
+            fi
+
             echo "${KEY} = ${VALUE}"
           done
 

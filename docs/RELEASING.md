@@ -115,11 +115,16 @@ mkdir -p sparkle-tools && tar -xJf Sparkle-2.9.5.tar.xz -C sparkle-tools ./bin
 ```
 
 1. `generate_keys` stores the **private** half in the login keychain and prints
-   the **public** half. Take the private half out with
-   `./sparkle-tools/bin/generate_keys -x private-key.txt` and put its contents
-   into the repository secret **`SPARKLE_PRIVATE_EDDSA_KEY`** (Settings →
-   Secrets and variables → Actions). Delete the file afterwards; it must never
-   be committed.
+   the **public** half. Take the private half out **outside the repository** —
+   `./sparkle-tools/bin/generate_keys -x ~/pisaka-sparkle-private-key.txt` — and
+   put its contents into the repository secret **`SPARKLE_PRIVATE_EDDSA_KEY`**
+   (Settings → Secrets and variables → Actions). Delete the file afterwards; it
+   must never be committed. The export path is outside the checkout on purpose:
+   a `git add -A` in the window between writing that file and deleting it would
+   otherwise commit a private key, and pushed history is not something deleting
+   the file undoes. `.gitignore` carries `private-key.txt` as a second guard for
+   anyone who exports into the tree anyway, along with `sparkle-tools/`, the
+   tarball and a locally generated `appcast.xml`.
 2. Replace the placeholder `SUPublicEDKey` in `Resources/Info.plist` with the
    printed public half — one line, no whitespace — and commit that.
 

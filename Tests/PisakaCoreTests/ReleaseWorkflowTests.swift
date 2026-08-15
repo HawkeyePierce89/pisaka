@@ -433,6 +433,30 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
     }
 
+    /// Presence is not enough for this one key. Every other key in that loop is
+    /// verified by existing at all; `CFBundleVersion` is always generated, so it
+    /// exists no matter what — what matters is that it holds *this run's* number
+    /// rather than the `CURRENT_PROJECT_VERSION: 1` `project.yml` commits. The
+    /// override reaching the merged plist is the single assumption the whole
+    /// update channel rests on, and it is the kind that breaks silently: a
+    /// hardcoded value, an `INFOPLIST_KEY_CFBundleVersion`, or an `.xcconfig`
+    /// that wins over the command line would all publish build 1 with every
+    /// other check in this file green, and a build numbered 1 published after 12
+    /// is one Sparkle never offers to anybody.
+    func testArchivedAppsBuildNumberIsCheckedAgainstTheRunNumber() throws {
+        let script = try stepScript(named: "Verify the archived app", because: """
+            The archived bundle is the last place the build number can be read before it is \
+            zipped, signed and published.
+            """)
+
+        assertGuardExits("${{ github.run_number }}", in: script, step: "Verify the archived app", because: """
+            CFBundleVersion is what Sparkle compares to decide one build is newer than another. \
+            Shipping the committed placeholder build number instead of this run's is invisible \
+            everywhere else — the key is present, non-empty and structurally fine — and strands \
+            every installed copy on a higher build permanently
+            """)
+    }
+
     func testBuildNumberComesFromTheMonotonicRunNumber() throws {
         XCTAssertTrue(try activeText().contains("CURRENT_PROJECT_VERSION=${{ github.run_number }}"), """
             The archive's build number must be `github.run_number`. CFBundleVersion is what \
