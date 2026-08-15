@@ -114,16 +114,16 @@ swapping it in is a documented one-time manual step.
 - Modify: `Tests/PisakaCoreTests/DependencyPinTests.swift` (only if the new pin
   needs a case; the generic assertions should already cover it)
 
-- [ ] Add the package to `project.yml`: `Sparkle: { url: https://github.com/sparkle-project/Sparkle, exactVersion: "2.9.5" }`, with a comment recording that it is a SwiftPM `binaryTarget` (the xcframework's checksum is pinned inside Sparkle's own manifest at this tag) and that it is macOS-only by declaration, unlike SwiftTerm/libgit2 which merely go unused on the other destination.
-- [ ] Add the target dependency with a destination filter: `- package: Sparkle` / `product: Sparkle` / `destinationFilters: [macOS]`.
-- [ ] Correct the standing note in `project.yml`'s header comment: package-product dependencies **can** be per-destination filtered on a multiplatform target (`destinationFilters:` → `platformFilters` on the build file, verified against `generic/platform=iOS`). Keep the `#if os(macOS)` source rule as the primary enforcement, and record as a noted, deliberately-unaddressed follow-up that SwiftTerm and libgit2 could get the same treatment — out of scope here.
-- [ ] Run `xcodegen generate` and `xcodebuild -project Pisaka.xcodeproj -resolvePackageDependencies` so `Package.resolved` gains the `sparkle` pin in v2 schema; do not hand-edit it.
-- [ ] Copy Sparkle's `LICENSE` at tag 2.9.5 verbatim to `Resources/Licenses/Sparkle.txt` (it already contains the `EXTERNAL LICENSES` section for bsdiff/sais/pdqsort — append nothing).
-- [ ] Add the `Sparkle` notice to `licenses.json`: id/name `Sparkle`, origin the GitHub URL, `version` `2.9.5`, `revision` `79bc9e872948e47877e76f194cb0c8e0412b0b90`, `spdx` `MIT`, `file` `Sparkle.txt`.
-- [ ] Extend `LicenseCoverageTests.expectedCopyrightHolders` with `"Sparkle": "Copyright (c) 2006-2013 Andy Matuschak."`, and add an assertion to `testTextsCarryTheirBundledSubDependencyNotices` that `Sparkle.txt` carries the `EXTERNAL LICENSES` heading — upstream ships those notices in the same file, so the invariant to pin is that a future re-copy does not truncate them.
-- [ ] Verify `DependencyPinTests.testEveryProjectRequirementMatchesItsResolvedPin` and `testSwiftTreeSitterIsTheOnlyBranchPinnedDependency` still hold with the new pin; extend only if a new case is genuinely needed.
-- [ ] Run `swift test` — must pass.
-- [ ] Run both destination builds (`platform=macOS` and `generic/platform=iOS`) with `CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO`; the iOS one is the acceptance gate for the filter, the macOS one must show `Sparkle.framework` under `Contents/Frameworks`.
+- [x] Add the package to `project.yml`: `Sparkle: { url: https://github.com/sparkle-project/Sparkle, exactVersion: "2.9.5" }`, with a comment recording that it is a SwiftPM `binaryTarget` (the xcframework's checksum is pinned inside Sparkle's own manifest at this tag) and that it is macOS-only by declaration, unlike SwiftTerm/libgit2 which merely go unused on the other destination.
+- [x] Add the target dependency with a destination filter: `- package: Sparkle` / `product: Sparkle` / `destinationFilters: [macOS]`.
+- [x] Correct the standing note in `project.yml`'s header comment: package-product dependencies **can** be per-destination filtered on a multiplatform target (`destinationFilters:` → `platformFilters` on the build file, verified against `generic/platform=iOS`). Keep the `#if os(macOS)` source rule as the primary enforcement, and record as a noted, deliberately-unaddressed follow-up that SwiftTerm and libgit2 could get the same treatment — out of scope here.
+- [x] Run `xcodegen generate` and `xcodebuild -project Pisaka.xcodeproj -resolvePackageDependencies` so `Package.resolved` gains the `sparkle` pin in v2 schema; do not hand-edit it.
+- [x] Copy Sparkle's `LICENSE` at tag 2.9.5 verbatim to `Resources/Licenses/Sparkle.txt` (it already contains the `EXTERNAL LICENSES` section for bsdiff/sais/pdqsort — append nothing).
+- [x] Add the `Sparkle` notice to `licenses.json`: id/name `Sparkle`, origin the GitHub URL, `version` `2.9.5`, `revision` `79bc9e872948e47877e76f194cb0c8e0412b0b90`, `spdx` `MIT`, `file` `Sparkle.txt`.
+- [x] Extend `LicenseCoverageTests.expectedCopyrightHolders` with `"Sparkle": "Copyright (c) 2006-2013 Andy Matuschak."`, and add an assertion to `testTextsCarryTheirBundledSubDependencyNotices` that `Sparkle.txt` carries the `EXTERNAL LICENSES` heading — upstream ships those notices in the same file, so the invariant to pin is that a future re-copy does not truncate them.
+- [x] Verify `DependencyPinTests.testEveryProjectRequirementMatchesItsResolvedPin` and `testSwiftTreeSitterIsTheOnlyBranchPinnedDependency` still hold with the new pin; extend only if a new case is genuinely needed.
+- [x] Run `swift test` — must pass.
+- [x] Run both destination builds (`platform=macOS` and `generic/platform=iOS`) with `CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO`; the iOS one is the acceptance gate for the filter, the macOS one must show `Sparkle.framework` under `Contents/Frameworks`.
 
 ### Task 2: Ship the Sparkle Info.plist keys and pin them statically
 

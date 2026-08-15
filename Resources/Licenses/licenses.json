@@ -172,6 +172,15 @@
       "file" : "SwiftTerm.txt"
     },
     {
+      "id" : "Sparkle",
+      "name" : "Sparkle",
+      "origin" : "https://github.com/sparkle-project/Sparkle",
+      "version" : "2.9.5",
+      "revision" : "79bc9e872948e47877e76f194cb0c8e0412b0b90",
+      "spdx" : "MIT",
+      "file" : "Sparkle.txt"
+    },
+    {
       "id" : "libgit2",
       "name" : "libgit2",
       "origin" : "https://github.com/ibrahimcetin/libgit2",

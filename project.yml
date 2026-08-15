@@ -10,15 +10,33 @@ name: Pisaka
 #   - PisakaCore .............. local SwiftPM package (path "."), all platforms
 #   - Neon / SwiftTreeSitter / Rearrange + tree-sitter grammars .. all platforms
 #   - SwiftTerm ............... embedded terminal; used only by macOS-gated code
+#   - libgit2 ................. iOS `GitServicing`; used only by iOS-gated code
+#   - Sparkle ................. auto-update; macOS-only *by declaration*, and the
+#                               one dependency carrying a `destinationFilters:`
+#
+# Per-destination linking: a package-product dependency on a multiplatform target
+# **can** be filtered per destination. `destinationFilters: [macOS]` emits
+# `platformFilters = (macos, )` on the generated `PBXBuildFile`, and
+# `generic/platform=iOS` then builds green with the package still in the
+# resolution graph. (An earlier note here claimed the opposite — that
+# package-product dependencies are all-or-nothing per target, unlike framework
+# build files. That was wrong; it was checked against a scratch XcodeGen project
+# and against this project's own iOS build before Sparkle was added.)
+#
+# The `#if os(macOS)` / `#if os(iOS)` source gating stays the *primary*
+# enforcement regardless: a filter decides what links, the source rule decides
+# what compiles, and only the second one fails loudly when someone imports the
+# wrong thing from the wrong file.
 #
 # SwiftTerm is intended for macOS only. All terminal source (`TerminalSession`,
 # `TerminalPanelView`, `TerminalSessionsModel`) is wrapped in `#if os(macOS)`, so
-# it is never imported on iOS. A *single* multiplatform Xcode target links an SPM
-# product into every destination (package-product dependencies are all-or-nothing
-# per target — unlike framework build files, they cannot be per-destination
-# filtered through XcodeGen). SwiftTerm itself supports iOS 13+, so it links
+# it is never imported on iOS. SwiftTerm itself supports iOS 13+, so it links
 # cleanly into the iOS app as unused dead weight rather than breaking the build;
-# the macOS-only restriction is enforced at the source level via `#if os(macOS)`.
+# libgit2 links the same way, unused, on macOS. Both *could* now carry
+# `destinationFilters:` the way Sparkle does — a noted follow-up, deliberately
+# not done here: they are declared as supporting both platforms, so today they
+# cost bundle size rather than correctness, and changing what links into the
+# shipping app is a separate change with its own verification.
 # Exact version/revision pins mirror the committed Package.resolved.
 
 options:
@@ -161,6 +179,30 @@ packages:
   libgit2:
     url: https://github.com/ibrahimcetin/libgit2
     exactVersion: "1.9.2"
+  # Sparkle 2, the macOS auto-update framework. Three things about this pin are
+  # different from every other entry above and are worth stating rather than
+  # rediscovering:
+  #   * It is a SwiftPM **binaryTarget** package: the manifest at tag 2.9.5 does
+  #     not build Sparkle from source, it points at a prebuilt
+  #     `Sparkle.xcframework` and pins it by its own `checksum:`. So the bytes
+  #     that ship are pinned twice over — by `exactVersion:` here (mirrored in
+  #     `Package.resolved`, asserted by `DependencyPinTests`) and by that
+  #     checksum inside upstream's manifest, which SwiftPM verifies on download.
+  #   * It is macOS-only **by declaration** — its manifest says
+  #     `platforms: [.macOS(.v10_13)]` — unlike SwiftTerm and libgit2, which
+  #     support both platforms and merely go unused on one. An unfiltered
+  #     dependency here would therefore not "link as dead weight" on iOS; it
+  #     would break the iOS build outright. Hence the `destinationFilters:` on
+  #     the dependency below, and hence the `generic/platform=iOS` build being
+  #     the acceptance gate for that filter.
+  #   * Everything that imports it (`SoftwareUpdater.swift`) is inside
+  #     `#if os(macOS)`, as always.
+  # Its LICENSE already aggregates the external notices for bsdiff, sais and
+  # pdqsort, so `Resources/Licenses/Sparkle.txt` is that file verbatim with
+  # nothing appended — pinned by `LicenseCoverageTests`.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: "2.9.5"
 
 targets:
   Pisaka:
@@ -321,3 +363,11 @@ targets:
         product: SwiftTerm
       - package: libgit2
         product: libgit2
+      # The one filtered dependency: Sparkle's manifest declares macOS only, so
+      # linking it into the iOS destination is not dead weight but a broken
+      # build. `destinationFilters: [macOS]` becomes `platformFilters =
+      # (macos, )` on the generated build file; the iOS build then resolves the
+      # package and links nothing from it.
+      - package: Sparkle
+        product: Sparkle
+        destinationFilters: [macOS]
