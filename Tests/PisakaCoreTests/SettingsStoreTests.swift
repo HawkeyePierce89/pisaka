@@ -18,6 +18,8 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.themePreference, .system)
         XCTAssertEqual(store.fontSize, SettingsStore.defaultFontSize)
         XCTAssertEqual(store.fontSize, 13)
+        // Default *on*: a user who has never opened Preferences gets completion.
+        XCTAssertTrue(store.completionEnabled)
     }
 
     func testFontSizeClampsBelowMin() {
@@ -62,12 +64,38 @@ final class SettingsStoreTests: XCTestCase {
         first.tabOrientation = .horizontal
         first.themePreference = .dark
         first.fontSize = 20
+        first.completionEnabled = false
 
         // A second store over the same suite reads the persisted values back.
         let second = SettingsStore(defaults: defaults)
         XCTAssertEqual(second.tabOrientation, .horizontal)
         XCTAssertEqual(second.themePreference, .dark)
         XCTAssertEqual(second.fontSize, 20)
+        XCTAssertFalse(second.completionEnabled)
+
+        // And back on again — the round trip has to work in both directions, since
+        // `false` is the value a plain `bool(forKey:)` read cannot tell from unset.
+        second.completionEnabled = true
+        XCTAssertTrue(SettingsStore(defaults: defaults).completionEnabled)
+    }
+
+    /// `bool(forKey:)` would read a missing key as `false` and launch every user
+    /// who has never touched the preference with completion silently off; the
+    /// lenient `object(forKey:)` read tells unset from a stored `false`, and a
+    /// value of the wrong type falls back to on rather than disabling a feature
+    /// nobody asked to disable.
+    func testAWrongTypedStoredCompletionFlagFallsBackToOn() {
+        let defaults = makeDefaults()
+        defaults.set("yes", forKey: SettingsStore.Keys.completionEnabled)
+
+        XCTAssertTrue(SettingsStore(defaults: defaults).completionEnabled)
+    }
+
+    func testAnAbsentCompletionKeyReadsAsOn() {
+        let defaults = makeDefaults()
+        XCTAssertNil(defaults.object(forKey: SettingsStore.Keys.completionEnabled))
+
+        XCTAssertTrue(SettingsStore(defaults: defaults).completionEnabled)
     }
 
     func testNonFiniteFontSizeCollapsesToDefault() {
@@ -142,6 +170,9 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(LSPServerConsent.accepted.rawValue, "accepted")
         XCTAssertEqual(LSPServerConsent.declined.rawValue, "declined")
         XCTAssertEqual(SettingsStore.Keys.lspServerConsent, "settings.lspServerConsent")
+        // The one flag both platforms consult: renaming it turns completion back
+        // on for every user who had turned it off.
+        XCTAssertEqual(SettingsStore.Keys.completionEnabled, "settings.completionEnabled")
     }
 
     func testEnumsAreCaseIterable() {

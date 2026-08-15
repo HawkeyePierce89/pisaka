@@ -70,22 +70,22 @@ one store property.
 - Modify: `Sources/PisakaCore/SettingsStore.swift`
 - Modify: `Tests/PisakaCoreTests/SettingsStoreTests.swift`
 
-- [ ] add `Keys.completionEnabled = "settings.completionEnabled"` with a doc comment
+- [x] add `Keys.completionEnabled = "settings.completionEnabled"` with a doc comment
       stating the key is stable and that this one flag is the single source of truth
       for both platforms
-- [ ] add `@Published public var completionEnabled: Bool` whose `didSet` writes
+- [x] add `@Published public var completionEnabled: Bool` whose `didSet` writes
       straight through to `defaults`, defaulting to `true`
-- [ ] read it in `init` as `(defaults.object(forKey:) as? Bool) ?? true`, so both a
+- [x] read it in `init` as `(defaults.object(forKey:) as? Bool) ?? true`, so both a
       missing key and a wrong-typed stored value fall back to on (the `fontSize`
       precedent — `bool(forKey:)` would read a missing key as `false`, i.e. silently
       off); comment why
-- [ ] extend the type-doc on `SettingsStore` to mention the new preference alongside
+- [x] extend the type-doc on `SettingsStore` to mention the new preference alongside
       the existing ones
-- [ ] tests in `SettingsStoreTests`: default is `true` on a fresh store; the value
+- [x] tests in `SettingsStoreTests`: default is `true` on a fresh store; the value
       round-trips across a store rebuilt over the same suite; a wrong-typed stored
       value (a `String`) falls back to `true`; the key string is pinned in the
       stable-keys test
-- [ ] run `swift test` — must pass before Task 2
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: Gate the macOS completion path
 
