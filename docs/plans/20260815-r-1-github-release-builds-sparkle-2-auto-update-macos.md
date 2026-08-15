@@ -190,13 +190,13 @@ swapping it in is a documented one-time manual step.
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] Run `swift test` — full suite green, including the new static pins.
-- [ ] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' … build` — green.
-- [ ] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' … build` — green with Sparkle in the dependency graph (the hard gate).
-- [ ] Run the release archive locally exactly as the workflow does (`CURRENT_PROJECT_VERSION=<n> CODE_SIGN_IDENTITY=- … archive`), then `codesign --verify --deep --strict` the archived app and confirm `Contents/Frameworks/Sparkle.framework` is present and signed.
-- [ ] Produce the zip with `ditto -c -k --sequesterRsrc --keepParent`, unzip it to a fresh directory and confirm the framework's symlinks survived (`ls -l Sparkle.framework` shows links, not duplicated files).
-- [ ] Confirm `plutil -p` on the built macOS app's merged `Info.plist` shows `SUFeedURL`, `SUPublicEDKey`, and a `CFBundleVersion` equal to the passed build number.
-- [ ] Confirm `git status` is clean after the archive (no committed build-number churn).
+- [x] Run `swift test` — full suite green, including the new static pins. (2724 tests, 0 failures.)
+- [x] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' … build` — green.
+- [x] Run `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' … build` — green with Sparkle in the dependency graph (the hard gate). Confirmed the filter's effect directly: `Sparkle.framework` is in the macOS bundle's `Contents/Frameworks` and absent from the iOS bundle, whose only Sparkle-named file is `Licenses/Sparkle.txt` (the `Licenses/` folder reference is copied wholesale on both destinations, as intended).
+- [x] Run the release archive locally exactly as the workflow does (`CURRENT_PROJECT_VERSION=<n> CODE_SIGN_IDENTITY=- … archive`), then `codesign --verify --deep --strict` the archived app and confirm `Contents/Frameworks/Sparkle.framework` is present and signed. (Archived with `CURRENT_PROJECT_VERSION=4242`; app and framework both "valid on disk" and "satisfies its Designated Requirement".)
+- [x] Produce the zip with `ditto -c -k --sequesterRsrc --keepParent`, unzip it to a fresh directory and confirm the framework's symlinks survived (`ls -l Sparkle.framework` shows links, not duplicated files). (Six symlinks survive — the five top-level ones plus `Versions/Current -> B` — and both signatures still verify after the round-trip.)
+- [x] Confirm `plutil -p` on the built macOS app's merged `Info.plist` shows `SUFeedURL`, `SUPublicEDKey`, and a `CFBundleVersion` equal to the passed build number. (Feed URL and the placeholder key both present; `CFBundleVersion` = `4242`, `CFBundleShortVersionString` = `1.0`.)
+- [x] Confirm `git status` is clean after the archive (no committed build-number churn). `CURRENT_PROJECT_VERSION` stays `"1"` in `project.yml` — the build number is only ever passed on the command line. The archive itself did dirty the tree, though: `build/` was untracked and unignored, so the archive path the workflow, `docs/RELEASING.md` and `CLAUDE.md` all document left clutter one `git add -A` away from being committed. Added `build/` to `.gitignore` alongside the existing `SourcePackages/`/`DerivedData/` local-CI-repro entries, for the same reason and in the same style.
 
 ## Post-Completion (manual, not automatable here)
 
