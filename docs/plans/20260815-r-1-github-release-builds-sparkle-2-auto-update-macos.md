@@ -131,14 +131,14 @@ swapping it in is a documented one-time manual step.
 - Modify: `Resources/Info.plist`
 - Modify: `Tests/PisakaCoreTests/ReleaseMetadataTests.swift`
 
-- [ ] Add `SUFeedURL` = `https://github.com/HawkeyePierce89/pisaka/releases/latest/download/appcast.xml` to the partial `Info.plist`, with a comment explaining why the `releases/latest/download/` redirect is the stable form (each release carries its own `appcast.xml` asset; a per-release URL would be baked into old builds and go stale).
-- [ ] Add `SUPublicEDKey` = `UExBQ0VIT0xERVItUkVQTEFDRS1XSVRILVJFQUwtS1k=` (base64 of the ASCII string `PLACEHOLDER-REPLACE-WITH-REAL-KY`, 32 bytes — well-formed, obviously fake, greppable), with a comment stating that the real key comes from `bin/generate_keys`, that the private half lives only in the `SPARKLE_PRIVATE_EDDSA_KEY` GitHub secret, that the release workflow refuses to run while this placeholder is present, and that losing the private key is unrecoverable for installed copies.
-- [ ] Deliberately do **not** add `SUEnableAutomaticChecks` or `SUScheduledCheckInterval`: absent means Sparkle runs its own first-launch consent prompt, which is exactly the requested UX, and adds no machinery.
-- [ ] Note in the same comment block that these two keys land in the iOS bundle too (one partial plist, both destinations), where nothing reads them — the same deliberate consequence `INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace` already documents in reverse.
-- [ ] Update `testPartialInfoPlistCarriesOnlyTheKeysXcodeCannotGenerate` to expect the four-key set, with the rationale that Sparkle keys have no `INFOPLIST_KEY_*` equivalent.
-- [ ] Add `testPartialInfoPlistCarriesAWellFormedSparkleFeedURL`: the value parses as a URL, scheme is `https`, host is `github.com`, and the last path component is exactly `appcast.xml` (the cross-file half is asserted in Task 4).
-- [ ] Add `testPartialInfoPlistCarriesAWellFormedSparklePublicKey`: the value is base64 that decodes to exactly 32 bytes (an ed25519 public key), so a truncated or corrupted key fails `swift test` while the placeholder passes by design. Document in the test's doc comment that verifying it is the *right* key is structurally impossible here and is the workflow's placeholder gate plus the manual end-to-end pass.
-- [ ] Run `swift test` — must pass.
+- [x] Add `SUFeedURL` = `https://github.com/HawkeyePierce89/pisaka/releases/latest/download/appcast.xml` to the partial `Info.plist`, with a comment explaining why the `releases/latest/download/` redirect is the stable form (each release carries its own `appcast.xml` asset; a per-release URL would be baked into old builds and go stale).
+- [x] Add `SUPublicEDKey` = `UExBQ0VIT0xERVItUkVQTEFDRS1XSVRILVJFQUwtS1k=` (base64 of the ASCII string `PLACEHOLDER-REPLACE-WITH-REAL-KY`, 32 bytes — well-formed, obviously fake, greppable), with a comment stating that the real key comes from `bin/generate_keys`, that the private half lives only in the `SPARKLE_PRIVATE_EDDSA_KEY` GitHub secret, that the release workflow refuses to run while this placeholder is present, and that losing the private key is unrecoverable for installed copies.
+- [x] Deliberately do **not** add `SUEnableAutomaticChecks` or `SUScheduledCheckInterval`: absent means Sparkle runs its own first-launch consent prompt, which is exactly the requested UX, and adds no machinery.
+- [x] Note in the same comment block that these two keys land in the iOS bundle too (one partial plist, both destinations), where nothing reads them — the same deliberate consequence `INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace` already documents in reverse.
+- [x] Update `testPartialInfoPlistCarriesOnlyTheKeysXcodeCannotGenerate` to expect the four-key set, with the rationale that Sparkle keys have no `INFOPLIST_KEY_*` equivalent.
+- [x] Add `testPartialInfoPlistCarriesAWellFormedSparkleFeedURL`: the value parses as a URL, scheme is `https`, host is `github.com`, and the last path component is exactly `appcast.xml` (the cross-file half is asserted in Task 4).
+- [x] Add `testPartialInfoPlistCarriesAWellFormedSparklePublicKey`: the value is base64 that decodes to exactly 32 bytes (an ed25519 public key), so a truncated or corrupted key fails `swift test` while the placeholder passes by design. Document in the test's doc comment that verifying it is the *right* key is structurally impossible here and is the workflow's placeholder gate plus the manual end-to-end pass.
+- [x] Run `swift test` — must pass.
 
 ### Task 3: Wire the updater and the "Check for Updates…" menu item
 
