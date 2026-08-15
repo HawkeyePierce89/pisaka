@@ -1,0 +1,227 @@
+name: Release
+
+# Tag-triggered macOS release. Pushing `vX.Y` re-runs the `swift test` gate, then
+# archives an ad-hoc-signed macOS app, zips it, signs it with Sparkle's EdDSA key
+# and publishes a GitHub Release carrying exactly two assets: the zip and a
+# signed `appcast.xml`.
+#
+# ## Why the build number is `github.run_number`
+#
+# `CFBundleVersion` is what Sparkle compares to decide that one build is newer
+# than another, so it has to be strictly increasing across every release this
+# workflow ever publishes — and `MARKETING_VERSION` cannot do that job (it is a
+# dotted marketing string, and it is the *other* number). `github.run_number` is
+# a per-workflow-file counter that GitHub increments on every run and never
+# resets: exactly the monotonic integer `docs/RELEASING.md` asks for, produced
+# without committing anything, so `git status` stays clean after a release.
+#
+# The caveat that comes with it: the counter is keyed on **this file's name**.
+# Renaming `release.yml`, or replacing it with a differently-named workflow,
+# restarts it at 1 — and a build numbered 1 published after a build numbered 12
+# is a build Sparkle will never offer. If this file is ever renamed, the
+# replacement must add a fixed offset (`$((github.run_number + <last shipped>))`)
+# large enough to clear every number already released.
+#
+# ## The signing seam
+#
+# The archive is *ad-hoc* signed (`CODE_SIGN_IDENTITY=-`): there is no Apple
+# Developer Program membership yet (`docs/RELEASING.md`, "Not here yet"), and
+# Sparkle's integrity chain here is the EdDSA signature over the zip, not the
+# code signature. The step that archives marks where Developer ID +
+# notarization plugs in.
+
+on:
+  push:
+    tags: ['v*']
+
+# Read-only by default; only the job that publishes the release widens it.
+permissions:
+  contents: read
+
+jobs:
+  # The same gate CI runs, pinned identically. A tag that cannot pass
+  # `swift test` must not produce a release, and the static suites here are what
+  # assert this very file's shape (ReleaseWorkflowTests).
+  test:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: '16.4'
+      - name: Run PisakaCore tests
+        run: swift test
+
+  release:
+    needs: test
+    runs-on: macos-15
+    timeout-minutes: 60
+    # Scoped to this job alone: creating a release and uploading its assets is
+    # the only write this workflow performs.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: '16.4'
+
+      # Everything that can refuse the release runs here, before a single
+      # expensive step: an archive that takes 20 minutes and then cannot be
+      # signed, or is signed by a key no installed copy trusts, is worse than a
+      # refusal in the first 10 seconds.
+      - name: Preflight
+        env:
+          SPARKLE_PRIVATE_EDDSA_KEY: ${{ secrets.SPARKLE_PRIVATE_EDDSA_KEY }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          DECLARED="$(awk -F'"' '/^[[:space:]]*MARKETING_VERSION:/ { print $2; exit }' project.yml)"
+
+          # 1. The tag and the version the app will report must agree. They are
+          #    two independent facts — the tag is what GitHub names the release
+          #    and what the download URLs contain, MARKETING_VERSION is what the
+          #    bundle carries and what Sparkle shows — and a mismatch ships a
+          #    release whose appcast advertises a version the app does not have.
+          if [ "$VERSION" != "$DECLARED" ]; then
+            echo "::error::Tag ${TAG} means version ${VERSION}, but project.yml declares MARKETING_VERSION \"${DECLARED}\". Bump MARKETING_VERSION and commit it before tagging, or delete and re-push the tag that matches. See docs/RELEASING.md."
+            exit 1
+          fi
+
+          # 2. Without the private key nothing can sign the appcast, and Sparkle
+          #    rejects an unsigned update outright.
+          if [ -z "${SPARKLE_PRIVATE_EDDSA_KEY}" ]; then
+            echo "::error::The SPARKLE_PRIVATE_EDDSA_KEY repository secret is empty or absent. Generate the pair once with Sparkle's bin/generate_keys, store the private half in that secret and back it up outside this repository. See docs/RELEASING.md."
+            exit 1
+          fi
+
+          # 3. The public half shipped in the app must be a real key. While the
+          #    committed placeholder is still there, every copy in the wild would
+          #    verify updates against a key whose private half does not exist —
+          #    so refuse to produce such a release at all.
+          if grep -q 'UExBQ0VIT0xERVItUkVQTEFDRS1XSVRILVJFQUwtS1k=' Resources/Info.plist; then
+            echo "::error::SUPublicEDKey in Resources/Info.plist is still the committed placeholder. Replace it with the public half printed by bin/generate_keys and commit that before tagging a release. See docs/RELEASING.md."
+            exit 1
+          fi
+
+      # Pinned exactly as ci.yml pins it — version and digest must stay in step
+      # with that file (ReleaseWorkflowTests compares the two).
+      - name: Install XcodeGen 2.45.4
+        run: |
+          curl -fsSL --retry 3 -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.45.4/xcodegen.zip
+          echo "090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef  xcodegen.zip" | shasum -a 256 -c -
+          unzip -q xcodegen.zip
+          sudo xcodegen/install.sh
+          xcodegen --version
+      - name: Cache SwiftPM source packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: SourcePackages
+          key: spm-${{ hashFiles('Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Resolve package dependencies
+        run: xcodebuild -project Pisaka.xcodeproj -resolvePackageDependencies -clonedSourcePackagesDirPath SourcePackages
+
+      # Ad-hoc signed, with every signing setting overridden on the command line
+      # only: `project.yml` keeps `CODE_SIGNING_ALLOWED: NO` so dev and CI builds
+      # stay signing-free, and a command-line build setting beats the project
+      # value for this invocation alone.
+      #
+      # DEVELOPER ID / NOTARIZATION SEAM: swap CODE_SIGN_IDENTITY=- for the
+      # "Developer ID Application" identity, add DEVELOPMENT_TEAM, import the
+      # certificate into a temporary keychain, and add a notarize-and-staple step
+      # between this and the zip. Nothing else in this workflow changes.
+      - name: Archive (macOS, ad-hoc signed)
+        run: >
+          xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+          -destination 'generic/platform=macOS'
+          -clonedSourcePackagesDirPath SourcePackages
+          -derivedDataPath DerivedData
+          -archivePath build/Pisaka-macOS.xcarchive
+          CURRENT_PROJECT_VERSION=${{ github.run_number }}
+          CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES
+          CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=-
+          archive
+
+      # The app is taken straight out of the archive: `-exportArchive` needs an
+      # export options plist naming a team, and there is none.
+      - name: Verify the archived app
+        run: |
+          set -euo pipefail
+          APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
+          test -d "$APP" || { echo "::error::no app at ${APP}"; exit 1; }
+          test -d "$APP/Contents/Frameworks/Sparkle.framework" || {
+            echo "::error::Sparkle.framework is not embedded in the archived app — the destination-filtered package dependency stopped reaching the macOS build."
+            exit 1
+          }
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          /usr/bin/plutil -p "$APP/Contents/Info.plist" | grep -E 'CFBundleVersion|CFBundleShortVersionString|SUFeedURL|SUPublicEDKey'
+
+      # `ditto -c -k` and not `zip`: the embedded Sparkle.framework is a bundle
+      # of symlinks (Versions/Current, the top-level links), and a plain `zip`
+      # stores them as duplicated regular files — the unzipped framework then
+      # fails its own signature check and Sparkle refuses the update.
+      #
+      # The staging directory holds the zip and nothing else, because
+      # generate_appcast reads *every* update it finds in the directory it is
+      # pointed at.
+      - name: Stage the update archive
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          rm -rf build/release-assets
+          mkdir -p build/release-assets
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app \
+            "build/release-assets/Pisaka-${VERSION}.zip"
+          ls -l build/release-assets
+
+      # Pinned the same way XcodeGen is: exact URL, digest checked before
+      # anything is extracted or executed.
+      - name: Install Sparkle 2.9.5 release tools
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o sparkle-tools.tar.xz https://github.com/sparkle-project/Sparkle/releases/download/2.9.5/Sparkle-2.9.5.tar.xz
+          echo "015336b601493e05c237964954bff6191370003d94edefe663724c88840d73cc  sparkle-tools.tar.xz" | shasum -a 256 -c -
+          mkdir -p sparkle-tools
+          tar -xJf sparkle-tools.tar.xz -C sparkle-tools ./bin
+          test -x sparkle-tools/bin/generate_appcast
+
+      # The private key travels on stdin (`--ed-key-file -`) and never lands on
+      # disk. `--download-url-prefix` is the release's own asset URL prefix, so
+      # the enclosure the appcast advertises is the zip attached below; the feed
+      # itself is fetched through releases/latest/download/appcast.xml, which is
+      # why the asset name at the end of this job is load-bearing.
+      - name: Generate and sign the appcast
+        env:
+          SPARKLE_PRIVATE_EDDSA_KEY: ${{ secrets.SPARKLE_PRIVATE_EDDSA_KEY }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          echo "$SPARKLE_PRIVATE_EDDSA_KEY" | ./sparkle-tools/bin/generate_appcast \
+            --ed-key-file - \
+            --download-url-prefix "https://github.com/HawkeyePierce89/pisaka/releases/download/${TAG}/" \
+            --link "https://github.com/HawkeyePierce89/pisaka" \
+            -o appcast.xml \
+            build/release-assets
+          cat appcast.xml
+
+      # Exactly two assets. `appcast.xml` must keep that literal name: it is the
+      # last path component of SUFeedURL in Resources/Info.plist, and GitHub's
+      # releases/latest/download/<asset> redirect resolves by asset name.
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "Pisaka ${VERSION} (build ${{ github.run_number }}). macOS app, ad-hoc signed: on the first manual install use right-click → Open, or run \`xattr -d com.apple.quarantine\` on the app. In-place Sparkle updates do not repeat that step." \
+            "build/release-assets/Pisaka-${VERSION}.zip" \
+            "appcast.xml"
