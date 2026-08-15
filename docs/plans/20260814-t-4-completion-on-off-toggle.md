@@ -196,13 +196,16 @@ one store property.
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] `swift test` — full suite green
-- [ ] `xcodegen generate` (no `project.yml` change is expected; confirm the project
-      still generates)
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build`
-- [ ] `git status` confirms `project.yml`, `Package.resolved`, `Package.swift` and
-      `Resources/Licenses/licenses.json` are untouched
+- [x] `swift test` — full suite green (2712 tests, 0 failures)
+- [x] `xcodegen generate` (no `project.yml` change is expected; confirm the project
+      still generates) — regenerated cleanly
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
+      — BUILD SUCCEEDED
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build`
+      — BUILD SUCCEEDED
+- [x] `git status` confirms `project.yml`, `Package.resolved`, `Package.swift` and
+      `Resources/Licenses/licenses.json` are untouched (working tree clean; no diff
+      in those four files across the branch)
 
 ## Post-Completion (user-run, manual)
 
