@@ -121,18 +121,18 @@ A final step with `if: always()` deletes the keychain and restores the search
 list, so no path — success, failure, or cancellation — leaves the certificate on
 the runner.
 
-- [ ] add the five `-z` secret refusals to the `Preflight` step, each with an
+- [x] add the five `-z` secret refusals to the `Preflight` step, each with an
       actionable message, a `docs/RELEASING.md` pointer and `exit 1`
-- [ ] add the certificate-import step: per-run password, `$RUNNER_TEMP` keychain,
+- [x] add the certificate-import step: per-run password, `$RUNNER_TEMP` keychain,
       import, partition list, search list, decoded `.p12` removed,
       identity-and-team refusal
-- [ ] add the `if: always()` keychain-cleanup step as the job's last step
-- [ ] tests: extend `testPreflightRefusesEveryUnshippableRelease` with the five
+- [x] add the `if: always()` keychain-cleanup step as the job's last step
+- [x] tests: extend `testPreflightRefusesEveryUnshippableRelease` with the five
       new guards (by mechanism); add a test that the keychain is created under
       `$RUNNER_TEMP`, that the login keychain is never named, that the identity
       guard exits 1, that the import step runs before the archive, and that a
       step carrying `if: always()` deletes the keychain
-- [ ] run `swift test` — must pass before Task 2
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: Developer ID + hardened runtime in the archive, and verifying it
 

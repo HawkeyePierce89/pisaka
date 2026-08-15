@@ -74,6 +74,20 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// while it is present.
     private static let placeholderPublicKey = "UExBQ0VIT0xERVItUkVQTEFDRS1XSVRILVJFQUwtS1k="
 
+    /// The Apple Developer Team the release is signed and notarized under. It
+    /// appears in the workflow twice — the identity refusal and the archive's
+    /// `DEVELOPMENT_TEAM` — and a release signed under any other team is one no
+    /// installed copy's Sparkle update can be verified against by Gatekeeper.
+    private static let developerIDTeam = "XJT3LK36GS"
+
+    /// The name of the step that builds the run's keychain and imports the
+    /// signing certificate. A constant for the same reason `archiveStepName` is
+    /// one: several tests scope themselves to it.
+    private static let certificateStepName = "Import the Developer ID certificate"
+
+    /// The name of the `if: always()` step that deletes that keychain again.
+    private static let keychainCleanupStepName = "Remove the signing keychain"
+
     // MARK: - Trigger, concurrency and permissions
 
     /// "Only" is the load-bearing word, so the whole `on:` block is compared by
@@ -218,6 +232,36 @@ final class ReleaseWorkflowTests: XCTestCase {
             copy in the wild would verify updates against a key whose private half does not exist
             """)
 
+        // The five signing/notarization secrets, each refused on its own. One
+        // combined "signing is not configured" check would be cheaper to write
+        // and useless to read: the five come from four different one-time
+        // procedures, so the only actionable message is the one that names the
+        // missing secret. Each is asserted by mechanism for the reason the whole
+        // suite is — a `::warning::` here would archive for twenty minutes and
+        // then fail at `codesign`, or worse, at the notary service twenty more
+        // minutes later.
+        for secret in [
+            "DEVELOPER_ID_CERT_P12",
+            "DEVELOPER_ID_CERT_PASSWORD",
+            "APP_STORE_CONNECT_API_KEY_P8",
+            "APP_STORE_CONNECT_KEY_ID",
+            "APP_STORE_CONNECT_ISSUER_ID",
+        ] {
+            assertGuardExits(#"-z "${\#(secret)}""#, in: script, step: "Preflight", because: """
+                without \(secret) the release cannot be signed or notarized at all, and the whole \
+                point of the preflight is that this costs ten seconds rather than a 20-minute \
+                archive followed by a 20-minute notary round trip
+                """)
+
+            // The secret has to reach the step, or the `-z` above tests an
+            // unset variable that is empty for a reason nobody can fix.
+            XCTAssertTrue(script.contains { $0 == "\(secret): ${{ secrets.\(secret) }}" }, """
+                release.yml's `Preflight` step must receive \(secret) through its `env:` block. \
+                Without the mapping the guard tests an always-empty variable and refuses every \
+                release, secret or no secret.
+                """)
+        }
+
         // The guard has to read the plist the shipped key actually comes from.
         XCTAssertTrue(script.contains { $0.contains("Resources/Info.plist") }, """
             release.yml's placeholder guard must name Resources/Info.plist — the file the shipped \
@@ -310,6 +354,199 @@ final class ReleaseWorkflowTests: XCTestCase {
             body.append(trimmed)
         }
         return body
+    }
+
+    // MARK: - The signing identity
+
+    /// The certificate is imported into a keychain made for this run, under
+    /// `$RUNNER_TEMP`, and the decoded `.p12` does not outlive the step.
+    ///
+    /// Each of these is a separate way to leak or to hang, and none of them fails
+    /// the run when it regresses:
+    ///
+    ///  * a keychain created anywhere but `$RUNNER_TEMP` (the working directory,
+    ///    `~/Library/Keychains`) is one the cleanup step's path no longer names,
+    ///    so it survives the job;
+    ///  * `security import` without `-T /usr/bin/codesign`, or without the
+    ///    partition list, leaves the key's ACL asking for interactive
+    ///    authorization — on a headless runner that is a hang until the job's
+    ///    60-minute timeout, not an error;
+    ///  * `security list-keychains -s` replaces the *whole* user search list, so
+    ///    passing the new keychain alone silently drops every other keychain for
+    ///    the rest of the job. Prepending is the only correct call, and the
+    ///    previous list has to be saved for the cleanup step to restore.
+    func testTheSigningCertificateIsImportedIntoAThrowawayKeychain() throws {
+        let script = try stepScript(named: Self.certificateStepName, because: """
+            It is the step that gives this workflow a signing identity at all.
+            """)
+
+        XCTAssertTrue(script.contains { $0.contains("security create-keychain") }, """
+            release.yml's `\(Self.certificateStepName)` step must create its own keychain with \
+            `security create-keychain`. Importing into whatever keychain happens to be first on \
+            the search list means importing into the runner's login keychain.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("KEYCHAIN=\"${RUNNER_TEMP}/") }, """
+            The run's keychain must live under $RUNNER_TEMP. Anywhere else and the cleanup step's \
+            path no longer names it, so the signing key outlives the job it was imported for.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("security import") }, """
+            release.yml's `\(Self.certificateStepName)` step must import the certificate with \
+            `security import`.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("-T /usr/bin/codesign") }, """
+            `security import` must pass `-T /usr/bin/codesign`, or the imported key's ACL does not \
+            list the one tool that has to use it and codesign asks for interactive authorization \
+            — a hang on a headless runner, not a failure.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("security set-key-partition-list") }, """
+            The imported key needs `security set-key-partition-list -S apple-tool:,apple:`. \
+            Without it the first codesign raises the "wants to sign using key in your keychain" \
+            dialog and the job hangs until its timeout.
+            """)
+
+        // The decoded .p12 is removed by the step that wrote it — not by the
+        // cleanup step alone, which is a backstop rather than the rule.
+        let decode = try XCTUnwrap(script.firstIndex(where: { $0.contains("base64 --decode") }), """
+            release.yml's `\(Self.certificateStepName)` step no longer decodes the base64 .p12 \
+            secret.
+            """)
+        let remove = try XCTUnwrap(script.firstIndex(where: {
+            $0.hasPrefix("rm -f") && $0.contains("CERTIFICATE")
+        }), """
+            The decoded .p12 — the private key in the clear — must be removed by the step that \
+            wrote it, right after `security import` consumes it.
+            """)
+        XCTAssertLessThan(decode, remove, """
+            The decoded .p12 must be removed *after* it is written, in the same step.
+            """)
+
+        // The search list is prepended to, not replaced, and the previous value
+        // is saved for the cleanup step.
+        let setList = try XCTUnwrap(script.first(where: { $0.contains("list-keychains -d user -s") }), """
+            release.yml must put the run's keychain on the *user* search list with \
+            `security list-keychains -d user -s`, or codesign never sees the identity.
+            """)
+        XCTAssertTrue(setList.contains("keychains-before"), """
+            `security list-keychains -s` overwrites the whole user search list. The call must pass \
+            the previously-listed keychains alongside the new one, and must have saved them first \
+            so the cleanup step can restore them. Got “\(setList)”.
+            """)
+    }
+
+    /// The runner's login keychain is never named in this workflow.
+    ///
+    /// It is the default target of every `security` subcommand that is not told
+    /// otherwise, so naming it at all is the single edit that turns this from
+    /// "a keychain we made and delete" into "a modification of a keychain that
+    /// is not ours" — and the cleanup step would then be *deleting the runner's
+    /// login keychain*, which fails in a way nobody reads until it does not.
+    func testTheLoginKeychainIsNeverTouched() throws {
+        let text = try activeText()
+        for spelling in ["login.keychain", "login.keychain-db", "~/Library/Keychains"] {
+            XCTAssertFalse(text.contains(spelling), """
+                release.yml names “\(spelling)”. The signing certificate belongs in a keychain \
+                this workflow creates under $RUNNER_TEMP and deletes again; the login keychain is \
+                shared with every other step in the job and is not this workflow's to modify or \
+                delete.
+                """)
+        }
+    }
+
+    /// A certificate of the wrong *type* is the failure this refusal exists for,
+    /// and it is the one that costs the most.
+    ///
+    /// An Apple Development certificate, or a Developer ID certificate belonging
+    /// to some other team, imports cleanly, is listed by `find-identity`, and
+    /// signs the archive without complaint. Nothing local objects. The rejection
+    /// arrives from the notary service, after a 20-minute archive and however
+    /// long the submission queue is — and it arrives as a JSON status rather than
+    /// as anything that names the certificate. An expired certificate is the
+    /// cheap case: `find-identity -v` does not list it at all, so the same guard
+    /// covers it.
+    func testTheImportedIdentityMustBeDeveloperIDForTheTeam() throws {
+        let script = try stepScript(named: Self.certificateStepName, because: """
+            It is the only place the certificate's type and team can be checked before the archive.
+            """)
+
+        XCTAssertTrue(script.contains { $0.contains("security find-identity -v -p codesigning") }, """
+            release.yml must list the imported identities with \
+            `security find-identity -v -p codesigning`. The `-v` is what restricts the listing to \
+            identities that are actually valid for signing, so an expired certificate is caught by \
+            its absence.
+            """)
+
+        assertGuardExits("Developer ID Application:.*(\(Self.developerIDTeam))",
+                         in: script,
+                         step: Self.certificateStepName,
+                         because: """
+            an Apple Development certificate — or a Developer ID certificate for another team — \
+            imports cleanly and signs the archive, and is then rejected by the notary service \
+            twenty minutes later with a status that names no certificate
+            """)
+    }
+
+    /// The identity has to exist before the thing that needs it, which is the
+    /// whole argument the preflight makes: the archive is the expensive step, and
+    /// a signing failure inside it costs the build.
+    func testTheCertificateIsImportedBeforeTheArchive() throws {
+        let lines = try activeLines()
+        let importIndex = try XCTUnwrap(lines.firstIndex(where: {
+            $0 == "- name: \(Self.certificateStepName)"
+        }), "release.yml has no `\(Self.certificateStepName)` step")
+        let archive = try XCTUnwrap(lines.firstIndex(where: { $0.contains("-archivePath") }),
+                                    "release.yml no longer archives the app")
+
+        XCTAssertLessThan(importIndex, archive, """
+            The certificate must be imported before the archive step. Everything that can refuse \
+            the release cheaply belongs before the expensive work — an unusable certificate \
+            discovered by `codesign` at the end of a 20-minute build is the exact cost the \
+            preflight is arranged to avoid.
+            """)
+    }
+
+    /// No path out of this job may leave the signing key on the runner.
+    ///
+    /// `if: always()` is what makes that true for the two paths nobody tests: a
+    /// failure in any step above (the archive, the notarization, the publication)
+    /// and a cancelled run. Without it the cleanup is skipped in exactly the
+    /// situations where something went wrong, which is when the runner's state is
+    /// least worth trusting. Being the *last* step is the other half: a cleanup
+    /// that sits before the archive deletes the keychain the archive needs.
+    func testTheSigningKeychainIsRemovedOnEveryPath() throws {
+        let script = try stepScript(named: Self.keychainCleanupStepName, because: """
+            No path through this job — success, failure or cancellation — may leave the signing \
+            certificate on the runner.
+            """)
+
+        XCTAssertTrue(script.contains("if: always()"), """
+            release.yml's `\(Self.keychainCleanupStepName)` step must carry `if: always()`. Without \
+            it the keychain survives precisely the runs that failed part-way, and a cancelled run \
+            never cleans up at all.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("security delete-keychain") }, """
+            release.yml's `\(Self.keychainCleanupStepName)` step must actually delete the keychain \
+            with `security delete-keychain`.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("KEYCHAIN=\"${RUNNER_TEMP}/") }, """
+            The cleanup step must name the same $RUNNER_TEMP keychain the import step created. A \
+            path that drifted out of step with the import deletes nothing and reports success.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("list-keychains -d user -s") }, """
+            The cleanup step must restore the user search list it prepended to. Leaving the \
+            deleted keychain on the list makes every later `security` call in the job warn about \
+            a keychain that no longer exists.
+            """)
+
+        // Last step of the file, so nothing that needs the identity runs after
+        // the keychain is gone.
+        let lines = try activeLines()
+        let headers = lines.indices.filter { lines[$0].hasPrefix("- name:") || lines[$0].hasPrefix("- uses:") }
+        let last = try XCTUnwrap(headers.last, "release.yml declares no steps at all")
+        XCTAssertEqual(lines[last], "- name: \(Self.keychainCleanupStepName)", """
+            The keychain cleanup must be the last step of the release job — the last step in the \
+            file. It currently is not: “\(lines[last])” comes after it, and anything that runs \
+            after the keychain is deleted cannot sign, notarize or verify anything.
+            """)
     }
 
     // MARK: - The artefact
