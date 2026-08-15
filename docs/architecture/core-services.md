@@ -183,6 +183,36 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     back. `SettingsStoreTests` covers the three defaults, the round trip across a
     rebuilt store, the blank-to-`nil` normalisation in both directions, the
     trimming, an unofferable stored slug falling back, and the three key strings.
+    T-4 adds one more, `completionEnabled` (`Keys.completionEnabled =
+    "settings.completionEnabled"`, stable like the rest), default **on**. It is
+    read in `init` as `(defaults.object(forKey:) as? Bool) ?? true` rather than
+    through `bool(forKey:)` — the `fontSize` precedent, for its reason and one
+    more: `bool(forKey:)` answers `false` for a missing key, so every user who
+    has never touched the preference would launch with completion silently off,
+    and a value of the wrong type (an older build, a hand-edited domain) would do
+    the same. `object(forKey:)` tells "unset" from a stored `false` and lets a
+    failed cast fall back to on. It is deliberately **one** flag rather than one
+    per platform — the macOS AppKit popup and the iOS accessory strip are two
+    presentations of the same preference — and the single source of truth for
+    every surface that *shows* the state: the macOS status-bar button
+    (`app-window.md`), the Preferences checkbox and the iOS Settings row
+    (`app-ios.md`) all bind straight to this property with no local state, so
+    they cannot disagree. Off is **total**: neither the automatic popup/strip nor
+    an explicitly invoked completion (⌃Space, Find > Complete, AppKit's stock
+    ⌥⎋/F5) produces anything. The narrower JetBrains behaviour — auto-popup off,
+    explicit invocation still alive — was considered and deliberately **not**
+    taken: it needs a second piece of state (the reason a completion was asked
+    for) threaded through every entry point, and a switch labelled "off" that
+    still pops a list up on a keystroke combination is the worse default. That is
+    a decision, not an omission; it stays a possible follow-up. Nothing in the
+    intelligence stack is torn down when the flag goes off — no language server
+    is stopped, no session shut down, the registry is untouched and the symbol
+    index keeps walking and refreshing — only completion *requests* stop being
+    made and completion *UI* stops being shown, which is what makes the toggle
+    instant and free in both directions and why go-to-definition, which shares
+    the same provider, is entirely unaffected. `SettingsStoreTests` covers the
+    default on a fresh store, the round trip across a rebuilt store, a
+    wrong-typed stored value falling back to on, and the key string.
   - `EditorSession.swift` — the persisted editor session behind launch-time
     session restore and "Untitled" hot exit (macOS today; the iOS variant is a
     follow-up over this same model). Foundation-only: the value types, the pure

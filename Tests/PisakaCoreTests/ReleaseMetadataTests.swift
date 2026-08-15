@@ -241,6 +241,26 @@ final class ReleaseMetadataTests: XCTestCase {
             """)
     }
 
+    /// File sharing is the same kind of single build setting as the launch
+    /// screen below: nothing in `Resources/` carries it, the build stays green
+    /// without it, and the failure is purely behavioural — the LeetCode
+    /// integration's default solutions folder (`Documents/LeetCode`, chosen so
+    /// no picker and no bookmark are needed) silently stops being visible in
+    /// the Files app, which no test of Core logic can see.
+    func testProjectExposesTheIOSDocumentsInFiles() throws {
+        let settings = try activeProjectLines()
+
+        XCTAssertTrue(settings.contains(consecutively: "INFOPLIST_KEY_UIFileSharingEnabled: YES"), """
+            project.yml no longer exposes the iOS app container's Documents directory in \
+            the Files app. The LeetCode solutions folder defaults to Documents/LeetCode on \
+            iOS, and without UIFileSharingEnabled those files are reachable only from inside \
+            the app — the README advertises Files visibility, so removing the key ships a \
+            documented feature that quietly does not work. Restore \
+            INFOPLIST_KEY_UIFileSharingEnabled: YES, or update the README, core-leetcode.md \
+            and this assertion together.
+            """)
+    }
+
     /// `project.yml`'s *active* settings: every line that is neither blank nor a
     /// comment, trimmed, in file order.
     ///

@@ -242,6 +242,18 @@ targets:
         # the picker only vends copies and the scoped-file-access design fails on
         # device). No-op on macOS.
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
+        # Expose the iOS app container's `Documents` directory in the Files app
+        # ("On My iPhone → Pisaka"). The LeetCode integration defaults its
+        # solutions folder to `Documents/LeetCode` precisely so no picker and no
+        # bookmark are needed, and without this key those files are reachable
+        # only from inside the app. A deliberate consequence: the *whole*
+        # container `Documents` becomes user-visible — today the LeetCode folder
+        # is the only thing the app puts there, and anything added later must be
+        # content a user may see and delete (caches belong in Application
+        # Support, which stays private). No-op on macOS, like the two iOS keys
+        # around it. `ReleaseMetadataTests` asserts this line, because nothing
+        # else in the build would notice its removal.
+        INFOPLIST_KEY_UIFileSharingEnabled: YES
         # The iOS launch screen. Apple has required every app built against the
         # iOS 13+ SDK to declare one since April 2020; an app without it is
         # rejected by App Store Connect validation and, until then, runs

@@ -452,6 +452,40 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     choice was made is how a completion strip turns into a treadmill.
     `dismantleUIView` tears the strip down alongside the highlighter, since an
     accessory view is attached to the *responder* and nothing else would drop it.
+    **T-4: all of that is behind an off switch.** The coordinator's
+    `completionEnabled` (`private`, default `true`) mirrors
+    `SettingsStore.completionEnabled` — the one flag both platforms consult
+    (`core-services.md`), whose macOS peer is `CompletionController.isEnabled`
+    (`app-editor.md`) — forwarded by `CodeEditorView_iOS`, which takes it as
+    `let completionEnabled: Bool`: a **plain value** like `fontSize`, not a
+    second observed object, so the editor gains no per-keystroke re-render path
+    (the store is observed once, in `RootView_iOS`, and the flag travels with the
+    update that observation already causes). Undefaulted, for the reason spelled
+    out on the macOS peer in `app-editor.md`: the only possible default is `true`,
+    so a second editor host added later would compile clean and complete for a
+    user who turned completion off, and nothing in the repo could catch it.
+    It is applied in `makeUIView`, next to
+    the `symbolIndex`/`definitionRoute` wiring — so an editor built while the
+    preference is already off never asks the provider even once — and re-applied
+    in `updateUIView` *before* the buffer/index reconciliation, since a change to
+    `false` has cancelling to do. `setCompletionEnabled(_:)` ignores an unchanged
+    value (the forwarding runs on every update) and, on being turned off, calls
+    `clearCompletions()`: the pending debounce/provider task is cancelled, the
+    generation bumped so an answer already in flight cannot land, and the strip
+    removed — going through `showCompletions([])`, which also drops
+    `answeredMember`, so no insertion guard's receiver outlives the bar it
+    belonged to. That is the peer of the macOS popup dismissal and simpler for
+    the same reason the strip is simpler: it is this coordinator's own view, not
+    one UIKit puts up on its own behalf. `updateCompletions(in:)` then returns at
+    the **very top** when disabled, after hiding the strip and before the prefix
+    scan and the request, so a keystroke or a caret move costs nothing at all
+    while off — no task, no provider call, not even a scan whose answer is
+    discarded. Unlike macOS there is no second enforcement point, because the
+    strip has no explicit invocation of its own (no ⌃Space, no stock ⌥⎋/F5): off
+    simply means no request is made and no bar is installed. Nothing in the
+    intelligence stack is torn down — the symbol index keeps walking and
+    refreshing, the provider is untouched, and the edit menu's "Go to Definition",
+    which asks that same provider, keeps working while completion is off.
   - `iOS/CompletionBar_iOS.swift` — the iOS completion surface: a QuickType-style
     horizontally scrolling row of candidate buttons installed as the editor's
     `inputAccessoryView` (plan Decision 1). **A strip and not a popup**, because a
@@ -472,7 +506,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     debounce that re-answers the same prefix does not reset the scroll position out
     from under a reaching thumb. Thin glue: the words and their order arrive already
     ranked and capped from `SymbolIntelligenceProvider`, and the coordinator — not
-    this view — decides what range a tapped word replaces.
+    this view — decides what range a tapped word replaces. The bar is also what
+    the T-4 off switch removes: turning `SettingsStore.completionEnabled` off
+    makes the coordinator call `showCompletions([])`, and an empty list detaching
+    the accessory view is the existing "no candidates" path rather than a new one
+    — the switch adds no state here at all.
   - `iOS/DefinitionRoute_iOS.swift` — the navigation half of Go to Definition on
     iOS: the peer of the macOS `activateSearchMatch` + `EditorRevealState` pair,
     collapsed into one object because iOS has neither a menu bar to drive the jump
@@ -549,7 +587,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     repo the user just left.
   - `iOS/TabStrip_iOS.swift` / `iOS/SettingsView_iOS.swift` — the open-tabs strip/
     switcher (form picked by Core's `TabLayout.presentation`) and the Preferences
-    sheet bound to `SettingsStore`. `SettingsView_iOS` also carries the Personal
+    sheet bound to `SettingsStore`. Its "Editor" section carries the font-size
+    stepper and, beside it, T-4's `Toggle("Offer completions as you type", isOn:
+    $settings.completionEnabled)` — bound straight to the store with no local
+    `@State`, exactly like the macOS status-bar button and Preferences checkbox
+    it shares the flag with (`core-services.md`), so the row and the editor
+    cannot disagree. `SettingsView_iOS` also carries the Personal
     Access Token section (Part B): enter / save / delete a PAT by remote host via the
     `KeychainCredentialStore`, the destination the branch-create flow directs the
     user to on a `credentialsRequired` outcome. It also carries the **LeetCode**

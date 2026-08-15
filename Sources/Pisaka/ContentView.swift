@@ -392,9 +392,42 @@ struct ContentView: View {
                 onCheckoutRemote: onCheckoutRemote,
                 onNewBranch: onNewBranch
             )
+            completionToggleButton
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
+    }
+
+    /// The completion on/off switch at the trailing end of the status bar, in the
+    /// same plain-button idiom as `bottomBarButton`. It writes *straight through*
+    /// to `settings.completionEnabled` with no local `@State`, which is what makes
+    /// it impossible for this icon and the Preferences checkbox to disagree: both
+    /// are views of the one stored flag. Off is total — no automatic popup and no
+    /// explicit invocation — but nothing in the intelligence stack is torn down,
+    /// so ⌃⌘J go-to-definition keeps working and flipping it back on costs a
+    /// keystroke, not a restart.
+    private var completionToggleButton: some View {
+        let isOn = settings.completionEnabled
+        return Button {
+            settings.completionEnabled.toggle()
+        } label: {
+            Image(systemName: isOn ? "lightbulb" : "lightbulb.slash")
+                .font(.callout)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
+        .help(isOn ? "Code completion: On" : "Code completion: Off")
+        // Its siblings carry a `Label`, whose title *is* their accessibility
+        // name; this one is deliberately icon-only, and `.help` is a tooltip
+        // rather than a name — so the label and the state are spelled out here.
+        // Without them this is the one bottom-bar control that cannot be
+        // identified without sight, and it silently changes how the editor
+        // behaves.
+        .accessibilityLabel("Code completion")
+        .accessibilityValue(isOn ? "On" : "Off")
     }
 
     private func bottomBarButton(title: String, systemImage: String, panel: BottomPanel) -> some View {
@@ -537,6 +570,7 @@ struct ContentView: View {
                     text: binding(for: file.id),
                     fontSize: settings.fontSize,
                     onStepFontSize: { settings.stepFontSize(by: $0) },
+                    completionEnabled: settings.completionEnabled,
                     search: search,
                     reveal: reveal,
                     symbolIndex: symbolIndex,

@@ -333,7 +333,17 @@ involved.
   mouse choose, Return inserts, Esc dismisses, and the insertion is a single undo
   step. Ctrl+Space (Find > Complete) asks for the list explicitly, from the first
   character, and works after a dot too. Nothing pops up mid-composition with an
-  input method.
+  input method. If you would rather it stayed out of the way, there is a
+  **lightbulb button at the right end of the always-visible bottom bar** (beside
+  the branch switcher, and with a matching "Offer completions as you type"
+  checkbox in Preferences → General — the two are the
+  same switch) that turns completion off entirely: no popup as you type, and
+  Ctrl+Space / Find > Complete do nothing either, the menu item greying out to
+  say so. The choice is remembered across launches, takes effect on the next
+  keystroke in either direction, and dismisses a popup that is already open.
+  Go to Definition is unaffected — the symbol index and any running language
+  server keep working exactly as before, so turning completion back on costs
+  nothing.
   Both features are backed by a project-wide symbol index built from the same
   tree-sitter parse trees that drive the syntax highlighting — no network, and
   (except for Swift on macOS, below) no language server either. It is built when
@@ -677,12 +687,13 @@ involved.
   Swift `swift test`. Like Run File, the file's dirty tab is saved first, the
   session starts in the project folder (or the file's folder), and re-running the
   same file reuses its dedicated "Test:" tab.
-- Preferences (Cmd+,): a Settings window with three persisted options — tab
+- Preferences (Cmd+,): a Settings window with four persisted options — tab
   orientation (a vertical column beside the editor, or a horizontal strip above
-  it), theme (follow the system, or force light/dark), and a shared editor font
-  size used by the editor, diff, and merge views. The font size is also
-  adjustable on the fly with Cmd+scroll over any code view. All three settings
-  persist across launches. The Settings window's other tabs are **Language
+  it), theme (follow the system, or force light/dark), a shared editor font
+  size used by the editor, diff, and merge views, and whether the editor offers
+  completions as you type (the same switch as the bottom bar's lightbulb). The
+  font size is also adjustable on the fly with Cmd+scroll over any code view.
+  All four settings persist across launches. The Settings window's other tabs are **Language
   Servers** (what may be downloaded, and what is installed), **LeetCode** (the
   account, the solutions folder, and the language new solution files are seeded
   in) and **Acknowledgements**, which lists every third-party dependency the app
@@ -765,12 +776,16 @@ and iPhone. The feature scope landed so far:
   that receiver's members), offers the same fuzzy/camelCase matches and language
   keywords as macOS, scrolls horizontally, tapping a word
   inserts it as one undo step, and it disappears when there is nothing to offer,
-  so it works the same with the on-screen and a hardware keyboard. iOS has no
+  so it works the same with the on-screen and a hardware keyboard. The strip can
+  be switched off with "Offer completions as you type" in Settings → Editor — the
+  same preference as the macOS status-bar lightbulb, remembered across launches
+  — which makes it disappear on the next keystroke and come back as soon as you
+  turn it on; Go to Definition keeps working either way. iOS has no
   file-system watcher, so the index is built when you open a folder and kept
   current as you open tabs and type, but it does not notice changes made to the
   files by another app.
 - A Preferences sheet bound to the same `SettingsStore` (theme, tab orientation,
-  font size), with an **About → Acknowledgements** screen listing the same
+  font size, completions on/off), with an **About → Acknowledgements** screen listing the same
   third-party dependencies and their full license texts as the macOS tab.
 - Git features backed by **libgit2** in-process (no `git` binary): Local Changes
   (flat / by-folder list, status badges, side-by-side diff, multi-file revert),
@@ -986,9 +1001,10 @@ and iPhone. The feature scope landed so far:
     subscription opens them normally — LeetCode sends the statement and the
     snippet, and the refusal is on the locked answer, not on the problem's
     Premium flag.
-  - On iOS, solution files written to the default location are **not visible in
-    the Files app** (the app declares no file sharing); point the folder at a
-    Files location if you want them there.
+  - On iOS, solution files written to the default location are visible in the
+    Files app under **On My iPhone → Pisaka → LeetCode** — which also means the
+    app's whole `Documents` directory is browsable there (today the LeetCode
+    folder is the only thing the app keeps in it).
   - Sign Out clears `leetcode.com`'s cookies, but cookies an SSO provider set on
     *its own* domain survive it, so signing back in may not ask for the password
     again.

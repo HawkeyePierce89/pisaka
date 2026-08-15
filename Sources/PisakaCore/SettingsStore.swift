@@ -1,7 +1,8 @@
 import Foundation
 
-/// Persisted user preferences: tab orientation, theme, and the shared editor
-/// font size. A plain Foundation-only `ObservableObject` (the `WorkspaceModel`
+/// Persisted user preferences: tab orientation, theme, the shared editor font
+/// size, and whether the editor offers completions at all
+/// (`completionEnabled`). A plain Foundation-only `ObservableObject` (the `WorkspaceModel`
 /// precedent) so it stays testable and free of any SwiftUI/AppKit dependency —
 /// the Preferences UI and the act of applying each setting are thin view-layer
 /// wiring on top.
@@ -18,6 +19,17 @@ public final class SettingsStore: ObservableObject {
         public static let tabOrientation = "settings.tabOrientation"
         public static let themePreference = "settings.themePreference"
         public static let fontSize = "settings.fontSize"
+        /// Whether the editor offers completions at all.
+        ///
+        /// A stable key like the rest, and deliberately **one** flag rather than
+        /// one per platform: the macOS AppKit popup and the iOS accessory strip
+        /// are two presentations of the same preference, so a user who turns
+        /// completion off on an iPad and opens the same defaults domain on a Mac
+        /// must find it off there too. It is also the single source of truth for
+        /// every surface that shows the state — the status-bar button, the
+        /// Preferences checkbox and the iOS Settings row all read and write this
+        /// one property, so they cannot disagree.
+        public static let completionEnabled = "settings.completionEnabled"
         /// Per-server provisioning consent (D15), as one dictionary of
         /// server id → `LSPServerConsent.rawValue`.
         ///
@@ -86,6 +98,27 @@ public final class SettingsStore: ObservableObject {
             }
             defaults.set(fontSize, forKey: Keys.fontSize)
         }
+    }
+
+    /// Whether the editor offers completions, on both platforms. Default on.
+    ///
+    /// Off is **total**: neither the automatic popup/strip nor an explicitly
+    /// invoked completion (⌃Space, Find > Complete, AppKit's stock ⌥⎋/F5)
+    /// produces anything. The narrower JetBrains behaviour — auto-popup off,
+    /// explicit invocation still alive — was considered and deliberately not
+    /// taken here: it needs a second piece of state (the reason a completion was
+    /// asked for) threaded through every entry point, and a switch labelled
+    /// "off" that still pops up a list on a keystroke combination is the worse
+    /// default. It stays a possible follow-up rather than an omission.
+    ///
+    /// Nothing in the intelligence stack is torn down when this goes off: no
+    /// language server is stopped, no session shut down, the registry is
+    /// untouched and the symbol index keeps walking and refreshing — only
+    /// completion *requests* stop being made and completion *UI* stops being
+    /// shown. That is what makes the toggle instant and free in both directions,
+    /// and it is why go-to-definition is entirely unaffected.
+    @Published public var completionEnabled: Bool {
+        didSet { defaults.set(completionEnabled, forKey: Keys.completionEnabled) }
     }
 
     /// What the user has answered about each downloadable language server
@@ -173,6 +206,13 @@ public final class SettingsStore: ObservableObject {
         // `object(forKey:)` distinguishes "unset" (nil → default) from a stored 0.
         let storedFont = (defaults.object(forKey: Keys.fontSize) as? Double)
             .map(SettingsStore.clampFontSize) ?? SettingsStore.defaultFontSize
+        // The `fontSize` precedent, for the same reason and one more: `bool(forKey:)`
+        // reads a missing key as `false`, so every user who has never touched this
+        // preference would launch with completion silently off. `object(forKey:)`
+        // tells "unset" from a stored `false`, and a value of the wrong type (an
+        // older build, a hand-edited domain) fails the cast and falls back to on
+        // rather than disabling a feature nobody asked to disable.
+        let storedCompletion = (defaults.object(forKey: Keys.completionEnabled) as? Bool) ?? true
         // Read entry by entry rather than as a whole `[String: String]` cast: a
         // single value of the wrong type — or a raw value this app version does
         // not know — must cost that one server its answer and nothing else. A
@@ -201,6 +241,7 @@ public final class SettingsStore: ObservableObject {
         self.tabOrientation = orientation
         self.themePreference = theme
         self.fontSize = storedFont
+        self.completionEnabled = storedCompletion
         self.lspServerConsent = storedConsent
         self.leetCodeFolderPath = storedFolderIsBlank ? nil : storedFolder
         self.leetCodeFolderBookmark = (storedBookmark?.isEmpty ?? true) ? nil : storedBookmark

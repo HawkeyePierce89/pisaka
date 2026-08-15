@@ -462,6 +462,7 @@ struct RootView_iOS: View {
                 text: binding(for: file.id),
                 fontSize: settings.fontSize,
                 onStepFontSize: { settings.stepFontSize(by: $0) },
+                completionEnabled: settings.completionEnabled,
                 symbolIndex: symbolIndexController,
                 definitionRoute: definitionRoute,
                 reveal: definitionRoute.reveal

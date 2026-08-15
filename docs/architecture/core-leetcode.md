@@ -2251,12 +2251,15 @@ means, what a file is named, when a fetch happens, and what gets written.
   gets. Gating on the flag alone refused the one user entitled to the problem, and
   disagreed with `statement(forFileAt:in:)`, which gates on content and would have
   rendered the statement beside a file the open path had just declined to create.
-- **Solution files are not visible in the Files app by default on iOS.** The
-  container's `Documents` directory is exposed by `UIFileSharingEnabled`, which this
-  build does not set (`project.yml` is unchanged); `LSSupportsOpeningDocumentsInPlace`
-  grants in-place access to what the *picker* vends, which is a different question.
-  The files are fully usable in the app either way, and a user who wants them
-  elsewhere can point the folder at a Files location through Change….
+- **The whole container `Documents` is user-visible on iOS.** The default
+  solutions folder (`Documents/LeetCode`) is exposed in the Files app by
+  `UIFileSharingEnabled` in `project.yml` (pinned by
+  `ReleaseMetadataTests.testProjectExposesTheIOSDocumentsInFiles`, since nothing
+  else in the build would notice its removal) — and that key exposes the
+  *directory*, not the folder: anything the app writes under `Documents` later
+  must be content a user may see, move or delete in Files, so caches stay in
+  Application Support. `LSSupportsOpeningDocumentsInPlace` remains the separate
+  question of in-place access to what the *picker* vends.
 - **SSO cookies outlive the sign-in sheet** (the persistent `WKWebsiteDataStore` is
   what makes SSO work at all). Sign Out purges `leetcode.com` cookies only,
   deliberately leaving every other site a web view in this app has loaded alone.

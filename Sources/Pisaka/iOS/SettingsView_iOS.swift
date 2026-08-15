@@ -70,6 +70,12 @@ struct SettingsView_iOS: View {
                     ) {
                         Text("Font size: \(Int(settings.fontSize)) pt")
                     }
+
+                    // The one flag both platforms consult (the macOS peers are the
+                    // status-bar button and the Preferences checkbox). Bound
+                    // straight to the store with no local `@State`, so the row and
+                    // the editor can never disagree.
+                    Toggle("Offer completions as you type", isOn: $settings.completionEnabled)
                 }
 
                 gitCredentialsSection

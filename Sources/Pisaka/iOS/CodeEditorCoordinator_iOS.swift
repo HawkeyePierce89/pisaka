@@ -92,6 +92,22 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// a fuzzy-match test of the typed characters alone waves through.
     private var answeredMember: IdentifierScanner.MemberContext?
 
+    /// Whether the completion strip is offered at all —
+    /// `SettingsStore.completionEnabled`, forwarded here by
+    /// `CodeEditorView_iOS.updateUIView`. The macOS peer is
+    /// `CompletionController.isEnabled`, and the switch means the same thing on
+    /// both platforms: **binary and total**, since the strip has no explicit
+    /// invocation of its own, off simply means no request is made and no bar is
+    /// installed.
+    ///
+    /// **Nothing in the intelligence stack is torn down** by turning this off: the
+    /// symbol index keeps walking and refreshing, the provider is untouched, and
+    /// Go to Definition — which asks that same provider from the edit menu — keeps
+    /// working. Only completion *requests* stop being made and the *strip* stops
+    /// being shown, which is what makes the toggle instant and free in both
+    /// directions.
+    private var completionEnabled = true
+
     /// The in-flight completion debounce/provider task; cancelled when a newer
     /// keystroke or caret move lands.
     private var completionTask: Task<Void, Never>?
@@ -295,6 +311,26 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
 
     // MARK: - Completion
 
+    /// Turn completion on or off, taking effect on the very next keystroke.
+    ///
+    /// An unchanged value is ignored, so the per-update forwarding from
+    /// `updateUIView` costs nothing on the overwhelmingly common path.
+    ///
+    /// Turning it *off* is not merely a gate raised for future keystrokes:
+    /// `clearCompletions()` cancels the pending debounce/provider task, bumps the
+    /// generation so an answer already in flight cannot land, and removes the
+    /// accessory strip — which, going through `showCompletions([])`, also drops
+    /// `answeredMember`, so no receiver outlives the bar it belonged to. That is
+    /// the iOS peer of the macOS `setEnabled(_:)`'s popup dismissal, and simpler
+    /// for the same reason the strip is simpler: it is this coordinator's own view,
+    /// not one UIKit puts up on its own behalf.
+    func setCompletionEnabled(_ enabled: Bool) {
+        guard enabled != completionEnabled else { return }
+        completionEnabled = enabled
+        guard !enabled else { return }
+        clearCompletions()
+    }
+
     /// Recompute the accessory strip's candidates for whatever is being typed.
     ///
     /// The request is built here, on the main actor, from the live buffer — the
@@ -308,6 +344,18 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// nothing else — `nil` (an unclassifiable buffer) means no keywords rather
     /// than some default language's.
     private func updateCompletions(in textView: UITextView) {
+        // The gate sits at the very entry, before the prefix scan and before the
+        // request is built, so a keystroke or a caret move costs nothing at all
+        // while completion is off — no task, no provider call, not even a scan
+        // whose answer is then discarded. Hiding the strip first is what makes the
+        // path idempotent (there is nothing in flight to cancel: the setter
+        // cancelled it, and nothing spawns one while off); it returns immediately
+        // when no bar is installed, which is every call but the first.
+        guard completionEnabled else {
+            showCompletions([], in: textView)
+            return
+        }
+
         completionTask?.cancel()
         completionTask = nil
         completionGeneration += 1

@@ -117,6 +117,94 @@ final class CompletionController {
     /// exactly as the `Coordinator` holds it.
     private weak var textView: NSTextView?
 
+    /// Whether completion is offered at all — `SettingsStore.completionEnabled`,
+    /// forwarded here by `CodeEditorView.updateNSView`.
+    ///
+    /// The switch is **binary and total**: off silences the as-you-type popup
+    /// *and* every explicit invocation (⌃Space, Find > Complete, AppKit's stock
+    /// ⌥⎋/F5), which is why it is enforced in two places rather than one — at the
+    /// entry of `update(…)`, the per-keystroke path, and again in
+    /// `completions(forPartialWordRange:in:)`, the delegate answer the stock
+    /// commands reach without passing through `update`. The narrower JetBrains
+    /// behaviour (auto-popup off, explicit invocation alive) was considered and
+    /// deliberately rejected as a complication; it is a possible follow-up.
+    ///
+    /// **Nothing in the intelligence stack is torn down** by turning this off: no
+    /// LSP server is stopped, no session shut down, the registry is untouched and
+    /// the symbol index keeps walking and refreshing. Only completion *requests*
+    /// stop being made and completion *UI* stops being shown, which is what makes
+    /// the toggle instant and free in both directions — and why go-to-definition,
+    /// which shares the same provider, is entirely unaffected.
+    private var isEnabled = true
+
+    /// Turn completion on or off, taking effect on the very next keystroke.
+    ///
+    /// An unchanged value is ignored, so the per-update forwarding from
+    /// `updateNSView` costs nothing on the overwhelmingly common path.
+    ///
+    /// Turning it *off* is not merely a gate raised for future keystrokes: it
+    /// `reset()`s — cancelling the pending debounce/provider task, bumping the
+    /// generation, dropping the snapshot and every prefetched or in-flight
+    /// resolve — and then, only if a popup is up, asks the text view to
+    /// re-query. `complete(nil)` reaches the delegate, which now answers `[]`,
+    /// and an empty answer is what closes a popup that is already on screen.
+    ///
+    /// "Is up" is `isServingPopup` — **what the delegate last actually served**,
+    /// in the editor the user is actually typing in. The snapshot is emphatically
+    /// *not* that question: it is stored by `apply(…)` before its own focus/caret
+    /// guards and is not dropped when a popup closes (Esc and an accepted row both
+    /// leave it standing until the next keystroke), so it routinely outlives — or
+    /// never had — a visible list. Asking it instead would fire `complete(nil)`
+    /// with nothing on screen, and an invocation of AppKit's completion machinery
+    /// that finds no completions *beeps*: every "type a word, dismiss the list,
+    /// switch completion off" would sound an unexplained alert. The focus half is
+    /// not decoration either — calling `complete(nil)` on an unfocused editor
+    /// would break the very rule `apply` states: only the focused editor may reach
+    /// AppKit's completion machinery, or a list floats over whatever the user
+    /// *is* typing in.
+    ///
+    /// **Focus is two questions, not one.** `NSWindow.firstResponder` is *not*
+    /// cleared when its window stops being key, so an editor in a background
+    /// window — which is every open editor when the toggle is flipped from the
+    /// Preferences window — still answers `firstResponder === textView`. The
+    /// responder test alone would therefore pass for precisely the editors it is
+    /// meant to exclude, which is why `isKeyWindow` is asked as well. Nothing
+    /// dismissable is lost to the narrower test: a completion popup can only be on
+    /// screen in the key window.
+    ///
+    /// **The re-query is deferred by one run-loop turn**, because this runs inside
+    /// `updateNSView`. Dismissing a live popup makes AppKit restore the typed word
+    /// through `insertCompletion(…isFinal:)` — a real buffer edit, which fires
+    /// `textDidChange`, which writes the SwiftUI text binding: mutating observed
+    /// state from within a view update. Hopping out of that pass is the same move
+    /// `EditorSearchController.setNeedsRefresh` makes and costs nothing the user
+    /// can perceive. Every condition is re-asked on the hop, since the toggle may
+    /// have been flipped back and the editor may have lost focus, gained marked
+    /// text or been torn down in between.
+    func setEnabled(_ enabled: Bool) {
+        guard enabled != isEnabled else { return }
+        isEnabled = enabled
+        guard !enabled else { return }
+        // Read before `reset()` drops it.
+        let hasPopup = isServingPopup
+        reset()
+        guard hasPopup else { return }
+        DispatchQueue.main.async { [weak self] in
+            // `textView` is unwrapped rather than compared through the optional
+            // chain: `nil === nil` is *true*, so an `Optional` first-responder
+            // test would pass for a controller that has no text view at all.
+            guard let self,
+                  !self.isEnabled,
+                  let textView = self.textView,
+                  let window = textView.window,
+                  window.isKeyWindow,
+                  window.firstResponder === textView,
+                  !textView.hasMarkedText()
+            else { return }
+            textView.complete(nil)
+        }
+    }
+
     /// The candidates the delegate serves, and the prefix they answer.
     ///
     /// The prefix is stored *with* them because it is the only thing that makes an
@@ -160,6 +248,21 @@ final class CompletionController {
     }
 
     private var snapshot: Snapshot?
+
+    /// Whether AppKit's completion list is believed to be on screen.
+    ///
+    /// Maintained where the truth is: `completions(forPartialWordRange:in:)` is
+    /// the answer the popup is built from, so a non-empty return opens or keeps
+    /// one and `[]` closes it. A final `insert(…)` — the accepted row *and* the
+    /// Esc restore, which AppKit routes through the same call — ends the session,
+    /// and `reset()` gives up the claim with everything else.
+    ///
+    /// Only `setEnabled(false)` reads it, and only to decide whether there is
+    /// anything to dismiss. It is deliberately not used to gate anything else:
+    /// AppKit can also close the list without telling us (a click outside, a
+    /// window resigning key), so this is an *upper* bound that is exact for the
+    /// two endings a user actually produces — never a claim the popup is absent.
+    private var isServingPopup = false
 
     /// Edits that arrived from a background `completionItem/resolve`, keyed by
     /// the row's displayed string — the D4 prefetch's landing place. Cleared with
@@ -234,6 +337,28 @@ final class CompletionController {
     /// session that outlived an edit shrinking the buffer would otherwise index
     /// out of bounds.
     func completions(forPartialWordRange charRange: NSRange, in textView: NSTextView) -> [String] {
+        let texts = candidates(forPartialWordRange: charRange, in: textView)
+        // This answer *is* the popup: AppKit puts a list on screen for a non-empty
+        // one and takes it down for `[]`, so recording what was served here is the
+        // only honest record of whether one is up. Written in the wrapper rather
+        // than at each of the body's six exits so the two can never disagree.
+        isServingPopup = !texts.isEmpty
+        return texts
+    }
+
+    /// The delegate answer's whole body; see `completions(forPartialWordRange:in:)`.
+    private func candidates(forPartialWordRange charRange: NSRange, in textView: NSTextView) -> [String] {
+        // The second half of the on/off gate, covering the commands that never
+        // pass through `update(…)`: AppKit's stock ⌥⎋ and F5 reach this delegate
+        // answer directly. `[]` is also what dismisses a popup that was on screen
+        // when the toggle was flipped — `setEnabled` re-queries for exactly that.
+        //
+        // Stated locally rather than left to the `guard let snapshot` below, which
+        // today happens to answer `[]` too (nothing can populate a snapshot while
+        // off: `setEnabled` resets and `update` returns at its entry). That is a
+        // non-local proof about three other methods; "off answers nothing" is the
+        // rule this switch is, so it is written where the answer is given.
+        guard isEnabled else { return [] }
         // One read: `NSTextView.string` copies the whole buffer out of the mutable
         // text storage on every access, and this runs while AppKit is already
         // putting the popup on screen.
@@ -311,6 +436,17 @@ final class CompletionController {
         // typed, and a late auto-import must not land on a buffer the user has
         // since changed (D4's stated condition).
         forgetList()
+
+        // The on/off gate at the *entry* of the per-keystroke path, so while
+        // completion is off a keystroke costs nothing at all: no debounce task,
+        // no provider call, no resolve prefetch — not merely a result that is
+        // computed and then discarded. Nothing is left standing for the delegate
+        // to serve either, which is what makes turning the switch back on start
+        // from a clean list rather than a stale one.
+        guard isEnabled else {
+            snapshot = nil
+            return
+        }
 
         guard let textView, let provider else {
             snapshot = nil
@@ -521,6 +657,10 @@ final class CompletionController {
         isFinal: Bool,
         in textView: NSTextView
     ) -> Bool {
+        // A final call ends the completion session whatever it inserts, and that
+        // includes the word Esc restores — AppKit cancels through this same
+        // method — so the list is down by the time it returns.
+        if isFinal { isServingPopup = false }
         let nsText = textView.string as NSString
         guard let snapshot,
               let item = snapshot.items[word],
@@ -692,6 +832,7 @@ final class CompletionController {
         pendingTask = nil
         generation += 1
         snapshot = nil
+        isServingPopup = false
         forgetList()
     }
 

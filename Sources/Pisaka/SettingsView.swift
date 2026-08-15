@@ -186,6 +186,13 @@ struct GeneralSettingsView: View {
             ) {
                 Text("Editor font size: \(Int(settings.fontSize)) pt")
             }
+
+            // The same flag the status-bar lightbulb writes: both bind straight
+            // through to the store, so the two surfaces can never disagree. Off
+            // is total — the automatic popup *and* explicit invocation (⌃Space,
+            // Find > Complete, AppKit's stock ⌥⎋/F5) — while the symbol index,
+            // the LSP layer and Go to Definition are untouched.
+            Toggle("Offer completions as you type", isOn: $settings.completionEnabled)
         }
         .padding(20)
         .frame(width: 340)

@@ -171,6 +171,30 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     editor text view, not `MinimapView`, so it never conflicts with the minimap
     wheel handler or the diff synced-scroll. `DiffView`/`MergeView` take the same
     `fontSize` and apply it uniformly across their panes (so rows stay aligned).
+    Completion on/off (T-4) follows that same shape exactly: `completionEnabled:
+    Bool` is a **plain value**, undefaulted like `fontSize` beside it, threaded
+    from `settings.completionEnabled` by
+    `ContentView` — which already observes the store — and *not* a second
+    observed object. The undefaulting is deliberate and is the one place this
+    differs from the optional/no-op conveniences around it: the only possible
+    default is `true`, so a second editor host added later would compile clean and
+    offer completions to a user who turned them off — a silent regression of the
+    whole feature that nothing in the repo can catch, since `swift test` compiles
+    Core alone and the view layer is untested by convention. Requiring the
+    argument makes it a compile error instead.
+    The store is observed once, where the view is built, and the
+    flag travels with the update that observation already causes; making this
+    view observe anything itself would add a per-keystroke re-render path to the
+    one view in the app that must not have one. It is applied in `makeNSView`
+    (beside `attachCompletion`, so an editor built while the preference is
+    already off never asks the provider even once) and re-applied
+    unconditionally near the top of `updateNSView`, before the buffer/blame/index
+    reconciliation — the controller ignores an unchanged value, and a *change* to
+    `false` cancels what is pending and dismisses a live popup, which should
+    happen before the rest of the update runs. The coordinator's
+    `setCompletionEnabled(_:)` is a thin forwarder rather than a stored flag:
+    `CompletionController` owns the state and is the only thing that can act on a
+    change.
     Bracket highlighting (both mechanics — the caret's matched pair and the
     rainbow by depth) is wired in the same `Coordinator`, again pure-engine +
     thin view glue: `makeNSView` installs a `BracketOverlayLayoutManager` on the
@@ -591,6 +615,75 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     prefetch on a caret move would only throw away the resolve for a list still on
     screen. A resolve started late by `scheduleFollowUp` is filed in the same
     `resolveTasks` table, so it is cancelled by the same two events.
+    **T-4: the whole thing has an off switch, and it is enforced twice.**
+    `isEnabled` (`private`, default `true`) mirrors
+    `SettingsStore.completionEnabled` — see `core-services.md` for the flag, and
+    `app-window.md` for the bottom-bar surface — forwarded here by
+    `CodeEditorView.updateNSView` through the coordinator. Two enforcement points
+    rather than one, because the two paths into this class are genuinely
+    different: at the **entry** of `update(…)`, which returns after clearing the
+    snapshot and forgetting the list and *before* the request is built or a task
+    spawned — so while completion is off a keystroke costs no debounce, no
+    provider call and no resolve prefetch, rather than computing a result that is
+    then discarded — and again at the top of
+    `completions(forPartialWordRange:in:)`, which answers `[]`. The second covers
+    the paths that never pass through `update(…)`: AppKit's stock ⌥⎋ and F5 reach
+    the delegate directly, exactly as the member-state re-check above documents,
+    so a gate only at the request entry would leave the switch silently partial.
+    It is stated there rather than left to the `guard let snapshot` below it —
+    which today answers `[]` too, since nothing can populate a snapshot while off
+    — because that is a non-local proof about three other methods, and "off
+    answers nothing" is the rule this switch *is*.
+    `setEnabled(_:)` ignores an unchanged value (the forwarding
+    runs on every SwiftUI update), and turning it *off* is not merely a gate
+    raised for future keystrokes: it `reset()`s — cancelling the pending
+    debounce/provider task, bumping the generation, dropping the snapshot and
+    every prefetched or in-flight resolve — and then, **only if a popup is
+    up**, asks the text view to `complete(nil)`. That re-query reaches the
+    delegate, which now answers `[]`, and an empty answer is what dismisses a
+    popup that is already on screen. "Is up" is `isServingPopup`, **what the
+    delegate last actually served** in the editor the user is typing in: the
+    answer AppKit builds the list from, so a non-empty return opens or keeps one,
+    `[]` closes it, a final `insert(…)` (the accepted row *and* the Esc restore,
+    which AppKit routes through the same call) ends the session and `reset()`
+    gives up the claim. It is maintained in a thin wrapper over the delegate body
+    rather than at that body's six exits, so the two cannot disagree, and it is an
+    *upper* bound — AppKit can also close the list without telling us (a click
+    outside, a window resigning key) — never a claim that no popup is up.
+    The **snapshot is not that question**, and asking it was the original bug: it
+    is stored by `apply(…)` *before* its own focus/caret guards and is not dropped
+    when a popup closes, so it routinely outlives — or never had — a visible list,
+    and `complete(nil)` on an invocation that finds no completions makes AppKit
+    *beep*. Every "type a word, dismiss the list, switch completion off" would
+    have sounded an unexplained alert. The focus half is load-bearing for a second
+    reason: without it `setEnabled(false)` would break the very rule `apply(…)`
+    states, reaching AppKit's completion machinery on a text view the user is not
+    typing in.
+    **Focus is two questions, not one**, and asking only the obvious one gets the
+    Preferences case exactly backwards: `NSWindow.firstResponder` is *not* cleared
+    when its window stops being key, so an editor in a background window — which
+    is every open editor while the Preferences window is up — still answers
+    `firstResponder === textView` and would pass a responder-only test. `isKeyWindow`
+    is therefore asked alongside it, and costs nothing real: a completion popup can
+    only be on screen in the key window, so the narrower test skips no dismissal.
+    (The unwrap is written out rather than
+    chained through the optional, because `nil === nil` is `true` and would let a
+    controller with no text view pass.)
+    **The re-query is deferred by one run-loop turn**, because `setEnabled(_:)` is
+    called from `updateNSView`: dismissing a live popup makes AppKit restore the
+    typed word through `insertCompletion(…isFinal:)`, a real buffer edit that fires
+    `textDidChange`, which writes the SwiftUI text binding — observed state mutated
+    from inside a view update, the hazard `CodeEditorCoordinator_iOS.applyReveal`
+    hops out of for the same reason. The hop is `EditorSearchController.setNeedsRefresh`'s
+    (same run-loop iteration, nothing drawn in between) and re-asks every condition,
+    since the toggle may have been flipped back and the editor may have lost focus,
+    gained marked text or been torn down before it lands.
+    Nothing in the intelligence stack is stopped: no LSP session
+    is shut down, the registry is untouched, the symbol index keeps walking and
+    refreshing, and go-to-definition — which asks the same provider — is entirely
+    unaffected. The decision that off is *total* (and that the auto-popup-only
+    variant was rejected rather than overlooked) is recorded in
+    `core-services.md`.
   - `LSPProcessTransport.swift` — the real `LSPTransport`: one language-server
     process, three pipes, and no opinion whatsoever about what the bytes mean. The
     entire macOS half of the LSP client, written in `GitCLIService`'s idiom for the

@@ -119,6 +119,26 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     branch, threaded through as the `branchSwitcher: BranchSwitcherModel` /
     `onSwitchBranch` / `onCreateBranch` parameters (owned by `PisakaApp`, defaulted
     for previews).
+    At the **trailing end** of the same bar, after the branch widget, sits the
+    completion on/off switch (T-4): `completionToggleButton`, in the existing
+    `bottomBarButton` idiom (plain button style, accent tint when active,
+    secondary when not), showing `lightbulb` when on and `lightbulb.slash` when
+    off with a `.help(…)` naming the state ("Code completion: On" / "Code
+    completion: Off"). Unlike its siblings it is deliberately icon-only, so it
+    carries no `Label` title to serve as its accessibility name and `.help` is a
+    tooltip rather than a name: the label and the state are therefore spelled out
+    with `.accessibilityLabel("Code completion")` + `.accessibilityValue(…)`,
+    without which the one bottom-bar control that silently changes how the editor
+    behaves could not be identified without sight. It writes **straight through** to
+    `settings.completionEnabled` with no local `@State`, which is what makes it
+    impossible for this icon and the Preferences → General checkbox to disagree:
+    both are views of the one stored flag (`core-services.md`), as is the iOS
+    Settings row. The same flag is passed down to `CodeEditorView` as
+    `completionEnabled:` beside `fontSize` — a plain value, no new observation
+    path (`app-editor.md`) — and `PisakaApp` greys out Find > "Complete" while it
+    is off, so an explicitly invoked command is never a silent no-op. Off is
+    total but tears nothing down: ⌃⌘J go-to-definition keeps working and flipping
+    it back on costs a keystroke, not a restart.
     Panel-height persistence: instead of the old recreated `VSplitView` (which
     reset the height on every panel switch / hide-show), `mainArea` wraps a
     `GeometryReader` around a manual `VStack { editorSplit; panelDivider;
