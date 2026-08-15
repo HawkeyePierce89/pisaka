@@ -400,18 +400,30 @@ run in `swift test` rather than needing an Xcode build.
     destinations — `Contents/Resources/` on macOS, the `.app` root on iOS — the
     only place App Store Connect's privacy-report aggregation looks. Contents:
     `NSPrivacyTracking` = `false`, `NSPrivacyTrackingDomains` and
-    `NSPrivacyCollectedDataTypes` both empty (the app has no telemetry and no
-    network egress other than the user's own git remotes; everything it stores is
-    local), and exactly three `NSPrivacyAccessedAPITypes` entries.
+    `NSPrivacyCollectedDataTypes` both empty (the app has no telemetry, and every
+    network egress is either the user's own git remotes or a fetch they asked
+    for — the LSP server downloads, LeetCode, and now Sparkle's update check;
+    everything it stores is local), and exactly three `NSPrivacyAccessedAPITypes`
+    entries. **Sparkle is the first *unattended* egress** — after the one-time
+    first-launch consent it polls `github.com` on Sparkle's own schedule with no
+    further user action — which is why the sentence above says "asked for" rather
+    than "in response to a command". It is still not tracking: the request
+    carries no identifier of ours, the response is a static appcast, and nothing
+    is correlated with any other data, so `NSPrivacyTracking` = `false` and the
+    empty `NSPrivacyTrackingDomains` stand.
     `ReleaseMetadataTests` asserts the accessed-API set by *set equality* on
     category/reason pairs, so an added, dropped or re-coded category fails the
     suite until the manifest and the audit below are reconciled.
 
     **Required-reason API audit.** The unit of audit is the **linked binary**,
     not `Sources/`: libgit2 and every tree-sitter grammar compile from C source
-    *into* the app, and none of the 20 dependencies ships a
+    *into* the app, and none of the 21 dependencies ships a
     `PrivacyInfo.xcprivacy` of its own (`find DerivedData/SourcePackages/checkouts
-    -name '*.xcprivacy'` returns nothing; the build would surface one if it ever
+    -name '*.xcprivacy'` returns nothing — **but that path alone is now
+    incomplete**: Sparkle is a SwiftPM `binaryTarget`, so it lands in
+    `SourcePackages/artifacts/`, not `checkouts/`, and the `find` above would
+    miss it. Scan both. Checked by hand: the shipped `Sparkle.framework` carries
+    no `.xcprivacy` either; the build would surface one if it ever
     appeared, since every grammar's resource bundle is handed to *both*
     destinations' `ProcessInfoPlistFile` step as a `-scanforprivacyfile`
     argument — 16 bundles today, `TreeSitterRust_TreeSitterRust.bundle` among
@@ -437,7 +449,40 @@ run in `swift test` rather than needing an Xcode build.
     Confirm the file you scanned is non-trivial (`nm -u` on it should list
     hundreds of symbols) before believing an empty match.
 
-    **Last re-run: 2026-08-10**, over both destinations' Debug dylibs
+    **Last re-run: 2026-08-15**, after linking Sparkle — a newly linked
+    dependency, which this file's own convention says obliges a re-run. Sparkle
+    is the case the recipe above structurally **cannot** see, and that is the
+    lesson worth keeping: it is not compiled into the app binary at all but
+    linked as its own dynamic framework in `Contents/Frameworks/`, so its calls
+    never appear in an `nm -u` of the executable — the exact "one level down"
+    trap already flagged for a grammar that linked as its own framework, except
+    here it is the real shape rather than a hypothetical. So the scan must cover
+    the embedded frameworks too:
+
+    ```sh
+    nm -u Pisaka.app/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle \
+      | grep -E '_(stat|lstat|fstat|fstatat|statfs|statvfs|fstatfs|getattrlist|getattrlistat|fgetattrlist|getattrlistbulk|mach_absolute_time|sysctl)$'
+    ```
+
+    Run over a Release build (222 undefined symbols in the framework, 2039 in
+    `Contents/MacOS/Pisaka`), it answers **`_statfs` and `_mach_absolute_time`**.
+    The main executable answered the familiar `_stat`, `_lstat`, `_fstat`,
+    `_mach_absolute_time`.
+
+    `_statfs` is a **disk-space** required-reason symbol, and the record below
+    says disk space is "no hits … not declared". That entry stays as written and
+    `PrivacyInfo.xcprivacy` is **unchanged** — not because the symbol is absent
+    but because required-reason declarations are an iOS/iPadOS/tvOS/watchOS/
+    visionOS obligation, and Sparkle is the one dependency carrying
+    `destinationFilters: [macOS]`: it is genuinely not in the iOS binary, so it
+    contributes nothing to the manifest that has to answer for it. **This is the
+    one conclusion in this record that depends on a build setting rather than on
+    a symbol**, so it has to be re-derived rather than assumed if that filter is
+    ever dropped — an unfiltered Sparkle would put `_statfs` in an iOS binary and
+    make the disk-space category owed. `ReleaseMetadataTests`' set equality still
+    passes.
+
+    **Previous re-run: 2026-08-10**, over both destinations' Debug dylibs
     (`Debug-iphoneos/Pisaka.app/Pisaka.debug.dylib`, 2184 undefined symbols, and
     `Debug/Pisaka.app/Contents/MacOS/Pisaka.debug.dylib`, 2308), after adding the
     `tree-sitter-rust` grammar — the Rust language work's one change to what is
@@ -528,7 +573,7 @@ run in `swift test` rather than needing an Xcode build.
         `Sources/` and no matching symbol in either binary, not declared.
 
   - `Resources/Licenses/` — `licenses.json` plus one verbatim `<id>.txt` per
-    shipped dependency (20 today). Declared in `project.yml` as a **folder
+    shipped dependency (21 today). Declared in `project.yml` as a **folder
     reference** (`type: folder`), so the whole directory is copied into the
     bundle as `Licenses/` and adding a future text needs no project
     regeneration. That convenience is exactly why the directory's *contents* are
@@ -604,7 +649,20 @@ shape-specific line scanner) and asserts:
   - the manifest's id set **equals** the `Pisaka` target's linked package set
     from `project.yml` (minus `PisakaCore`) plus the documented transitive
     `tree-sitter` C runtime — *set* equality, so a new dependency fails the suite
-    until its license is added, and a dropped one fails until its entry goes;
+    until its license is added, and a dropped one fails until its entry goes.
+    **The set is destination-blind, deliberately, and Sparkle is the first entry
+    where that shows.** `licenses.json` has no platform dimension and
+    `Resources/Licenses/` is a folder reference copied to *both* destinations, so
+    the iOS Acknowledgements screen lists Sparkle even though
+    `destinationFilters: [macOS]` keeps it out of the iOS binary entirely (unlike
+    SwiftTerm and libgit2, which link unused on the other destination and so are
+    genuinely shipped there). That is over-attribution, not under-attribution:
+    naming a component the binary does not contain is harmless where omitting one
+    it does contain is the actual risk, and the alternative — a `platforms:` field
+    threaded through `LicenseNotice`, `LicenseCatalog`, both Acknowledgements
+    screens and this suite's scanner — buys nothing but a second way to
+    under-attribute. Recorded rather than fixed, so the next filtered dependency
+    inherits a decision instead of an accident;
   - the declared `packages:` set equals the linked `dependencies:` set, which
     doubles as proof the scanner is still reading something rather than comparing
     two empty sets (verified by mutation: adding a fake package + dependency does
@@ -638,8 +696,8 @@ shape-specific line scanner) and asserts:
 
 **What the id-set check cannot see: sub-dependencies.** Every assertion above is
 *package*-granular — it compares manifest ids against SwiftPM package identities.
-Two packages compile third-party C trees of their own into the app under licenses
-their top-level `LICENSE`/`COPYING` does not carry, and no package-level
+Three packages carry third-party code of their own into the app; for two of them
+the top-level `LICENSE`/`COPYING` does not cover it, and no package-level
 comparison can notice:
 
   - **libgit2** compiles five vendored trees — its `Package.swift` `sources:`
@@ -680,14 +738,31 @@ comparison can notice:
     and then `exclude:`s that file from the SwiftPM target, so it never reaches
     the bundle on its own. Its `spdx` reads `MIT AND Unicode-DFS-2016`.
 
-Both are closed by **appending** the missing notice to the shipped `.txt`, the
+  - **Sparkle** is the third, and the one where upstream already did the
+    aggregating: its own `LICENSE` ends in an `EXTERNAL LICENSES` section
+    covering the third-party sources it compiles into the framework — bsdiff
+    (Colin Percival), sais-lite (Yuta Mori) and pdqsort (Orson Peters). So unlike
+    the two above there is **no appendix**: the verbatim copy already *is* the
+    whole obligation, and the thing that has to be pinned is the opposite one —
+    that the copy stays whole. A re-copy that grabbed only the MIT grant at the
+    top of upstream's file, which reads like a complete licence on its own, would
+    silently drop four attributions while every other check in the suite still
+    passed (the text would be present, non-empty and would still name Andy
+    Matuschak). `testTextsCarryTheirBundledSubDependencyNotices` asserts the
+    `EXTERNAL LICENSES` heading and all three copyright holders for exactly that
+    reason. Worth stating plainly, because "no appendix" and "nobody checked"
+    look identical in the directory listing.
+
+The first two are closed by **appending** the missing notice to the shipped `.txt`, the
 way libgit2's own `COPYING` already aggregates its bundled deps — not by adding a
 manifest entry, because a sub-dependency has no SwiftPM identity: no
 `Package.resolved` pin for the provenance tests to check, no `- package:` line
 for the coverage test to match. Each appendix opens with a line saying where
 upstream's verbatim text ends and this repository's addition begins, and
-`testTextsCarryTheirBundledSubDependencyNotices` pins both — otherwise bumping
-the pin and pasting upstream's file over ours would drop them in silence.
+`testTextsCarryTheirBundledSubDependencyNotices` pins both appendices — and,
+for Sparkle, the upstream section that makes an appendix unnecessary — because
+otherwise bumping the pin and pasting upstream's file over ours would drop them
+in silence.
 
 **Recording a read that found nothing.** The same check was run over
 `tree-sitter-go` when it was added (pin `0.25.0`, revision `1547678a`): its

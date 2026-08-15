@@ -142,6 +142,16 @@ a key no installed copy trusts cannot be produced by accident.
    not carry is worse than a failed run.
 2. `git tag vX.Y && git push origin vX.Y`.
 
+Runs are **serialized by a `concurrency:` group** keyed on the workflow alone —
+not on `github.ref`, which would give every tag its own group and serialize
+nothing, since two releases are by definition two different tags. Overlapping
+runs matter here because `CFBundleVersion` is `github.run_number` while
+`releases/latest` is whichever release was *published* last: interleave two and
+the feed can end up advertising a build number lower than the one already
+installed, which Sparkle will never offer an update over. `cancel-in-progress` is
+`false` — a half-published release (zip attached, appcast not) is worse than a
+queued one.
+
 The workflow then, in order:
 
 - **`test` job** — `swift test`, pinned identically to `ci.yml` (same SHA-pinned
@@ -149,24 +159,50 @@ The workflow then, in order:
   built or published unless it is green.
 - **`release` job** (`needs: test`, the only job with `contents: write`;
   the workflow's top level is `contents: read`) —
-  - **Preflight, before anything expensive.** Three refusals, each with an
-    actionable message: the tag's version (`v` stripped) ≠ `MARKETING_VERSION`;
-    the `SPARKLE_PRIVATE_EDDSA_KEY` secret empty or absent; `SUPublicEDKey` still
-    the placeholder.
+  - **Preflight, before anything expensive.** Four refusals, each with an
+    actionable message: `MARKETING_VERSION` unreadable from `project.yml`; the
+    tag's version (`v` stripped) ≠ `MARKETING_VERSION`; the
+    `SPARKLE_PRIVATE_EDDSA_KEY` secret empty or absent; `SUPublicEDKey` still the
+    placeholder. The version is parsed with a **quote-agnostic** `sed`, because
+    `MARKETING_VERSION: 1.1` is as valid a YAML scalar as `"1.1"` and a parser
+    that only understood the quoted form would read an empty string and then
+    refuse every release while blaming `project.yml`; an empty read is reported
+    as the parse failure it is, not as a version mismatch.
+  - Sparkle 2.9.5's release tools, pinned exactly as XcodeGen is (the tarball URL
+    plus `shasum -a 256 -c -` against the digest above). This is fetched **here,
+    beside the preflight, rather than just before it is used** — for the reason
+    the preflight exists at all: a moved asset or a changed tarball layout must
+    fail in the first seconds, not after a 20-minute archive.
   - XcodeGen 2.45.4 (same URL + `shasum -a 256 -c -` as CI), the
     `SourcePackages` cache keyed on `Package.resolved`, `xcodegen generate`,
     `-resolvePackageDependencies`.
-  - `archive` for `generic/platform=macOS` with
-    `CURRENT_PROJECT_VERSION=${{ github.run_number }}` and the signing settings
+  - `archive` for `generic/platform=macOS`, **`-configuration Release`
+    explicitly**, with `CURRENT_PROJECT_VERSION=${{ github.run_number }}` and the signing settings
     overridden **on the command line only** (`CODE_SIGNING_ALLOWED=YES`,
     `CODE_SIGNING_REQUIRED=YES`, `CODE_SIGN_STYLE=Manual`,
     `CODE_SIGN_IDENTITY=-`), so the committed `CODE_SIGNING_ALLOWED: NO` keeps
     dev and CI builds signing-free.
+
+    `-configuration Release` is spelled out rather than left to Xcode's default
+    because the *entire* updater is behind `#if !DEBUG`: the configuration is
+    what decides whether the shipped app can update at all. Nothing else pins it
+    — `Pisaka.xcodeproj` is generated and gitignored and `project.yml` declares
+    no `schemes:`, so the scheme is auto-created — and a Debug archive would
+    still embed `Sparkle.framework` (the package dependency links
+    unconditionally), so every verification below would pass while the release
+    shipped with "Check for Updates…" permanently disabled.
   - The app is taken straight from
     `build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app` — no
     `-exportArchive`, which needs an export options plist naming a team — then
-    checked for an embedded `Sparkle.framework` and verified with
-    `codesign --verify --deep --strict`.
+    checked for an embedded `Sparkle.framework`, verified with
+    `codesign --verify --deep --strict`, and checked for
+    `CFBundleVersion`, `CFBundleShortVersionString`, `SUFeedURL` and
+    `SUPublicEDKey` **one key at a time** with `plutil -extract`. Per-key is the
+    point: a single `grep -E 'A|B|C'` over a `plutil -p` dump succeeds when *any*
+    alternative matches, and `CFBundleVersion` is always generated — so the two
+    Sparkle keys could stop being merged in from the partial
+    `Resources/Info.plist` with the step still green, shipping an app that can
+    never find an update.
   - `ditto -c -k --sequesterRsrc --keepParent` into a staging directory that
     holds nothing else. `ditto` and not `zip`: the embedded framework is a bundle
     of symlinks, and a plain `zip` stores them as duplicated regular files, after
@@ -181,11 +217,31 @@ The workflow then, in order:
     load-bearing: `releases/latest/download/appcast.xml` resolves by asset name,
     so it must stay exactly the last path component of `SUFeedURL`.
 
-`ReleaseWorkflowTests` pins all of the above statically — the tag trigger, the
-permission split, `ditto -c -k`, the run-number build number, both preflight
-refusals, the Sparkle and XcodeGen pins (the latter compared against `ci.yml`,
-since drift between the two files is otherwise silent), and the cross-file pair
-between the asset name and `SUFeedURL`.
+`ReleaseWorkflowTests` pins all of the above statically — the tag trigger and the
+permission split (by set equality over the parsed blocks, so an added
+`workflow_dispatch:` or `packages: write` fails rather than slipping past a
+substring match), the `needs: test` gate, the concurrency group,
+`-configuration Release`, the per-key `plutil -extract` verification,
+`ditto -c -k`, the run-number build number, the Sparkle and XcodeGen pins (the
+latter compared against `ci.yml`, since drift between the two files is otherwise
+silent), the tools-before-archive ordering, and two cross-file pairs against
+`Resources/Info.plist`: the asset name and the repository, both against
+`SUFeedURL`.
+
+**The preflight refusals are asserted by mechanism, not by mention.** Each guard
+must exist *and* its branch must reach `exit 1`. That distinction is the whole
+value of the test: asserting merely that the file contains the string
+`SPARKLE_PRIVATE_EDDSA_KEY` proves nothing, because it also appears in the
+appcast step's `env:` block — so a preflight quietly downgraded from `::error::`
++ `exit 1` to a `::warning::` would keep such an assertion green while publishing
+exactly the release the guard exists to refuse. The suite is mutation-tested
+against that scenario.
+
+Every assertion in that suite also runs over **comment-stripped** text, which is
+load-bearing rather than tidy: `release.yml` documents itself by quoting its own
+commands (`# \`ditto -c -k\` and not \`zip\`` sits three lines above the real
+invocation), so a raw substring search stays green when the command it names is
+deleted.
 
 ### Why `github.run_number` is the build number
 
@@ -311,11 +367,20 @@ adding these steps is a separate change to this document.
 
 ## Open compliance question: statically linked LGPL
 
-The iOS build links libgit2, whose SwiftPM target compiles `deps/xdiff`
-(LibXDiff, LGPL-2.1-or-later) — see the sub-dependency section of
+**Both** shipped binaries link libgit2, whose SwiftPM target compiles
+`deps/xdiff` (LibXDiff, LGPL-2.1-or-later) — see the sub-dependency section of
 `docs/architecture/core-services.md`. The shipped
 `Resources/Licenses/libgit2.txt` carries that notice, which settles the
 *attribution* half.
+
+This used to read "the iOS build", and that was too narrow. libgit2 carries no
+`destinationFilters:` (only Sparkle does), so it links into the **macOS** app as
+well — unused by any macOS code path, but statically linked all the same.
+Verified rather than assumed, against a Release archive of the macOS app:
+
+```sh
+nm Pisaka.app/Contents/MacOS/Pisaka | grep -c '_xdl_'   # 37 LibXDiff symbols
+```
 
 It does not settle the *relinking* half. LGPL-2.1 §6 is satisfied by a notice
 only when the library is dynamically linked; a static link into a closed-source
@@ -328,5 +393,11 @@ Nothing in the repository can resolve that — it is a decision, and the options
 are: accept the risk deliberately and in writing; publish an
 "object files available on request" offer alongside the store listing; or drop
 `deps/xdiff` from the compiled sources and supply the diff implementation
-another way. **Decide it before the first iOS submission**, and record the
-decision here.
+another way (or give libgit2 the same `destinationFilters: [iOS]` treatment
+Sparkle gets, which would at least remove the macOS half of the question).
+
+**Decide it before the first `v*` tag is pushed** — not, as this section
+previously said, before the first iOS submission. The tag-triggered workflow
+publishes a macOS app to GitHub Releases, and that is a distribution to the
+public: it starts the clock on the same obligation, and it will almost certainly
+happen long before anything reaches App Store Connect. Record the decision here.

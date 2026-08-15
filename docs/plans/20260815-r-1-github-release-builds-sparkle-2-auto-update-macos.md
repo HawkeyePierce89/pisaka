@@ -1,5 +1,14 @@
 # R-1: GitHub release builds + Sparkle 2 auto-update (macOS)
 
+> **Status: implemented; stays in `docs/plans/` rather than moving to
+> `docs/plans/completed/`.** Every task below is done and every static gate is
+> green, but the Post-Completion section is genuinely outstanding and cannot be
+> automated here: the real EdDSA key pair does not exist yet, so the shipped
+> `SUPublicEDKey` is still the deliberate placeholder and no tag has been pushed.
+> Until that manual pass is finished the feature is wired but unproven end to
+> end. The same items are tracked in `docs/RELEASING.md` under "Manual
+> verification owed"; move this file to `completed/` once they are ticked off.
+
 ## Overview
 
 Pushing a `v*` tag runs the CI gate, archives an ad-hoc-signed macOS app, signs it

@@ -398,22 +398,7 @@ final class ReleaseMetadataTests: XCTestCase {
     }
 }
 
-private extension Array where Element == String {
-    /// Whether `needle`'s lines appear here as a *consecutive* run, each trimmed
-    /// line matched whole.
-    ///
-    /// Whole-line equality is what rules out a commented-out or merely-quoted
-    /// setting; the consecutive run is what keeps the two-line resource entries
-    /// anchored to their own `- path:` line, so a stray `type: folder` elsewhere
-    /// in the file cannot stand in for the one on `Resources/Licenses`.
-    func contains(consecutively needle: String) -> Bool {
-        let wanted = needle.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        guard !wanted.isEmpty, count >= wanted.count else { return false }
-
-        return indices.dropLast(wanted.count - 1).contains { start in
-            Array(self[start ..< start + wanted.count]) == wanted
-        }
-    }
-}
+// `contains(consecutively:)` — whole-line equality over a consecutive run, which
+// is what rules out a commented-out or merely-quoted setting and what keeps the
+// two-line resource entries anchored to their own `- path:` line — lives in
+// `Support/YAMLLineMatching.swift`, shared with `ReleaseWorkflowTests`.

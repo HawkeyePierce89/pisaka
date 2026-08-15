@@ -32,7 +32,9 @@ jobs:
   build-macos:
     needs: test
     runs-on: macos-15
-    timeout-minutes: 30
+    # Higher than the iOS job's: this one builds Release, so it pays for
+    # whole-module optimization across the app and every linked dependency.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
@@ -55,9 +57,19 @@ jobs:
         run: xcodegen generate
       - name: Resolve package dependencies
         run: xcodebuild -project Pisaka.xcodeproj -resolvePackageDependencies -clonedSourcePackagesDirPath SourcePackages
-      - name: Build (macOS)
+      # Release, deliberately, and it is the macOS job that carries it. The whole
+      # Sparkle updater is behind `#if !DEBUG` (`SoftwareUpdater.swift`), so a
+      # Debug-only gate would never compile `import Sparkle`,
+      # `SPUStandardUpdaterController` or the `canCheckForUpdates` republish at
+      # all — they would first be built inside the release workflow's archive
+      # step, after a tag is already pushed, where a rename in a pinned Sparkle
+      # version surfaces as a release-only failure. The iOS job stays Debug, so
+      # both configurations are still compiled somewhere on every PR, and the one
+      # `#if DEBUG` in the app layer is this updater's no-op branch.
+      - name: Build (macOS, Release — the configuration that ships)
         run: >
           xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+          -configuration Release
           -destination 'platform=macOS'
           -clonedSourcePackagesDirPath SourcePackages
           -derivedDataPath DerivedData

@@ -852,6 +852,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     would silently inherit whatever a developer clicked. There is no scheme
     argument, no defaults key and no stub updater behind this.
 
+    **That rule is enforced statically, because no build can catch it.** Removing
+    the `#if !DEBUG` around `import Sparkle`, or moving the controller into the
+    `#if DEBUG` branch beside the no-ops, **compiles cleanly in both
+    configurations** — so the damage is silent and, through the persisted
+    per-bundle-identifier consent answer, permanent. `SparkleSourceGatingTests`
+    (Foundation-only, reading `Sources/Pisaka` through `#filePath`, in the
+    `LSPSourceGatingTests` mould) asserts that `import Sparkle` appears in exactly
+    this file and inside both `#if os(macOS)` and `#if !DEBUG`, and that no
+    `SPU…` type is referenced from the DEBUG branch. Comments and string literals
+    are stripped before matching — this file's own documentation discusses
+    `SPUStandardUpdaterController` at length, and rewording documentation to
+    appease a test would be the wrong direction.
+
+    The related gap on the *other* side is closed in CI rather than here: because
+    everything above is behind `#if !DEBUG`, a Debug-only build gate would never
+    compile the shipping code path at all, and a Sparkle API change would first
+    surface inside the release workflow's archive step after a tag was already
+    pushed. `ci.yml`'s macOS job therefore builds `-configuration Release` (the
+    iOS job stays Debug, so both configurations are still compiled on every PR),
+    and `release.yml` passes `-configuration Release` explicitly rather than
+    relying on Xcode's implicit archive default.
+
     In a release build `SPUStandardUpdaterController(startingUpdater: true, …)`
     creates the updater and the standard user driver and starts it immediately,
     which is what arms the scheduled check and the first-launch prompt.

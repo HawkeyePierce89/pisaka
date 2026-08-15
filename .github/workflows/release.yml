@@ -34,6 +34,18 @@ on:
   push:
     tags: ['v*']
 
+# One release run at a time, across every tag — the group is deliberately the
+# workflow alone rather than the usual `${{ github.ref }}`, which would put each
+# tag in its own group and let two runs overlap. They must not: `CFBundleVersion`
+# is `github.run_number`, and `releases/latest` is whichever release was
+# *published* last, so two interleaved runs can leave the feed advertising a
+# lower build number than copies already installed — which Sparkle will never
+# offer an update over, stranding them silently. Never cancel: a half-published
+# release (zip attached, appcast not) is worse than a queued one.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 # Read-only by default; only the job that publishes the release widens it.
 permissions:
   contents: read
@@ -78,7 +90,16 @@ jobs:
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
           VERSION="${TAG#v}"
-          DECLARED="$(awk -F'"' '/^[[:space:]]*MARKETING_VERSION:/ { print $2; exit }' project.yml)"
+          # Quote-agnostic on purpose: `MARKETING_VERSION: 1.1` is as valid a
+          # YAML scalar as `"1.1"`, and a parser that only understood the quoted
+          # form would yield an empty DECLARED and refuse every release with a
+          # message blaming project.yml. An empty read is a parse failure, and is
+          # reported as one rather than as a version mismatch.
+          DECLARED="$(sed -nE 's/^[[:space:]]*MARKETING_VERSION:[[:space:]]*"?([^"[:space:]]+)"?.*$/\1/p' project.yml | head -1)"
+          if [ -z "$DECLARED" ]; then
+            echo "::error::Could not read MARKETING_VERSION out of project.yml. The preflight parses it with sed; if the setting moved or changed shape, fix the parser here. See docs/RELEASING.md."
+            exit 1
+          fi
 
           # 1. The tag and the version the app will report must agree. They are
           #    two independent facts — the tag is what GitHub names the release
@@ -105,6 +126,22 @@ jobs:
             echo "::error::SUPublicEDKey in Resources/Info.plist is still the committed placeholder. Replace it with the public half printed by bin/generate_keys and commit that before tagging a release. See docs/RELEASING.md."
             exit 1
           fi
+
+      # Pinned the same way XcodeGen is: exact URL, digest checked before
+      # anything is extracted or executed.
+      #
+      # This runs *before* the archive, next to the preflight, for the reason the
+      # preflight exists: a bad digest, a moved release asset or a tarball whose
+      # layout changed must not be discovered after a 20-minute build. Nothing
+      # here depends on the archive — `generate_appcast` is only invoked later.
+      - name: Install Sparkle 2.9.5 release tools
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o sparkle-tools.tar.xz https://github.com/sparkle-project/Sparkle/releases/download/2.9.5/Sparkle-2.9.5.tar.xz
+          echo "015336b601493e05c237964954bff6191370003d94edefe663724c88840d73cc  sparkle-tools.tar.xz" | shasum -a 256 -c -
+          mkdir -p sparkle-tools
+          tar -xJf sparkle-tools.tar.xz -C sparkle-tools ./bin
+          test -x sparkle-tools/bin/generate_appcast
 
       # Pinned exactly as ci.yml pins it — version and digest must stay in step
       # with that file (ReleaseWorkflowTests compares the two).
@@ -135,9 +172,20 @@ jobs:
       # "Developer ID Application" identity, add DEVELOPMENT_TEAM, import the
       # certificate into a temporary keychain, and add a notarize-and-staple step
       # between this and the zip. Nothing else in this workflow changes.
+      #
+      # `-configuration Release` is not decoration. The whole updater is behind
+      # `#if !DEBUG` (`SoftwareUpdater.swift`), so the configuration is what
+      # decides whether the shipped app can update at all — and a Debug archive
+      # would still embed Sparkle.framework (the package dependency links
+      # unconditionally), so every check below would pass while the release
+      # shipped with "Check for Updates…" permanently disabled. Nothing else
+      # pins it: the scheme is auto-created by xcodebuild (Pisaka.xcodeproj is
+      # generated and gitignored, and project.yml declares no `schemes:`), so
+      # "archive uses Release" would otherwise rest on an implicit Xcode default.
       - name: Archive (macOS, ad-hoc signed)
         run: >
           xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+          -configuration Release
           -destination 'generic/platform=macOS'
           -clonedSourcePackagesDirPath SourcePackages
           -derivedDataPath DerivedData
@@ -159,7 +207,22 @@ jobs:
             exit 1
           }
           codesign --verify --deep --strict --verbose=2 "$APP"
-          /usr/bin/plutil -p "$APP/Contents/Info.plist" | grep -E 'CFBundleVersion|CFBundleShortVersionString|SUFeedURL|SUPublicEDKey'
+
+          # One extraction per key, not one `grep -E` alternation over the whole
+          # dump: `grep` succeeds when *any* alternative matches, and
+          # CFBundleVersion is always generated — so a merge that stopped
+          # carrying the two Sparkle keys (they come from the partial
+          # Resources/Info.plist, which GENERATE_INFOPLIST_FILE cannot produce)
+          # would leave this step green and publish an app that can never find an
+          # update. `plutil -extract` exits non-zero on an absent key.
+          for KEY in CFBundleVersion CFBundleShortVersionString SUFeedURL SUPublicEDKey; do
+            VALUE="$(/usr/bin/plutil -extract "$KEY" raw -o - "$APP/Contents/Info.plist")" || {
+              echo "::error::${KEY} is missing from the archived app's Info.plist. The partial Resources/Info.plist stopped being merged into Xcode's generated one — without SUFeedURL/SUPublicEDKey the shipped app can never find or verify an update."
+              exit 1
+            }
+            test -n "$VALUE" || { echo "::error::${KEY} is present but empty in the archived app's Info.plist."; exit 1; }
+            echo "${KEY} = ${VALUE}"
+          done
 
       # `ditto -c -k` and not `zip`: the embedded Sparkle.framework is a bundle
       # of symlinks (Versions/Current, the top-level links), and a plain `zip`
@@ -179,17 +242,6 @@ jobs:
             build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app \
             "build/release-assets/Pisaka-${VERSION}.zip"
           ls -l build/release-assets
-
-      # Pinned the same way XcodeGen is: exact URL, digest checked before
-      # anything is extracted or executed.
-      - name: Install Sparkle 2.9.5 release tools
-        run: |
-          set -euo pipefail
-          curl -fsSL --retry 3 -o sparkle-tools.tar.xz https://github.com/sparkle-project/Sparkle/releases/download/2.9.5/Sparkle-2.9.5.tar.xz
-          echo "015336b601493e05c237964954bff6191370003d94edefe663724c88840d73cc  sparkle-tools.tar.xz" | shasum -a 256 -c -
-          mkdir -p sparkle-tools
-          tar -xJf sparkle-tools.tar.xz -C sparkle-tools ./bin
-          test -x sparkle-tools/bin/generate_appcast
 
       # The private key travels on stdin (`--ed-key-file -`) and never lands on
       # disk. `--download-url-prefix` is the release's own asset URL prefix, so

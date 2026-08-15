@@ -29,6 +29,13 @@ close files with a confirmation prompt when there are unsaved changes.
   `DEVELOPER_DIR` decide which one), and nothing is bundled or downloaded. Without
   Xcode, Swift files behave exactly as every other language does — Go to Definition
   and completion answer from the tree-sitter symbol index, silently.
+- macOS: a release build checks `github.com` for updates. This is the one network
+  request the app makes on its own rather than in response to something you did —
+  Sparkle asks once, on first launch, whether it may check automatically, and
+  **Check for Updates…** is always available regardless of that answer. Nothing
+  is sent about you or your projects; the request fetches a static feed. Declining
+  the prompt (or running a DEBUG build, which has no updater at all) leaves the
+  app entirely offline unless you use one of the features below.
 - macOS, optional: an internet connection *once*, if you accept the offer to
   download a TypeScript/JavaScript or Python language server (see Features). No
   Node, `npm` or Python installation of your own is required or used; nothing is
@@ -76,14 +83,36 @@ the fast, dependency-free gate for the domain logic. The macOS app runs
 non-sandboxed so the standard open/save panels work without entitlements; the
 iOS app uses the document picker with security-scoped bookmarks for file access.
 
+## Installing a released build
+
+Downloads from [GitHub Releases](../../releases) are **ad-hoc signed and not
+notarized** — there is no Apple Developer Program membership behind this project
+yet — so Gatekeeper refuses the first double-click. Open it once with
+**right-click → Open → Open**, or clear the quarantine flag yourself:
+
+```sh
+xattr -d com.apple.quarantine /Applications/Pisaka.app
+```
+
+You only do this for the first manual install. Sparkle's in-place updates do not
+repeat it.
+
 ## Releasing
+
+Pushing a `vX.Y` tag builds and publishes the release:
+`.github/workflows/release.yml` re-runs `swift test`, archives the macOS app,
+signs the update with Sparkle's EdDSA key and attaches the app zip plus
+`appcast.xml` to a new GitHub Release. It refuses up front if the tag and
+`MARKETING_VERSION` disagree, so bump and commit the version *before* tagging.
 
 The release version (`MARKETING_VERSION` in `project.yml`, currently `1.0`) is
 committed per release. The build number (`CURRENT_PROJECT_VERSION`) deliberately
-is **not**: it stays at `1` in the working tree and each upload overrides it on
-the `xcodebuild archive` command line, so `git status` stays clean across
-re-uploads. Both, plus what is still account-side (signing, notarization, the
-App Store Connect records), are documented in [`docs/RELEASING.md`](docs/RELEASING.md).
+is **not**: it stays at `1` in the working tree and each release overrides it on
+the `xcodebuild archive` command line — from `github.run_number` in the
+workflow — so `git status` stays clean across re-uploads. Both, plus the one-time
+Sparkle key generation and what is still account-side (Developer ID signing,
+notarization, the App Store Connect records), are documented in
+[`docs/RELEASING.md`](docs/RELEASING.md).
 
 ## Continuous Integration
 
@@ -91,7 +120,13 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and every
 push to `master`: first `swift test` (the PisakaCore gate), then — only once
 tests are green — an unsigned macOS build and an unsigned iOS build (device arch,
 including libgit2 linking) in parallel. No signing, secrets, or simulator are
-involved.
+involved. The macOS build uses the Release configuration and the iOS build Debug,
+so both configurations are compiled on every PR — the auto-updater exists only in
+non-DEBUG builds and would otherwise never be compiled until a release.
+
+The release workflow above is the one place that *does* use a secret (the Sparkle
+private signing key) and does sign; it runs only on a `v*` tag, never on a pull
+request.
 
 ## Keyboard Shortcuts (macOS)
 
@@ -124,6 +159,15 @@ involved.
 
 ## Features
 
+- **Automatic updates (macOS only).** Release builds check GitHub for a newer
+  version through [Sparkle 2](https://sparkle-project.org) and install it in
+  place. On first launch Sparkle asks *once* whether it may check automatically;
+  whatever you answer, **Pisaka → Check for Updates…** runs a check on demand at
+  any time. There is nothing to configure — no update channel, no interval, no
+  preference pane of ours — and every download is verified against an EdDSA
+  public key baked into the app before it is applied. Development (DEBUG) builds
+  never check, never prompt and never download: the updater is not compiled into
+  them at all. iOS has no updater.
 - Open a folder as a project ("Open Folder…", Cmd+Shift+O) and browse it in a
   project tree on the left; directories expand on demand and clicking a file
   opens it in a tab. When the project pane is empty, clicking anywhere in it
@@ -822,6 +866,15 @@ and iPhone. The feature scope landed so far:
 
 ## Known Limitations (1.0)
 
+- Automatic updates are macOS-only and have no settings of ours: the only choice
+  offered is Sparkle's own first-launch "check automatically?" prompt, and there
+  is no update channel, no check interval, no "skip this version" control and no
+  release-notes pane beyond what the appcast carries. Builds are ad-hoc signed
+  rather than notarized, so the *first* manual install trips Gatekeeper (see
+  Installing a released build); in-place updates afterwards do not. DEBUG builds
+  never update. The update signing key is a single EdDSA pair — if it is ever
+  lost, installed copies will reject every future update and can only be moved
+  forward by downloading a new build by hand.
 - Find/replace (per-file and project-wide) is macOS-only: iOS has neither the
   search bar nor the Find in Files window. There is no query history, no "replace
   in selection", and the project search reads tree `.gitignore` files only (not

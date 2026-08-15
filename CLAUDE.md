@@ -408,13 +408,23 @@ and that each pin matches the requirement `project.yml` states for it),
 shape, `PrivacyInfo.xcprivacy`, the
 `project.yml` lines that wire them into the bundle, and the iOS launch-screen
 setting), `ReleaseWorkflowTests` (`.github/workflows/release.yml`: the `v*`
-trigger, the `contents: write` scoping, `ditto -c -k`, the `github.run_number`
-build number, both preflight refusals, the Sparkle-tools and XcodeGen pins — the
-latter compared against `ci.yml` — and the asset name ↔ `SUFeedURL` cross-file
-pair), `LicenseCoverageTests`
-(`licenses.json` vs. `project.yml`/`Package.resolved`/`Vendor/`) and
+trigger and `contents: write` scoping *by set equality over the parsed block*,
+the `needs: test` gate, the concurrency group, `-configuration Release`, the
+per-key `plutil -extract` verification, `ditto -c -k`, the `github.run_number`
+build number, all four preflight refusals **asserted by mechanism — the guard's
+branch must `exit 1`, not merely mention the variable** — the Sparkle-tools and
+XcodeGen pins (the latter compared against `ci.yml`), and two cross-file pairs
+against `Resources/Info.plist`: the asset name and the repository ↔ `SUFeedURL`),
+`LicenseCoverageTests`
+(`licenses.json` vs. `project.yml`/`Package.resolved`/`Vendor/`),
 `LSPSourceGatingTests` (the LSP layer's platform split, by set equality over both
-sides). Follow that
+sides) and `SparkleSourceGatingTests` (`import Sparkle` in exactly one file and
+inside `#if os(macOS)` + `#if !DEBUG`, and no `SPU…` reference in the DEBUG
+branch — a rule that compiles cleanly either way, so no build can catch it).
+**Every one of these suites matches against comment- and literal-stripped text,
+and that is load-bearing rather than tidy**: these files document themselves by
+quoting their own settings verbatim, so a raw `contains` stays green when the
+command it names is deleted — the exact failure the suite exists to catch. Follow that
 pattern for anything that ships in the bundle but has no Swift code behind it —
 these files have no compiler and no runtime check, so a static assertion is the
 only thing between a mistake and an App Store rejection — and for any
@@ -423,7 +433,10 @@ architectural rule `swift test` cannot otherwise see, since it compiles
 `Tests/PisakaCoreTests/Fixtures/<area>/`, is read through `#filePath` the same
 way, and must be listed in the test target's `exclude:` (why, in `core-lsp.md`).
 
-Shared test helpers live in `Tests/PisakaCoreTests/Support/`: `StubFileTree` (an
+Shared test helpers live in `Tests/PisakaCoreTests/Support/`: `YAMLLineMatching`
+(`activeYAMLLines(of:)`, `topLevelBlock(_:in:)` and `contains(consecutively:)` —
+the comment-stripping and whole-line matching the workflow/`project.yml` suites
+share), `StubFileTree` (an
 in-memory `FileServicing` project tree, with hooks for unreadable files, absent
 stamps and stamp overrides, **plus a mutable half** — empty directories,
 `createDirectory`/`ensureDirectory`/`move`/`remove`,
@@ -472,7 +485,17 @@ xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platfo
 CI (`.github/workflows/ci.yml`) runs these same gates on every pull request and
 push to `master`: `swift test` first, then — only when it is green — an unsigned
 macOS build and an unsigned iOS build (device arch, `generic/platform=iOS`,
-covering libgit2 linking) in parallel. No signing, secrets, or simulator.
+covering libgit2 linking) in parallel. No signing, secrets, or simulator. The
+**macOS build is `-configuration Release`, the iOS one Debug**, on purpose: the
+Sparkle updater is entirely behind `#if !DEBUG`, so a Debug-only gate would never
+compile the shipping path and a Sparkle API change would first surface inside the
+release archive, after the tag is pushed.
+
+A second workflow, `.github/workflows/release.yml`, runs **only on a `v*` tag**
+and publishes the signed macOS release. Nothing about it is reachable from PR CI,
+so its whole shape is pinned statically by `ReleaseWorkflowTests`; the workflow
+itself, its preflight refusals and the manual verification still owed are
+documented in `docs/RELEASING.md`.
 
 ## Conventions
 
@@ -493,10 +516,22 @@ covering libgit2 linking) in parallel. No signing, secrets, or simulator.
   ChimeHQ's Neon (which brings in `SwiftTreeSitter`/`Rearrange`) plus one
   tree-sitter grammar package per supported language, for syntax highlighting on
   all platforms; SwiftTerm (migueldeicaza/SwiftTerm, the PTY-backed
-  `LocalProcessTerminalView`) for the macOS-only embedded terminal; and libgit2
+  `LocalProcessTerminalView`) for the macOS-only embedded terminal; libgit2
   (`ibrahimcetin/libgit2`, built from C source) for the iOS in-process
-  `GitServicing`. All *remote* ones are pinned to an exact version/revision
-  (e.g. SwiftTerm `exact: "1.5.0"`, libgit2 `exact: "1.9.2"`, the Dockerfile
+  `GitServicing`; and **Sparkle** (`sparkle-project/Sparkle`) for the macOS
+  auto-update. Sparkle is unlike every other entry in three ways worth knowing
+  before touching it: it is the only SwiftPM **`binaryTarget`** here (a prebuilt
+  `Sparkle.xcframework`, so it is doubly pinned — by our `exact:` and by
+  upstream's own manifest `checksum:` — and it resolves into
+  `SourcePackages/artifacts/`, not `checkouts/`, which several by-hand audit
+  recipes in `docs/architecture/` had to learn); it is the only one that ships as
+  an **embedded framework** in `Contents/Frameworks/` rather than as code
+  compiled into the app binary (so `nm -u` on the executable cannot see it, and
+  `ditto` rather than `zip` is what preserves its symlinks in the release
+  archive); and it is the only one carrying `destinationFilters: [macOS]`.
+  All *remote* ones are pinned to an exact version/revision
+  (e.g. SwiftTerm `exact: "1.5.0"`, libgit2 `exact: "1.9.2"`, Sparkle
+  `exact: "2.9.5"`, the Dockerfile
   grammar `camdencheek/tree-sitter-dockerfile` `exact: "0.2.0"`), with build
   reproducibility locked
   by the committed workspace `Package.resolved` — which is written in SwiftPM's
