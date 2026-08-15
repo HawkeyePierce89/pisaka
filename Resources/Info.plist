@@ -21,5 +21,56 @@
 	     `ReleaseMetadataTests` asserts the type. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- ==== Sparkle 2 (macOS auto-update) ====================================
+	     The two keys Sparkle reads out of the main bundle. Neither has an
+	     `INFOPLIST_KEY_*` equivalent, so `GENERATE_INFOPLIST_FILE` cannot
+	     produce them and they belong here rather than in project.yml.
+
+	     Both keys land in the *iOS* bundle too — there is one partial plist and
+	     it is merged into both destinations' generated plists — where nothing
+	     reads them: Sparkle links on macOS only (`destinationFilters: [macOS]`)
+	     and every line of `SoftwareUpdater.swift` is inside `#if os(macOS)`.
+	     That is the same deliberate consequence
+	     `INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace` documents in reverse
+	     (an iOS-only key that is a no-op on macOS); two inert strings in the iOS
+	     bundle are cheaper than splitting the plist in two.
+
+	     Deliberately absent: `SUEnableAutomaticChecks` and
+	     `SUScheduledCheckInterval`. With neither key present Sparkle asks the
+	     user once, on first launch, whether it may check automatically — which
+	     is exactly the wanted UX, and it costs no machinery of ours. Adding
+	     either key would decide that question on the user's behalf. -->
+	<!-- The update feed. `releases/latest/download/<asset>` is GitHub's stable
+	     redirect to the newest release's asset of that name: every release the
+	     workflow publishes carries its own `appcast.xml`, and this URL always
+	     resolves to the current one. A per-release URL
+	     (`releases/download/v1.0/appcast.xml`) would be baked into the shipped
+	     binary and go stale the moment v1.1 exists, so an installed v1.0 would
+	     keep reading v1.0's feed and never see another update. The asset name in
+	     `.github/workflows/release.yml` must equal this URL's last path
+	     component; `ReleaseWorkflowTests` asserts that cross-file pair. -->
+	<key>SUFeedURL</key>
+	<string>https://github.com/HawkeyePierce89/pisaka/releases/latest/download/appcast.xml</string>
+	<!-- The public half of the EdDSA (ed25519) key pair Sparkle verifies every
+	     downloaded update against. THIS IS A PLACEHOLDER — base64 of the ASCII
+	     string `PLACEHOLDER-REPLACE-WITH-REAL-KY` (32 bytes, so structurally a
+	     valid key, obviously fake, and greppable). It is well-formed on purpose:
+	     `swift test` can then assert the *shape* of whatever is here, and the
+	     placeholder passes that assertion by design.
+
+	     The real pair is generated once, by hand, with `bin/generate_keys` from
+	     the pinned Sparkle 2.9.5 tarball (procedure in docs/RELEASING.md). The
+	     private half goes into the `SPARKLE_PRIVATE_EDDSA_KEY` GitHub repository
+	     secret and nowhere else — never into this repository — and the public
+	     half replaces the string below. Until then the release workflow refuses
+	     to run: its preflight fails when it finds this placeholder value here,
+	     so a release can never ship signed by a key no installed copy trusts.
+
+	     Losing the private key is unrecoverable for copies already installed:
+	     they will reject every update signed by any other key, and the only way
+	     out is for each user to download a new build by hand. Back it up outside
+	     this repository. -->
+	<key>SUPublicEDKey</key>
+	<string>UExBQ0VIT0xERVItUkVQTEFDRS1XSVRILVJFQUwtS1k=</string>
 </dict>
 </plist>

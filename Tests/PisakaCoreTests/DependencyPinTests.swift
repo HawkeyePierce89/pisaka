@@ -32,6 +32,18 @@ import XCTest
 ///    in means another dependency became unpinnable without anyone saying so;
 ///  * `swifttreesitter`'s revision is exactly the one that has been building and
 ///    testing all along, so an unnoticed jump to a newer `main` fails here.
+///
+/// A practical note on producing that v2 file, learned while adding the Sparkle
+/// pin: which schema `xcodebuild -resolvePackageDependencies` *writes* depends on
+/// the local Xcode. CI's (16.4) writes v2; Xcode 26.x rewrites the whole file
+/// into the legacy v1 shape (`object.pins`/`repositoryURL`) whenever resolution
+/// actually has to change something — a fresh clone or a dropped
+/// `DerivedData/…/SourcePackages` then produces a 358-line diff in which the one
+/// real pin change is invisible. It leaves an already-correct v2 file alone, so
+/// this is only a hazard on the commit that adds or bumps a dependency. When it
+/// happens, keep the resolved *values* (they are the real resolution) and
+/// re-emit them in the v2 shape rather than committing the churn or hand-typing
+/// a revision — the assertions below are what catch getting either half wrong.
 final class DependencyPinTests: XCTestCase {
     /// The SwiftTreeSitter revision the project builds against: 3 commits past
     /// upstream tag `0.10.0`. Updating it is a deliberate act — change this

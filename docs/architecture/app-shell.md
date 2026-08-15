@@ -816,6 +816,143 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `refreshUserStatus()` joins the one-shot `.onAppear` block beside
     `sweepStaging()`/`lspProvisioning.refresh()` — unawaited and silent, since the
     menu already says "signed in" optimistically from the Keychain item.
+  - `SoftwareUpdater.swift` — the app's **entire** Sparkle 2 surface, wholly
+    inside `#if os(macOS)`: a small `ObservableObject` owning one
+    `SPUStandardUpdaterController`, plus `CheckForUpdatesCommand`, the one-button
+    view the app menu's command group holds. Sparkle is imported here and
+    nowhere else; nothing in `Sources/Pisaka/iOS/` or `PisakaCore` may name any
+    of its types.
+
+    **Why nothing lives in Core.** Sparkle here is *configuration*, not a
+    decision. What feed to read and which key verifies it are `SUFeedURL` and
+    `SUPublicEDKey` in `Resources/Info.plist`, read by Sparkle itself (entry in
+    `core-services.md`); when to check, what to show, and how to install are
+    Sparkle's own standard behaviour, deliberately left untouched — both
+    delegates are `nil`, there is no custom UI, and no key answers the
+    automatic-check question on the user's behalf. That leaves no pure rule to
+    extract, so this file follows the app layer's convention and carries no unit
+    test. **The absence is a recorded decision rather than an omission**, and the
+    file's own doc comment says so: the static guarantees for the feature live
+    where the facts do — `ReleaseMetadataTests` pins the two plist keys,
+    `ReleaseWorkflowTests` pins the workflow that produces what the feed points
+    at. If a real decision ever appears here (a version-comparison rule, a
+    channel policy, an eligibility gate) it belongs in Core with tests, and this
+    file goes back to being glue.
+
+    **Inert in DEBUG, and not compiling the updater in is the whole mechanism.**
+    Under `#if DEBUG` the framework is not even imported and no controller is
+    constructed: `canCheckForUpdates` stays `false` forever (so the menu item is
+    permanently disabled), and `checkForUpdates()` returns without doing
+    anything — it stays callable so the two builds share one call site instead of
+    gating the command itself. Nothing schedules a background check, nothing
+    fetches the feed, and Sparkle's first-launch "check automatically?" consent
+    prompt never appears. Both halves of that matter: a development build would
+    otherwise raise the prompt against a feed that may carry no releases yet, and
+    the *answer* is persisted per bundle identifier, so a later release build
+    would silently inherit whatever a developer clicked. There is no scheme
+    argument, no defaults key and no stub updater behind this.
+
+    **That rule is enforced statically, because no build can catch it.** Removing
+    the `#if !DEBUG` around `import Sparkle`, or moving the controller into the
+    `#if DEBUG` branch beside the no-ops, **compiles cleanly in both
+    configurations** — so the damage is silent and, through the persisted
+    per-bundle-identifier consent answer, permanent. `SparkleSourceGatingTests`
+    (Foundation-only, reading `Sources/Pisaka` through `#filePath`, in the
+    `LSPSourceGatingTests` mould) asserts that `import Sparkle` appears in exactly
+    this file and inside both `#if os(macOS)` and `#if !DEBUG`, and that no
+    `SPU…` type is referenced from the DEBUG branch. Comments and string literals
+    are stripped before matching — this file's own documentation discusses
+    `SPUStandardUpdaterController` at length, and rewording documentation to
+    appease a test would be the wrong direction — and the stripping is
+    `LSPSourceGatingTests.strippingCommentsAndStringLiterals` itself rather than a
+    second implementation: a line-at-a-time stripper that removed `//` *before*
+    string literals truncated every line carrying a URL at the `//` inside it,
+    which is a silent hole in a sweep whose only value is being exhaustive.
+
+    **Two details of that suite are load-bearing rather than incidental.** It
+    classifies each `#if` condition as "requires DEBUG" / "requires not-DEBUG" /
+    "unrelated" instead of comparing condition *text*, because the obvious text
+    walker (push `!DEBUG`, rewrite its `#else` to `!(!DEBUG)`, ask whether the
+    stack contains `DEBUG`) goes blind to exactly the most natural restructuring
+    of this file — collapsing its two `#if`s into one `#if !DEBUG` / `#else` —
+    and an `SPU…` reference placed in that `#else` compiles in both
+    configurations and ships an armed updater in development builds. A condition
+    that mentions `DEBUG` but is not exactly `!DEBUG` counts as a DEBUG branch, so
+    a compound condition is flagged rather than waved through. And the import
+    check reads the *live* directive stack at the import line rather than asking
+    whether `#if !DEBUG` appeared somewhere earlier, which a closed
+    `#if !DEBUG` … `#endif` followed by a bare `import Sparkle` would satisfy
+    while importing the framework unconditionally.
+
+    The related gap on the *other* side is closed in CI rather than here: because
+    everything above is behind `#if !DEBUG`, a Debug-only build gate would never
+    compile the shipping code path at all, and a Sparkle API change would first
+    surface inside the release workflow's archive step after a tag was already
+    pushed. `ci.yml`'s macOS job therefore builds `-configuration Release`, and
+    `release.yml` passes `-configuration Release` explicitly rather than relying
+    on Xcode's implicit archive default. **Both of those flags are themselves
+    pinned by `ReleaseWorkflowTests`, each scoped to the one step that runs the
+    command** — a file-wide or repository-wide `contains` would let CI's copy be
+    satisfied by the release workflow's, which is the drift most worth catching,
+    since dropping the flag from `ci.yml` (a revert, or a "why is CI slow?"
+    cleanup aimed at the timeout this raised from 30 to 45 minutes) leaves
+    `swift test` entirely green while removing the only pre-tag compile of the
+    shipping path.
+
+    That trade is worth stating exactly, because it was made in the *switching*
+    direction rather than by adding a job: the macOS job no longer builds Debug,
+    and the iOS job cannot stand in for it — every file here is inside
+    `#if os(macOS)`, so the iOS compile never reaches them. Debug is still
+    compiled on every PR (by the iOS job), but *macOS-gated code under
+    `#if DEBUG`* is now compiled by no CI job at all. The residual exposure is
+    bounded and checked: the app layer outside `Sources/Pisaka/iOS/` contains
+    exactly one `#if DEBUG`, and it is this updater's two no-op declarations. Any
+    macOS Debug-conditional code with real content would need a third job.
+
+    **That bound is asserted rather than merely stated**, by a third case in
+    `SparkleSourceGatingTests`: every app source outside `Sources/Pisaka/iOS/` is
+    walked with the same directive walker, and the set of files carrying a live
+    DEBUG-only branch must be exactly `{SoftwareUpdater.swift}`. Without it the
+    sentence above is a comment in `ci.yml` that quietly stops being true the
+    first time someone adds a `#if DEBUG` block elsewhere — code that then ships
+    compiled by nobody and breaks only on a developer's machine. The walker is
+    reused rather than a text match for the reason it exists: a `#else` closing a
+    `#if !DEBUG` is a DEBUG branch too, and this file is the proof the two shapes
+    are interchangeable. The failure message points at adding the third,
+    macOS-Debug job — widening the allow-list would be discarding the check.
+
+    In a release build `SPUStandardUpdaterController(startingUpdater: true, …)`
+    creates the updater and the standard user driver and starts it immediately,
+    which is what arms the scheduled check and the first-launch prompt.
+    `startingUpdater: true` makes a misconfigured bundle a hard failure at launch
+    (Sparkle aborts when it cannot start — a malformed `SUPublicEDKey`, say),
+    which is the deliberate choice: the alternative is an app that silently never
+    updates. Both routes to that failure are closed before a build ships — the
+    plist keys are pinned by `swift test`, and the release workflow refuses to
+    publish while the placeholder key is in place. The published
+    `canCheckForUpdates` republishes Sparkle's own KVO-compliant
+    `SPUUpdater.canCheckForUpdates` (upstream's documented property for
+    validating exactly this menu item: `false` while an update session or
+    background download is in flight) through `assign(to: &$…)`, which keeps the
+    subscription owned by the object — no stored cancellable, no retain cycle to
+    weaken. Republishing rather than exposing the updater is what keeps Sparkle's
+    types out of the rest of the app: the menu item needs one `Bool`.
+
+    **Menu wiring.** `PisakaApp` holds one instance as a plain `let` (the
+    `commitDialog`/`leetCode` precedent — the `@main` App is created once, so a
+    `let` is a stable instance) and adds
+    `CommandGroup(after: .appInfo) { CheckForUpdatesCommand(updater:) }` beside
+    the existing `.newItem`/`.saveItem` groups: `after:` rather than `replacing:`,
+    so "About Pisaka" stays and the item lands directly beneath it, which is both
+    Sparkle's recommended placement and where macOS users look. The scene body
+    reads nothing published on the updater — `CheckForUpdatesCommand` observes it
+    with its own `@ObservedObject`, so an update session toggling
+    `canCheckForUpdates` re-renders one button instead of re-creating
+    `ContentView`. That is the same invalidation argument every other
+    non-`@StateObject` model in `PisakaApp` states. `checkForUpdates()` runs a
+    *user-initiated* check, which shows Sparkle's standard UI including its
+    "you're up to date" alert — hence it is called from the menu item and never
+    on a timer.
   - `ProjectWatcher.swift` — the macOS-only (`#if os(macOS)`, `import CoreServices`)
     FSEvents subscription that makes an *external* change (a generator run in the
     embedded terminal, a Finder rename, a console `git checkout`) show up in the

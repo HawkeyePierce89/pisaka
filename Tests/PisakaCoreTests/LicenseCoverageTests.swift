@@ -342,6 +342,7 @@ final class LicenseCoverageTests: XCTestCase {
         "libgit2": "libgit2 is Copyright (C) the libgit2 contributors",
         "Neon": "Copyright (c) 2022, Chime",
         "Rearrange": "Copyright (c) 2019, Chime Systems Inc.",
+        "Sparkle": "Copyright (c) 2006-2013 Andy Matuschak.",
         "SwiftTerm": "Copyright (c) 2019-2022 Miguel de Icaza",
         "SwiftTreeSitter": "Copyright (c) 2021, Chime",
         "tree-sitter": "Copyright (c) 2018-2024 Max Brunsfeld",
@@ -439,6 +440,38 @@ final class LicenseCoverageTests: XCTestCase {
             upstream's MIT LICENSE. The package's `sources: ["src"]` compiles those headers into \
             the app while its `exclude:` drops the notice, so nothing else ships it.
             """)
+
+        // Sparkle is the third case, and the one where upstream already did the
+        // aggregating: its own LICENSE carries an `EXTERNAL LICENSES` section
+        // for the third-party sources it compiles in (bsdiff/Colin Percival,
+        // sais-lite/Yuta Mori, the portable C ed25519 implementation from
+        // orlp/ed25519 by Orson Peters, and SUSignatureVerifier.m/Mark Hamlin
+        // — four entries, not three). So unlike the two above,
+        // the verbatim copy *is* the whole obligation and `Sparkle.txt` has no
+        // appendix. What must be pinned is that the copy stays whole: a re-copy
+        // that grabbed only the MIT grant at the top of the file — the part that
+        // looks like a complete licence — would drop four attributions and every
+        // other check in this suite would still pass, since the text would be
+        // present, non-empty, and would still name Andy Matuschak.
+        let sparkle = try text(atRepositoryPath: "Resources/Licenses/Sparkle.txt")
+        XCTAssertTrue(sparkle.contains("EXTERNAL LICENSES"), """
+            Sparkle.txt must carry upstream's EXTERNAL LICENSES section — the bsdiff, sais-lite, \
+            ed25519 and SUSignatureVerifier notices for the third-party sources Sparkle compiles \
+            into the framework. It is part of upstream's own LICENSE, so copy that file whole \
+            rather than the MIT grant at the top of it.
+            """)
+        // All four entries, so that a re-copy which lost any one of them fails
+        // here: asserting three of four would wave through exactly the kind of
+        // partial copy this test exists to catch.
+        for holder in ["Copyright 2003-2005 Colin Percival",
+                       "Copyright (c) 2008-2010 Yuta Mori",
+                       "Copyright (c) 2015 Orson Peters",
+                       "Copyright (c) 2011 Mark Hamlin"] {
+            XCTAssertTrue(sparkle.contains(holder), """
+                Sparkle.txt no longer names “\(holder)” — one of the EXTERNAL LICENSES entries was \
+                lost. Re-copy upstream's LICENSE at the pinned tag in full.
+                """)
+        }
 
         // Checked and found clean, recorded here because "nothing was found" is
         // otherwise indistinguishable from "nobody looked": tree-sitter-rust

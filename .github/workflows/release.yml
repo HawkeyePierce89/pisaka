@@ -1,0 +1,369 @@
+name: Release
+
+# Tag-triggered macOS release. Pushing `vX.Y` re-runs the `swift test` gate, then
+# archives an ad-hoc-signed macOS app, zips it, signs it with Sparkle's EdDSA key
+# and publishes a GitHub Release carrying exactly two assets: the zip and a
+# signed `appcast.xml`.
+#
+# ## Why the build number is `github.run_number`
+#
+# `CFBundleVersion` is what Sparkle compares to decide that one build is newer
+# than another, so it has to be strictly increasing across every release this
+# workflow ever publishes — and `MARKETING_VERSION` cannot do that job (it is a
+# dotted marketing string, and it is the *other* number). `github.run_number` is
+# a per-workflow-file counter that GitHub increments on every run and never
+# resets: exactly the monotonic integer `docs/RELEASING.md` asks for, produced
+# without committing anything, so `git status` stays clean after a release.
+#
+# The caveat that comes with it: the counter is keyed on **this file's name**.
+# Renaming `release.yml`, or replacing it with a differently-named workflow,
+# restarts it at 1 — and a build numbered 1 published after a build numbered 12
+# is a build Sparkle will never offer. If this file is ever renamed, the
+# replacement must add a fixed offset (`$((github.run_number + <last shipped>))`)
+# large enough to clear every number already released.
+#
+# ## The signing seam
+#
+# The archive is *ad-hoc* signed (`CODE_SIGN_IDENTITY=-`): there is no Apple
+# Developer Program membership yet (`docs/RELEASING.md`, "Not here yet"), and
+# Sparkle's integrity chain here is the EdDSA signature over the zip, not the
+# code signature. The step that archives marks where Developer ID +
+# notarization plugs in.
+
+on:
+  push:
+    tags: ['v*']
+
+# One release run at a time, across every tag — the group is deliberately the
+# workflow alone rather than the usual `${{ github.ref }}`, which would put each
+# tag in its own group and let two runs overlap. They must not: `CFBundleVersion`
+# is `github.run_number`, and `releases/latest` is whichever release was
+# *published* last, so two interleaved runs can leave the feed advertising a
+# lower build number than copies already installed — which Sparkle will never
+# offer an update over, stranding them silently.
+#
+# `cancel-in-progress: false` buys less than it reads like, and the cost is the
+# price of the shared group. It protects the run that is *already running*; a run
+# still **pending** in the group is cancelled when a newer one queues into it —
+# the exact GitHub behaviour `ci.yml`'s own concurrency comment documents, which
+# is why that file gives every push to master a unique group. Here the shared
+# group is deliberate anyway (serializing releases matters more), so the
+# consequence is accepted and stated rather than designed away: pushing three
+# `v*` tags in quick succession can leave the middle tag with no release and no
+# failure anywhere. Recovering is deleting and re-pushing that tag — `on:` is
+# tags-only, so there is no `workflow_dispatch` re-run. Push release tags one at
+# a time and confirm each run finished.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+# Read-only by default; only the job that publishes the release widens it.
+permissions:
+  contents: read
+
+jobs:
+  # The same gate CI runs, pinned identically. A tag that cannot pass
+  # `swift test` must not produce a release, and the static suites here are what
+  # assert this very file's shape (ReleaseWorkflowTests).
+  test:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: '16.4'
+      - name: Run PisakaCore tests
+        run: swift test
+
+  release:
+    needs: test
+    runs-on: macos-15
+    timeout-minutes: 60
+    # Scoped to this job alone: creating a release and uploading its assets is
+    # the only write this workflow performs.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: '16.4'
+
+      # Everything that can refuse the release runs here, before a single
+      # expensive step: an archive that takes 20 minutes and then cannot be
+      # signed, or is signed by a key no installed copy trusts, is worse than a
+      # refusal in the first 10 seconds.
+      - name: Preflight
+        env:
+          SPARKLE_PRIVATE_EDDSA_KEY: ${{ secrets.SPARKLE_PRIVATE_EDDSA_KEY }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          # Quote-agnostic on purpose: `MARKETING_VERSION: 1.1` is as valid a
+          # YAML scalar as `"1.1"`, and a parser that only understood the quoted
+          # form would yield an empty DECLARED and refuse every release with a
+          # message blaming project.yml. An empty read is a parse failure, and is
+          # reported as one rather than as a version mismatch.
+          DECLARED="$(sed -nE 's/^[[:space:]]*MARKETING_VERSION:[[:space:]]*"?([^"[:space:]]+)"?.*$/\1/p' project.yml | head -1)"
+          if [ -z "$DECLARED" ]; then
+            echo "::error::Could not read MARKETING_VERSION out of project.yml. The preflight parses it with sed; if the setting moved or changed shape, fix the parser here. See docs/RELEASING.md."
+            exit 1
+          fi
+
+          # 1. The tag and the version the app will report must agree. They are
+          #    two independent facts — the tag is what GitHub names the release
+          #    and what the download URLs contain, MARKETING_VERSION is what the
+          #    bundle carries and what Sparkle shows — and a mismatch ships a
+          #    release whose appcast advertises a version the app does not have.
+          if [ "$VERSION" != "$DECLARED" ]; then
+            echo "::error::Tag ${TAG} means version ${VERSION}, but project.yml declares MARKETING_VERSION \"${DECLARED}\". Bump MARKETING_VERSION and commit it before tagging, or delete and re-push the tag that matches. See docs/RELEASING.md."
+            exit 1
+          fi
+
+          # 2. Without the private key nothing can sign the appcast, and Sparkle
+          #    rejects an unsigned update outright.
+          if [ -z "${SPARKLE_PRIVATE_EDDSA_KEY}" ]; then
+            echo "::error::The SPARKLE_PRIVATE_EDDSA_KEY repository secret is empty or absent. Generate the pair once with Sparkle's bin/generate_keys, store the private half in that secret and back it up outside this repository. See docs/RELEASING.md."
+            exit 1
+          fi
+
+          # 3. The public half shipped in the app must be a real key. While the
+          #    committed placeholder is still there, every copy in the wild would
+          #    verify updates against a key whose private half does not exist —
+          #    so refuse to produce such a release at all.
+          if grep -q 'UExBQ0VIT0xERVItUkVQTEFDRS1XSVRILVJFQUwtS1k=' Resources/Info.plist; then
+            echo "::error::SUPublicEDKey in Resources/Info.plist is still the committed placeholder. Replace it with the public half printed by bin/generate_keys and commit that before tagging a release. See docs/RELEASING.md."
+            exit 1
+          fi
+
+      # Pinned the same way XcodeGen is: exact URL, digest checked before
+      # anything is extracted or executed.
+      #
+      # This runs *before* the archive, next to the preflight, for the reason the
+      # preflight exists: a bad digest, a moved release asset or a tarball whose
+      # layout changed must not be discovered after a 20-minute build. Nothing
+      # here depends on the archive — `generate_appcast` is only invoked later.
+      - name: Install Sparkle 2.9.5 release tools
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o sparkle-tools.tar.xz https://github.com/sparkle-project/Sparkle/releases/download/2.9.5/Sparkle-2.9.5.tar.xz
+          echo "015336b601493e05c237964954bff6191370003d94edefe663724c88840d73cc  sparkle-tools.tar.xz" | shasum -a 256 -c -
+          mkdir -p sparkle-tools
+          tar -xJf sparkle-tools.tar.xz -C sparkle-tools ./bin
+          test -x sparkle-tools/bin/generate_appcast
+
+      # Pinned exactly as ci.yml pins it — version and digest must stay in step
+      # with that file (ReleaseWorkflowTests compares the two).
+      - name: Install XcodeGen 2.45.4
+        run: |
+          curl -fsSL --retry 3 -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.45.4/xcodegen.zip
+          echo "090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef  xcodegen.zip" | shasum -a 256 -c -
+          unzip -q xcodegen.zip
+          sudo xcodegen/install.sh
+          xcodegen --version
+      - name: Cache SwiftPM source packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: SourcePackages
+          key: spm-${{ hashFiles('Pisaka.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Resolve package dependencies
+        run: xcodebuild -project Pisaka.xcodeproj -resolvePackageDependencies -clonedSourcePackagesDirPath SourcePackages
+
+      # Ad-hoc signed, with every signing setting overridden on the command line
+      # only: `project.yml` keeps `CODE_SIGNING_ALLOWED: NO` so dev and CI builds
+      # stay signing-free, and a command-line build setting beats the project
+      # value for this invocation alone.
+      #
+      # DEVELOPER ID / NOTARIZATION SEAM: swap CODE_SIGN_IDENTITY=- for the
+      # "Developer ID Application" identity, add DEVELOPMENT_TEAM, import the
+      # certificate into a temporary keychain, and add a notarize-and-staple step
+      # between this and the zip. Nothing else in this workflow changes.
+      #
+      # `-configuration Release` is not decoration. The whole updater is behind
+      # `#if !DEBUG` (`SoftwareUpdater.swift`), so the configuration is what
+      # decides whether the shipped app can update at all — and a Debug archive
+      # would still embed Sparkle.framework (the package dependency links
+      # unconditionally), so every check below would pass while the release
+      # shipped with "Check for Updates…" permanently disabled. Nothing else
+      # pins it: the scheme is auto-created by xcodebuild (Pisaka.xcodeproj is
+      # generated and gitignored, and project.yml declares no `schemes:`), so
+      # "archive uses Release" would otherwise rest on an implicit Xcode default.
+      - name: Archive (macOS, ad-hoc signed)
+        run: >
+          xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+          -configuration Release
+          -destination 'generic/platform=macOS'
+          -clonedSourcePackagesDirPath SourcePackages
+          -derivedDataPath DerivedData
+          -archivePath build/Pisaka-macOS.xcarchive
+          CURRENT_PROJECT_VERSION=${{ github.run_number }}
+          CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES
+          CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=-
+          archive
+
+      # The app is taken straight out of the archive: `-exportArchive` needs an
+      # export options plist naming a team, and there is none.
+      - name: Verify the archived app
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
+          test -d "$APP" || { echo "::error::no app at ${APP}"; exit 1; }
+          test -d "$APP/Contents/Frameworks/Sparkle.framework" || {
+            echo "::error::Sparkle.framework is not embedded in the archived app — the destination-filtered package dependency stopped reaching the macOS build."
+            exit 1
+          }
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          # One extraction per key, not one `grep -E` alternation over the whole
+          # dump: `grep` succeeds when *any* alternative matches, and
+          # CFBundleVersion is always generated — so a merge that stopped
+          # carrying the two Sparkle keys (they come from the partial
+          # Resources/Info.plist, which GENERATE_INFOPLIST_FILE cannot produce)
+          # would leave this step green and publish an app that can never find an
+          # update. `plutil -extract` exits non-zero on an absent key.
+          for KEY in CFBundleVersion CFBundleShortVersionString SUFeedURL SUPublicEDKey; do
+            VALUE="$(/usr/bin/plutil -extract "$KEY" raw -o - "$APP/Contents/Info.plist")" || {
+              echo "::error::${KEY} is missing from the archived app's Info.plist. The partial Resources/Info.plist stopped being merged into Xcode's generated one — without SUFeedURL/SUPublicEDKey the shipped app can never find or verify an update."
+              exit 1
+            }
+            test -n "$VALUE" || { echo "::error::${KEY} is present but empty in the archived app's Info.plist."; exit 1; }
+
+            # CFBundleVersion is the one key in this loop whose *value* matters
+            # rather than its presence. `project.yml` commits
+            # `CURRENT_PROJECT_VERSION: 1` and the archive overrides it on the
+            # command line; anything that stopped that override reaching the
+            # merged plist (a hardcoded value, an INFOPLIST_KEY_CFBundleVersion,
+            # a settings file that wins over the command line) would ship build 1
+            # with every presence check above still green — and a build numbered
+            # 1 published after 12 is one Sparkle will never offer, stranding
+            # every installed copy silently. So the number the app actually
+            # carries is compared to the number this run means.
+            if [ "$KEY" = CFBundleVersion ] && [ "$VALUE" != "${{ github.run_number }}" ]; then
+              echo "::error::The archived app carries CFBundleVersion ${VALUE}, but this run's build number is ${{ github.run_number }}. The CURRENT_PROJECT_VERSION override stopped reaching the merged Info.plist; publishing this would offer installed copies a build that is not newer than theirs. See docs/RELEASING.md."
+              exit 1
+            fi
+
+            # CFBundleShortVersionString is the second value-carrying key, and
+            # the one the whole "tag and version agree" invariant is about. The
+            # preflight already compares the tag against MARKETING_VERSION — but
+            # it does so by parsing `project.yml` with `sed` and taking the first
+            # match, which is not the *effective* build setting: a
+            # per-configuration or per-destination override under `configs:`/
+            # `settings:`, or simply a second occurrence sorting first, would let
+            # the preflight compare the tag against a value the archive does not
+            # use. Publishing then advertises a version the app does not have,
+            # which is precisely what the preflight exists to prevent, with every
+            # other check green. So the archive — not the parse — is the
+            # authority here, exactly as it is for CFBundleVersion above.
+            if [ "$KEY" = CFBundleShortVersionString ] && [ "$VALUE" != "$VERSION" ]; then
+              echo "::error::The archived app carries CFBundleShortVersionString ${VALUE}, but tag ${GITHUB_REF_NAME} means version ${VERSION}. The preflight's project.yml parse and the effective build setting disagree; publishing this would ship an appcast advertising a version the app does not report. See docs/RELEASING.md."
+              exit 1
+            fi
+
+            echo "${KEY} = ${VALUE}"
+          done
+
+      # `ditto -c -k` and not `zip`: the embedded Sparkle.framework is a bundle
+      # of symlinks (Versions/Current, the top-level links), and a plain `zip`
+      # stores them as duplicated regular files — the unzipped framework then
+      # fails its own signature check and Sparkle refuses the update.
+      #
+      # The staging directory holds the zip and nothing else, because
+      # generate_appcast reads *every* update it finds in the directory it is
+      # pointed at.
+      - name: Stage the update archive
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          rm -rf build/release-assets
+          mkdir -p build/release-assets
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app \
+            "build/release-assets/Pisaka-${VERSION}.zip"
+          ls -l build/release-assets
+
+      # The private key travels on stdin (`--ed-key-file -`) and never lands on
+      # disk. `--download-url-prefix` is the release's own asset URL prefix, so
+      # the enclosure the appcast advertises is the zip attached below; the feed
+      # itself is fetched through releases/latest/download/appcast.xml, which is
+      # why the asset name at the end of this job is load-bearing.
+      - name: Generate and sign the appcast
+        env:
+          SPARKLE_PRIVATE_EDDSA_KEY: ${{ secrets.SPARKLE_PRIVATE_EDDSA_KEY }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          echo "$SPARKLE_PRIVATE_EDDSA_KEY" | ./sparkle-tools/bin/generate_appcast \
+            --ed-key-file - \
+            --download-url-prefix "https://github.com/HawkeyePierce89/pisaka/releases/download/${TAG}/" \
+            --link "https://github.com/HawkeyePierce89/pisaka" \
+            -o appcast.xml \
+            build/release-assets
+          cat appcast.xml
+
+          # The one failure `generate_appcast` does *not* report through its exit
+          # code. When the app's SUPublicEDKey is not the mate of the private key
+          # on stdin, the tool prints "Warning: SUPublicEDKey in the app … does
+          # not match key EdDSA in the Keychain", leaves the signature nil and
+          # exits 0 (Appcast.swift only rethrows `signingError`, which that branch
+          # deliberately does not set; FeedXML.swift then simply omits the
+          # attribute). The result is a well-formed feed advertising a real update
+          # with nothing to verify it — which every installed copy rejects, and
+          # which is unrecoverable for them in exactly the way the placeholder
+          # refusal in the preflight exists to prevent. The preflight cannot catch
+          # this: it can see that the committed key is no longer the placeholder,
+          # but not that it pairs with a secret it must never read. So the check
+          # is on the artefact instead, and it is the last thing before publishing.
+          if ! grep -q 'sparkle:edSignature=' appcast.xml; then
+            echo "::error::The generated appcast carries no sparkle:edSignature. Almost certainly SUPublicEDKey in Resources/Info.plist is not the public half of the SPARKLE_PRIVATE_EDDSA_KEY secret — generate_appcast warns and exits 0 in that case. On the machine holding the pair run bin/generate_keys -p to print the public half, check it against Resources/Info.plist and against what the secret was set to, fix whichever is wrong, and re-tag. Publishing this feed would offer every installed copy an update it must reject. See docs/RELEASING.md."
+            exit 1
+          fi
+
+      # Exactly two assets. `appcast.xml` must keep that literal name: it is the
+      # last path component of SUFeedURL in Resources/Info.plist, and GitHub's
+      # releases/latest/download/<asset> redirect resolves by asset name.
+      #
+      # Created as a **draft** and promoted only once both assets are on it.
+      # `gh release create` is not transactional: it creates the release first
+      # and uploads each asset afterwards, so a transient failure on the second
+      # upload — a 5xx, a network blip, a cancelled job — leaves a *published*
+      # release carrying the zip and no feed. `releases/latest` is exactly what
+      # SUFeedURL resolves through and it skips drafts, so a draft is invisible
+      # to every installed copy while a published release missing `appcast.xml`
+      # makes that URL 404 for all of them, silently, until someone notices. The
+      # whole concurrency comment at the top of this file reasons about avoiding
+      # that state; this is what actually prevents it.
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          gh release create "$TAG" \
+            --draft \
+            --title "$TAG" \
+            --notes "Pisaka ${VERSION} (build ${{ github.run_number }}). macOS app, ad-hoc signed and not notarized, so the first manual install trips Gatekeeper. Clear it with \`xattr -dr com.apple.quarantine /Applications/Pisaka.app\` (works on every supported macOS), or open the app once and allow it from System Settings → Privacy & Security → Open Anyway. Right-click → Open also works on macOS 13 and 14, but macOS 15 removed that override for unnotarized apps. In-place Sparkle updates do not repeat any of this." \
+            "build/release-assets/Pisaka-${VERSION}.zip" \
+            "appcast.xml"
+
+          # Set equality over the asset names, both sides sorted by jq so the
+          # comparison does not depend on shell locale collation. An extra asset
+          # is as much a reason to stop as a missing one: it means this step
+          # attached something the feed contract does not describe.
+          NAMES="$(gh release view "$TAG" --json assets --jq '[.assets[].name] | sort | join(", ")')"
+          EXPECTED="$(jq -rn --arg zip "Pisaka-${VERSION}.zip" '[$zip, "appcast.xml"] | sort | join(", ")')"
+          if [ "$NAMES" != "$EXPECTED" ]; then
+            echo "::error::The draft release carries assets [${NAMES}] rather than exactly [${EXPECTED}] — an upload failed part-way. The release is still a draft and so is invisible to installed copies; delete it, delete and re-push the tag, and let the run start over. Promoting it as-is would publish a release that either 404s SUFeedURL for every installed copy or offers a feed with no update behind it. See docs/RELEASING.md."
+            exit 1
+          fi
+
+          # The one irreversible line in this workflow: after it, releases/latest
+          # is this release and every installed copy reads its appcast.
+          gh release edit "$TAG" --draft=false

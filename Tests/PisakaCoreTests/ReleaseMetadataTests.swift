@@ -12,8 +12,9 @@ import XCTest
 ///
 /// `Resources/Info.plist` is a *partial* plist. `GENERATE_INFOPLIST_FILE` stays
 /// on, so Xcode merges its generated per-destination keys into this file's
-/// contents; the file itself only carries the two keys App Store Connect
-/// validation wants. Both of them are easy to get subtly wrong:
+/// contents; the file itself only carries the keys Xcode cannot generate — the
+/// two App Store Connect validation wants and the two Sparkle reads. All four
+/// are easy to get subtly wrong, and none of them fails a build:
 ///
 ///  * `LSApplicationCategoryType` must be a real UTI from Apple's list — a typo
 ///    is accepted by the build and rejected by validation;
@@ -22,6 +23,14 @@ import XCTest
 ///    string `"NO"`, which the export-compliance check does not recognise, so
 ///    every upload keeps asking the encryption question the key exists to
 ///    pre-answer. Asserting the *type*, not just the truthiness, is the point.
+///  * `SUFeedURL` is read only by an *installed* copy, months after the build:
+///    a wrong host, scheme or asset name ships as an app that quietly never
+///    finds an update again.
+///  * `SUPublicEDKey` is base64-decoded by Sparkle, and a key that lost a
+///    character still decodes — to the wrong number of bytes. The committed
+///    value is a deliberate, well-formed placeholder (see the plist's own
+///    comment), so the shape is all this suite can assert; the release
+///    workflow's preflight is what refuses to ship while it is still there.
 ///
 /// `Resources/PrivacyInfo.xcprivacy` is checked the same way, and for the same
 /// reason: nothing in the build fails when a required-reason category is wrong,
@@ -65,13 +74,81 @@ final class ReleaseMetadataTests: XCTestCase {
     func testPartialInfoPlistCarriesOnlyTheKeysXcodeCannotGenerate() throws {
         let plist = try loadInfoPlist()
         XCTAssertEqual(Set(plist.keys),
-                       ["LSApplicationCategoryType", "ITSAppUsesNonExemptEncryption"],
+                       ["LSApplicationCategoryType", "ITSAppUsesNonExemptEncryption",
+                        "SUFeedURL", "SUPublicEDKey"],
                        """
                        Resources/Info.plist is a partial plist merged into Xcode's generated one. \
                        Anything Xcode can generate (CFBundleName, the version keys, the \
                        per-destination scene keys) belongs in project.yml as GENERATE_INFOPLIST_FILE \
-                       output or an INFOPLIST_KEY_* setting, not here.
+                       output or an INFOPLIST_KEY_* setting, not here. The two Sparkle keys are here \
+                       because they have no INFOPLIST_KEY_* equivalent — GENERATE_INFOPLIST_FILE \
+                       cannot produce them at all — and not SUEnableAutomaticChecks or \
+                       SUScheduledCheckInterval, whose absence is what makes Sparkle run its own \
+                       first-launch consent prompt instead of deciding for the user.
                        """)
+    }
+
+    // MARK: - Sparkle
+
+    /// The feed URL is baked into every shipped copy and is read by nothing in
+    /// this repository, so a typo in it is invisible until an installed build
+    /// silently stops finding updates. Assert the shape that has to hold:
+    /// HTTPS (Sparkle refuses an insecure feed unless the app opts out, which it
+    /// does not), on `github.com` (the releases redirect this scheme depends on),
+    /// and named `appcast.xml` — the last of which is half of a cross-file
+    /// invariant: `ReleaseWorkflowTests` asserts the release workflow attaches
+    /// the asset under exactly that name, which is what makes GitHub's
+    /// `releases/latest/download/appcast.xml` redirect resolve.
+    func testPartialInfoPlistCarriesAWellFormedSparkleFeedURL() throws {
+        let plist = try loadInfoPlist()
+        let raw = try XCTUnwrap(plist["SUFeedURL"] as? String,
+                                "Resources/Info.plist has no string SUFeedURL — Sparkle has no feed to check")
+        let url = try XCTUnwrap(URL(string: raw), "SUFeedURL is not a parseable URL: \(raw)")
+
+        XCTAssertEqual(url.scheme, "https", """
+            SUFeedURL must be HTTPS. Sparkle 2 refuses a plain-HTTP feed unless the app explicitly \
+            opts out, and the appcast is the one thing that tells an installed copy what to \
+            download — served over HTTP it is trivially tamperable.
+            """)
+        XCTAssertEqual(url.host, "github.com", """
+            SUFeedURL must point at github.com: the whole scheme rests on GitHub's \
+            releases/latest/download/<asset> redirect always resolving to the newest release's \
+            asset of that name.
+            """)
+        XCTAssertEqual(url.lastPathComponent, "appcast.xml", """
+            The feed's last path component is the release *asset name* GitHub resolves the \
+            latest-download redirect against. It must stay appcast.xml, matching the name the \
+            release workflow attaches (asserted from the other side in ReleaseWorkflowTests).
+            """)
+    }
+
+    /// Assert the *shape* of the ed25519 public key: 32 bytes of well-formed
+    /// base64. A truncated, re-wrapped or otherwise corrupted key fails here,
+    /// while the committed placeholder passes by design — that is the whole
+    /// point of choosing a structurally valid placeholder.
+    ///
+    /// Verifying that it is the *right* key is structurally impossible in this
+    /// suite: the matching private half exists only in the
+    /// `SPARKLE_PRIVATE_EDDSA_KEY` repository secret, and nothing in
+    /// `swift test` can reach it. The two checks that do cover that are the
+    /// release workflow's preflight (which refuses to run while the placeholder
+    /// is still here, so no release can ship signed by a key installed copies do
+    /// not trust) and the one-time manual end-to-end update pass recorded in
+    /// `docs/RELEASING.md`.
+    func testPartialInfoPlistCarriesAWellFormedSparklePublicKey() throws {
+        let plist = try loadInfoPlist()
+        let raw = try XCTUnwrap(plist["SUPublicEDKey"] as? String,
+                                "Resources/Info.plist has no string SUPublicEDKey")
+        let key = try XCTUnwrap(Data(base64Encoded: raw), """
+            SUPublicEDKey is not valid base64: “\(raw)”. Sparkle base64-decodes this string and \
+            refuses every update if it cannot — copy bin/generate_keys' output verbatim, on one \
+            line, with no whitespace.
+            """)
+        XCTAssertEqual(key.count, 32, """
+            SUPublicEDKey must decode to exactly 32 bytes — an ed25519 public key — and decodes to \
+            \(key.count). A key that is short by a character or two still base64-decodes, so the \
+            byte count is the check that catches a truncated paste.
+            """)
     }
 
     // MARK: - Privacy manifest
@@ -321,22 +398,7 @@ final class ReleaseMetadataTests: XCTestCase {
     }
 }
 
-private extension Array where Element == String {
-    /// Whether `needle`'s lines appear here as a *consecutive* run, each trimmed
-    /// line matched whole.
-    ///
-    /// Whole-line equality is what rules out a commented-out or merely-quoted
-    /// setting; the consecutive run is what keeps the two-line resource entries
-    /// anchored to their own `- path:` line, so a stray `type: folder` elsewhere
-    /// in the file cannot stand in for the one on `Resources/Licenses`.
-    func contains(consecutively needle: String) -> Bool {
-        let wanted = needle.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        guard !wanted.isEmpty, count >= wanted.count else { return false }
-
-        return indices.dropLast(wanted.count - 1).contains { start in
-            Array(self[start ..< start + wanted.count]) == wanted
-        }
-    }
-}
+// `contains(consecutively:)` — whole-line equality over a consecutive run, which
+// is what rules out a commented-out or merely-quoted setting and what keeps the
+// two-line resource entries anchored to their own `- path:` line — lives in
+// `Support/YAMLLineMatching.swift`, shared with `ReleaseWorkflowTests`.
