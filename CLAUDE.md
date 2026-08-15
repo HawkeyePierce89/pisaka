@@ -414,15 +414,18 @@ per-key `plutil -extract` verification, `ditto -c -k`, the `github.run_number`
 build number, the four preflight refusals and the unsigned-appcast refusal after
 it, **asserted by mechanism — the guard's
 branch must `exit 1`, not merely mention the variable** — the Sparkle-tools and
-XcodeGen pins (the latter compared against `ci.yml`), and two cross-file pairs
+XcodeGen pins (the latter compared against `ci.yml`), `ci.yml`'s own macOS job
+building `-configuration Release` — the only pre-tag compile of the `#if !DEBUG`
+updater — and two cross-file pairs
 against `Resources/Info.plist`: the asset name and the repository ↔ `SUFeedURL`;
 command assertions are scoped to the step that runs the command, not the file),
 `LicenseCoverageTests`
 (`licenses.json` vs. `project.yml`/`Package.resolved`/`Vendor/`),
 `LSPSourceGatingTests` (the LSP layer's platform split, by set equality over both
 sides) and `SparkleSourceGatingTests` (`import Sparkle` in exactly one file and
-inside `#if os(macOS)` + `#if !DEBUG`, and no `SPU…` reference in the DEBUG
-branch — a rule that compiles cleanly either way, so no build can catch it).
+inside `#if os(macOS)` + `#if !DEBUG`, no `SPU…` reference in the DEBUG branch,
+and that file as the *only* DEBUG-only branch outside `Sources/Pisaka/iOS/` —
+rules that compile cleanly either way, so no build can catch them).
 **Every one of these suites matches against comment- and literal-stripped text,
 and that is load-bearing rather than tidy**: these files document themselves by
 quoting their own settings verbatim, so a raw `contains` stays green when the

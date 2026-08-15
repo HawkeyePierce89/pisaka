@@ -281,22 +281,32 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// not against the whole file. A workflow-wide `contains` stays green when
     /// the setting it names moves to some other step — the same silent-drift
     /// failure the comment-stripping in this suite exists to catch, one level up.
+    ///
+    /// The body ends at the first line indented no deeper than the `- name:` that
+    /// opened it, which is the only reading that actually scopes the *last* step
+    /// of a job: breaking on `- name:` alone runs on through a following `- uses:`
+    /// step and into the next job entirely, so an assertion about the last step
+    /// could be satisfied by a line belonging to another one.
     private func stepScript(named name: String,
+                            in workflow: String = "release.yml",
                             because reason: String,
                             file: StaticString = #filePath,
                             line: UInt = #line) throws -> [String] {
-        let raw = try workflowText().components(separatedBy: .newlines)
+        let raw = try text(atRepositoryPath: ".github/workflows/\(workflow)")
+            .components(separatedBy: .newlines)
         let start = try XCTUnwrap(raw.firstIndex(where: {
             $0.trimmingCharacters(in: .whitespaces) == "- name: \(name)"
         }), """
-            release.yml has no step named `\(name)`. \(reason)
+            \(workflow) has no step named `\(name)`. \(reason)
             """, file: file, line: line)
+
+        let indent = raw[start].prefix { $0 == " " || $0 == "\t" }.count
 
         var body: [String] = []
         for entry in raw[(start + 1)...] {
             let trimmed = entry.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("- name:") { break }
             if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
+            if entry.prefix(while: { $0 == " " || $0 == "\t" }).count <= indent { break }
             body.append(trimmed)
         }
         return body
@@ -542,6 +552,40 @@ final class ReleaseWorkflowTests: XCTestCase {
             CI's: \(ciDigests.sorted()); the release workflow's: \(releaseDigests.sorted()).
             """)
     }
+
+    /// CI's macOS job builds the *shipping* configuration, and that is the only
+    /// thing that compiles the updater before a tag exists.
+    ///
+    /// This is the counterpart to `testArchiveIsPinnedToTheReleaseConfiguration`
+    /// and it guards a claim four files now make about themselves (`ci.yml`'s own
+    /// comment, `CLAUDE.md`, `README.md`, `docs/RELEASING.md`): the whole Sparkle
+    /// surface is behind `#if !DEBUG`, so a Debug-only gate never compiles
+    /// `import Sparkle`, `SPUStandardUpdaterController` or the `canCheckForUpdates`
+    /// republish at all. Drop the flag — a revert, or a "why is CI slow?" cleanup
+    /// aimed at the timeout this raised from 30 to 45 minutes — and `swift test`
+    /// stays entirely green while the shipping path goes uncompiled until the
+    /// release workflow's archive step, i.e. after the tag is already pushed.
+    ///
+    /// Scoped to the step, for the reason `stepScript(named:in:because:)` states:
+    /// the release workflow *does* pass `-configuration Release`, so a file-wide
+    /// or repository-wide `contains` would be satisfied by the wrong workflow
+    /// entirely.
+    func testCIBuildsTheConfigurationThatShips() throws {
+        let script = try stepScript(named: Self.ciMacBuildStepName, in: "ci.yml", because: """
+            It is the only place the `#if !DEBUG` updater is compiled before a release tag exists.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("-configuration Release") }, """
+            ci.yml's `\(Self.ciMacBuildStepName)` step must pass `-configuration Release`. See this \
+            test's doc comment: Debug compiles none of the Sparkle surface, so dropping the flag \
+            moves the first build of the shipping path into the release archive, after the tag is \
+            pushed — the exact failure the switch to Release was made to prevent.
+            """)
+    }
+
+    /// The name of CI's macOS build step. A constant for the same reason
+    /// `archiveStepName` is one: a renamed step must fail loudly rather than
+    /// silently check nothing.
+    private static let ciMacBuildStepName = "Build (macOS, Release — the configuration that ships)"
 
     // MARK: - The cross-file invariants
 

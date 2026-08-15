@@ -890,7 +890,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     surface inside the release workflow's archive step after a tag was already
     pushed. `ci.yml`'s macOS job therefore builds `-configuration Release`, and
     `release.yml` passes `-configuration Release` explicitly rather than relying
-    on Xcode's implicit archive default.
+    on Xcode's implicit archive default. **Both of those flags are themselves
+    pinned by `ReleaseWorkflowTests`, each scoped to the one step that runs the
+    command** — a file-wide or repository-wide `contains` would let CI's copy be
+    satisfied by the release workflow's, which is the drift most worth catching,
+    since dropping the flag from `ci.yml` (a revert, or a "why is CI slow?"
+    cleanup aimed at the timeout this raised from 30 to 45 minutes) leaves
+    `swift test` entirely green while removing the only pre-tag compile of the
+    shipping path.
 
     That trade is worth stating exactly, because it was made in the *switching*
     direction rather than by adding a job: the macOS job no longer builds Debug,
@@ -901,6 +908,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     bounded and checked: the app layer outside `Sources/Pisaka/iOS/` contains
     exactly one `#if DEBUG`, and it is this updater's two no-op declarations. Any
     macOS Debug-conditional code with real content would need a third job.
+
+    **That bound is asserted rather than merely stated**, by a third case in
+    `SparkleSourceGatingTests`: every app source outside `Sources/Pisaka/iOS/` is
+    walked with the same directive walker, and the set of files carrying a live
+    DEBUG-only branch must be exactly `{SoftwareUpdater.swift}`. Without it the
+    sentence above is a comment in `ci.yml` that quietly stops being true the
+    first time someone adds a `#if DEBUG` block elsewhere — code that then ships
+    compiled by nobody and breaks only on a developer's machine. The walker is
+    reused rather than a text match for the reason it exists: a `#else` closing a
+    `#if !DEBUG` is a DEBUG branch too, and this file is the proof the two shapes
+    are interchangeable. The failure message points at adding the third,
+    macOS-Debug job — widening the allow-list would be discarding the check.
 
     In a release build `SPUStandardUpdaterController(startingUpdater: true, …)`
     creates the updater and the standard user driver and starts it immediately,

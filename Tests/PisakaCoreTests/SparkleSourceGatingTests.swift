@@ -114,6 +114,51 @@ final class SparkleSourceGatingTests: XCTestCase {
             """)
     }
 
+    /// The updater is the only thing outside the iOS layer with a DEBUG-only
+    /// branch — the precondition CI's macOS job now rests on.
+    ///
+    /// `.github/workflows/ci.yml` *switched* its macOS job from Debug to Release
+    /// rather than adding a second one, so that the `#if !DEBUG` updater is
+    /// compiled on every PR instead of first appearing inside the release
+    /// archive. The cost is stated in that file's own comment: macOS-gated code
+    /// under `#if DEBUG` is now built by **no** CI job at all — the iOS job cannot
+    /// stand in, because every macOS file is inside `#if os(macOS)` and the iOS
+    /// compile never reaches it. That trade is acceptable "only because there is
+    /// exactly one such block outside `Sources/Pisaka/iOS/` and it is the
+    /// updater's two no-op declarations", and nothing enforced that sentence.
+    ///
+    /// So the moment a `#if DEBUG` block with real content appears in any other
+    /// macOS file, it ships compiled by nobody and breaks on a developer's machine
+    /// — with the stated precondition silently false. This is the rule failing;
+    /// the fix is a third, macOS-Debug CI job, not a wider allow-list here.
+    ///
+    /// A `#else` closing a `#if !DEBUG` counts, exactly as `#if DEBUG` does: the
+    /// walker models branches rather than condition text for that reason, and the
+    /// updater itself is the proof the two shapes are interchangeable.
+    func testDEBUGOnlyBranchesOutsideTheIOSLayerAreConfinedToTheUpdater() throws {
+        let candidates = try appSourceFiles().filter {
+            !$0.pathComponents.contains("iOS")
+        }
+        XCTAssertFalse(candidates.isEmpty, "found no Swift files outside Sources/Pisaka/iOS")
+
+        var withDebugBranches: [String] = []
+        for url in candidates {
+            let lines = code(of: url)
+            let stacks = try conditionStacks(of: lines, in: url.lastPathComponent)
+            if stacks.contains(where: { $0.contains(.debug) }) {
+                withDebugBranches.append(url.lastPathComponent)
+            }
+        }
+
+        XCTAssertEqual(withDebugBranches.sorted(), [Self.updaterFile], """
+            \(Self.updaterFile) must be the only file outside Sources/Pisaka/iOS with a DEBUG-only \
+            branch. Found: \(withDebugBranches.sorted()). See this test's doc comment — CI builds \
+            macOS in Release only, so a `#if DEBUG` branch here is compiled by no CI job at all. \
+            If the new block is real code rather than a no-op, ci.yml needs a third, macOS-Debug \
+            job before it can be trusted.
+            """)
+    }
+
     // MARK: - Conditional-compilation nesting
 
     /// What one `#if` condition says about `DEBUG`.
@@ -163,6 +208,7 @@ final class SparkleSourceGatingTests: XCTestCase {
     /// turning "one rule is violated" into "no rule was checked". The balance is
     /// asserted instead, as its own failure.
     private func conditionStacks(of lines: [String],
+                                 in fileName: String = SparkleSourceGatingTests.updaterFile,
                                  file: StaticString = #filePath,
                                  line: UInt = #line) throws -> [[DebugCondition]] {
         var stack: [DebugCondition] = []
@@ -185,7 +231,7 @@ final class SparkleSourceGatingTests: XCTestCase {
         }
 
         XCTAssertFalse(unbalanced || !stack.isEmpty, """
-            \(Self.updaterFile)'s conditional-compilation directives do not balance, so this \
+            \(fileName)'s conditional-compilation directives do not balance, so this \
             suite cannot tell which branch anything is in. Fix the file — or, if the directives \
             are fine, this walker no longer understands the shape they are written in.
             """, file: file, line: line)
