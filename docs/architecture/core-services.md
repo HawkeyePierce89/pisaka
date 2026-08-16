@@ -248,7 +248,36 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     spelling for the same reason), while canonicalization is a *matching* rule and
     so lives on the read side, where `restoreSession` applies it for dedup — the
     same store-as-given / match-canonically asymmetry `WorkspaceModel.open(url:)`
-    already has. **Three deliberate limits, recorded on `EditorSession` itself.**
+    already has. `EditorSession.merging(_:onto:incomingRestoredAny:)` is the second
+    pure rule, for the
+    **one caller that applies a session on top of tabs already open** — the first
+    Open Folder of a run, where the no-folder workspace's tabs travel into the
+    project instead of being force-closed. It returns what
+    `WorkspaceModel.restoreSession(_:)` leaves behind, expressed as a session to
+    *store*: the carried tabs then the incoming ones, under `incoming`'s
+    `folderPath`, with `restoreSession`'s own selection rule restated (anything
+    restored takes the selection, at the recorded index or — absent/out of range —
+    the incoming session's last tab). **`incomingRestoredAny` is what
+    `restoreSession` actually did** — the `Bool` it returns — and deliberately not
+    read off `incoming.tabs`: a project whose every recorded file has been deleted,
+    renamed or unmounted restores *nothing*, so the selection is still on a carried
+    tab and the stored session has to say so. Shifting the incoming index in anyway
+    would file a selection pointing at a record no tab exists for, and the next
+    launch would skip that record again and fall back to the *last* carried tab
+    instead of the one really selected. The skipped records are still kept (a file
+    missing today may be back tomorrow); they inherit the recorded selection only
+    when there is no carried tab to hold it — which is what keeps the function the
+    identity on an empty `carried`, i.e. at launch restore and at every re-open with
+    nothing open. It is load-bearing rather than a convenience
+    because of the switch's store-vs-live invariant, stated in full on
+    `SessionController.noteProjectSwitch(promoting:)`: the session filed for the
+    incoming project must be a **superset** of what the live model then holds,
+    since the app seeds that controller's "already written" marker with the
+    post-swap live snapshot and the marker suppresses every later equal write, the
+    quit-time flush included. Filing the unmerged incoming entry would make the
+    carried tabs unwritable for the rest of the run — the pre-folder Untitled
+    buffer on screen, absent from the store, gone at the next launch.
+    **Three deliberate limits, recorded on `EditorSession` itself.**
     (1) The contents of dirty *titled* files are **not** persisted, only their
     paths: their text has somewhere to live and autosave already puts it there —
     on quit `flushNow` writes every dirty titled buffer *before* the snapshot is
@@ -256,26 +285,93 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     window (~2 s), the exposure the editor already has; an Untitled buffer is the
     opposite case, skipped by autosave because it has nowhere to write, so the
     session is the only thing carrying its text across a restart. (2) Untitled text
-    is **not size-capped** — if a pathologically large scratch buffer written on
-    every debounce ever bites, move the blob to Application Support, which changes
-    `SessionStore`'s backing store and not the model. (3) **One session under one
-    key, with no per-window identity** — exact today rather than a limitation,
-    since the app is single-window and its `WorkspaceModel` is one `@StateObject`
-    on the `App` shared by every scene, so there is only ever one workspace state
-    to snapshot; it becomes a limitation the moment genuinely independent windows
-    exist (two would write under this one key, last writer winning, and merging
-    their tabs would need an identity this model does not carry). `SessionStore` follows
-    `BookmarkStore`'s shape exactly: injected `UserDefaults`, one property-list blob
-    under the stable `Keys.lastSession` (`"session.lastSession"`, never renamed),
-    `load()`/`save(_:)`/`clear()`. Everything that can go wrong reading resolves to
-    `nil` rather than trapping (`try?` — a missing key, a wrong-typed value, a
-    truncated or hand-edited plist), since there is nothing better to do with a
-    corrupt session than start blank and a launch is where a trap would be least
-    recoverable; forward compatibility *inside* a well-formed blob is `SessionTab`'s
-    job. An **empty session is an ordinary value** — stored, read back and returned
-    like any other, never conflated with "nothing stored", so a user who closed
-    every tab and quit comes back to an empty editor rather than to the session
-    before last. Unit-tested in `EditorSessionTests`.
+    is **not size-capped**, and the blob being the whole `SessionCatalog` means one
+    write decodes and re-encodes *every* remembered project rather than only the
+    current one — the cost is proportional to the summed scratch text of up to
+    `maxStoredProjects` entries. `SessionController`'s equal-snapshot guard keeps
+    that off the steady state (an unchanged session is not rewritten), so it is paid
+    only while the session actually keeps changing; if it ever bites, the escape
+    hatch is unchanged — move the blob to Application Support, or key each project
+    separately, which changes `SessionStore`'s backing store and not the model.
+    (3) **One session per
+    project, with no per-window identity** — the *project* half is what
+    `SessionCatalog` (below) makes exact; the *window* half is exact today rather
+    than a limitation, since the app is single-window and its `WorkspaceModel` is
+    one `@StateObject` on the `App` shared by every scene, so there is only ever
+    one workspace state to snapshot. It becomes a limitation the moment genuinely
+    independent windows exist: two windows on the same project would write under
+    that one project's key, last writer winning, and merging their tabs would need
+    an identity this model does not carry.
+    `SessionCatalog` (`Codable`/`Equatable`, in this same file) is **every
+    project's session, keyed by its folder and MRU-ordered**: an
+    `entries: [EditorSession]` array, index 0 the last opened. **Head is the
+    pointer** — `lastOpened` is `entries.first`, a *derivation* rather than a stored
+    field, which is the whole reason the order is load-bearing: a separate
+    "last opened folder" field could name a folder no entry carries, and "the
+    pointer points at a session that is not stored" would be a state someone has to
+    handle; here it is unrepresentable. **A session is likewise its own key** —
+    there is no key field stored beside it, because `EditorSession.folderPath`
+    already records the folder verbatim. That is the same reasoning one level down:
+    a key naming a *different* folder than the session next to it would be a state
+    someone has to handle (a lookup for `/a` handing back a session whose own path
+    is `/b`, which the next `store(_:)` then files under `/b`, orphaning `/a`), and
+    a decoder cannot enforce agreement between two independent fields. **Keying
+    follows store-as-spelled /
+    match-canonically**, the same asymmetry `snapshot` and `open(url:)` already
+    share: the entry records the spelling the user opened, while
+    `session(forFolder:)` and `store(_:)` both match through
+    `CanonicalPath.canonical(_:).path` — the *path*, the key `SymbolIndex` and
+    `ProjectSearchModel` use, not the url, since two urls for one directory differ
+    by a trailing slash (`file:///p/root/` vs. `file:///p/root`) and compare unequal
+    while naming the same folder. So `/tmp` and `/private/tmp`, a trailing slash and
+    a `.`/`..` detour all land on one entry instead of quietly accumulating one
+    session per spelling; a `nil` `folderPath` is a key like any other (the
+    no-folder workspace) and matches only itself, never a real folder. `store(_:)`
+    replaces the canonical match — adopting the *incoming* verbatim spelling, the
+    user's latest one — inserts when absent, promotes to the head, then drops the
+    tail past the limit (clamped to at least one, so the entry just stored can never
+    be the one evicted). **Retention is capped by entry count, never by byte
+    size**: `maxStoredProjects = 20`, the same number and rationale as
+    `ScopedFileAccess.updatedRecents`' recents cap. The count rule is the point, not
+    a simplification — entries are independent values, so one project's
+    pathologically large untitled buffer (limit 2 above) cannot evict *another*
+    project's session, and nothing one project stores changes what another decodes
+    to; the only shared failure mode left is an unreadable *whole* blob, which
+    resolves to a blank slate exactly as the single blob did. `migrating(_:)` is the
+    one-entry catalog a legacy blob becomes.
+    `SessionStore` follows `BookmarkStore`'s shape exactly: injected
+    `UserDefaults`, one property-list blob — now the `SessionCatalog` — under the
+    stable `Keys.projectSessions` (`"session.projects"`), with
+    `loadLastOpened()` (the head, what launch restore follows),
+    `session(forFolder:)` (that project's session, or `nil` — which is what a
+    folder opened for the first time looks like), `save(_:)` and `clear()`.
+    `save(_:)` keeps its single-argument signature on purpose and is now an
+    **upsert**: the snapshot already names the project it belongs to, so it is
+    stored under its own `folderPath`, promoted to the head and capped — and the
+    debounced writer (`SessionController`) needs to know nothing about the keying.
+    An encode failure is swallowed, leaving the previous blob — every *other*
+    project's session included — in place. **Migration**: `Keys.lastSession`
+    (`"session.lastSession"`, the pre-catalog single blob) is read **only when
+    `session.projects` is absent** and seeds a one-entry catalog whose key is that
+    blob's own `folderPath` (possibly `nil`) and which is therefore also the head,
+    so the first launch after the upgrade restores exactly what the last launch
+    would have. Presence is tested on the *object*, not on `data(forKey:)`, so a
+    wrong-typed value under the new key still counts as written rather than falling
+    back to the legacy one — garbage under the new key means something wrote it, and
+    resurrecting a stale session then would be worse than a blank slate. The legacy
+    key is never written again and deliberately **not deleted** (deleting buys
+    nothing, and keeping it lets a downgrade still restore); neither key may ever be
+    renamed. `clear()` removes **both**, since otherwise clearing would migrate the
+    pre-upgrade blob back in on the very next read. Everything that can go wrong
+    reading resolves to "nothing stored" rather than trapping (`try?` — a missing
+    key, a wrong-typed value, a truncated or hand-edited plist), since there is
+    nothing better to do with a corrupt catalog than start blank and a launch is
+    where a trap would be least recoverable; forward compatibility *inside* a
+    well-formed blob is `SessionTab`'s job. An **empty session is an ordinary
+    value** — stored, read back and returned like any other, never conflated with
+    "nothing stored", so a user who closed every tab and quit comes back to an empty
+    editor rather than to the session before last. Unit-tested in
+    `EditorSessionTests`.
   - `ScopedFileAccess.swift` — pure, Foundation-only iOS security-scoped-access
     helpers (the `FileIcon`/`SettingsStore` move-the-testable-math-into-Core
     precedent). `FolderBookmark` (`Codable`/`Equatable`: standardized `path`

@@ -600,17 +600,109 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     prepare-then-refresh pinning). The split exists so a *programmatic* open — the
     restore — goes through exactly the same collaborators as a user-driven one;
     calling `model.openFolder(url:)` directly would leave every one of them on a
-    project the workspace has already moved past. `restoreLastSession()` runs
+    project the workspace has already moved past.
+    **Sessions are per project, and `openFolder(url:)` owns the switch.** Whether
+    this open *is* a switch is decided **first**, before anything is touched
+    (`!model.isCurrentProjectRoot(url)`) — necessarily first, since
+    `model.openFolder(url:)` moves `projectRoot` and would make every later test
+    read as a re-open. Re-opening the folder already open stays a pure no-op for the
+    tabs, exactly as it already is for the LSP workspace and the commit dialog; a
+    real switch runs four things in this order, and the order is the whole design.
+    (1) It **refuses** while a revert's off-main `git` mutations are in flight
+    (`revertInFlight()`) — the same posture as ⌘S, and for the same reason: the
+    switch is about to force-close every tab, and a buffer whose save is racing a
+    `git checkout` must not be one of them. (2) It **flushes autosave** with
+    `reportingSaves: true`, so the writes it makes get the same follow-up an
+    ordinary mid-session autosave gets (Local Changes re-queried, the tree bumped
+    for a recreated file). (3) Because that flush is **best-effort** —
+    `saveAllDirty()` swallows a per-file write failure by design — it then
+    **refuses and names the files** if `unsavedTitledFileNames()` is still
+    non-empty (`reportUnsavedBeforeFolderSwitch`, a sibling of
+    `reportUnsavedBeforeCommit`): force-closing a buffer whose contents never
+    reached disk destroys the user's work outright, which is strictly worse than
+    not switching. Untitled buffers need no flush at all — their text travels
+    *inside* the outgoing snapshot. **That refusal is scoped to `hadFolder`**, the
+    replacing path — the only one that force-closes anything. The carrying path
+    (the asymmetric case below) leaves every tab open, so an unsaved buffer is in
+    no more danger after the open than before it; refusing there would block the
+    first Open Folder of a run over a loss that path cannot cause, with an alert
+    whose "would close them" reason is not even true of it. (4) It persists the outgoing snapshot through
+    `sessionController.flushNow()` while `projectRoot` is still the **outgoing**
+    folder, which is what keys it correctly, since `SessionStore.save(_:)` is an
+    upsert on the snapshot's own `folderPath`. Going through `flushNow()` rather
+    than snapshotting directly also inherits its `hasObservedChange` guard, which is
+    load-bearing here rather than incidental: at launch, restore calls this method
+    *before* the controller is started, so an unguarded snapshot would write the
+    empty live model over the no-folder workspace's stored session. Then
+    `model.openFolder(url:)` moves the root and, still ahead of the collaborator
+    registrations, the incoming tabs are applied: `sessionStore.session(forFolder:
+    url) ?? EditorSession()`, re-stamped with `url.path` so the promotion below
+    files it under the spelling the user just opened (the verbatim-latest-spelling
+    rule `SessionCatalog.store(_:)` states, and the one the debounced writer would
+    use anyway since it snapshots `projectRoot`; both apply methods ignore the
+    field). The explicit empty session is what makes a folder's *first* open empty
+    the editor rather than leave the previous project's tabs behind the new tree.
+    **The one asymmetric case is an outgoing workspace with no folder** — the first
+    Open Folder of a run, which `isCurrentProjectRoot` reports as a switch. Its key
+    is `nil`, and launch restore can only reach the `nil` entry while it is the
+    catalog's head, which opening this folder is about to take; force-closing there
+    would file an unsaved Untitled buffer under a key nothing reads again. So when
+    `model.projectRoot` was `nil` the incoming session is applied with
+    `model.restoreSession(_:)` — *on top of* the pre-folder tabs, carrying them into
+    the project — and with `replaceSession(with:)` otherwise. At launch the two are
+    the same thing, there being nothing open to carry.
+    Then `sessionController.noteProjectSwitch(promoting:)` files the session for the
+    incoming project at the catalog's head — **the merged one in the carrying case**
+    (`EditorSession.merging(_:onto:incomingRestoredAny:)` over a snapshot taken just
+    before `restoreSession` appends, told by `restoreSession`'s own return value
+    whether any incoming record actually became a tab — so a project whose files
+    have all moved cannot file a selection pointing at a record nothing restored),
+    the incoming entry itself otherwise. The distinction
+    is load-bearing rather than tidy, and is the superset invariant stated below:
+    promoting the unmerged entry would leave the carried tabs on screen but
+    *unwritable* for the rest of the run — the seeded marker suppresses the quit-time
+    flush too — so a pre-folder Untitled buffer would be gone at the next launch,
+    which is the loss the carrying branch exists to prevent in the first place.
+    That replaces relying on the 1 s debounce the
+    swap arms, for two reasons: promotion becomes immediate, so a crash inside that
+    second still records which project the user is in; and, the reason it exists,
+    applying a session **silently skips records this build cannot open**, so the
+    debounced write would persist that truncated restore over the recorded session
+    with the user having touched nothing — the very loss `SessionController.start`'s
+    `dropFirst()`s prevent at launch, reached by the same route. It seeds
+    `lastWritten` with the post-swap snapshot, which `writeSession()`'s
+    equal-snapshot guard turns into the suppression; a genuine user change afterwards
+    writes normally. **The caller therefore owes one invariant: the promoted session
+    must be a *superset* of what the live model holds after the swap.** The seeding
+    suppresses not just the armed debounce but every later equal write, `flushNow()`
+    on quit included, so what the promoted session omits is not merely unwritten now
+    — it is unwritable until the user changes something. A superset is the whole
+    intent (records restore skipped are kept rather than truncated away); a subset
+    silently destroys the difference. Every existing collaborator call is untouched — a re-open of the
+    current folder stays for the tabs the no-op it already is for them.
+    `restoreLastSession()` runs
     **once**, from the window content's `.onAppear` (gated by `didRestoreSession`,
     since `.onAppear` can fire again for a reopened window or a second
     `WindowGroup` scene and restore is *not* idempotent — a second run would
     re-select a tab the user has since moved off), before the first interaction: read
-    `sessionStore.load()`; if a `folderPath` was recorded and still names a
+    `sessionStore.loadLastOpened()` — the **head of the session catalog**, which
+    with a keyed store *is* the pointer (there is no separate field that could name
+    an entry the store does not hold); if a `folderPath` was recorded and still names a
     **directory** (`isExistingDirectory(atPath:)` — checked rather than mere
     existence, because a path replaced by a *file* since the last launch would point
     the tree, the watcher and every git model at something that cannot be listed),
-    open it via `openFolder(url:)`; then `model.restoreSession(session)`. Tabs are
-    restored regardless of the folder's fate, and everything is **silent** — a
+    open it via `openFolder(url:)`, which — `projectRoot` being `nil` at that point,
+    so the open reads as a switch — **also applies that folder's stored tabs**: the
+    tab half of launch restore travels the exact path a user-driven Open Folder does
+    rather than a second implementation of it, and the pre-switch prologue is
+    trivially satisfied at launch (no revert in flight, no dirty buffer, and the
+    not-yet-started controller's `flushNow()` is the no-op its `hasObservedChange`
+    guard makes it). The other two cases — a session with **no folder** at all, and
+    one whose folder has since vanished or become a file — fall back to
+    `model.restoreSession(session)` directly, because there is no folder to switch
+    to: the tabs do not depend on the folder's fate, and an untitled scratch buffer
+    stored under the `nil` key must come back exactly as before. Everything is
+    **silent** — a
     missing file, an unreadable one, a vanished folder all pass without an alert or a
     beep, since restore is not an operation the user asked to succeed. The writer
     starts *after* the session is applied (so the intermediate states restore
@@ -1083,7 +1175,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     session (the opened folder, the tabs, the selection, the text of Untitled
     buffers) to Core's `SessionStore`, so a launch can bring the last session back
     — including after a crash or a force-quit, since it writes continuously rather
-    than only on exit. macOS-gated (`#if os(macOS)`) and shaped like
+    than only on exit. **The keying is not its business**: `store.save(_:)` is an
+    upsert keyed by the snapshot's own `folderPath`, promoting that project to the
+    catalog's head, so per-project sessions cost this file no code at all — it
+    still hands over one snapshot and the store decides where it lands. That is
+    also why the folder-switch orchestration can call `flushNow()` to persist the
+    *outgoing* project: taken while `projectRoot` is still the outgoing folder, the
+    snapshot keys itself. macOS-gated (`#if os(macOS)`) and shaped like
     `AutosaveController`: idempotent `start(model:store:)` (guarded on `model ==
     nil`, because `.onAppear` can fire again and stacked subscriptions would write
     per change several times), Combine subscriptions merged over
@@ -1108,14 +1206,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     deliberately lossy (a folder on an unmounted volume is not opened, a deleted
     file is not reopened) and that write would persist the truncated session over
     the recorded one before the user touched anything. Nothing is lost by waiting
-    for a real change: `load()` returning `nil` and an empty stored session both
+    for a real change: `loadLastOpened()` returning `nil` and an empty stored
+    session both
     restore nothing. **`flushNow()` honors that same rule** (`hasObservedChange`,
     raised by the *raw* trigger ahead of the debounce so a change made inside the
     last write window still flushes): it bypasses the debounce, not the guarantee —
     `lastWritten` is `nil` until the first write, so an unguarded quit-time flush
     would persist a lossy restore's empty snapshot over the recorded session on the
     next Cmd+Q with the user having touched nothing, reintroducing one quit later
-    exactly what the `dropFirst()`s prevent one second after launch. A snapshot **equal to the one last written is not written
+    exactly what the `dropFirst()`s prevent one second after launch. The
+    folder-switch caller leans on the same guard for a second reason spelled out on
+    `openFolder(url:)`: at launch, restore opens the recorded folder *before* this
+    controller is started, and an unguarded outgoing snapshot there would write the
+    empty live model over the no-folder workspace's stored session. A snapshot **equal to the one last written is not written
     again** (`lastWritten`) — `$openFiles` republishes on every keystroke, so the
     steady state of typing in a titled file would otherwise cost a full
     `PropertyListEncoder` pass plus a `UserDefaults` write on the main thread per

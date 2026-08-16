@@ -1446,11 +1446,138 @@ struct PisakaApp: App {
     }
 
     /// Open `url` as the project folder and register the switch everywhere it has
-    /// to be registered — the FSEvents watcher plus Local Changes, the Git Log, the
-    /// branch switcher and Project Search, each with the synchronous
+    /// to be registered — the tab set plus the FSEvents watcher, Local Changes, the
+    /// Git Log, the branch switcher and Project Search, each with the synchronous
     /// prepare-then-refresh pinning documented below.
+    ///
+    /// **Sessions are per project.** Whether this is a *switch* is decided first,
+    /// before anything is touched: re-opening the folder already open stays a pure
+    /// no-op for the tabs (as it already is for the LSP workspace and the commit
+    /// dialog), while a real switch snapshots the outgoing project's tabs under that
+    /// folder's key and applies the incoming folder's stored session — empty on its
+    /// first open. A switch runs four things in this order, and the order is the
+    /// whole design:
+    ///
+    /// 1. It **refuses** while a revert's off-main `git` mutations are in flight
+    ///    (`revertInFlight()`) — the same posture as ⌘S, and for the same reason:
+    ///    the switch is about to force-close every tab, and a buffer whose save is
+    ///    racing a `git checkout` must not be one of them.
+    /// 2. It **flushes autosave** (`reportingSaves: true`, so the writes it makes
+    ///    get the same follow-up an ordinary mid-session autosave gets: Local
+    ///    Changes re-queried, the tree bumped for a recreated file).
+    /// 3. Because that flush is **best-effort** — `saveAllDirty()` swallows a
+    ///    per-file write failure by design — it then **refuses and names the files**
+    ///    if any dirty *titled* buffer is still unsaved. Force-closing a buffer whose
+    ///    contents never reached disk would destroy the user's work outright, which
+    ///    is a strictly worse outcome than not switching. Untitled buffers need no
+    ///    flush at all: their text travels *inside* the outgoing snapshot. This
+    ///    refusal is scoped to `hadFolder` — the *replacing* path, the only one that
+    ///    force-closes anything. The carrying path below (see the asymmetric case)
+    ///    leaves every tab open, so an unsaved buffer is in no more danger after the
+    ///    open than before it, and refusing there would block the first Open Folder
+    ///    of a run for a loss that path cannot cause.
+    /// 4. It persists the outgoing snapshot through `sessionController.flushNow()`,
+    ///    while `projectRoot` is still the **outgoing** folder — that is what keys it
+    ///    correctly, since `SessionStore.save(_:)` is an upsert on the snapshot's own
+    ///    `folderPath`. Going through `flushNow()` rather than snapshotting directly
+    ///    also inherits its `hasObservedChange` guard, which is load-bearing here:
+    ///    at launch, restore calls this method *before* the controller is started, so
+    ///    an unguarded snapshot would write the empty live model over the no-folder
+    ///    workspace's stored session.
+    ///
+    /// After the swap, `sessionController.noteProjectSwitch(promoting:)` files the
+    /// incoming project at the catalog's head and suppresses the debounced write the
+    /// swap would otherwise arm — see there for why persisting a restore that
+    /// skipped records would be a loss.
+    ///
+    /// **The one asymmetric case is the outgoing workspace that has no folder** —
+    /// the first Open Folder of a run. It is a switch for the tree, but its key is
+    /// `nil`, and launch restore can only reach the `nil` entry while it is the
+    /// catalog's head, which opening this folder is about to take. Force-closing
+    /// there would file an unsaved Untitled buffer under a key nothing reads again,
+    /// so the pre-folder tabs travel *into* the project instead: the incoming
+    /// session is applied on top of them rather than replacing them, and the
+    /// session *promoted* for the project is the two merged
+    /// (`EditorSession.merging(_:onto:incomingRestoredAny:)`, told what
+    /// `restoreSession` actually did) — promoting the unmerged incoming one would
+    /// leave those tabs on screen but unwritable, see `noteProjectSwitch`'s superset
+    /// invariant. Nothing being force-closed is also why step 3's refusal does not
+    /// apply here. At launch this is all the same thing, since there is nothing open
+    /// to carry.
     private func openFolder(url: URL) {
+        // Both decided *before* `model.openFolder(url:)` moves `projectRoot`, which
+        // would make every later test read as a re-open.
+        let isSwitch = !model.isCurrentProjectRoot(url)
+        let hadFolder = model.projectRoot != nil
+        if isSwitch {
+            guard !revertInFlight() else { return }
+            autosave.flushNow(reportingSaves: true)
+            // Only the *replacing* path can lose that text, and so only it refuses:
+            // the carrying path below force-closes nothing, so the buffer stays
+            // open, dirty, exactly as it is now — refusing there would block the
+            // first Open Folder of a run over a risk that path does not take, with
+            // an alert whose "would close them" reason is not even true of it.
+            if hadFolder {
+                let unsaved = unsavedTitledFileNames()
+                if !unsaved.isEmpty {
+                    reportUnsavedBeforeFolderSwitch(unsaved)
+                    return
+                }
+            }
+            sessionController.flushNow()
+        }
+
         model.openFolder(url: url)
+
+        // Apply the incoming project's tabs, before the collaborators below are
+        // pointed at the new root: a first open of this folder has no stored session
+        // and gets an explicitly empty one, which empties the editor rather than
+        // leaving the previous project's tabs behind the new tree. The empty session
+        // still carries this folder as its `folderPath`, so promoting it below files
+        // it under the right key rather than under the no-folder workspace's.
+        //
+        // `folderPath` is re-stamped with the spelling the user just opened — the
+        // verbatim-latest-spelling rule `SessionCatalog.store(_:)` states, and the
+        // one the debounced writer would use anyway, since it snapshots
+        // `projectRoot`. `restoreSession`/`replaceSession` ignore the field.
+        if isSwitch {
+            var incoming = sessionStore.session(forFolder: url) ?? EditorSession()
+            incoming.folderPath = url.path
+            let promoted: EditorSession
+            if hadFolder {
+                model.replaceSession(with: incoming)
+                promoted = incoming
+            } else {
+                // The carried tabs have to reach the *store*, not just the model.
+                // `noteProjectSwitch` seeds the "already written" marker with the
+                // post-swap live snapshot, which suppresses every later equal write
+                // — the quit-time flush included — so a promoted session missing
+                // these tabs would make them unwritable for the rest of the run:
+                // on screen, absent from the stored session, gone at the next
+                // launch. `EditorSession.merging` states the order and selection
+                // (it must be a *superset* of the live model); the snapshot is
+                // taken before `restoreSession` appends the incoming tabs, and
+                // `projectRoot` has already moved, so it is stamped with the right
+                // folder either way.
+                let carried = EditorSession.snapshot(
+                    openFiles: model.openFiles,
+                    selectedID: model.selectedID,
+                    projectRoot: url
+                )
+                // Whether the incoming records became tabs is `restoreSession`'s
+                // answer to give, not something `incoming.tabs` can be read for: a
+                // project whose every file has moved restores nothing and leaves
+                // the selection on a carried tab, and the promoted session has to
+                // say that rather than point at a record no tab exists for.
+                let restoredAny = model.restoreSession(incoming)
+                promoted = EditorSession.merging(
+                    incoming,
+                    onto: carried,
+                    incomingRestoredAny: restoredAny
+                )
+            }
+            sessionController.noteProjectSwitch(promoting: promoted)
+        }
         // Watch the newly opened folder so external changes (a generator run in the
         // embedded terminal, a Finder rename, a console `git checkout`) reach the
         // tree without reopening it. `start` is idempotent — it tears the previous
@@ -1681,6 +1808,26 @@ struct PisakaApp: App {
         )
     }
 
+    /// Say that the folder switch was **refused** because the pre-switch flush left
+    /// files unsaved — the sibling of `reportUnsavedBeforeCommit`, with the opposite
+    /// resolution. The commit dialog opens anyway (it merely records stale disk
+    /// contents for those files); a switch cannot proceed, because its next act is
+    /// to force-close exactly those buffers, and text that never reached disk would
+    /// be gone for good.
+    ///
+    /// Reached only from the *replacing* path (`hadFolder`), which is what makes the
+    /// message's reason true: the first Open Folder of a run carries its tabs into
+    /// the project instead of closing them, so it has nothing to refuse.
+    private func reportUnsavedBeforeFolderSwitch(_ names: [String]) {
+        PlatformFeedback.warning()
+        PlatformAlert.presentMessage(
+            title: "Cannot switch project folders",
+            message: "These files could not be saved, and switching folders would "
+                + "close them and lose those edits:\n\n"
+                + names.joined(separator: "\n")
+        )
+    }
+
     /// Run the commit the dialog describes and deal with each outcome.
     ///
     /// The dialog stays open on everything that did **not** create a commit — a
@@ -1809,13 +1956,28 @@ struct PisakaApp: App {
     /// Apply the last persisted session and start writing new ones. Called exactly
     /// once, from the window content's `.onAppear`, before the first interaction.
     ///
-    /// The folder is opened through `openFolder(url:)` — the one path that starts
-    /// the FSEvents watcher and registers the change with Local Changes / the Git
-    /// Log / the branch switcher / Project Search — rather than through
-    /// `model.openFolder(url:)` directly, which would leave every one of those on a
-    /// project the workspace has already moved to. A recorded folder that has since
-    /// been deleted (or replaced by a file) is simply not opened; the tabs are
-    /// restored either way, since a tab does not depend on the folder's fate.
+    /// What is restored is the **head of the session catalog** — the project opened
+    /// last, `loadLastOpened()`. The store is keyed per project now, so the head *is*
+    /// the pointer: there is no separate "last session" field that could name an
+    /// entry the store does not hold.
+    ///
+    /// A recorded folder that still exists is opened through `openFolder(url:)` — the
+    /// one path that starts the FSEvents watcher and registers the change with Local
+    /// Changes / the Git Log / the branch switcher / Project Search — rather than
+    /// through `model.openFolder(url:)` directly, which would leave every one of
+    /// those on a project the workspace has already moved to. Since `projectRoot` is
+    /// still `nil` here, that open reads as a *switch*, so it also applies the
+    /// folder's stored tabs: the tab half of launch restore travels the exact same
+    /// path a user-driven Open Folder does, rather than a second implementation of
+    /// it. The pre-switch prologue is trivially satisfied at launch (no revert is in
+    /// flight, no buffer is dirty, and the not-yet-started controller's `flushNow()`
+    /// is the no-op its `hasObservedChange` guard makes it).
+    ///
+    /// The other two cases — a session with **no folder** at all, and one whose
+    /// folder has since been deleted or replaced by a file — get
+    /// `model.restoreSession(_:)` directly, because there is no folder to switch to:
+    /// the tabs do not depend on the folder's fate, and an untitled scratch buffer
+    /// stored under the no-folder key must come back exactly as it did before.
     ///
     /// Everything here is **silent**: a missing file, an unreadable one, a vanished
     /// folder all pass without an alert or a beep. Restore is not an operation the
@@ -1828,11 +1990,12 @@ struct PisakaApp: App {
     /// triggered by the launch itself would persist that truncated session over the
     /// recorded one before the user has touched anything — see `SessionController`.
     private func restoreLastSession() {
-        if let session = sessionStore.load() {
+        if let session = sessionStore.loadLastOpened() {
             if let folderPath = session.folderPath, isExistingDirectory(atPath: folderPath) {
                 openFolder(url: URL(fileURLWithPath: folderPath))
+            } else {
+                model.restoreSession(session)
             }
-            model.restoreSession(session)
         }
         sessionController.start(model: model, store: sessionStore)
     }
