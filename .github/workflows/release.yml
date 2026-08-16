@@ -654,6 +654,14 @@ jobs:
       # makes that URL 404 for all of them, silently, until someone notices. The
       # whole concurrency comment at the top of this file reasons about avoiding
       # that state; this is what actually prevents it.
+      #
+      # The notes say what the release *is* and nothing else. They used to carry
+      # the Gatekeeper workaround every ad-hoc-signed download needed; the app is
+      # now signed and stapled, so that instruction would tell users to strip a
+      # quarantine flag that stops nothing — and, worse, would keep teaching a
+      # habit ("run this command on downloads that will not open") that is
+      # exactly what code signing exists to make unnecessary. Release notes are
+      # permanent: one left in place outlives the release it shipped with.
       - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -664,7 +672,7 @@ jobs:
           gh release create "$TAG" \
             --draft \
             --title "$TAG" \
-            --notes "Pisaka ${VERSION} (build ${{ github.run_number }}). macOS app, ad-hoc signed and not notarized, so the first manual install trips Gatekeeper. Clear it with \`xattr -dr com.apple.quarantine /Applications/Pisaka.app\` (works on every supported macOS), or open the app once and allow it from System Settings → Privacy & Security → Open Anyway. Right-click → Open also works on macOS 13 and 14, but macOS 15 removed that override for unnotarized apps. In-place Sparkle updates do not repeat any of this." \
+            --notes "Pisaka ${VERSION} (build ${{ github.run_number }}) for macOS 13 or later. Signed with a Developer ID Application certificate, notarized by Apple and stapled: download the zip, unzip it, move Pisaka to Applications and open it. Installed copies offer this release to themselves through Sparkle." \
             "build/release-assets/Pisaka-${VERSION}.zip" \
             "appcast.xml"
 

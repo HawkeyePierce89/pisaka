@@ -1445,6 +1445,63 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
     }
 
+    // MARK: - The documentation the signature replaced
+
+    /// The files that used to carry the Gatekeeper workaround, and must not
+    /// carry it again.
+    private static let filesThatDocumentedTheWorkaround = [
+        ".github/workflows/release.yml",
+        "README.md",
+        "docs/FEATURES.md",
+        "docs/RELEASING.md",
+    ]
+
+    /// The literal instructions an ad-hoc-signed download needed. Matched as
+    /// strings because that is what a user copies out of a document.
+    private static let gatekeeperWorkarounds = [
+        "xattr -dr com.apple.quarantine",
+        "Open Anyway",
+    ]
+
+    /// The acceptance criterion of the signing work, pinned so a revert cannot
+    /// quietly restore it.
+    ///
+    /// A notarized, stapled app opens from a fresh download with no prompt, so
+    /// every instruction that told users to strip the quarantine flag or to
+    /// approve the app in System Settings is now wrong — and wrong in a
+    /// particularly bad direction. `xattr -dr com.apple.quarantine` is a command
+    /// that disables a security check; a project that keeps telling people to run
+    /// it teaches the habit for every *other* download too, and the app no longer
+    /// has even the excuse of needing it.
+    ///
+    /// Documentation rots silently: nothing fails when a stale paragraph
+    /// survives a rewrite, and a release-notes template is copied into every
+    /// future release. So the four files that carried the instruction are
+    /// asserted not to carry it any more.
+    ///
+    /// **This is the one assertion in this suite that reads raw text rather than
+    /// `activeText()`**, and deliberately so. Everywhere else, comment-stripping
+    /// is what makes an assertion mean "the workflow *does* this" instead of
+    /// "some comment mentions it". Here the claim is about prose, and a comment
+    /// explaining how to clear quarantine is exactly as much a live instruction
+    /// as a `--notes` string is — arguably more so, since the next person editing
+    /// the file reads it as current.
+    func testTheGatekeeperWorkaroundIsGoneFromEveryDocumentThatCarriedIt() throws {
+        for path in Self.filesThatDocumentedTheWorkaround {
+            let raw = try text(atRepositoryPath: path)
+            for workaround in Self.gatekeeperWorkarounds {
+                XCTAssertFalse(raw.contains(workaround), """
+                    \(path) still contains “\(workaround)”. Releases are Developer ID signed, \
+                    notarized and stapled, so a downloaded copy opens with no prompt and this \
+                    instruction is both unnecessary and actively harmful — it teaches users to \
+                    disable a security check for a problem this app no longer has. Remove it (and \
+                    if signing was genuinely reverted, that revert is the bug this test is \
+                    reporting). See docs/RELEASING.md.
+                    """)
+            }
+        }
+    }
+
     /// `<owner>/<repo>` — the first two path components of a github.com URL.
     private func repositorySlug(of url: URL) -> String? {
         let parts = url.path.split(separator: "/").map(String.init)

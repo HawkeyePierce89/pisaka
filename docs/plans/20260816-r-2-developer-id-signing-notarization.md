@@ -254,18 +254,18 @@ ad-hoc signing — and gains this ticket's: the first notarized tag assessed by
 downloaded Node language server launching under the hardened runtime; a Sparkle
 update from a previous release installing normally.
 
-- [ ] rewrite the workflow's release-notes text with no workaround in it
-- [ ] rewrite `README.md`'s install section and fix its two other stale claims;
+- [x] rewrite the workflow's release-notes text with no workaround in it
+- [x] rewrite `README.md`'s install section and fix its two other stale claims;
       fix the `docs/FEATURES.md` bullet
-- [ ] rewrite `docs/RELEASING.md`: delete the Gatekeeper section, document
+- [x] rewrite `docs/RELEASING.md`: delete the Gatekeeper section, document
       secrets/keychain/notarization/renewal, move the two "Not here yet" items to
       done, update the manual-verification list
-- [ ] tests: assert the literal workaround strings (`xattr -dr
+- [x] tests: assert the literal workaround strings (`xattr -dr
       com.apple.quarantine`, `Open Anyway`) appear in none of `release.yml`,
       `README.md`, `docs/FEATURES.md` and `docs/RELEASING.md` — the acceptance
       criterion, pinned so a revert cannot quietly restore instructions the app no
       longer needs
-- [ ] run `swift test` — must pass before Task 5
+- [x] run `swift test` — must pass before Task 5
 
 ### Task 5: Verify acceptance criteria
 

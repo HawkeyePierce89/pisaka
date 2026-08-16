@@ -117,31 +117,29 @@ non-sandboxed so the standard open/save panels work without entitlements.
 
 ## Installing a released build
 
-Downloads from [GitHub Releases](../../releases) are **ad-hoc signed and not
-notarized** — there is no Apple Developer Program membership behind this project
-yet — so Gatekeeper refuses the first double-click. Clear the quarantine flag
-yourself:
+Download the zip from [GitHub Releases](../../releases), unzip it, drag
+`Pisaka.app` to `/Applications` and open it. That is the whole procedure: the
+app is signed with a Developer ID Application certificate, notarized by Apple
+and stapled, so Gatekeeper lets a fresh download run with no prompt and no
+terminal command. macOS 13 or later.
 
-```sh
-xattr -dr com.apple.quarantine /Applications/Pisaka.app
-```
-
-Or double-click it once, let macOS refuse, and then allow it from **System
-Settings → Privacy & Security → Open Anyway**. (On macOS 13 and 14
-right-click → Open also works; macOS 15 removed that override for unnotarized
-apps.) This is first-manual-install friction only — Sparkle's in-place updates
-do not repeat it.
+Updates afterwards install themselves through Sparkle, which verifies each one
+against the EdDSA key baked into the copy you are running — an integrity chain
+independent of Apple's signature.
 
 ## Releasing
 
 Pushing a `vX.Y` tag builds and publishes the release:
-`.github/workflows/release.yml` re-runs `swift test`, archives the macOS app,
-signs the update with Sparkle's EdDSA key and attaches the app zip plus
-`appcast.xml` to a new GitHub Release. It refuses up front if the tag and
-`MARKETING_VERSION` disagree, so bump and commit the version *before* tagging.
-The build number comes from `github.run_number` and is never committed. The
-whole path — including the one-time Sparkle key generation and what is still
-account-side — is documented in [`docs/RELEASING.md`](docs/RELEASING.md).
+`.github/workflows/release.yml` re-runs `swift test`, archives the macOS app
+signed with a Developer ID Application certificate and the hardened runtime,
+notarizes and staples it, signs the update with Sparkle's EdDSA key and attaches
+the app zip plus `appcast.xml` to a new GitHub Release. It refuses up front if
+the tag and `MARKETING_VERSION` disagree, or if any signing or notarization
+secret is missing, so bump and commit the version *before* tagging. The build
+number comes from `github.run_number` and is never committed. The whole path —
+the six repository secrets, the throwaway signing keychain, certificate renewal
+and what is still account-side — is documented in
+[`docs/RELEASING.md`](docs/RELEASING.md).
 
 ## Continuous Integration
 
@@ -153,9 +151,10 @@ build uses the Release configuration and the iOS build Debug, so both
 configurations are compiled on every PR — the auto-updater exists only in
 non-DEBUG builds and would otherwise never be compiled until a release.
 
-The release workflow above is the one place that *does* use a secret (the
-Sparkle private signing key) and does sign; it runs only on a `v*` tag, never on
-a pull request.
+The release workflow above is the one place that *does* use secrets (the Sparkle
+private signing key, the Developer ID certificate and its password, and the
+three App Store Connect API key values notarization needs) and the one place
+that signs; it runs only on a `v*` tag, never on a pull request.
 
 ## Keyboard Shortcuts (macOS)
 
@@ -206,8 +205,7 @@ The headline items; the complete list, with the reasoning per item, is in
   and the git panels refresh on demand.
 - Automatic updates have no settings of ours (Sparkle's own consent prompt and
   update alert are the whole UI), and the single EdDSA signing key is
-  unrecoverable if lost. Builds are ad-hoc signed — see *Installing a released
-  build*.
+  unrecoverable if lost.
 - LeetCode rides the site's **unofficial** API, so it can break with no notice
   (surfaced as an "API changed" error, fixed only by an app update). No
   submission history; solved/attempted marks are as fresh as the catalog's last

@@ -721,10 +721,10 @@ and iPhone. The feature scope landed so far:
   choices offered are the ones Sparkle's own UI provides — the first-launch
   "check automatically?" prompt, and Skip This Version / Remind Me Later on the
   update alert itself. There is no update channel, no check interval and no
-  release-notes pane beyond what the appcast carries. Builds are ad-hoc signed
-  rather than notarized, so the *first* manual install trips Gatekeeper (see
-  “Installing a released build” in `README.md`); in-place updates afterwards do
-  not. DEBUG builds never update. The update signing key is a single EdDSA
+  release-notes pane beyond what the appcast carries. DEBUG builds never update.
+  Released builds are Developer ID signed, notarized and stapled, so a download
+  runs without a Gatekeeper prompt (see “Installing a released build” in
+  `README.md`). The update signing key is a single EdDSA
   pair — if it is ever lost, installed copies will reject every future update
   and can only be moved forward by downloading a new build by hand.
 - Find/replace (per-file and project-wide) is macOS-only: iOS has neither the
