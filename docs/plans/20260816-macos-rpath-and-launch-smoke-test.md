@@ -163,17 +163,17 @@ loaded" — is a deliberate weakening, not a silent one.
 - Modify: `project.yml`
 - Modify: `Tests/PisakaCoreTests/ReleaseMetadataTests.swift`
 
-- [ ] Record the **before** state as evidence: `xcodegen generate`, build
+- [x] Record the **before** state as evidence: `xcodegen generate`, build
       `-configuration Release -destination 'platform=macOS' -derivedDataPath DerivedData`,
       then `otool -l …/Contents/MacOS/Pisaka | grep -A2 LC_RPATH` (expect
       `/usr/lib/swift` + `@executable_path/Frameworks`) and a direct exec of that
       executable (expect the `Library not loaded: @rpath/Sparkle.framework/…`
       abort). Paste both outputs into the task notes.
-- [ ] Add to `targets.Pisaka.settings.base`:
+- [x] Add to `targets.Pisaka.settings.base`:
       `LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]:` with `$(inherited)` and
       `"@executable_path/../Frameworks"`, leaving the unconditional preset (and
       therefore iOS) untouched.
-- [ ] Write the comment above it in the file's established voice: XcodeGen's
+- [x] Write the comment above it in the file's established voice: XcodeGen's
       default is iOS-shaped and applies to both destinations; on macOS the
       executable is in `Contents/MacOS/` and frameworks in `Contents/Frameworks/`;
       Sparkle is the first embedded dynamic framework ever to resolve through it,
@@ -181,21 +181,76 @@ loaded" — is a deliberate weakening, not a silent one.
       crashed at launch; `/usr/lib/swift` comes from the toolchain and is not this
       setting's to preserve; the conditional overrides rather than appends, so
       `$(inherited)` here inherits from the project level.
-- [ ] Verify the **after** state: `xcodegen generate`, rebuild Release, `otool -l`
+      *(Written, with one clause corrected against measurement — see the note
+      below: `$(inherited)` does pick up the target's own unconditional entry.)*
+- [x] Verify the **after** state: `xcodegen generate`, rebuild Release, `otool -l`
       must show `@executable_path/../Frameworks` **and** `/usr/lib/swift`; direct
       exec must survive (kill it after a few seconds). Paste both outputs.
-- [ ] Verify iOS is unchanged: build `-destination 'generic/platform=iOS'` green,
+- [x] Verify iOS is unchanged: build `-destination 'generic/platform=iOS'` green,
       and `otool -l` on the iOS product shows the same rpath set as before
       (`@executable_path`, `@executable_path/Frameworks`, the PackageFrameworks
       entry).
-- [ ] Add `testProjectPinsTheMacOSRunpath` to `ReleaseMetadataTests`, matching the
+- [x] Add `testProjectPinsTheMacOSRunpath` to `ReleaseMetadataTests`, matching the
       three lines consecutively over `activeProjectLines()`; the failure message
       names the `v1.0` launch crash, says the XcodeGen default is iOS-shaped, and
       states that nothing in the build, in CI's byte-level checks, or in this
       suite's other assertions would notice its removal.
-- [ ] Doc-comment that test in the suite's style: why the pin exists, why the
+- [x] Doc-comment that test in the suite's style: why the pin exists, why the
       build stays green without it, why only a *launch* can see it.
-- [ ] `swift test` — must pass.
+- [x] `swift test` — must pass.
+
+**Task 1 completion notes — measured evidence**
+
+Before, `otool -l DerivedData/…/Pisaka.app/Contents/MacOS/Pisaka`:
+
+```
+path /usr/lib/swift
+path @executable_path/Frameworks
+```
+
+Before, direct exec — exit status **134**:
+
+```
+dyld[66521]: Library not loaded: @rpath/Sparkle.framework/Versions/B/Sparkle
+  Referenced from: … /Pisaka.app/Contents/MacOS/Pisaka
+  Reason: tried: '/usr/lib/swift/Sparkle.framework/Versions/B/Sparkle' (no such
+  file, not in dyld cache), … '…/Pisaka.app/Contents/MacOS/Frameworks/Sparkle.framework/Versions/B/Sparkle'
+  (no such file), …
+```
+
+After (`xcodegen generate` emits
+`"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = ("$(inherited)", "@executable_path/../Frameworks");`
+into **both** the Debug and Release target configurations, alongside the
+untouched unconditional key):
+
+```
+path /usr/lib/swift
+path @executable_path/Frameworks
+path @executable_path/../Frameworks
+```
+
+After, direct exec — polled with `kill -0` for 5s: **SURVIVED 5s, killed by this
+step**, no output.
+
+iOS (`generic/platform=iOS`) built green and its rpath set is identical before
+and after: `@executable_path`, the absolute `…/PackageFrameworks` entry,
+`@executable_path/Frameworks`.
+
+**Correction to a planning assumption.** The plan said the conditional
+"overrides rather than appends, so `$(inherited)` here inherits from the project
+level". The `otool` output above shows otherwise: Xcode layers the conditional
+assignment on top of the *same-level* unconditional one, so `$(inherited)`
+picks up `@executable_path/Frameworks` and the macOS product carries both
+entries. The surviving iOS-shaped entry simply never resolves to anything; the
+comment in `project.yml` now records the measured behaviour rather than the
+assumed one, and says why dropping `$(inherited)` to prune the dead entry is
+deliberately not done. `/usr/lib/swift` is confirmed to come from the toolchain,
+as planned — the override does not lose it.
+
+The pin was confirmed non-vacuous by commenting out the
+`LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]:` line and watching
+`testProjectPinsTheMacOSRunpath` fail with its own message; `project.yml` was
+then restored (`git diff --stat`: insertions only).
 
 ### Task 2: CI's macOS job launches what it built
 

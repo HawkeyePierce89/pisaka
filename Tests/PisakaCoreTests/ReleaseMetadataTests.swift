@@ -338,6 +338,57 @@ final class ReleaseMetadataTests: XCTestCase {
             """)
     }
 
+    /// The macOS runpath — the setting in this file with the widest gap between
+    /// "the build is green" and "the app runs at all".
+    ///
+    /// XcodeGen's default `LD_RUNPATH_SEARCH_PATHS` for an application target is
+    /// iOS-shaped (`$(inherited)` plus `@executable_path/Frameworks`) and the
+    /// multiplatform target inherits it on *both* destinations. On iOS that is
+    /// correct — the executable sits at the `.app` root beside `Frameworks/`. On
+    /// macOS the executable is in `Contents/MacOS/` and embedded frameworks in
+    /// `Contents/Frameworks/`, so dyld searches `Contents/MacOS/Frameworks/`,
+    /// finds nothing, and aborts the process before `main`.
+    ///
+    /// Why the build stays green without this line: linking resolves against the
+    /// framework's stub at build time and never consults a runpath, so the
+    /// compiler has nothing to complain about. Only a *launch* dereferences it.
+    /// That is not hypothetical — nothing in this app dereferenced it at all
+    /// until Sparkle became the first embedded dynamic framework, and the wrong
+    /// default then shipped as `v1.0`, which died with `Library not loaded:
+    /// @rpath/Sparkle.framework/Versions/B/Sparkle`. Every gate had passed:
+    /// `swift test` compiles Core and never links the app, CI built it, and the
+    /// release workflow's checks — signature, plist keys, notarization — are all
+    /// byte-level. Nothing between the compiler and the user executed the binary.
+    ///
+    /// So this assertion is the static half of the answer and the two smoke
+    /// launches (`ci.yml`, `release.yml`, pinned by `ReleaseWorkflowTests`) are
+    /// the runtime half. Both are needed: delete these three lines and every
+    /// other check in this repository stays green, including the rest of this
+    /// suite, while the shipped app stops starting.
+    ///
+    /// The `[sdk=macosx*]` condition is asserted verbatim rather than looked for
+    /// loosely, because the unconditional key must *stay* — rewriting it instead
+    /// of conditioning it would fix macOS by breaking iOS, which is the same bug
+    /// with the destinations swapped.
+    func testProjectPinsTheMacOSRunpath() throws {
+        let settings = try activeProjectLines()
+
+        XCTAssertTrue(settings.contains(consecutively: """
+            LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]:
+            - $(inherited)
+            - "@executable_path/../Frameworks"
+            """), """
+            project.yml no longer sets the macOS-conditional LD_RUNPATH_SEARCH_PATHS. XcodeGen's \
+            default is iOS-shaped (@executable_path/Frameworks) and applies to both destinations, \
+            so without this the macOS app looks for embedded frameworks under \
+            Contents/MacOS/Frameworks/ and dyld aborts it before main — which is exactly how v1.0 \
+            shipped and failed to launch. Nothing else would notice: linking never consults a \
+            runpath, CI's byte-level checks cannot see a dynamic-link failure, and no other \
+            assertion in this suite covers it. Restore the [sdk=macosx*] entry (leaving the \
+            unconditional preset, and therefore iOS, alone).
+            """)
+    }
+
     /// `project.yml`'s *active* settings: every line that is neither blank nor a
     /// comment, trimmed, in file order.
     ///
