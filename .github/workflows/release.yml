@@ -280,7 +280,10 @@ jobs:
             echo "::error::The imported certificate is not a Developer ID Application identity for team XJT3LK36GS. An Apple Development or Mac Developer certificate signs the archive but is rejected by the notary service twenty minutes later, and an expired one is not listed here at all. Re-export the Developer ID Application certificate *with its private key* from Keychain Access and replace DEVELOPER_ID_CERT_P12 and DEVELOPER_ID_CERT_PASSWORD together. See docs/RELEASING.md."
             exit 1
           fi
-          security find-identity -v -p codesigning "$KEYCHAIN"
+          # The listing the guard actually judged, not a second `find-identity`
+          # run for the log: two invocations can disagree, and the one shown
+          # would then not be the one that passed.
+          printf '%s\n' "$IDENTITIES"
 
       # Pinned the same way XcodeGen is: exact URL, digest checked before
       # anything is extracted or executed.

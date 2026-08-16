@@ -1169,9 +1169,9 @@ checks at the end of the plan re-validate that the server actually answers.
   **no entitlements file**, because it needs none for this layer: the runtime
   permits `fork`/`exec` and library validation is *per-process*, so a downloaded
   `node` or `rust-analyzer` launched through `LSPProcessTransport` is subject to
-  its own signature, not the app's. What the layer relies on is stated once, at
-  line 1073 for rust-analyzer and identically for the Node runtimes: the
-  published binaries are `adhoc, linker-signed`, and bytes written by
+  its own signature, not the app's. What the layer relies on is stated once, in
+  the rust-analyzer pin-bump note above and identically for the Node runtimes:
+  the published binaries are `adhoc, linker-signed`, and bytes written by
   `URLSession` carry no `com.apple.quarantine`, so nothing here needs
   re-signing or an `xattr` sweep. An entitlement would be added only if a
   concrete launch failure demanded one — `docs/RELEASING.md` keeps "a downloaded

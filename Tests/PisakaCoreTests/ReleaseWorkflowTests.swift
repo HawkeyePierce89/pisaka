@@ -1001,8 +1001,22 @@ final class ReleaseWorkflowTests: XCTestCase {
             `xcodegen generate` + build demand a signing identity from everyone.
             """)
 
+        // Matched on the setting *name*, not on a literal `NAME:` prefix. XcodeGen
+        // passes build-setting keys through verbatim, so Xcode's conditional
+        // spelling — `CODE_SIGN_IDENTITY[sdk=macosx*]: "Developer ID Application"` —
+        // is valid YAML that commits the setting, and so is a quoted key. This
+        // target is multiplatform (`supportedDestinations: [macOS, iOS]`), which
+        // makes a per-SDK signing setting the *likeliest* form of the regression
+        // this guard exists to catch: a prefix test would call it absent and land
+        // green while every fresh clone started demanding a signing identity.
         for setting in ["DEVELOPMENT_TEAM", "CODE_SIGN_IDENTITY", "PROVISIONING_PROFILE_SPECIFIER"] {
-            let committed = lines.filter { $0.hasPrefix("\(setting):") }
+            let committed = lines.filter { line in
+                let key = line.drop { $0 == "\"" || $0 == "'" }
+                guard key.hasPrefix(setting) else { return false }
+                // What may follow the name and still be an assignment of it:
+                // `:` plain, `[` conditional, a closing quote, or space before `:`.
+                return [":", "[", "\"", "'", " "].contains(String(key.dropFirst(setting.count).prefix(1)))
+            }
             XCTAssertTrue(committed.isEmpty, """
                 project.yml commits \(committed) — but \(setting) belongs on the release archive's \
                 command line only. Committing it makes every local and CI build try to resolve a \
