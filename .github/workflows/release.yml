@@ -509,6 +509,16 @@ jobs:
             exit 1
           fi
 
+          # The six invocations below are the only commands in this step that
+          # could fail without an `::error::` of their own, and their likeliest
+          # failures are transient rather than structural — so they get one, as
+          # an `ERR` trap rather than a `|| { … }` on each line. That shape is
+          # deliberate: the ordering assertions in ReleaseWorkflowTests match
+          # these lines by their exact trailing path, and appending anything to
+          # them would break the pins that make the inside-out order checkable.
+          RESIGN_FAILURE="::error::Re-signing Sparkle inside the archived app failed on the invocation above. The likeliest causes are transient: Apple's timestamp authority refusing or rate-limiting the request (--timestamp reaches it six times in this step, on top of the archive's), or the throwaway signing keychain having re-locked since the import step — which is reported as \"User interaction is not allowed\" and reads like a missing identity without being one. The structural cause is a second Developer ID Application identity in that keychain, which makes the identity match ambiguous. Re-running the job is the first response; a re-run needs the tag deleted and pushed again, which archives under a fresh github.run_number. See docs/RELEASING.md."
+          trap 'echo "$RESIGN_FAILURE"' ERR
+
           codesign --force --sign "$IDENTITY" --options runtime --timestamp "$FRAMEWORK/Versions/B/XPCServices/Installer.xpc"
           codesign --force --sign "$IDENTITY" --options runtime --timestamp --preserve-metadata=entitlements "$FRAMEWORK/Versions/B/XPCServices/Downloader.xpc"
           codesign --force --sign "$IDENTITY" --options runtime --timestamp "$FRAMEWORK/Versions/B/Autoupdate"
@@ -519,8 +529,8 @@ jobs:
       # The app is taken straight out of the archive, deliberately: by the time
       # this step runs it already carries the shipping Developer ID signature and
       # the hardened runtime — the archive's, replaced in place by the re-sign
-      # pass above — so `-exportArchive` would only re-sign it under a second
-      # configuration on top of that: an
+      # pass above — so `-exportArchive` would only re-sign it under a third
+      # configuration on top of the two already applied: an
       # export options plist whose team, identity and signing style have to be
       # kept in step with the archive's command line forever, with the two
       # disagreeing failing at the notary service rather than here.

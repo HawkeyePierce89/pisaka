@@ -376,10 +376,11 @@ written in a `(umask 077; …)` subshell), the
 Developer ID identity, team, `ENABLE_HARDENED_RUNTIME` and `--timestamp` on the
 archive's command line while `project.yml` stays signing-free (entitlements too),
 the inside-out re-sign of Sparkle's four nested helpers (explicit list, no
-`--deep`, guarded on app, framework and each helper), **all four** facts
-verified on the archived app, its `Sparkle.framework` *and* every Mach-O
-enumerated inside it — that enumeration pinned against path narrowing and
-guarded by two refusals of its own (the pair that got `v1.0` rejected), the
+`--deep`, guarded on app, framework and each helper, signing behind an
+`::error::` trap), **all four** facts verified on the archived app, its
+`Sparkle.framework` *and* every Mach-O enumerated inside it — that enumeration
+pinned by the four binaries `v1.0` was rejected for, plus two refusals of its
+own, the
 notarize→staple→`spctl` chain (both verdicts — the notary status and `spctl`'s
 `source=Notarized Developer ID` — read explicitly, not inferred from exit codes;
 the submitted zip distinct from the shipped one),

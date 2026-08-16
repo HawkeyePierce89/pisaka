@@ -1175,8 +1175,16 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// Apple documents it as a debugging convenience, not a distribution tool:
     /// it applies one set of flags to everything it happens to find, so the
     /// entitlements `Downloader.xpc` must keep would be dropped, and a helper
-    /// added by a future Sparkle would be signed silently instead of stopping
-    /// the run at the existence guards. The explicit list is what the
+    /// added by a future Sparkle would be signed silently. That last one is the
+    /// subtle half, and it is worth naming which guard actually covers it: the
+    /// re-sign step's `test -e` guards see a *known* helper that moved, was
+    /// renamed or was dropped — they cannot see a fifth one appear. What catches
+    /// a newly added helper is the verification step's per-binary enumeration,
+    /// which walks every Mach-O in the app and refuses one that is not signed by
+    /// this team's Developer ID. Signing the explicit list is what leaves the new
+    /// helper ad-hoc for that loop to find; `--deep` would sign it into
+    /// invisibility, and the layout change would go unnoticed until the day the
+    /// helper needed a flag it never got. The explicit list is also what the
     /// verification step and this suite can hold to account.
     ///
     /// The two `codesign --verify --deep --strict` calls are a different command
@@ -1197,8 +1205,9 @@ final class ReleaseWorkflowTests: XCTestCase {
             release.yml signs with `--deep`: \(deep). Apple documents `--deep` as unsuited to \
             distribution signing — it applies one set of flags to every nested item it discovers, \
             which drops Downloader.xpc's entitlements and quietly signs any helper a future Sparkle \
-            adds instead of stopping at this workflow's existence guards. Sign the explicit list \
-            instead. (`codesign --verify --deep --strict` is a different command and is fine.)
+            adds, where the explicit list leaves that helper ad-hoc for the verification step's \
+            per-binary enumeration to refuse. Sign the explicit list instead. \
+            (`codesign --verify --deep --strict` is a different command and is fine.)
             """)
 
         XCTAssertTrue(lines.contains { $0.contains("codesign --verify --deep --strict") }, """
@@ -1267,6 +1276,61 @@ final class ReleaseWorkflowTests: XCTestCase {
             regression that filter risks is the framework quietly not reaching the macOS build at \
             all. `Verify the archived app` has a refusal that names exactly that cause; this step \
             runs before it and would otherwise report a Sparkle layout change instead
+            """)
+    }
+
+    /// The signing itself refuses with a message, like everything else here.
+    ///
+    /// The six `codesign` invocations were, for one revision, the only commands
+    /// in this workflow that could fail with no `::error::` of their own — they
+    /// just ended the job under `set -e` with codesign's own text, twenty
+    /// minutes into a tag-only run. Their likeliest failures are also the ones
+    /// whose raw text misleads: a re-locked keychain reports "User interaction
+    /// is not allowed", which reads like a missing identity, and Apple's
+    /// timestamp authority is reached six times in this step alone.
+    ///
+    /// It is an `ERR` trap rather than a `|| { … }` per line on purpose, and
+    /// that is load-bearing rather than stylistic: `testTheReSignPassRunsInsideOut`
+    /// pins the inside-out order by each signing line's *exact trailing path*,
+    /// so appending anything to those lines would silently un-pin the ordering
+    /// this whole step depends on. Hence the assertion below is that the trap
+    /// exists and is installed before the first signature is applied — a trap
+    /// set afterwards covers nothing that has already run.
+    func testTheReSignInvocationsFailWithAMessage() throws {
+        let script = try stepScript(named: Self.reSignStepName, because: """
+            It is the step whose signing commands can fail transiently, on a tag, after the archive.
+            """)
+
+        let trap = try XCTUnwrap(script.firstIndex(where: {
+            $0.contains("trap ") && $0.hasSuffix("ERR")
+        }), """
+            release.yml's `\(Self.reSignStepName)` step installs no `ERR` trap, so its six \
+            `codesign` invocations fail bare under `set -e` with no `::error::` — the only \
+            commands in this workflow that do. Their transient failures (Apple's timestamp \
+            authority, a re-locked signing keychain) then land as codesign's own text, which \
+            reads like a missing identity. Install the trap rather than appending `|| { … }` to \
+            the signing lines: `testTheReSignPassRunsInsideOut` matches those lines by their \
+            exact trailing path.
+            """)
+
+        let firstSigning = try XCTUnwrap(script.firstIndex(where: Self.isSigningInvocation), """
+            release.yml's `\(Self.reSignStepName)` step no longer signs anything.
+            """)
+        XCTAssertLessThan(trap, firstSigning, """
+            The `ERR` trap must be installed *before* the first `codesign` invocation in \
+            release.yml's `\(Self.reSignStepName)` step. A trap set afterwards cannot fire for a \
+            signature that has already been applied, which is the case it exists for.
+            """)
+
+        let message = try XCTUnwrap(script.first(where: { $0.contains("::error::") && $0.contains("Re-signing") }), """
+            release.yml's `\(Self.reSignStepName)` step carries no `::error::` text for a failed \
+            re-sign. The trap must print one — the point is the message, not the non-zero exit, \
+            which `set -e` already delivers.
+            """)
+        XCTAssertTrue(message.contains("docs/RELEASING.md"), """
+            The re-sign failure message must point at docs/RELEASING.md, like every other \
+            `::error::` in this workflow: that is where the causes worth checking first, and the \
+            re-derivation procedure for the two path lists, are written down. Got “\(message)”.
             """)
     }
 

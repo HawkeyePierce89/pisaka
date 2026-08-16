@@ -487,7 +487,22 @@ The workflow then, in order:
     saying that the pinned Sparkle version's internal layout changed and that
     both this list and the verification's required set must be re-derived from
     the new framework. That guard, not the notary service, is what must notice a
-    layout change; a glob would hide exactly the change it exists to catch.
+    layout change; a glob would hide exactly the change it exists to catch. It
+    covers the four that are *known*, though — a helper a future Sparkle *adds*
+    is invisible to it, and what catches that one is the per-binary enumeration
+    in the verification step below: the explicit list leaves the new helper
+    ad-hoc signed, and the walk refuses it. `--deep` would sign it into
+    invisibility instead, which is the second reason it is refused.
+
+    The six `codesign` invocations themselves are covered by an `ERR` trap that
+    prints one `::error::` naming the causes worth checking first — Apple's
+    timestamp authority refusing or rate-limiting (`--timestamp` reaches it six
+    times here), the throwaway keychain having re-locked since the import step
+    (reported as "User interaction is not allowed", which reads like a missing
+    identity and is not one), or a second Developer ID Application identity in
+    that keychain making the match ambiguous. A trap rather than a `|| { … }` per
+    line: `ReleaseWorkflowTests` pins the inside-out order by each line's exact
+    trailing path, so appending to those lines would break the pin.
 
     **The forward hazard, stated because it is silent:** the app is re-signed
     here with no `--entitlements`, which is correct only while the release ships
@@ -747,8 +762,8 @@ xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platfo
   -clonedSourcePackagesDirPath SourcePackages -resolvePackageDependencies
 FW=SourcePackages/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework
 
-# 1. Every Mach-O the new framework ships — the verification step's required set,
-#    minus the framework's own binary. `-type f` is what makes it once each.
+# 1. Every Mach-O the new framework ships — both lists are derived from this one
+#    output. `-type f` is what makes it once each.
 find "$FW" -type f -exec sh -c 'file -b "$1" | grep -q Mach-O' _ {} \; -print
 
 # 2. What each one arrives signed as, and which of them carries entitlements.
@@ -756,18 +771,43 @@ find "$FW" -type f -exec sh -c 'file -b "$1" | grep -q Mach-O' _ {} \; -print \
   | while IFS= read -r B; do codesign -dvv --entitlements - "$B" 2>&1; done
 ```
 
-Step 1's output, with each nested bundle's executable replaced by the bundle
-that contains it (`…/Updater.app/Contents/MacOS/Updater` → `…/Updater.app`), is
-the re-sign step's list; its output verbatim, made relative to the app, is the
-verification step's `REQUIRED` set. Step 2 is the check that the premise still
-holds: every helper should read `flags=0x10002(adhoc,runtime)` with
-`TeamIdentifier=not set` and no `Timestamp=` — that is *why* they are re-signed,
-and a version that started shipping them properly signed would make the whole
-pass unnecessary rather than merely stale. It also says which helpers need
-`--preserve-metadata=entitlements`; cross-check that against upstream's own
-signing instructions rather than inferring it, since `Autoupdate`'s shipped
-entitlement is one this release deliberately drops (see
-[the re-sign pass](#automated-releases)).
+`$FW` names one xcframework slice by hand; if a future artifact stops calling it
+`macos-arm64_x86_64`, take whichever macOS slice it does ship — the nested layout
+is what is being read, and it is the same in every slice.
+
+Step 1's output is five paths for 2.9.5 — the four helpers' executables and the
+framework's own binary, `Versions/B/Sparkle` — and **the two lists divide it
+differently**, which is the whole reason to write them out rather than reuse one:
+
+- **The re-sign step's list** is that output with each nested bundle's executable
+  replaced by the bundle that contains it
+  (`…/Updater.app/Contents/MacOS/Updater` → `…/Updater.app`,
+  `…/Versions/B/Sparkle` → `Sparkle.framework`), which is why it has as many
+  entries as step 1 printed: `codesign` signs *bundles*, and the framework is one
+  of them — signed after its four helpers, before the app.
+- **The verification step's `REQUIRED` set** is that same output made relative to
+  the app, **minus the framework's own binary** — one fewer entry. That one is
+  left out because it is not a floor the enumeration needs: the framework is
+  already checked by path, as a bundle, by the second
+  `verify_developer_id_signature` call above the loop. `REQUIRED` exists to pin
+  the four the notary service named, so a Sparkle that moves or renames one of
+  them is refused rather than silently dropped from the walk.
+
+Step 2 is the check that the premise still holds: every helper should read
+`flags=0x10002(adhoc,runtime)` with `TeamIdentifier=not set` and no `Timestamp=`
+— that is *why* they are re-signed, and a version that started shipping them
+properly signed would make the whole pass unnecessary rather than merely stale.
+
+Step 2 does **not** decide `--preserve-metadata=entitlements`. As of 2.9.5 the
+dump shows `Downloader.xpc`, `Installer.xpc` and `Updater.app` carrying an empty
+entitlements dict and only `Autoupdate` carrying anything at all, so read
+literally it would say no helper needs the flag. The flag follows upstream's
+published signing sequence instead, and stays on `Downloader.xpc` for as long as
+that sequence puts it there — an empty dict today is not a reason to drop it; it
+is what makes the day upstream adds an entitlement a non-event. `Autoupdate`'s
+shipped entitlement is the one this release deliberately drops (see
+[the re-sign pass](#automated-releases)), and that too is upstream's instruction
+rather than a reading of the dump.
 
 Then update both lists in `release.yml` and `sparkleNestedHelpers` in
 `ReleaseWorkflowTests.swift`, re-read Sparkle's distribution documentation for
