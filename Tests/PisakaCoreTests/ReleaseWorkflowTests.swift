@@ -2541,7 +2541,10 @@ final class ReleaseWorkflowTests: XCTestCase {
     ///
     /// The three assertions are the three ways that inverts back: a death branch
     /// that annotates instead of exiting, an `exit 0` anywhere on it, and a
-    /// status comparison that turns the refusal into a conditional one.
+    /// status comparison that turns the refusal into a conditional one. The
+    /// third is asserted as an allowlist over every line naming `STATUS` rather
+    /// than by looking for `if`/`test`, because shell spells that comparison in
+    /// several shapes that share no prefix — see the comment on it.
     func testTheSmokeLaunchSuccessPathIsSurvivalNotAZeroExit() throws {
         let script = try stepScript(named: Self.ciSmokeLaunchStepName, in: "ci.yml", because: """
             It is the step whose success criterion decides what a green macOS job means.
@@ -2565,13 +2568,34 @@ final class ReleaseWorkflowTests: XCTestCase {
             Got \(script.filter { $0.contains("exit 0") }).
             """)
 
-        let statusTests = script.filter { ($0.hasPrefix("if ") || $0.hasPrefix("test ")) && $0.contains("STATUS") }
+        // Asserted as an allowlist rather than by looking for test constructs.
+        // Shell spells a comparison too many ways to enumerate — `if [ "$STATUS"
+        // -ne 0 ]` is only the most obvious of them; `[ "$STATUS" -ne 0 ] &&
+        // exit 1`, `case "$STATUS" in`, `((STATUS)) && exit 1` and
+        // `[[ $STATUS == 0 ]]` are the same mutation and none of them begins
+        // with `if ` or `test `. So the assertion names the three lines that may
+        // mention the variable at all — the two that produce it and the one that
+        // prints it — and refuses every other, which covers the shapes above and
+        // the ones not thought of.
+        let statusLines = script.filter { $0.contains("STATUS") }
+        let produced = ["STATUS=0", #"wait "$PID" || STATUS=$?"#]
+        let statusTests = statusLines.filter {
+            !produced.contains($0) && !$0.hasPrefix(#"echo "::error::"#)
+        }
         XCTAssertTrue(statusTests.isEmpty, """
-            ci.yml's `\(Self.ciSmokeLaunchStepName)` step tests the launched app's exit status: \
-            \(statusTests). It must not. The status is evidence for the log and nothing else — \
-            comparing it against zero makes an app that exits immediately with status 0 a pass, and \
-            makes the refusal depend on a number a killed process and a crashed one do not \
-            distinguish.
+            ci.yml's `\(Self.ciSmokeLaunchStepName)` step uses the launched app's exit status \
+            somewhere other than producing it or printing it: \(statusTests). It must not. The \
+            status is evidence for the log and nothing else — comparing it against zero makes an \
+            app that exits immediately with status 0 a pass, and makes the refusal depend on a \
+            number a killed process and a crashed one do not distinguish. The only lines allowed to \
+            name it are \(produced) and the `::error::` that interpolates it.
+            """)
+        XCTAssertEqual(statusLines.count, produced.count + 1, """
+            ci.yml's `\(Self.ciSmokeLaunchStepName)` step must capture the dead app's status and \
+            print it, on exactly three lines: \(produced) and the `::error::` that interpolates it. \
+            Got \(statusLines). Dropping the capture leaves the refusal with no number in it, which \
+            is the one thing distinguishing a dyld abort (≥128) from an app that decided to exit \
+            cleanly — and the allowlist above cannot see a line that is gone.
             """)
 
         // The kill is on the path no refusal took. Asserted by position rather
