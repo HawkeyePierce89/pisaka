@@ -941,6 +941,13 @@ public final class LeetCodeModel: ObservableObject {
     /// requests through it: that model is a companion of this one, not a
     /// stranger, and a second transport call site would be a second place for
     /// this fold to be forgotten.
+    ///
+    /// `LeetCodeLoginGate` (L26) is the one sanctioned exception, and the reason it
+    /// is one is that the fold is *moot* there rather than forgotten: the gate
+    /// rejects on `notLoggedIn` alone and **accepts** on everything else, so a raw
+    /// error and the `.network` this would have folded it into take the identical
+    /// branch. `makeLoginGate()` therefore hands it the `transport` directly, which
+    /// is also what lets the gate be constructed — and tested — without a model.
     func send(_ request: LeetCodeHTTPRequest) async throws -> LeetCodeHTTPResponse {
         do {
             return try await transport.send(request)

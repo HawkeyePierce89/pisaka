@@ -1091,7 +1091,13 @@ the limits the design carries.
     `markSessionRejected()` and `markSessionAccepted()` are **internal rather than
     private** so `LeetCodeJudgeModel` can use them: it is a companion of this
     model, not a stranger, and a second transport call site would be a second place
-    the `network` fold could be forgotten. `isSignedIn` gained a `didSet` that tells
+    the `network` fold could be forgotten. `LeetCodeLoginGate` is the one sanctioned
+    exception to that (L26), because there the fold is *moot* rather than forgotten:
+    the gate rejects on `notLoggedIn` alone and accepts everything else, so a raw
+    error and the `.network` it would have folded into take the same branch — which
+    is why `makeLoginGate()` hands it the transport rather than this model, and what
+    keeps the gate constructible and testable without one.
+    `isSignedIn` gained a `didSet` that tells
     the judge its buttons' answer moved — placed on the property rather than at the
     three sites that write it, because two of those (`markSessionRejected()`/
     `markSessionAccepted()`) are reached from arbitrary request paths including the
