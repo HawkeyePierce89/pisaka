@@ -184,31 +184,31 @@ receives every zoom gesture, and three menu items that go through the same path.
   `ProjectSearchView.swift`, `LeetCodeDescriptionView.swift`
 - Delete: `Sources/Pisaka/CodeFontScroll.swift`
 
-- [ ] `ZoomSurfaceProviding` (an `NSView` declaring its `ZoomSurfaceKind`),
+- [x] `ZoomSurfaceProviding` (an `NSView` declaring its `ZoomSurfaceKind`),
       conformed to by the code text views and SwiftTerm's terminal view, plus a
       zero-cost `ZoomSurfaceMarker` representable for the two SwiftUI-drawn code
       surfaces (Find-in-Files result rows, the statement web view)
-- [ ] Candidate collection: find the frontmost window at the pointer via
+- [x] Candidate collection: find the frontmost window at the pointer via
       `NSWindow.windowNumber(at:belowWindowWithWindowNumber:)` — a window
       belonging to another app resolves to `.outsideApp` — then walk that
       window's view tree collecting conforming, non-hidden views whose
       *visible* rect (so a scrolled-away view does not count) contains the
       point, with their depth; hand the list to `ZoomZone.resolve`
-- [ ] `ZoomController`: owns the per-zone accumulators, resolves the zone, and
+- [x] `ZoomController`: owns the per-zone accumulators, resolves the zone, and
       calls `settings.stepZoom/resetZoom`; installs one local `NSEvent` monitor
       for `[.scrollWheel, .magnify]` that handles ⌃ *and* ⌘ modified scrolls and
       every pinch, swallowing what it handles and passing everything else through
-- [ ] Install and tear the monitor down alongside the existing app-lifecycle
+- [x] Install and tear the monitor down alongside the existing app-lifecycle
       observers in `PisakaApp`
-- [ ] View menu: Zoom In (⌘=, with a ⌘+ alternate), Zoom Out (⌘−), Reset Zoom
+- [x] View menu: Zoom In (⌘=, with a ⌘+ alternate), Zoom Out (⌘−), Reset Zoom
       (⌘0), each resolving the zone from the pointer at invocation time
-- [ ] Delete `CodeFontScroll.swift` and its four `scrollWheel` overrides — the
+- [x] Delete `CodeFontScroll.swift` and its four `scrollWheel` overrides — the
       monitor now covers them
-- [ ] Tests: the Core rules exercised here are already covered by Tasks 1–2;
+- [x] Tests: the Core rules exercised here are already covered by Tasks 1–2;
       extend `ZoomZoneTests` with the candidate shapes this task actually
       produces (editor nested in a scroll view inside a split view; terminal
       under the bottom panel's chrome; a marker inside a list row)
-- [ ] run `swift test` — must pass before Task 4
+- [x] run `swift test` — must pass before Task 4
 
 ### Task 4: App — the terminal zone
 

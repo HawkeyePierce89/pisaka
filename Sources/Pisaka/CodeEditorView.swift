@@ -59,10 +59,6 @@ struct CodeEditorView: NSViewRepresentable {
     /// re-applies the font and re-syncs the gutter/minimap in `updateNSView`.
     let fontSize: Double
 
-    /// Steps the shared font size (Cmd+scroll over the editor). Called with `+1`/
-    /// `-1`; the store clamps. Wired to `SettingsStore.stepFontSize(by:)`.
-    let onStepFontSize: (Double) -> Void
-
     /// Whether the completion popup is offered at all — `SettingsStore.completionEnabled`,
     /// which `ContentView` already observes and passes down.
     ///
@@ -160,7 +156,6 @@ struct CodeEditorView: NSViewRepresentable {
         let overlayLayoutManager = BracketOverlayLayoutManager()
         textView.textContainer?.replaceLayoutManager(overlayLayoutManager)
         assert(textView.layoutManager === overlayLayoutManager, "bracket overlay layout manager did not install")
-        textView.onStepFontSize = onStepFontSize
         // Cmd+D → the coordinator's duplicate handler. The coordinator is captured
         // *weakly*: it holds this text view only weakly itself, but Neon's
         // `TextViewHighlighter` (which the coordinator owns strongly) keeps a
@@ -1699,14 +1694,16 @@ final class EditorContainerView: NSView {
     }
 }
 
-/// The editor's `NSTextView`, adding only a Cmd+scroll font-size step and the
-/// Cmd+D duplicate-line/selection key over the stock behavior. A plain
+/// The editor's `NSTextView`, adding only the Cmd+D duplicate-line/selection key
+/// over the stock behavior and declaring itself the code zoom surface. A plain
 /// `NSTextView` otherwise (TextKit 1, configured by `CodeEditorView.makeNSView`).
 @MainActor
-final class EditorTextView: NSTextView {
-    /// Steps the shared font size on a Command-held scroll. Set by
-    /// `CodeEditorView.makeNSView`; `nil` until then.
-    var onStepFontSize: ((Double) -> Void)?
+final class EditorTextView: NSTextView, ZoomSurfaceProviding {
+    /// The editor is the code zone's own surface: a zoom gesture over it grows
+    /// the shared editor font, and the gutter and minimap follow because they are
+    /// drawn from that same size. Declared here rather than handled here — the
+    /// app's one event monitor resolves and applies it (`ZoomController`).
+    let zoomSurfaceKind: ZoomSurfaceKind = .code
 
     /// Duplicates the caret's line (or the selection) on Cmd+D, returning whether
     /// it handled the key. Set by `CodeEditorView.makeNSView` to the coordinator's
@@ -1885,14 +1882,6 @@ final class EditorTextView: NSTextView {
     override func cancelOperation(_ sender: Any?) {
         if onCancelSearch?() == true { return }
         super.cancelOperation(sender)
-    }
-
-    /// Intercept Command-held scrolls to zoom the shared font size (consuming the
-    /// event so no normal scroll happens); an ordinary scroll falls through to the
-    /// stock behavior.
-    override func scrollWheel(with event: NSEvent) {
-        if handleCommandScrollFontStep(event, step: onStepFontSize) { return }
-        super.scrollWheel(with: event)
     }
 
     /// Intercept a *clean* ⌃Space (no Command/Shift/Option) as "complete the word

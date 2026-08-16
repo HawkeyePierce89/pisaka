@@ -117,6 +117,10 @@ final class TerminalSession: Identifiable {
     }
 
     /// Reaches SwiftTerm 1.5.0's view-internal `LocalProcess` through `Mirror`.
+    ///
+    /// Note the terminal's zoom surface is declared on SwiftTerm's *view* class
+    /// below, not here: the pointer walk finds `NSView`s, and a session is not
+    /// one.
     /// The dependency is pinned to an exact version (see `Package.swift`), so the
     /// stored-property name (`process`) stays stable.
     private static func localProcess(of view: LocalProcessTerminalView) -> LocalProcess? {
@@ -125,6 +129,21 @@ final class TerminalSession: Identifiable {
         }
         return nil
     }
+}
+
+/// SwiftTerm's terminal view *is* the terminal zoom zone's surface.
+///
+/// Declared as an extension on the dependency's own class because that is the
+/// view the pointer is over: it is what `TerminalPanelView` puts on screen, and
+/// there is no subclass of ours between it and the user. The conformance carries
+/// no behavior — the app's one event monitor does the work — which is what makes
+/// extending a third-party class here harmless.
+///
+/// `TerminalView` rather than `LocalProcessTerminalView`: the subclass inherits
+/// it, and the base class is the one that actually draws the cells the pointer
+/// is over.
+extension TerminalView: ZoomSurfaceProviding {
+    var zoomSurfaceKind: ZoomSurfaceKind { .terminal }
 }
 
 #endif

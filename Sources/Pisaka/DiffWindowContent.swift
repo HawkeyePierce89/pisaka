@@ -40,8 +40,7 @@ struct DiffWindowContent: View {
                     fileID: fileID,
                     fileName: fileName,
                     rows: rows,
-                    fontSize: settings.fontSize,
-                    onStepFontSize: { settings.stepFontSize(by: $0) }
+                    fontSize: settings.fontSize
                 )
             } else {
                 Text("Loading…")

@@ -124,8 +124,7 @@ struct MergeView: View {
             MergeThreePaneView(
                 model: model,
                 currentConflict: $currentConflict,
-                fontSize: settings.fontSize,
-                onStepFontSize: { settings.stepFontSize(by: $0) }
+                fontSize: settings.fontSize
             )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -189,17 +188,14 @@ private struct MergeThreePaneView: NSViewRepresentable {
     /// font in `updateNSView`.
     var fontSize: Double = Double(NSFont.systemFontSize)
 
-    /// Steps the shared font size (Cmd+scroll over any pane). Called with `+1`/`-1`.
-    var onStepFontSize: (Double) -> Void = { _ in }
-
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> MergeContainerView {
         let coordinator = context.coordinator
 
-        let (oursScroll, oursText) = Self.makePane(editable: false, fontSize: fontSize, onStepFontSize: onStepFontSize)
-        let (resultScroll, resultText) = Self.makePane(editable: true, fontSize: fontSize, onStepFontSize: onStepFontSize)
-        let (theirsScroll, theirsText) = Self.makePane(editable: false, fontSize: fontSize, onStepFontSize: onStepFontSize)
+        let (oursScroll, oursText) = Self.makePane(editable: false, fontSize: fontSize)
+        let (resultScroll, resultText) = Self.makePane(editable: true, fontSize: fontSize)
+        let (theirsScroll, theirsText) = Self.makePane(editable: false, fontSize: fontSize)
 
         coordinator.attach(
             oursScroll: oursScroll, oursText: oursText,
@@ -239,11 +235,9 @@ private struct MergeThreePaneView: NSViewRepresentable {
     /// One non-wrapping TextKit-1 pane, mirroring `DiffView.makePane`.
     private static func makePane(
         editable: Bool,
-        fontSize: Double,
-        onStepFontSize: @escaping (Double) -> Void
+        fontSize: Double
     ) -> (NSScrollView, MergePaneTextView) {
         let textView = MergePaneTextView(usingTextLayoutManager: false)
-        textView.onStepFontSize = onStepFontSize
 
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
@@ -562,21 +556,16 @@ private struct MergeThreePaneView: NSViewRepresentable {
 /// A merge pane: an `NSTextView` that paints a full-width per-line background by
 /// `MergeLineKind` behind the glyphs (mirroring `DiffTextView`).
 @MainActor
-private final class MergePaneTextView: NSTextView {
+private final class MergePaneTextView: NSTextView, ZoomSurfaceProviding {
     fileprivate var lineKinds: [MergeLineKind] = []
     private(set) var lineStartOffsets: [Int] = [0]
 
-    /// Steps the shared font size on a Command-held scroll. Set by
-    /// `MergeThreePaneView.makePane`; `nil` until then.
-    var onStepFontSize: ((Double) -> Void)?
-
-    /// Intercept Command-held scrolls to zoom the shared font size (consuming the
-    /// event so neither a normal scroll nor the merge's synced vertical scroll
-    /// fires); an ordinary scroll falls through to the stock behavior.
-    override func scrollWheel(with event: NSEvent) {
-        if handleCommandScrollFontStep(event, step: onStepFontSize) { return }
-        super.scrollWheel(with: event)
-    }
+    /// A merge pane draws with the shared editor font, so it is a *code* surface
+    /// like the diff panes: a zoom gesture over any of the three grows the code
+    /// zone. The Command-held `scrollWheel` override this replaced is gone — the
+    /// app's single event monitor now sees the gesture first, so it can no longer
+    /// race the synced vertical scrolling.
+    let zoomSurfaceKind: ZoomSurfaceKind = .code
 
     func setPaneText(_ text: String, kinds: [MergeLineKind]) {
         string = text

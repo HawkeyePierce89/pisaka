@@ -241,6 +241,12 @@ struct ProjectSearchView: View {
                 Spacer(minLength: 0)
             }
             .contentShape(Rectangle())
+            // A result row draws with the *editor* font (both `Text`s above read
+            // `settings.fontSize`), so it is a code surface: a zoom gesture over
+            // it grows what it draws rather than the window chrome around it.
+            // There is no `NSTextView` here to conform, hence the marker — behind
+            // the row, hit-test transparent, contributing only its frame.
+            .background(ZoomSurfaceMarker(kind: .code))
         }
         .buttonStyle(.plain)
     }

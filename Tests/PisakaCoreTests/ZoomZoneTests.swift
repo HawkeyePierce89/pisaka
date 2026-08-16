@@ -79,6 +79,54 @@ final class ZoomZoneTests: XCTestCase {
         XCTAssertEqual(ZoomZone.resolve(pointer: .insideApp(candidates), focusedSurface: nil), .code)
     }
 
+    func testMainWindowWalkOverEditorAndTerminalPicksTheOneUnderThePointer() {
+        // The walk `ZoomHitTest.candidates(under:in:depth:)` performs collects
+        // *every* conforming view whose visible rect contains the point, so with
+        // the bottom terminal panel open the list can legitimately hold both
+        // kinds only when they overlap — which they do not, but the resolver must
+        // not depend on that. Whichever is deeper is the one the pointer is
+        // actually inside.
+        let editor = ZoomSurfaceCandidate(kind: .code, depth: 7)
+        let terminal = ZoomSurfaceCandidate(kind: .terminal, depth: 11)
+
+        XCTAssertEqual(
+            ZoomZone.resolve(pointer: .insideApp([editor, terminal]), focusedSurface: .code),
+            .terminal
+        )
+        XCTAssertEqual(
+            ZoomZone.resolve(
+                pointer: .insideApp([editor, ZoomSurfaceCandidate(kind: .terminal, depth: 3)]),
+                focusedSurface: .terminal
+            ),
+            .code
+        )
+    }
+
+    func testAStatementMarkerBesideTheEditorResolvesToCodeEitherWay() {
+        // The LeetCode pane sits beside the editor in the same window and is a
+        // code surface too, so a gesture anywhere across the pair means the same
+        // thing — the answer must not depend on which one the walk reached first
+        // or how deep the pane's marker happens to sit.
+        let editor = ZoomSurfaceCandidate(kind: .code, depth: 7)
+        let marker = ZoomSurfaceCandidate(kind: .code, depth: 14)
+
+        XCTAssertEqual(ZoomZone.resolve(pointer: .insideApp([editor, marker]), focusedSurface: nil), .code)
+        XCTAssertEqual(ZoomZone.resolve(pointer: .insideApp([marker, editor]), focusedSurface: nil), .code)
+    }
+
+    func testChromeAroundASurfaceStaysInterface() {
+        // The panel's tab strip, the Find in Files toolbar and the statement
+        // pane's own header are all *inside* windows that contain code and
+        // terminal surfaces, and none of them declares one — so the walk returns
+        // an empty list there and the gesture goes to the interface. This is the
+        // case that makes "no candidates" the ordinary answer rather than an
+        // error, on a window where surfaces certainly exist.
+        XCTAssertEqual(
+            ZoomZone.resolve(pointer: .insideApp([]), focusedSurface: .terminal),
+            .interface
+        )
+    }
+
     // MARK: - Outside every app window
 
     func testOutsideAppFallsBackToTheFocusedSurface() {

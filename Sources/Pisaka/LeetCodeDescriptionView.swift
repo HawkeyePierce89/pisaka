@@ -99,6 +99,13 @@ struct LeetCodeDescriptionPane: View {
             header(statement)
             Divider()
             LeetCodeStatementWebView(html: html(for: statement))
+                // The statement's body is styled with `settings.fontSize` (see
+                // `html(for:)`), so the pane's *text* already follows the code
+                // zone; marking it as a code surface is what makes a zoom gesture
+                // over it grow that text instead of the chrome around it. The
+                // marker rather than a conformance on `WKWebView`: it is not our
+                // class, and the frame is all the pointer walk needs.
+                .background(ZoomSurfaceMarker(kind: .code))
             Divider()
             // Below the statement, and inside the same pane: Run and Submit are
             // about the problem the user is reading, and the section observes

@@ -37,11 +37,6 @@ struct DiffView: NSViewRepresentable {
     /// re-applies the panes' font and refreshes the gutters in `updateNSView`.
     var fontSize: Double = Double(NSFont.systemFontSize)
 
-    /// Steps the shared font size (Cmd+scroll over a diff pane). Called with `+1`/
-    /// `-1`; the store clamps. Defaults to a no-op so a default-constructed view
-    /// (previews) compiles.
-    var onStepFontSize: (Double) -> Void = { _ in }
-
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
@@ -103,7 +98,6 @@ struct DiffView: NSViewRepresentable {
     private func makePane(side: DiffTextView.Side) -> (NSScrollView, DiffTextView, DiffGutterView) {
         let textView = DiffTextView(usingTextLayoutManager: false)
         textView.side = side
-        textView.onStepFontSize = onStepFontSize
 
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
@@ -272,27 +266,22 @@ struct DiffView: NSViewRepresentable {
 /// per-row background by `DiffRowKind` (so removed/added/changed/filler rows read
 /// at a glance) behind the glyphs and Neon's syntax colors.
 @MainActor
-final class DiffTextView: NSTextView {
+final class DiffTextView: NSTextView, ZoomSurfaceProviding {
     /// Which side of the diff this pane shows.
     enum Side { case left, right }
 
     var side: Side = .left
 
-    /// Steps the shared font size on a Command-held scroll. Set by
-    /// `DiffView.makePane`; `nil` until then.
-    var onStepFontSize: ((Double) -> Void)?
+    /// A diff pane draws with the shared editor font, so it is a *code* surface:
+    /// a zoom gesture over it grows the code zone, exactly as one over the editor
+    /// does. The Command-held `scrollWheel` override this replaced is gone — the
+    /// app's single event monitor now sees the gesture before this view does, so
+    /// the synced vertical scrolling below never competes with it.
+    let zoomSurfaceKind: ZoomSurfaceKind = .code
 
     /// The rows backing this pane, used to pick each line's background color. Set
     /// alongside `setDiffText` so the line count and rows agree.
     var diffRows: [DiffRow] = []
-
-    /// Intercept Command-held scrolls to zoom the shared font size (consuming the
-    /// event so neither a normal scroll nor the diff's synced vertical scroll
-    /// fires); an ordinary scroll falls through to the stock behavior.
-    override func scrollWheel(with event: NSEvent) {
-        if handleCommandScrollFontStep(event, step: onStepFontSize) { return }
-        super.scrollWheel(with: event)
-    }
 
     /// UTF-16 start offset of every line, so a glyph's character index maps to its
     /// row index in O(log n). Rebuilt whenever the text is replaced (via Core's

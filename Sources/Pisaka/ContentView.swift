@@ -569,7 +569,6 @@ struct ContentView: View {
                     diskRevision: model.diskRevision(for: file.id),
                     text: binding(for: file.id),
                     fontSize: settings.fontSize,
-                    onStepFontSize: { settings.stepFontSize(by: $0) },
                     completionEnabled: settings.completionEnabled,
                     search: search,
                     reveal: reveal,
