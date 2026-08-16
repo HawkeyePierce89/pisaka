@@ -723,7 +723,8 @@ and iPhone. The feature scope landed so far:
   update alert itself. There is no update channel, no check interval and no
   release-notes pane beyond what the appcast carries. DEBUG builds never update.
   Released builds are Developer ID signed, notarized and stapled, so a download
-  runs without a Gatekeeper prompt (see “Installing a released build” in
+  launches from the ordinary “downloaded from the Internet” confirmation instead
+  of being refused by Gatekeeper (see “Installing a released build” in
   `README.md`). The update signing key is a single EdDSA
   pair — if it is ever lost, installed copies will reject every future update
   and can only be moved forward by downloading a new build by hand.

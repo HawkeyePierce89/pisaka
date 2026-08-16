@@ -640,7 +640,7 @@ jobs:
           # nothing. The two realistic causes are named because they need
           # opposite responses.
           if ! xcrun stapler staple "$APP"; then
-            echo "::error::Stapling the notarization ticket into the app failed. The submission came back Accepted, so the two realistic causes are a ticket Apple has not finished publishing yet (wait a few minutes, then delete and re-push the tag — the same build notarizes again from cache) and a bundle that changed after it was submitted (a bug here; nothing may modify the app between the submit and this step). Nothing has been published. See docs/RELEASING.md."
+            echo "::error::Stapling the notarization ticket into the app failed. The submission came back Accepted, so the two realistic causes are a ticket Apple has not finished publishing yet (wait a few minutes, then delete and re-push the tag) and a bundle that changed after it was submitted (a bug here; nothing may modify the app between the submit and this step). Re-pushing is not a cheap retry: the build number is github.run_number, so the re-run archives a different CFBundleVersion and submits a build the notary service has never seen — a full archive and a fresh notarization, not a cached verdict. Nothing has been published. See docs/RELEASING.md."
             exit 1
           fi
           if ! xcrun stapler validate "$APP"; then
@@ -653,8 +653,32 @@ jobs:
           # Sparkle re-checks the signature of what it unpacks.
           codesign --verify --deep --strict --verbose=2 "$APP"
 
-          if ! spctl --assess --type execute --verbose=4 "$APP"; then
+          # Captured, and the verdict read off the output rather than off the
+          # exit status — the same reasoning the notary verdict is parsed by
+          # instead of inferred from `$?`. `spctl` exits 0 for *any* accepting
+          # rule, and which rule accepted is the whole assertion. Three
+          # acceptances that are not this one, all of them exit 0:
+          # `source=Mac App Store`; `source=Developer ID`, which is what an
+          # accepted but *unstapled* Developer ID app reports (verified against
+          # one) — so this line also re-states, from the system's side, what
+          # `stapler validate` above asserts from the bundle's; and, on a machine
+          # whose assessments were turned off (`spctl --master-disable`, a
+          # runner-image detail this workflow neither controls nor can see),
+          # everything on disk with `source=no usable signature`. Only a
+          # Developer ID signature carrying a stapled ticket reads
+          # `source=Notarized Developer ID`, and that is the claim being made.
+          #
+          # `2>&1` because spctl writes the assessment to stderr: without it
+          # $ASSESSMENT is empty and the check below refuses every run.
+          ASSESSMENT=""
+          if ! ASSESSMENT="$(spctl --assess --type execute --verbose=4 "$APP" 2>&1)"; then
+            printf '%s\n' "$ASSESSMENT"
             echo "::error::Gatekeeper refuses the stapled app (spctl --assess). This is the one check that answers the question the release is for — whether a downloaded copy runs — and it failing here means it would fail on every user's machine instead. Read the assessment above; it names which of the signature, the hardened runtime or the ticket is the problem. See docs/RELEASING.md."
+            exit 1
+          fi
+          printf '%s\n' "$ASSESSMENT"
+          if ! printf '%s\n' "$ASSESSMENT" | grep -q '^source=Notarized Developer ID$'; then
+            echo "::error::Gatekeeper accepted the stapled app under a rule other than a stapled Developer ID ticket — the assessment above does not say \"source=Notarized Developer ID\". An acceptance on any other rule says nothing about a user's download: it is either an evaluation of something that is not this signature, or a runner whose assessments are disabled, in which case this gate accepted an app it never actually assessed. Nothing has been published. See docs/RELEASING.md."
             exit 1
           fi
 

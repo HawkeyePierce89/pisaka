@@ -120,8 +120,10 @@ non-sandboxed so the standard open/save panels work without entitlements.
 Download the zip from [GitHub Releases](../../releases), unzip it, drag
 `Pisaka.app` to `/Applications` and open it. That is the whole procedure: the
 app is signed with a Developer ID Application certificate, notarized by Apple
-and stapled, so Gatekeeper lets a fresh download run with no prompt and no
-terminal command. macOS 13 or later.
+and stapled, so the first launch is the ordinary "downloaded from the Internet"
+confirmation — the one that says Apple checked it for malicious software, with
+an Open button — and nothing else. No blocked launch, no trip through System
+Settings, no terminal command. macOS 13 or later.
 
 Updates afterwards install themselves through Sparkle, which verifies each one
 against the EdDSA key baked into the copy you are running — an integrity chain

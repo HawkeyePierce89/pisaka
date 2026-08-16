@@ -374,14 +374,14 @@ mechanism* — the guard's branch must `exit 1` — the throwaway signing keycha
 private keys, by path — by the job's last step under `if: always()`, since a
 cancelled step runs neither its trailing `rm` nor its `trap`; both keys written
 inside a `(umask 077; …)` subshell, never narrowed after the redirect), the
-Developer ID
-identity, team, `ENABLE_HARDENED_RUNTIME` and `--timestamp` the archive supplies
-on the command line while `project.yml` stays signing-free, **all four**
-verified on the archived app *and* the embedded `Sparkle.framework` (the
-timestamp is *misreported* rather than absent — `codesign` prints `Signed Time=`
-for a local one — so passing the flag is not the same as it arriving), the
-notarize→staple→`spctl` chain (the notary verdict read explicitly rather than
-inferred from the exit code, the submitted zip distinct from the shipped one),
+Developer ID identity, team, `ENABLE_HARDENED_RUNTIME` and `--timestamp` the
+archive supplies on the command line while `project.yml` stays signing-free,
+**all four** verified on the archived app *and* the embedded
+`Sparkle.framework` (a local timestamp is *misreported*, not absent, so passing
+the flag is not the same as it arriving), the
+notarize→staple→`spctl` chain (both verdicts — the notary status and `spctl`'s
+`source=Notarized Developer ID` rule — read explicitly rather than inferred from
+an exit code, the submitted zip distinct from the shipped one),
 **that every step is fatal to the job** (no `continue-on-error:`, and
 `if: always()` on the cleanup as the only step condition — every
 `exit 1` this suite asserts is a refusal only because of it), the job budget
@@ -454,8 +454,9 @@ release archive, after the tag is pushed.
 
 A second workflow, `.github/workflows/release.yml`, runs **only on a `v*` tag**
 and publishes the macOS release: Developer ID Application signature, hardened
-runtime, notarized and stapled, so a fresh download runs with no Gatekeeper
-prompt. **No entitlements file ships with it**: the hardened runtime already
+runtime, notarized and stapled, so a fresh download launches from the ordinary
+"downloaded from the Internet" confirmation rather than being refused (the exact
+acceptance criterion is in `docs/RELEASING.md`). **No entitlements file ships**: the hardened runtime already
 permits `fork`/`exec` and library validation is per-process, so `GitCLIService`'s
 `git`, the PTY shell and the provisioned language servers need nothing declared —
 an entitlement is added only when a concrete failure demands one. The certificate

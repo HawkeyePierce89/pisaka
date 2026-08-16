@@ -1221,6 +1221,27 @@ final class ReleaseWorkflowTests: XCTestCase {
             and stapled ticket that no individual codesign check can see — and it is the literal \
             goal of signing and notarizing at all
             """)
+        // The verdict, not the exit status — the same distinction the notary
+        // status is parsed for. `spctl` exits 0 for *any* accepting rule, so the
+        // guard above alone is satisfied by `source=Mac App Store`, by
+        // `source=Unnotarized Developer ID`, and — the one that matters, because
+        // it is a property of the runner rather than of the build — by
+        // `source=no usable signature` on a machine whose assessments are
+        // disabled, where every path on disk is "accepted" and this gate asserts
+        // nothing at all.
+        XCTAssertTrue(script.contains { $0.contains("source=Notarized Developer ID") }, """
+            release.yml's `\(Self.stapleStepName)` step must read the accepting *rule* out of the \
+            spctl assessment and refuse anything but `source=Notarized Developer ID`. Exit status \
+            alone does not distinguish a stapled Developer ID ticket from an acceptance under some \
+            other rule, or from a runner with assessments turned off — on which spctl accepts \
+            everything and this workflow's one authoritative gate silently stops being a check.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("spctl --assess") && $0.contains("2>&1") }, """
+            The spctl assessment must be captured with `2>&1`. spctl writes it to stderr, so \
+            without the redirect the captured output is empty — and the assertion above, which \
+            greps that output for the accepting rule, would refuse every release for a reason \
+            that has nothing to do with the app.
+            """)
     }
 
     /// The order the release is assembled in, pinned end to end.
@@ -1721,8 +1742,10 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// The acceptance criterion of the signing work, pinned so a revert cannot
     /// quietly restore it.
     ///
-    /// A notarized, stapled app opens from a fresh download with no prompt, so
-    /// every instruction that told users to strip the quarantine flag or to
+    /// A notarized, stapled app opens from a fresh download through the ordinary
+    /// "downloaded from the Internet" confirmation — quarantine still applies and
+    /// macOS still asks once, but the dialog is confirmable rather than a refusal.
+    /// So every instruction that told users to strip the quarantine flag or to
     /// approve the app in System Settings is now wrong — and wrong in a
     /// particularly bad direction. `xattr -dr com.apple.quarantine` is a command
     /// that disables a security check; a project that keeps telling people to run
@@ -1747,7 +1770,8 @@ final class ReleaseWorkflowTests: XCTestCase {
             for workaround in Self.gatekeeperWorkarounds {
                 XCTAssertFalse(raw.contains(workaround), """
                     \(path) still contains “\(workaround)”. Releases are Developer ID signed, \
-                    notarized and stapled, so a downloaded copy opens with no prompt and this \
+                    notarized and stapled, so a downloaded copy opens from the ordinary \
+                    "downloaded from the Internet" confirmation and this \
                     instruction is both unnecessary and actively harmful — it teaches users to \
                     disable a security check for a problem this app no longer has. Remove it (and \
                     if signing was genuinely reverted, that revert is the bug this test is \

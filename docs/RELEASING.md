@@ -280,6 +280,14 @@ Between verifying the archive and staging the shipped zip, the workflow:
    modifies the bundle (it is supposed to be signature-neutral; this proves it
    for this build), and finally `spctl --assess --type execute --verbose=4` asks
    the *system policy* the actual question: would Gatekeeper let this app run.
+   That last answer is read out of the assessment, not off the exit status. spctl
+   exits 0 for **any** accepting rule and prints which one accepted on a
+   `source=` line, so the step refuses anything but `source=Notarized Developer
+   ID`. An accepted but *unstapled* Developer ID app reports `source=Developer
+   ID` and exits 0, and — the case that is a property of the runner rather than
+   of the build — a machine with assessments disabled accepts every path on disk
+   with `source=no usable signature`. Against either, an unguarded exit-status
+   check would wave the release through having asserted nothing.
 
 The zip submitted to the notary service is **not** the zip that ships. The
 shipped one is produced afterwards, from the same `.app`, by the existing "Stage
@@ -585,10 +593,18 @@ downloaded the app rather than built it.
   `spctl --assess` gate proves the bundle it built passes the system policy; what
   a runner structurally cannot do is the thing users do. So: download the zip
   from the release page in a browser (so it carries the quarantine flag a `curl`
-  in CI does not), unzip it, move it to `/Applications` and **double-click it** —
-  it must open with no prompt, no Privacy & Security detour and no terminal
-  command. That is this feature's acceptance criterion, and it is only true from
-  a real download.
+  in CI does not), unzip it, move it to `/Applications` and **double-click it**.
+  What must happen is a single *confirmable* dialog: "“Pisaka” is an app
+  downloaded from the Internet. Are you sure you want to open it?", saying Apple
+  checked it for malicious software and none was detected, with a button that
+  opens it. That dialog is not the failure — quarantine still applies to a
+  notarized app, and macOS still asks once. **The failure is a dialog with no
+  way forward** — one saying the developer cannot be verified or that Apple
+  cannot check the app for malicious software, sending you to System Settings →
+  Privacy & Security, or any instruction to clear the quarantine flag from a
+  terminal. None of those may appear, and the app must launch from that one
+  confirmation and never ask again. That is this feature's acceptance criterion,
+  and it is only true from a real download.
 - **The end-to-end update pass.** Install release N, publish N+1, and confirm the
   installed copy offers and installs it through Sparkle's own UI, and that
   "Check for Updates…" works on demand. What this specifically proves is that
