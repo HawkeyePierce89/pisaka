@@ -143,20 +143,20 @@ its own; the gate is the single latch, and it is unit-tested.
 - Modify: `Sources/PisakaCore/LeetCodeModel.swift`
 - Modify: `Tests/PisakaCoreTests/LeetCodeModelTests.swift`
 
-- [ ] Add `public func makeLoginGate() -> LeetCodeLoginGate`, returning a fresh
+- [x] Add `public func makeLoginGate() -> LeetCodeLoginGate`, returning a fresh
       gate over the model's own transport, documented as "one per login surface:
       the latch and the memo are the sheet's, not the app's", and noting that
       the gate's confirmation is deliberately not reused by `signIn(with:)`
       (one cheap extra request, no second adoption path).
-- [ ] Leave `signIn(with:)`, `refreshUserStatus()`, `signOut()`, the credential
+- [x] Leave `signIn(with:)`, `refreshUserStatus()`, `signOut()`, the credential
       store and the cookie purge untouched — this fix must not change sign-out,
       purging or storage behavior.
-- [ ] Add a test that the vended gate goes through the model's transport (a
+- [x] Add a test that the vended gate goes through the model's transport (a
       candidate that confirms is handed out and one `userStatus` request is
       recorded), and one that two gates from the same model are independent (a
       value rejected on one is re-confirmed by the other — the "second sheet
       after a failed attempt" case).
-- [ ] Run `swift test` — must pass before Task 3.
+- [x] Run `swift test` — must pass before Task 3.
 
 ### Task 3: Wire the observer and both login surfaces
 

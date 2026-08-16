@@ -568,6 +568,53 @@ final class LeetCodeModelTests: XCTestCase {
         XCTAssertNil(model.lastError)
     }
 
+    /// The gate the login sheet decides with is the model's own transport asking:
+    /// that is what makes the sheet reachable from a stubbed world, and what keeps
+    /// the confirmation on the same credentials path as everything else here. The
+    /// policy itself is pinned in `LeetCodeLoginGateTests`; this is the wiring.
+    func testTheVendedGateConfirmsThroughTheModelsTransport() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        let model = makeModel(tree: tree, transport: transport)
+
+        let captured = await model.makeLoginGate().offer(credentials)
+
+        XCTAssertEqual(captured, credentials)
+        XCTAssertEqual(transport.count(for: .userStatus), 1)
+    }
+
+    /// One gate per login surface: the latch and the rejected-value memo belong to
+    /// the sheet, not to the app. The case that matters is a second sheet opened
+    /// after a failed attempt — if the memo were the model's, the value the first
+    /// sheet rejected would stay rejected and the retry could never sign in.
+    func testGatesFromTheSameModelAreIndependent() async throws {
+        let tree = makeTree()
+        let transport = makeTransport()
+        transport.serve(
+            .userStatus,
+            sequence: [
+                LeetCodeHTTPResponse(
+                    statusCode: 200,
+                    headers: [:],
+                    body: Self.fixture("user-status-signed-out.json")
+                ),
+                LeetCodeHTTPResponse(
+                    statusCode: 200,
+                    headers: [:],
+                    body: Self.fixture("user-status-signed-in.json")
+                )
+            ]
+        )
+        let model = makeModel(tree: tree, transport: transport)
+
+        let rejected = await model.makeLoginGate().offer(credentials)
+        XCTAssertNil(rejected)
+
+        let captured = await model.makeLoginGate().offer(credentials)
+        XCTAssertEqual(captured, credentials, "a fresh sheet inherited the old sheet's memo")
+        XCTAssertEqual(transport.count(for: .userStatus), 2)
+    }
+
     /// A session LeetCode rejects at the moment it was obtained is not worth
     /// keeping: nothing is left stored and the state stays signed out.
     func testASessionLeetCodeRejectsIsNotKept() async throws {

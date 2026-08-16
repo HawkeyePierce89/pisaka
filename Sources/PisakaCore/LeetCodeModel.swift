@@ -379,8 +379,34 @@ public final class LeetCodeModel: ObservableObject {
 
     // MARK: - The account
 
+    /// Make the gate one login surface will decide with.
+    ///
+    /// **One per login surface**, built in the representable's
+    /// `makeCoordinator()`: the one-shot latch and the rejected-value memo are the
+    /// *sheet's*, not the app's, so a second sheet opened after a failed attempt
+    /// starts clean and nothing about a past attempt is stored on the model.
+    ///
+    /// The gate confirms over this model's own transport, which is what makes the
+    /// login decision reachable from the tests that already stub that transport.
+    ///
+    /// Its answer is deliberately **not** threaded into `signIn(with:)`: that
+    /// method keeps confirming for itself. The cost is one cheap extra request,
+    /// once per successful login, and it buys keeping a single adoption path
+    /// through the most state-heavy method in the integration — with no race, since
+    /// `signIn` runs only after the gate has handed the pair out, and the gate hands
+    /// out at most once.
+    public func makeLoginGate() -> LeetCodeLoginGate {
+        LeetCodeLoginGate(transport: transport)
+    }
+
     /// Adopt the session lifted out of the login web view's cookie store, and
     /// confirm it with LeetCode.
+    ///
+    /// What arrives here has already been confirmed once, by the surface's
+    /// `LeetCodeLoginGate` — the cookie pair on its own is only a *candidate* (see
+    /// that type for what django-allauth does mid-OAuth). This method confirms
+    /// again anyway; the tolerance below is what covers a session that died, or a
+    /// network that went away, between the two calls.
     ///
     /// - Returns: the confirmed account name, or `nil` when LeetCode reported the
     ///   session as signed in but named nobody.
