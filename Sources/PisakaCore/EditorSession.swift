@@ -61,9 +61,16 @@ public struct SessionTab: Codable, Equatable {
 ///    case: autosave skips it because it has nowhere to write, so its text is
 ///    stored here or lost for good.
 /// 2. **Untitled text is not size-capped.** The session goes into `UserDefaults`,
-///    so a pathologically large scratch buffer is written on every debounce. If
-///    that ever bites, move the blob to Application Support — the model does not
-///    change, only `SessionStore`'s backing store.
+///    so a pathologically large scratch buffer is written on every debounce —
+///    and since the blob is now the whole `SessionCatalog`, one write decodes and
+///    re-encodes *every* remembered project, not just the current one, making the
+///    cost proportional to the summed scratch text of up to `maxStoredProjects`
+///    entries. `SessionController`'s equal-snapshot guard keeps that off the
+///    steady state (an unchanged session is not rewritten), so it is only paid
+///    while the session actually keeps changing. If it ever bites, the escape
+///    hatch is unchanged: move the blob to Application Support, or key each
+///    project separately — the model does not change, only `SessionStore`'s
+///    backing store.
 /// 3. **One session per project, with no per-window identity.** The project half
 ///    is `SessionCatalog`: one entry per folder, keyed by that folder, so opening
 ///    a different project no longer overwrites the one you left. The window half
@@ -146,6 +153,47 @@ public struct EditorSession: Codable, Equatable {
             folderPath: projectRoot?.path,
             tabs: tabs,
             selectedIndex: selectedIndex
+        )
+    }
+
+    /// The session to **store** for a project whose tabs were applied on top of
+    /// tabs that were already open — `incoming` merged onto `carried`, in the
+    /// order and with the selection `WorkspaceModel.restoreSession(_:)` leaves
+    /// behind. `carried` contributes only its tabs; the identity of the result is
+    /// `incoming`'s `folderPath`.
+    ///
+    /// This exists for exactly one caller — the **first Open Folder of a run**,
+    /// where the outgoing workspace has no folder and its tabs travel *into* the
+    /// project rather than being force-closed (see `WorkspaceModel.replaceSession`
+    /// for the other, replacing case). What makes it load-bearing rather than a
+    /// convenience is the store-vs-live invariant the switch rests on: **the
+    /// session filed for the incoming project must be a superset of what the live
+    /// model then holds.** The app seeds `SessionController`'s "already written"
+    /// marker with the post-swap live snapshot so a restore that silently skipped
+    /// records cannot be persisted over the recorded session — and that marker
+    /// suppresses every later equal write, the quit-time flush included. Filing
+    /// the *unmerged* `incoming` there would therefore make the carried tabs
+    /// unwritable for the rest of the run: the pre-folder Untitled buffer would be
+    /// on screen, absent from the stored session, and gone at the next launch.
+    ///
+    /// The selection mirrors `restoreSession`'s own rule: anything restored takes
+    /// the selection, at `incoming`'s recorded index or — when that index is
+    /// absent or out of range — its last tab; an `incoming` with no tabs at all
+    /// leaves `carried`'s selection standing.
+    public static func merging(_ incoming: EditorSession, onto carried: EditorSession) -> EditorSession {
+        guard !incoming.tabs.isEmpty else {
+            return EditorSession(
+                folderPath: incoming.folderPath,
+                tabs: carried.tabs,
+                selectedIndex: carried.selectedIndex
+            )
+        }
+        let landing = incoming.selectedIndex.flatMap { incoming.tabs.indices.contains($0) ? $0 : nil }
+            ?? (incoming.tabs.count - 1)
+        return EditorSession(
+            folderPath: incoming.folderPath,
+            tabs: carried.tabs + incoming.tabs,
+            selectedIndex: carried.tabs.count + landing
         )
     }
 }

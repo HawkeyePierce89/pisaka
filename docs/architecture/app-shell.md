@@ -646,8 +646,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `model.restoreSession(_:)` — *on top of* the pre-folder tabs, carrying them into
     the project — and with `replaceSession(with:)` otherwise. At launch the two are
     the same thing, there being nothing open to carry.
-    Then `sessionController.noteProjectSwitch(promoting:)` files the incoming
-    session at the catalog's head. That replaces relying on the 1 s debounce the
+    Then `sessionController.noteProjectSwitch(promoting:)` files the session for the
+    incoming project at the catalog's head — **the merged one in the carrying case**
+    (`EditorSession.merging(_:onto:)` over a snapshot taken just before
+    `restoreSession` appends), the incoming entry itself otherwise. The distinction
+    is load-bearing rather than tidy, and is the superset invariant stated below:
+    promoting the unmerged entry would leave the carried tabs on screen but
+    *unwritable* for the rest of the run — the seeded marker suppresses the quit-time
+    flush too — so a pre-folder Untitled buffer would be gone at the next launch,
+    which is the loss the carrying branch exists to prevent in the first place.
+    That replaces relying on the 1 s debounce the
     swap arms, for two reasons: promotion becomes immediate, so a crash inside that
     second still records which project the user is in; and, the reason it exists,
     applying a session **silently skips records this build cannot open**, so the
@@ -656,7 +664,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `dropFirst()`s prevent at launch, reached by the same route. It seeds
     `lastWritten` with the post-swap snapshot, which `writeSession()`'s
     equal-snapshot guard turns into the suppression; a genuine user change afterwards
-    writes normally. Every existing collaborator call is untouched — a re-open of the
+    writes normally. **The caller therefore owes one invariant: the promoted session
+    must be a *superset* of what the live model holds after the swap.** The seeding
+    suppresses not just the armed debounce but every later equal write, `flushNow()`
+    on quit included, so what the promoted session omits is not merely unwritten now
+    — it is unwritable until the user changes something. A superset is the whole
+    intent (records restore skipped are kept rather than truncated away); a subset
+    silently destroys the difference. Every existing collaborator call is untouched — a re-open of the
     current folder stays for the tabs the no-op it already is for them.
     `restoreLastSession()` runs
     **once**, from the window content's `.onAppear` (gated by `didRestoreSession`,

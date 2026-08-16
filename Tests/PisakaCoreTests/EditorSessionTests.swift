@@ -155,6 +155,64 @@ final class EditorSessionTests: XCTestCase {
         XCTAssertEqual(session.tabs, [.file(path: viaLink.path)])
     }
 
+    // MARK: - merging
+
+    func testMergingAppendsIncomingTabsAfterTheCarriedOnes() {
+        let carried = EditorSession(
+            folderPath: "/b",
+            tabs: [.untitled(text: "notes"), .file(path: "/elsewhere/n.txt")],
+            selectedIndex: 0
+        )
+        let incoming = EditorSession(folderPath: "/b", tabs: [.file(path: "/b/x.txt")], selectedIndex: 0)
+
+        let merged = EditorSession.merging(incoming, onto: carried)
+
+        XCTAssertEqual(merged.tabs, [
+            .untitled(text: "notes"),
+            .file(path: "/elsewhere/n.txt"),
+            .file(path: "/b/x.txt"),
+        ])
+        // Anything restored takes the selection, shifted past the carried tabs.
+        XCTAssertEqual(merged.selectedIndex, 2)
+        XCTAssertEqual(merged.folderPath, "/b")
+    }
+
+    func testMergingAnEmptyIncomingSessionKeepsTheCarriedSelection() {
+        // The first Open Folder of a folder never opened before: nothing to apply,
+        // so the carried tabs *are* the project's session and the selection the
+        // user had must survive being filed under the new key.
+        let carried = EditorSession(
+            folderPath: "/b",
+            tabs: [.untitled(text: "notes"), .file(path: "/elsewhere/n.txt")],
+            selectedIndex: 1
+        )
+
+        let merged = EditorSession.merging(EditorSession(folderPath: "/b"), onto: carried)
+
+        XCTAssertEqual(merged.tabs, carried.tabs)
+        XCTAssertEqual(merged.selectedIndex, 1)
+        XCTAssertEqual(merged.folderPath, "/b")
+    }
+
+    func testMergingFallsBackToIncomingsLastTabWhenItsSelectionIsAbsentOrOutOfRange() {
+        // `restoreSession`'s own `selectedID ?? openFiles.last?.id` rule, restated
+        // on the stored side so the two cannot drift.
+        let carried = EditorSession(tabs: [.untitled(text: "notes")], selectedIndex: 0)
+        let tabs: [SessionTab] = [.file(path: "/b/x.txt"), .file(path: "/b/y.txt")]
+
+        for absent in [nil, 7, -1] {
+            let incoming = EditorSession(folderPath: "/b", tabs: tabs, selectedIndex: absent)
+            XCTAssertEqual(EditorSession.merging(incoming, onto: carried).selectedIndex, 2)
+        }
+    }
+
+    func testMergingIsIdentityOnAnEmptyCarriedSession() {
+        // Launch restore and every re-open reach the carrying branch with nothing
+        // open, and must file exactly the entry they read.
+        let incoming = EditorSession(folderPath: "/b", tabs: [.file(path: "/b/x.txt")], selectedIndex: 0)
+        XCTAssertEqual(EditorSession.merging(incoming, onto: EditorSession()), incoming)
+    }
+
     // MARK: - SessionTab shape
 
     func testFactoriesProduceTheExpectedFields() {

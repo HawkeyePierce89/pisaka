@@ -164,6 +164,17 @@ final class SessionController {
     /// equal-snapshot guard suppress it; a genuine user change afterwards produces a
     /// different snapshot and writes normally.
     ///
+    /// **The caller owes one invariant: `session` must be a superset of what the
+    /// live model holds after the swap.** The seeding above suppresses not just the
+    /// debounce the swap arms but *every* later equal write, `flushNow()` on quit
+    /// included — so whatever `session` omits is not merely unwritten now, it is
+    /// unwritable until the user changes something. A *superset* is exactly the
+    /// intent (the records restore skipped are kept rather than truncated away); a
+    /// subset silently destroys the difference. The replacing switch satisfies it
+    /// trivially by promoting the stored entry the model was just filled from; the
+    /// carrying one — the first Open Folder of a run — has to merge the tabs it
+    /// carried in, which is what `EditorSession.merging(_:onto:)` is for.
+    ///
     /// A no-op before `start`, which is what launch restore wants: it opens the
     /// recorded folder before the controller has a model, and the head is already
     /// that project.

@@ -248,7 +248,25 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     spelling for the same reason), while canonicalization is a *matching* rule and
     so lives on the read side, where `restoreSession` applies it for dedup — the
     same store-as-given / match-canonically asymmetry `WorkspaceModel.open(url:)`
-    already has. **Three deliberate limits, recorded on `EditorSession` itself.**
+    already has. `EditorSession.merging(_:onto:)` is the second pure rule, for the
+    **one caller that applies a session on top of tabs already open** — the first
+    Open Folder of a run, where the no-folder workspace's tabs travel into the
+    project instead of being force-closed. It returns what
+    `WorkspaceModel.restoreSession(_:)` leaves behind, expressed as a session to
+    *store*: the carried tabs then the incoming ones, under `incoming`'s
+    `folderPath`, with `restoreSession`'s own selection rule restated (anything
+    restored takes the selection, at the recorded index or — absent/out of range —
+    the incoming session's last tab; an incoming session with no tabs leaves the
+    carried selection standing). It is load-bearing rather than a convenience
+    because of the switch's store-vs-live invariant, stated in full on
+    `SessionController.noteProjectSwitch(promoting:)`: the session filed for the
+    incoming project must be a **superset** of what the live model then holds,
+    since the app seeds that controller's "already written" marker with the
+    post-swap live snapshot and the marker suppresses every later equal write, the
+    quit-time flush included. Filing the unmerged incoming entry would make the
+    carried tabs unwritable for the rest of the run — the pre-folder Untitled
+    buffer on screen, absent from the store, gone at the next launch.
+    **Three deliberate limits, recorded on `EditorSession` itself.**
     (1) The contents of dirty *titled* files are **not** persisted, only their
     paths: their text has somewhere to live and autosave already puts it there —
     on quit `flushNow` writes every dirty titled buffer *before* the snapshot is
@@ -256,9 +274,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     window (~2 s), the exposure the editor already has; an Untitled buffer is the
     opposite case, skipped by autosave because it has nowhere to write, so the
     session is the only thing carrying its text across a restart. (2) Untitled text
-    is **not size-capped** — if a pathologically large scratch buffer written on
-    every debounce ever bites, move the blob to Application Support, which changes
-    `SessionStore`'s backing store and not the model. (3) **One session per
+    is **not size-capped**, and the blob being the whole `SessionCatalog` means one
+    write decodes and re-encodes *every* remembered project rather than only the
+    current one — the cost is proportional to the summed scratch text of up to
+    `maxStoredProjects` entries. `SessionController`'s equal-snapshot guard keeps
+    that off the steady state (an unchanged session is not rewritten), so it is paid
+    only while the session actually keeps changing; if it ever bites, the escape
+    hatch is unchanged — move the blob to Application Support, or key each project
+    separately, which changes `SessionStore`'s backing store and not the model.
+    (3) **One session per
     project, with no per-window identity** — the *project* half is what
     `SessionCatalog` (below) makes exact; the *window* half is exact today rather
     than a limitation, since the app is single-window and its `WorkspaceModel` is

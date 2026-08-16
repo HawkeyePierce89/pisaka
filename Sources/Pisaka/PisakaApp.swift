@@ -1491,8 +1491,12 @@ struct PisakaApp: App {
     /// catalog's head, which opening this folder is about to take. Force-closing
     /// there would file an unsaved Untitled buffer under a key nothing reads again,
     /// so the pre-folder tabs travel *into* the project instead: the incoming
-    /// session is applied on top of them rather than replacing them. At launch that
-    /// is the same thing, since there is nothing open to carry.
+    /// session is applied on top of them rather than replacing them, and the
+    /// session *promoted* for the project is the two merged
+    /// (`EditorSession.merging(_:onto:)`) — promoting the unmerged incoming one
+    /// would leave those tabs on screen but unwritable, see `noteProjectSwitch`'s
+    /// superset invariant. At launch this is all the same thing, since there is
+    /// nothing open to carry.
     private func openFolder(url: URL) {
         // Both decided *before* `model.openFolder(url:)` moves `projectRoot`, which
         // would make every later test read as a re-open.
@@ -1525,12 +1529,31 @@ struct PisakaApp: App {
         if isSwitch {
             var incoming = sessionStore.session(forFolder: url) ?? EditorSession()
             incoming.folderPath = url.path
+            let promoted: EditorSession
             if hadFolder {
                 model.replaceSession(with: incoming)
+                promoted = incoming
             } else {
+                // The carried tabs have to reach the *store*, not just the model.
+                // `noteProjectSwitch` seeds the "already written" marker with the
+                // post-swap live snapshot, which suppresses every later equal write
+                // — the quit-time flush included — so a promoted session missing
+                // these tabs would make them unwritable for the rest of the run:
+                // on screen, absent from the stored session, gone at the next
+                // launch. `EditorSession.merging` states the order and selection
+                // (it must be a *superset* of the live model); the snapshot is
+                // taken before `restoreSession` appends the incoming tabs, and
+                // `projectRoot` has already moved, so it is stamped with the right
+                // folder either way.
+                let carried = EditorSession.snapshot(
+                    openFiles: model.openFiles,
+                    selectedID: model.selectedID,
+                    projectRoot: url
+                )
                 model.restoreSession(incoming)
+                promoted = EditorSession.merging(incoming, onto: carried)
             }
-            sessionController.noteProjectSwitch(promoting: incoming)
+            sessionController.noteProjectSwitch(promoting: promoted)
         }
         // Watch the newly opened folder so external changes (a generator run in the
         // embedded terminal, a Finder rename, a console `git checkout`) reach the

@@ -2233,6 +2233,62 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertEqual(restored.selectedID, restored.openFiles[1].id)
     }
 
+    func testTheCarriedPreFolderTabsAreWhatGetsStoredForTheProject() {
+        // The regression this guards: the first Open Folder of a run carries the
+        // pre-folder tabs into the project (`restoreSession`, not
+        // `replaceSession`), but what the app *promotes* to the catalog head must
+        // be the merge, not the incoming entry alone. `noteProjectSwitch` seeds
+        // `SessionController.lastWritten` with the post-swap live snapshot, and
+        // that marker suppresses every later equal write including the quit-time
+        // flush — so an unmerged promotion leaves the carried Untitled buffer on
+        // screen, absent from the store, and gone at the next launch. Reproduced
+        // here at the Core level: the app's two Core calls in its order, the store
+        // in the middle, and a fresh model reading the head back.
+        let service = PathContentsFileService(contents: ["/b/x.txt": "ex"])
+        let model = WorkspaceModel(fileService: service)
+        let scratch = model.newFile()
+        model.updateText("notes typed before any folder was open", for: scratch.id)
+
+        // What `openFolder(url:)` does for the `hadFolder == false` branch.
+        let folder = URL(fileURLWithPath: "/b")
+        model.openFolder(url: folder)
+        let incoming = EditorSession(
+            folderPath: folder.path,
+            tabs: [.file(path: "/b/x.txt")],
+            selectedIndex: 0
+        )
+        let carried = EditorSession.snapshot(
+            openFiles: model.openFiles,
+            selectedID: model.selectedID,
+            projectRoot: folder
+        )
+        model.restoreSession(incoming)
+        let promoted = EditorSession.merging(incoming, onto: carried)
+
+        let defaults = UserDefaults(suiteName: "session.carried.\(UUID().uuidString)")!
+        let store = SessionStore(defaults: defaults)
+        defer { store.clear() }
+        store.save(promoted)
+
+        // The promoted entry is a superset of the live model — the invariant the
+        // suppressed debounce rests on — so the scratch survives being filed.
+        let live = EditorSession.snapshot(
+            openFiles: model.openFiles,
+            selectedID: model.selectedID,
+            projectRoot: model.projectRoot
+        )
+        XCTAssertEqual(promoted, live)
+        XCTAssertEqual(store.loadLastOpened(), promoted)
+        XCTAssertEqual(store.session(forFolder: folder), promoted)
+
+        let relaunched = WorkspaceModel(fileService: service)
+        relaunched.restoreSession(store.loadLastOpened()!)
+
+        XCTAssertEqual(relaunched.openFiles.map(\.displayName), ["Untitled", "x.txt"])
+        XCTAssertEqual(relaunched.openFiles.first?.text, "notes typed before any folder was open")
+        XCTAssertEqual(relaunched.selectedID, relaunched.openFiles.last?.id)
+    }
+
     // MARK: - Project switch (isCurrentProjectRoot / replaceSession)
 
     func testReplaceSessionDropsTheOutgoingTabsAndOpensTheIncomingOnes() {

@@ -318,7 +318,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the *project→project* path only — when the outgoing workspace had no folder at
     all the app applies the incoming session with `restoreSession(_:)` instead, so
     a pre-folder Untitled buffer is carried into the project rather than
-    force-closed under a key nothing reads again; see `app-shell.md`),
+    force-closed under a key nothing reads again — and files the *merged* session
+    for that project, `EditorSession.merging(_:onto:)` being the stored-side
+    statement of what this leaves behind, since the switch's marker makes anything
+    the promoted session omits unwritable for the rest of the run; see
+    `app-shell.md` and `core-services.md`),
     `restoreSession(_:)`
     (applies a persisted `EditorSession` to a normally empty model — see
     `EditorSession.swift`: reopen the recorded tabs in order and restore the
