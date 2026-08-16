@@ -432,8 +432,11 @@ The workflow then, in order:
     discovery of a missing one to the notary service's rejection, a full archive
     later — but so would passing it and never checking it arrived, since
     `OTHER_CODE_SIGN_FLAGS` holds a single value and anything that displaces it
-    (a `settings.base` entry in `project.yml`, a different task re-signing the
-    embedded framework) drops the timestamp with nothing local objecting. **No entitlements file goes with the hardened runtime**: it permits
+    (a `settings.base` entry in `project.yml`) drops the timestamp with nothing
+    local objecting. Re-signing after the archive is the *other* way to lose it,
+    and the step below that does exactly that is why every one of its `codesign`
+    lines passes `--timestamp` explicitly — a re-signed bundle carries the flags
+    of the invocation that re-signed it and none of the archive's. **No entitlements file goes with the hardened runtime**: it permits
     `fork`/`exec` by default and library validation is per-process, so the `git`
     subprocess, the PTY shell and the downloaded language servers all launch with
     nothing declared. An entitlement is added when a concrete failure demands one
@@ -448,11 +451,84 @@ The workflow then, in order:
     still embed `Sparkle.framework` (the package dependency links
     unconditionally), so every verification below would pass while the release
     shipped with "Check for Updates…" permanently disabled.
+  - **Re-sign Sparkle's nested helpers**, between the archive and the
+    verification. Xcode's archive re-signs the embedded `Sparkle.framework`
+    *bundle* with the run's identity — that much is verified and is true — but it
+    does not recurse into the framework's own nested helper bundles. Sparkle
+    ships four of them, all under `Versions/B/` and all carrying upstream's
+    ad-hoc signature (`flags=0x10002(adhoc,runtime)`, no team, no `Timestamp=`):
+    `XPCServices/Installer.xpc`, `XPCServices/Downloader.xpc`, `Autoupdate` and
+    `Updater.app`. The step signs those four, one `codesign` invocation per line,
+    then the framework, then the app — **inside-out, because modifying nested
+    code invalidates every seal above it**: a helper signed after its framework
+    leaves the framework sealing a hash that no longer matches, and the app is
+    therefore always last.
+
+    Every invocation passes `--force`, the same `Developer ID Application`
+    identity the archive selects, `--options runtime` and `--timestamp`;
+    `Downloader.xpc` additionally passes `--preserve-metadata=entitlements`. That
+    sequence and those flags come from **Sparkle's own distribution documentation
+    for the pinned 2.9.5** (sparkle-project.org, the sandboxing/code signing
+    page), followed rather than reasoned out from first principles, with
+    `--timestamp` added on top of each: a secure timestamp is a notarization
+    requirement, and upstream's snippet leaves it to an Xcode build setting that
+    is not in play for a `codesign` run by hand. Preserving entitlements on
+    `Downloader.xpc` alone is also upstream's instruction, so `Autoupdate`'s
+    shipped `com.apple.application-identifier` is dropped deliberately — carrying
+    an App-Store-shaped identifier belonging to a foreign team into a Developer
+    ID signature is itself a notarization finding.
+
+    **The list is written out, and `--deep` is refused.** Apple documents
+    `--deep` as a debugging convenience unsuited to distribution signing — it
+    applies one set of flags to everything it finds and silently signs whatever
+    happens to be nested — while an enumerable list is the thing the verification
+    below and `ReleaseWorkflowTests` can hold to account. Each of the four paths
+    is `test -e`-guarded before it is signed, with an `::error::` naming it and
+    saying that the pinned Sparkle version's internal layout changed and that
+    both this list and the verification's required set must be re-derived from
+    the new framework. That guard, not the notary service, is what must notice a
+    layout change; a glob would hide exactly the change it exists to catch. It
+    covers the four that are *known*, though — a helper a future Sparkle *adds*
+    is invisible to it, and what catches that one is the per-binary enumeration
+    in the verification step below: the explicit list leaves the new helper
+    ad-hoc signed, and the walk refuses it. `--deep` would sign it into
+    invisibility instead, which is the second reason it is refused.
+
+    The six `codesign` invocations themselves are covered by an `ERR` trap that
+    prints one `::error::` naming the causes worth checking first — Apple's
+    timestamp authority refusing or rate-limiting (`--timestamp` reaches it six
+    times here), the throwaway keychain having re-locked since the import step
+    (reported as "User interaction is not allowed", which reads like a missing
+    identity and is not one), or a second Developer ID Application identity in
+    that keychain making the match ambiguous. A trap rather than a `|| { … }` per
+    line: `ReleaseWorkflowTests` pins the inside-out order by each line's exact
+    trailing path, so appending to those lines would break the pin.
+
+    **The forward hazard, stated because it is silent:** the app is re-signed
+    here with no `--entitlements`, which is correct only while the release ships
+    no entitlements file (see the archive bullet above). The day one is added it
+    has to be passed on this line too, or this step strips it back off and
+    nothing fails until the shipped app cannot do the thing the entitlement was
+    added for.
+
+    **Why the step exists: `v1.0` was rejected.** Run 31936509608 came back
+    `Invalid`, the log naming those four binaries and nothing else, each with the
+    same two findings — "not signed with a valid Developer ID certificate" and
+    "does not include a secure timestamp". Nothing was published: the
+    notarization step read the verdict, printed the log and exited 1, well before
+    `gh release create`, which is how the design above intends a rejection to
+    land. Recovery was the ordinary one and is not a special case — delete the
+    tag and push it again; the fresh run archives under a new
+    `github.run_number` (see [the build number](#the-build-number)), and since
+    that run never reached the publish step there was no draft release to delete
+    first.
   - The app is taken straight from
     `build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app` — no
-    `-exportArchive`. That is a choice rather than a limitation now: the archive
-    already carries the shipping Developer ID signature and the hardened runtime,
-    so an export would only re-sign it under a *second* configuration (an export
+    `-exportArchive`. That is a choice rather than a limitation now: by the time
+    this step runs the app already carries the shipping Developer ID signature
+    and the hardened runtime — the archive's, replaced in place by the re-sign
+    pass above — so an export would only re-sign it under a *third*
+    configuration on top of that (an export
     options plist whose team, identity and signing style have to be kept in step
     with the archive's command line forever, with a disagreement failing at the
     notary service rather than in the workflow). The app is then
@@ -473,6 +549,41 @@ The workflow then, in order:
     Sparkle keys could stop being merged in from the partial
     `Resources/Info.plist` with the step still green, shipping an app that can
     never find an update.
+
+    **Those two signature reads are bundle-level, and bundle-level was not
+    enough.** `v1.0` passed both, passed `codesign --verify --deep --strict` on
+    the whole app, and was rejected by the notary service naming four Mach-Os
+    nested inside `Sparkle.framework`. `--deep --strict` asks whether every
+    nested signature is *valid*, and an ad-hoc signature is a perfectly valid
+    signature — validity is not identity. So the same four facts now also run
+    over **every Mach-O in the app**, discovered rather than listed:
+    `find "$APP" -type f` filtered through `file -b … | grep -q Mach-O`, with
+    `-type f` making "discovered" mean "once each" (a framework is a tree of
+    symlinks, and following them would check the same binary several times under
+    several names while proving nothing extra). `codesign --display` on a nested
+    bundle's *executable* reports that bundle's signature, so enumerating Mach-Os
+    covers `Updater.app` and the two XPC services without a second,
+    bundle-shaped walk; each is labelled by its path relative to the app, so a
+    refusal names which binary failed. The bundle-level reads stay alongside the
+    loop, leaving three call sites in the step: the app, the framework, and the
+    enumeration. What the two named reads add is *independence*, not extra facts
+    — `codesign --display` reports the same four lines for a bundle and for that
+    bundle's main executable, so the loop already covers both, but only for as
+    long as the enumeration works, and these two name their targets by path.
+    They carry no resource seal; that is `codesign --verify --deep --strict`,
+    which stays as well because it answers a question the four facts do not.
+
+    Two refusals guard the enumeration itself, because a recursion that silently
+    matches nothing is the same shape of bug as the one it was added to catch.
+    An **empty enumeration is a refusal, not a pass**: `find` and `file` are two
+    tools whose output is parsed here, either could stop matching without
+    failing, and the loop would then run zero times, print nothing, and leave the
+    step — and every assertion about it — green while checking no binary at all.
+    And the **four helper Mach-Os the notary service named must be among what was
+    enumerated**, by exact path: that is the floor under the enumeration and the
+    counterpart to the re-sign step's explicit list, so a Sparkle version that
+    moves or renames one of them refuses here rather than at the submission
+    twenty minutes later.
 
     Two of those four keys are checked by **value** rather than by presence.
     `CFBundleVersion` must equal this run's `github.run_number` (see below), and
@@ -554,9 +665,23 @@ keychain never named, the three certificate refusals — the base64 decode, the
 unlock and the lock settings including the absence of `-l`, the partition list's
 `-s`, the decoded `.p12`
 written under a `(umask 077; …)` subshell, the `if: always()`
-deletion of the keychain *and of both private keys by path*), the Developer ID /
-team / hardened-runtime / secure-timestamp read-back on both the app and the
-framework *and the dump being printed as well as judged*,
+deletion of the keychain *and of both private keys by path*), the re-sign pass
+(each of the four nested helpers signed; every signing invocation in that step
+carrying `--force`, the Developer ID identity, `--options runtime` and
+`--timestamp`; `--preserve-metadata=entitlements` on `Downloader.xpc` alone; the
+inside-out order compared by index rather than by presence — helpers before the
+framework, framework before the app; each of the four existence guards reaching
+`exit 1`; and `--deep` asserted absent from every *signing* invocation anywhere
+in the file, while the legitimate `codesign --verify --deep --strict` call is
+separately asserted to remain), the Developer ID /
+team / hardened-runtime / secure-timestamp read-back at all three call sites —
+the app, the embedded framework, and the loop over every Mach-O in the app —
+*and the dump being printed as well as judged*, the Mach-O enumeration itself
+(a `find` over the app whose results are filtered on `Mach-O` and fed to
+`verify_developer_id_signature`, so deleting the recursion fails the suite) with
+both of its refusals asserted by mechanism (the empty enumeration, and the four
+required helper paths — matched against the same constant the re-sign
+assertions use, so the two lists cannot drift apart),
 `project.yml` staying signing-free, the notarization submit (`--wait` plus the
 API-key trio, the exit-code capture that keeps `set -e` from pre-empting the
 verdict, the guarded JSON reads, the non-`Accepted` branch exiting 1, the log
@@ -568,8 +693,11 @@ the cleanup as the only step condition), the job budget exceeding the notary
 than restated as a number, so raising CI's budget cannot leave this claim true
 only by coincidence — the
 staple (refusing with a message of its own rather than bare `Error 65`) and its
-`stapler validate`, the full step ordering (archive < notarize <
-staple < shipped zip < `generate_appcast` < `gh release create`), the shipped zip
+`stapler validate`, the full step ordering (archive < re-sign < verify <
+notarize < staple < shipped zip < `generate_appcast` < `gh release create` —
+re-signing after the verification would verify signatures the run is about to
+replace, and re-signing after the submission would invalidate the ticket Apple
+issued), the shipped zip
 being a different artefact from the submitted one, the absence of the old
 Gatekeeper workaround strings from every document that used to carry them, the
 unsigned-appcast refusal and its position
@@ -598,6 +726,93 @@ commands (`# \`ditto -c -k\` and not \`zip\`` sits three lines above the real
 invocation), so a raw substring search stays green when the command it names is
 deleted.
 
+**What the `v1.0` rejection cost, stated once so it generalizes.** Two things
+follow from a dependency that ships nested *executable* helpers, and neither was
+obvious before the notary service said so:
+
+- **The dependency's own distribution documentation is part of de-risking a
+  release.** Sparkle documents the exact re-sign sequence its framework needs,
+  flag for flag; reading it costs minutes, and not reading it cost a rejected
+  tag. Any future dependency that embeds helper bundles, XPC services or
+  command-line tools owes the same read before the first release that ships it.
+- **A local signature check must recurse to every Mach-O.** The checks that
+  existed were *true* — the app and the framework really did carry a Developer ID
+  Application signature, this team, the hardened runtime and a secure timestamp —
+  and they still missed four binaries, because a bundle-level read says nothing
+  about code nested inside the bundle, and `--deep --strict` only asks whether
+  that nested code's signature is valid. Truth at the level you happened to check
+  is not coverage of the level Apple checks.
+
+### Upgrading Sparkle
+
+Two hard-coded path lists in `.github/workflows/release.yml` are pinned to
+Sparkle 2.9.5's internal layout — the re-sign step's four helper *bundles* and
+the verification step's four required *Mach-Os* one level inside them — plus
+`sparkleNestedHelpers` in `ReleaseWorkflowTests`, which is the same fact a third
+time and is what keeps the two halves from drifting. Bumping `exactVersion:` in
+`project.yml` without re-deriving them is caught, but only by an `::error::` on
+a pushed tag, after the archive. Re-derive them first:
+
+```sh
+# `Pisaka.xcodeproj` is generated and gitignored, so this comes first: without
+# it the resolve below fails with "does not exist" on a clean checkout — on the
+# one path whose alternative is guessing the two path lists.
+xcodegen generate
+xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=macOS' \
+  -clonedSourcePackagesDirPath SourcePackages -resolvePackageDependencies
+FW=SourcePackages/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework
+
+# 1. Every Mach-O the new framework ships — both lists are derived from this one
+#    output. `-type f` is what makes it once each.
+find "$FW" -type f -exec sh -c 'file -b "$1" | grep -q Mach-O' _ {} \; -print
+
+# 2. What each one arrives signed as, and which of them carries entitlements.
+find "$FW" -type f -exec sh -c 'file -b "$1" | grep -q Mach-O' _ {} \; -print \
+  | while IFS= read -r B; do codesign -dvv --entitlements - "$B" 2>&1; done
+```
+
+`$FW` names one xcframework slice by hand; if a future artifact stops calling it
+`macos-arm64_x86_64`, take whichever macOS slice it does ship — the nested layout
+is what is being read, and it is the same in every slice.
+
+Step 1's output is five paths for 2.9.5 — the four helpers' executables and the
+framework's own binary, `Versions/B/Sparkle` — and **the two lists divide it
+differently**, which is the whole reason to write them out rather than reuse one:
+
+- **The re-sign step's list** is that output with each nested bundle's executable
+  replaced by the bundle that contains it
+  (`…/Updater.app/Contents/MacOS/Updater` → `…/Updater.app`,
+  `…/Versions/B/Sparkle` → `Sparkle.framework`), which is why it has as many
+  entries as step 1 printed: `codesign` signs *bundles*, and the framework is one
+  of them — signed after its four helpers, before the app.
+- **The verification step's `REQUIRED` set** is that same output made relative to
+  the app, **minus the framework's own binary** — one fewer entry. That one is
+  left out because it is not a floor the enumeration needs: the framework is
+  already checked by path, as a bundle, by the second
+  `verify_developer_id_signature` call above the loop. `REQUIRED` exists to pin
+  the four the notary service named, so a Sparkle that moves or renames one of
+  them is refused rather than silently dropped from the walk.
+
+Step 2 is the check that the premise still holds: every helper should read
+`flags=0x10002(adhoc,runtime)` with `TeamIdentifier=not set` and no `Timestamp=`
+— that is *why* they are re-signed, and a version that started shipping them
+properly signed would make the whole pass unnecessary rather than merely stale.
+
+Step 2 does **not** decide `--preserve-metadata=entitlements`. As of 2.9.5 the
+dump shows `Downloader.xpc`, `Installer.xpc` and `Updater.app` carrying an empty
+entitlements dict and only `Autoupdate` carrying anything at all, so read
+literally it would say no helper needs the flag. The flag follows upstream's
+published signing sequence instead, and stays on `Downloader.xpc` for as long as
+that sequence puts it there — an empty dict today is not a reason to drop it; it
+is what makes the day upstream adds an entitlement a non-event. `Autoupdate`'s
+shipped entitlement is the one this release deliberately drops (see
+[the re-sign pass](#automated-releases)), and that too is upstream's instruction
+rather than a reading of the dump.
+
+Then update both lists in `release.yml` and `sparkleNestedHelpers` in
+`ReleaseWorkflowTests.swift`, re-read Sparkle's distribution documentation for
+the new version in case the sequence itself changed, and run `swift test`.
+
 ### Why `github.run_number` is the build number
 
 `CFBundleVersion` is what Sparkle compares to decide one build is newer than
@@ -621,10 +836,18 @@ downloaded the app rather than built it.
 - ~~**Swap in the real key.**~~ Done 2026-08-16: the real `SUPublicEDKey` is
   committed, `swift test` passes the shape assertions against it, and the
   placeholder string appears nowhere in `Resources/Info.plist`.
-- **The first tag push.** Confirm the workflow creates the release with both
-  assets and the expected build number, and — deliberately — that a tag whose
-  version does not match `MARKETING_VERSION` fails in the preflight, *before*
-  archiving, with the intended message.
+- **The first tag push — partly done, and it failed.** `v1.0` (run 31936509608)
+  was pushed and the run got as far as the notary service, which returned
+  `Invalid` for the four nested Sparkle helpers (see
+  [the re-sign pass](#automated-releases) above). What that proved is not
+  nothing: the preflight passed, the throwaway keychain imported the certificate
+  and found the identity, the archive produced a Developer ID signed,
+  hardened-runtime build, and the rejection surfaced with its log printed while
+  **nothing was published** — the failure path behaving as designed. What is
+  still owed is a *successful* run: the release created with both assets and the
+  expected build number, and — deliberately — the check that a tag whose version
+  does not match `MARKETING_VERSION` fails in the preflight, *before* archiving,
+  with the intended message.
 - **The first notarized tag, from a real download.** The workflow's own
   `spctl --assess` gate proves the bundle it built passes the system policy; what
   a runner structurally cannot do is the thing users do. So: download the zip

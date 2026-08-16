@@ -179,7 +179,7 @@ packages:
   libgit2:
     url: https://github.com/ibrahimcetin/libgit2
     exactVersion: "1.9.2"
-  # Sparkle 2, the macOS auto-update framework. Three things about this pin are
+  # Sparkle 2, the macOS auto-update framework. Four things about this pin are
   # different from every other entry above and are worth stating rather than
   # rediscovering:
   #   * It is a SwiftPM **binaryTarget** package: the manifest at tag 2.9.5 does
@@ -197,6 +197,18 @@ packages:
   #     the acceptance gate for that filter.
   #   * Everything that imports it (`SoftwareUpdater.swift`) is inside
   #     `#if os(macOS)`, as always.
+  #   * **It ships nested code, and bumping this version invalidates two path
+  #     lists outside this file.** The xcframework is not one binary but five:
+  #     `Versions/B/Sparkle` plus four helper bundles — `Versions/B/Autoupdate`,
+  #     `Versions/B/Updater.app` and the XPC services `Downloader.xpc` and
+  #     `Installer.xpc` — each arriving with upstream's *ad-hoc* signature.
+  #     Xcode's archive re-signs the framework bundle and does not recurse into
+  #     them, which is what got `v1.0` rejected by the notary service, so
+  #     `.github/workflows/release.yml` re-signs those four by explicit path and
+  #     verifies every Mach-O in the app. A version whose layout moves any of
+  #     them makes both lists stale; the workflow refuses rather than shipping,
+  #     but only on a pushed tag, after the archive. Re-derive them first —
+  #     `docs/RELEASING.md`'s "Upgrading Sparkle" carries the recipe.
   # Its LICENSE already aggregates the external notices for bsdiff (Colin
   # Percival), sais-lite (Yuta Mori), the portable C ed25519 implementation
   # (orlp/ed25519, Orson Peters) and SUSignatureVerifier.m (Mark Hamlin), so
