@@ -15,6 +15,17 @@ import PisakaCore
 /// live in `EditorSession.snapshot` (pure, unit-tested), so this stays the thin
 /// trigger→action wiring the repo convention wants of the view layer.
 ///
+/// Sessions are stored **per project**, and nothing about that is visible here:
+/// `store.save(_:)` is an *upsert into the session catalog, keyed by the snapshot's
+/// own `folderPath`*, which promotes that project to the catalog's head (the head
+/// being what launch restore follows). So this controller keeps writing one
+/// snapshot of the live model and the store decides where it lands — which is
+/// exactly why a project switch persists the outgoing project's tabs simply by
+/// calling `flushNow()` *before* `projectRoot` moves, and why the debounced write
+/// that lands after the swap promotes the incoming project instead of corrupting
+/// the outgoing one. The snapshot is always of the live model at fire time, so no
+/// half-swapped state is writable.
+///
 /// An **empty session is written like any other**: a user who closed every tab
 /// and quit must come back to an empty editor rather than have the session before
 /// last resurrected.
@@ -82,8 +93,8 @@ final class SessionController {
         // that truncated session over the recorded one before the user has
         // touched anything. Nothing is lost by waiting for a real change: a first
         // launch that stores no session is indistinguishable from one that stores
-        // an empty one, since `load()` returning `nil` and an empty session both
-        // restore nothing.
+        // an empty one, since `loadLastOpened()` returning `nil` and an empty
+        // session both restore nothing.
         let trigger = Publishers.Merge3(
             model.$openFiles.dropFirst().map { _ in () },
             model.$selectedID.dropFirst().map { _ in () },
@@ -112,7 +123,9 @@ final class SessionController {
     /// Write the session synchronously, bypassing the debounce. Called on quit
     /// (from `PisakaApp`'s `willTerminateNotification` observer, *after*
     /// `AutosaveController.flushNow()`), where a debounced write would never fire
-    /// before the process exits.
+    /// before the process exits — and on a **project switch**, where the outgoing
+    /// project's snapshot has to be taken while `projectRoot` still names it, since
+    /// that is what `save(_:)`'s keyed upsert files it under.
     ///
     /// It bypasses the debounce but **not** the "nothing has changed yet" rule the
     /// `dropFirst()`s give the debounced path, and that guard is load-bearing rather
@@ -123,6 +136,13 @@ final class SessionController {
     /// user having touched nothing. That is precisely the loss `start`'s
     /// `dropFirst()`s prevent one second after launch, and it must not come back one
     /// quit later.
+    ///
+    /// The switch path leans on the same guard for a second, sharper case: launch
+    /// restore opens the recorded folder *before* `start` is called, so the
+    /// pre-switch flush there runs against a controller that has no model at all.
+    /// The guard makes it the no-op it must be — an unguarded snapshot would file
+    /// the empty live model under the no-folder workspace's key and take that
+    /// project's stored untitled buffer with it.
     func flushNow() {
         guard hasObservedChange else { return }
         writeSession()

@@ -194,7 +194,7 @@ half-swapped state can be written.
 - Modify: `Sources/Pisaka/PisakaApp.swift`
 - Modify: `Sources/Pisaka/SessionController.swift` (doc comment only)
 
-- [ ] in `openFolder(url:)`, compute `isSwitch = !model.isCurrentProjectRoot(url)`
+- [x] in `openFolder(url:)`, compute `isSwitch = !model.isCurrentProjectRoot(url)`
       **first**; when it is a switch, before touching anything:
       `guard !revertInFlight() else { return }`, then
       `autosave.flushNow(reportingSaves: true)`, then — if
@@ -202,24 +202,24 @@ half-swapped state can be written.
       return without switching (a new sibling of `reportUnsavedBeforeCommit`), then
       `sessionController.flushNow()` to persist the outgoing snapshot while
       `projectRoot` is still the outgoing folder
-- [ ] after `model.openFolder(url: url)` and before the existing collaborator
+- [x] after `model.openFolder(url: url)` and before the existing collaborator
       registration, when `isSwitch`, apply the incoming session:
       `model.replaceSession(with: sessionStore.session(forFolder: url) ?? EditorSession())`
-- [ ] leave every existing collaborator call (watcher, Local Changes, Log, branch
+- [x] leave every existing collaborator call (watcher, Local Changes, Log, branch
       switcher, project search, commit dialog, symbol index, LSP) exactly as it is —
       re-opening the current folder stays the no-op for tabs that it now is for them
-- [ ] rewrite `restoreLastSession()` to read `sessionStore.loadLastOpened()` and,
+- [x] rewrite `restoreLastSession()` to read `sessionStore.loadLastOpened()` and,
       when the recorded folder still exists, open it through `openFolder(url:)`
       (which now applies the tabs); otherwise fall back to
       `model.restoreSession(session)` for the no-folder and vanished-folder cases;
       start `sessionController` last, exactly as today
-- [ ] update the doc comments on `openFolder(url:)`, `restoreLastSession()` and
+- [x] update the doc comments on `openFolder(url:)`, `restoreLastSession()` and
       `SessionController` to state the switch semantics, why the outgoing snapshot
       goes through `flushNow()`'s `hasObservedChange` guard, and that `save(_:)` is
       now a keyed upsert
-- [ ] tests: none new here by convention (the view layer is untested); the behavior
+- [x] tests: none new here by convention (the view layer is untested); the behavior
       this task wires is the Core behavior already covered by Tasks 1–3
-- [ ] `xcodegen generate` and build macOS and iOS (`xcodebuild … -destination
+- [x] `xcodegen generate` and build macOS and iOS (`xcodebuild … -destination
       'platform=macOS'` and `'generic/platform=iOS'`) — both must succeed, and
       `swift test` must stay green, before Task 5
 
