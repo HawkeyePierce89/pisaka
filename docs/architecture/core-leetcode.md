@@ -96,7 +96,7 @@ the catalog's one file, on the catalog's schedule, but reachable from a button
 where before LC-3 only an open could reach it. Neither the write nor the gate
 changes: the file is under `Application Support`, not in the worktree.
 
-The decisions L1–L25 are written out at the end of this document, together with
+The decisions L1–L26 are written out at the end of this document, together with
 the limits the design carries.
 
 ## Files
@@ -132,8 +132,12 @@ the limits the design carries.
     written down exactly once — the same constants that find the cookies in the
     `WKWebView` store put them back on the wire.
     `from(cookies:)` is the pure rule both platforms' login observers share, and
-    it is pure precisely because those observers are untested view code: *when a
-    login succeeded* must not be decided in either of them. Both cookies are
+    it is pure precisely because those observers are untested view code: nothing
+    about what a login *is* may be decided in either of them. **What it produces
+    is a candidate, not a session** — both cookies present is necessary and not
+    sufficient, because LeetCode sets `LEETCODE_SESSION` for an anonymous Django
+    session too (L26); confirming a candidate is `LeetCodeLoginGate`'s job. Both
+    cookies are
     required (LeetCode sets `csrftoken` for anonymous visitors too, so it alone
     means nothing, and `LEETCODE_SESSION` alone cannot make a mutating call);
     values are trimmed and an empty value counts as absent (a sign-out blanks
@@ -807,6 +811,36 @@ the limits the design carries.
     will be fetched again", and `store` returns a `Bool` so the degradation is
     assertable and every caller may ignore it. Images are not mirrored — the known
     limit of the offline reopen.
+  - `LeetCodeLoginGate.swift` — the whole answer to "have we actually signed in
+    yet?", and the only latch in the login path (L26). A `@MainActor` class over a
+    `LeetCodeTransport` with one operation,
+    `offer(_:) async -> LeetCodeCredentials?`: hand it the pair the cookie store
+    just produced and it hands the pair back only once LeetCode has confirmed it
+    is a session — `LeetCodeAPI.userStatusRequest` + `parseUserStatus`, the
+    integration's existing primitive and no second copy of the GraphQL document
+    (L1). A rejected candidate is discarded **silently**: no error, no state,
+    nothing published, and the sheet stays up so the OAuth chain can run to its
+    end. Four rules, all of them the reason this type exists rather than a `Bool`
+    in the observer: the **one-shot** is consumed only by a *confirmed* candidate,
+    so rejecting the anonymous mid-OAuth session leaves the gate armed for the real
+    one; **rejected values are memoised by `session` value**, so the several
+    navigations of one round trip cost one confirmation rather than one each (sound
+    because completing the login rotates the cookie — Django cycles the session key
+    against fixation — so the real pair can never collide with the memoised
+    anonymous one); **at most one confirmation is in flight**, and an offer that
+    arrives during one *waits and re-evaluates its guards* rather than being
+    dropped, since dropping would re-create the bug one layer down (the final, real
+    candidate discarded because a slow confirmation of the anonymous one was still
+    running, leaving a sheet nothing can retrigger); and **only an answer rejects**
+    — `isSignedIn == false` and `notLoggedIn` (what a 401/403 or an auth `errors`
+    array parses to, the same conflation `signIn` makes), while `network`,
+    `throttled`, `apiChanged`, a decode failure or a non-`LeetCodeError` from a
+    transport decorator all **accept**, so an unreachable LeetCode behaves exactly
+    as the shipped dismiss-first code did. One gate per login surface
+    (`LeetCodeModel.makeLoginGate()`, called from each representable's
+    `makeCoordinator()`), so the latch and the memo are the sheet's and a second
+    sheet after a failed attempt starts clean; nothing about it is stored on the
+    model.
   - `LeetCodeModel.swift` — the one `@MainActor ObservableObject` the integration
     is driven through: who is signed in, opening a problem, and the statement for
     the active tab. Everything below it is pure or single-purpose, and **this is
@@ -843,6 +877,13 @@ the limits the design carries.
     `markSessionRejected()` while everything else (offline, throttled) stays quiet.
     Swallowing it with the rest left a dead session reading as signed in, with the
     account name in the menu, until the user tried to open something.
+    `makeLoginGate()` vends a fresh `LeetCodeLoginGate` over the model's own
+    transport — one per login surface, so the latch and the memo live on the sheet
+    and nothing about a past attempt is stored here — and the gate's answer is
+    deliberately **not** threaded into `signIn(with:)` (L26): the cost is one cheap
+    extra request once per successful login, and it buys a single adoption path
+    through the most state-heavy method in the area, with no race, since `signIn`
+    runs only after the gate has handed the pair out and the gate hands out once.
     `signIn(with:)` stores the pair, confirms it, and discards a session
     LeetCode rejects at the moment it was obtained; a confirmation that could not be
     *made* (offline, throttled) is **not** a rejection, so the cookies stay and the
@@ -1050,7 +1091,13 @@ the limits the design carries.
     `markSessionRejected()` and `markSessionAccepted()` are **internal rather than
     private** so `LeetCodeJudgeModel` can use them: it is a companion of this
     model, not a stranger, and a second transport call site would be a second place
-    the `network` fold could be forgotten. `isSignedIn` gained a `didSet` that tells
+    the `network` fold could be forgotten. `LeetCodeLoginGate` is the one sanctioned
+    exception to that (L26), because there the fold is *moot* rather than forgotten:
+    the gate rejects on `notLoggedIn` alone and accepts everything else, so a raw
+    error and the `.network` it would have folded into take the same branch — which
+    is why `makeLoginGate()` hands it the transport rather than this model, and what
+    keeps the gate constructible and testable without one.
+    `isSignedIn` gained a `didSet` that tells
     the judge its buttons' answer moved — placed on the property rather than at the
     three sites that write it, because two of those (`markSessionRejected()`/
     `markSessionAccepted()`) are reached from arbitrary request paths including the
@@ -1434,12 +1481,21 @@ the limits the design carries.
     a different account" possible at all. Only `leetcode.com` is purged, so the SSO
     providers' own cookies — the whole reason the store is persistent — survive.
     **Checked at `didCommit` *and* `didFinish`, fired at most once**: `didCommit` is
-    when the response's `Set-Cookie` headers have landed, `didFinish` catches a
-    cookie set from script after load, and `hasCaptured` — checked *and set* in one
-    synchronous step **after** the store read's suspension, since two navigations
-    can be in flight and a check made before the read lets both through it — makes
-    the pair idempotent, because firing twice would race two `signIn`s, each a
-    network call and a Keychain write. `WKHTTPCookieStore`'s two callback APIs are awaited through
+    when the response's `Set-Cookie` headers have landed and `didFinish` catches a
+    cookie set from script after load. What the read produces is a **candidate**,
+    and every candidate goes to the observer's `LeetCodeLoginGate`, which asks
+    LeetCode whether that session is signed in and answers `nil` for the anonymous
+    one django-allauth sets on the way out to an SSO provider (L26) — only what the
+    gate hands back reaches `onCredentials`, so the surface stays up for the whole
+    OAuth round trip. **The gate is also the only latch**: the observer keeps no
+    `hasCaptured` of its own, because "did the login succeed" is a decision and
+    decisions belong in tested Core code — and the gate applies its one-shot
+    *after* its own suspension, which is what makes two navigations in flight fire
+    once between them (the property this observer used to get by checking and
+    setting `hasCaptured` in one synchronous step after the store read). Firing
+    once still matters for the reason it always did: twice would race two
+    `signIn`s, each a network call and a Keychain write.
+    `WKHTTPCookieStore`'s two callback APIs are awaited through
     explicit continuations rather than the compiler-generated `async` overloads,
     whose names come from a renaming rule that is invisible at the call site and has
     changed spelling across SDKs.
@@ -1448,18 +1504,25 @@ the limits the design carries.
     page, especially an SSO provider's mid-redirect, is a full web page with its own
     scrolling and keyboard, and a half-height sheet on a phone leaves almost nothing
     visible once the keyboard is up). Both are four lines of representable around
-    `LeetCodeLoginObserver` plus chrome. **Dismiss first, confirm behind it**: the
-    moment the cookies appear the surface goes away and the confirmation round trip
-    runs on the model, where the result belongs (`signedInUsername`, or
-    `lastError`) — holding a modal web view open over a spinner would make an
-    offline moment look like a failed login when the session in hand is fine. The
+    `LeetCodeLoginObserver` plus chrome. Each takes the model for one reason
+    besides its chrome: `makeCoordinator()` builds the observer with
+    `model.makeLoginGate()`, once per surface and never in `body`, which is exactly
+    the gate's intended scope. **Confirm, then dismiss — with the offline fallback
+    intact**: the surface goes away only once the gate has heard from LeetCode that
+    the candidate is a session (dismissing on the cookies alone is what ended the
+    SSO round trip halfway, L26), and everything after that dismissal is unchanged
+    — the confirmation round trip runs on the model, where the result belongs
+    (`signedInUsername`, or `lastError`), because holding a modal web view open over
+    a spinner would make an offline moment look like a failed login when the session
+    in hand is fine. That is the same reason the gate itself accepts a candidate it
+    could not reach LeetCode to check. The
     confirmation runs in a bare `Task`, **not** `.task`, because the view is
     disappearing in the same turn and a `.task` is cancelled on disappear, which
     would cancel the very round trip it was started for. `updateNSView`/`updateUIView`
     re-point the callback and **never reload**: a body re-evaluation (the model
     publishing anything at all) must not restart a login the user is halfway
     through.
-    Dismissing first has a consequence the macOS view carries an `onFailure`
+    Dismissing on confirmation has a consequence the macOS view carries an `onFailure`
     parameter for: the surface is already gone when the confirmation lands, so a
     session LeetCode *rejects* has nothing on screen to appear on unless the
     presenter says where. It is required rather than optional on purpose — each of
@@ -1945,6 +2008,22 @@ the limits the design carries.
     the cookie rule (both present, one missing, empty value, duplicates, extra
     cookies ignored), every error sentence non-empty and distinct, the
     case-insensitive header lookup.
+  - `LeetCodeLoginGateTests` — the login decision the observers no longer make,
+    asserted as **behavior and request counts** (`count(for: .userStatus)`) over
+    `ScriptedLeetCodeTransport`: a confirmed candidate handed back on the first
+    offer for one request; handed out **exactly once**, a second offer of the same
+    pair answering `nil` and issuing nothing; an anonymous candidate answering
+    `nil` **without consuming the latch**, so a later rotated value that confirms
+    is still handed out; three offers of one rejected value costing one
+    confirmation while a rotated value costs a second; two overlapping offers
+    staged with `hold(.userStatus, on: Gate())` — the same value waiting instead of
+    asking again, a *different*, confirmable value confirmed immediately afterwards
+    and returned; a transport failure (and every non-answer failure) accepting the
+    candidate and consuming the latch; and a `403` — LeetCode's other spelling of
+    "not signed in" — rejecting, matching `signIn`'s reading of `notLoggedIn`. The
+    wiring half is in `LeetCodeModelTests`: the vended gate confirms through the
+    model's own transport, and two gates from one model are independent (the
+    "second sheet after a failed attempt" case).
   - `LeetCodeAPITests` — exact request bodies and headers per call; every recorded
     fixture parses to the expected model; each hand-authored shape-violation fixture
     throws `apiChanged` naming its key path; logged-out, paid-only and throttled
@@ -2224,6 +2303,42 @@ means, what a file is named, when a fetch happens, and what gets written.
   `LeetCodeProblemInput.isNumberAttempt` — exported for exactly this, so the rule
   keeps one spelling. Without it a rejected number fell through to the substring
   branch and `0` listed `01-matrix`, which is a real slug and problem 542.
+- **L26 — "signed in" means LeetCode confirmed it, not that the cookie is
+  there.** The shipped login path assumed `LEETCODE_SESSION` appears only after a
+  successful login, and that assumption is simply false. LeetCode's SSO runs
+  through django-allauth: hitting `/accounts/<provider>/login/` makes the server
+  store the OAuth `state` (and the `next` URL) *before* redirecting out to GitHub
+  or Google, and storing anything server-side creates a Django session — so
+  `Set-Cookie: LEETCODE_SESSION=…` arrives on the way **out**, while the user is
+  still anonymous. The observer fired there, the sheet dismissed mid-OAuth, and
+  `signIn(with:)`'s own confirmation then correctly answered `notLoggedIn`: SSO
+  sign-in could not succeed at all, and the web view that would have finished the
+  round trip was already gone. So the cookie pair is a **candidate**, and
+  `LeetCodeLoginGate` is the one thing that turns one into a session: it asks the
+  existing user-status call and hands the candidate back only on
+  `isSignedIn == true`. A rejection is silent — nothing published, nothing stored,
+  the surface stays up — and it does **not** consume the one-shot, because the
+  real session is the very next thing to arrive. Two rules keep that from becoming
+  a confirmation storm across the several navigations of one round trip: rejected
+  values are memoised **by `session` value** (sound because completing the login
+  rotates the cookie — Django cycles the session key against fixation — so the
+  real pair cannot collide with the memoised anonymous one), and **at most one
+  confirmation is in flight**, with a concurrent offer *waiting and re-evaluating*
+  rather than being dropped; dropping would re-create this very bug one layer
+  down, discarding the final candidate because a slow confirmation of the
+  anonymous one was still running. **Only an answer rejects**: a transport
+  failure, a throttle, an `apiChanged` or anything else non-`LeetCodeError`
+  **accepts**, so an unreachable LeetCode behaves exactly as the shipped
+  dismiss-first code did and the tolerant confirmation inside `signIn` remains the
+  next line of defence — refusing on a failure would strand the user in a sheet
+  that never dismisses, strictly worse than the bug being fixed. Finally, the
+  gate's answer is deliberately **not** fed to `signIn(with:)`, which keeps
+  confirming for itself: one cheap extra request per successful login in exchange
+  for a single adoption path through the most state-heavy method in the area, and
+  the two cannot race because `signIn` runs only after the gate has handed the
+  pair out, once. The gate is also the *only* latch — the observers lost their
+  `hasCaptured` — because when a login succeeded is a decision, and decisions live
+  in Core where `swift test` can see them.
 
 ## Known limits
 
@@ -2260,6 +2375,15 @@ means, what a file is named, when a fetch happens, and what gets written.
   must be content a user may see, move or delete in Files, so caches stay in
   Application Support. `LSSupportsOpeningDocumentsInPlace` remains the separate
   question of in-place access to what the *picker* vends.
+- **A provider that drives its flow through a popup window would not work**, and
+  this was not verified for every provider. Neither login view installs a
+  `WKUIDelegate`, so a `window.open` from the provider's page has nowhere to open:
+  WebKit asks the delegate for a second web view and, with none, the flow stops.
+  GitHub's allauth flow is a same-window redirect chain and needs nothing — the
+  SSO failure L26 fixes was never a popup failure — so this stays a recorded limit
+  rather than speculative work; the fix, if a provider ever needs one, is a
+  `WKUIDelegate` that loads the requested URL in the same view or vends a real
+  child web view.
 - **SSO cookies outlive the sign-in sheet** (the persistent `WKWebsiteDataStore` is
   what makes SSO work at all). Sign Out purges `leetcode.com` cookies only,
   deliberately leaving every other site a web view in this app has loaded alone.

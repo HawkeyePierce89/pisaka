@@ -597,7 +597,10 @@ user sees it.
   project, and opening a problem never changes the project root — the solution
   file just opens as an ordinary tab.
   - **Sign In…** opens leetcode.com's own login page in a web view, so the SSO
-    providers (GitHub, Google, …) work exactly as they do in a browser. The
+    providers (GitHub, Google, …) sign you in as they do in a browser, as long as
+    the provider redirects in place rather than opening a popup window (see Known
+    limitations). The sheet stays up for the whole round trip and comes down only
+    once LeetCode has confirmed the session — the cookies alone are not one. The
     session it produces is kept in the Keychain; **Sign Out** clears both that
     item and the `leetcode.com` cookies. One account at a time — switching means
     signing out and back in.
@@ -914,3 +917,7 @@ and iPhone. The feature scope landed so far:
   - Sign Out clears `leetcode.com`'s cookies, but cookies an SSO provider set on
     *its own* domain survive it, so signing back in may not ask for the password
     again.
+  - Sign-in providers are followed **in the same web view**: GitHub's flow is a
+    redirect chain and works, but a provider that drives its login through a
+    **popup window** would have nowhere to open it and would stall. Not every
+    provider was verified.

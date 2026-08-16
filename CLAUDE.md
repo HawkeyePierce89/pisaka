@@ -129,9 +129,10 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LSPInstallEngine.swift` — download → verify → unpack → one rename (D12–D14).
 - `LSPProvisioning.swift` — consent, the row/prompt values, `LSPProvisioningModel`.
 
-`docs/architecture/core-leetcode.md` — the LeetCode integration, incl. decisions L1–L25:
+`docs/architecture/core-leetcode.md` — the LeetCode integration, incl. decisions L1–L26:
 - `LeetCodeTransport.swift` — the one app/Core boundary seam.
-- `LeetCodeCredentials.swift` — the session pair; absence ≡ signed out.
+- `LeetCodeCredentials.swift` — the cookie pair; absence ≡ signed out, presence ≡ candidate (L26).
+- `LeetCodeLoginGate.swift` — the login-confirmation gate: candidate → session, the one latch (L26).
 - `LeetCodeError.swift` — the nine typed failures; `apiChanged(detail:)` names the key path.
 - `LeetCodeProblem.swift` — catalog row + detail (incl. the internal `questionID`, L16).
 - `LeetCodeJudge.swift` — the judge vocabulary; the strict verdict/state tables (L22).

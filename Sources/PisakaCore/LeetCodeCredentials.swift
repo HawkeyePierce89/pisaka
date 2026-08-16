@@ -10,6 +10,14 @@ import Foundation
 /// SSO, which is precisely why a scripted username/password login is not an
 /// option — and the app lifts the pair out of the cookie store afterwards.
 ///
+/// **Holding the pair is not the same as being signed in.** LeetCode hands out a
+/// `LEETCODE_SESSION` for an *anonymous* Django session too — django-allauth
+/// creates one at `/accounts/<provider>/login/`, on the way out to the SSO
+/// provider — so what the cookie store produces is a candidate that
+/// `LeetCodeLoginGate` confirms with LeetCode before anything adopts it (L26).
+/// Once adopted, a value of this type is the session every authenticated call
+/// sends.
+///
 /// `Codable` because the Keychain item is one JSON blob (`LeetCodeKeychainStore`),
 /// with explicit keys so a rename here cannot silently invalidate everyone's
 /// stored session.
@@ -44,16 +52,19 @@ public struct LeetCodeCredentials: Equatable, Sendable, Codable {
         "\(Self.sessionCookieName)=\(session); \(Self.csrfCookieName)=\(csrfToken)"
     }
 
-    /// Turn the cookies a `WKWebView` store handed over into credentials, or
-    /// `nil` when the user is not (yet) signed in.
+    /// Turn the cookies a `WKWebView` store handed over into a **candidate** pair,
+    /// or `nil` when the two cookies are not both there.
     ///
     /// The one rule both platforms' login views share, and the reason it is pure:
-    /// the observers on macOS and iOS are untested view code, so the decision of
-    /// *when the login succeeded* must not live in either of them.
+    /// the observers on macOS and iOS are untested view code, so nothing about
+    /// what a login *is* may live in either of them. What it answers is "are both
+    /// cookies present and non-empty", which is necessary and **not sufficient**:
+    /// whether that pair is a signed-in session is `LeetCodeLoginGate`'s question
+    /// to ask LeetCode (L26).
     ///
     /// - Both cookies are required. LeetCode sets `csrftoken` for anonymous
     ///   visitors too, so seeing it alone means nothing; `LEETCODE_SESSION` alone
-    ///   cannot make a mutating call. Anything short of both is "not signed in".
+    ///   cannot make a mutating call. Anything short of both is "no candidate".
     /// - Values are trimmed and an empty value counts as absent — a sign-out
     ///   clears cookies by *blanking* them as often as by deleting them, and a
     ///   `LEETCODE_SESSION=""` accepted as a session is a login that appears to
