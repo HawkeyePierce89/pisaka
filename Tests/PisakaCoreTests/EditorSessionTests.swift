@@ -188,6 +188,185 @@ final class EditorSessionTests: XCTestCase {
         XCTAssertEqual(decoded, session)
     }
 
+    // MARK: - SessionCatalog
+
+    private func session(_ folderPath: String?, _ marker: String) -> EditorSession {
+        EditorSession(folderPath: folderPath, tabs: [.file(path: marker)])
+    }
+
+    func testCatalogStartsEmpty() {
+        let catalog = SessionCatalog()
+        XCTAssertTrue(catalog.entries.isEmpty)
+        XCTAssertNil(catalog.lastOpened)
+        XCTAssertNil(catalog.session(forFolder: URL(fileURLWithPath: "/p/root")))
+        XCTAssertNil(catalog.session(forFolder: nil))
+    }
+
+    func testCatalogHeadIsTheLastOpenedPointer() {
+        var catalog = SessionCatalog()
+        catalog.store(session("/p/one", "/p/one/a.swift"))
+        catalog.store(session("/p/two", "/p/two/b.swift"))
+        XCTAssertEqual(catalog.lastOpened, session("/p/two", "/p/two/b.swift"))
+        XCTAssertEqual(catalog.entries.first?.folderPath, "/p/two")
+    }
+
+    func testCatalogKeysByCanonicalPath() {
+        // /tmp vs /private/tmp: the two spellings of one real directory must land
+        // on one entry, not accumulate one session per spelling.
+        var catalog = SessionCatalog()
+        catalog.store(session("/tmp", "/tmp/a.swift"))
+        catalog.store(session("/private/tmp", "/tmp/b.swift"))
+        XCTAssertEqual(catalog.entries.count, 1)
+        XCTAssertEqual(
+            catalog.session(forFolder: URL(fileURLWithPath: "/tmp")),
+            session("/private/tmp", "/tmp/b.swift")
+        )
+    }
+
+    func testCatalogKeyIgnoresTrailingSlashesAndDotComponents() {
+        var catalog = SessionCatalog()
+        catalog.store(session("/p/root", "/p/root/a.swift"))
+        for spelling in ["/p/root/", "/p/root/.", "/p/root/sub/..", "/p/./root"] {
+            XCTAssertEqual(
+                catalog.session(forFolder: URL(fileURLWithPath: spelling)),
+                session("/p/root", "/p/root/a.swift"),
+                "spelling \(spelling) should match the stored /p/root entry"
+            )
+        }
+        // …and storing under one of them replaces rather than adds.
+        catalog.store(session("/p/root/", "/p/root/b.swift"))
+        XCTAssertEqual(catalog.entries.count, 1)
+    }
+
+    func testCatalogNilFolderIsItsOwnKey() {
+        var catalog = SessionCatalog()
+        catalog.store(session(nil, "/p/scratch.swift"))
+        catalog.store(session("/p/root", "/p/root/a.swift"))
+        XCTAssertEqual(catalog.entries.count, 2)
+        XCTAssertEqual(catalog.session(forFolder: nil), session(nil, "/p/scratch.swift"))
+        // A real folder never matches the no-folder entry, in either direction.
+        XCTAssertEqual(
+            catalog.session(forFolder: URL(fileURLWithPath: "/p/root")),
+            session("/p/root", "/p/root/a.swift")
+        )
+        XCTAssertNil(catalog.session(forFolder: URL(fileURLWithPath: "/p/other")))
+    }
+
+    func testCatalogStorePromotesAnExistingEntryToTheHead() {
+        var catalog = SessionCatalog()
+        catalog.store(session("/p/one", "/p/one/a.swift"))
+        catalog.store(session("/p/two", "/p/two/b.swift"))
+        catalog.store(session("/p/three", "/p/three/c.swift"))
+        catalog.store(session("/p/one", "/p/one/a.swift"))
+        XCTAssertEqual(
+            catalog.entries.map(\.folderPath),
+            ["/p/one", "/p/three", "/p/two"]
+        )
+    }
+
+    func testCatalogStoreReplacesRatherThanDuplicates() {
+        var catalog = SessionCatalog()
+        catalog.store(session("/p/root", "/p/root/a.swift"))
+        catalog.store(session("/p/root", "/p/root/b.swift"))
+        XCTAssertEqual(catalog.entries.count, 1)
+        XCTAssertEqual(
+            catalog.session(forFolder: URL(fileURLWithPath: "/p/root")),
+            session("/p/root", "/p/root/b.swift")
+        )
+    }
+
+    func testCatalogStoreAdoptsTheLatestSpelling() {
+        var catalog = SessionCatalog()
+        catalog.store(session("/p/root", "/p/root/a.swift"))
+        catalog.store(session("/p/root/", "/p/root/b.swift"))
+        XCTAssertEqual(catalog.entries.map(\.folderPath), ["/p/root/"])
+    }
+
+    func testCatalogCapEvictsTheLeastRecentlyUsedTail() {
+        var catalog = SessionCatalog()
+        for index in 0..<SessionCatalog.maxStoredProjects {
+            catalog.store(session("/p/\(index)", "/p/\(index)/a.swift"))
+        }
+        XCTAssertEqual(catalog.entries.count, SessionCatalog.maxStoredProjects)
+        catalog.store(session("/p/new", "/p/new/a.swift"))
+        XCTAssertEqual(catalog.entries.count, SessionCatalog.maxStoredProjects)
+        XCTAssertEqual(catalog.entries.first?.folderPath, "/p/new")
+        // /p/0 was the oldest and is the one that went.
+        XCTAssertNil(catalog.session(forFolder: URL(fileURLWithPath: "/p/0")))
+        XCTAssertNotNil(catalog.session(forFolder: URL(fileURLWithPath: "/p/1")))
+    }
+
+    func testCatalogCapNeverEvictsTheHeadJustStored() {
+        var catalog = SessionCatalog()
+        catalog.store(session("/p/one", "/p/one/a.swift"), limit: 1)
+        catalog.store(session("/p/two", "/p/two/b.swift"), limit: 1)
+        XCTAssertEqual(catalog.entries.map(\.folderPath), ["/p/two"])
+        // A degenerate limit must still leave the entry that was just stored.
+        catalog.store(session("/p/three", "/p/three/c.swift"), limit: 0)
+        XCTAssertEqual(catalog.entries.map(\.folderPath), ["/p/three"])
+    }
+
+    func testCatalogHugeUntitledTextEvictsNothing() {
+        // Retention is by entry count, never by byte size: one project's
+        // pathologically large scratch buffer must not cost another its session.
+        var catalog = SessionCatalog()
+        catalog.store(session("/p/small", "/p/small/a.swift"))
+        catalog.store(
+            EditorSession(
+                folderPath: "/p/huge",
+                tabs: [.untitled(text: String(repeating: "x", count: 2_000_000))]
+            )
+        )
+        catalog.store(session("/p/other", "/p/other/a.swift"))
+        XCTAssertEqual(catalog.entries.count, 3)
+        XCTAssertEqual(
+            catalog.session(forFolder: URL(fileURLWithPath: "/p/small")),
+            session("/p/small", "/p/small/a.swift")
+        )
+        XCTAssertEqual(
+            catalog.session(forFolder: URL(fileURLWithPath: "/p/huge"))?.tabs.first?.text?.count,
+            2_000_000
+        )
+    }
+
+    func testCatalogMigratingSeedsAOneEntryCatalog() {
+        let legacy = EditorSession(
+            folderPath: "/p/root",
+            tabs: [.file(path: "/p/root/a.swift")],
+            selectedIndex: 0
+        )
+        let catalog = SessionCatalog.migrating(legacy)
+        XCTAssertEqual(catalog.entries.count, 1)
+        XCTAssertEqual(catalog.lastOpened, legacy)
+        XCTAssertEqual(catalog.session(forFolder: URL(fileURLWithPath: "/p/root")), legacy)
+    }
+
+    func testCatalogMigratingAFolderlessSessionKeysItUnderNil() {
+        let legacy = EditorSession(tabs: [.untitled(text: "scratch")])
+        let catalog = SessionCatalog.migrating(legacy)
+        XCTAssertEqual(catalog.lastOpened, legacy)
+        XCTAssertEqual(catalog.session(forFolder: nil), legacy)
+        XCTAssertNil(catalog.session(forFolder: URL(fileURLWithPath: "/p/root")))
+    }
+
+    func testCatalogRoundTripsThroughAPropertyListPreservingOrder() throws {
+        var catalog = SessionCatalog()
+        catalog.store(session(nil, "/p/scratch.swift"))
+        catalog.store(session("/p/one", "/p/one/a.swift"))
+        catalog.store(
+            EditorSession(
+                folderPath: "/p/two",
+                tabs: [.file(path: "/p/two/b.swift"), .untitled(text: "scratch")],
+                selectedIndex: 1
+            )
+        )
+        let data = try PropertyListEncoder().encode(catalog)
+        let decoded = try PropertyListDecoder().decode(SessionCatalog.self, from: data)
+        XCTAssertEqual(decoded, catalog)
+        XCTAssertEqual(decoded.entries.map(\.folderPath), ["/p/two", "/p/one", nil])
+        XCTAssertEqual(decoded.lastOpened?.folderPath, "/p/two")
+    }
+
     // MARK: - SessionStore
 
     /// A fresh, isolated `UserDefaults` suite per test so stores never read or

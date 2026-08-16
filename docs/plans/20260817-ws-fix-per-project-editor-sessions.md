@@ -108,28 +108,30 @@ half-swapped state can be written.
 - Modify: `Sources/PisakaCore/EditorSession.swift`
 - Modify: `Tests/PisakaCoreTests/EditorSessionTests.swift`
 
-- [ ] add `public struct SessionCatalog: Codable, Equatable` with a nested
+- [x] add `public struct SessionCatalog: Codable, Equatable` with a nested
       `Entry: Codable, Equatable` (`folderPath: String?`, `session: EditorSession`)
       and `entries: [Entry]`, MRU-ordered (index 0 = last opened)
-- [ ] add `public static let maxStoredProjects = 20` and document the count-not-bytes
+- [x] add `public static let maxStoredProjects = 20` and document the count-not-bytes
       reasoning on the type
-- [ ] add `public var lastOpened: EditorSession?` (`entries.first?.session`) — the
+- [x] add `public var lastOpened: EditorSession?` (`entries.first?.session`) — the
       launch pointer, with the doc note that head *is* the pointer
-- [ ] add `public func session(forFolder folder: URL?) -> EditorSession?`, matching
+- [x] add `public func session(forFolder folder: URL?) -> EditorSession?`, matching
       via `CanonicalPath.canonical(_:)` on both sides (`nil` matches only the
       `nil`-key entry), so two spellings of one folder land on one session
-- [ ] add `public mutating func store(_ session: EditorSession, limit: Int = maxStoredProjects)`:
+      (the key is `canonical(_:).path`, as `SymbolIndex`/`ProjectSearchModel` key —
+      url equality would split `file:///p/root/` from `file:///p/root`)
+- [x] add `public mutating func store(_ session: EditorSession, limit: Int = maxStoredProjects)`:
       canonical-match the existing entry, replace it (adopting the incoming verbatim
       `folderPath` spelling — the user's latest spelling wins), move it to the head,
       insert when absent, then drop entries beyond `limit` from the tail
-- [ ] add `public static func migrating(_ legacy: EditorSession) -> SessionCatalog`
-- [ ] write tests: keying by canonical path unifies `/tmp` vs `/private/tmp`,
+- [x] add `public static func migrating(_ legacy: EditorSession) -> SessionCatalog`
+- [x] write tests: keying by canonical path unifies `/tmp` vs `/private/tmp`,
       trailing slashes and `.`/`..`; the `nil` folder key is its own entry and never
       matches a real folder; `store` promotes to head, replaces rather than
       duplicates, and updates the recorded spelling; the cap evicts the least
       recently used and never the head; a huge untitled text in one entry evicts
       nothing; a round trip through `PropertyListEncoder`/`Decoder` preserves order
-- [ ] run `swift test` — must pass before Task 2
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: `SessionStore` becomes keyed, with migration
 

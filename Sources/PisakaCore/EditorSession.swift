@@ -148,6 +148,118 @@ public struct EditorSession: Codable, Equatable {
     }
 }
 
+/// Every project's persisted session, keyed by its folder and ordered
+/// most-recently-opened first.
+///
+/// **Head is the pointer.** `entries[0]` is the last opened project, so
+/// `lastOpened` is a *derivation* rather than a stored field. That is the whole
+/// reason the order is load-bearing: a separate `lastOpenedFolder` field could
+/// name a folder no entry carries, and "the pointer points at a session that is
+/// not stored" would be a state someone has to handle. Here it is
+/// unrepresentable.
+///
+/// **Keying follows store-as-spelled / match-canonically**, the rule
+/// `EditorSession.snapshot` and `WorkspaceModel.open(url:)` already share: an
+/// entry records the folder path *verbatim*, exactly as the user spelled it, and
+/// every lookup compares through `CanonicalPath.canonical(_:)`. So `/tmp` and
+/// `/private/tmp`, a trailing slash and a `.`/`..` detour all land on one entry
+/// instead of quietly accumulating one session per spelling. A `nil`
+/// `folderPath` is a key like any other — the no-folder workspace — and matches
+/// only itself, never a real folder.
+///
+/// **Retention is capped by entry count, never by byte size**
+/// (`maxStoredProjects`, the same number and rationale as
+/// `ScopedFileAccess.updatedRecents`' recents cap), evicting from the tail. The
+/// count rule is the point, not a simplification: entries are independent
+/// values, so one project's pathologically large untitled buffer (limit 2 on
+/// `EditorSession`) cannot evict *another* project's session, and nothing one
+/// project stores changes what another decodes to. The only shared failure mode
+/// left is an unreadable *whole* blob, which resolves to a blank slate exactly
+/// as the single blob did before. If the total size ever bites, the escape hatch
+/// is the one already recorded on `EditorSession`: move the backing store to
+/// Application Support — this model does not change.
+public struct SessionCatalog: Codable, Equatable {
+    /// One project's stored session, under the folder path spelled verbatim.
+    public struct Entry: Codable, Equatable {
+        /// The project folder's path as the user spelled it, or `nil` for the
+        /// no-folder workspace. Matched canonically, never stored canonically.
+        public var folderPath: String?
+
+        /// That project's session.
+        public var session: EditorSession
+
+        public init(folderPath: String?, session: EditorSession) {
+            self.folderPath = folderPath
+            self.session = session
+        }
+    }
+
+    /// How many projects are remembered before the least recently opened is
+    /// dropped. Counted in *entries*, deliberately — see the type's note.
+    public static let maxStoredProjects = 20
+
+    /// The stored projects, most recently opened first.
+    public var entries: [Entry]
+
+    public init(entries: [Entry] = []) {
+        self.entries = entries
+    }
+
+    /// The last opened project's session, or `nil` when nothing was ever stored.
+    ///
+    /// This *is* the launch-restore pointer: the head of the MRU order, not a
+    /// field that could disagree with it.
+    public var lastOpened: EditorSession? {
+        entries.first?.session
+    }
+
+    /// The session stored for `folder`, matched canonically, or `nil` when that
+    /// project has none. `nil` asks for the no-folder workspace's session and
+    /// matches only the `nil`-key entry.
+    public func session(forFolder folder: URL?) -> EditorSession? {
+        let wanted = Self.key(for: folder)
+        return entries.first { Self.key(forPath: $0.folderPath) == wanted }?.session
+    }
+
+    /// Upsert `session` under its own `folderPath` and promote it to the head.
+    ///
+    /// The existing entry for that folder — matched canonically, so any spelling
+    /// of it — is *replaced*, adopting the incoming verbatim spelling: the
+    /// user's latest spelling is the one worth showing back. Absent, it is
+    /// inserted. Then everything past `limit` is dropped from the tail, so the
+    /// entry just stored can never be the one evicted (`limit` is clamped to at
+    /// least one for that reason).
+    public mutating func store(_ session: EditorSession, limit: Int = maxStoredProjects) {
+        let key = Self.key(forPath: session.folderPath)
+        entries.removeAll { Self.key(forPath: $0.folderPath) == key }
+        entries.insert(Entry(folderPath: session.folderPath, session: session), at: 0)
+        let cap = max(1, limit)
+        if entries.count > cap {
+            entries.removeLast(entries.count - cap)
+        }
+    }
+
+    /// The one-entry catalog a legacy single-blob session becomes: its own
+    /// `folderPath` (possibly `nil`) is the key, and it is the head — which is
+    /// what keeps launch restore finding exactly the session it found before.
+    public static func migrating(_ legacy: EditorSession) -> SessionCatalog {
+        SessionCatalog(entries: [Entry(folderPath: legacy.folderPath, session: legacy)])
+    }
+
+    /// The match key: `CanonicalPath.canonical(_:).path` — the *path*, not the
+    /// url, which is the same key `SymbolIndex` and `ProjectSearchModel` use and
+    /// is load-bearing here. Two urls for one directory can differ by a trailing
+    /// slash (`file:///p/root/` vs. `file:///p/root`) and compare unequal as
+    /// urls while naming the same folder; their `.path`s do not.
+    private static func key(for folder: URL?) -> String? {
+        folder.map { CanonicalPath.canonical($0).path }
+    }
+
+    private static func key(forPath path: String?) -> String? {
+        key(for: path.map { URL(fileURLWithPath: $0) })
+    }
+}
+
 /// Persists the last `EditorSession` through an injected `UserDefaults`, following
 /// `BookmarkStore`'s shape exactly: Foundation-only, one property-list blob under a
 /// stable key, `UserDefaults` injected so tests run against an isolated suite.
