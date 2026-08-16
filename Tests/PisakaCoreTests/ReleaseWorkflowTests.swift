@@ -412,10 +412,22 @@ final class ReleaseWorkflowTests: XCTestCase {
             list the one tool that has to use it and codesign asks for interactive authorization \
             — a hang on a headless runner, not a failure.
             """)
-        XCTAssertTrue(script.contains { $0.contains("security set-key-partition-list") }, """
+        let partitionList = try XCTUnwrap(script.first(where: {
+            $0.contains("security set-key-partition-list")
+        }), """
             The imported key needs `security set-key-partition-list -S apple-tool:,apple:`. \
             Without it the first codesign raises the "wants to sign using key in your keychain" \
             dialog and the job hangs until its timeout.
+            """)
+        // `-s` narrows the update to keys that can *sign*. Without it the query
+        // is match-all over every key item in the keychain, and an item with no
+        // access control makes the tool exit non-zero — under `set -e` that ends
+        // the step on a key this workflow neither imported nor needs, after the
+        // preflight passed and with no `::error::` annotation. Nothing in CI can
+        // reach this step, so the flag is pinned here or not at all.
+        XCTAssertTrue(partitionList.contains(" -s "), """
+            `security set-key-partition-list` must pass `-s` so the partition list is applied to \
+            the signing key rather than to every key item in the keychain. Got “\(partitionList)”.
             """)
         XCTAssertTrue(script.contains { $0.contains("security unlock-keychain") }, """
             The run's keychain must be unlocked with `security unlock-keychain`. A freshly created \
@@ -470,6 +482,41 @@ final class ReleaseWorkflowTests: XCTestCase {
             passed to `security import` as an argv on the next line — so both halves of the \
             signing key are exposed together, which is exactly what this step's own comment about \
             not trusting the runner's privacy argues against. Got “\(script[decode])”.
+            """)
+
+        // The two certificate secrets refuse in this workflow's own style, by
+        // mechanism.
+        //
+        // These are the two failures with the least legible bare output in the
+        // file — `base64: Invalid character in input stream.` for a truncated
+        // paste, `SecKeychainItemImport: MAC verification failed` for a password
+        // that belongs to a different .p12 — and they are fixed by editing
+        // *different* secrets, which is exactly the case docs/RELEASING.md warns
+        // about when only one of the pair is rotated. Bare, both still stop the
+        // run (`set -e`), so nothing here is about fail-closed: it is about the
+        // run stopping with a message that names which secret to replace, in a
+        // step no PR can exercise.
+        //
+        // The decode is guarded with `|| { … }` rather than `if !` because the
+        // umask assertion above reads the decode line itself, so the scan for
+        // its `exit 1` is spelled out instead of going through
+        // `assertGuardExits`.
+        XCTAssertTrue(script[decode].hasSuffix("|| {"), """
+            The base64 decode of DEVELOPER_ID_CERT_P12 must be guarded. Bare, a truncated or \
+            mis-pasted secret ends the step with `base64: Invalid character in input stream.` and \
+            names neither the secret nor how to regenerate it. Got “\(script[decode])”.
+            """)
+        let decodeRefuses = script[(decode + 1)...].prefix(while: { $0 != "}" }).contains("exit 1")
+        XCTAssertTrue(decodeRefuses, """
+            The base64 decode's `|| { … }` branch must `exit 1`. A branch that only annotates lets \
+            the run continue to `security import` with an empty or partial .p12, which then fails \
+            for a second, unrelated-looking reason.
+            """)
+        assertGuardExits("security import", in: script, step: Self.certificateStepName, because: """
+            a bare `security import` fails a wrong DEVELOPER_ID_CERT_PASSWORD as \
+            `SecKeychainItemImport: MAC verification failed`, which names no secret — and the two \
+            certificate secrets are a pair, so the reader has to be told it is the password and \
+            not the .p12 that is wrong
             """)
 
         // The search list is prepended to, not replaced, and the previous value
@@ -928,6 +975,23 @@ final class ReleaseWorkflowTests: XCTestCase {
             ad-hoc one — both are valid signatures.
             """)
 
+        // The dump is judged *and* printed, the way the spctl assessment is.
+        //
+        // The four refusals below each name one missing fact; only the dump says
+        // what was there instead. It matters most on the path the `|| true` on
+        // the capture exists for: when `codesign --display` itself fails, its
+        // error text is what landed in the variable, and the first refusal would
+        // otherwise replace it with "is not signed by a Developer ID Application
+        // certificate" — a message that names the wrong cause. This step runs
+        // after the archive, so there is no cheap second look.
+        XCTAssertTrue(script.contains { $0.hasPrefix("printf") && $0.contains("$SIGNATURE") && !$0.contains("grep") }, """
+            release.yml's `\(Self.verifyStepName)` step must print the captured `codesign \
+            --display` output, not only grep it. Every refusal in this step names a single \
+            missing fact; without the dump in the log, a release that fails 25 minutes in carries \
+            no evidence of what codesign actually reported — and on the path where `codesign \
+            --display` itself failed, the canned message names a cause that is not the real one.
+            """)
+
         assertGuardExits("^Authority=Developer ID Application:", in: script, step: Self.verifyStepName, because: """
             an ad-hoc signature and an Apple Development identity both pass `codesign --verify`, \
             and the difference between them and a Developer ID certificate is the difference \
@@ -1267,17 +1331,25 @@ final class ReleaseWorkflowTests: XCTestCase {
         // The verdict, not the exit status — the same distinction the notary
         // status is parsed for. `spctl` exits 0 for *any* accepting rule, so the
         // guard above alone is satisfied by `source=Mac App Store`, by
-        // `source=Unnotarized Developer ID`, and — the one that matters, because
-        // it is a property of the runner rather than of the build — by
-        // `source=no usable signature` on a machine whose assessments are
-        // disabled, where every path on disk is "accepted" and this gate asserts
-        // nothing at all.
-        XCTAssertTrue(script.contains { $0.contains("source=Notarized Developer ID") }, """
-            release.yml's `\(Self.stapleStepName)` step must read the accepting *rule* out of the \
-            spctl assessment and refuse anything but `source=Notarized Developer ID`. Exit status \
-            alone does not distinguish a stapled Developer ID ticket from an acceptance under some \
-            other rule, or from a runner with assessments turned off — on which spctl accepts \
-            everything and this workflow's one authoritative gate silently stops being a check.
+        // `source=Developer ID` (what an accepted but *unstapled* Developer ID
+        // app reports), and — the one that matters, because it is a property of
+        // the runner rather than of the build — by `source=no usable signature`
+        // on a machine whose assessments are disabled, where every path on disk
+        // is "accepted" and this gate asserts nothing at all.
+        //
+        // Asserted through `assertGuardExits` and not as a `contains`: this
+        // string appears twice in the step — in the `grep -q` and in the
+        // `::error::` text that quotes it — so a `contains` stays green for the
+        // one mutation that matters, a refusal downgraded to a `::warning::` or
+        // a `grep -q` that no longer reaches `exit 1`. That is the mutation this
+        // whole suite exists to catch, and this is the gate it would leave
+        // toothless.
+        assertGuardExits("source=Notarized Developer ID", in: script, step: Self.stapleStepName, because: """
+            release.yml must read the accepting *rule* out of the spctl assessment and refuse \
+            anything but `source=Notarized Developer ID`. Exit status alone does not distinguish a \
+            stapled Developer ID ticket from an acceptance under some other rule, or from a runner \
+            with assessments turned off — on which spctl accepts everything and this workflow's \
+            one authoritative gate silently stops being a check
             """)
         XCTAssertTrue(script.contains { $0.contains("spctl --assess") && $0.contains("2>&1") }, """
             The spctl assessment must be captured with `2>&1`. spctl writes it to stderr, so \

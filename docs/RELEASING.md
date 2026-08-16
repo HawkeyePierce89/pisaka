@@ -385,10 +385,20 @@ The workflow then, in order:
     step through `env:` and are only ever tested with `-z`; nothing echoes them.
   - **The signing keychain**, beside the preflight and long before the archive:
     a keychain under `$RUNNER_TEMP`, the `.p12` imported and immediately deleted,
-    a key partition list, the keychain prepended to the user search list — and
-    the tenth and last cheap refusal, `security find-identity -v -p codesigning`
-    showing a Developer ID Application identity for team `XJT3LK36GS`. Mechanics
-    and rationale are in
+    a key partition list (`-s`, so it is applied to the signing key rather than
+    to every key item in the keychain), the keychain prepended to the user search
+    list — and cheap refusals ten through twelve, one per way the certificate
+    pair can be wrong: the base64 body not decoding (`DEVELOPER_ID_CERT_P12`
+    truncated or pasted raw), `security import` failing on it
+    (`DEVELOPER_ID_CERT_PASSWORD` belonging to some other export — the pair
+    rotated by halves, the case flagged above), and
+    `security find-identity -v -p codesigning` showing a Developer ID
+    Application identity for team `XJT3LK36GS`. The first two are wrapped rather
+    than left bare not because bare would continue — `set -e` stops either way —
+    but because `base64: Invalid character in input stream.` and
+    `SecKeychainItemImport: MAC verification failed` name neither a secret nor
+    which of the two to replace, and they are fixed by editing *different* ones.
+    Mechanics and rationale are in
     [the one-time setup above](#one-time-setup-the-developer-id-certificate-and-the-notarization-key).
   - Sparkle 2.9.5's release tools, pinned exactly as XcodeGen is (the tarball URL
     plus `shasum -a 256 -c -` against the digest above). This is fetched **here,
@@ -531,11 +541,14 @@ the flag cannot stand in for it), the archive's Developer ID identity, team,
 `ENABLE_HARDENED_RUNTIME=YES` and `--timestamp` (with `CODE_SIGN_IDENTITY=-`
 asserted to appear nowhere active — the ad-hoc pin deliberately updated rather
 than deleted), the throwaway keychain (created under `$RUNNER_TEMP`, the login
-keychain never named, the identity refusal, the import before the archive, the
-unlock and the lock settings including the absence of `-l`, the decoded `.p12`
+keychain never named, the three certificate refusals — the base64 decode, the
+`security import` and the identity — the import before the archive, the
+unlock and the lock settings including the absence of `-l`, the partition list's
+`-s`, the decoded `.p12`
 written under a `(umask 077; …)` subshell, the `if: always()`
 deletion of the keychain *and of both private keys by path*), the Developer ID /
-team / hardened-runtime / secure-timestamp read-back on both the app and the framework,
+team / hardened-runtime / secure-timestamp read-back on both the app and the
+framework *and the dump being printed as well as judged*,
 `project.yml` staying signing-free, the notarization submit (`--wait` plus the
 API-key trio, the exit-code capture that keeps `set -e` from pre-empting the
 verdict, the guarded JSON reads, the non-`Accepted` branch exiting 1, the log
