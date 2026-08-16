@@ -605,10 +605,21 @@ The workflow then, in order:
     including `0`: a clean exit seconds after launch is not a working editor
     either, and a killed process and a crashed one both report ≥128, which is
     why liveness is polled rather than read back out of `wait`. On the refusing
-    path both the redirected output and the newest `Pisaka*.ips` report under
+    path both the redirected output and the `Pisaka*.ips` report under
     `~/Library/Logs/DiagnosticReports/` are printed before the `::error::`,
     because a refusal nobody can re-run interactively has to carry its own
-    evidence. The
+    evidence. That search is polled for ten seconds and bounded to reports newer
+    than a marker file stamped immediately before the launch — both halves
+    matter: `ReportCrash` writes the `.ips` a second or more *after* the process
+    is gone, which `kill -0` notices within one, so a single read finds nothing
+    on exactly the silent startup crash the harvest exists for; and an unbounded
+    "newest report" search prints some earlier run's crash as this one's
+    evidence. When the poll expires the step says so, because "no report was
+    written" is itself evidence where printing nothing reads like nobody looked.
+    The kill on the way out is SIGTERM, two seconds, SIGKILL: `wait` on a
+    process that ignores SIGTERM never returns, and the step would then hold the
+    job until its own budget expired — reported as a cancelled build, saying
+    nothing about the app. The
     assertion is that the process *lives*, nothing more — windows appearing, the
     updater polling github.com, its first-launch permission prompt and session
     restore finding no session are all inert to it.
@@ -841,6 +852,19 @@ Recovery was the ordinary one and needs no special case — delete the tag, push
 it again, as [above](#cutting-a-release); the fresh run archives under a new
 `github.run_number` (see [the build number](#the-build-number)). A release that
 was already published has to be deleted along with the tag.
+
+**What the smoke launch assumes, and what to do if the assumption fails.** Both
+copies `exec` the bundle's own executable directly — no `open`, so no
+LaunchServices and no Dock — but they still assume the runner's session can host
+an AppKit process at all. That has been verified on a developer Mac and *not* on
+a hosted runner. If a GitHub macOS image turns out to refuse a GUI process the
+symptom is unmistakable and total: every run of both workflows refuses, with the
+app's own output in the log saying why. The fallback then is to weaken the
+check rather than delete it — keep the launch and the captured output, drop the
+liveness poll, and refuse only if the output carries a dyld `Library not loaded`
+line. That is strictly less than what is here (it catches the `v1.0` failure and
+no other startup crash), which is why it is written down rather than coded in
+advance: a fallback nothing has ever needed is a second path nothing tests.
 
 **Known limit, recorded rather than fixed: there is no iOS runtime smoke test.**
 CI runs no simulator by design, so the iOS product's dynamic loading is checked

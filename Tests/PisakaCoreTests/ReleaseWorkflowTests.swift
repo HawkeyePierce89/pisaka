@@ -2489,6 +2489,19 @@ final class ReleaseWorkflowTests: XCTestCase {
             aborted in dyld both report ≥128 through `wait`.
             """)
 
+        assertGuardExits(#"! test -x "$EXECUTABLE""#,
+                         in: script,
+                         workflow: "ci.yml",
+                         step: Self.ciSmokeLaunchStepName,
+                         because: """
+            a product that is not where this step looks is the one failure the launch itself cannot \
+            report: with no executable to run there is no process to poll, no output to print and \
+            nothing to kill, so a step that merely skipped the launch would fall through to the \
+            success path and announce that a bundle it never opened survived. It is one of this \
+            step's two refusals and, unlike the other, it is not reachable from the death branch — \
+            so it needs its own assertion
+            """)
+
         // In the macOS job, after the build. Read off the raw lines because the
         // job a step belongs to is an *indentation* fact, which `activeLines`
         // discards.
@@ -2577,6 +2590,87 @@ final class ReleaseWorkflowTests: XCTestCase {
             refusal above. A kill inside the death branch is a kill of a process that is already \
             gone.
             """)
+
+        // And the kill is bounded. `wait` on a child that ignores SIGTERM never
+        // returns, and the step would then hold the job until its own budget
+        // expired — reported as a cancelled build, saying nothing about the app.
+        // That is the failure the launch is backgrounded to avoid, arriving on
+        // the way out instead; SIGKILL cannot be ignored, so the escalation is
+        // what makes the `wait` below it terminate.
+        XCTAssertTrue(script.contains(consecutively: """
+            kill "$PID" 2>/dev/null || true
+            sleep 2
+            kill -9 "$PID" 2>/dev/null || true
+            wait "$PID" 2>/dev/null || true
+            """), """
+            ci.yml's `\(Self.ciSmokeLaunchStepName)` step must escalate SIGTERM to SIGKILL before \
+            waiting on the process it launched, as four consecutive lines. A bare \
+            `kill "$PID"; wait "$PID"` is unbounded: a process that does not die on SIGTERM blocks \
+            the step until the job budget kills it — which reports as a cancelled build rather than \
+            as anything about the app, and on the release half burns a tagged run. Got \
+            \(script.filter { $0.contains("kill") || $0.hasPrefix("wait ") }).
+            """)
+    }
+
+    /// The poll is wired to the process that was launched, and can see it die.
+    ///
+    /// Everything else about this step is asserted by shape — the guard exists,
+    /// it refuses, the launch is backgrounded, the deadline is `5`. Shape is not
+    /// wiring, and three one-line edits turn the gate back into the no-check
+    /// `v1.0` shipped under while every one of those assertions stays green:
+    ///
+    ///  * `PID=$$` for `PID=$!` polls the *shell*, which is alive by definition.
+    ///    The app can abort in dyld and the step still reports "survived" — and
+    ///    the teardown then signals the shell.
+    ///  * dropping `ALIVE=0` from the branch `kill -0` takes when the process is
+    ///    gone leaves `ALIVE` at `1` at the bottom of the loop, which makes the
+    ///    whole death branch — guard, evidence, refusal, each separately
+    ///    asserted — unreachable.
+    ///  * `sleep 0` for `sleep 1` is `DEADLINE=0` spelled differently: the five
+    ///    iterations finish in microseconds, so the process is polled before
+    ///    dyld has finished with it and a launch that aborts a moment later
+    ///    passes. Pinning the deadline alone does not close that, which the test
+    ///    above otherwise reads as though it does.
+    ///
+    /// Asserted as consecutive runs rather than by presence, because each line is
+    /// only correct *where it is*: there is a second `sleep` on the teardown
+    /// path, and an `ALIVE=0` outside the `kill -0` branch is the mutation
+    /// rather than the fix.
+    func testTheLivenessPollIsWiredToTheLaunchedProcess() throws {
+        let script = try stepScript(named: Self.ciSmokeLaunchStepName, in: "ci.yml", because: """
+            It is the step whose poll decides whether an app that died is seen to have died.
+            """)
+
+        XCTAssertTrue(script.contains(consecutively: """
+            : > "$MARKER"
+            "$EXECUTABLE" > "$LOG" 2>&1 &
+            PID=$!
+            """), """
+            ci.yml's `\(Self.ciSmokeLaunchStepName)` step must stamp `$MARKER`, launch the \
+            executable in the background and capture `$!` — in that order, as three consecutive \
+            lines. `$!` is the launched process; `$$` is the shell running this script, which is \
+            alive by definition and makes every poll below it report "survived" whatever the app \
+            did. The marker is stamped first because the crash-report search is bounded by it: \
+            stamped afterwards it excludes the very report it is looking for. Got \
+            \(script.filter { $0.hasPrefix("PID=") || $0.contains("$MARKER") }).
+            """)
+
+        XCTAssertTrue(script.contains(consecutively: """
+            for _ in $(seq "$DEADLINE"); do
+            sleep 1
+            if ! kill -0 "$PID" 2>/dev/null; then
+            ALIVE=0
+            """), """
+            ci.yml's `\(Self.ciSmokeLaunchStepName)` step must poll once a second and clear `ALIVE` \
+            in the branch `kill -0` takes when the process is gone, as four consecutive lines. \
+            Without `sleep 1` the deadline is seconds on paper and microseconds in fact — the \
+            degenerate case `testTheSmokeLaunchDeadlineIsNotDegenerate` exists to prevent, reached \
+            by the other variable. Without `ALIVE=0` the flag is still `1` at the bottom of the \
+            loop, so the death branch below is unreachable and the step announces that a process \
+            which aborted in dyld survived. Got \(script.filter {
+                $0.hasPrefix("sleep ") || $0.hasPrefix("ALIVE=") || $0.hasPrefix("for _ ")
+            }).
+            """)
     }
 
     /// The deadline is a real number of seconds.
@@ -2636,12 +2730,39 @@ final class ReleaseWorkflowTests: XCTestCase {
             annotation is the last thing in the log and the evidence is directly above it.
             """)
 
-        XCTAssertTrue(script.contains { $0.contains("DiagnosticReports") }, """
+        let harvest = try XCTUnwrap(script.first(where: { $0.contains("DiagnosticReports") }), """
             The death branch must also look for the crash report the system wrote \
             (~/Library/Logs/DiagnosticReports/Pisaka*.ips). For a dyld failure the redirected output \
             carries the message, but for a crash *after* launch the process may have printed \
             nothing at all, and the .ips file is then the only record — and it does not survive the \
             runner.
+            """)
+
+        // Bounded by the marker stamped before the launch, and retried. Both
+        // halves are load-bearing and neither is obvious from the code that
+        // needs them: `ReportCrash` writes the .ips a second or more after the
+        // process is gone, which `kill -0` notices within one — so a single
+        // unretried read finds nothing on exactly the silent startup crash this
+        // harvest exists for — and an unbounded `ls -t … | head -1` prints the
+        // newest report at any age, which on a re-used runner or a developer Mac
+        // is some other run's crash presented as this one's evidence.
+        XCTAssertTrue(harvest.contains(#"-newer "$MARKER""#), """
+            The crash-report search must be bounded to reports newer than `$MARKER`, the file \
+            stamped immediately before the launch. Unbounded, it prints whatever `Pisaka*.ips` is \
+            newest — a stale report from an earlier run, offered as the evidence for this refusal. \
+            Got “\(harvest)”.
+            """)
+        XCTAssertTrue(script.contains(consecutively: """
+            if [ -n "$CRASH" ]; then
+            break
+            fi
+            sleep 1
+            """), """
+            The crash-report search must retry, as a loop that breaks once a report appears and \
+            sleeps otherwise. Read once, it runs within a second of the process disappearing and \
+            the report has not been written yet — so the harvest reliably finds nothing in the one \
+            case it exists for, a crash that printed nothing at all. Got \
+            \(script.filter { $0.contains("CRASH") }).
             """)
 
         let annotationText = script[annotation]
@@ -2696,12 +2817,20 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// build, and the hardened runtime is a load-time policy. A green CI job
     /// says nothing about either.
     ///
-    /// The mechanism assertions are the release-side half of what
-    /// `testCILaunchesWhatItBuilds` pins; the *shape* of the script is pinned
-    /// once, against both files, by `testTheTwoSmokeLaunchesAreTheSameCheck`.
-    /// What is asserted here is that this copy is pointed at the archive product
-    /// — the same path every other step in this job names — rather than at
+    /// What only this test can assert is the `APP=` line: it is the one line
+    /// `testTheTwoSmokeLaunchesAreTheSameCheck` drops before comparing, so it is
+    /// the one line no other assertion here can see. This copy must name the
+    /// archive product every other step in this job names, rather than
     /// DerivedData, which in this job does not exist.
+    ///
+    /// The mechanism assertions that follow it are, on a green suite, implied:
+    /// `testCILaunchesWhatItBuilds` pins them on the CI copy and the equality
+    /// test transfers them here. They are kept anyway, and deliberately — the
+    /// transfer is only as good as the equality test, and this is the copy whose
+    /// failure reaches users. Read them as the release half refusing to depend
+    /// on a third test for its own mechanism, not as an oversight. The rest of
+    /// the script's shape (the poll's wiring, the deadline, the evidence, the
+    /// bounded teardown) does rely on that transfer and is asserted CI-side only.
     func testTheReleaseLaunchesWhatItArchived() throws {
         let script = try stepScript(named: Self.releaseSmokeLaunchStepName, because: """
             It is the only place in the release where the app is executed before a user executes it.
