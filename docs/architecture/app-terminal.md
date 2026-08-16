@@ -110,7 +110,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     panel host calls in on every mount *and every tab switch*, each call recoloring
     **all** sessions, so without it an ordinary tab switch would silently undo a
     palette a program or the user's shell profile had set. A real theme change still
-    resets them: there the app theme deliberately wins. The key is the whole resolved
+    resets them: there the app theme deliberately wins. `applyFont(size:)` is the
+    terminal **zoom zone's** analogue (the zone's own entry is `core-zoom.md`):
+    it sets `terminalView.font` to
+    `NSFont.monospacedSystemFont(ofSize:weight: .regular)` — exactly how SwiftTerm
+    builds its own default, so at the zone's resting 13 pt
+    (`NSFont.systemFontSize`) it is the very font the view was already drawing
+    with and a fresh install at 100% is identical to before. Setting that property
+    re-derives the whole font set, recomputes the cell dimensions and `resize`s
+    the terminal, which resizes the **PTY** — so the running shell reflows to the
+    new size rather than being restarted, and the scrollback and the process are
+    untouched. The remembered-size guard (`appliedFontSize`) is load-bearing for
+    `applyTheme`'s reason and one more: SwiftTerm's font setter also calls
+    `selectNone()`, so an unconditional assignment would drop the user's
+    selection — and since the window root calls in on mount and on every settings
+    change, each call fanning out over every live session, without the guard an
+    unrelated preference edit would clear a selection in a terminal the user never
+    touched and pay a full font-set rebuild plus PTY resize per session for it.
+    The terminal zone's *surface* is declared on SwiftTerm's `TerminalView` (an
+    extension in this same file conforming it to `ZoomSurfaceProviding`) and not
+    on the session: the pointer walk finds `NSView`s, and a session is not one.
+    The key is the whole resolved
     color set and deliberately **not** `NSAppearance.Name`: the caret and selection
     are semantic accent-derived colors, so changing the accent changes them while the
     appearance name stays `.aqua`/`.darkAqua` — a name-keyed guard would pin every
@@ -170,6 +190,26 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     by `.preferredColorScheme` to the *window*, not the application, so it is not
     visible there), and the host corrects the color from the container's own
     `effectiveAppearance` on the same main-loop turn.
+    The terminal font size takes the **same shape for the same reasons**: a
+    `private var fontSize: Double?` remembers what the sessions were last set to
+    (a plain stored property, not `@Published`, because applying a font mutates
+    the AppKit view directly and re-lays the PTY out itself), `applyFontSize(_:)`
+    remembers it and fans it over **every** session — an inactive session's view
+    is out of the hierarchy and would surface the old size on the next tab switch
+    — and a private `applyCurrentFontSize(to:)` sizes each freshly created session
+    at both creation sites before it is ever drawn, so a new tab (or a Run/Test
+    session started while the panel was hidden) does not appear at SwiftTerm's
+    default and then flip. Its fallback is that same default —
+    `ZoomScaleRule.terminalFont`'s resting value *is* `NSFont.systemFontSize` —
+    so the pre-seeding window between app launch and the window root's first push
+    is a no-op rather than a wrong guess. `applyFontSize` is idempotent, so the
+    root may call it on mount and on every change without tracking whether the
+    value moved. **Where it is pushed from is the one difference from the theme**:
+    `ContentView` (`.onAppear` + `.onChange(of: settings.terminalFontSize)`), not
+    the panel — a session can be created while the panel is not on screen (⌘R/⌘U
+    make one and only then show it) and the panel is torn down whenever the dock
+    shows Log or Changes instead. The panel's own tab strip stays on the
+    *interface* zone: it is chrome, and only the cells follow the terminal size.
   - `TerminalPanelView.swift` — the embedded terminal panel: a `View` with a tab
     bar (per-session tabs + "＋" new + per-tab close `xmark`) above the active
     session's terminal, observing `TerminalSessionsModel` and taking the current

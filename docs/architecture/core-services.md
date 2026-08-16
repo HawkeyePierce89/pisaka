@@ -213,6 +213,40 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the same provider, is entirely unaffected. `SettingsStoreTests` covers the
     default on a fresh store, the round trip across a rebuilt store, a
     wrong-typed stored value falling back to on, and the key string.
+    The macOS zoom feature adds **two more persisted values and a zone-keyed
+    API** (the whole layer's entry is `core-zoom.md`). `terminalFontSize`
+    (`Keys.terminalFontSize = "settings.terminalFontSize"`, default 13) and
+    `interfaceScale` (`Keys.interfaceScale = "settings.interfaceScale"`, default
+    1.0) each follow `fontSize`'s write discipline *verbatim*: clamped inside
+    `didSet` against their `ZoomScaleRule` — the re-entrant assignment reaching a
+    fixed point on the second pass — and read in `init` through
+    `object(forKey:)` so an absent key is told from a stored 0, a wrong-typed
+    value falls back instead of reading as zero, and a non-finite or
+    out-of-range stored value collapses to the default. The terminal size is a
+    key of its own rather than a reuse of `fontSize` because the whole point of
+    the three zones is that code and terminal grow independently; its default is
+    SwiftTerm's own, so an existing install sees no change until it zooms the
+    terminal. The interface scale is a *multiplier* and not a point size because
+    the zone covers fonts, paddings, frames, icon sizes and row heights at once —
+    there is no one number to store, only the factor every one of them is derived
+    from. `fontSize` itself is unchanged in behavior and public API but
+    re-expressed over `ZoomScaleRule.editorFont`: the four
+    `minFontSize`/`maxFontSize`/`defaultFontSize`/`fontSizeStep` constants now
+    *read* from that rule, `clampFontSize(_:)` forwards to `clamp(_:)` and
+    `stepFontSize(by:)` to `stepped(_:by:)` — same range, same step, same result
+    for every value on the grid, which every value the Stepper, the shortcuts or
+    a fresh install produces is. On top sits the zone-keyed trio the app layer
+    actually uses — `scale(for:)`, `stepZoom(_:by:)`, `resetZoom(_:)`, over a
+    single private `setScale(_:for:)` writer whose values still pass each
+    property's own clamping `didSet` — so that no view has to know which stored
+    property backs which zone: the pointer resolves a `ZoomZone` and the gesture,
+    the menu item and the accumulator all speak that one word. `resetZoom` moves
+    only the zone it is given, which is what makes ⌘0 as targeted as the
+    gestures. `SettingsStoreTests` covers the two defaults, the round trip across
+    a rebuilt store, clamping on write and on load at both bounds, non-finite and
+    wrong-typed stored values, the two key strings, and the zone-keyed API's
+    stepping/clamping/resetting for all three zones (including that stepping one
+    zone leaves the other two untouched).
   - `EditorSession.swift` — the persisted editor session behind launch-time
     session restore and "Untitled" hot exit (macOS today; the iOS variant is a
     follow-up over this same model). Foundation-only: the value types, the pure

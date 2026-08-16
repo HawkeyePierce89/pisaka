@@ -73,7 +73,7 @@ user sees it.
   to hide it and the gutter returns to its previous width. The toggle is per tab,
   so each open file remembers its own state; lines that are not committed yet, and
   lines git had nothing to say about, are left blank. The column follows the editor
-  font (it resizes with Cmd+scroll and the Preferences font size) and refreshes
+  font (it resizes with the code zoom and the Preferences font size) and refreshes
   itself whenever the file on disk changes — after a save or autosave, a Save As, a
   revert, a branch checkout, or renaming the file. Committing from the embedded
   terminal is the one change it does not notice on its own: the file did not move,
@@ -265,7 +265,7 @@ user sees it.
   of a package, into a dependency, and into the SDK. A declaration that lives
   *outside* the opened folder — an SDK interface, a dependency checkout — opens in a
   separate **read-only** window (syntax-highlighted, with the same line-number
-  gutter — no blame column — and Cmd+scroll zoom, one window per file) rather
+  gutter — no blame column — and the same code zoom, one window per file) rather
   than as an editable tab, so a jump
   into the SDK can never write outside your project. Completion becomes typed
   candidates in the compiler's own ranking, including real members after a `.`, and
@@ -596,13 +596,39 @@ user sees it.
   Swift `swift test`. Like Run File, the file's dirty tab is saved first, the
   session starts in the project folder (or the file's folder), and re-running the
   same file reuses its dedicated "Test:" tab.
-- Preferences (Cmd+,): a Settings window with four persisted options — tab
+- **Zoom, in three independent zones, targeted by the pointer.** Cmd+= (or
+  Cmd++), Cmd+− and Cmd+0 in the **View** menu zoom in, out and back to normal —
+  and so do Ctrl-scroll, Cmd-scroll and a trackpad pinch, which feel continuous
+  and land on exactly the same sizes the keyboard produces. What grows is decided
+  by **what the pointer is over at that moment**, in whichever window it happens
+  to be over:
+  - over the editor, a diff or merge pane, the read-only source viewer, a Find in
+    Files result or the LeetCode statement text → the **code** zone, i.e. the
+    shared editor font size, exactly what the Preferences row sets (the gutter,
+    the blame column and the minimap follow it as always);
+  - over the terminal → the **terminal** font size, its own setting. The running
+    shell survives and reflows to the new cell size — nothing is restarted — and
+    the panel's tab strip does not change;
+  - over anything else — the project tree, the tab list, the bottom bar, the Log,
+    Local Changes, the commit dialog, Preferences, the LeetCode browser → the
+    **interface** scale, which grows the chrome proportionally: fonts, paddings,
+    row heights, icon sizes and pane widths together, from 80% up to 200%.
+  The three are stored separately and never affect one another, so Cmd+0 resets
+  only the zone under the pointer. With the pointer outside every Pisaka window,
+  the shortcut falls back to whatever the focused surface is (the editor or the
+  terminal), and to the interface otherwise. Everything persists across launches;
+  the code zone and the Preferences font-size row stay in sync in both
+  directions, because they are one value.
+- Preferences (Cmd+,): a Settings window with five persisted options — tab
   orientation (a vertical column beside the editor, or a horizontal strip above
   it), theme (follow the system, or force light/dark), a shared editor font
-  size used by the editor, diff, and merge views, and whether the editor offers
+  size used by the editor, diff, and merge views, a terminal font size, and
+  whether the editor offers
   completions as you type (the same switch as the bottom bar's lightbulb). The
-  font size is also adjustable on the fly with Cmd+scroll over any code view.
-  All four settings persist across launches. The Settings window's other tabs are **Language
+  two font sizes are also adjustable on the fly by zooming over a code view or
+  over the terminal (see Zoom above); the interface scale has no row of its own
+  and is set by zooming over the chrome.
+  All five settings persist across launches. The Settings window's other tabs are **Language
   Servers** (what may be downloaded, and what is installed), **LeetCode** (the
   account, the solutions folder, and the language new solution files are seeded
   in) and **Acknowledgements**, which lists every third-party dependency the app
@@ -675,8 +701,9 @@ and iPhone. The feature scope landed so far:
 - A `UITextView`-backed code editor with the same tree-sitter syntax
   highlighting (Neon), auto-indent (`IndentEngine`), and auto-close brackets/
   quotes (`AutoPairEngine`) as macOS. Font size follows the shared
-  `SettingsStore` preference; pinch-to-zoom steps it (the iOS analog of macOS
-  Cmd+scroll). The editor's line-number gutter and minimap are deferred on iOS
+  `SettingsStore` preference; pinch-to-zoom steps it (the iOS analog of the macOS
+  code zoom — iOS has no terminal or interface zone). The editor's line-number
+  gutter and minimap are deferred on iOS
   (the side-by-side diff panes do still draw per-side line numbers).
 - The same index-based code intelligence as macOS (there is no language server on
   iOS, so Swift is answered the same way every other language is), through
@@ -920,6 +947,12 @@ and iPhone. The feature scope landed so far:
     problems.
   - Cached statements hold LeetCode's HTML only: **images do not load offline**,
     and neither does anything else the page would have fetched.
+  - The statement pane is a web view, and on macOS its text follows the **code**
+    zoom zone (the shared editor font size), not the interface scale: zooming with
+    the pointer over the statement grows the problem text, and raising the
+    interface scale grows everything around it — the pane's header, the language
+    row, the Run/Submit section — while the statement itself stays where the code
+    zone put it.
   - A solution file is tied to its problem by its **name and its location**.
     Renaming it, or moving it out of the configured folder, detaches it — the
     description pane goes empty for that tab.

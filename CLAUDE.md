@@ -191,12 +191,18 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `BottomPanel.swift` — bottom-dock toggle state.
 - `DiffWindowTitle.swift` — diff-window titles.
 - `TabOrientation.swift` / `ThemePreference.swift` — persisted preference enums.
-- `SettingsStore.swift` — persisted preferences; the one `completionEnabled` flag; per-server LSP consent (D15).
+- `SettingsStore.swift` — persisted preferences; the three zoom scales and the zone-keyed API; the one `completionEnabled` flag; per-server LSP consent (D15).
 - `EditorSession.swift` — per-project session persistence (`SessionTab`, `SessionCatalog`, the keyed store + legacy migration).
 - `ScopedFileAccess.swift` — iOS security-scope helpers + `BookmarkStore`.
 - `TabLayout.swift` — iOS tab-presentation decision.
 - `LicenseNotice.swift` — license manifest model + `LicenseCatalog`; the coverage invariant lives in the same doc.
 - `PisakaCore.swift` — package constants/version.
+
+`docs/architecture/core-zoom.md` — the three macOS zoom zones (Core + app halves):
+- `ZoomZone.swift` — zone/surface vocabulary; the deepest-candidate pointer rule.
+- `ZoomScaleRule.swift` — the one clamp/step/reset arithmetic; the three rules' numbers.
+- `ZoomGestureAccumulator.swift` — scroll/pinch deltas → the keyboard's discrete steps.
+- `InterfaceMetrics.swift` — `InterfaceTextStyle` base sizes; scaled fonts/metrics.
 
 ### `Pisaka` (app target, `Sources/Pisaka/`)
 
@@ -249,6 +255,11 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `LeetCodeJudgeView.swift` / `iOS/LeetCodeJudgeView_iOS.swift` — the judge section under the statement.
 - `LeetCodeBrowserWindowController.swift` / `LeetCodeBrowserView.swift` — the single macOS browser window (⌘⇧B).
 - `iOS/LeetCodeBrowserView_iOS.swift` — the pushed iOS browser screen.
+
+`docs/architecture/core-zoom.md` — the zoom app surfaces (same doc as the Core half):
+- `ZoomSurface.swift` — the surface marker protocol/representable + the pointer walk.
+- `ZoomController.swift` — the one `NSEvent` monitor; the three View-menu items.
+- `InterfaceScaleEnvironment.swift` — `\.interfaceMetrics` + `.interfaceScaled(_:)`.
 
 `docs/architecture/app-window.md` — window chrome (macOS):
 - `ContentView.swift` — window layout; deliberately non-observed `commitDialog`.
@@ -339,6 +350,15 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   `openProblem`, so there is no second create path. All schema knowledge is in
   one Core file, every operation requires a login, and opening a problem never
   changes the project root (`core-leetcode.md`).
+- **Zoom is three zones, one arithmetic, one pointer rule** (macOS only): `code`
+  — which *is* the existing `SettingsStore.fontSize`, never a second setting —
+  `terminal` and `interface` each clamp/step/reset through one `ZoomScaleRule`,
+  and every gesture *and* menu shortcut targets whichever zone the pointer is
+  over at that moment (deepest surface wins; nothing hit ≡ interface). One local
+  `NSEvent` monitor receives them all — per-view `scrollWheel` overrides cannot
+  reach the terminal or the chrome — and the interface scale reaches views only
+  as `InterfaceMetrics` through `\.interfaceMetrics`, never multiplied inline and
+  never applied to a code-font site (`core-zoom.md`).
 - **Open-tab resync** after an operation rewrites the worktree: buffers are
   snapshotted before the hop; a clean, unchanged tab gets `reloadFromDisk`, an
   edited one `reconcileSavedBaseline` + beep, a deleted file force-closes

@@ -298,24 +298,24 @@ surfaces the user lives in genuinely proportional.
 - Modify: `CLAUDE.md`, `docs/FEATURES.md`, `docs/architecture/core-services.md`,
   `app-shell.md`, `app-terminal.md`, `app-window.md`
 
-- [ ] `core-zoom.md`: full entries for the four new Core files — the zone
+- [x] `core-zoom.md`: full entries for the four new Core files — the zone
       vocabulary and the deepest-candidate rule, the shared scale arithmetic and
       the three rules' numbers with their rationale, the accumulator's
       thresholds and reset rule, the interface metric tables — plus the app-side
       halves (hit-testing, the single event monitor, the three roots that inject
       the environment)
-- [ ] `CLAUDE.md`: one index line per new file, the new doc in the index, and a
+- [x] `CLAUDE.md`: one index line per new file, the new doc in the index, and a
       cross-cutting note that the three zones are one arithmetic with one
       pointer rule and that the code zone remains the single `fontSize`
-- [ ] `core-services.md`: `SettingsStore`'s two new keys and the zone-keyed API;
+- [x] `core-services.md`: `SettingsStore`'s two new keys and the zone-keyed API;
       `app-terminal.md`: the terminal font application path; `app-shell.md`: the
       menu items and the event monitor's lifecycle; `app-window.md`: the
       environment injection at each window root
-- [ ] `docs/FEATURES.md`: the three zones, the pointer rule, all three gestures
+- [x] `docs/FEATURES.md`: the three zones, the pointer rule, all three gestures
       and the shortcuts, in the macOS section — and, under Known limitations,
       the LeetCode statement pane following the code zone rather than the
       interface scale
-- [ ] run `swift test` — must pass (the repository-file suites read these docs'
+- [x] run `swift test` — must pass (the repository-file suites read these docs'
       neighbours; keep them green)
 
 ### Task 8: Verify acceptance criteria

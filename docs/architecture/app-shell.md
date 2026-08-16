@@ -345,7 +345,32 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     outlive a quit, since a profile slow enough to hang is exactly why it has a
     deadline. It is permanent in the same way, so a `.rs` tab opening after the
     observer fires starts nothing; the release check is `pgrep -f rust-analyzer`
-    coming back empty. It
+    coming back empty.
+    `zoom.uninstall()` is called from that same observer, and is the cheap,
+    undramatic end of the list: it removes the app's one `NSEvent` monitor so no
+    event handler outlives the app. It is *there* rather than anywhere closer to
+    the monitor because "installed in `.onAppear`, removed on termination" is one
+    statement, and splitting it across two places is how the second half gets
+    forgotten. The other half is `zoom.install()` in the root `.onAppear`,
+    alongside the rest of the app-lifecycle wiring; it is idempotent by contract
+    for `terminateAll()`'s reason — `.onAppear` can fire again for a reopened
+    window, and a second monitor would apply every zoom step twice. The
+    `ZoomController` itself is a plain stored `let` built in `init()` over the
+    same `SettingsStore` every window and sheet receives (three zones with one
+    arithmetic is only true if there is one place the numbers live), like the
+    other controllers; nothing in the scene's `body` reads anything published on
+    it — the *settings* it writes are what redraws the views — and that reference
+    is what keeps the monitor's owner alive, since the monitor holds `self`
+    weakly. The **View menu** gains the three items that go through it, above a
+    `Divider()` and the bottom-dock toggles: Zoom In (⌘=), a second Zoom In
+    carrying the ⌘+ alternate, Zoom Out (⌘−) and Reset Zoom (⌘0). Two items for
+    zooming in on purpose — ⌘= is the keystroke that needs no Shift, ⌘+ is the one
+    every other Mac app *displays*, and AppKit matches a key equivalent literally
+    ("=" does not answer a ⇧= press, "+" does not answer a plain one), while
+    SwiftUI offers no `isAlternate` to hide the duplicate. Each resolves the zone
+    from the **pointer at invocation time**, exactly as a scroll or a pinch does,
+    so ⌘= over the terminal grows the terminal even while the editor holds focus;
+    the full rule and the monitor's own contract are in `core-zoom.md`. It
     also holds the shared
     `CommitLogModel` (real
     `GitCLIService`); `openFolder()` refreshes it (`CommitLogView.initialLimit`)
@@ -1276,10 +1301,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     wiring only (untested like the rest of the view layer). Settings application is
     spread across the views that read `settings`: the theme via
     `.preferredColorScheme` on the window content root (`ContentView`), the tab
-    layout in `ContentView`, the shared editor font size + Cmd+scroll in the
+    layout in `ContentView`, the shared editor font size in the
     code views (`CodeEditorView`/`DiffView`/`MergeView`), and completion on/off
     as a plain (undefaulted) value on `CodeEditorView` plus the Find > "Complete"
     item's `.disabled` in `PisakaApp`.
+    The zoom feature adds a **"Terminal font size: N pt" `Stepper`** beside the
+    editor's, bound to `settings.terminalFontSize` over the same rule's
+    range/step, so the two font zones read as one pair of rows and share the
+    store's clamping; the interface zone has no row of its own (it is a gesture
+    and ⌘=/⌘−/⌘0, per `core-zoom.md`). The Preferences form is itself *scaled* by
+    the interface zone — `PisakaApp` applies `.interfaceScaled(settings)` to the
+    `Settings` scene rather than inside `SettingsView`, because an environment
+    write never reaches the view that makes it and the settings form has to grow
+    too.
   - `Platform/LicenseCatalogLoader.swift` — the non-gated shim both
     Acknowledgements screens read (documented here rather than in `app-ios.md`
     because nothing about it is platform-specific: `Resources/Licenses` is a
