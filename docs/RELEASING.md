@@ -739,6 +739,10 @@ time and is what keeps the two halves from drifting. Bumping `exactVersion:` in
 a pushed tag, after the archive. Re-derive them first:
 
 ```sh
+# `Pisaka.xcodeproj` is generated and gitignored, so this comes first: without
+# it the resolve below fails with "does not exist" on a clean checkout — on the
+# one path whose alternative is guessing the two path lists.
+xcodegen generate
 xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=macOS' \
   -clonedSourcePackagesDirPath SourcePackages -resolvePackageDependencies
 FW=SourcePackages/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework

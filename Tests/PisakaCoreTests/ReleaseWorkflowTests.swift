@@ -1599,18 +1599,29 @@ final class ReleaseWorkflowTests: XCTestCase {
         // until a user reaches the feature the entitlement was added for. The
         // hazard is documented in release.yml and docs/RELEASING.md; this is the
         // mechanism, because a comment is not a guard.
-        let entitlements = lines.filter { line in
-            let key = line.drop { $0 == "\"" || $0 == "'" }
-            guard key.hasPrefix("CODE_SIGN_ENTITLEMENTS") else { return false }
-            return [":", "[", "\"", "'", " "].contains(String(key.dropFirst("CODE_SIGN_ENTITLEMENTS".count).prefix(1)))
+        //
+        // Two spellings, because the build setting is not how XcodeGen asks for
+        // this. Its documented form is a *target* key — `entitlements: {path:…}`
+        // — which generates the file and sets `CODE_SIGN_ENTITLEMENTS` in the
+        // produced `.xcodeproj`, where nothing in `swift test` can see it: the
+        // string never appears in project.yml at all. That is the spelling a
+        // contributor reading XcodeGen's own documentation reaches for, so
+        // refusing only the raw setting would leave the guard blind to the
+        // likeliest form of exactly the regression it exists to catch.
+        for key in ["CODE_SIGN_ENTITLEMENTS", "entitlements"] {
+            let committed = lines.filter { line in
+                let name = line.drop { $0 == "\"" || $0 == "'" }
+                guard name.hasPrefix(key) else { return false }
+                return [":", "[", "\"", "'", " "].contains(String(name.dropFirst(key.count).prefix(1)))
+            }
+            XCTAssertTrue(committed.isEmpty, """
+                project.yml commits \(committed) — but release.yml's re-sign step signs the app with \
+                no `--entitlements`, so an entitlement the archive applies is stripped straight back \
+                off and every verification downstream still passes. Adding an entitlements file means \
+                passing it on that `codesign` line too; do both, then update this assertion, \
+                docs/RELEASING.md and CLAUDE.md's "No entitlements file ships" paragraph together.
+                """)
         }
-        XCTAssertTrue(entitlements.isEmpty, """
-            project.yml commits \(entitlements) — but release.yml's re-sign step signs the app with \
-            no `--entitlements`, so an entitlement the archive applies is stripped straight back \
-            off and every verification downstream still passes. Adding an entitlements file means \
-            passing it on that `codesign` line too; do both, then update this assertion, \
-            docs/RELEASING.md and CLAUDE.md's "No entitlements file ships" paragraph together.
-            """)
     }
 
     // MARK: - Notarization and stapling
