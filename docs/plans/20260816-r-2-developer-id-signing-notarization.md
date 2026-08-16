@@ -269,17 +269,20 @@ update from a previous release installing normally.
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] `swift test` — the full suite green, including every updated and new
-      `ReleaseWorkflowTests` assertion
-- [ ] `xcodegen generate` then build both destinations (`platform=macOS` and
+- [x] `swift test` — the full suite green, including every updated and new
+      `ReleaseWorkflowTests` assertion (2751 tests, 0 failures; 33 of them
+      `ReleaseWorkflowTests`)
+- [x] `xcodegen generate` then build both destinations (`platform=macOS` and
       `generic/platform=iOS`) and confirm they succeed with no certificate and no
       signing prompt — the committed configuration is unchanged, and this is the
-      check that proves it
-- [ ] re-read the final `release.yml` against the acceptance criteria: preflight
+      check that proves it (both `** BUILD SUCCEEDED **`, no `CodeSign` phase;
+      `project.yml` still carries `CODE_SIGNING_ALLOWED: NO` and names no team)
+- [x] re-read the final `release.yml` against the acceptance criteria: preflight
       refuses each missing secret before archiving, the archive is Developer ID
       signed with the hardened runtime, notarize and staple sit between signing
       and the shipped zip, the keychain is cleaned up on every path, and R-1's
-      publication invariants are intact
+      publication invariants are intact — all five confirmed against the file as
+      committed
 
 ### Task 6: Update documentation
 
