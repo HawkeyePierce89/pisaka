@@ -235,7 +235,14 @@ jobs:
           security set-keychain-settings -ut 21600 "$KEYCHAIN"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
 
-          printf '%s' "$DEVELOPER_ID_CERT_P12" | base64 --decode > "$CERTIFICATE"
+          # `(umask 077; …)` and not a `chmod` afterwards. The redirect creates
+          # the file under the runner's default umask, so narrowing it on the
+          # next line leaves a window in which the signing key is world-readable
+          # — and the step's whole premise (see above) is that this job may not
+          # lean on the runner being private. A subshell umask has no window at
+          # all because the file is never created any other way. The .p8 in the
+          # notarization step is written the same way for the same reason.
+          (umask 077; printf '%s' "$DEVELOPER_ID_CERT_P12" | base64 --decode > "$CERTIFICATE")
           security import "$CERTIFICATE" -k "$KEYCHAIN" -P "$DEVELOPER_ID_CERT_PASSWORD" \
             -T /usr/bin/codesign -T /usr/bin/security -f pkcs12
           # The decoded private key does not outlive the step that needed it.
@@ -373,9 +380,10 @@ jobs:
       # rather than assuming that `codesign --verify` passing means the right
       # certificate was used: an ad-hoc signature, an Apple Development identity
       # and a Developer ID one all verify happily. The three facts the notary
-      # service checks — a Developer ID Application authority, this team, and the
-      # hardened runtime flag — are therefore read back off the bundle, on the app
-      # and on the embedded framework both. The framework is not decoration: it is
+      # service checks — a Developer ID Application authority, this team, the
+      # hardened runtime flag and a secure timestamp — are therefore read back off
+      # the bundle, on the app and on the embedded framework both, one fact per
+      # line of the dump. The framework is not decoration: it is
       # signed by Xcode as part of the archive, and it is the one piece of nested
       # code whose signature Sparkle itself re-checks on the user's machine.
       #
@@ -397,7 +405,7 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$APP"
 
           # `codesign --display` writes to stderr, hence the redirect. Each of the
-          # three facts is matched on its own line of that dump rather than as one
+          # four facts is matched on its own line of that dump rather than as one
           # regular expression over the whole thing, for the reason the plist loop
           # below spells out: an alternation succeeds on any one alternative.
           verify_developer_id_signature() {
@@ -422,7 +430,24 @@ jobs:
               echo "::error::${LABEL} was not signed with the hardened runtime. ENABLE_HARDENED_RUNTIME=YES stopped reaching the archive; the notary service refuses any build without it. See docs/RELEASING.md."
               exit 1
             fi
-            echo "${LABEL}: Developer ID, team XJT3LK36GS, hardened runtime"
+            # The read-back for `OTHER_CODE_SIGN_FLAGS=--timestamp`, and the only
+            # one of the four that is *distinguishable* rather than absent:
+            # `codesign --display` prints `Timestamp=` for a signature carrying a
+            # secure timestamp from Apple's timestamp authority and `Signed Time=`
+            # for a purely local one. A bundle with only the latter passes
+            # `--verify --deep --strict` and all three checks above, and is
+            # refused by the notary service after the archive and the queue —
+            # which is the cost passing the flag explicitly exists to avoid, so
+            # the flag having actually reached the signature is checked rather
+            # than assumed. `OTHER_CODE_SIGN_FLAGS` holds one value, so anything
+            # that displaces it (a `settings.base` entry in project.yml, a
+            # different task re-signing the embedded framework) silently drops
+            # the timestamp — hence this runs on both bundles like the rest.
+            if ! printf '%s\n' "$SIGNATURE" | grep -q '^Timestamp='; then
+              echo "::error::${LABEL} carries no secure timestamp — codesign reports \"Signed Time=\" rather than \"Timestamp=\" when OTHER_CODE_SIGN_FLAGS=--timestamp did not reach the signature. The notary service refuses a build without one. See docs/RELEASING.md."
+              exit 1
+            fi
+            echo "${LABEL}: Developer ID, team XJT3LK36GS, hardened runtime, secure timestamp"
           }
 
           verify_developer_id_signature "The archived app" "$APP"
@@ -520,8 +545,12 @@ jobs:
           SUBMISSION="${RUNNER_TEMP}/notarization.json"
           trap 'rm -f "$API_KEY"' EXIT
 
-          printf '%s' "$APP_STORE_CONNECT_API_KEY_P8" > "$API_KEY"
-          chmod 600 "$API_KEY"
+          # `(umask 077; …)`, not a write followed by `chmod 600`: the redirect
+          # is what creates the file, so a chmod on the next line narrows a key
+          # that was already world-readable for the length of the write. This is
+          # the unencrypted half of the notarization credentials — the .p12 in
+          # the import step is written the same way.
+          (umask 077; printf '%s' "$APP_STORE_CONNECT_API_KEY_P8" > "$API_KEY")
 
           rm -rf build/notarization
           mkdir -p build/notarization
@@ -552,12 +581,25 @@ jobs:
           STATUS="$(jq -r '.status // "no status"' "$SUBMISSION" 2>/dev/null || echo "unreadable")"
           SUBMISSION_ID="$(jq -r '.id // ""' "$SUBMISSION" 2>/dev/null || echo "")"
           if [ "$STATUS" != "Accepted" ]; then
-            echo "::error::The notary service returned status \"${STATUS}\" (notarytool exit ${SUBMIT_EXIT}) for submission ${SUBMISSION_ID}. The log follows; it names the binary and the reason — a missing hardened runtime, a missing secure timestamp, an unsigned nested executable, or an identity the service does not accept. Nothing has been published: fix the cause, delete and re-push the tag. See docs/RELEASING.md."
-            xcrun notarytool log "$SUBMISSION_ID" \
-              --key "$API_KEY" \
-              --key-id "$APP_STORE_CONNECT_KEY_ID" \
-              --issuer "$APP_STORE_CONNECT_ISSUER_ID" \
-              || echo "::error::The notarization log for submission \"${SUBMISSION_ID}\" could not be fetched. Read it by hand with: xcrun notarytool log <submission-id> --key-id … --issuer …"
+            echo "::error::The notary service returned status \"${STATUS}\" (notarytool exit ${SUBMIT_EXIT}) for submission \"${SUBMISSION_ID}\". The log follows; it names the binary and the reason — a missing hardened runtime, a missing secure timestamp, an unsigned nested executable, or an identity the service does not accept. Nothing has been published: fix the cause, delete and re-push the tag. See docs/RELEASING.md."
+            # The fetch is guarded on the id being non-empty rather than left to
+            # fail: on exactly the cases the guarded `jq` above exists for — the
+            # `--timeout` expiring, a submission killed mid-write, notarytool
+            # emitting something that is not JSON — `$SUBMISSION_ID` is the empty
+            # string, and `notarytool log ""` then fails with a message about a
+            # malformed id that has nothing to do with the actual problem. That
+            # branch needs the *other* recovery, `notarytool history`, because
+            # the id it would otherwise tell the operator to re-run with was
+            # never captured by anything.
+            if [ -z "$SUBMISSION_ID" ]; then
+              echo "::error::notarytool returned no readable submission id, so there is no log to fetch — the JSON above is the whole record of this attempt. Find the submission and its verdict with: xcrun notarytool history --key-id \"\$APP_STORE_CONNECT_KEY_ID\" --issuer \"\$APP_STORE_CONNECT_ISSUER_ID\" --key <path-to-p8>, then: xcrun notarytool log <submission-id> …"
+            else
+              xcrun notarytool log "$SUBMISSION_ID" \
+                --key "$API_KEY" \
+                --key-id "$APP_STORE_CONNECT_KEY_ID" \
+                --issuer "$APP_STORE_CONNECT_ISSUER_ID" \
+                || echo "::error::The notarization log for submission \"${SUBMISSION_ID}\" could not be fetched. Read it by hand with: xcrun notarytool log ${SUBMISSION_ID} --key-id \"\$APP_STORE_CONNECT_KEY_ID\" --issuer \"\$APP_STORE_CONNECT_ISSUER_ID\" --key <path-to-p8>"
+            fi
             exit 1
           fi
           echo "Notarization accepted (submission ${SUBMISSION_ID})."
@@ -590,7 +632,17 @@ jobs:
           set -euo pipefail
           APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
 
-          xcrun stapler staple "$APP"
+          # Wrapped like every other refusal in this file. Bare, a failure here
+          # ends the job with stapler's own output, which for the common case is
+          # "The staple and validate action failed! Error 65" and names nothing —
+          # in a step reached only after a 20-minute archive and an accepted
+          # submission, i.e. the most expensive place in the run to be told
+          # nothing. The two realistic causes are named because they need
+          # opposite responses.
+          if ! xcrun stapler staple "$APP"; then
+            echo "::error::Stapling the notarization ticket into the app failed. The submission came back Accepted, so the two realistic causes are a ticket Apple has not finished publishing yet (wait a few minutes, then delete and re-push the tag — the same build notarizes again from cache) and a bundle that changed after it was submitted (a bug here; nothing may modify the app between the submit and this step). Nothing has been published. See docs/RELEASING.md."
+            exit 1
+          fi
           if ! xcrun stapler validate "$APP"; then
             echo "::error::The notarization ticket does not validate against the archived app. The ticket is issued for the code directory hash that was submitted, so this means the bundle changed between submission and stapling. Nothing has been published; re-run the release. See docs/RELEASING.md."
             exit 1

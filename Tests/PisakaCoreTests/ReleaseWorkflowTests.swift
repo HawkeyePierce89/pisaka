@@ -295,10 +295,24 @@ final class ReleaseWorkflowTests: XCTestCase {
             return
         }
 
+        // Nesting-aware on both counts. A guarded branch may contain its own
+        // `if` — the notarization refusal does, to tell "no log for this
+        // submission" from "no submission id at all" — and reading that inner
+        // `fi` as the end of the branch would report a guard that does refuse as
+        // one that does not. The `exit 1` is required at depth 0 for the mirror
+        // reason: an `exit 1` reachable only under a *second* condition is not
+        // this guard refusing, and counting it would wave through the one shape
+        // this helper exists to catch.
         var refuses = false
+        var depth = 0
         for entry in script[(start + 1)...] {
-            if entry == "fi" { break }
-            if entry == "exit 1" { refuses = true; break }
+            if entry.hasPrefix("if ") { depth += 1; continue }
+            if entry == "fi" {
+                if depth == 0 { break }
+                depth -= 1
+                continue
+            }
+            if entry == "exit 1", depth == 0 { refuses = true; break }
         }
         XCTAssertTrue(refuses, """
             release.yml's `\(step)` step tests \(condition) but its branch does not `exit 1` — so \
@@ -443,6 +457,19 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
         XCTAssertLessThan(decode, remove, """
             The decoded .p12 must be removed *after* it is written, in the same step.
+            """)
+        // …and is not world-readable while it exists. Same rule and same reason
+        // as the .p8's: it is the signing private key, and the step's own stated
+        // premise is that this job may not lean on the runner being private.
+        // Asserted on the decode line itself because the redirect is what
+        // creates the file — a narrowing that is not part of the write is a
+        // window, not a fix.
+        XCTAssertTrue(script[decode].hasPrefix("(umask 077;"), """
+            The decoded .p12 must be written inside a `(umask 077; …)` subshell. Under the \
+            runner's default umask it lands world-readable, and the password that protects it is \
+            passed to `security import` as an argv on the next line — so both halves of the \
+            signing key are exposed together, which is exactly what this step's own comment about \
+            not trusting the runner's privacy argues against. Got “\(script[decode])”.
             """)
 
         // The search list is prepended to, not replaced, and the previous value
@@ -629,8 +656,9 @@ final class ReleaseWorkflowTests: XCTestCase {
     ///
     /// The notary submission blocks for up to its `--timeout`, on top of an
     /// archive that pays for whole-module optimization across the app and every
-    /// linked dependency — `ci.yml` gives a strictly *smaller* workload (a
-    /// Release build rather than an archive) 45 minutes. If the two do not fit,
+    /// linked dependency — and `ci.yml` gives a strictly *smaller* workload (a
+    /// Release build rather than an archive) its own budget, read from that file
+    /// rather than restated here. If the two do not fit,
     /// a slow-but-healthy notary queue ends the run as a GitHub cancellation:
     /// no `::error::` annotation, none of this workflow's actionable messages,
     /// and — if it lands after `gh release create --draft` — a draft release
@@ -662,17 +690,45 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
         let waitMinutes = try XCTUnwrap(Int(wait), "could not read a number out of “\(wait)”")
 
-        // 45 is `ci.yml`'s budget for a Release *build* of the same target — a
-        // strictly smaller job than this one's archive, so it is the floor of
-        // what has to be left over once the notary wait is subtracted.
-        XCTAssertGreaterThanOrEqual(budget - waitMinutes, 45, """
+        // The floor is *read from* `ci.yml`, not written here as a literal.
+        // `CLAUDE.md` and `docs/RELEASING.md` both state this relation as "the
+        // job budget exceeds the notary `--timeout` by at least ci.yml's build
+        // budget", and a hardcoded 45 makes that sentence true only by
+        // coincidence: raise CI's budget because the Release build got slower —
+        // the one change that means an archive needs *more* headroom, not the
+        // same — and this assertion keeps passing at the old number while the
+        // documented invariant quietly stops holding. Same cross-file read as
+        // `testXcodeGenIsPinnedIdenticallyToCI`.
+        let ciFloor = try ciMacBuildBudget()
+        XCTAssertGreaterThanOrEqual(budget - waitMinutes, ciFloor, """
             The release job budgets \(budget) minutes and is willing to wait \(waitMinutes) of \
             them for the notary service, leaving \(budget - waitMinutes) for the archive. ci.yml \
-            gives 45 minutes to a Release *build* of this target, which is strictly less work \
-            than an archive of it. A slow-but-healthy notary queue would therefore end this run \
-            as a cancellation — no error annotation, no message, and a draft release possibly \
+            gives \(ciFloor) minutes to a Release *build* of this target, which is strictly less \
+            work than an archive of it. A slow-but-healthy notary queue would therefore end this \
+            run as a cancellation — no error annotation, no message, and a draft release possibly \
             left occupying the tag. Raise `timeout-minutes:` or lower `--timeout`.
             """)
+    }
+
+    /// `ci.yml`'s budget for its macOS Release build, found by walking back from
+    /// the build step rather than by taking the file's first `timeout-minutes:`
+    /// — that file has three jobs with three different budgets, and the first is
+    /// the *test* job's.
+    private func ciMacBuildBudget(file: StaticString = #filePath, line: UInt = #line) throws -> Int {
+        let lines = activeYAMLLines(of: try text(atRepositoryPath: ".github/workflows/ci.yml"))
+        let step = try XCTUnwrap(lines.firstIndex(where: {
+            $0 == "- name: \(Self.ciMacBuildStepName)"
+        }), """
+            ci.yml has no `\(Self.ciMacBuildStepName)` step, so the release job's budget has \
+            nothing to be measured against. If the step was renamed, update `ciMacBuildStepName`.
+            """, file: file, line: line)
+        let budgetLine = try XCTUnwrap(lines[..<step].last(where: { $0.hasPrefix("timeout-minutes:") }), """
+            ci.yml's macOS build job must declare a `timeout-minutes:` — it is the floor the \
+            release job's post-notary headroom is compared against.
+            """, file: file, line: line)
+        return try XCTUnwrap(Int(budgetLine.dropFirst("timeout-minutes:".count)
+            .trimmingCharacters(in: .whitespaces)),
+            "could not read a number out of ci.yml's “\(budgetLine)”", file: file, line: line)
     }
 
     // MARK: - The artefact
@@ -817,7 +873,13 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// signature, an Apple Development identity and a Developer ID one all pass
     /// it. The three facts notarization actually depends on are invisible to it,
     /// so each is matched on its own line of `codesign --display`: the authority,
-    /// the team identifier, and the hardened-runtime flag.
+    /// the team identifier, the hardened-runtime flag and the secure timestamp.
+    ///
+    /// The timestamp is the one of the four that is *misreported* rather than
+    /// absent — `codesign` prints `Signed Time=` for a local timestamp and
+    /// `Timestamp=` only for one countersigned by Apple's timestamp authority —
+    /// which is why it is matched on the `Timestamp=` spelling anchored at the
+    /// start of the line.
     ///
     /// The framework half is the claim "Xcode re-signs the embedded framework
     /// with the same identity", verified rather than believed. It is also the one
@@ -851,6 +913,16 @@ final class ReleaseWorkflowTests: XCTestCase {
             the hardened runtime is a notarization requirement that nothing local objects to the \
             absence of — the bundle verifies, launches and behaves identically right up to the \
             submission
+            """)
+        assertGuardExits("^Timestamp=", in: script, step: Self.verifyStepName, because: """
+            `OTHER_CODE_SIGN_FLAGS=--timestamp` is passed on the archive's command line precisely \
+            so a missing secure timestamp does not first surface as a notary rejection twenty \
+            minutes in, and that is only true if the flag having *reached the signature* is read \
+            back. It is a single-valued build setting, so anything that displaces it — a \
+            `settings.base` entry in project.yml, a different task re-signing the embedded \
+            framework — drops the timestamp silently: `codesign --display` then prints \
+            `Signed Time=` instead of `Timestamp=`, and the bundle passes `--verify --deep \
+            --strict` and all three checks above
             """)
 
         // Both bundles, not just the app. The framework is separately signed and
@@ -1078,10 +1150,12 @@ final class ReleaseWorkflowTests: XCTestCase {
             covers everything except the window in which the key exists and the step has not yet \
             reached the trap — which includes the write itself failing part-way.
             """)
-        XCTAssertTrue(script.contains { $0.contains(#"chmod 600 "$API_KEY""#) }, """
-            The written .p8 must be narrowed to `chmod 600`. It lands under the runner's default \
-            umask otherwise, which is a private key readable by every process on the machine for \
-            as long as the notarization takes.
+        XCTAssertTrue(script.contains { $0.hasPrefix("(umask 077;") && $0.contains(#"> "$API_KEY""#) }, """
+            The .p8 must be written inside a `(umask 077; …)` subshell. It lands under the \
+            runner's default umask otherwise — a private key readable by every process on the \
+            machine for as long as the notarization takes — and a `chmod` on the following line is \
+            not the same fix: the redirect is what creates the file, so narrowing it afterwards \
+            leaves a window rather than closing one. Got \(script.filter { $0.contains(#"$API_KEY""#) }).
             """)
 
         // The trap's signal is asserted, not just its existence: `trap … ERR`
@@ -1118,6 +1192,17 @@ final class ReleaseWorkflowTests: XCTestCase {
             release.yml's `\(Self.stapleStepName)` step must run `xcrun stapler staple` on the \
             .app. Notarization without stapling is an acceptance that lives only on Apple's \
             servers.
+            """)
+        // …and explains itself when it fails, like every other refusal here.
+        // Bare, `set -e` ends the job on stapler's own output, which for the
+        // common case is "The staple and validate action failed! Error 65" and
+        // names neither cause nor remedy — in the step reached only after the
+        // archive *and* an accepted submission.
+        assertGuardExits("xcrun stapler staple", in: script, step: Self.stapleStepName, because: """
+            a bare invocation under `set -e` ends the most expensive step in the run with Error 65 \
+            and nothing else, while the two realistic causes — a ticket Apple has not finished \
+            publishing (wait and re-push the tag) and a bundle that changed after submission (a \
+            bug in this workflow) — need opposite responses
             """)
         assertGuardExits("xcrun stapler validate", in: script, step: Self.stapleStepName, because: """
             `stapler staple` succeeding says a ticket was written; `stapler validate` says the \

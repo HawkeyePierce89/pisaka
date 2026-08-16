@@ -372,16 +372,21 @@ trigger/permissions by set equality, the preflight refusals asserted *by
 mechanism* — the guard's branch must `exit 1` — the throwaway signing keychain
 (under `$RUNNER_TEMP`, the login keychain never named, deleted — with *both*
 private keys, by path — by the job's last step under `if: always()`, since a
-cancelled step runs neither its trailing `rm` nor its `trap`), the Developer ID
+cancelled step runs neither its trailing `rm` nor its `trap`; both keys written
+inside a `(umask 077; …)` subshell, never narrowed after the redirect), the
+Developer ID
 identity, team, `ENABLE_HARDENED_RUNTIME` and `--timestamp` the archive supplies
-on the command line while `project.yml` stays signing-free, the same three
-verified on the archived app *and* the embedded `Sparkle.framework`, the
+on the command line while `project.yml` stays signing-free, **all four**
+verified on the archived app *and* the embedded `Sparkle.framework` (the
+timestamp is *misreported* rather than absent — `codesign` prints `Signed Time=`
+for a local one — so passing the flag is not the same as it arriving), the
 notarize→staple→`spctl` chain (the notary verdict read explicitly rather than
 inferred from the exit code, the submitted zip distinct from the shipped one),
 **that every step is fatal to the job** (no `continue-on-error:`, and
 `if: always()` on the cleanup as the only step condition — every
 `exit 1` this suite asserts is a refusal only because of it), the job budget
-exceeding the notary `--timeout` by at least `ci.yml`'s build budget,
+exceeding the notary `--timeout` by at least `ci.yml`'s build budget — read out
+of `ci.yml`, not restated as a literal,
 the step ordering and the draft-then-promote publication rules, the tool pins,
 `ci.yml`'s macOS job building `-configuration Release`, the cross-file pairs
 against `SUFeedURL`, and the Gatekeeper-workaround strings asserted absent from

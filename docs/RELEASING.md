@@ -263,6 +263,14 @@ Between verifying the archive and staging the shipped zip, the workflow:
    re-running the whole release to see it. Nothing has been published at that
    point: fix the cause, then delete and re-push the tag.
 
+   The one case that has *no* id to fetch a log for is the same one the guarded
+   `jq` reads exist for — the `--timeout` expiring, a submission killed
+   mid-write, `notarytool` emitting something that is not JSON. That branch says
+   so and points at `xcrun notarytool history` instead, because
+   `notarytool log ""` fails with a complaint about a malformed id that has
+   nothing to do with the actual problem, and the id it would otherwise tell you
+   to re-run with was never captured by anything.
+
 2. **Staples.** `xcrun stapler staple` writes the ticket Apple issued into the
    bundle, which is what makes a downloaded copy launch on a machine that cannot
    reach Apple. `stapler validate` then re-reads it back out and checks it
@@ -384,10 +392,14 @@ The workflow then, in order:
     `CODE_SIGNING_ALLOWED: NO` keeps dev and CI builds signing-free — see
     [the build number](#the-build-number) for why that base setting stays.
 
-    `--timestamp` is passed rather than assumed. A secure timestamp is a
+    `--timestamp` is passed rather than assumed, **and read back off the
+    signature** by the verification step below. A secure timestamp is a
     notarization requirement, and leaving it to an Xcode default would move the
     discovery of a missing one to the notary service's rejection, a full archive
-    later. **No entitlements file goes with the hardened runtime**: it permits
+    later — but so would passing it and never checking it arrived, since
+    `OTHER_CODE_SIGN_FLAGS` holds a single value and anything that displaces it
+    (a `settings.base` entry in `project.yml`, a different task re-signing the
+    embedded framework) drops the timestamp with nothing local objecting. **No entitlements file goes with the hardened runtime**: it permits
     `fork`/`exec` by default and library validation is per-process, so the `git`
     subprocess, the PTY shell and the downloaded language servers all launch with
     nothing declared. An entitlement is added when a concrete failure demands one
@@ -411,9 +423,11 @@ The workflow then, in order:
     with the archive's command line forever, with a disagreement failing at the
     notary service rather than in the workflow). The app is then
     checked for an embedded `Sparkle.framework`, verified with
-    `codesign --verify --deep --strict`, read back for the three facts
+    `codesign --verify --deep --strict`, read back for the four facts
     notarization requires — an `Authority=Developer ID Application:` line, team
-    `XJT3LK36GS`, and `runtime` among the signature's flags — **on the app and on
+    `XJT3LK36GS`, `runtime` among the signature's flags, and a `Timestamp=` line
+    (`codesign` prints `Signed Time=` instead when the secure timestamp is
+    missing, so the two are distinguishable rather than one being absent) — **on the app and on
     the embedded framework both** (that is the "Xcode re-signs the framework with
     the same identity" claim, verified rather than assumed; the framework is also
     the one piece of nested code Sparkle itself re-checks on the user's machine),
@@ -495,17 +509,22 @@ the flag cannot stand in for it), the archive's Developer ID identity, team,
 asserted to appear nowhere active — the ad-hoc pin deliberately updated rather
 than deleted), the throwaway keychain (created under `$RUNNER_TEMP`, the login
 keychain never named, the identity refusal, the import before the archive, the
-unlock and the lock settings including the absence of `-l`, the `if: always()`
+unlock and the lock settings including the absence of `-l`, the decoded `.p12`
+written under a `(umask 077; …)` subshell, the `if: always()`
 deletion of the keychain *and of both private keys by path*), the Developer ID /
-team / hardened-runtime read-back on both the app and the framework,
+team / hardened-runtime / secure-timestamp read-back on both the app and the framework,
 `project.yml` staying signing-free, the notarization submit (`--wait` plus the
 API-key trio, the exit-code capture that keeps `set -e` from pre-empting the
 verdict, the guarded JSON reads, the non-`Accepted` branch exiting 1, the log
-fetch, the `.p8` `chmod 600`-ed and removed by a `trap … EXIT`), the fact that
+fetch, the `.p8` written under the same `umask 077` subshell and removed by a
+`trap … EXIT`), the fact that
 every step is fatal to the job (no `continue-on-error:`, and `if: always()` on
 the cleanup as the only step condition), the job budget exceeding the notary
-`--timeout` by at least `ci.yml`'s build budget, the
-staple and its `stapler validate`, the full step ordering (archive < notarize <
+`--timeout` by at least `ci.yml`'s build budget — *read out of `ci.yml`* rather
+than restated as a number, so raising CI's budget cannot leave this claim true
+only by coincidence — the
+staple (refusing with a message of its own rather than bare `Error 65`) and its
+`stapler validate`, the full step ordering (archive < notarize <
 staple < shipped zip < `generate_appcast` < `gh release create`), the shipped zip
 being a different artefact from the submitted one, the absence of the old
 Gatekeeper workaround strings from every document that used to carry them, the
