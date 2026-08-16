@@ -85,16 +85,16 @@ its own; the gate is the single latch, and it is unit-tested.
 - Create: `Sources/PisakaCore/LeetCodeLoginGate.swift`
 - Create: `Tests/PisakaCoreTests/LeetCodeLoginGateTests.swift`
 
-- [ ] Add `@MainActor public final class LeetCodeLoginGate`, initialised with a
+- [x] Add `@MainActor public final class LeetCodeLoginGate`, initialised with a
       `LeetCodeTransport`, exposing one operation:
       `public func offer(_ candidate: LeetCodeCredentials) async -> LeetCodeCredentials?`
       — "here is a pair the cookie store just produced; give it back only if it
       is a session".
-- [ ] Confirmation uses the existing primitive and nothing else:
+- [x] Confirmation uses the existing primitive and nothing else:
       `LeetCodeAPI.userStatusRequest(credentials:)` sent through the transport,
       parsed by `LeetCodeAPI.parseUserStatus(_:)`. No new endpoint, no new
       parser, no second copy of the GraphQL document.
-- [ ] Implement the four rules, each documented in place with the reasoning
+- [x] Implement the four rules, each documented in place with the reasoning
       (why the cookie pair is not a login; what allauth does at
       `/accounts/<provider>/login/`):
   - **One-shot for confirmed sessions.** Once a candidate has been handed out,
@@ -116,7 +116,7 @@ its own; the gate is the single latch, and it is unit-tested.
     other thrown failure, so an unreachable LeetCode behaves exactly as the
     shipped dismiss-first code did and the tolerant confirmation inside `signIn`
     remains the next line of defence.
-- [ ] Write `LeetCodeLoginGateTests` against `ScriptedLeetCodeTransport`,
+- [x] Write `LeetCodeLoginGateTests` against `ScriptedLeetCodeTransport`,
       asserting behavior *and* request counts via `count(for: .userStatus)`:
   - an anonymous candidate (`isSignedIn: false`) answers `nil`, and a later
     candidate with a rotated session value that confirms is handed out — the
@@ -135,7 +135,7 @@ its own; the gate is the single latch, and it is unit-tested.
     (returned) and the latch is consumed;
   - a `403` (and an auth-`errors` GraphQL body) ⇒ rejected, matching `signIn`'s
     existing reading of `notLoggedIn`.
-- [ ] Run `swift test` — must pass before Task 2.
+- [x] Run `swift test` — must pass before Task 2.
 
 ### Task 2: The model vends the gate
 
