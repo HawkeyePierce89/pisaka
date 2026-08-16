@@ -216,11 +216,11 @@ re-sign pass (explicit list, inside-out order, no `--deep`) and the
 verification's Mach-O recursion, keeping the file's length discipline: index and
 invariants only, no per-file essay.
 
-- [ ] `docs/RELEASING.md`: the re-sign bullet, the deepened verification bullet, the v1.0 incident, the process lesson, the "Manual verification owed" status update, the coverage paragraph
-- [ ] confirm the new text does not contradict the documented delete-tag/re-push recovery or the `github.run_number` caveat
-- [ ] `docs/architecture/core-services.md`: the nested-helpers note
-- [ ] `CLAUDE.md`: the `ReleaseWorkflowTests` description
-- [ ] run `swift test` — the document-scanning suites (the Gatekeeper-workaround absence check among them) must stay green
+- [x] `docs/RELEASING.md`: the re-sign bullet, the deepened verification bullet, the v1.0 incident, the process lesson, the "Manual verification owed" status update, the coverage paragraph
+- [x] confirm the new text does not contradict the documented delete-tag/re-push recovery or the `github.run_number` caveat
+- [x] `docs/architecture/core-services.md`: the nested-helpers note
+- [x] `CLAUDE.md`: the `ReleaseWorkflowTests` description
+- [x] run `swift test` — the document-scanning suites (the Gatekeeper-workaround absence check among them) must stay green
 
 ### Task 4: Verify acceptance criteria
 

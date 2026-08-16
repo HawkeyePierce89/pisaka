@@ -371,22 +371,24 @@ setting), `ReleaseWorkflowTests` (`.github/workflows/release.yml`'s whole shape:
 trigger/permissions by set equality, the preflight refusals asserted *by
 mechanism* — the guard's branch must `exit 1` — the throwaway signing keychain
 (under `$RUNNER_TEMP`, the login keychain never named, deleted — with *both*
-private keys, by path — by the job's last step under `if: always()`, since a
-cancelled step runs neither its trailing `rm` nor its `trap`; both keys written
-inside a `(umask 077; …)` subshell, never narrowed after the redirect), the
+private keys, by path — by the job's last step under `if: always()`, each
+written inside a `(umask 077; …)` subshell), the
 Developer ID identity, team, `ENABLE_HARDENED_RUNTIME` and `--timestamp` the
 archive supplies on the command line while `project.yml` stays signing-free,
-**all four** verified on the archived app *and* the embedded
-`Sparkle.framework` (a local timestamp is *misreported*, not absent, so passing
-the flag is not the same as it arriving), the
+the inside-out re-sign of Sparkle's four nested helpers (explicit list, no
+`--deep`, each existence-guarded), **all four** facts verified on the archived
+app, the embedded `Sparkle.framework` *and* every Mach-O enumerated inside it,
+that enumeration guarded by two refusals of its own (a local timestamp is
+*misreported*, not absent, and a bundle-level read says nothing about nested
+code — the pair that got `v1.0` rejected), the
 notarize→staple→`spctl` chain (both verdicts — the notary status and `spctl`'s
-`source=Notarized Developer ID` rule — read explicitly rather than inferred from
-an exit code, the submitted zip distinct from the shipped one),
+`source=Notarized Developer ID` rule — read explicitly, not inferred from an
+exit code; the submitted zip distinct from the shipped one),
 **that every step is fatal to the job** (no `continue-on-error:`, and
-`if: always()` on the cleanup as the only step condition — every
-`exit 1` this suite asserts is a refusal only because of it), the job budget
-exceeding the notary `--timeout` by at least `ci.yml`'s build budget — read out
-of `ci.yml`, not restated as a literal,
+`if: always()` on the cleanup as the only step condition — what makes every
+`exit 1` above a refusal), the job budget
+exceeding the notary `--timeout` by at least `ci.yml`'s build budget, read out
+of `ci.yml` rather than restated,
 the step ordering and the draft-then-promote publication rules, the tool pins,
 `ci.yml`'s macOS job building `-configuration Release`, the cross-file pairs
 against `SUFeedURL`, and the Gatekeeper-workaround strings asserted absent from
@@ -456,16 +458,16 @@ A second workflow, `.github/workflows/release.yml`, runs **only on a `v*` tag**
 and publishes the macOS release: Developer ID Application signature, hardened
 runtime, notarized and stapled, so a fresh download launches from the ordinary
 "downloaded from the Internet" confirmation rather than being refused (the exact
-acceptance criterion is in `docs/RELEASING.md`). **No entitlements file ships**: the hardened runtime already
-permits `fork`/`exec` and library validation is per-process, so `GitCLIService`'s
-`git`, the PTY shell and the provisioned language servers need nothing declared —
-an entitlement is added only when a concrete failure demands one. The certificate
+acceptance criterion is in `docs/RELEASING.md`). **No entitlements file ships**:
+the hardened runtime permits `fork`/`exec` and library validation is per-process,
+so `git`, the PTY shell and the provisioned language servers need nothing
+declared; one is added only when a concrete failure demands it. The certificate
 lives only in a per-run `$RUNNER_TEMP` keychain that is deleted on every path,
 alongside the notarization key. Nothing about it is reachable from PR CI, so its
-whole shape is pinned statically by `ReleaseWorkflowTests`; the workflow itself,
-its preflight refusals, the six repository secrets it reads (the Sparkle EdDSA
-key plus five Apple-account ones), certificate renewal and the manual
-verification still owed are documented in `docs/RELEASING.md`.
+whole shape is pinned statically by `ReleaseWorkflowTests`; the workflow, its
+preflight refusals, the six repository secrets it reads (the Sparkle EdDSA key
+plus five Apple-account ones), certificate renewal and the verification still
+owed are documented in `docs/RELEASING.md`.
 
 ## Conventions
 

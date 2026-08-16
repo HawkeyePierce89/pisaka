@@ -485,6 +485,23 @@ run in `swift test` rather than needing an Xcode build.
     make the disk-space category owed. `ReleaseMetadataTests`' set equality still
     passes.
 
+    **The same framework has a "one level down" trap on the *signing* side, and
+    it is the release workflow's problem rather than this manifest's.** As shipped
+    from the `binaryTarget`, `Sparkle.framework` is not one binary but six:
+    `Versions/B/Sparkle` plus four nested helper bundles — `Versions/B/Autoupdate`,
+    `Versions/B/Updater.app` and the two XPC services `XPCServices/Downloader.xpc`
+    and `XPCServices/Installer.xpc` — each arriving with upstream's **ad-hoc**
+    signature (`flags=0x10002(adhoc,runtime)`, no team identifier, no secure
+    timestamp). Xcode's archive re-signs the framework *bundle* with the release
+    identity and does not recurse into those four, so they reach the notary
+    service exactly as upstream signed them; that is what got `v1.0` rejected.
+    `.github/workflows/release.yml` therefore runs an explicit, inside-out
+    re-sign pass between the archive and the verification, and its verification
+    reads the Developer ID facts back off *every* Mach-O in the app rather than
+    off the two bundles. A Sparkle version bump that moves any of those four paths
+    must re-derive both lists by hand — `docs/RELEASING.md` carries the procedure
+    and the reasoning, and `ReleaseWorkflowTests` pins it.
+
     **Previous re-run: 2026-08-10**, over both destinations' Debug dylibs
     (`Debug-iphoneos/Pisaka.app/Pisaka.debug.dylib`, 2184 undefined symbols, and
     `Debug/Pisaka.app/Contents/MacOS/Pisaka.debug.dylib`, 2308), after adding the
