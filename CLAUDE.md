@@ -369,10 +369,29 @@ that each pin matches the requirement `project.yml` states),
 shape, `PrivacyInfo.xcprivacy`, the `project.yml` wiring, the iOS launch-screen
 setting), `ReleaseWorkflowTests` (`.github/workflows/release.yml`'s whole shape:
 trigger/permissions by set equality, the preflight refusals asserted *by
-mechanism* — the guard's branch must `exit 1` — the archive and
-draft-then-promote publication rules, the tool pins, `ci.yml`'s macOS job
-building `-configuration Release`, and the cross-file pairs against `SUFeedURL`;
-full inventory in that suite's doc comments and `docs/RELEASING.md`),
+mechanism* — the guard's branch must `exit 1` — the throwaway signing keychain
+(under `$RUNNER_TEMP`, the login keychain never named, deleted — with *both*
+private keys, by path — by the job's last step under `if: always()`, since a
+cancelled step runs neither its trailing `rm` nor its `trap`; both keys written
+inside a `(umask 077; …)` subshell, never narrowed after the redirect), the
+Developer ID identity, team, `ENABLE_HARDENED_RUNTIME` and `--timestamp` the
+archive supplies on the command line while `project.yml` stays signing-free,
+**all four** verified on the archived app *and* the embedded
+`Sparkle.framework` (a local timestamp is *misreported*, not absent, so passing
+the flag is not the same as it arriving), the
+notarize→staple→`spctl` chain (both verdicts — the notary status and `spctl`'s
+`source=Notarized Developer ID` rule — read explicitly rather than inferred from
+an exit code, the submitted zip distinct from the shipped one),
+**that every step is fatal to the job** (no `continue-on-error:`, and
+`if: always()` on the cleanup as the only step condition — every
+`exit 1` this suite asserts is a refusal only because of it), the job budget
+exceeding the notary `--timeout` by at least `ci.yml`'s build budget — read out
+of `ci.yml`, not restated as a literal,
+the step ordering and the draft-then-promote publication rules, the tool pins,
+`ci.yml`'s macOS job building `-configuration Release`, the cross-file pairs
+against `SUFeedURL`, and the Gatekeeper-workaround strings asserted absent from
+every document that once carried them; full inventory in that suite's doc
+comments and `docs/RELEASING.md`),
 `LicenseCoverageTests` (`licenses.json` vs.
 `project.yml`/`Package.resolved`/`Vendor/`), `LSPSourceGatingTests` (the LSP
 layer's platform split, by set equality over both sides) and
@@ -416,8 +435,10 @@ xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS
 xcodebuild -project Pisaka.xcodeproj -scheme Pisaka \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 
-# Release archive. The build number is overridden per upload and never committed;
-# the archive is unsigned until a DEVELOPMENT_TEAM exists. See docs/RELEASING.md.
+# Release archive. The build number is overridden per upload and never committed.
+# This command archives unsigned: the committed configuration names no team and
+# no identity on purpose — the release workflow passes all of them (and the
+# hardened runtime) on its own command line. See docs/RELEASING.md.
 xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=macOS' \
   -archivePath build/Pisaka-macOS.xcarchive CURRENT_PROJECT_VERSION=<n> archive
 ```
@@ -432,10 +453,19 @@ compile the shipping path and a Sparkle API change would first surface inside th
 release archive, after the tag is pushed.
 
 A second workflow, `.github/workflows/release.yml`, runs **only on a `v*` tag**
-and publishes the signed macOS release. Nothing about it is reachable from PR CI,
-so its whole shape is pinned statically by `ReleaseWorkflowTests`; the workflow
-itself, its preflight refusals and the manual verification still owed are
-documented in `docs/RELEASING.md`.
+and publishes the macOS release: Developer ID Application signature, hardened
+runtime, notarized and stapled, so a fresh download launches from the ordinary
+"downloaded from the Internet" confirmation rather than being refused (the exact
+acceptance criterion is in `docs/RELEASING.md`). **No entitlements file ships**: the hardened runtime already
+permits `fork`/`exec` and library validation is per-process, so `GitCLIService`'s
+`git`, the PTY shell and the provisioned language servers need nothing declared —
+an entitlement is added only when a concrete failure demands one. The certificate
+lives only in a per-run `$RUNNER_TEMP` keychain that is deleted on every path,
+alongside the notarization key. Nothing about it is reachable from PR CI, so its
+whole shape is pinned statically by `ReleaseWorkflowTests`; the workflow itself,
+its preflight refusals, the six repository secrets it reads (the Sparkle EdDSA
+key plus five Apple-account ones), certificate renewal and the manual
+verification still owed are documented in `docs/RELEASING.md`.
 
 ## Conventions
 

@@ -1163,6 +1163,20 @@ checks at the end of the plan re-validate that the server actually answers.
   bytes as they arrive; the installed tree is not re-hashed at launch and there
   is no code signature or notarization check on what was unpacked. A user who
   edits the install root gets what they wrote.
+- **The hardened runtime does not reach these children.** Since the release
+  workflow started signing with `ENABLE_HARDENED_RUNTIME=YES`
+  (`docs/RELEASING.md`), the shipped app runs under the hardened runtime — with
+  **no entitlements file**, because it needs none for this layer: the runtime
+  permits `fork`/`exec` and library validation is *per-process*, so a downloaded
+  `node` or `rust-analyzer` launched through `LSPProcessTransport` is subject to
+  its own signature, not the app's. What the layer relies on is stated once, in
+  the rust-analyzer pin-bump note above and identically for the Node runtimes:
+  the published binaries are `adhoc, linker-signed`, and bytes written by
+  `URLSession` carry no `com.apple.quarantine`, so nothing here needs
+  re-signing or an `xattr` sweep. An entitlement would be added only if a
+  concrete launch failure demanded one — `docs/RELEASING.md` keeps "a downloaded
+  language server under the hardened runtime" as a manual check for exactly that
+  reason.
 - **The manifest is fixed at ship time, and a pin bump re-downloads.** A
   published version with a security fix reaches users only in a new app version:
   there is no update channel, and nothing checks for one. What a pin bump *does*

@@ -1,17 +1,25 @@
 # Releasing Pisaka
 
-Everything here is repository-side. Apple signing, notarization and the App Store
-Connect record are deliberately absent — see [Not here yet](#not-here-yet).
+Everything here is repository-side plus the six repository secrets the release
+workflow reads — the Sparkle EdDSA signing key and five Apple-account ones. The
+App Store Connect *app record* and store metadata are still absent — see
+[Not here yet](#not-here-yet).
 
 There are two paths, and they answer different questions:
 
-- [Automated releases](#automated-releases) — pushing a `vX.Y` tag builds an
-  ad-hoc-signed macOS app and publishes it as a GitHub Release with a signed
-  Sparkle appcast, so installed copies can update themselves. This is the
-  distribution channel that exists today.
+- [Automated releases](#automated-releases) — pushing a `vX.Y` tag builds a
+  **Developer ID signed, notarized and stapled** macOS app and publishes it as a
+  GitHub Release with a signed Sparkle appcast, so a fresh download launches
+  from the ordinary, confirmable "downloaded from the Internet" dialog rather
+  than being refused, and installed copies can update themselves. This is the
+  distribution channel. Notarization does not remove that dialog — quarantine
+  still applies to a notarized app and macOS still asks once; what it removes is
+  the *unconfirmable* refusal and every terminal workaround for it. The exact
+  acceptance criterion is under
+  [Manual verification owed for this feature](#manual-verification-owed-for-this-feature).
 - The by-hand archive below, which is the **build-number mechanism** and the
-  path an eventual App Store / Developer ID upload takes. The workflow runs the
-  same command with the same rules.
+  path an eventual App Store upload takes. The workflow runs the same command
+  with the same rules.
 
 ## The two numbers
 
@@ -48,13 +56,28 @@ value on the `xcodebuild` command line. A build setting given as a command-line
 argument overrides the project's value for that invocation only, so the archive
 carries the new number and `git status` stays clean:
 
-The archive this produces is **unsigned** and cannot be uploaded yet:
-`project.yml` carries `CODE_SIGNING_ALLOWED: NO` in the target's
-`settings.base`, because there is no `DEVELOPMENT_TEAM` (see
-[Not here yet](#not-here-yet)). The command below is the build-number mechanism,
-verified end to end; when a signing team exists, that base setting has to move
-to the debug config or be dropped, or signing will stay suppressed no matter
-what the archive is asked for.
+The archive this produces is **unsigned**, on purpose: `project.yml` carries
+`CODE_SIGNING_ALLOWED: NO` in the target's `settings.base`, and names no team and
+no identity, so a fresh clone plus `xcodegen generate` plus a build works for
+anyone — no certificate, no keychain prompt, no "development team required".
+
+**That base setting stays exactly where it is now that a team exists.** An
+earlier version of this document said it "has to move to the debug config or be
+dropped" once signing was configured. It does not, and the correction is written
+down here rather than silently applied: the release workflow overrides *every*
+signing setting on the `xcodebuild` command line
+(`CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES CODE_SIGN_STYLE=Manual`
+plus the identity and team), and a command-line build setting beats the
+project's value for that one invocation. So the committed configuration keeps
+dev and CI builds signing-free while the release signs — no per-configuration
+split to maintain, and no way for a local build to start demanding a
+certificate. `ReleaseWorkflowTests` pins both halves: that `project.yml` still
+carries `CODE_SIGNING_ALLOWED: NO` and still names no team or identity, and that
+the archive step supplies all of them itself.
+
+To reproduce a signed archive locally, pass the same overrides the workflow does
+(you need the Developer ID Application certificate in your own keychain); the
+unsigned command below is the build-number mechanism, verified end to end.
 
 ```sh
 xcodegen generate
@@ -90,13 +113,33 @@ release build locally — and remains the mechanism the workflow drives.
 ## Automated releases
 
 Pushing a `vX.Y` tag runs `.github/workflows/release.yml`: it re-runs the
-`swift test` gate, archives an **ad-hoc-signed** macOS app, zips it, signs the
-zip with the project's EdDSA key and publishes a GitHub Release carrying exactly
-two assets — `Pisaka-X.Y.zip` and `appcast.xml`. The shipped app reads
+`swift test` gate, archives a macOS app **signed with a Developer ID Application
+certificate under the hardened runtime**, submits it to Apple's notary service,
+staples the ticket, zips the stapled bundle, signs the zip with the project's
+EdDSA key and publishes a GitHub Release carrying exactly two assets —
+`Pisaka-X.Y.zip` and `appcast.xml`. The shipped app reads
 `https://github.com/HawkeyePierce89/pisaka/releases/latest/download/appcast.xml`
 (`SUFeedURL` in `Resources/Info.plist`) and verifies every download against
 `SUPublicEDKey` in the same file, so a published release is what an installed
 copy offers as an update through Sparkle's own UI.
+
+### The two signatures a release carries
+
+They answer different questions and neither substitutes for the other, which is
+why both one-time setups below exist and why the preflight refuses their secrets
+separately:
+
+- **Apple's** — a Developer ID Application signature plus a stapled notarization
+  ticket — is what lets a *downloaded* copy launch: Gatekeeper evaluates it on
+  the first open of a file carrying the quarantine flag.
+- **Sparkle's** — the EdDSA signature over the zip, advertised in the appcast —
+  is what an *installed* copy checks before replacing itself. Sparkle does not
+  consult Apple's signature for that decision.
+
+They also fail independently, and the blast radius differs by an order of
+magnitude. An expired or revoked Developer ID certificate breaks *new releases*
+and nothing already installed; a lost EdDSA private key strands the entire
+installed base forever. Treat them accordingly.
 
 ### One-time setup: the EdDSA key pair
 
@@ -146,6 +189,145 @@ The preflight's placeholder grep stays in the workflow permanently: it is what
 turns "someone reverted the key commit" into a refused release instead of a
 release signed by a key no installed copy trusts.
 
+### One-time setup: the Developer ID certificate and the notarization key
+
+**Done (2026-08-16).** Team **`XJT3LK36GS`**. Five repository secrets carry
+everything Apple's half of a release needs; none of them is derivable from the
+repository, and each is refused on its own by the preflight, before the archive.
+How each was produced — which is also how each is rotated:
+
+| Secret | What it is | Where it came from |
+| --- | --- | --- |
+| `DEVELOPER_ID_CERT_P12` | the Developer ID Application certificate **and its private key**, base64 | Keychain Access → select the certificate *and* its key → Export as `.p12`, then `base64 -i cert.p12 \| pbcopy` |
+| `DEVELOPER_ID_CERT_PASSWORD` | the password typed at that export | chosen at export time; it exists only to protect the `.p12` |
+| `APP_STORE_CONNECT_API_KEY_P8` | the notarization API key, verbatim | App Store Connect → Users and Access → Integrations → App Store Connect API → generate a key with the **Developer** role; the `AuthKey_<id>.p8` downloads **once** |
+| `APP_STORE_CONNECT_KEY_ID` | the 10-character Key ID | shown beside that key, and it is the `<id>` in the `.p8` filename |
+| `APP_STORE_CONNECT_ISSUER_ID` | the team's issuer UUID | shown above the key list on the same page; one per team, shared by every key |
+
+The `.p12` must be exported *with* the private key — a certificate alone imports
+fine and then signs nothing, which surfaces as the identity refusal below rather
+than as anything that names the real cause. The `.p8` is downloadable exactly
+once: losing it means generating a new key and replacing three secrets, which is
+cheap (unlike the EdDSA key, an App Store Connect key strands nothing).
+
+**The certificate lives in a keychain created for the run and deleted with it.**
+The workflow creates `$RUNNER_TEMP/pisaka-signing.keychain-db` with a password it
+generates in the step (never printed, never a secret — it guards nothing that
+outlives the job), imports the decoded `.p12` with `-T /usr/bin/codesign`, sets a
+key partition list so the first signature does not raise the "wants to sign using
+key in your keychain" dialog — on a headless runner that is not a failure, it is
+a hang until the job times out — and *prepends* the keychain to the user search
+list, saving the previous list so the cleanup step can restore it verbatim
+(`security list-keychains -s` overwrites the whole list; passing the new keychain
+alone would drop everything else for the rest of the job). The keychain is
+unlocked and given a lock timeout longer than the job (`security
+set-keychain-settings -ut`, deliberately without `-l`, which means "lock when the
+system sleeps" and not "lock timeout") — a keychain that re-locks mid-archive
+fails `codesign` with "User interaction is not allowed", which reads like a
+missing identity and is not one.
+
+The decoded `.p12` is removed in the same step, and a final `if: always()` step
+deletes the keychain, restores the list, and removes **both** private keys by
+path — the `.p12` and the notarization `.p8` — on every path: success, failure
+or cancellation. That last one is why the cleanup repeats removals the writing
+steps already do: a cancelled step is killed, so it runs neither its trailing
+`rm` nor its `trap … EXIT`, and the cleanup step is the only thing left. It runs
+every one of those commands whatever the others do, and still fails the job if
+any of them failed — a green run has to mean the runner was scrubbed, not that
+nothing said otherwise.
+
+**The login keychain is never named and never modified.** A GitHub macOS runner
+is ephemeral, but that is a property of the fleet rather than a guarantee this
+workflow may lean on; and the login keychain is unlocked, shared with every other
+step and every third-party action in the job, and not ours to touch. A keychain
+under `$RUNNER_TEMP` is ours and is one `security delete-keychain` from gone.
+
+The last cheap refusal lives in that same step: `security find-identity -v -p
+codesigning` must list a **Developer ID Application** identity for team
+`XJT3LK36GS`. `-v -p codesigning` lists only identities usable for signing, so
+one check covers an expired certificate, a missing private key and the wrong
+certificate *type* at once. The type is the case worth spelling out: an Apple
+Development certificate archives perfectly happily and is then rejected by the
+notary service twenty minutes later.
+
+### Notarization and stapling
+
+Between verifying the archive and staging the shipped zip, the workflow:
+
+1. **Submits.** It zips the app into a scratch directory with the same
+   symlink-preserving `ditto` the shipped zip uses, writes the API key to a `.p8`
+   under `$RUNNER_TEMP` removed by a `trap` on exit (every path out of the step
+   must take the key with it, including the ones that never reach the end), and
+   runs `xcrun notarytool submit --wait --timeout 30m` with the key/key-id/issuer
+   trio and JSON output.
+
+   **The verdict is read, not inferred from the exit code.** `notarytool` reports
+   transport and authentication failures through `$?`, but the result is a field
+   in the JSON, so the workflow reads `.status` explicitly. Anything other than
+   `Accepted` fetches `xcrun notarytool log` for the submission id, prints it and
+   exits 1 — a rejection names the offending binary and the reason (a missing
+   hardened runtime, a missing secure timestamp, an unsigned nested executable),
+   and a rejection with no log printed is one nobody can act on without
+   re-running the whole release to see it. Nothing has been published at that
+   point: fix the cause, then delete and re-push the tag.
+
+   The one case that has *no* id to fetch a log for is the same one the guarded
+   `jq` reads exist for — the `--timeout` expiring, a submission killed
+   mid-write, `notarytool` emitting something that is not JSON. That branch says
+   so and points at `xcrun notarytool history` instead, because
+   `notarytool log ""` fails with a complaint about a malformed id that has
+   nothing to do with the actual problem, and the id it would otherwise tell you
+   to re-run with was never captured by anything.
+
+2. **Staples.** `xcrun stapler staple` writes the ticket Apple issued into the
+   bundle, which is what makes a downloaded copy launch on a machine that cannot
+   reach Apple. `stapler validate` then re-reads it back out and checks it
+   against the bundle's own code directory hash — not the same statement as
+   `staple` succeeding, and what catches a ticket stapled to something other than
+   what was submitted. The signature is re-verified afterwards because stapling
+   modifies the bundle (it is supposed to be signature-neutral; this proves it
+   for this build), and finally `spctl --assess --type execute --verbose=4` asks
+   the *system policy* the actual question: would Gatekeeper let this app run.
+   That last answer is read out of the assessment, not off the exit status. spctl
+   exits 0 for **any** accepting rule and prints which one accepted on a
+   `source=` line, so the step refuses anything but `source=Notarized Developer
+   ID`. An accepted but *unstapled* Developer ID app reports `source=Developer
+   ID` and exits 0, and — the case that is a property of the runner rather than
+   of the build — a machine with assessments disabled accepts every path on disk
+   with `source=no usable signature`. Against either, an unguarded exit-status
+   check would wave the release through having asserted nothing.
+
+The zip submitted to the notary service is **not** the zip that ships. The
+shipped one is produced afterwards, from the same `.app`, by the existing "Stage
+the update archive" step — the ticket has to be inside the bundle before the copy
+users download is made, or every first launch would depend on Apple's service
+being reachable. That ordering is pinned by `ReleaseWorkflowTests`.
+
+### Certificate expiry and renewal
+
+A Developer ID Application certificate is valid for five years, and Apple
+Developer Program membership renews annually. Both eventually lapse, and it is
+worth being precise about what that breaks:
+
+- **New releases stop.** The preflight's identity refusal fires (`find-identity
+  -v` does not list an expired certificate at all), so a tag push fails in the
+  first seconds instead of producing an unsigned or unnotarizable build.
+- **Installed copies keep working.** A notarized, stapled build already
+  distributed keeps launching after the certificate that signed it expires —
+  Gatekeeper checks that the signature was valid *when it was made*, and the
+  stapled ticket is the evidence. Notarization tickets do not expire.
+- **Sparkle updates keep working**, independently: its chain is the EdDSA
+  signature over the zip, which has nothing to do with Apple's signing.
+
+Renewing is therefore a secrets change and not a code change: issue a new
+Developer ID Application certificate in the Apple Developer account, export it
+*with its private key* as a `.p12`, and replace `DEVELOPER_ID_CERT_P12` and
+`DEVELOPER_ID_CERT_PASSWORD` **together** (the password belongs to that export;
+replacing one without the other imports nothing). The team id does not change, so
+nothing in `release.yml`, `project.yml` or `Sources/` moves. If the App Store
+Connect key is rotated at the same time, replace all three of its secrets
+together for the same reason.
+
 ### Cutting a release
 
 1. Bump `MARKETING_VERSION` in `project.yml` to `X.Y` and commit it. The tag and
@@ -185,15 +367,47 @@ The workflow then, in order:
   built or published unless it is green.
 - **`release` job** (`needs: test`, the only job with `contents: write`;
   the workflow's top level is `contents: read`) —
-  - **Preflight, before anything expensive.** Four refusals, each with an
+  - **Preflight, before anything expensive.** Nine refusals, each with an
     actionable message: `MARKETING_VERSION` unreadable from `project.yml`; the
     tag's version (`v` stripped) ≠ `MARKETING_VERSION`; the
     `SPARKLE_PRIVATE_EDDSA_KEY` secret empty or absent; `SUPublicEDKey` still the
-    placeholder. The version is parsed with a **quote-agnostic** `sed`, because
+    placeholder; and one per signing/notarization secret — `DEVELOPER_ID_CERT_P12`,
+    `DEVELOPER_ID_CERT_PASSWORD`, `APP_STORE_CONNECT_API_KEY_P8`,
+    `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`. The five are
+    checked separately rather than as one "signing is not configured" test
+    because they come from four different one-time procedures (see above), and
+    "one of them is missing" is not an actionable message for any of them. The
+    version is parsed with a **quote-agnostic** `sed`, because
     `MARKETING_VERSION: 1.1` is as valid a YAML scalar as `"1.1"` and a parser
     that only understood the quoted form would read an empty string and then
     refuse every release while blaming `project.yml`; an empty read is reported
-    as the parse failure it is, not as a version mismatch.
+    as the parse failure it is, not as a version mismatch. The secrets reach the
+    step through `env:` and are only ever tested with `-z`; nothing echoes them.
+  - **The signing keychain**, beside the preflight and long before the archive:
+    a keychain under `$RUNNER_TEMP`, the `.p12` imported and immediately deleted,
+    a key partition list (`-s`, so it is applied to the signing key rather than
+    to every key item in the keychain), the keychain prepended to the user search
+    list — and cheap refusals ten through twelve, one per way the certificate
+    pair can be wrong: the base64 body not decoding (`DEVELOPER_ID_CERT_P12`
+    pasted raw or with characters lost), `security import` failing on it
+    (`DEVELOPER_ID_CERT_PASSWORD` belonging to some other export — the pair
+    rotated by halves, the case flagged above — *or* a `.p12` truncated at a
+    multiple of four bytes, since `base64 --decode` rejects invalid characters
+    and not a short body, so that paste decodes cleanly into a partial file and
+    arrives here; the refusal names both halves rather than blaming the password
+    on the strength of the decode having passed), and
+    `security find-identity -v -p codesigning` showing a Developer ID
+    Application identity for team `XJT3LK36GS` — whose listing is printed before
+    it is judged, because that refusal covers four causes (wrong certificate
+    type, wrong team, expired, exported without its private key) needing four
+    different fixes, and only the listing tells them apart. The first two are
+    wrapped rather than left bare not because bare would continue — `set -e`
+    stops either way — but because `base64: Invalid character in input stream.`
+    and `SecKeychainItemImport: MAC verification failed` name neither a secret
+    nor which of the two to replace, and they are fixed by editing *different*
+    ones.
+    Mechanics and rationale are in
+    [the one-time setup above](#one-time-setup-the-developer-id-certificate-and-the-notarization-key).
   - Sparkle 2.9.5's release tools, pinned exactly as XcodeGen is (the tarball URL
     plus `shasum -a 256 -c -` against the digest above). This is fetched **here,
     beside the preflight, rather than just before it is used** — for the reason
@@ -206,8 +420,25 @@ The workflow then, in order:
     explicitly**, with `CURRENT_PROJECT_VERSION=${{ github.run_number }}` and the signing settings
     overridden **on the command line only** (`CODE_SIGNING_ALLOWED=YES`,
     `CODE_SIGNING_REQUIRED=YES`, `CODE_SIGN_STYLE=Manual`,
-    `CODE_SIGN_IDENTITY=-`), so the committed `CODE_SIGNING_ALLOWED: NO` keeps
-    dev and CI builds signing-free.
+    `CODE_SIGN_IDENTITY="Developer ID Application"`,
+    `DEVELOPMENT_TEAM=XJT3LK36GS`, `ENABLE_HARDENED_RUNTIME=YES`,
+    `OTHER_CODE_SIGN_FLAGS=--timestamp`), so the committed
+    `CODE_SIGNING_ALLOWED: NO` keeps dev and CI builds signing-free — see
+    [the build number](#the-build-number) for why that base setting stays.
+
+    `--timestamp` is passed rather than assumed, **and read back off the
+    signature** by the verification step below. A secure timestamp is a
+    notarization requirement, and leaving it to an Xcode default would move the
+    discovery of a missing one to the notary service's rejection, a full archive
+    later — but so would passing it and never checking it arrived, since
+    `OTHER_CODE_SIGN_FLAGS` holds a single value and anything that displaces it
+    (a `settings.base` entry in `project.yml`, a different task re-signing the
+    embedded framework) drops the timestamp with nothing local objecting. **No entitlements file goes with the hardened runtime**: it permits
+    `fork`/`exec` by default and library validation is per-process, so the `git`
+    subprocess, the PTY shell and the downloaded language servers all launch with
+    nothing declared. An entitlement is added when a concrete failure demands one
+    and not in anticipation — every entitlement widens what the shipped app may
+    do.
 
     `-configuration Release` is spelled out rather than left to Xcode's default
     because the *entire* updater is behind `#if !DEBUG`: the configuration is
@@ -219,9 +450,22 @@ The workflow then, in order:
     shipped with "Check for Updates…" permanently disabled.
   - The app is taken straight from
     `build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app` — no
-    `-exportArchive`, which needs an export options plist naming a team — then
+    `-exportArchive`. That is a choice rather than a limitation now: the archive
+    already carries the shipping Developer ID signature and the hardened runtime,
+    so an export would only re-sign it under a *second* configuration (an export
+    options plist whose team, identity and signing style have to be kept in step
+    with the archive's command line forever, with a disagreement failing at the
+    notary service rather than in the workflow). The app is then
     checked for an embedded `Sparkle.framework`, verified with
-    `codesign --verify --deep --strict`, and checked for
+    `codesign --verify --deep --strict`, read back for the four facts
+    notarization requires — an `Authority=Developer ID Application:` line, team
+    `XJT3LK36GS`, `runtime` among the signature's flags, and a `Timestamp=` line
+    (`codesign` prints `Signed Time=` instead when the secure timestamp is
+    missing, so the two are distinguishable rather than one being absent) — **on the app and on
+    the embedded framework both** (that is the "Xcode re-signs the framework with
+    the same identity" claim, verified rather than assumed; the framework is also
+    the one piece of nested code Sparkle itself re-checks on the user's machine),
+    and checked for
     `CFBundleVersion`, `CFBundleShortVersionString`, `SUFeedURL` and
     `SUPublicEDKey` **one key at a time** with `plutil -extract`. Per-key is the
     point: a single `grep -E 'A|B|C'` over a `plutil -p` dump succeeds when *any*
@@ -242,6 +486,10 @@ The workflow then, in order:
     `sparkle:shortVersionString` the app does not report under a zip named after
     neither. Here the archive is the authority, which is the same argument the
     `CFBundleVersion` check makes.
+  - **Notarize**, then **staple** — the two steps described in
+    [Notarization and stapling](#notarization-and-stapling) above. They sit
+    between the verification and the shipped zip, which is the only order that
+    ships a working app.
   - `ditto -c -k --sequesterRsrc --keepParent` into a staging directory that
     holds nothing else. `ditto` and not `zip`: the embedded framework is a bundle
     of symlinks, and a plain `zip` stores them as duplicated regular files, after
@@ -279,13 +527,52 @@ The workflow then, in order:
     URL for every installed copy, silently, until someone noticed. The promotion
     is deliberately the last line of the step: anything after it would run
     against an already-visible release.
+  - **Remove the signing keychain**, `if: always()` and last, so no path through
+    the job — success, any failure above, or a cancellation — leaves either
+    private key on the runner or the search list rewritten. It deliberately does
+    not `set -e`: a failure to restore the search list must not skip deleting the
+    keychain. Not aborting is not the same as not reporting, though — each
+    command records into a `STATUS` accumulator and the step exits non-zero if
+    any of them failed, because without one the step's exit code is its trailing
+    `rm -f`'s, which succeeds whether or not the keychain was deleted. That
+    cannot mask an earlier failure (that step is already red and already
+    annotated); it only stops a cleanup failure from being the one thing here
+    that passes silently. If it does fire, treat the certificate and the notary
+    key as still on the runner and rotate both.
 
 `ReleaseWorkflowTests` pins all of the above statically — the tag trigger and the
 permission split (by set equality over the parsed blocks, so an added
 `workflow_dispatch:` or `packages: write` fails rather than slipping past a
 substring match), the `needs: test` gate, the concurrency group,
 `-configuration Release` (scoped to the archive step, so a later step carrying
-the flag cannot stand in for it), the unsigned-appcast refusal and its position
+the flag cannot stand in for it), the archive's Developer ID identity, team,
+`ENABLE_HARDENED_RUNTIME=YES` and `--timestamp` (with `CODE_SIGN_IDENTITY=-`
+asserted to appear nowhere active — the ad-hoc pin deliberately updated rather
+than deleted), the throwaway keychain (created under `$RUNNER_TEMP`, the login
+keychain never named, the three certificate refusals — the base64 decode, the
+`security import` and the identity — the import before the archive, the
+unlock and the lock settings including the absence of `-l`, the partition list's
+`-s`, the decoded `.p12`
+written under a `(umask 077; …)` subshell, the `if: always()`
+deletion of the keychain *and of both private keys by path*), the Developer ID /
+team / hardened-runtime / secure-timestamp read-back on both the app and the
+framework *and the dump being printed as well as judged*,
+`project.yml` staying signing-free, the notarization submit (`--wait` plus the
+API-key trio, the exit-code capture that keeps `set -e` from pre-empting the
+verdict, the guarded JSON reads, the non-`Accepted` branch exiting 1, the log
+fetch, the `.p8` written under the same `umask 077` subshell and removed by a
+`trap … EXIT`), the fact that
+every step is fatal to the job (no `continue-on-error:`, and `if: always()` on
+the cleanup as the only step condition), the job budget exceeding the notary
+`--timeout` by at least `ci.yml`'s build budget — *read out of `ci.yml`* rather
+than restated as a number, so raising CI's budget cannot leave this claim true
+only by coincidence — the
+staple (refusing with a message of its own rather than bare `Error 65`) and its
+`stapler validate`, the full step ordering (archive < notarize <
+staple < shipped zip < `generate_appcast` < `gh release create`), the shipped zip
+being a different artefact from the submitted one, the absence of the old
+Gatekeeper workaround strings from every document that used to carry them, the
+unsigned-appcast refusal and its position
 before `gh release create`, the per-key `plutil -extract` verification, the two
 value checks inside it (`CFBundleVersion` against the run number,
 `CFBundleShortVersionString` against the tag), the draft-then-promote publication
@@ -325,48 +612,11 @@ committing anything, so `git status` stays clean after a release.
 will never offer. Any rename must add a fixed offset large enough to clear every
 number already released.
 
-### Gatekeeper on the first install (accepted)
-
-The app is ad-hoc signed, not Developer ID signed and not notarized, so a zip
-downloaded from GitHub carries the quarantine flag and macOS refuses to open it
-on the first double-click. The documented workaround, repeated in every release's
-notes: `xattr -dr com.apple.quarantine /Applications/Pisaka.app`, or open the app
-once and allow it from **System Settings → Privacy & Security → Open Anyway**.
-
-The `-r` in that command is load-bearing, not defensive typing. An unarchived
-download carries the quarantine flag on **every file in the bundle**, and this
-bundle is not a single executable: Sparkle embeds
-`Contents/Frameworks/Sparkle.framework`, which contains `Autoupdate`,
-`Updater.app` and `Downloader.xpc` — three separately signed executables the
-updater spawns as their own processes when it installs an update. A non-recursive
-`xattr -d` clears the flag on the `.app` directory alone and leaves all three
-quarantined, so the user who followed the instruction and believes Gatekeeper is
-settled meets it again at the exact moment the first auto-update runs — the one
-path this whole document exists to make work. Clear the tree, not the top of it.
-
-The order matters and is not cosmetic. **Right-click → Open is listed last and
-qualified**, because macOS 15 removed that Control-click override for
-unnotarized apps — and the release runner is `macos-15` while the supported floor
-is macOS 13, so a large share of users would be following an instruction that
-does nothing at all. It still works on macOS 13 and 14; the two paths above work
-everywhere.
-
-This is friction on the *first manual install only*. Sparkle's in-place updates
-do not repeat it: the updater unarchives and swaps the app itself rather than
-handing the user a downloaded file, and its integrity chain here is the EdDSA
-signature over the zip — which is exactly why the key handling above matters more
-than the code signature does today.
-
-`.github/workflows/release.yml`'s archive step marks the **Developer ID /
-notarization seam**: swap `CODE_SIGN_IDENTITY=-` for the "Developer ID
-Application" identity, add `DEVELOPMENT_TEAM`, import the certificate into a
-temporary keychain, and add a notarize-and-staple step before the zip. Nothing
-else in the workflow changes, and this whole section goes away.
-
 ### Manual verification owed for this feature
 
-None of these is reachable from `swift test` — the first needs a network, the
-second needs two published releases:
+None of these is reachable from `swift test`: they need a network, a real Apple
+account, two published releases, and — for the last of them — a machine that
+downloaded the app rather than built it.
 
 - ~~**Swap in the real key.**~~ Done 2026-08-16: the real `SUPublicEDKey` is
   committed, `swift test` passes the shape assertions against it, and the
@@ -375,13 +625,38 @@ second needs two published releases:
   assets and the expected build number, and — deliberately — that a tag whose
   version does not match `MARKETING_VERSION` fails in the preflight, *before*
   archiving, with the intended message.
+- **The first notarized tag, from a real download.** The workflow's own
+  `spctl --assess` gate proves the bundle it built passes the system policy; what
+  a runner structurally cannot do is the thing users do. So: download the zip
+  from the release page in a browser (so it carries the quarantine flag a `curl`
+  in CI does not), unzip it, move it to `/Applications` and **double-click it**.
+  What must happen is a single *confirmable* dialog: "“Pisaka” is an app
+  downloaded from the Internet. Are you sure you want to open it?", saying Apple
+  checked it for malicious software and none was detected, with a button that
+  opens it. That dialog is not the failure — quarantine still applies to a
+  notarized app, and macOS still asks once. **The failure is a dialog with no
+  way forward** — one saying the developer cannot be verified or that Apple
+  cannot check the app for malicious software, sending you to System Settings →
+  Privacy & Security, or any instruction to clear the quarantine flag from a
+  terminal. None of those may appear, and the app must launch from that one
+  confirmation and never ask again. That is this feature's acceptance criterion,
+  and it is only true from a real download.
 - **The end-to-end update pass.** Install release N, publish N+1, and confirm the
   installed copy offers and installs it through Sparkle's own UI, and that
   "Check for Updates…" works on demand. What this specifically proves is that
-  **Sparkle accepts an ad-hoc-signed update**, using the EdDSA signature as the
-  integrity chain — the assumption the whole channel rests on until Developer ID
-  exists. Confirm at the same time that the first manual install shows the
-  Gatekeeper prompt above and the in-place update afterwards does not.
+  **Sparkle's own chain still works over a notarized, stapled build** — the
+  updater unpacks the zip, checks the EdDSA signature and swaps the app, and none
+  of that consults Apple's signature. Confirm the updated copy still launches
+  afterwards: the update replaces a stapled bundle with another stapled bundle,
+  and a copy that stopped launching would mean the ticket did not survive.
+- **A downloaded language server under the hardened runtime.** Accept the
+  TypeScript server's consent prompt on the notarized build and confirm the
+  unpacked `node` actually launches — the same check the provisioning list below
+  flags for "a notarized build specifically", now that such a build exists. The
+  app writes that binary itself so it carries no quarantine flag, and library
+  validation is per-process, so this is expected to work; it is exercised nowhere
+  else, and an entitlement (Decision: none ship today) would be added only if
+  this failed.
 
 ## Check by hand before the first submission
 
@@ -424,32 +699,35 @@ CI has a network, a `tar` or a child process:
      and library validation does not apply to a child process, but a hardened-runtime
      app spawning a downloaded executable is not exercised anywhere else.
 
+## Done since this document first said "not here yet"
+
+- ~~`DEVELOPMENT_TEAM` and the signing configuration.~~ **Done (2026-08-16).**
+  Team `XJT3LK36GS`; the release archives with a Developer ID Application
+  identity and the hardened runtime, every signing setting supplied on the
+  `xcodebuild` command line. The committed `CODE_SIGNING_ALLOWED: NO` stays —
+  see [the build number](#the-build-number).
+- ~~Notarization / stapling for the macOS build.~~ **Done (2026-08-16).** Every
+  release is submitted to the notary service, stapled and assessed with `spctl`
+  before its zip is made — see
+  [Notarization and stapling](#notarization-and-stapling).
+
 ## Not here yet
 
-The following are account-side and cannot be committed until an Apple Developer
-Program membership exists:
+The following are account-side and are not part of the release workflow:
 
-- `DEVELOPMENT_TEAM` and the signing configuration (the project builds today
-  with `CODE_SIGNING_ALLOWED: NO`; the release workflow overrides that on the
-  command line to sign *ad hoc*, which needs no team — see
-  [Automated releases](#automated-releases)).
-- Notarization / stapling for the macOS build. The distribution channel itself is
-  no longer absent: GitHub Releases + Sparkle ship today, ad-hoc signed and with
-  the documented Gatekeeper friction on a first manual install. What is missing
-  is the Developer ID identity that removes that friction, and the workflow marks
-  where it plugs in. Note that App Sandbox — which the *Mac* App Store requires — is
-  not merely undecided: the macOS build shells out to `git` through `Process`
+- **The Mac App Store — ruled out, not pending.** App Sandbox, which it requires,
+  is not merely undecided: the macOS build shells out to `git` through `Process`
   (`GitCLIService`) and opens a PTY for the embedded terminal, neither of which
-  survives sandboxing. So the macOS channel is Developer ID + notarization unless
-  those two features are reworked; the iOS App Store path is unaffected.
-  Phase 2b adds a second, **independent** reason the Mac App Store is out: the
-  macOS app downloads and executes third-party binaries at the user's request,
-  which App Review guideline 2.5.2 forbids outright regardless of sandboxing.
-  Nothing in the iOS build does this — the whole layer is behind `#if os(macOS)`.
+  survives sandboxing. Phase 2b adds a second, **independent** reason: the macOS
+  app downloads and executes third-party binaries at the user's request, which
+  App Review guideline 2.5.2 forbids outright regardless of sandboxing. So the
+  macOS channel is Developer ID + notarization — which is what ships — unless
+  those features are reworked. Nothing in the iOS build does either of these; the
+  whole layer is behind `#if os(macOS)`, so the iOS App Store path is unaffected.
 - The App Store Connect app records, store metadata and screenshots.
 
-None of the repository-side work above depends on a signing team existing;
-adding these steps is a separate change to this document.
+Neither depends on anything in this repository; adding them is a separate change
+to this document.
 
 ## Resolved compliance question: statically linked LGPL
 

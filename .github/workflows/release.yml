@@ -1,9 +1,9 @@
 name: Release
 
 # Tag-triggered macOS release. Pushing `vX.Y` re-runs the `swift test` gate, then
-# archives an ad-hoc-signed macOS app, zips it, signs it with Sparkle's EdDSA key
-# and publishes a GitHub Release carrying exactly two assets: the zip and a
-# signed `appcast.xml`.
+# archives a Developer ID signed macOS app with the hardened runtime, notarizes
+# it, zips it, signs the zip with Sparkle's EdDSA key and publishes a GitHub
+# Release carrying exactly two assets: the zip and a signed `appcast.xml`.
 #
 # ## Why the build number is `github.run_number`
 #
@@ -22,13 +22,21 @@ name: Release
 # replacement must add a fixed offset (`$((github.run_number + <last shipped>))`)
 # large enough to clear every number already released.
 #
-# ## The signing seam
+# ## The two independent signatures
 #
-# The archive is *ad-hoc* signed (`CODE_SIGN_IDENTITY=-`): there is no Apple
-# Developer Program membership yet (`docs/RELEASING.md`, "Not here yet"), and
-# Sparkle's integrity chain here is the EdDSA signature over the zip, not the
-# code signature. The step that archives marks where Developer ID +
-# notarization plugs in.
+# A published release carries two, and they answer different questions. Apple's
+# — a Developer ID Application signature plus a stapled notarization ticket —
+# is what lets a *downloaded* copy launch without Gatekeeper stopping it.
+# Sparkle's is the EdDSA signature over the zip in the appcast, and it is what
+# an *installed* copy checks before replacing itself. Neither substitutes for
+# the other: an unnotarized build updates in place perfectly well and cannot be
+# opened from a fresh download, and a notarized build with an unsigned appcast
+# is one every installed copy refuses.
+#
+# They also fail independently, which is why the certificate secrets and the
+# EdDSA secret are refused separately in the preflight: an expired Developer ID
+# certificate breaks new releases and nothing already installed, while a lost
+# EdDSA key strands the entire installed base forever.
 
 on:
   push:
@@ -79,7 +87,14 @@ jobs:
   release:
     needs: test
     runs-on: macos-15
-    timeout-minutes: 60
+    # Archive (~20 minutes, whole-module optimization across the app and every
+    # linked dependency) plus a notary submission this job is willing to wait
+    # `--timeout 30m` for. Sized so the notary wait always fails with the
+    # notarize step's own actionable message rather than as a job cancellation:
+    # a cancellation between `gh release create --draft` and the promotion
+    # leaves a draft occupying the tag, which is the one failure here that needs
+    # a manual undo.
+    timeout-minutes: 90
     # Scoped to this job alone: creating a release and uploading its assets is
     # the only write this workflow performs.
     permissions:
@@ -94,9 +109,19 @@ jobs:
       # expensive step: an archive that takes 20 minutes and then cannot be
       # signed, or is signed by a key no installed copy trusts, is worse than a
       # refusal in the first 10 seconds.
+      #
+      # The five signing/notarization secrets reach this step through `env:` and
+      # are only ever tested with `-z`. Nothing echoes them, and the certificate
+      # itself is not decoded here — this step's whole job is to establish that
+      # the run *can* be signed and notarized before anything expensive starts.
       - name: Preflight
         env:
           SPARKLE_PRIVATE_EDDSA_KEY: ${{ secrets.SPARKLE_PRIVATE_EDDSA_KEY }}
+          DEVELOPER_ID_CERT_P12: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
+          DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+          APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
@@ -138,6 +163,169 @@ jobs:
             exit 1
           fi
 
+          # 4-8. The signing and notarization secrets. Each is refused on its
+          #      own rather than as one "signing is not configured" check: the
+          #      five are produced by four different one-time procedures (export
+          #      the certificate, note its export password, create an App Store
+          #      Connect API key, read its key id and issuer id off that page),
+          #      and "one of them is missing" is not an actionable message for
+          #      any of them. The archive is 20 minutes and the notary service
+          #      adds up to 20 more, so a missing issuer id discovered at
+          #      submission time costs the whole build.
+          if [ -z "${DEVELOPER_ID_CERT_P12}" ]; then
+            echo "::error::The DEVELOPER_ID_CERT_P12 repository secret is empty or absent. Export the Developer ID Application certificate and its private key from Keychain Access as a .p12, base64-encode it (base64 -i cert.p12 | pbcopy) and store that in the secret. Without it the release cannot be signed with an identity anybody trusts. See docs/RELEASING.md."
+            exit 1
+          fi
+          if [ -z "${DEVELOPER_ID_CERT_PASSWORD}" ]; then
+            echo "::error::The DEVELOPER_ID_CERT_PASSWORD repository secret is empty or absent. It is the password set when the .p12 was exported, and security import cannot read the key without it. Re-export the .p12 if the password is lost and replace both certificate secrets together. See docs/RELEASING.md."
+            exit 1
+          fi
+          if [ -z "${APP_STORE_CONNECT_API_KEY_P8}" ]; then
+            echo "::error::The APP_STORE_CONNECT_API_KEY_P8 repository secret is empty or absent. Create an App Store Connect API key (Users and Access → Integrations → App Store Connect API) and store the contents of the downloaded AuthKey_<id>.p8 in that secret — Apple lets it be downloaded exactly once. Without it notarytool cannot authenticate. See docs/RELEASING.md."
+            exit 1
+          fi
+          if [ -z "${APP_STORE_CONNECT_KEY_ID}" ]; then
+            echo "::error::The APP_STORE_CONNECT_KEY_ID repository secret is empty or absent. It is the 10-character Key ID shown next to the API key in App Store Connect, and the <id> in the AuthKey_<id>.p8 filename. See docs/RELEASING.md."
+            exit 1
+          fi
+          if [ -z "${APP_STORE_CONNECT_ISSUER_ID}" ]; then
+            echo "::error::The APP_STORE_CONNECT_ISSUER_ID repository secret is empty or absent. It is the UUID shown above the key list on the same App Store Connect page — one per team, shared by every key. See docs/RELEASING.md."
+            exit 1
+          fi
+
+      # The signing identity lives in a keychain that is created for this run and
+      # deleted with it (the last step of this job, `if: always()`).
+      #
+      # Why a temporary keychain and not the runner's login keychain: a GitHub
+      # macOS runner is ephemeral, but "ephemeral" is a property of the fleet, not
+      # a guarantee this workflow may lean on — and the login keychain is unlocked,
+      # shared with every other step and every third-party action in this job, and
+      # not ours to modify. A keychain under $RUNNER_TEMP is ours, is named
+      # nowhere else, and is one `security delete-keychain` from gone. The login
+      # keychain is deliberately never named in this file.
+      #
+      # This sits with the preflight rather than next to the archive for the same
+      # reason the preflight exists: an expired certificate, a .p12 that will not
+      # decode, or a certificate of the wrong *type* must stop the run in the
+      # first seconds. That last one is the case worth spelling out — an Apple
+      # Development certificate signs the archive perfectly happily and is then
+      # rejected by the notary service twenty minutes later, so the identity is
+      # checked here, by name and by team, rather than assumed.
+      - name: Import the Developer ID certificate
+        env:
+          DEVELOPER_ID_CERT_P12: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
+          DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="${RUNNER_TEMP}/pisaka-signing.keychain-db"
+          CERTIFICATE="${RUNNER_TEMP}/developer-id.p12"
+
+          # Generated here, used by the three `security` calls below and by
+          # nothing else. It is not a repository secret because it guards nothing
+          # that outlives the job: the keychain it protects is deleted before the
+          # runner is. It is never printed.
+          KEYCHAIN_PASSWORD="$(/usr/bin/openssl rand -base64 32)"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          # `-u -t <seconds>` and deliberately no `-l`: `-l` is "lock when the
+          # system sleeps", and the timeout is set well past this job's budget.
+          # A keychain that re-locks during the archive fails codesign with
+          # "User interaction is not allowed", which reads like a missing
+          # identity and is not one.
+          security set-keychain-settings -ut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          # `(umask 077; …)` and not a `chmod` afterwards. The redirect creates
+          # the file under the runner's default umask, so narrowing it on the
+          # next line leaves a window in which the signing key is world-readable
+          # — and the step's whole premise (see above) is that this job may not
+          # lean on the runner being private. A subshell umask has no window at
+          # all because the file is never created any other way. The .p8 in the
+          # notarization step is written the same way for the same reason.
+          # Both halves of the certificate secret are wrapped, like every other
+          # refusal in this file, because bare they are the two least legible
+          # failures in the whole workflow: a mis-pasted base64 body ends the step
+          # with `base64: Invalid character in input stream.` and a password that
+          # does not belong to this .p12 ends it with
+          # `SecKeychainItemImport: MAC verification failed`. Neither names a
+          # secret, and the two are fixed by editing *different* ones — which is
+          # the case docs/RELEASING.md warns about when only one of the pair is
+          # rotated. The split between the two refusals is not clean and is not
+          # claimed to be: `base64 --decode` rejects invalid *characters*, not a
+          # short body, so a paste truncated at a multiple of four bytes decodes
+          # into a partial file and surfaces as the import failure below — which
+          # is why that message names both secrets rather than blaming the
+          # password on the strength of the decode having succeeded.
+          (umask 077; printf '%s' "$DEVELOPER_ID_CERT_P12" | base64 --decode > "$CERTIFICATE") || {
+            echo "::error::DEVELOPER_ID_CERT_P12 does not decode as base64. The secret holds the .p12 base64-encoded with no wrapping; a raw binary upload and a paste that lost characters both land here. Re-run \`base64 -i Certificates.p12 | pbcopy\` and replace the secret. See docs/RELEASING.md."
+            exit 1
+          }
+          if ! security import "$CERTIFICATE" -k "$KEYCHAIN" -P "$DEVELOPER_ID_CERT_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security -f pkcs12; then
+            # The .p12 is removed on this path too: the failure says nothing about
+            # whether the file was written, and a step that exits with the private
+            # key still on disk leans on the cleanup step it exists to back up.
+            rm -f "$CERTIFICATE"
+            echo "::error::Importing the Developer ID certificate failed. Two causes reach here and the decode above rules out neither: DEVELOPER_ID_CERT_PASSWORD not being the password this .p12 was exported with (security reports \"MAC verification failed\"), or DEVELOPER_ID_CERT_P12 being truncated at a multiple of four bytes — base64 only rejects invalid characters, so a short paste decodes cleanly into a partial file. Read security's own message above, then replace both secrets together; they are a pair. See docs/RELEASING.md."
+            exit 1
+          fi
+          # The decoded private key does not outlive the step that needed it.
+          rm -f "$CERTIFICATE"
+
+          # Without a partition list the first use of the key raises the
+          # "wants to sign using key in your keychain" authorization dialog. On a
+          # headless runner that is not a failure, it is a hang until the job
+          # times out.
+          #
+          # `-s` restricts the update to keys that can *sign*. Without it the
+          # query matches every key item in the keychain and the tool tries to
+          # update each one — an item with no access control makes it exit
+          # non-zero (`SecKeychainItemCopyAccess: The specified item has no
+          # access control`), which under `set -e` ends the step on a key this
+          # workflow never needed. Narrowing to the signing key is what every
+          # known-working recipe does, and it is the only key this step imported.
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+
+          # Prepend, never replace. `security list-keychains -s` overwrites the
+          # *whole* user search list, so passing the new keychain alone would drop
+          # everything already on it for the rest of the job. The previous list is
+          # saved so the cleanup step can put it back verbatim.
+          #
+          # The `$(cat …)` is unquoted on purpose — `-s` takes one argument per
+          # keychain and word splitting is what produces them. That assumes no
+          # keychain path contains whitespace, which holds for the runner's
+          # `/Users/runner/Library/Keychains/…` and is the reason this is not
+          # written to accept arbitrary paths.
+          security list-keychains -d user | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//' \
+            > "${RUNNER_TEMP}/keychains-before"
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$KEYCHAIN" $(cat "${RUNNER_TEMP}/keychains-before")
+
+          # The last cheap refusal. `find-identity -v -p codesigning` lists only
+          # identities usable for signing, so this covers an expired certificate,
+          # a missing private key and the wrong certificate type at once — and it
+          # is matched on both the certificate's kind and the team, because an
+          # Apple Development identity for the same team would otherwise archive
+          # happily and be rejected by the notary service.
+          IDENTITIES="$(security find-identity -v -p codesigning "$KEYCHAIN")"
+          # The listing the guard actually judges, not a second `find-identity`
+          # run for the log: two invocations can disagree, and the one shown
+          # would then not be the one that was judged.
+          #
+          # Printed *before* it is judged, like the codesign dump in the
+          # verification step below, because the failing path is the one that
+          # needs it. The refusal covers four different causes — the wrong
+          # certificate type, the wrong team, an expired certificate, and a .p12
+          # exported without its private key (`find-identity` exits 0 with
+          # "0 valid identities found") — that need four different fixes, and
+          # the canned message alone cannot tell them apart. This step is
+          # reachable only from a tag, so there is no cheap second look.
+          printf '%s\n' "$IDENTITIES"
+          if ! printf '%s\n' "$IDENTITIES" | grep -q 'Developer ID Application:.*(XJT3LK36GS)'; then
+            echo "::error::The imported certificate is not a Developer ID Application identity for team XJT3LK36GS. An Apple Development or Mac Developer certificate signs the archive but is rejected by the notary service twenty minutes later, and an expired one is not listed here at all. Re-export the Developer ID Application certificate *with its private key* from Keychain Access and replace DEVELOPER_ID_CERT_P12 and DEVELOPER_ID_CERT_PASSWORD together. See docs/RELEASING.md."
+            exit 1
+          fi
+
       # Pinned the same way XcodeGen is: exact URL, digest checked before
       # anything is extracted or executed.
       #
@@ -174,15 +362,30 @@ jobs:
       - name: Resolve package dependencies
         run: xcodebuild -project Pisaka.xcodeproj -resolvePackageDependencies -clonedSourcePackagesDirPath SourcePackages
 
-      # Ad-hoc signed, with every signing setting overridden on the command line
-      # only: `project.yml` keeps `CODE_SIGNING_ALLOWED: NO` so dev and CI builds
-      # stay signing-free, and a command-line build setting beats the project
-      # value for this invocation alone.
+      # Developer ID signed with the hardened runtime, and *every* signing
+      # setting is still overridden on the command line only.
       #
-      # DEVELOPER ID / NOTARIZATION SEAM: swap CODE_SIGN_IDENTITY=- for the
-      # "Developer ID Application" identity, add DEVELOPMENT_TEAM, import the
-      # certificate into a temporary keychain, and add a notarize-and-staple step
-      # between this and the zip. Nothing else in this workflow changes.
+      # That is a choice, not an omission. `project.yml` keeps
+      # `CODE_SIGNING_ALLOWED: NO` and names no team and no identity, so a fresh
+      # clone plus `xcodegen generate` plus a build stays signing-free — no
+      # certificate, no prompt, no "development team required" error for anyone
+      # who has never joined the program. A command-line build setting beats the
+      # project value for this one invocation, which is exactly the scope the
+      # release needs. (docs/RELEASING.md used to say the base setting would have
+      # to move or be dropped once a team existed. It does not, and this is why.)
+      #
+      # `ENABLE_HARDENED_RUNTIME=YES` is a notarization requirement, and no
+      # entitlements file goes with it: the hardened runtime permits `fork`/`exec`
+      # by default and library validation is per-process, so the `git` subprocess,
+      # the PTY shell and the downloaded language servers all launch with nothing
+      # declared. An entitlement is added when a concrete failure demands one and
+      # not in anticipation — every entitlement widens what the shipped app is
+      # allowed to do.
+      #
+      # `--timestamp` is passed rather than assumed. A secure timestamp is a
+      # notarization requirement; leaving it to an Xcode default would move the
+      # discovery of a missing one to the notary service's rejection, twenty
+      # minutes and a full archive later.
       #
       # `-configuration Release` is not decoration. The whole updater is behind
       # `#if !DEBUG` (`SoftwareUpdater.swift`), so the configuration is what
@@ -193,7 +396,7 @@ jobs:
       # pins it: the scheme is auto-created by xcodebuild (Pisaka.xcodeproj is
       # generated and gitignored, and project.yml declares no `schemes:`), so
       # "archive uses Release" would otherwise rest on an implicit Xcode default.
-      - name: Archive (macOS, ad-hoc signed)
+      - name: Archive (macOS, Developer ID signed, hardened runtime)
         run: >
           xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
           -configuration Release
@@ -203,11 +406,36 @@ jobs:
           -archivePath build/Pisaka-macOS.xcarchive
           CURRENT_PROJECT_VERSION=${{ github.run_number }}
           CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES
-          CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=-
+          CODE_SIGN_STYLE=Manual
+          CODE_SIGN_IDENTITY="Developer ID Application"
+          DEVELOPMENT_TEAM=XJT3LK36GS
+          ENABLE_HARDENED_RUNTIME=YES
+          OTHER_CODE_SIGN_FLAGS=--timestamp
           archive
 
-      # The app is taken straight out of the archive: `-exportArchive` needs an
-      # export options plist naming a team, and there is none.
+      # The app is taken straight out of the archive, deliberately: it already
+      # carries the shipping Developer ID signature and the hardened runtime, so
+      # `-exportArchive` would only re-sign it under a second configuration — an
+      # export options plist whose team, identity and signing style have to be
+      # kept in step with the archive's command line forever, with the two
+      # disagreeing failing at the notary service rather than here.
+      #
+      # What this step proves is the signature *is* what notarization requires,
+      # rather than assuming that `codesign --verify` passing means the right
+      # certificate was used: an ad-hoc signature, an Apple Development identity
+      # and a Developer ID one all verify happily. The three facts the notary
+      # service checks — a Developer ID Application authority, this team, the
+      # hardened runtime flag and a secure timestamp — are therefore read back off
+      # the bundle, on the app and on the embedded framework both, one fact per
+      # line of the dump. The framework is not decoration: it is
+      # signed by Xcode as part of the archive, and it is the one piece of nested
+      # code whose signature Sparkle itself re-checks on the user's machine.
+      #
+      # These checks are not exhaustive and are not meant to be. `--deep --strict`
+      # covers nested code validity, and the notary service remains the authority
+      # on every nested executable, every timestamp and every hardened-runtime
+      # violation. This is the cheap subset that catches the whole-build mistakes
+      # locally, twenty minutes before the notary would.
       - name: Verify the archived app
         run: |
           set -euo pipefail
@@ -219,6 +447,63 @@ jobs:
             exit 1
           }
           codesign --verify --deep --strict --verbose=2 "$APP"
+
+          # `codesign --display` writes to stderr, hence the redirect. Each of the
+          # four facts is matched on its own line of that dump rather than as one
+          # regular expression over the whole thing, for the reason the plist loop
+          # below spells out: an alternation succeeds on any one alternative.
+          verify_developer_id_signature() {
+            LABEL="$1"
+            TARGET="$2"
+            # `|| true`: an unsigned or damaged bundle makes `codesign --display`
+            # itself exit non-zero, and under `set -e` that would end the step
+            # with no `::error::` line at all. Keeping the output and letting the
+            # four checks below fail on it is what turns that case into a
+            # message naming which fact is missing.
+            SIGNATURE="$(codesign --display --verbose=4 "$TARGET" 2>&1 || true)"
+            # Printed before it is judged, like the spctl assessment below. Each
+            # refusal names one missing fact; the dump is what says *what was
+            # there instead* — and in the `|| true` case above it is codesign's
+            # own error text, which the first refusal would otherwise replace
+            # with "is not signed by a Developer ID Application certificate" and
+            # send the reader after the wrong cause. This step is reached after
+            # the archive, so there is no cheap second look.
+            printf '%s\n' "$SIGNATURE"
+
+            if ! printf '%s\n' "$SIGNATURE" | grep -q '^Authority=Developer ID Application:'; then
+              echo "::error::${LABEL} is not signed by a Developer ID Application certificate. An ad-hoc signature and an Apple Development identity both pass codesign --verify and are both rejected by the notary service. Check the identity the archive step selected and the certificate in DEVELOPER_ID_CERT_P12. See docs/RELEASING.md."
+              exit 1
+            fi
+            if ! printf '%s\n' "$SIGNATURE" | grep -q '^TeamIdentifier=XJT3LK36GS'; then
+              echo "::error::${LABEL} carries a team identifier other than XJT3LK36GS. Notarization is per-team, and a build signed under another team is one this team's App Store Connect key cannot submit. See docs/RELEASING.md."
+              exit 1
+            fi
+            if ! printf '%s\n' "$SIGNATURE" | grep -q 'flags=.*runtime'; then
+              echo "::error::${LABEL} was not signed with the hardened runtime. ENABLE_HARDENED_RUNTIME=YES stopped reaching the archive; the notary service refuses any build without it. See docs/RELEASING.md."
+              exit 1
+            fi
+            # The read-back for `OTHER_CODE_SIGN_FLAGS=--timestamp`, and the only
+            # one of the four that is *distinguishable* rather than absent:
+            # `codesign --display` prints `Timestamp=` for a signature carrying a
+            # secure timestamp from Apple's timestamp authority and `Signed Time=`
+            # for a purely local one. A bundle with only the latter passes
+            # `--verify --deep --strict` and all three checks above, and is
+            # refused by the notary service after the archive and the queue —
+            # which is the cost passing the flag explicitly exists to avoid, so
+            # the flag having actually reached the signature is checked rather
+            # than assumed. `OTHER_CODE_SIGN_FLAGS` holds one value, so anything
+            # that displaces it (a `settings.base` entry in project.yml, a
+            # different task re-signing the embedded framework) silently drops
+            # the timestamp — hence this runs on both bundles like the rest.
+            if ! printf '%s\n' "$SIGNATURE" | grep -q '^Timestamp='; then
+              echo "::error::${LABEL} carries no secure timestamp — codesign reports \"Signed Time=\" rather than \"Timestamp=\" when OTHER_CODE_SIGN_FLAGS=--timestamp did not reach the signature. The notary service refuses a build without one. See docs/RELEASING.md."
+              exit 1
+            fi
+            echo "${LABEL}: Developer ID, team XJT3LK36GS, hardened runtime, secure timestamp"
+          }
+
+          verify_developer_id_signature "The archived app" "$APP"
+          verify_developer_id_signature "The embedded Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 
           # One extraction per key, not one `grep -E` alternation over the whole
           # dump: `grep` succeeds when *any* alternative matches, and
@@ -269,6 +554,186 @@ jobs:
             echo "${KEY} = ${VALUE}"
           done
 
+      # Notarization: Apple's service inspects the signed app and, if it accepts
+      # it, records a ticket against its code directory hash. Nothing about the
+      # app changes here — the acceptance lives on Apple's side until the next
+      # step staples it into the bundle.
+      #
+      # The zip submitted here is **not** the zip that ships. It is a scratch
+      # artefact whose only job is to carry the bundle to the notary service in
+      # one piece; the shipped one is produced after stapling, from the same
+      # `.app`, by the existing "Stage the update archive" step. Producing it
+      # twice is deliberate: the ticket has to be inside the bundle *before* the
+      # copy users download is made, and reusing this zip would ship an
+      # unstapled app that needs Apple's server reachable on first launch.
+      # It is `ditto` for the same symlink reason the shipped zip is — the
+      # notary service unpacks what it is given and checks the framework inside.
+      #
+      # The API key is written to disk because `notarytool` takes a path and not
+      # a value. It lands under $RUNNER_TEMP and is removed by a `trap` on exit
+      # rather than by a line at the end of the script: every path out of this
+      # step — the submission failing, the status check refusing, `set -e`
+      # firing on anything above — must still take the key with it, and only the
+      # trap covers the ones that do not reach the end.
+      #
+      # The exit code is deliberately not trusted to distinguish a rejected
+      # build from an accepted one. `notarytool submit --wait` reports transport
+      # and authentication failures through it, but the *verdict* is a field in
+      # the JSON, and a workflow that reads only `$?` can publish an `Invalid`
+      # submission on a service change or read a network error as a rejection.
+      # So the status is read explicitly, and anything other than `Accepted`
+      # fetches the log first: a rejection names the offending binary and the
+      # reason, and a rejection with no log printed is a rejection nobody can
+      # act on without re-running the whole release to see it.
+      - name: Notarize the archived app
+        env:
+          APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
+          API_KEY="${RUNNER_TEMP}/notary-key.p8"
+          SUBMISSION="${RUNNER_TEMP}/notarization.json"
+          trap 'rm -f "$API_KEY"' EXIT
+
+          # `(umask 077; …)`, not a write followed by `chmod 600`: the redirect
+          # is what creates the file, so a chmod on the next line narrows a key
+          # that was already world-readable for the length of the write. This is
+          # the unencrypted half of the notarization credentials — the .p12 in
+          # the import step is written the same way.
+          (umask 077; printf '%s' "$APP_STORE_CONNECT_API_KEY_P8" > "$API_KEY")
+
+          rm -rf build/notarization
+          mkdir -p build/notarization
+          ditto -c -k --sequesterRsrc --keepParent "$APP" build/notarization/Pisaka.zip
+
+          # `|| SUBMIT_EXIT=$?` rather than a bare invocation: `set -e` would
+          # otherwise end the step on a rejected submission before the status
+          # check below could read the verdict or fetch the log, which is the
+          # one case this step exists to report properly.
+          SUBMIT_EXIT=0
+          xcrun notarytool submit build/notarization/Pisaka.zip \
+            --key "$API_KEY" \
+            --key-id "$APP_STORE_CONNECT_KEY_ID" \
+            --issuer "$APP_STORE_CONNECT_ISSUER_ID" \
+            --wait \
+            --timeout 30m \
+            --output-format json > "$SUBMISSION" || SUBMIT_EXIT=$?
+          cat "$SUBMISSION"
+
+          # Both reads are guarded: `jq` exits non-zero on input that is not
+          # valid JSON, and under `set -e` a failing command substitution in an
+          # assignment ends the step *here* — before the ::error:: message,
+          # before the log fetch, on exactly the malformed-output case (a
+          # submission killed mid-write, a tool change emitting plain text) this
+          # refusal exists to explain. An unreadable status is not `Accepted`,
+          # so it falls through to the guard below and is reported like any
+          # other verdict.
+          STATUS="$(jq -r '.status // "no status"' "$SUBMISSION" 2>/dev/null || echo "unreadable")"
+          SUBMISSION_ID="$(jq -r '.id // ""' "$SUBMISSION" 2>/dev/null || echo "")"
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "::error::The notary service returned status \"${STATUS}\" (notarytool exit ${SUBMIT_EXIT}) for submission \"${SUBMISSION_ID}\". The log follows; it names the binary and the reason — a missing hardened runtime, a missing secure timestamp, an unsigned nested executable, or an identity the service does not accept. Nothing has been published: fix the cause, delete and re-push the tag. See docs/RELEASING.md."
+            # The fetch is guarded on the id being non-empty rather than left to
+            # fail: on exactly the cases the guarded `jq` above exists for — the
+            # `--timeout` expiring, a submission killed mid-write, notarytool
+            # emitting something that is not JSON — `$SUBMISSION_ID` is the empty
+            # string, and `notarytool log ""` then fails with a message about a
+            # malformed id that has nothing to do with the actual problem. That
+            # branch needs the *other* recovery, `notarytool history`, because
+            # the id it would otherwise tell the operator to re-run with was
+            # never captured by anything.
+            if [ -z "$SUBMISSION_ID" ]; then
+              echo "::error::notarytool returned no readable submission id, so there is no log to fetch — the JSON above is the whole record of this attempt. Find the submission and its verdict with: xcrun notarytool history --key-id \"\$APP_STORE_CONNECT_KEY_ID\" --issuer \"\$APP_STORE_CONNECT_ISSUER_ID\" --key <path-to-p8>, then: xcrun notarytool log <submission-id> …"
+            else
+              xcrun notarytool log "$SUBMISSION_ID" \
+                --key "$API_KEY" \
+                --key-id "$APP_STORE_CONNECT_KEY_ID" \
+                --issuer "$APP_STORE_CONNECT_ISSUER_ID" \
+                || echo "::error::The notarization log for submission \"${SUBMISSION_ID}\" could not be fetched. Read it by hand with: xcrun notarytool log ${SUBMISSION_ID} --key-id \"\$APP_STORE_CONNECT_KEY_ID\" --issuer \"\$APP_STORE_CONNECT_ISSUER_ID\" --key <path-to-p8>"
+            fi
+            exit 1
+          fi
+          echo "Notarization accepted (submission ${SUBMISSION_ID})."
+
+      # Stapling writes the ticket Apple issued into the bundle, which is what
+      # makes a *downloaded* copy launch on a machine that cannot reach Apple —
+      # an accepted-but-unstapled app is one whose first launch depends on the
+      # network and on the notary service being up.
+      #
+      # `stapler validate` is not the same statement as `stapler staple`
+      # succeeding: it re-reads the ticket back out of the bundle and checks it
+      # against the bundle's own code directory hash, which is what catches a
+      # ticket stapled to something other than what was submitted.
+      #
+      # The signature is re-verified afterwards because stapling modifies the
+      # bundle. It is supposed to be signature-neutral — the ticket is stored
+      # outside the sealed resources for exactly that reason — and this step
+      # proves it for this build instead of taking it on trust, before the zip
+      # every user downloads is made from the result.
+      #
+      # `spctl --assess` is the assertion this whole ticket exists for, and it
+      # is the only check here that answers the actual question: would Gatekeeper
+      # let this app run. It is the *system* policy talking rather than
+      # `codesign`, so it covers the combination — Developer ID signature, plus
+      # hardened runtime, plus a stapled ticket — that no individual check above
+      # can. What a runner structurally cannot do is a real double-click of a
+      # real download, which is why docs/RELEASING.md keeps that as a manual pass.
+      - name: Staple the notarization ticket
+        run: |
+          set -euo pipefail
+          APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
+
+          # Wrapped like every other refusal in this file. Bare, a failure here
+          # ends the job with stapler's own output, which for the common case is
+          # "The staple and validate action failed! Error 65" and names nothing —
+          # in a step reached only after a 20-minute archive and an accepted
+          # submission, i.e. the most expensive place in the run to be told
+          # nothing. The two realistic causes are named because they need
+          # opposite responses.
+          if ! xcrun stapler staple "$APP"; then
+            echo "::error::Stapling the notarization ticket into the app failed. The submission came back Accepted, so the two realistic causes are a ticket Apple has not finished publishing yet (wait a few minutes, then delete and re-push the tag) and a bundle that changed after it was submitted (a bug here; nothing may modify the app between the submit and this step). Re-pushing is not a cheap retry: the build number is github.run_number, so the re-run archives a different CFBundleVersion and submits a build the notary service has never seen — a full archive and a fresh notarization, not a cached verdict. Nothing has been published. See docs/RELEASING.md."
+            exit 1
+          fi
+          if ! xcrun stapler validate "$APP"; then
+            echo "::error::The notarization ticket does not validate against the archived app. The ticket is issued for the code directory hash that was submitted, so this means the bundle changed between submission and stapling. Nothing has been published; re-run the release. See docs/RELEASING.md."
+            exit 1
+          fi
+
+          # Stapling must not disturb the signature. If it ever did, the failure
+          # would surface as a rejected *update* on the user's machine, because
+          # Sparkle re-checks the signature of what it unpacks.
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          # Captured, and the verdict read off the output rather than off the
+          # exit status — the same reasoning the notary verdict is parsed by
+          # instead of inferred from `$?`. `spctl` exits 0 for *any* accepting
+          # rule, and which rule accepted is the whole assertion. Three
+          # acceptances that are not this one, all of them exit 0:
+          # `source=Mac App Store`; `source=Developer ID`, which is what an
+          # accepted but *unstapled* Developer ID app reports (verified against
+          # one) — so this line also re-states, from the system's side, what
+          # `stapler validate` above asserts from the bundle's; and, on a machine
+          # whose assessments were turned off (`spctl --master-disable`, a
+          # runner-image detail this workflow neither controls nor can see),
+          # everything on disk with `source=no usable signature`. Only a
+          # Developer ID signature carrying a stapled ticket reads
+          # `source=Notarized Developer ID`, and that is the claim being made.
+          #
+          # `2>&1` because spctl writes the assessment to stderr: without it
+          # $ASSESSMENT is empty and the check below refuses every run.
+          ASSESSMENT=""
+          if ! ASSESSMENT="$(spctl --assess --type execute --verbose=4 "$APP" 2>&1)"; then
+            printf '%s\n' "$ASSESSMENT"
+            echo "::error::Gatekeeper refuses the stapled app (spctl --assess). This is the one check that answers the question the release is for — whether a downloaded copy runs — and it failing here means it would fail on every user's machine instead. Read the assessment above; it names which of the signature, the hardened runtime or the ticket is the problem. See docs/RELEASING.md."
+            exit 1
+          fi
+          printf '%s\n' "$ASSESSMENT"
+          if ! printf '%s\n' "$ASSESSMENT" | grep -q '^source=Notarized Developer ID$'; then
+            echo "::error::Gatekeeper accepted the stapled app under a rule other than a stapled Developer ID ticket — the assessment above does not say \"source=Notarized Developer ID\". An acceptance on any other rule says nothing about a user's download: it is either an evaluation of something that is not this signature, or a runner whose assessments are disabled, in which case this gate accepted an app it never actually assessed. Nothing has been published. See docs/RELEASING.md."
+            exit 1
+          fi
+
       # `ditto -c -k` and not `zip`: the embedded Sparkle.framework is a bundle
       # of symlinks (Versions/Current, the top-level links), and a plain `zip`
       # stores them as duplicated regular files — the unzipped framework then
@@ -277,6 +742,12 @@ jobs:
       # The staging directory holds the zip and nothing else, because
       # generate_appcast reads *every* update it finds in the directory it is
       # pointed at.
+      #
+      # This step is unchanged by notarization and its position is not: it runs
+      # after the staple, so the bundle it archives already carries the ticket.
+      # Moving it above the staple would ship an app whose first launch needs
+      # Apple's service reachable — green here, and a spinner on a user's
+      # machine.
       - name: Stage the update archive
         run: |
           set -euo pipefail
@@ -339,6 +810,14 @@ jobs:
       # makes that URL 404 for all of them, silently, until someone notices. The
       # whole concurrency comment at the top of this file reasons about avoiding
       # that state; this is what actually prevents it.
+      #
+      # The notes say what the release *is* and nothing else. They used to carry
+      # the Gatekeeper workaround every ad-hoc-signed download needed; the app is
+      # now signed and stapled, so that instruction would tell users to strip a
+      # quarantine flag that stops nothing — and, worse, would keep teaching a
+      # habit ("run this command on downloads that will not open") that is
+      # exactly what code signing exists to make unnecessary. Release notes are
+      # permanent: one left in place outlives the release it shipped with.
       - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -349,7 +828,7 @@ jobs:
           gh release create "$TAG" \
             --draft \
             --title "$TAG" \
-            --notes "Pisaka ${VERSION} (build ${{ github.run_number }}). macOS app, ad-hoc signed and not notarized, so the first manual install trips Gatekeeper. Clear it with \`xattr -dr com.apple.quarantine /Applications/Pisaka.app\` (works on every supported macOS), or open the app once and allow it from System Settings → Privacy & Security → Open Anyway. Right-click → Open also works on macOS 13 and 14, but macOS 15 removed that override for unnotarized apps. In-place Sparkle updates do not repeat any of this." \
+            --notes "Pisaka ${VERSION} (build ${{ github.run_number }}) for macOS 13 or later. Signed with a Developer ID Application certificate, notarized by Apple and stapled: download the zip, unzip it, move Pisaka to Applications and open it. Installed copies offer this release to themselves through Sparkle." \
             "build/release-assets/Pisaka-${VERSION}.zip" \
             "appcast.xml"
 
@@ -367,3 +846,54 @@ jobs:
           # The one irreversible line in this workflow: after it, releases/latest
           # is this release and every installed copy reads its appcast.
           gh release edit "$TAG" --draft=false
+
+      # `if: always()` and last, so no path through this job — success, any
+      # failure above, or a cancellation — leaves either private key on the runner
+      # or the search list rewritten. The runner is thrown away afterwards, which
+      # is an argument for not caring and not a reason to rely on it: the cleanup
+      # is four commands and it is the difference between "the keys are gone
+      # because we removed them" and "the keys are gone because we assume the
+      # fleet removed them".
+      #
+      # No `set -e`: this step's whole point is to run all of it. A failure to
+      # restore the search list must not skip deleting the keychain — with
+      # `errexit` the first failing command would abandon the rest of the
+      # cleanup, which is the opposite of what a cleanup step is for.
+      #
+      # Not aborting is not the same as not reporting. Every command records
+      # into `$STATUS` and the step exits non-zero at the end if any of them
+      # failed: a green job whose keychain deletion failed says "the signing
+      # certificate is gone" about a runner that still has it, and the whole
+      # point of doing the cleanup rather than trusting the fleet to discard the
+      # runner is that the claim is ours to make good. This cannot hide the real
+      # error from a run that failed earlier — that step's own failure is
+      # already annotated and already red — it only stops a *cleanup* failure
+      # from being the one thing in this job that passes silently.
+      - name: Remove the signing keychain
+        if: always()
+        run: |
+          set -uo pipefail
+          STATUS=0
+          KEYCHAIN="${RUNNER_TEMP}/pisaka-signing.keychain-db"
+          if [ -s "${RUNNER_TEMP}/keychains-before" ]; then
+            # Unquoted for the same reason as the import step's call: `-s` takes
+            # one argument per keychain, and word splitting is what makes them.
+            # shellcheck disable=SC2046
+            security list-keychains -d user -s $(cat "${RUNNER_TEMP}/keychains-before") || STATUS=1
+            rm -f "${RUNNER_TEMP}/keychains-before" || STATUS=1
+          fi
+          if [ -f "$KEYCHAIN" ]; then
+            security delete-keychain "$KEYCHAIN" || STATUS=1
+          fi
+          # Belt and braces for both private keys. Each is removed by the step
+          # that wrote it — the .p12 by an `rm` after `security import` consumes
+          # it, the .p8 by a `trap … EXIT` — and neither removal covers a
+          # cancellation: a `SIGKILL`ed step runs no EXIT trap and no trailing
+          # line, which is precisely the path this `if: always()` step exists
+          # for. Both paths are spelled out literally because a variable would
+          # be one the cancelled step never got to set.
+          rm -f "${RUNNER_TEMP}/developer-id.p12" "${RUNNER_TEMP}/notary-key.p8" || STATUS=1
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::Cleaning up the signing keychain failed: one of restoring the user search list, deleting the run's keychain or removing the two private keys reported an error (this step's log says which). Every other step's result stands — this failure is about the runner's leftover state, not the release. Assume the runner still holds the Developer ID certificate and the notary key: revoke and reissue the certificate, rotate the notary key, and update the repository secrets before the next tag. See docs/RELEASING.md."
+            exit 1
+          fi
