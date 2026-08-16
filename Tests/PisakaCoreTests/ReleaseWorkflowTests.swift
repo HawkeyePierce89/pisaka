@@ -88,6 +88,22 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// The name of the `if: always()` step that deletes that keychain again.
     private static let keychainCleanupStepName = "Remove the signing keychain"
 
+    /// The name of `ci.yml`'s launch smoke test — the step that runs the Release
+    /// build it just produced.
+    private static let ciSmokeLaunchStepName = "Launch the built app (smoke test)"
+
+    /// The name of `release.yml`'s launch smoke test — the same check against the
+    /// archived, re-signed bundle, between the verification and the submission.
+    private static let releaseSmokeLaunchStepName = "Launch the archived app (smoke test)"
+
+    /// How many seconds each smoke launch waits before deciding the app is
+    /// alive. Pinned because `0` is not a shorter deadline, it is *no* deadline:
+    /// `for _ in $(seq 0)` runs its body zero times, so the liveness poll never
+    /// executes, `ALIVE` stays `1`, and every launch — including one that
+    /// aborted in dyld a millisecond in — reaches the "survived" branch. The
+    /// step then passes on exactly the build it exists to refuse.
+    private static let smokeLaunchDeadline = 5
+
     // MARK: - Trigger, concurrency and permissions
 
     /// "Only" is the load-bearing word, so the whole `on:` block is compared by
@@ -281,15 +297,21 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// this is used for the preflight's four refusals *and* for the
     /// unsigned-appcast refusal, which cannot live in the preflight because it
     /// can only be made after `generate_appcast` has run.
+    ///
+    /// `workflow` defaults to the release workflow because that is what this
+    /// suite mostly reads, but the smoke launch is asserted in `ci.yml` too and
+    /// a failure message naming the wrong file sends the reader to a step that
+    /// is not the broken one.
     private func assertGuardExits(_ condition: String,
                                   in script: [String],
+                                  workflow: String = "release.yml",
                                   step: String,
                                   because reason: String,
                                   file: StaticString = #filePath,
                                   line: UInt = #line) {
         guard let start = script.firstIndex(where: { $0.hasPrefix("if ") && $0.contains(condition) }) else {
             XCTFail("""
-                release.yml's `\(step)` step has no `if` testing \(condition). It must, because \
+                \(workflow)'s `\(step)` step has no `if` testing \(condition). It must, because \
                 \(reason).
                 """, file: file, line: line)
             return
@@ -315,7 +337,7 @@ final class ReleaseWorkflowTests: XCTestCase {
             if entry == "exit 1", depth == 0 { refuses = true; break }
         }
         XCTAssertTrue(refuses, """
-            release.yml's `\(step)` step tests \(condition) but its branch does not `exit 1` — so \
+            \(workflow)'s `\(step)` step tests \(condition) but its branch does not `exit 1` — so \
             the run continues and publishes anyway. A `::warning::` here is not a softer guard, it \
             is no guard: \(reason).
             """, file: file, line: line)
@@ -2394,6 +2416,263 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// `archiveStepName` is one: a renamed step must fail loudly rather than
     /// silently check nothing.
     private static let ciMacBuildStepName = "Build (macOS, Release — the configuration that ships)"
+
+    // MARK: - The launch smoke test
+
+    /// CI runs the app it just built, because nothing else in this repository
+    /// ever executes a Pisaka binary.
+    ///
+    /// This is the gate `v1.0` did not have. That build compiled, linked,
+    /// archived, signed with a Developer ID certificate, passed `codesign
+    /// --verify --deep --strict` on every nested Mach-O, was accepted by the
+    /// notary service, stapled, and assessed by `spctl` as
+    /// `source=Notarized Developer ID` — every assertion in this suite green —
+    /// and then aborted in dyld on the first machine that opened it, unable to
+    /// resolve `@rpath/Sparkle.framework/Versions/B/Sparkle`. Every gate above is
+    /// byte-level: they read what is *in* the bundle, and a runpath that does not
+    /// reach `Contents/Frameworks/` is a property of what happens when the bundle
+    /// runs. Only a launch can see it.
+    ///
+    /// Pinned against the macOS job specifically, and after the build step: the
+    /// product it names exists only in the job that produced it, so a step that
+    /// drifted into `build-ios` would launch nothing and refuse every run, and
+    /// one that drifted above the build would launch the *previous* run's
+    /// product or nothing at all.
+    func testCILaunchesWhatItBuilds() throws {
+        let script = try stepScript(named: Self.ciSmokeLaunchStepName, in: "ci.yml", because: """
+            It is the only place in this repository where a Pisaka binary is executed before a user \
+            executes it.
+            """)
+
+        XCTAssertTrue(script.contains(#"APP="DerivedData/Build/Products/Release/Pisaka.app""#), """
+            ci.yml's `\(Self.ciSmokeLaunchStepName)` step must launch the Release product the build \
+            step above it wrote to DerivedData. Any other path launches something this job did not \
+            build — a stale product, or nothing.
+            """)
+        XCTAssertTrue(script.contains(#"EXECUTABLE="$APP/Contents/MacOS/Pisaka""#), """
+            The smoke launch must exec the bundle's own executable at \
+            `$APP/Contents/MacOS/Pisaka`. `open -a` would hand the launch to LaunchServices, which \
+            reports success once it has *asked* for the app to open and gives this step no process \
+            to poll and no output to print.
+            """)
+
+        let launch = try XCTUnwrap(script.first(where: {
+            $0.contains(#""$EXECUTABLE""#) && $0.hasSuffix("&")
+        }), """
+            ci.yml's `\(Self.ciSmokeLaunchStepName)` step must launch the executable in the \
+            background. Run in the foreground it is an AppKit app that never returns, and the step \
+            hangs until the job's own budget kills it — which reports as a cancelled build rather \
+            than as anything about the app.
+            """)
+        XCTAssertTrue(launch.contains(#"> "$LOG" 2>&1"#), """
+            The launch must capture both streams into the log the refusal below prints. dyld writes \
+            its "Library not loaded" message to stderr, so a launch that redirects only stdout \
+            refuses with an empty log — a failure with its one piece of evidence discarded. Got \
+            “\(launch)”.
+            """)
+
+        XCTAssertTrue(script.contains { $0.contains("kill -0 \"$PID\"") }, """
+            Liveness must be polled with `kill -0 "$PID"`. It is what makes "the app is still \
+            running" and "the app is gone" two structurally different code paths rather than two \
+            exit codes to tell apart afterwards — a process this step kills and a process that \
+            aborted in dyld both report ≥128 through `wait`.
+            """)
+
+        // In the macOS job, after the build. Read off the raw lines because the
+        // job a step belongs to is an *indentation* fact, which `activeLines`
+        // discards.
+        let raw = try text(atRepositoryPath: ".github/workflows/ci.yml").components(separatedBy: .newlines)
+        let smoke = try XCTUnwrap(raw.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces) == "- name: \(Self.ciSmokeLaunchStepName)"
+        }), "ci.yml has no `\(Self.ciSmokeLaunchStepName)` step")
+        let build = try XCTUnwrap(raw.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces) == "- name: \(Self.ciMacBuildStepName)"
+        }), "ci.yml has no `\(Self.ciMacBuildStepName)` step")
+
+        XCTAssertLessThan(build, smoke, """
+            ci.yml's `\(Self.ciSmokeLaunchStepName)` step must run *after* \
+            `\(Self.ciMacBuildStepName)`. Before it there is no product at the path it names, so the \
+            step either refuses every run or — worse, on a runner with a warm DerivedData — \
+            launches the previous build and reports on it.
+            """)
+
+        let owningJob = raw[..<smoke].last(where: Self.isJobHeader)
+        XCTAssertEqual(owningJob?.trimmingCharacters(in: .whitespaces), "build-macos:", """
+            The smoke launch belongs to the `build-macos:` job, which is the one that produced the \
+            product it launches. It is currently under “\(owningJob ?? "no job at all")”.
+            """)
+    }
+
+    /// Success is "we killed it", never "it exited 0".
+    ///
+    /// This is the whole design of the step and it is the half that a
+    /// well-meaning simplification would remove first, because "check the exit
+    /// code" is what a smoke test normally means. Here it inverts the check: an
+    /// editor that exits by itself seconds after launch has not passed anything,
+    /// and `wait` cannot distinguish it from the crash — a process killed by this
+    /// step and one that aborted in dyld both come back ≥128. So the death branch
+    /// is entered whenever the process is *gone*, for any reason, and refuses
+    /// unconditionally; the app's status is printed as evidence and never
+    /// compared against anything.
+    ///
+    /// The three assertions are the three ways that inverts back: a death branch
+    /// that annotates instead of exiting, an `exit 0` anywhere on it, and a
+    /// status comparison that turns the refusal into a conditional one.
+    func testTheSmokeLaunchSuccessPathIsSurvivalNotAZeroExit() throws {
+        let script = try stepScript(named: Self.ciSmokeLaunchStepName, in: "ci.yml", because: """
+            It is the step whose success criterion decides what a green macOS job means.
+            """)
+
+        assertGuardExits(#""$ALIVE" -eq 0"#,
+                         in: script,
+                         workflow: "ci.yml",
+                         step: Self.ciSmokeLaunchStepName,
+                         because: """
+            the process being gone before the deadline is the failure this step exists to catch, and \
+            it must refuse for *every* reason the process could be gone — a dyld abort, a crash in \
+            startup, or a clean exit. A branch that only annotates leaves the job green on precisely \
+            the build v1.0 was
+            """)
+
+        XCTAssertFalse(script.contains { $0.contains("exit 0") }, """
+            ci.yml's `\(Self.ciSmokeLaunchStepName)` step must contain no `exit 0`. The step's only \
+            success path is falling off the end after killing a process that was still running; an \
+            explicit `exit 0` is how "the app exited cleanly" gets quietly promoted to a pass. \
+            Got \(script.filter { $0.contains("exit 0") }).
+            """)
+
+        let statusTests = script.filter { ($0.hasPrefix("if ") || $0.hasPrefix("test ")) && $0.contains("STATUS") }
+        XCTAssertTrue(statusTests.isEmpty, """
+            ci.yml's `\(Self.ciSmokeLaunchStepName)` step tests the launched app's exit status: \
+            \(statusTests). It must not. The status is evidence for the log and nothing else — \
+            comparing it against zero makes an app that exits immediately with status 0 a pass, and \
+            makes the refusal depend on a number a killed process and a crashed one do not \
+            distinguish.
+            """)
+
+        // The kill is on the path no refusal took. Asserted by position rather
+        // than presence: `kill "$PID"` inside the death branch would satisfy a
+        // `contains` while the surviving process was never terminated at all.
+        let refusal = try XCTUnwrap(script.lastIndex(of: "exit 1"), """
+            ci.yml's `\(Self.ciSmokeLaunchStepName)` step no longer refuses anything.
+            """)
+        let kill = try XCTUnwrap(script.lastIndex(where: { $0.hasPrefix(#"kill "$PID""#) }), """
+            ci.yml's `\(Self.ciSmokeLaunchStepName)` step must terminate the process it launched. \
+            Left running, an AppKit app holds the job open until its budget expires.
+            """)
+        XCTAssertGreaterThan(kill, refusal, """
+            The `kill "$PID"` must come after every `exit 1` in the step — that is what makes it the \
+            *success* path: the only way to reach it is for the process to have survived every \
+            refusal above. A kill inside the death branch is a kill of a process that is already \
+            gone.
+            """)
+    }
+
+    /// The deadline is a real number of seconds.
+    ///
+    /// `DEADLINE=0` is the degenerate case and it is not a shorter check, it is
+    /// no check: `for _ in $(seq 0)` runs its body zero times, so `kill -0` is
+    /// never called, `ALIVE` is still `1` at the bottom of the loop, and the step
+    /// prints "the app survived" about a process that may have aborted in dyld
+    /// before the loop was even reached. Every other assertion in this file stays
+    /// green — the guard exists, it refuses, the launch is backgrounded — while
+    /// the gate passes everything. So the value is pinned rather than merely
+    /// required to exist.
+    func testTheSmokeLaunchDeadlineIsNotDegenerate() throws {
+        let script = try stepScript(named: Self.ciSmokeLaunchStepName, in: "ci.yml", because: """
+            It is the step whose deadline decides whether the liveness poll runs at all.
+            """)
+
+        XCTAssertTrue(script.contains("DEADLINE=\(Self.smokeLaunchDeadline)"), """
+            ci.yml's `\(Self.ciSmokeLaunchStepName)` step must set \
+            `DEADLINE=\(Self.smokeLaunchDeadline)`. Got \(script.filter { $0.hasPrefix("DEADLINE=") }). \
+            See this test's doc comment for why `0` in particular is a silent pass rather than a \
+            fast check — and if the deadline is being changed deliberately, change the pinned \
+            constant with it.
+            """)
+    }
+
+    /// A refusal in a job nobody can re-run interactively has to carry its own
+    /// evidence.
+    ///
+    /// This step is the one place in the pipeline where the failure mode is
+    /// "something happened inside a process that is now gone". `::error::The app
+    /// exited` on its own says nothing actionable: the difference between a
+    /// missing framework, a stripped runpath, a crash in `applicationDidFinish…`
+    /// and an assertion in Core is entirely in the output — which was redirected
+    /// to a file precisely so it could be printed here, and in the crash report
+    /// the system wrote beside it. Printing them *before* the annotation is what
+    /// puts them in the log a reader scrolls up from.
+    func testTheSmokeLaunchSurfacesWhatKilledIt() throws {
+        let script = try stepScript(named: Self.ciSmokeLaunchStepName, in: "ci.yml", because: """
+            It is the step whose failure can only be diagnosed from output the process itself \
+            produced.
+            """)
+
+        let log = try XCTUnwrap(script.firstIndex(of: #"cat "$LOG""#), """
+            ci.yml's `\(Self.ciSmokeLaunchStepName)` step must `cat "$LOG"` when the app dies. The \
+            launch redirects both streams into that file so that dyld's "Library not loaded" — the \
+            one line that names the actual failure — is not lost with the process.
+            """)
+        let annotation = try XCTUnwrap(script.firstIndex(where: {
+            $0.contains("::error::") && $0.contains("exited on its own")
+        }), """
+            ci.yml's `\(Self.ciSmokeLaunchStepName)` step must annotate the death with an \
+            `::error::` naming what it saw. A bare `exit 1` here is a red job with no cause in it.
+            """)
+        XCTAssertLessThan(log, annotation, """
+            The captured output must be printed *before* the `::error::` annotation, so the \
+            annotation is the last thing in the log and the evidence is directly above it.
+            """)
+
+        XCTAssertTrue(script.contains { $0.contains("DiagnosticReports") }, """
+            The death branch must also look for the crash report the system wrote \
+            (~/Library/Logs/DiagnosticReports/Pisaka*.ips). For a dyld failure the redirected output \
+            carries the message, but for a crash *after* launch the process may have printed \
+            nothing at all, and the .ips file is then the only record — and it does not survive the \
+            runner.
+            """)
+
+        let annotationText = script[annotation]
+        XCTAssertTrue(annotationText.contains("docs/RELEASING.md"), """
+            The smoke launch's refusal must point at docs/RELEASING.md, like every other \
+            `::error::` in this repository's workflows: that is where the v1.0 incident and the \
+            runpath it turned on are written down. Got “\(annotationText)”.
+            """)
+    }
+
+    /// The CI-side counterpart to `testEveryStepFailureStopsTheRelease`.
+    ///
+    /// Every refusal asserted above is a refusal only because the step's failure
+    /// fails the job. `continue-on-error: true` demotes all of them to log lines
+    /// — the smoke launch would then print the dyld abort and go green — and an
+    /// `if:` is the same edit spelled differently: a step skipped by a condition
+    /// runs none of its guards, and `if: false` on the smoke launch restores
+    /// exactly the coverage `v1.0` shipped under with this whole suite still
+    /// passing.
+    ///
+    /// Asserted over the whole file rather than the one step, for the same reason
+    /// the release-side test is: there is no step in `ci.yml` whose failure the
+    /// project is willing to ignore, so the honest assertion is the file-wide
+    /// one, and it also covers the two builds and `swift test` itself.
+    func testTheCISmokeLaunchIsNotSkippable() throws {
+        let lines = activeYAMLLines(of: try text(atRepositoryPath: ".github/workflows/ci.yml"))
+        XCTAssertFalse(lines.isEmpty, "parsed nothing out of ci.yml")
+
+        XCTAssertFalse(lines.contains { $0.hasPrefix("continue-on-error:") }, """
+            ci.yml carries a `continue-on-error:`. The launch smoke test's refusals — no executable, \
+            the app exiting on its own — are refusals only because the step's failure fails the job; \
+            `continue-on-error: true` prints the dyld abort and reports the build green, which is \
+            the state this repository shipped v1.0 from.
+            """)
+
+        let conditions = lines.filter { $0.hasPrefix("if:") }
+        XCTAssertTrue(conditions.isEmpty, """
+            ci.yml carries a step condition: \(conditions). No step in this workflow is optional — \
+            `swift test`, the two builds and the launch smoke test are the whole gate — and a \
+            skipped step runs none of the guards this suite asserts about it.
+            """)
+    }
 
     // MARK: - The cross-file invariants
 

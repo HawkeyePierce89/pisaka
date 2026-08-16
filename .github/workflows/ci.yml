@@ -81,6 +81,71 @@ jobs:
           -clonedSourcePackagesDirPath SourcePackages
           -derivedDataPath DerivedData
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+      # Every other gate in this repository is byte-level. `swift test` compiles
+      # Core and reads repository files; the build above proves the app links;
+      # the release workflow reads signatures, plists and a notary verdict back
+      # off the archive. Not one of them ever *runs* the binary — which is how
+      # `v1.0` compiled, linked, signed, notarized, stapled, passed `spctl` and
+      # then died in dyld on the first user's machine, unable to resolve
+      # `@rpath/Sparkle.framework` because the target carried XcodeGen's
+      # iOS-shaped `LD_RUNPATH_SEARCH_PATHS` on macOS too. A dynamic-link failure
+      # is invisible until something executes the thing.
+      #
+      # So this step executes it. The assertion is only that the process *lives*
+      # — not that any window appeared or that the UI behaves. Everything the
+      # launched app does is inert to it: the Release-only Sparkle updater
+      # starting and polling github.com, its first-launch permission prompt,
+      # session restore finding no session.
+      #
+      # The success path is being killed at the deadline. The app exiting on its
+      # own is a refusal *whatever its status*, because a clean `exit 0` seconds
+      # after launch is not a working editor either, and because a killed process
+      # and a crashed one both report ≥128 — so liveness is polled with `kill -0`
+      # rather than told apart from `wait`'s exit code afterwards.
+      #
+      # There is no iOS equivalent: CI runs no simulator by design (see the job
+      # below, which builds `generic/platform=iOS` and never boots anything), so
+      # the iOS product's dynamic loading is still checked by nothing. That is a
+      # known limit, recorded in docs/RELEASING.md rather than designed around.
+      - name: Launch the built app (smoke test)
+        run: |
+          set -euo pipefail
+          # The one line that differs between this step and its twin in
+          # release.yml; ReleaseWorkflowTests asserts everything else is
+          # identical, because two hand-maintained copies drifting apart means
+          # one half of the pipeline stops checking what the other does.
+          APP="DerivedData/Build/Products/Release/Pisaka.app"
+          EXECUTABLE="$APP/Contents/MacOS/Pisaka"
+          DEADLINE=5
+          LOG="${RUNNER_TEMP:-/tmp}/smoke-launch.log"
+          if ! test -x "$EXECUTABLE"; then
+            echo "::error::No executable at ${EXECUTABLE}. The build above reported success, so either the product moved or it is not what this step thinks it is — check the -derivedDataPath and the configuration. See docs/RELEASING.md."
+            exit 1
+          fi
+          "$EXECUTABLE" > "$LOG" 2>&1 &
+          PID=$!
+          ALIVE=1
+          for _ in $(seq "$DEADLINE"); do
+            sleep 1
+            if ! kill -0 "$PID" 2>/dev/null; then
+              ALIVE=0
+              break
+            fi
+          done
+          if [ "$ALIVE" -eq 0 ]; then
+            STATUS=0
+            wait "$PID" || STATUS=$?
+            cat "$LOG"
+            CRASH="$(ls -t "$HOME/Library/Logs/DiagnosticReports/Pisaka"*.ips 2>/dev/null | head -1 || true)"
+            if [ -n "$CRASH" ]; then
+              cat "$CRASH"
+            fi
+            echo "::error::The app exited on its own with status ${STATUS} before the ${DEADLINE}s deadline. The output above is the whole evidence: a 'Library not loaded: @rpath/...' line is a dynamic-link failure — the runpath the executable searches does not reach Contents/Frameworks/, which is what LD_RUNPATH_SEARCH_PATHS[sdk=macosx*] in project.yml exists to set. Any other output is a crash in startup. This step refuses whatever the status is, including 0. See docs/RELEASING.md."
+            exit 1
+          fi
+          kill "$PID" 2>/dev/null || true
+          wait "$PID" 2>/dev/null || true
+          echo "The app survived ${DEADLINE}s and was terminated by this step."
 
   build-ios:
     needs: test

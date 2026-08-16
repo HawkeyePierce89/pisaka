@@ -258,39 +258,88 @@ then restored (`git diff --stat`: insertions only).
 - Modify: `.github/workflows/ci.yml`
 - Modify: `Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
 
-- [ ] Add the step `Launch the built app (smoke test)` to `build-macos`,
+- [x] Add the step `Launch the built app (smoke test)` to `build-macos`,
       immediately after the Release build, with the script above and
       `APP="DerivedData/Build/Products/Release/Pisaka.app"`. No
       `continue-on-error:`, no `if:`.
-- [ ] Comment it in the file's style: byte-level gates cannot see a dynamic-link
+- [x] Comment it in the file's style: byte-level gates cannot see a dynamic-link
       failure; `v1.0` compiled, signed, notarized and died in dyld; the assertion
       is that the process lives, not that the UI behaves; the success path is
       being killed at the deadline; no iOS equivalent because CI has no simulator.
-- [ ] **Dry-run the exact script locally** against the fixed Release build (paste
+- [x] **Dry-run the exact script locally** against the fixed Release build (paste
       the output), then re-run it against a deliberately broken copy — e.g. a copy
       of the app with `Contents/Frameworks/Sparkle.framework` moved aside — and
       confirm it refuses with the dyld text and a non-zero exit. Restore the copy;
       leave the real product untouched.
-- [ ] Add to `ReleaseWorkflowTests`: constants for the two step names and the
+- [x] Add to `ReleaseWorkflowTests`: constants for the two step names and the
       pinned `DEADLINE` value; `testCILaunchesWhatItBuilds` asserting the step
       exists in `ci.yml`, sits **after** the `Build (macOS, Release …)` step,
       launches `"$APP/Contents/MacOS/Pisaka"` in the background, polls liveness
       with `kill -0`, and names the DerivedData Release product.
-- [ ] Add `testTheSmokeLaunchSuccessPathIsSurvivalNotAZeroExit`: the branch taken
+- [x] Add `testTheSmokeLaunchSuccessPathIsSurvivalNotAZeroExit`: the branch taken
       when the process is gone `exit 1`s at depth 0 (via `assertGuardExits`), the
       script compares no exit status against zero and contains no `exit 0`, and
       the only non-refusing path runs `kill "$PID"`.
-- [ ] Add `testTheSmokeLaunchDeadlineIsNotDegenerate`: `DEADLINE` equals the
+- [x] Add `testTheSmokeLaunchDeadlineIsNotDegenerate`: `DEADLINE` equals the
       pinned value, with a message explaining that `0` makes the loop body never
       run and every launch "survive".
-- [ ] Add `testTheSmokeLaunchSurfacesWhatKilledIt`: the death branch prints the
+- [x] Add `testTheSmokeLaunchSurfacesWhatKilledIt`: the death branch prints the
       captured output before refusing (a refusal with no evidence in a job nobody
       can re-run interactively is a refusal nobody can act on).
-- [ ] Add `testTheCISmokeLaunchIsNotSkippable`: `ci.yml` carries no
+- [x] Add `testTheCISmokeLaunchIsNotSkippable`: `ci.yml` carries no
       `continue-on-error:` and no `if:` — the ci.yml-scoped counterpart to
       `testEveryStepFailureStopsTheRelease`, whose absence would demote every
       refusal above to a log line.
-- [ ] `swift test` — must pass.
+- [x] `swift test` — must pass.
+
+**Task 2 completion notes — measured evidence**
+
+The step's `run:` body was extracted back out of `ci.yml` programmatically (so
+the dry-run is literally what CI will execute) and run twice.
+
+Against the fixed Release product — exit **0**:
+
+```
+The app survived 5s and was terminated by this step.
+```
+
+Against a copy with `Contents/Frameworks/Sparkle.framework` moved aside, `APP=`
+repointed at the copy and nothing else changed — exit **1**:
+
+```
+dyld[67701]: Library not loaded: @rpath/Sparkle.framework/Versions/B/Sparkle
+  Referenced from: … /tmp/smoke-broken/Pisaka.app/Contents/MacOS/Pisaka
+  Reason: tried: … (no such file) …
+{"app_name":"Pisaka", … "bug_type":"309", …}          ← the .ips crash report
+… "termination":{"namespace":"DYLD","indicator":"Library missing", …}
+::error::The app exited on its own with status 134 before the 5s deadline. …
+```
+
+Both branches of the design are therefore observed rather than assumed: the
+`kill -0` poll saw the live process for the full 5s in the first run, and in the
+second it saw the process gone, `wait` reported **134**, and both the redirected
+output *and* the system's crash report were printed before the refusal. The
+broken copy was deleted; the real product was never touched.
+
+**Two shape corrections against the drafted script**, both forced by
+`assertGuardExits`'s nesting rules and by the mechanism, not by taste:
+
+- the inner `if [ -n "$CRASH" ]; then cat "$CRASH"; fi` is written across four
+  lines rather than as a one-liner. A single-line `if …; fi` increments the
+  helper's depth counter and never decrements it, so the death branch's own
+  `exit 1` would be read as sitting at depth 1 — i.e. as *not* refusing — and
+  `testTheSmokeLaunchSuccessPathIsSurvivalNotAZeroExit` would fail against a
+  script that is in fact correct. The liveness loop's inner `if` is spelled out
+  for the same reason.
+- `assertGuardExits` gained a `workflow:` parameter (defaulting to
+  `"release.yml"`). It hardcoded that filename in both failure messages, and a
+  ci.yml guard reported as a release.yml one sends the reader to the wrong file.
+
+Each of the five new assertions was confirmed non-vacuous by mutating `ci.yml`
+and watching exactly the intended test fail: `DEADLINE=0`, `cat "$LOG"` deleted,
+the death branch's `exit 1` deleted, `continue-on-error: true` added to the step,
+and the step moved above the build. `ci.yml` was restored after each
+(`git diff --stat`: 65 insertions, no deletions).
 
 ### Task 3: The release workflow launches what it will notarize
 
