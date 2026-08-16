@@ -295,6 +295,51 @@ targets:
         SWIFT_VERSION: "5.9"
         CODE_SIGN_STYLE: Automatic
         CODE_SIGNING_ALLOWED: NO
+        # The macOS runpath, and the one setting in this file that only a
+        # *launched* app dereferences. XcodeGen's default for an application
+        # target is iOS-shaped — `$(inherited)` plus `@executable_path/Frameworks`
+        # — and a multiplatform target gets it, unconditionally, on both
+        # destinations. That is right on iOS, where the executable sits at the
+        # `.app` root beside `Frameworks/`, and wrong on macOS, where the
+        # executable is in `Contents/MacOS/` and embedded frameworks in
+        # `Contents/Frameworks/`: dyld searches `Contents/MacOS/Frameworks/`,
+        # finds nothing, and the process aborts before `main`.
+        #
+        # Nothing dereferenced it until Sparkle (R-1) became the first embedded
+        # dynamic framework this app ever links, so a wrong default survived from
+        # the first commit until the published `v1.0` died at launch with
+        # `Library not loaded: @rpath/Sparkle.framework/Versions/B/Sparkle`. Every
+        # gate was green: the build links against the framework's stub, the
+        # signature, plist and notarization checks are all byte-level, and nothing
+        # between the compiler and the user had ever executed the binary. The two
+        # smoke launches in `ci.yml` and `release.yml` are the structural answer;
+        # this line is the fix. The whole incident is in `docs/RELEASING.md`.
+        #
+        # An `[sdk=macosx*]` condition rather than a rewritten unconditional
+        # value, so the iOS destination keeps XcodeGen's preset exactly as it
+        # was — verified by rebuilding `generic/platform=iOS` and re-reading its
+        # `LC_RPATH` set (`@executable_path`, the PackageFrameworks entry,
+        # `@executable_path/Frameworks`), which is unchanged. XcodeGen passes
+        # the bracketed key through verbatim into both configurations.
+        #
+        # What `$(inherited)` picks up here was measured, not assumed: Xcode
+        # layers the conditional assignment on top of the *same-level*
+        # unconditional one, so the macOS product ends up with both
+        # `@executable_path/Frameworks` (inherited, and simply never resolves to
+        # anything) and `@executable_path/../Frameworks` (the one that does).
+        # Dropping `$(inherited)` would prune the dead entry and is deliberately
+        # not done: it would also drop whatever a future project-level or
+        # xcconfig value contributes, to buy nothing but a shorter `otool`
+        # listing.
+        #
+        # `/usr/lib/swift` is *not* this setting's to preserve: the Swift
+        # toolchain emits that `LC_RPATH` itself, so overriding the search paths
+        # cannot lose it. Verified with `otool -l` on the Release product rather
+        # than assumed. `ReleaseMetadataTests` pins these three lines, because a
+        # build without them is green and only a launch can tell.
+        LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]:
+          - $(inherited)
+          - "@executable_path/../Frameworks"
         INFOPLIST_KEY_CFBundleDisplayName: Pisaka
         # The iOS document picker opens folders/files in place (`asCopy: false`) and
         # the app persists security-scoped bookmarks to edit/save/run-git against the

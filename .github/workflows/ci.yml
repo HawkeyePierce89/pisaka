@@ -81,6 +81,118 @@ jobs:
           -clonedSourcePackagesDirPath SourcePackages
           -derivedDataPath DerivedData
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+      # Every other gate in this repository is byte-level. `swift test` compiles
+      # Core and reads repository files; the build above proves the app links;
+      # the release workflow reads signatures, plists and a notary verdict back
+      # off the archive. Not one of them ever *runs* the binary — which is how
+      # `v1.0` compiled, linked, signed, notarized, stapled, passed `spctl` and
+      # then died in dyld on the first user's machine, unable to resolve
+      # `@rpath/Sparkle.framework` because the target carried XcodeGen's
+      # iOS-shaped `LD_RUNPATH_SEARCH_PATHS` on macOS too. A dynamic-link failure
+      # is invisible until something executes the thing.
+      #
+      # So this step executes it. The assertion is only that the process *lives*
+      # — not that any window appeared or that the UI behaves. Everything the
+      # launched app does is inert to it: the Release-only Sparkle updater
+      # starting and polling github.com, its first-launch permission prompt,
+      # session restore finding no session.
+      #
+      # The success path is being killed at the deadline. The app exiting on its
+      # own is a refusal *whatever its status*, because a clean `exit 0` seconds
+      # after launch is not a working editor either, and because a killed process
+      # and a crashed one both report ≥128 — so liveness is polled with `kill -0`
+      # rather than told apart from `wait`'s exit code afterwards.
+      #
+      # The one thing this step assumes, written down because it has not been
+      # observed on a hosted runner: that the runner's session can host an
+      # AppKit process at all. It `exec`s the executable directly rather than
+      # going through `open`, so no LaunchServices and no Dock are involved —
+      # but if a GitHub macOS image ever refuses to run a GUI process, this step
+      # refuses *every* run, on this workflow and on the release's copy alike.
+      # The fallback then is the weaker check — assert only that the captured
+      # output carries no dyld "Library not loaded" line — and it is written in
+      # docs/RELEASING.md rather than coded here pre-emptively, because a
+      # fallback nothing has ever needed is a second path nothing tests.
+      #
+      # There is no iOS equivalent: CI runs no simulator by design (see the job
+      # below, which builds `generic/platform=iOS` and never boots anything), so
+      # the iOS product's dynamic loading is still checked by nothing. That is a
+      # known limit, recorded in docs/RELEASING.md rather than designed around.
+      - name: Launch the built app (smoke test)
+        run: |
+          set -euo pipefail
+          # The one line that differs between this step and its twin in
+          # release.yml; ReleaseWorkflowTests asserts everything else is
+          # identical, because two hand-maintained copies drifting apart means
+          # one half of the pipeline stops checking what the other does.
+          APP="DerivedData/Build/Products/Release/Pisaka.app"
+          EXECUTABLE="$APP/Contents/MacOS/Pisaka"
+          DEADLINE=5
+          LOG="${RUNNER_TEMP:-/tmp}/smoke-launch.log"
+          # Touched immediately before the launch so the crash-report search
+          # below can tell a report *this* launch produced from one an earlier
+          # run left behind — or, on a developer Mac running this script by
+          # hand, one from an earlier month.
+          MARKER="${RUNNER_TEMP:-/tmp}/smoke-launch.marker"
+          # Deliberately names no build flag: this body is byte-identical in
+          # ci.yml and release.yml apart from `APP=`, and the two produce their
+          # product in different ways — a `-derivedDataPath` build in ci.yml, an
+          # archive in release.yml — so a message naming either one misdirects
+          # the reader of the other, during a tagged release in the latter case.
+          if ! test -x "$EXECUTABLE"; then
+            echo "::error::No executable at ${EXECUTABLE}. The step that produced the bundle reported success, so either the product moved or it is not what this step thinks it is — check that path against the step above that wrote it. See docs/RELEASING.md."
+            exit 1
+          fi
+          : > "$MARKER"
+          "$EXECUTABLE" > "$LOG" 2>&1 &
+          PID=$!
+          ALIVE=1
+          for _ in $(seq "$DEADLINE"); do
+            sleep 1
+            if ! kill -0 "$PID" 2>/dev/null; then
+              ALIVE=0
+              break
+            fi
+          done
+          if [ "$ALIVE" -eq 0 ]; then
+            STATUS=0
+            wait "$PID" || STATUS=$?
+            cat "$LOG"
+            # ReportCrash writes the .ips asynchronously, a second or more after
+            # the process is gone, and `kill -0` notices the death within one —
+            # so reading the directory once finds nothing on exactly the silent
+            # startup crash this harvest exists for. Poll for it instead, bounded
+            # by the marker so a stale report is never printed as if it were this
+            # one, and say so when the poll expires: "no report was written" is
+            # itself evidence, where printing nothing reads like nobody looked.
+            CRASH=""
+            for _ in $(seq 10); do
+              CRASH="$(find "$HOME/Library/Logs/DiagnosticReports" -name 'Pisaka*.ips' -newer "$MARKER" 2>/dev/null | head -1 || true)"
+              if [ -n "$CRASH" ]; then
+                break
+              fi
+              sleep 1
+            done
+            if [ -n "$CRASH" ]; then
+              cat "$CRASH"
+            else
+              echo "No crash report newer than the launch appeared under ~/Library/Logs/DiagnosticReports within 10s."
+            fi
+            echo "::error::The app exited on its own with status ${STATUS} before the ${DEADLINE}s deadline. The output above is the whole evidence: a 'Library not loaded: @rpath/...' line is a dynamic-link failure — the runpath the executable searches does not reach Contents/Frameworks/, which is what LD_RUNPATH_SEARCH_PATHS[sdk=macosx*] in project.yml exists to set. Any other output is a crash in startup. This step refuses whatever the status is, including 0. See docs/RELEASING.md."
+            exit 1
+          fi
+          # SIGTERM, a grace period, then SIGKILL — the teardown every other
+          # process owner in this repository uses, for the reason that applies
+          # here too: `wait` on a process that does not die blocks until the
+          # job's own budget expires, which reports as a cancelled build rather
+          # than as anything about the app. That is the exact failure the launch
+          # is backgrounded to avoid, and it must not come back on the way out.
+          # SIGKILL cannot be ignored, so the `wait` below always returns.
+          kill "$PID" 2>/dev/null || true
+          sleep 2
+          kill -9 "$PID" 2>/dev/null || true
+          wait "$PID" 2>/dev/null || true
+          echo "The app survived ${DEADLINE}s and was terminated by this step."
 
   build-ios:
     needs: test

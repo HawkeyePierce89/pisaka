@@ -134,7 +134,9 @@ independent of Apple's signature.
 Pushing a `vX.Y` tag builds and publishes the release:
 `.github/workflows/release.yml` re-runs `swift test`, archives the macOS app
 signed with a Developer ID Application certificate and the hardened runtime,
-notarizes and staples it, signs the update with Sparkle's EdDSA key and attaches
+launches the signed app as a smoke test so a build that cannot start never
+reaches the notary queue, notarizes and staples it, signs the update with
+Sparkle's EdDSA key and attaches
 the app zip plus `appcast.xml` to a new GitHub Release. It refuses up front if
 the tag and `MARKETING_VERSION` disagree, or if any signing or notarization
 secret is missing, so bump and commit the version *before* tagging. The build
@@ -151,7 +153,11 @@ unsigned macOS build and an unsigned iOS build (device arch, including libgit2
 linking) in parallel. No signing, secrets, or simulator are involved. The macOS
 build uses the Release configuration and the iOS build Debug, so both
 configurations are compiled on every PR — the auto-updater exists only in
-non-DEBUG builds and would otherwise never be compiled until a release.
+non-DEBUG builds and would otherwise never be compiled until a release. The
+macOS job then *launches* what it built and requires the process to still be
+alive five seconds later: the only gate here that executes the product, and the
+only kind that can see a dynamic-link failure. There is no iOS equivalent, for
+want of a simulator.
 
 The release workflow above is the one place that *does* use secrets (the Sparkle
 private signing key, the Developer ID certificate and its password, and the

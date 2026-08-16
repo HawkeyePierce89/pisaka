@@ -367,7 +367,8 @@ highlight queries against each grammar's `node-types.json`), `SymbolQueryTests`
 that each pin matches the requirement `project.yml` states),
 `ReleaseMetadataTests` (`Resources/Info.plist` incl. the two Sparkle keys'
 shape, `PrivacyInfo.xcprivacy`, the `project.yml` wiring, the iOS launch-screen
-setting), `ReleaseWorkflowTests` (`.github/workflows/release.yml`'s whole shape:
+setting, the macOS runpath pin `LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]`),
+`ReleaseWorkflowTests` (`.github/workflows/release.yml`'s whole shape:
 trigger/permissions by set equality, the preflight refusals asserted *by
 mechanism* — the guard's branch must `exit 1` — the throwaway signing keychain
 (under `$RUNNER_TEMP`, the login keychain never named, deleted — with *both*
@@ -389,7 +390,11 @@ on the cleanup its only step condition — what makes every `exit 1` above a
 refusal), the job budget exceeding the notary `--timeout` by at least `ci.yml`'s
 build budget (read from `ci.yml`, not restated),
 the step ordering and the draft-then-promote publication rules, the tool pins,
-`ci.yml`'s macOS job building `-configuration Release`, the `SUFeedURL`
+`ci.yml`'s macOS job building `-configuration Release` and **launching what it
+built** (both smoke launches step-scoped and by mechanism — success = *survived
+until we killed it*, never a zero exit; the non-degenerate `DEADLINE`; the
+release-side slot before notarization; the two bodies equal apart from `APP=`),
+the `SUFeedURL`
 cross-file pairs, and the Gatekeeper-workaround strings asserted absent from
 every document that once carried them; full inventory in that suite's doc
 comments and `docs/RELEASING.md`),
@@ -451,7 +456,10 @@ covering libgit2 linking) in parallel. No signing, secrets, or simulator. The
 **macOS build is `-configuration Release`, the iOS one Debug**, on purpose: the
 Sparkle updater is entirely behind `#if !DEBUG`, so a Debug-only gate would never
 compile the shipping path and a Sparkle API change would first surface inside the
-release archive, after the tag is pushed.
+release archive, after the tag is pushed. The macOS job then **launches what it
+built** — the only gate that executes the product, which is what a dynamic-link
+failure needs (`v1.0` died in dyld); no iOS runtime check, for want of a
+simulator (a known limit).
 
 A second workflow, `.github/workflows/release.yml`, runs **only on a `v*` tag**
 and publishes the macOS release: Developer ID Application signature, hardened
