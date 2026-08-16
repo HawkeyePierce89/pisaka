@@ -487,7 +487,7 @@ run in `swift test` rather than needing an Xcode build.
 
     **The same framework has a "one level down" trap on the *signing* side, and
     it is the release workflow's problem rather than this manifest's.** As shipped
-    from the `binaryTarget`, `Sparkle.framework` is not one binary but six:
+    from the `binaryTarget`, `Sparkle.framework` is not one binary but five:
     `Versions/B/Sparkle` plus four nested helper bundles — `Versions/B/Autoupdate`,
     `Versions/B/Updater.app` and the two XPC services `XPCServices/Downloader.xpc`
     and `XPCServices/Installer.xpc` — each arriving with upstream's **ad-hoc**
@@ -499,8 +499,8 @@ run in `swift test` rather than needing an Xcode build.
     re-sign pass between the archive and the verification, and its verification
     reads the Developer ID facts back off *every* Mach-O in the app rather than
     off the two bundles. A Sparkle version bump that moves any of those four paths
-    must re-derive both lists by hand — `docs/RELEASING.md` carries the procedure
-    and the reasoning, and `ReleaseWorkflowTests` pins it.
+    must re-derive both lists by hand — `docs/RELEASING.md`'s "Upgrading Sparkle"
+    carries the recipe and the reasoning, and `ReleaseWorkflowTests` pins it.
 
     **Previous re-run: 2026-08-10**, over both destinations' Debug dylibs
     (`Debug-iphoneos/Pisaka.app/Pisaka.debug.dylib`, 2184 undefined symbols, and

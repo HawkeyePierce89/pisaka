@@ -911,10 +911,23 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// `--strict` contains the letters of neither flag but would defeat a naive
     /// `contains(" -s")` written one space short. The legitimate
     /// `codesign --verify --deep --strict` calls must stay outside this set.
+    ///
+    /// A bundled short flag counts. `codesign -fs "$ID" …` — the spelling
+    /// Sparkle's own documentation uses, so the likeliest form an edit would
+    /// arrive in — signs exactly as `--force --sign` does, and a predicate that
+    /// only knew the separated spellings would drop that line out of every
+    /// assertion below rather than fail: the six-invocation count would read
+    /// five, the `--deep` refusal would stop seeing it, and the flag loop would
+    /// never look at it. Silently checking less is the one outcome this suite
+    /// cannot afford, so a single-dash cluster containing `s` is a signing flag.
     private static func isSigningInvocation(_ line: String) -> Bool {
         let tokens = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
         guard tokens.contains(where: { $0 == "codesign" || $0.hasSuffix("/codesign") }) else { return false }
-        return tokens.contains { $0 == "-s" || $0 == "--sign" || $0.hasPrefix("--sign=") }
+        return tokens.contains { token in
+            if token == "--sign" || token.hasPrefix("--sign=") { return true }
+            guard token.hasPrefix("-"), !token.hasPrefix("--") else { return false }
+            return token.dropFirst().contains("s")
+        }
     }
 
     /// Everything the archive must sign *with*, asserted against the one step
@@ -1053,15 +1066,30 @@ final class ReleaseWorkflowTests: XCTestCase {
         // leaves the sixth binary as the one the notary rejects, and the
         // rejection names it rather than the flag.
         for signing in signings {
-            for flag in ["--force", #"--sign "$IDENTITY""#, "--options runtime", "--timestamp"] {
+            for flag in ["--force", #"--sign "$IDENTITY""#, "--options runtime"] {
                 XCTAssertTrue(signing.contains(flag), """
                     Every signing invocation in release.yml's `\(Self.reSignStepName)` step must \
                     pass `\(flag)`. Without `--force` codesign refuses to replace an existing \
-                    signature; without the identity it signs ad-hoc; `--options runtime` and \
-                    `--timestamp` are the two findings the notary service reported against these \
-                    binaries by name. Got “\(signing)”.
+                    signature; without the identity it signs ad-hoc; `--options runtime` is one of \
+                    the two findings the notary service reported against these binaries by name. \
+                    Got “\(signing)”.
                     """)
             }
+
+            // `--timestamp` is matched as a whole token rather than as a
+            // substring, and it is the only one of the four that has to be:
+            // `--timestamp=none` is codesign's documented way of *disabling* the
+            // timestamp, contains the string this loop would otherwise look for,
+            // and is the plausible edit the day the timestamp authority has an
+            // outage mid-release. It signs a binary the notary service then
+            // refuses for the second of the two findings that got v1.0 rejected.
+            let tokens = signing.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+            XCTAssertTrue(tokens.contains("--timestamp"), """
+                Every signing invocation in release.yml's `\(Self.reSignStepName)` step must pass \
+                `--timestamp` — bare, not `--timestamp=none`, which disables the very thing the \
+                flag is here for. A secure timestamp is one of the two findings the notary service \
+                reported against these binaries by name. Got “\(signing)”.
+                """)
         }
     }
 
@@ -1151,8 +1179,8 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// the run at the existence guards. The explicit list is what the
     /// verification step and this suite can hold to account.
     ///
-    /// The three `codesign --verify --deep --strict` calls are a different
-    /// command entirely and must stay green, which is why this is asserted over
+    /// The two `codesign --verify --deep --strict` calls are a different command
+    /// entirely and must stay green, which is why this is asserted over
     /// tokenized signing invocations rather than as "the file contains --deep".
     func testNoSigningInvocationUsesDeep() throws {
         let lines = try activeLines()
@@ -1210,6 +1238,38 @@ final class ReleaseWorkflowTests: XCTestCase {
         }
     }
 
+    /// The two coarse failures are refused *here*, where they now happen first.
+    ///
+    /// `Verify the archived app` has always owned these two refusals, and still
+    /// does — but the re-sign step was inserted ahead of it and touches the same
+    /// two paths. Whichever step runs first is the one that gets to name the
+    /// cause, and the four layout guards above cannot: they all say the pinned
+    /// Sparkle version's internal layout changed and both path lists must be
+    /// re-derived, which is the wrong repair for "the archive produced nothing"
+    /// and for the one regression `destinationFilters: [macOS]` actually risks —
+    /// the package dependency no longer reaching the macOS build, leaving no
+    /// embedded framework at all. Diagnosing that as a Sparkle layout change
+    /// costs a full re-archive to discover, twenty minutes in, on a tag.
+    func testTheReSignPassRefusesAMissingAppOrFramework() throws {
+        let script = try stepScript(named: Self.reSignStepName, because: """
+            It is now the first step to touch the archived app, so it is the step whose refusals \
+            name what went wrong.
+            """)
+
+        assertGuardExits(#"test -d "$APP""#, in: script, step: Self.reSignStepName, because: """
+            this step is the archive's immediate successor, and every path it signs is inside the \
+            app — so an archive that produced nothing at the expected path must be reported as \
+            that, rather than as the four Sparkle-layout refusals below it, which send the reader \
+            after path lists that did not change
+            """)
+        assertGuardExits(#"test -d "$FRAMEWORK""#, in: script, step: Self.reSignStepName, because: """
+            Sparkle is the one dependency carrying `destinationFilters: [macOS]`, and the \
+            regression that filter risks is the framework quietly not reaching the macOS build at \
+            all. `Verify the archived app` has a refusal that names exactly that cause; this step \
+            runs before it and would otherwise report a Sparkle layout change instead
+            """)
+    }
+
     /// The archive's signature is *read back off the bundle*, on the app and on
     /// the embedded framework both — and off every Mach-O inside it.
     ///
@@ -1239,9 +1299,18 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// the framework — a bundle-level read says nothing about the binaries below
     /// it. So the third call site is the enumeration loop
     /// (`testTheSignatureCheckRecursesToEveryNestedMachO`), and the count is
-    /// pinned at three with each site named individually: a recursion that
-    /// replaced the two bundle reads rather than joining them would drop the
-    /// resource seal, which is sealed by a bundle's signature and by no Mach-O's.
+    /// pinned at three with each site named individually.
+    ///
+    /// The two bundle sites are pinned *despite* being subsumed by the loop, and
+    /// the reason is worth stating precisely because a plausible-sounding one is
+    /// wrong: it is not that a bundle read carries the resource seal. This
+    /// function only runs `codesign --display`, which reports the same four lines
+    /// for a bundle and for that bundle's main executable and reads no resource
+    /// seal at all — that is `codesign --verify --deep --strict`'s job, asserted
+    /// separately by `testNestedCodeValidityIsStillCheckedAlongsideTheRecursion`.
+    /// What the two named sites carry is *independence from the enumeration*:
+    /// they name the app and the framework by path, so they still refuse when
+    /// the `find` covers less than it should in a way its own two guards miss.
     func testTheArchivedAppAndItsFrameworkAreCheckedForTheDeveloperIDSignature() throws {
         let script = try stepScript(named: Self.verifyStepName, because: """
             It is the last place the signature can be inspected before the app is notarized and \
@@ -1290,16 +1359,17 @@ final class ReleaseWorkflowTests: XCTestCase {
             `OTHER_CODE_SIGN_FLAGS=--timestamp` is passed on the archive's command line precisely \
             so a missing secure timestamp does not first surface as a notary rejection twenty \
             minutes in, and that is only true if the flag having *reached the signature* is read \
-            back. It is a single-valued build setting, so anything that displaces it — a \
-            `settings.base` entry in project.yml, a different task re-signing the embedded \
-            framework — drops the timestamp silently: `codesign --display` then prints \
-            `Signed Time=` instead of `Timestamp=`, and the bundle passes `--verify --deep \
-            --strict` and all three checks above
+            back. It is a single-valued build setting, so a `settings.base` entry in project.yml \
+            that displaces it drops the timestamp silently — and the re-sign step replaces six of \
+            these signatures outright, which is why it passes `--timestamp` on every invocation. \
+            Either way `codesign --display` then prints `Signed Time=` instead of `Timestamp=`, \
+            and the bundle passes `--verify --deep --strict` and all three checks above
             """)
 
         // Three call sites, each named. Both bundles *and* the enumeration: the
-        // two bundle reads carry the resource seal no Mach-O's signature does,
-        // and the loop carries the nested binaries no bundle read reaches.
+        // loop carries the nested binaries no bundle read reaches, and the two
+        // bundle reads carry the app and the framework whether or not the
+        // enumeration still finds anything.
         let checks = script.filter { $0.hasPrefix("verify_developer_id_signature ") }
         XCTAssertEqual(checks.count, 3, """
             release.yml's `\(Self.verifyStepName)` step must apply its signature check at exactly \
@@ -1361,6 +1431,25 @@ final class ReleaseWorkflowTests: XCTestCase {
             extension: the binaries that matter here (Autoupdate, the XPC services' executables) \
             have no extension at all. Got “\(enumeration)”.
             """)
+
+        // Breadth, not merely existence. A `find "$APP" -path "*Sparkle*" …`
+        // passes every other assertion in this file *and* passes at runtime —
+        // non-empty, all four required helpers present — while leaving
+        // Contents/MacOS/Pisaka and any future embedded helper unchecked. That is
+        // the same shape of silent under-coverage the recursion replaced,
+        // reachable through the recursion itself and invisible to both of its
+        // runtime guards, so the scope is pinned here: the app, filtered on what
+        // a thing *is*, never on where it sits.
+        for narrowing in ["-path", "-name", "-prune", "-maxdepth"] {
+            XCTAssertFalse(enumeration.contains(" \(narrowing) "), """
+                The Mach-O enumeration in release.yml's `\(Self.verifyStepName)` step narrows its \
+                scope with `\(narrowing)`. It must walk the whole app and decide by `file` alone: a \
+                path filter leaves the binaries it excludes unverified while the enumeration stays \
+                non-empty and the four required helpers stay present — so both refusals guarding it \
+                pass, this suite stays green, and the coverage silently shrinks back to what let \
+                v1.0 through. Got “\(enumeration)”.
+                """)
+        }
 
         // The enumeration has to be *used*. A `find` whose output nothing reads
         // is a green step that verifies two bundles, which is the state this
@@ -1497,6 +1586,31 @@ final class ReleaseWorkflowTests: XCTestCase {
                 and docs/RELEASING.md.
                 """)
         }
+
+        // `CODE_SIGN_ENTITLEMENTS` is refused for a different reason from the
+        // three above, which is why it is asserted separately rather than added
+        // to that list. It would not break a certificate-less clone — an
+        // entitlements file is just a plist — it would be *silently discarded*:
+        // the re-sign step signs `"$APP"` with no `--entitlements`, so an
+        // entitlement Xcode applied during the archive is stripped back off
+        // immediately afterwards. Every check downstream stays green (Developer
+        // ID, team, hardened runtime, timestamp, `--deep --strict`, the notary
+        // service, `staple`, `spctl`), the release publishes, and nothing fails
+        // until a user reaches the feature the entitlement was added for. The
+        // hazard is documented in release.yml and docs/RELEASING.md; this is the
+        // mechanism, because a comment is not a guard.
+        let entitlements = lines.filter { line in
+            let key = line.drop { $0 == "\"" || $0 == "'" }
+            guard key.hasPrefix("CODE_SIGN_ENTITLEMENTS") else { return false }
+            return [":", "[", "\"", "'", " "].contains(String(key.dropFirst("CODE_SIGN_ENTITLEMENTS".count).prefix(1)))
+        }
+        XCTAssertTrue(entitlements.isEmpty, """
+            project.yml commits \(entitlements) — but release.yml's re-sign step signs the app with \
+            no `--entitlements`, so an entitlement the archive applies is stripped straight back \
+            off and every verification downstream still passes. Adding an entitlements file means \
+            passing it on that `codesign` line too; do both, then update this assertion, \
+            docs/RELEASING.md and CLAUDE.md's "No entitlements file ships" paragraph together.
+            """)
     }
 
     // MARK: - Notarization and stapling

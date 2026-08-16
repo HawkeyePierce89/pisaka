@@ -470,6 +470,22 @@ jobs:
           FRAMEWORK="$APP/Contents/Frameworks/Sparkle.framework"
           IDENTITY="Developer ID Application"
 
+          # The two coarse refusals first, because this step is now the archive's
+          # immediate successor and every path below is inside the app. Without
+          # them a missing product, or a Sparkle that stopped being embedded at
+          # all, would be reported by the four layout guards below — sending the
+          # reader off to re-derive path lists for a Sparkle version that did not
+          # change. `Verify the archived app` keeps its own copies of both: it
+          # must stay refusable on its own terms if the steps are ever reordered.
+          if ! test -d "$APP"; then
+            echo "::error::no app at ${APP}. The archive step produced nothing at the path this workflow expects; check the -archivePath on the archive command line. See docs/RELEASING.md."
+            exit 1
+          fi
+          if ! test -d "$FRAMEWORK"; then
+            echo "::error::Sparkle.framework is not embedded in the archived app — the destination-filtered package dependency stopped reaching the macOS build. See docs/RELEASING.md."
+            exit 1
+          fi
+
           # The layout is pinned to Sparkle 2.9.5's, and a version bump that
           # moved, renamed or dropped any of these four must stop the run here
           # rather than ship an ad-hoc signed helper into a submission. There is
@@ -500,9 +516,11 @@ jobs:
           codesign --force --sign "$IDENTITY" --options runtime --timestamp "$FRAMEWORK"
           codesign --force --sign "$IDENTITY" --options runtime --timestamp "$APP"
 
-      # The app is taken straight out of the archive, deliberately: it already
-      # carries the shipping Developer ID signature and the hardened runtime, so
-      # `-exportArchive` would only re-sign it under a second configuration — an
+      # The app is taken straight out of the archive, deliberately: by the time
+      # this step runs it already carries the shipping Developer ID signature and
+      # the hardened runtime — the archive's, replaced in place by the re-sign
+      # pass above — so `-exportArchive` would only re-sign it under a second
+      # configuration on top of that: an
       # export options plist whose team, identity and signing style have to be
       # kept in step with the archive's command line forever, with the two
       # disagreeing failing at the notary service rather than here.
@@ -526,9 +544,14 @@ jobs:
       # validity is not identity, which is the entire distinction this step
       # exists to draw. So the same four facts now also run over **every Mach-O
       # in the app**, enumerated rather than listed, with two refusals guarding
-      # the enumeration itself (see below). The bundle-level checks stay
-      # alongside it: a bundle's signature seals its resources too, which no
-      # single Mach-O's signature does.
+      # the enumeration itself (see below). The two bundle-level checks stay
+      # alongside it, and what they add is *independence* rather than extra
+      # facts: `codesign --display` on a bundle reports the same four lines as on
+      # that bundle's main executable, so the loop already covers both — but the
+      # loop covers them only for as long as the enumeration works, and these two
+      # name their targets by path. The resource seal is not what they carry;
+      # that is `codesign --verify --deep --strict` above, which is why deleting
+      # it because "the four facts are checked per binary" is refused too.
       #
       # These checks are still not exhaustive and are not meant to be. The notary
       # service remains the authority on every entitlement and every
@@ -589,10 +612,12 @@ jobs:
             # refused by the notary service after the archive and the queue —
             # which is the cost passing the flag explicitly exists to avoid, so
             # the flag having actually reached the signature is checked rather
-            # than assumed. `OTHER_CODE_SIGN_FLAGS` holds one value, so anything
-            # that displaces it (a `settings.base` entry in project.yml, a
-            # different task re-signing the embedded framework) silently drops
-            # the timestamp — hence this runs on both bundles like the rest.
+            # than assumed. Two things can drop it silently: on the archive's
+            # side `OTHER_CODE_SIGN_FLAGS` holds one value, so a `settings.base`
+            # entry in project.yml displacing it leaves no timestamp; and the
+            # re-sign step above replaces six of these signatures outright, which
+            # is why it passes `--timestamp` on every one of its invocations.
+            # Hence this runs at all three call sites, like the rest.
             if ! printf '%s\n' "$SIGNATURE" | grep -q '^Timestamp='; then
               echo "::error::${LABEL} carries no secure timestamp — codesign reports \"Signed Time=\" rather than \"Timestamp=\" when OTHER_CODE_SIGN_FLAGS=--timestamp did not reach the signature. The notary service refuses a build without one. See docs/RELEASING.md."
               exit 1

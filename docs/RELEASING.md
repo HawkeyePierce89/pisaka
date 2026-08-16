@@ -509,9 +509,11 @@ The workflow then, in order:
     first.
   - The app is taken straight from
     `build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app` — no
-    `-exportArchive`. That is a choice rather than a limitation now: the archive
-    already carries the shipping Developer ID signature and the hardened runtime,
-    so an export would only re-sign it under a *second* configuration (an export
+    `-exportArchive`. That is a choice rather than a limitation now: by the time
+    this step runs the app already carries the shipping Developer ID signature
+    and the hardened runtime — the archive's, replaced in place by the re-sign
+    pass above — so an export would only re-sign it under a *third*
+    configuration on top of that (an export
     options plist whose team, identity and signing style have to be kept in step
     with the archive's command line forever, with a disagreement failing at the
     notary service rather than in the workflow). The app is then
@@ -548,10 +550,13 @@ The workflow then, in order:
     covers `Updater.app` and the two XPC services without a second,
     bundle-shaped walk; each is labelled by its path relative to the app, so a
     refusal names which binary failed. The bundle-level reads stay alongside the
-    loop — a bundle's signature seals its resources too, which no single
-    Mach-O's signature does — leaving three call sites in the step: the app, the
-    framework, and the enumeration. `codesign --verify --deep --strict` stays as
-    well: it answers a question the four facts do not.
+    loop, leaving three call sites in the step: the app, the framework, and the
+    enumeration. What the two named reads add is *independence*, not extra facts
+    — `codesign --display` reports the same four lines for a bundle and for that
+    bundle's main executable, so the loop already covers both, but only for as
+    long as the enumeration works, and these two name their targets by path.
+    They carry no resource seal; that is `codesign --verify --deep --strict`,
+    which stays as well because it answers a question the four facts do not.
 
     Two refusals guard the enumeration itself, because a recursion that silently
     matches nothing is the same shape of bug as the one it was added to catch.
@@ -722,6 +727,47 @@ obvious before the notary service said so:
   about code nested inside the bundle, and `--deep --strict` only asks whether
   that nested code's signature is valid. Truth at the level you happened to check
   is not coverage of the level Apple checks.
+
+### Upgrading Sparkle
+
+Two hard-coded path lists in `.github/workflows/release.yml` are pinned to
+Sparkle 2.9.5's internal layout — the re-sign step's four helper *bundles* and
+the verification step's four required *Mach-Os* one level inside them — plus
+`sparkleNestedHelpers` in `ReleaseWorkflowTests`, which is the same fact a third
+time and is what keeps the two halves from drifting. Bumping `exactVersion:` in
+`project.yml` without re-deriving them is caught, but only by an `::error::` on
+a pushed tag, after the archive. Re-derive them first:
+
+```sh
+xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=macOS' \
+  -clonedSourcePackagesDirPath SourcePackages -resolvePackageDependencies
+FW=SourcePackages/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework
+
+# 1. Every Mach-O the new framework ships — the verification step's required set,
+#    minus the framework's own binary. `-type f` is what makes it once each.
+find "$FW" -type f -exec sh -c 'file -b "$1" | grep -q Mach-O' _ {} \; -print
+
+# 2. What each one arrives signed as, and which of them carries entitlements.
+find "$FW" -type f -exec sh -c 'file -b "$1" | grep -q Mach-O' _ {} \; -print \
+  | while IFS= read -r B; do codesign -dvv --entitlements - "$B" 2>&1; done
+```
+
+Step 1's output, with each nested bundle's executable replaced by the bundle
+that contains it (`…/Updater.app/Contents/MacOS/Updater` → `…/Updater.app`), is
+the re-sign step's list; its output verbatim, made relative to the app, is the
+verification step's `REQUIRED` set. Step 2 is the check that the premise still
+holds: every helper should read `flags=0x10002(adhoc,runtime)` with
+`TeamIdentifier=not set` and no `Timestamp=` — that is *why* they are re-signed,
+and a version that started shipping them properly signed would make the whole
+pass unnecessary rather than merely stale. It also says which helpers need
+`--preserve-metadata=entitlements`; cross-check that against upstream's own
+signing instructions rather than inferring it, since `Autoupdate`'s shipped
+entitlement is one this release deliberately drops (see
+[the re-sign pass](#automated-releases)).
+
+Then update both lists in `release.yml` and `sparkleNestedHelpers` in
+`ReleaseWorkflowTests.swift`, re-read Sparkle's distribution documentation for
+the new version in case the sequence itself changed, and run `swift test`.
 
 ### Why `github.run_number` is the build number
 

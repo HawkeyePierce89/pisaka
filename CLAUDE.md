@@ -372,26 +372,24 @@ trigger/permissions by set equality, the preflight refusals asserted *by
 mechanism* — the guard's branch must `exit 1` — the throwaway signing keychain
 (under `$RUNNER_TEMP`, the login keychain never named, deleted — with *both*
 private keys, by path — by the job's last step under `if: always()`, each
-written inside a `(umask 077; …)` subshell), the
-Developer ID identity, team, `ENABLE_HARDENED_RUNTIME` and `--timestamp` the
-archive supplies on the command line while `project.yml` stays signing-free,
+written in a `(umask 077; …)` subshell), the
+Developer ID identity, team, `ENABLE_HARDENED_RUNTIME` and `--timestamp` on the
+archive's command line while `project.yml` stays signing-free (entitlements too),
 the inside-out re-sign of Sparkle's four nested helpers (explicit list, no
-`--deep`, each existence-guarded), **all four** facts verified on the archived
-app, the embedded `Sparkle.framework` *and* every Mach-O enumerated inside it,
-that enumeration guarded by two refusals of its own (a local timestamp is
-*misreported*, not absent, and a bundle-level read says nothing about nested
-code — the pair that got `v1.0` rejected), the
+`--deep`, guarded on app, framework and each helper), **all four** facts
+verified on the archived app, its `Sparkle.framework` *and* every Mach-O
+enumerated inside it — that enumeration pinned against path narrowing and
+guarded by two refusals of its own (the pair that got `v1.0` rejected), the
 notarize→staple→`spctl` chain (both verdicts — the notary status and `spctl`'s
-`source=Notarized Developer ID` rule — read explicitly, not inferred from an
-exit code; the submitted zip distinct from the shipped one),
-**that every step is fatal to the job** (no `continue-on-error:`, and
-`if: always()` on the cleanup as the only step condition — what makes every
-`exit 1` above a refusal), the job budget
-exceeding the notary `--timeout` by at least `ci.yml`'s build budget, read out
-of `ci.yml` rather than restated,
+`source=Notarized Developer ID` — read explicitly, not inferred from exit codes;
+the submitted zip distinct from the shipped one),
+**that every step is fatal to the job** (no `continue-on-error:`, `if: always()`
+on the cleanup its only step condition — what makes every `exit 1` above a
+refusal), the job budget exceeding the notary `--timeout` by at least `ci.yml`'s
+build budget (read from `ci.yml`, not restated),
 the step ordering and the draft-then-promote publication rules, the tool pins,
-`ci.yml`'s macOS job building `-configuration Release`, the cross-file pairs
-against `SUFeedURL`, and the Gatekeeper-workaround strings asserted absent from
+`ci.yml`'s macOS job building `-configuration Release`, the `SUFeedURL`
+cross-file pairs, and the Gatekeeper-workaround strings asserted absent from
 every document that once carried them; full inventory in that suite's doc
 comments and `docs/RELEASING.md`),
 `LicenseCoverageTests` (`licenses.json` vs.
@@ -461,7 +459,8 @@ runtime, notarized and stapled, so a fresh download launches from the ordinary
 acceptance criterion is in `docs/RELEASING.md`). **No entitlements file ships**:
 the hardened runtime permits `fork`/`exec` and library validation is per-process,
 so `git`, the PTY shell and the provisioned language servers need nothing
-declared; one is added only when a concrete failure demands it. The certificate
+declared; one is added only when a concrete failure demands it — and on the
+re-sign's `--entitlements` too, or it is silently stripped. The certificate
 lives only in a per-run `$RUNNER_TEMP` keychain that is deleted on every path,
 alongside the notarization key. Nothing about it is reachable from PR CI, so its
 whole shape is pinned statically by `ReleaseWorkflowTests`; the workflow, its
