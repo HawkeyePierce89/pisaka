@@ -878,6 +878,45 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// zipped, notarized or published.
     private static let verifyStepName = "Verify the archived app"
 
+    /// The name of the step that re-signs Sparkle's nested helper bundles with
+    /// this run's Developer ID identity, between the archive and the
+    /// verification. A constant for the same reason `archiveStepName` is one.
+    private static let reSignStepName = "Re-sign Sparkle's nested helpers"
+
+    /// The four nested helper bundles `Sparkle.framework` ships, as paths under
+    /// the framework.
+    ///
+    /// They are the four binaries the notary service named when it rejected
+    /// `v1.0`: Xcode's archive re-signs the framework *bundle* and does not
+    /// recurse into these, so each one reached Apple carrying upstream's ad-hoc
+    /// signature — no Developer ID authority and no secure timestamp.
+    ///
+    /// The list is shared between the two halves of this feature on purpose. The
+    /// re-sign step signs exactly these, and the verification step requires
+    /// exactly these to be among the Mach-Os it enumerated; a Sparkle version
+    /// whose layout moves one of them must fail *both* assertions here rather
+    /// than let the two drift apart.
+    private static let sparkleNestedHelpers = [
+        "Versions/B/XPCServices/Downloader.xpc",
+        "Versions/B/XPCServices/Installer.xpc",
+        "Versions/B/Autoupdate",
+        "Versions/B/Updater.app",
+    ]
+
+    /// Whether `line` invokes `codesign` to *apply* a signature, as opposed to
+    /// verifying or displaying one.
+    ///
+    /// Tokenized rather than matched as a substring, because the distinction
+    /// this predicate draws is between `-s`/`--sign` and everything else, and
+    /// `--strict` contains the letters of neither flag but would defeat a naive
+    /// `contains(" -s")` written one space short. The legitimate
+    /// `codesign --verify --deep --strict` calls must stay outside this set.
+    private static func isSigningInvocation(_ line: String) -> Bool {
+        let tokens = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+        guard tokens.contains(where: { $0 == "codesign" || $0.hasSuffix("/codesign") }) else { return false }
+        return tokens.contains { $0 == "-s" || $0 == "--sign" || $0.hasPrefix("--sign=") }
+    }
+
     /// Everything the archive must sign *with*, asserted against the one step
     /// that signs.
     ///
@@ -902,8 +941,9 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// build no download can open.
     func testTheArchiveIsSignedWithTheDeveloperIDIdentityAndTheHardenedRuntime() throws {
         let script = try stepScript(named: Self.archiveStepName, because: """
-            It is the step that signs the app, and the signature it applies is the shipped one — \
-            nothing downstream re-signs.
+            It is the step that signs the app, and everything downstream re-signs *with the same \
+            identity* rather than choosing its own — so a wrong choice here is the wrong choice \
+            everywhere.
             """)
 
         XCTAssertTrue(script.contains { $0.contains(#"CODE_SIGN_IDENTITY="Developer ID Application""#) }, """
@@ -947,6 +987,227 @@ final class ReleaseWorkflowTests: XCTestCase {
             offers no way to open at all — the whole reason this release is signed with a \
             Developer ID certificate.
             """)
+    }
+
+    // MARK: - Sparkle's nested helpers
+
+    /// Xcode's archive does not sign what is nested inside the framework it
+    /// signs, so this workflow does.
+    ///
+    /// `Sparkle.framework` ships four helper bundles — two XPC services,
+    /// `Autoupdate` and `Updater.app` — with upstream's ad-hoc signatures
+    /// (`flags=0x10002(adhoc,runtime)`, no team identifier, no `Timestamp=`).
+    /// Archiving re-signs the framework *bundle* around them and leaves them
+    /// exactly as shipped, which is what the notary service rejected `v1.0` for,
+    /// naming all four with the same two findings: not signed with a valid
+    /// Developer ID certificate, and no secure timestamp.
+    ///
+    /// Every flag asserted here is one of those findings' cure, and none of them
+    /// is visible from any local outcome: the helpers verify, the framework
+    /// verifies, `--deep --strict` passes on the whole app, and the rejection
+    /// arrives twenty minutes and a submission queue later. So each is pinned
+    /// against the step that applies it.
+    func testSparklesNestedHelpersAreReSignedWithTheReleaseIdentity() throws {
+        let script = try stepScript(named: Self.reSignStepName, because: """
+            Xcode re-signs the framework bundle and not the bundles nested inside it, so the four \
+            helpers reach the notary service ad-hoc signed unless this step replaces their \
+            signatures.
+            """)
+
+        // The identity is the archive's, named once and used six times. Pinned
+        // to the literal so a re-sign under some *other* identity — an ad-hoc
+        // `-`, or whatever `find-identity` returns first — cannot pass by
+        // virtue of the variable merely existing.
+        XCTAssertTrue(script.contains(#"IDENTITY="Developer ID Application""#), """
+            release.yml's `\(Self.reSignStepName)` step must sign with the same \
+            `Developer ID Application` identity the archive selects. Re-signing under any other \
+            identity replaces four ad-hoc signatures the notary service refuses with four \
+            signatures it refuses for a different reason.
+            """)
+
+        let signings = script.filter(Self.isSigningInvocation)
+        XCTAssertEqual(signings.count, 6, """
+            release.yml's `\(Self.reSignStepName)` step must carry exactly six `codesign` signing \
+            invocations — the four nested helpers, the framework, then the app. It carries \
+            \(signings.count): \(signings).
+            """)
+
+        for helper in Self.sparkleNestedHelpers {
+            XCTAssertTrue(signings.contains { $0.hasSuffix(#""$FRAMEWORK/\#(helper)""#) }, """
+                release.yml's `\(Self.reSignStepName)` step must re-sign \(helper). It is one of \
+                the four binaries the notary service named when it rejected v1.0, and nothing else \
+                in this workflow signs it. Got \(signings).
+                """)
+        }
+        XCTAssertTrue(signings.contains { $0.hasSuffix(#""$FRAMEWORK""#) }, """
+            The framework itself must be re-signed after its helpers — modifying nested code \
+            invalidates the seal above it, so a framework signed before its helpers seals hashes \
+            that no longer match. Got \(signings).
+            """)
+        XCTAssertTrue(signings.contains { $0.hasSuffix(#""$APP""#) }, """
+            The app must be re-signed last, for the same reason: the archive's signature over it \
+            seals a framework this step has just replaced. Got \(signings).
+            """)
+
+        // Every invocation, not merely one: a flag that reaches five of the six
+        // leaves the sixth binary as the one the notary rejects, and the
+        // rejection names it rather than the flag.
+        for signing in signings {
+            for flag in ["--force", #"--sign "$IDENTITY""#, "--options runtime", "--timestamp"] {
+                XCTAssertTrue(signing.contains(flag), """
+                    Every signing invocation in release.yml's `\(Self.reSignStepName)` step must \
+                    pass `\(flag)`. Without `--force` codesign refuses to replace an existing \
+                    signature; without the identity it signs ad-hoc; `--options runtime` and \
+                    `--timestamp` are the two findings the notary service reported against these \
+                    binaries by name. Got “\(signing)”.
+                    """)
+            }
+        }
+    }
+
+    /// `Downloader.xpc` is the one helper whose entitlements must survive the
+    /// re-sign, and Sparkle's own distribution documentation is where that comes
+    /// from (it has said so since 2.6).
+    ///
+    /// The asymmetry is deliberate and worth stating, because "preserve them
+    /// everywhere" reads like the safe default and is not: `Autoupdate` ships a
+    /// `com.apple.application-identifier` belonging to Sparkle's own team, and
+    /// carrying an App-Store-shaped identifier for a foreign team into a
+    /// Developer ID signature is itself a notarization finding. So it is dropped,
+    /// following upstream, and only `Downloader.xpc` keeps what it had.
+    func testTheDownloaderXPCKeepsItsEntitlementsAcrossTheReSign() throws {
+        let script = try stepScript(named: Self.reSignStepName, because: """
+            It is the step whose flags decide what each helper's replacement signature carries.
+            """)
+
+        let downloader = try XCTUnwrap(script.first(where: {
+            Self.isSigningInvocation($0) && $0.contains("Downloader.xpc")
+        }), """
+            release.yml's `\(Self.reSignStepName)` step no longer signs Downloader.xpc.
+            """)
+        XCTAssertTrue(downloader.contains("--preserve-metadata=entitlements"), """
+            The `Downloader.xpc` re-sign must pass `--preserve-metadata=entitlements`, as Sparkle's \
+            distribution documentation has required since 2.6. Got “\(downloader)”.
+            """)
+
+        // …and nothing else does. `Autoupdate` carrying its shipped
+        // `com.apple.application-identifier` into this team's Developer ID
+        // signature is a finding of its own.
+        let preserving = script.filter { Self.isSigningInvocation($0) && $0.contains("--preserve-metadata") }
+        XCTAssertEqual(preserving.count, 1, """
+            Exactly one signing invocation in release.yml's `\(Self.reSignStepName)` step may \
+            preserve metadata — `Downloader.xpc`'s. Autoupdate's shipped \
+            com.apple.application-identifier belongs to Sparkle's team, and carrying it into this \
+            team's Developer ID signature is a notarization finding rather than a courtesy. Got \
+            \(preserving).
+            """)
+    }
+
+    /// Inside-out, asserted by index rather than by presence.
+    ///
+    /// Code signing seals what is nested inside what is signed, so modifying a
+    /// helper invalidates the framework's seal and modifying the framework
+    /// invalidates the app's. Signing in any other order therefore produces a
+    /// bundle whose outer signatures are stale — which `codesign --verify
+    /// --deep --strict` *does* catch, but only after the whole re-sign has run,
+    /// and the failure names a hash mismatch rather than an ordering mistake.
+    /// All six invocations are present in every wrong order too, so presence
+    /// proves nothing here.
+    func testTheReSignPassRunsInsideOut() throws {
+        let script = try stepScript(named: Self.reSignStepName, because: """
+            It is the step whose ordering decides whether the signatures it applies are still valid \
+            when it finishes.
+            """)
+
+        let framework = try XCTUnwrap(script.firstIndex(where: {
+            Self.isSigningInvocation($0) && $0.hasSuffix(#""$FRAMEWORK""#)
+        }), "release.yml's `\(Self.reSignStepName)` step no longer re-signs Sparkle.framework")
+        let app = try XCTUnwrap(script.firstIndex(where: {
+            Self.isSigningInvocation($0) && $0.hasSuffix(#""$APP""#)
+        }), "release.yml's `\(Self.reSignStepName)` step no longer re-signs the app")
+
+        for helper in Self.sparkleNestedHelpers {
+            let index = try XCTUnwrap(script.firstIndex(where: {
+                Self.isSigningInvocation($0) && $0.hasSuffix(#""$FRAMEWORK/\#(helper)""#)
+            }), "release.yml's `\(Self.reSignStepName)` step no longer re-signs \(helper)")
+            XCTAssertLessThan(index, framework, """
+                \(helper) must be re-signed *before* Sparkle.framework. Signing a helper afterwards \
+                leaves the framework sealing a code directory hash that no longer exists.
+                """)
+        }
+        XCTAssertLessThan(framework, app, """
+            Sparkle.framework must be re-signed before the app. The app's signature seals its \
+            embedded frameworks, so re-signing the framework afterwards invalidates the outermost \
+            signature — the one Gatekeeper and the notary service both read first.
+            """)
+    }
+
+    /// `--deep` never signs anything in this workflow.
+    ///
+    /// Apple documents it as a debugging convenience, not a distribution tool:
+    /// it applies one set of flags to everything it happens to find, so the
+    /// entitlements `Downloader.xpc` must keep would be dropped, and a helper
+    /// added by a future Sparkle would be signed silently instead of stopping
+    /// the run at the existence guards. The explicit list is what the
+    /// verification step and this suite can hold to account.
+    ///
+    /// The three `codesign --verify --deep --strict` calls are a different
+    /// command entirely and must stay green, which is why this is asserted over
+    /// tokenized signing invocations rather than as "the file contains --deep".
+    func testNoSigningInvocationUsesDeep() throws {
+        let lines = try activeLines()
+
+        let signings = lines.filter(Self.isSigningInvocation)
+        XCTAssertFalse(signings.isEmpty, """
+            release.yml no longer signs anything with `codesign -s`/`--sign`, so this assertion \
+            checks nothing. If the re-sign pass was removed, Sparkle's four nested helpers ship \
+            ad-hoc signed and the notary service refuses them.
+            """)
+
+        let deep = signings.filter { $0.contains("--deep") }
+        XCTAssertTrue(deep.isEmpty, """
+            release.yml signs with `--deep`: \(deep). Apple documents `--deep` as unsuited to \
+            distribution signing — it applies one set of flags to every nested item it discovers, \
+            which drops Downloader.xpc's entitlements and quietly signs any helper a future Sparkle \
+            adds instead of stopping at this workflow's existence guards. Sign the explicit list \
+            instead. (`codesign --verify --deep --strict` is a different command and is fine.)
+            """)
+
+        XCTAssertTrue(lines.contains { $0.contains("codesign --verify --deep --strict") }, """
+            release.yml must keep its `codesign --verify --deep --strict` calls. They answer a \
+            question the per-binary checks do not — whether every nested item is *validly* signed \
+            — and this assertion exists so the `--deep` refusal above cannot be satisfied by \
+            deleting them.
+            """)
+    }
+
+    /// A Sparkle layout change has to stop the run, not slip past it.
+    ///
+    /// The re-sign list is explicit, which means it is also *stale* the moment a
+    /// Sparkle version moves, renames or drops one of these four. Without a
+    /// guard that case signs three of four helpers, verifies whatever remains,
+    /// and hands the notary service an ad-hoc signed binary — the exact `v1.0`
+    /// failure, arriving again from the direction the explicit list was chosen
+    /// over `--deep` to make visible.
+    ///
+    /// Asserted by mechanism, like every other refusal in this file: a
+    /// `::warning::` that names the missing path and carries on is not a softer
+    /// guard, it is no guard.
+    func testAChangedSparkleLayoutStopsTheReSignPass() throws {
+        let script = try stepScript(named: Self.reSignStepName, because: """
+            It is the step whose explicit path list a Sparkle version bump invalidates.
+            """)
+
+        for helper in Self.sparkleNestedHelpers {
+            assertGuardExits(#"test -e "$FRAMEWORK/\#(helper)""#,
+                             in: script,
+                             step: Self.reSignStepName,
+                             because: """
+                the re-sign list is explicit, so a Sparkle version that moved or renamed \(helper) \
+                leaves it signed with upstream's ad-hoc signature and submits it — which is exactly \
+                how v1.0 was rejected, and the guard is what notices instead of the notary service
+                """)
+        }
     }
 
     /// The archive's signature is *read back off the bundle*, on the app and on
@@ -1373,6 +1634,15 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// every other assertion in this file green:
     ///
     ///  * notarizing before the archive finishes has nothing to submit;
+    ///  * **re-signing after the verification** verifies four signatures that
+    ///    are about to be replaced — every fact it read back belongs to a
+    ///    signature the run then throws away, so the step reports on a bundle
+    ///    that no longer exists by the time it is submitted;
+    ///  * **re-signing after the notary submission** is worse than useless: the
+    ///    ticket Apple issued is bound to the code directory hash it was given,
+    ///    so replacing any signature afterwards invalidates it and the staple
+    ///    fails — or, if the staple somehow ran first, ships a bundle whose
+    ///    ticket does not describe it;
     ///  * stapling before the verdict staples a ticket that does not exist;
     ///  * **zipping before the staple** is the quiet one — the shipped zip then
     ///    carries an accepted-but-unstapled app, which passes `spctl` on the
@@ -1386,6 +1656,7 @@ final class ReleaseWorkflowTests: XCTestCase {
 
         let sequence = [
             Self.archiveStepName,
+            Self.reSignStepName,
             Self.verifyStepName,
             Self.notarizeStepName,
             Self.stapleStepName,

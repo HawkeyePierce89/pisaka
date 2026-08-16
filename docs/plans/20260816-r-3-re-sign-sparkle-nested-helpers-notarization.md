@@ -125,15 +125,15 @@ one forward hazard: the app is re-signed with no `--entitlements`, which is
 correct only while the release ships no entitlements file — adding one means
 passing it here too, or the re-sign silently strips it.
 
-- [ ] add the `Re-sign Sparkle's nested helpers` step between the archive and the verification, with the six explicit `codesign` invocations, the four existence guards, and the comment block above
-- [ ] add a `reSignStepName` constant and a constant holding the four helper paths as they appear under the framework (`Versions/B/XPCServices/Downloader.xpc`, `Versions/B/XPCServices/Installer.xpc`, `Versions/B/Autoupdate`, `Versions/B/Updater.app`), shared with Task 2's assertions
-- [ ] new test: the step signs each of the four helper paths, and every signing invocation in it carries `--force`, the Developer ID identity, `--options runtime` and `--timestamp`
-- [ ] new test: the `Downloader.xpc` invocation carries `--preserve-metadata=entitlements`
-- [ ] new test: order within the step — every helper invocation precedes the framework's, which precedes the app's (compare indices in the step script, not mere presence)
-- [ ] new test: no signing invocation anywhere in the workflow uses `--deep` (a line containing both `codesign` and `--sign`/`-s` must not contain `--deep`; the legitimate `codesign --verify --deep --strict` calls must stay green)
-- [ ] new test: each of the four existence guards refuses via `assertGuardExits`, so a Sparkle layout change stops the run rather than shipping an unsigned helper
-- [ ] extend `testTheReleaseIsAssembledInTheOnlyOrderThatShipsAWorkingApp`'s sequence to `archive → re-sign → verify → notarize → staple → stage → appcast → publish`, and extend its doc comment with what each new inversion ships (re-signing after the verification verifies signatures that are about to be replaced; re-signing after the notary submission invalidates the ticket)
-- [ ] run `swift test` — must pass before Task 2
+- [x] add the `Re-sign Sparkle's nested helpers` step between the archive and the verification, with the six explicit `codesign` invocations, the four existence guards, and the comment block above
+- [x] add a `reSignStepName` constant and a constant holding the four helper paths as they appear under the framework (`Versions/B/XPCServices/Downloader.xpc`, `Versions/B/XPCServices/Installer.xpc`, `Versions/B/Autoupdate`, `Versions/B/Updater.app`), shared with Task 2's assertions
+- [x] new test: the step signs each of the four helper paths, and every signing invocation in it carries `--force`, the Developer ID identity, `--options runtime` and `--timestamp`
+- [x] new test: the `Downloader.xpc` invocation carries `--preserve-metadata=entitlements`
+- [x] new test: order within the step — every helper invocation precedes the framework's, which precedes the app's (compare indices in the step script, not mere presence)
+- [x] new test: no signing invocation anywhere in the workflow uses `--deep` (a line containing both `codesign` and `--sign`/`-s` must not contain `--deep`; the legitimate `codesign --verify --deep --strict` calls must stay green)
+- [x] new test: each of the four existence guards refuses via `assertGuardExits`, so a Sparkle layout change stops the run rather than shipping an unsigned helper
+- [x] extend `testTheReleaseIsAssembledInTheOnlyOrderThatShipsAWorkingApp`'s sequence to `archive → re-sign → verify → notarize → staple → stage → appcast → publish`, and extend its doc comment with what each new inversion ships (re-signing after the verification verifies signatures that are about to be replaced; re-signing after the notary submission invalidates the ticket)
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: Verification recurses to every nested Mach-O
 

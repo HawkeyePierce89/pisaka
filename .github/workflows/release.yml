@@ -413,6 +413,93 @@ jobs:
           OTHER_CODE_SIGN_FLAGS=--timestamp
           archive
 
+      # Xcode's archive re-signs the embedded `Sparkle.framework` *bundle* with
+      # this run's identity — that much was verified and was true — but it does
+      # not recurse into the framework's own nested helper bundles. Sparkle ships
+      # four of them (two XPC services, `Autoupdate` and `Updater.app`) carrying
+      # upstream's ad-hoc signatures: `flags=0x10002(adhoc,runtime)`, no team,
+      # no `Timestamp=`. That is exactly what the notary service rejected `v1.0`
+      # for, naming all four with "not signed with a valid Developer ID
+      # certificate" and "does not include a secure timestamp". So they are
+      # re-signed here, explicitly, before anything is verified or submitted.
+      #
+      # The order is inside-out because modifying nested code invalidates every
+      # seal above it: signing a helper after its framework would leave the
+      # framework sealing a hash that no longer matches, and signing the
+      # framework after the app would do the same one level up. Hence helpers,
+      # then the framework, then the app — the app last, always.
+      #
+      # The list is written out rather than discovered, and emphatically not
+      # `--deep`. Apple documents `--deep` as a debugging convenience unsuited to
+      # distribution signing (it applies one set of flags to everything it finds
+      # and silently signs whatever happens to be nested), and an enumerable list
+      # is the thing the verification below and the static pins in
+      # `ReleaseWorkflowTests` can hold to account. A glob would hide exactly the
+      # change the guards below exist to catch.
+      #
+      # The flags come from Sparkle's own distribution documentation for the
+      # pinned 2.9.5 (sparkle-project.org, the sandboxing/code signing page),
+      # which spells the sequence out as:
+      #
+      #     codesign -f -s "$ID" -o runtime …/XPCServices/Installer.xpc
+      #     codesign -f -s "$ID" -o runtime --preserve-metadata=entitlements \
+      #         …/XPCServices/Downloader.xpc      # 2.6+
+      #     codesign -f -s "$ID" -o runtime …/Autoupdate
+      #     codesign -f -s "$ID" -o runtime …/Updater.app
+      #     codesign -f -s "$ID" -o runtime Sparkle.framework
+      #
+      # `--timestamp` is added on top of each: a secure timestamp is a
+      # notarization requirement, and Sparkle's snippet leaves it to the Xcode
+      # build setting that is not in play for a `codesign` run by hand. The
+      # `--preserve-metadata=entitlements` is on `Downloader.xpc` alone because
+      # that is what upstream asks for; `Autoupdate`'s shipped
+      # `com.apple.application-identifier` is therefore dropped deliberately —
+      # carrying an App-Store-shaped identifier belonging to a foreign team into
+      # a Developer ID signature is itself a notarization finding.
+      #
+      # The forward hazard, stated because it is silent: the app is re-signed
+      # here with no `--entitlements`, which is correct only while this release
+      # ships no entitlements file. The day one is added to the archive, it has
+      # to be passed on this line too — otherwise this step strips it back off
+      # and nothing fails until the shipped app cannot do the thing the
+      # entitlement was added for.
+      - name: Re-sign Sparkle's nested helpers
+        run: |
+          set -euo pipefail
+          APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"
+          FRAMEWORK="$APP/Contents/Frameworks/Sparkle.framework"
+          IDENTITY="Developer ID Application"
+
+          # The layout is pinned to Sparkle 2.9.5's, and a version bump that
+          # moved, renamed or dropped any of these four must stop the run here
+          # rather than ship an ad-hoc signed helper into a submission. There is
+          # nothing clever to fall back to: the list below and the verification
+          # step's required set are the same fact written twice, and both have to
+          # be re-derived from the new framework by hand.
+          if ! test -e "$FRAMEWORK/Versions/B/XPCServices/Installer.xpc"; then
+            echo "::error::Sparkle's Versions/B/XPCServices/Installer.xpc is not where this workflow expects it. The pinned Sparkle version's internal layout changed: re-derive both this step's explicit re-sign list and the verification step's required Mach-O set from the new framework before releasing. See docs/RELEASING.md."
+            exit 1
+          fi
+          if ! test -e "$FRAMEWORK/Versions/B/XPCServices/Downloader.xpc"; then
+            echo "::error::Sparkle's Versions/B/XPCServices/Downloader.xpc is not where this workflow expects it. The pinned Sparkle version's internal layout changed: re-derive both this step's explicit re-sign list and the verification step's required Mach-O set from the new framework before releasing. See docs/RELEASING.md."
+            exit 1
+          fi
+          if ! test -e "$FRAMEWORK/Versions/B/Autoupdate"; then
+            echo "::error::Sparkle's Versions/B/Autoupdate is not where this workflow expects it. The pinned Sparkle version's internal layout changed: re-derive both this step's explicit re-sign list and the verification step's required Mach-O set from the new framework before releasing. See docs/RELEASING.md."
+            exit 1
+          fi
+          if ! test -e "$FRAMEWORK/Versions/B/Updater.app"; then
+            echo "::error::Sparkle's Versions/B/Updater.app is not where this workflow expects it. The pinned Sparkle version's internal layout changed: re-derive both this step's explicit re-sign list and the verification step's required Mach-O set from the new framework before releasing. See docs/RELEASING.md."
+            exit 1
+          fi
+
+          codesign --force --sign "$IDENTITY" --options runtime --timestamp "$FRAMEWORK/Versions/B/XPCServices/Installer.xpc"
+          codesign --force --sign "$IDENTITY" --options runtime --timestamp --preserve-metadata=entitlements "$FRAMEWORK/Versions/B/XPCServices/Downloader.xpc"
+          codesign --force --sign "$IDENTITY" --options runtime --timestamp "$FRAMEWORK/Versions/B/Autoupdate"
+          codesign --force --sign "$IDENTITY" --options runtime --timestamp "$FRAMEWORK/Versions/B/Updater.app"
+          codesign --force --sign "$IDENTITY" --options runtime --timestamp "$FRAMEWORK"
+          codesign --force --sign "$IDENTITY" --options runtime --timestamp "$APP"
+
       # The app is taken straight out of the archive, deliberately: it already
       # carries the shipping Developer ID signature and the hardened runtime, so
       # `-exportArchive` would only re-sign it under a second configuration — an
