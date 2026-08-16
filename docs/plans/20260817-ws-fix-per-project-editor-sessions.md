@@ -252,19 +252,32 @@ half-swapped state can be written.
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] `swift test` — full suite green
-- [ ] `xcodegen generate` then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
-      -destination 'platform=macOS' build` — green
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
-      'generic/platform=iOS' build` — green (Core stays platform-neutral; iOS session
-      restore remains the documented follow-up)
-- [ ] re-read the acceptance list and confirm each unit-test claim is covered by a
+- [x] `swift test` — full suite green (2817 tests, 0 failures)
+- [x] `xcodegen generate` then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+      -destination 'platform=macOS' build` — green (`** BUILD SUCCEEDED **`)
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+      'generic/platform=iOS' build` — green (`** BUILD SUCCEEDED **`; Core stays
+      platform-neutral; iOS session restore remains the documented follow-up)
+- [x] re-read the acceptance list and confirm each unit-test claim is covered by a
       named test: outgoing snapshot + incoming restore, first-open folder is empty,
       re-opening the current folder is a tab no-op, untitled text travels with its
       project, canonical keying unifies spellings, the legacy blob migrates and
-      launch restore still finds it
-- [ ] no repository is left with `Pisaka.xcodeproj` regenerated but uncommitted state
-      that contradicts `project.yml` (the project file is generated, not edited)
+      launch restore still finds it — the mapping is recorded below
+- [x] no repository is left with `Pisaka.xcodeproj` regenerated but uncommitted state
+      that contradicts `project.yml` (the project file is generated, not edited):
+      `git status` is clean after `xcodegen generate` and both builds — `.gitignore`
+      tracks only `Pisaka.xcodeproj/…/swiftpm/Package.resolved`, which is unchanged
+
+**Acceptance claim → named test** (all in `Tests/PisakaCoreTests/`):
+
+| Claim | Tests |
+| --- | --- |
+| Outgoing snapshot + incoming restore | `testStoreKeepsBothProjectsAndMakesTheLatestTheHead`, `testStoreSaveOfOneProjectLeavesAnotherProjectsSessionIntact`, `testReplaceSessionDropsTheOutgoingTabsAndOpensTheIncomingOnes` |
+| First-open folder is empty | `testStoreMissingKeyLoadsNil`, `testCatalogNilFolderIsItsOwnKey` (an unstored folder answers `nil` while other entries exist), `testReplaceSessionWithAnEmptySessionEmptiesTheEditor` |
+| Re-opening the current folder is a tab no-op | `testIsCurrentProjectRootMatchesAcrossSpellingsOfOneFolder`, `testIsCurrentProjectRootIsFalseForASiblingDirectory`, `testIsCurrentProjectRootIsFalseWhenNoFolderIsOpen` |
+| Untitled text travels with its project | `testReplaceSessionRestoresAnUntitledRecordDirtyWithItsText`, `testReplaceSessionForceClosesDirtyTitledAndUntitledTabs`, `testCatalogHugeUntitledTextEvictsNothing` |
+| Canonical keying unifies spellings | `testCatalogKeysByCanonicalPath`, `testCatalogKeyIgnoresTrailingSlashesAndDotComponents`, `testStoreSaveUnderADifferentSpellingOverwritesTheSameEntry` |
+| Legacy blob migrates, launch restore finds it | `testStoreMigratesALegacyBlobWithAFolder`, `testStoreMigratesALegacyBlobWithoutAFolder` (both assert `loadLastOpened()` *and* `session(forFolder:)`), `testStoreIgnoresTheLegacyBlobOnceTheCatalogExists`, `testStoreMigrationLeavesTheLegacyKeyInPlaceAndNeverWritesItAgain` |
 
 ## Post-Completion (owed manual verification, performed by the user)
 
