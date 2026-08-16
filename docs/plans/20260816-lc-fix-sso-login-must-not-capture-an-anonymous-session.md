@@ -224,15 +224,31 @@ its own; the gate is the single latch, and it is unit-tested.
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] `swift test` — full suite green.
-- [ ] `xcodegen generate` and `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build` — green.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build` — green.
-- [ ] Re-read the acceptance list and confirm each unit-test claim is actually
+- [x] `swift test` — full suite green. (2783 tests, 0 failures.)
+- [x] `xcodegen generate` and `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build` — green (`** BUILD SUCCEEDED **`).
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build` — green (`** BUILD SUCCEEDED **`).
+- [x] Re-read the acceptance list and confirm each unit-test claim is actually
       asserted by a named test: anonymous candidate does not fire and does not
       consume the one-shot; a confirmed session fires exactly once; a rejected
       value is not re-confirmed; a transport failure falls back to acceptance.
-- [ ] Confirm by inspection that sign-out, cookie purging and the credential
-      store are byte-for-byte unchanged in behavior.
+      Each maps to a named test in `LeetCodeLoginGateTests`:
+      `testAnAnonymousCandidateIsRejectedWithoutConsumingTheLatch`,
+      `testAConfirmedCandidateIsHandedOutExactlyOnce` (plus
+      `testAConfirmedCandidateIsHandedBackOnTheFirstOffer`),
+      `testARejectedValueIsRememberedAndCostsOneConfirmation`, and
+      `testATransportFailureAcceptsTheCandidate` (plus
+      `testEveryNonAnswerFailureAcceptsTheCandidate`); the auth-refusal reading
+      is `testAnAuthenticationRefusalRejectsTheCandidate` and the wiring is
+      `LeetCodeModelTests.testTheVendedGateConfirmsThroughTheModelsTransport` /
+      `testGatesFromTheSameModelAreIndependent`.
+- [x] Confirm by inspection that sign-out, cookie purging and the credential
+      store are byte-for-byte unchanged in behavior. `git diff master` removes
+      **no** line from `LeetCodeModel.swift` (the change is `makeLoginGate()`
+      plus doc comments), and every removal in
+      `Platform/LeetCodeWebSession.swift` is a doc comment or part of the
+      observer's `hasCaptured` latch — `signOut()`, both sign-out halves, the
+      scoped purge, `makeWebView()`'s pre-load purge and the credential store
+      are untouched.
 
 ## Post-Completion (manual, performed by the user)
 
