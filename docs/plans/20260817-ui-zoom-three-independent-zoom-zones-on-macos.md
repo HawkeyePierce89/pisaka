@@ -150,25 +150,25 @@ pure, so the whole view sweep is arithmetic-free.
 - Create: `Tests/PisakaCoreTests/ZoomGestureAccumulatorTests.swift`
 - Create: `Tests/PisakaCoreTests/InterfaceMetricsTests.swift`
 
-- [ ] `ZoomGestureAccumulator`: a threshold-configured value type whose
+- [x] `ZoomGestureAccumulator`: a threshold-configured value type whose
       `accumulate(...)` returns the whole number of steps to apply and retains
       the remainder, so a slow drag feels continuous and never double-steps
-- [ ] Normalize both scroll flavors *in Core*: precise (trackpad, points) and
+- [x] Normalize both scroll flavors *in Core*: precise (trackpad, points) and
       line-based (wheel), so the app passes the raw delta plus a `precise` flag
       and makes no decision of its own; a pinch feeds magnification deltas
       against a smaller threshold
-- [ ] `reset()` (gesture end, or the pointer crossing into another zone
+- [x] `reset()` (gesture end, or the pointer crossing into another zone
       mid-gesture) and a documented direction-reversal rule
-- [ ] `InterfaceTextStyle` — the semantic styles the macOS views actually use —
+- [x] `InterfaceTextStyle` — the semantic styles the macOS views actually use —
       with each style's macOS base point size, and `InterfaceMetrics(scale:)`
       exposing `font(_:)` → point size and `pt(_:)` → a scaled metric, rounding
       so text lands on crisp sizes
-- [ ] Write tests: accumulating N×threshold reaches exactly the N discrete
+- [x] Write tests: accumulating N×threshold reaches exactly the N discrete
       steps; sub-threshold deltas produce nothing but are not lost; mixed
       precise/line input; reset clears the remainder; `InterfaceMetrics(scale: 1)`
       returns every style's base size unchanged (the "nothing changes at 100%"
       guarantee) and scaling is monotonic across the whole range
-- [ ] run `swift test` — must pass before Task 3
+- [x] run `swift test` — must pass before Task 3
 
 ### Task 3: App — pointer hit-testing, the event monitor, and the View menu
 
