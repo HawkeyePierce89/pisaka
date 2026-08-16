@@ -804,22 +804,34 @@ jobs:
       # fleet removed them".
       #
       # No `set -e`: this step's whole point is to run all of it. A failure to
-      # restore the search list must not skip deleting the keychain, and neither
-      # must stop the job reporting the real error from whichever step failed.
+      # restore the search list must not skip deleting the keychain — with
+      # `errexit` the first failing command would abandon the rest of the
+      # cleanup, which is the opposite of what a cleanup step is for.
+      #
+      # Not aborting is not the same as not reporting. Every command records
+      # into `$STATUS` and the step exits non-zero at the end if any of them
+      # failed: a green job whose keychain deletion failed says "the signing
+      # certificate is gone" about a runner that still has it, and the whole
+      # point of doing the cleanup rather than trusting the fleet to discard the
+      # runner is that the claim is ours to make good. This cannot hide the real
+      # error from a run that failed earlier — that step's own failure is
+      # already annotated and already red — it only stops a *cleanup* failure
+      # from being the one thing in this job that passes silently.
       - name: Remove the signing keychain
         if: always()
         run: |
           set -uo pipefail
+          STATUS=0
           KEYCHAIN="${RUNNER_TEMP}/pisaka-signing.keychain-db"
           if [ -s "${RUNNER_TEMP}/keychains-before" ]; then
             # Unquoted for the same reason as the import step's call: `-s` takes
             # one argument per keychain, and word splitting is what makes them.
             # shellcheck disable=SC2046
-            security list-keychains -d user -s $(cat "${RUNNER_TEMP}/keychains-before")
-            rm -f "${RUNNER_TEMP}/keychains-before"
+            security list-keychains -d user -s $(cat "${RUNNER_TEMP}/keychains-before") || STATUS=1
+            rm -f "${RUNNER_TEMP}/keychains-before" || STATUS=1
           fi
           if [ -f "$KEYCHAIN" ]; then
-            security delete-keychain "$KEYCHAIN"
+            security delete-keychain "$KEYCHAIN" || STATUS=1
           fi
           # Belt and braces for both private keys. Each is removed by the step
           # that wrote it — the .p12 by an `rm` after `security import` consumes
@@ -828,4 +840,8 @@ jobs:
           # line, which is precisely the path this `if: always()` step exists
           # for. Both paths are spelled out literally because a variable would
           # be one the cancelled step never got to set.
-          rm -f "${RUNNER_TEMP}/developer-id.p12" "${RUNNER_TEMP}/notary-key.p8"
+          rm -f "${RUNNER_TEMP}/developer-id.p12" "${RUNNER_TEMP}/notary-key.p8" || STATUS=1
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::Cleaning up the signing keychain failed: one of restoring the user search list, deleting the run's keychain or removing the two private keys reported an error (this step's log says which). Every other step's result stands — this failure is about the runner's leftover state, not the release. Assume the runner still holds the Developer ID certificate and the notary key: revoke and reissue the certificate, rotate the notary key, and update the repository secrets before the next tag. See docs/RELEASING.md."
+            exit 1
+          fi

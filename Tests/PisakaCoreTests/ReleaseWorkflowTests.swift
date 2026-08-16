@@ -603,6 +603,35 @@ final class ReleaseWorkflowTests: XCTestCase {
                 """)
         }
 
+        // A cleanup that cannot fail is a cleanup nobody can rely on. The step
+        // deliberately runs without `errexit` — one failing command must not
+        // abandon the rest of the removal — and the cost of that is a step
+        // whose exit status is whatever its *last* command returned: `rm -f`,
+        // which succeeds on a file that is not there. So `security
+        // delete-keychain` can fail, the certificate can stay on the runner,
+        // and the job still reports success about it. The accumulator is what
+        // separates "the keys are gone because we removed them" from "the keys
+        // are gone because nothing said otherwise".
+        XCTAssertTrue(script.contains { $0.hasPrefix("STATUS=") }, """
+            release.yml's `\(Self.keychainCleanupStepName)` step must accumulate a status. It runs \
+            without `set -e` on purpose, so without one every command's failure is swallowed by \
+            the next and the step's exit code is the trailing `rm -f`'s — which succeeds whether \
+            or not the keychain was deleted.
+            """)
+        for command in ["security list-keychains -d user -s", "security delete-keychain", "rm -f"] {
+            XCTAssertTrue(script.contains { $0.contains(command) && $0.hasSuffix("|| STATUS=1") }, """
+                release.yml's `\(Self.keychainCleanupStepName)` step must record a failure of \
+                `\(command)` into the status it exits with. A cleanup command whose failure is \
+                neither fatal nor recorded is one whose result the job asserts without checking. \
+                \(script)
+                """)
+        }
+        assertGuardExits("STATUS", in: script, step: Self.keychainCleanupStepName, because: """
+            a cleanup that failed must fail the job. Recording the failures and then exiting 0 \
+            reports a runner scrubbed of the Developer ID certificate and the notary key when it \
+            may still hold both
+            """)
+
         // Last step of the file, so nothing that needs the identity runs after
         // the keychain is gone.
         let lines = try activeLines()

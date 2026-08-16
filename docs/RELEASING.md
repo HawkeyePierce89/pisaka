@@ -9,9 +9,14 @@ There are two paths, and they answer different questions:
 
 - [Automated releases](#automated-releases) — pushing a `vX.Y` tag builds a
   **Developer ID signed, notarized and stapled** macOS app and publishes it as a
-  GitHub Release with a signed Sparkle appcast, so a fresh download runs without
-  a Gatekeeper prompt and installed copies can update themselves. This is the
-  distribution channel.
+  GitHub Release with a signed Sparkle appcast, so a fresh download launches
+  from the ordinary, confirmable "downloaded from the Internet" dialog rather
+  than being refused, and installed copies can update themselves. This is the
+  distribution channel. Notarization does not remove that dialog — quarantine
+  still applies to a notarized app and macOS still asks once; what it removes is
+  the *unconfirmable* refusal and every terminal workaround for it. The exact
+  acceptance criterion is under
+  [Manual verification owed for this feature](#manual-verification-owed-for-this-feature).
 - The by-hand archive below, which is the **build-number mechanism** and the
   path an eventual App Store upload takes. The workflow runs the same command
   with the same rules.
@@ -226,7 +231,10 @@ deletes the keychain, restores the list, and removes **both** private keys by
 path — the `.p12` and the notarization `.p8` — on every path: success, failure
 or cancellation. That last one is why the cleanup repeats removals the writing
 steps already do: a cancelled step is killed, so it runs neither its trailing
-`rm` nor its `trap … EXIT`, and the cleanup step is the only thing left.
+`rm` nor its `trap … EXIT`, and the cleanup step is the only thing left. It runs
+every one of those commands whatever the others do, and still fails the job if
+any of them failed — a green run has to mean the runner was scrubbed, not that
+nothing said otherwise.
 
 **The login keychain is never named and never modified.** A GitHub macOS runner
 is ephemeral, but that is a property of the fleet rather than a guarantee this
@@ -505,7 +513,14 @@ The workflow then, in order:
     the job — success, any failure above, or a cancellation — leaves either
     private key on the runner or the search list rewritten. It deliberately does
     not `set -e`: a failure to restore the search list must not skip deleting the
-    keychain, and neither must stop the job reporting the real error.
+    keychain. Not aborting is not the same as not reporting, though — each
+    command records into a `STATUS` accumulator and the step exits non-zero if
+    any of them failed, because without one the step's exit code is its trailing
+    `rm -f`'s, which succeeds whether or not the keychain was deleted. That
+    cannot mask an earlier failure (that step is already red and already
+    annotated); it only stops a cleanup failure from being the one thing here
+    that passes silently. If it does fire, treat the certificate and the notary
+    key as still on the runner and rotate both.
 
 `ReleaseWorkflowTests` pins all of the above statically — the tag trigger and the
 permission split (by set equality over the parsed blocks, so an added

@@ -306,7 +306,12 @@ update from a previous release installing normally.
 ## Post-Completion (manual, recorded in `docs/RELEASING.md` — not automated)
 
 - The first notarized tag: `spctl --assess` accepts the shipped app, and a clean
-  download from the release page runs on a double-click with no prompt.
+  download from the release page runs on a double-click from the single
+  confirmable "downloaded from the Internet" dialog — the dialog macOS shows for
+  *any* quarantined app, notarized or not. The failure is a dialog with no way
+  forward (developer cannot be verified, Apple cannot check for malicious
+  software) or any instruction to clear quarantine from a terminal. Spelled out
+  in full in `docs/RELEASING.md`.
 - The downloaded Node language server still launches under the hardened runtime
   (the check R-1's docs already flag for a notarized build specifically).
 - A Sparkle update from a previously published release installs normally.
