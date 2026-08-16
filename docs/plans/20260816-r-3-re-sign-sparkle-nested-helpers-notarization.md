@@ -224,11 +224,11 @@ invariants only, no per-file essay.
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] `swift test` green, and report the `ReleaseWorkflowTests` count so the growth is visible
-- [ ] `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build` — green and signing-free (nothing in this change touches `project.yml`)
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build` — green
-- [ ] re-read the final `release.yml` end to end and confirm the shape: archive → re-sign (helpers → framework → app) → verify (recursing, four facts each) → notarize → staple → stage → appcast → publish, with the re-sign list explicit and `--deep` absent from every signing invocation
-- [ ] `git status` clean apart from the five intended files
+- [x] `swift test` green, and report the `ReleaseWorkflowTests` count so the growth is visible — 2761 tests, 0 failures; `ReleaseWorkflowTests` 35 → 43 test methods (+8)
+- [x] `xcodegen generate`, then `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build` — green and signing-free (nothing in this change touches `project.yml`) — BUILD SUCCEEDED; `git diff master -- project.yml` empty, and the file still carries only `CODE_SIGN_STYLE: Automatic` + `CODE_SIGNING_ALLOWED: NO` (no team, no identity, no `ENABLE_HARDENED_RUNTIME`)
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build` — green — BUILD SUCCEEDED
+- [x] re-read the final `release.yml` end to end and confirm the shape: archive → re-sign (helpers → framework → app) → verify (recursing, four facts each) → notarize → staple → stage → appcast → publish, with the re-sign list explicit and `--deep` absent from every signing invocation — step order confirmed by line number (archive 399 → re-sign 466 → verify 537 → notarize 745 → staple 839 → stage 908 → appcast 924 → publish 978, cleanup 1029 under `if: always()`); the six `codesign --force --sign` lines are inside-out (Installer.xpc, Downloader.xpc with `--preserve-metadata=entitlements`, Autoupdate, Updater.app, framework, app), each with `--options runtime --timestamp`; every `--deep` occurrence is either a comment or one of the two `codesign --verify --deep --strict` calls; no `continue-on-error:` anywhere
+- [x] `git status` clean apart from the five intended files — working tree clean; `git diff master --stat` names exactly `release.yml`, `CLAUDE.md`, `ReleaseWorkflowTests.swift`, `docs/RELEASING.md`, `docs/architecture/core-services.md` (plus this plan)
 
 ## Post-Completion (manual, not automatable)
 
