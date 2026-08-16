@@ -1470,7 +1470,12 @@ struct PisakaApp: App {
     ///    if any dirty *titled* buffer is still unsaved. Force-closing a buffer whose
     ///    contents never reached disk would destroy the user's work outright, which
     ///    is a strictly worse outcome than not switching. Untitled buffers need no
-    ///    flush at all: their text travels *inside* the outgoing snapshot.
+    ///    flush at all: their text travels *inside* the outgoing snapshot. This
+    ///    refusal is scoped to `hadFolder` — the *replacing* path, the only one that
+    ///    force-closes anything. The carrying path below (see the asymmetric case)
+    ///    leaves every tab open, so an unsaved buffer is in no more danger after the
+    ///    open than before it, and refusing there would block the first Open Folder
+    ///    of a run for a loss that path cannot cause.
     /// 4. It persists the outgoing snapshot through `sessionController.flushNow()`,
     ///    while `projectRoot` is still the **outgoing** folder — that is what keys it
     ///    correctly, since `SessionStore.save(_:)` is an upsert on the snapshot's own
@@ -1493,10 +1498,12 @@ struct PisakaApp: App {
     /// so the pre-folder tabs travel *into* the project instead: the incoming
     /// session is applied on top of them rather than replacing them, and the
     /// session *promoted* for the project is the two merged
-    /// (`EditorSession.merging(_:onto:)`) — promoting the unmerged incoming one
-    /// would leave those tabs on screen but unwritable, see `noteProjectSwitch`'s
-    /// superset invariant. At launch this is all the same thing, since there is
-    /// nothing open to carry.
+    /// (`EditorSession.merging(_:onto:incomingRestoredAny:)`, told what
+    /// `restoreSession` actually did) — promoting the unmerged incoming one would
+    /// leave those tabs on screen but unwritable, see `noteProjectSwitch`'s superset
+    /// invariant. Nothing being force-closed is also why step 3's refusal does not
+    /// apply here. At launch this is all the same thing, since there is nothing open
+    /// to carry.
     private func openFolder(url: URL) {
         // Both decided *before* `model.openFolder(url:)` moves `projectRoot`, which
         // would make every later test read as a re-open.
@@ -1505,10 +1512,17 @@ struct PisakaApp: App {
         if isSwitch {
             guard !revertInFlight() else { return }
             autosave.flushNow(reportingSaves: true)
-            let unsaved = unsavedTitledFileNames()
-            if !unsaved.isEmpty {
-                reportUnsavedBeforeFolderSwitch(unsaved)
-                return
+            // Only the *replacing* path can lose that text, and so only it refuses:
+            // the carrying path below force-closes nothing, so the buffer stays
+            // open, dirty, exactly as it is now — refusing there would block the
+            // first Open Folder of a run over a risk that path does not take, with
+            // an alert whose "would close them" reason is not even true of it.
+            if hadFolder {
+                let unsaved = unsavedTitledFileNames()
+                if !unsaved.isEmpty {
+                    reportUnsavedBeforeFolderSwitch(unsaved)
+                    return
+                }
             }
             sessionController.flushNow()
         }
@@ -1550,8 +1564,17 @@ struct PisakaApp: App {
                     selectedID: model.selectedID,
                     projectRoot: url
                 )
-                model.restoreSession(incoming)
-                promoted = EditorSession.merging(incoming, onto: carried)
+                // Whether the incoming records became tabs is `restoreSession`'s
+                // answer to give, not something `incoming.tabs` can be read for: a
+                // project whose every file has moved restores nothing and leaves
+                // the selection on a carried tab, and the promoted session has to
+                // say that rather than point at a record no tab exists for.
+                let restoredAny = model.restoreSession(incoming)
+                promoted = EditorSession.merging(
+                    incoming,
+                    onto: carried,
+                    incomingRestoredAny: restoredAny
+                )
             }
             sessionController.noteProjectSwitch(promoting: promoted)
         }
@@ -1791,6 +1814,10 @@ struct PisakaApp: App {
     /// contents for those files); a switch cannot proceed, because its next act is
     /// to force-close exactly those buffers, and text that never reached disk would
     /// be gone for good.
+    ///
+    /// Reached only from the *replacing* path (`hadFolder`), which is what makes the
+    /// message's reason true: the first Open Folder of a run carries its tabs into
+    /// the project instead of closing them, so it has nothing to refuse.
     private func reportUnsavedBeforeFolderSwitch(_ names: [String]) {
         PlatformFeedback.warning()
         PlatformAlert.presentMessage(

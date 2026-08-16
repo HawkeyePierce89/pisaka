@@ -178,14 +178,34 @@ public struct EditorSession: Codable, Equatable {
     ///
     /// The selection mirrors `restoreSession`'s own rule: anything restored takes
     /// the selection, at `incoming`'s recorded index or — when that index is
-    /// absent or out of range — its last tab; an `incoming` with no tabs at all
-    /// leaves `carried`'s selection standing.
-    public static func merging(_ incoming: EditorSession, onto carried: EditorSession) -> EditorSession {
-        guard !incoming.tabs.isEmpty else {
+    /// absent or out of range — its last tab.
+    ///
+    /// **`incomingRestoredAny` is what `restoreSession` actually did**, not what
+    /// `incoming.tabs` suggests it would do, and it is the caller's to report
+    /// (`WorkspaceModel.restoreSession(_:)` returns exactly this). Non-empty tabs
+    /// are not the same question: every record can be *skipped* — a project whose
+    /// files were deleted, renamed, or live on a volume that is not mounted — and
+    /// then restore left the selection untouched, so it is still on a carried tab
+    /// and the merged session must say so. Shifting `incoming`'s recorded index in
+    /// anyway would file a selection pointing at a record nothing restored; the
+    /// next launch would skip it again and fall back to the *last* carried tab
+    /// rather than the one that was really selected.
+    ///
+    /// The skipped records themselves are still kept — they are the project's
+    /// stored tabs, and a file missing today may be back tomorrow — and they
+    /// inherit the recorded selection only when there is no carried tab to hold it
+    /// instead, which is what keeps this the identity on an empty `carried` (launch
+    /// restore, and every re-open with nothing open).
+    public static func merging(
+        _ incoming: EditorSession,
+        onto carried: EditorSession,
+        incomingRestoredAny: Bool
+    ) -> EditorSession {
+        guard incomingRestoredAny, !incoming.tabs.isEmpty else {
             return EditorSession(
                 folderPath: incoming.folderPath,
-                tabs: carried.tabs,
-                selectedIndex: carried.selectedIndex
+                tabs: carried.tabs + incoming.tabs,
+                selectedIndex: carried.tabs.isEmpty ? incoming.selectedIndex : carried.selectedIndex
             )
         }
         let landing = incoming.selectedIndex.flatMap { incoming.tabs.indices.contains($0) ? $0 : nil }

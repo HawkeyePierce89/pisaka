@@ -165,7 +165,7 @@ final class EditorSessionTests: XCTestCase {
         )
         let incoming = EditorSession(folderPath: "/b", tabs: [.file(path: "/b/x.txt")], selectedIndex: 0)
 
-        let merged = EditorSession.merging(incoming, onto: carried)
+        let merged = EditorSession.merging(incoming, onto: carried, incomingRestoredAny: true)
 
         XCTAssertEqual(merged.tabs, [
             .untitled(text: "notes"),
@@ -187,11 +187,64 @@ final class EditorSessionTests: XCTestCase {
             selectedIndex: 1
         )
 
-        let merged = EditorSession.merging(EditorSession(folderPath: "/b"), onto: carried)
+        let merged = EditorSession.merging(
+            EditorSession(folderPath: "/b"),
+            onto: carried,
+            incomingRestoredAny: false
+        )
 
         XCTAssertEqual(merged.tabs, carried.tabs)
         XCTAssertEqual(merged.selectedIndex, 1)
         XCTAssertEqual(merged.folderPath, "/b")
+    }
+
+    func testMergingKeepsTheCarriedSelectionWhenNoIncomingRecordRestored() {
+        // The stored project has tabs, but every one of them was skipped — the
+        // files were deleted, renamed, or sit on a volume that is not mounted — so
+        // `restoreSession` left the selection where it was, on a carried tab. The
+        // merged session must say that: shifting the incoming index in would file a
+        // selection pointing at a record no tab exists for, and the next launch
+        // would skip it again and fall back to the *last* carried tab instead of
+        // the one that was really selected.
+        let carried = EditorSession(
+            folderPath: "/b",
+            tabs: [.file(path: "/elsewhere/n.txt"), .untitled(text: "notes")],
+            selectedIndex: 0
+        )
+        let incoming = EditorSession(
+            folderPath: "/b",
+            tabs: [.file(path: "/b/gone.txt")],
+            selectedIndex: 0
+        )
+
+        let merged = EditorSession.merging(incoming, onto: carried, incomingRestoredAny: false)
+
+        // The unrestorable record is still the project's stored tab — a file
+        // missing today may be back tomorrow — it just does not hold the selection.
+        XCTAssertEqual(merged.tabs, [
+            .file(path: "/elsewhere/n.txt"),
+            .untitled(text: "notes"),
+            .file(path: "/b/gone.txt"),
+        ])
+        XCTAssertEqual(merged.selectedIndex, 0)
+        XCTAssertEqual(merged.folderPath, "/b")
+    }
+
+    func testMergingIsIdentityWhenNothingRestoredAndNothingWasCarried() {
+        // Launch restore reaches the carrying branch with nothing open. If the
+        // project's files have all moved, there is no live tab to hold the
+        // selection either — so the entry is filed exactly as it was read, rather
+        // than losing the recorded selection for the launch after this one.
+        let incoming = EditorSession(
+            folderPath: "/b",
+            tabs: [.file(path: "/b/gone.txt"), .file(path: "/b/also-gone.txt")],
+            selectedIndex: 0
+        )
+
+        XCTAssertEqual(
+            EditorSession.merging(incoming, onto: EditorSession(), incomingRestoredAny: false),
+            incoming
+        )
     }
 
     func testMergingFallsBackToIncomingsLastTabWhenItsSelectionIsAbsentOrOutOfRange() {
@@ -202,7 +255,10 @@ final class EditorSessionTests: XCTestCase {
 
         for absent in [nil, 7, -1] {
             let incoming = EditorSession(folderPath: "/b", tabs: tabs, selectedIndex: absent)
-            XCTAssertEqual(EditorSession.merging(incoming, onto: carried).selectedIndex, 2)
+            XCTAssertEqual(
+                EditorSession.merging(incoming, onto: carried, incomingRestoredAny: true).selectedIndex,
+                2
+            )
         }
     }
 
@@ -210,7 +266,10 @@ final class EditorSessionTests: XCTestCase {
         // Launch restore and every re-open reach the carrying branch with nothing
         // open, and must file exactly the entry they read.
         let incoming = EditorSession(folderPath: "/b", tabs: [.file(path: "/b/x.txt")], selectedIndex: 0)
-        XCTAssertEqual(EditorSession.merging(incoming, onto: EditorSession()), incoming)
+        XCTAssertEqual(
+            EditorSession.merging(incoming, onto: EditorSession(), incomingRestoredAny: true),
+            incoming
+        )
     }
 
     // MARK: - SessionTab shape

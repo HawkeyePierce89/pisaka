@@ -248,7 +248,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     spelling for the same reason), while canonicalization is a *matching* rule and
     so lives on the read side, where `restoreSession` applies it for dedup — the
     same store-as-given / match-canonically asymmetry `WorkspaceModel.open(url:)`
-    already has. `EditorSession.merging(_:onto:)` is the second pure rule, for the
+    already has. `EditorSession.merging(_:onto:incomingRestoredAny:)` is the second
+    pure rule, for the
     **one caller that applies a session on top of tabs already open** — the first
     Open Folder of a run, where the no-folder workspace's tabs travel into the
     project instead of being force-closed. It returns what
@@ -256,8 +257,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     *store*: the carried tabs then the incoming ones, under `incoming`'s
     `folderPath`, with `restoreSession`'s own selection rule restated (anything
     restored takes the selection, at the recorded index or — absent/out of range —
-    the incoming session's last tab; an incoming session with no tabs leaves the
-    carried selection standing). It is load-bearing rather than a convenience
+    the incoming session's last tab). **`incomingRestoredAny` is what
+    `restoreSession` actually did** — the `Bool` it returns — and deliberately not
+    read off `incoming.tabs`: a project whose every recorded file has been deleted,
+    renamed or unmounted restores *nothing*, so the selection is still on a carried
+    tab and the stored session has to say so. Shifting the incoming index in anyway
+    would file a selection pointing at a record no tab exists for, and the next
+    launch would skip that record again and fall back to the *last* carried tab
+    instead of the one really selected. The skipped records are still kept (a file
+    missing today may be back tomorrow); they inherit the recorded selection only
+    when there is no carried tab to hold it — which is what keeps the function the
+    identity on an empty `carried`, i.e. at launch restore and at every re-open with
+    nothing open. It is load-bearing rather than a convenience
     because of the switch's store-vs-live invariant, stated in full on
     `SessionController.noteProjectSwitch(promoting:)`: the session filed for the
     incoming project must be a **superset** of what the live model then holds,

@@ -2134,10 +2134,27 @@ final class WorkspaceModelTests: XCTestCase {
         let model = WorkspaceModel(fileService: PathContentsFileService())
         let scratch = model.newFile()
 
-        model.restoreSession(EditorSession(tabs: [.file(path: "/p/gone.txt")], selectedIndex: 0))
+        let restoredAny = model.restoreSession(
+            EditorSession(tabs: [.file(path: "/p/gone.txt")], selectedIndex: 0)
+        )
 
         XCTAssertEqual(model.openFiles.map(\.id), [scratch.id])
         XCTAssertEqual(model.selectedID, scratch.id)
+        // What the caller needs in order to describe this in a *stored* session:
+        // non-empty tabs are not the question, whether any of them became a tab is.
+        XCTAssertFalse(restoredAny)
+        XCTAssertFalse(model.restoreSession(EditorSession()))
+    }
+
+    func testRestoreSessionReportsThatSomethingRestored() {
+        let service = PathContentsFileService(contents: ["/p/a.txt": "alpha"])
+        let model = WorkspaceModel(fileService: service)
+
+        XCTAssertTrue(model.restoreSession(EditorSession(
+            tabs: [.file(path: "/p/gone.txt"), .file(path: "/p/a.txt")],
+            selectedIndex: 0
+        )))
+        XCTAssertEqual(model.openFiles.map(\.displayName), ["a.txt"])
     }
 
     func testRestoreSessionKeepsTabsAlreadyOpenAndSelectsTheRestoredOne() {
@@ -2262,8 +2279,12 @@ final class WorkspaceModelTests: XCTestCase {
             selectedID: model.selectedID,
             projectRoot: folder
         )
-        model.restoreSession(incoming)
-        let promoted = EditorSession.merging(incoming, onto: carried)
+        let restoredAny = model.restoreSession(incoming)
+        let promoted = EditorSession.merging(
+            incoming,
+            onto: carried,
+            incomingRestoredAny: restoredAny
+        )
 
         let defaults = UserDefaults(suiteName: "session.carried.\(UUID().uuidString)")!
         let store = SessionStore(defaults: defaults)
@@ -2287,6 +2308,51 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertEqual(relaunched.openFiles.map(\.displayName), ["Untitled", "x.txt"])
         XCTAssertEqual(relaunched.openFiles.first?.text, "notes typed before any folder was open")
         XCTAssertEqual(relaunched.selectedID, relaunched.openFiles.last?.id)
+    }
+
+    func testAnEntirelyUnrestorableProjectSessionDoesNotStealTheCarriedSelection() {
+        // Same first-Open-Folder path, with the project's stored tab pointing at a
+        // file that is gone. Nothing of it restores, so the selection stays on the
+        // carried tab it was on — and the session filed for the project has to
+        // record *that*, not the incoming index, or the next launch skips the same
+        // record again and falls back to the last carried tab instead.
+        let service = PathContentsFileService(contents: ["/elsewhere/n.txt": "en"])
+        let model = WorkspaceModel(fileService: service)
+        let carriedFile = try! model.open(url: URL(fileURLWithPath: "/elsewhere/n.txt"))
+        let scratch = model.newFile()
+        model.updateText("notes", for: scratch.id)
+        model.select(carriedFile.id)
+
+        let folder = URL(fileURLWithPath: "/b")
+        model.openFolder(url: folder)
+        let incoming = EditorSession(
+            folderPath: folder.path,
+            tabs: [.file(path: "/b/gone.txt")],
+            selectedIndex: 0
+        )
+        let carried = EditorSession.snapshot(
+            openFiles: model.openFiles,
+            selectedID: model.selectedID,
+            projectRoot: folder
+        )
+        let restoredAny = model.restoreSession(incoming)
+        let promoted = EditorSession.merging(
+            incoming,
+            onto: carried,
+            incomingRestoredAny: restoredAny
+        )
+
+        XCTAssertFalse(restoredAny)
+        XCTAssertEqual(model.selectedID, carriedFile.id)
+        // The stored record is kept, the selection is the live one.
+        XCTAssertEqual(promoted.tabs, carried.tabs + incoming.tabs)
+        XCTAssertEqual(promoted.selectedIndex, 0)
+
+        let relaunched = WorkspaceModel(fileService: service)
+        relaunched.restoreSession(promoted)
+
+        XCTAssertEqual(relaunched.openFiles.map(\.displayName), ["n.txt", "Untitled"])
+        XCTAssertEqual(relaunched.selectedID, relaunched.openFiles.first?.id)
     }
 
     // MARK: - Project switch (isCurrentProjectRoot / replaceSession)

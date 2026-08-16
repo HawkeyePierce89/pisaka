@@ -235,7 +235,15 @@ public final class WorkspaceModel: ObservableObject {
     /// the change with Local Changes, the Git Log, the branch switcher, Project
     /// Search and the FSEvents watcher, none of which Core knows about, so it stays
     /// the app layer's job.
-    public func restoreSession(_ session: EditorSession) {
+    ///
+    /// Returns whether **anything** was restored — i.e. whether the selection was
+    /// touched at all. Discardable, because every caller that merely applies a
+    /// session ignores it; the one caller that does not is the first Open Folder of
+    /// a run, which has to file a *stored* session describing what this left behind
+    /// and cannot state the selection without knowing whether the incoming records
+    /// took it (`EditorSession.merging(_:onto:incomingRestoredAny:)`).
+    @discardableResult
+    public func restoreSession(_ session: EditorSession) -> Bool {
         var restoredAny = false
         var selectedFileID: UUID?
         for (index, record) in session.tabs.enumerated() {
@@ -261,8 +269,9 @@ public final class WorkspaceModel: ObservableObject {
         }
         // Nothing this build could turn into a tab — an empty session, or one whose
         // every record was skipped — leaves the selection exactly as it was.
-        guard restoredAny else { return }
+        guard restoredAny else { return false }
         selectedID = selectedFileID ?? openFiles.last?.id
+        return true
     }
 
     /// Bump `treeRevision` so the project tree re-reads its cached directory

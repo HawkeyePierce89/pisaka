@@ -621,7 +621,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `reportUnsavedBeforeCommit`): force-closing a buffer whose contents never
     reached disk destroys the user's work outright, which is strictly worse than
     not switching. Untitled buffers need no flush at all — their text travels
-    *inside* the outgoing snapshot. (4) It persists the outgoing snapshot through
+    *inside* the outgoing snapshot. **That refusal is scoped to `hadFolder`**, the
+    replacing path — the only one that force-closes anything. The carrying path
+    (the asymmetric case below) leaves every tab open, so an unsaved buffer is in
+    no more danger after the open than before it; refusing there would block the
+    first Open Folder of a run over a loss that path cannot cause, with an alert
+    whose "would close them" reason is not even true of it. (4) It persists the outgoing snapshot through
     `sessionController.flushNow()` while `projectRoot` is still the **outgoing**
     folder, which is what keys it correctly, since `SessionStore.save(_:)` is an
     upsert on the snapshot's own `folderPath`. Going through `flushNow()` rather
@@ -648,8 +653,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the same thing, there being nothing open to carry.
     Then `sessionController.noteProjectSwitch(promoting:)` files the session for the
     incoming project at the catalog's head — **the merged one in the carrying case**
-    (`EditorSession.merging(_:onto:)` over a snapshot taken just before
-    `restoreSession` appends), the incoming entry itself otherwise. The distinction
+    (`EditorSession.merging(_:onto:incomingRestoredAny:)` over a snapshot taken just
+    before `restoreSession` appends, told by `restoreSession`'s own return value
+    whether any incoming record actually became a tab — so a project whose files
+    have all moved cannot file a selection pointing at a record nothing restored),
+    the incoming entry itself otherwise. The distinction
     is load-bearing rather than tidy, and is the superset invariant stated below:
     promoting the unmerged entry would leave the carried tabs on screen but
     *unwritable* for the rest of the run — the seeded marker suppresses the quit-time
