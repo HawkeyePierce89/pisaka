@@ -488,8 +488,8 @@ final class ReleaseWorkflowTests: XCTestCase {
         // mechanism.
         //
         // These are the two failures with the least legible bare output in the
-        // file — `base64: Invalid character in input stream.` for a truncated
-        // paste, `SecKeychainItemImport: MAC verification failed` for a password
+        // file — `base64: Invalid character in input stream.` for a mis-pasted
+        // body, `SecKeychainItemImport: MAC verification failed` for a password
         // that belongs to a different .p12 — and they are fixed by editing
         // *different* secrets, which is exactly the case docs/RELEASING.md warns
         // about when only one of the pair is rotated. Bare, both still stop the
@@ -497,14 +497,21 @@ final class ReleaseWorkflowTests: XCTestCase {
         // run stopping with a message that names which secret to replace, in a
         // step no PR can exercise.
         //
+        // The two refusals do not partition the causes cleanly, and the workflow
+        // says so rather than pretending otherwise: `base64 --decode` rejects
+        // invalid characters, not a short body, so a paste truncated at a
+        // multiple of four bytes decodes into a partial .p12 and arrives at the
+        // import refusal. That is why the import message names both halves
+        // instead of concluding "the decode succeeded, so it is the password".
+        //
         // The decode is guarded with `|| { … }` rather than `if !` because the
         // umask assertion above reads the decode line itself, so the scan for
         // its `exit 1` is spelled out instead of going through
         // `assertGuardExits`.
         XCTAssertTrue(script[decode].hasSuffix("|| {"), """
-            The base64 decode of DEVELOPER_ID_CERT_P12 must be guarded. Bare, a truncated or \
-            mis-pasted secret ends the step with `base64: Invalid character in input stream.` and \
-            names neither the secret nor how to regenerate it. Got “\(script[decode])”.
+            The base64 decode of DEVELOPER_ID_CERT_P12 must be guarded. Bare, a mis-pasted secret \
+            ends the step with `base64: Invalid character in input stream.` and names neither the \
+            secret nor how to regenerate it. Got “\(script[decode])”.
             """)
         let decodeRefuses = script[(decode + 1)...].prefix(while: { $0 != "}" }).contains("exit 1")
         XCTAssertTrue(decodeRefuses, """
@@ -515,8 +522,9 @@ final class ReleaseWorkflowTests: XCTestCase {
         assertGuardExits("security import", in: script, step: Self.certificateStepName, because: """
             a bare `security import` fails a wrong DEVELOPER_ID_CERT_PASSWORD as \
             `SecKeychainItemImport: MAC verification failed`, which names no secret — and the two \
-            certificate secrets are a pair, so the reader has to be told it is the password and \
-            not the .p12 that is wrong
+            certificate secrets are a pair, either of which can be the broken half here, so the \
+            reader has to be told which two to look at and that the decode having passed rules \
+            out neither
             """)
 
         // The search list is prepended to, not replaced, and the previous value
@@ -1557,22 +1565,50 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// single `grep -E 'CFBundleVersion|…|SUFeedURL'` over the whole dump
     /// succeeds when *any* alternative matches, and `CFBundleVersion` is always
     /// generated, so the Sparkle keys could vanish with the step still green.
+    ///
+    /// The key set is read out of the `for KEY in …` list itself and compared by
+    /// equality, not searched for anywhere in the file. Two of these four keys
+    /// are also named in the loop's own `::error::` text — which is an `echo`,
+    /// not a comment, so this suite's comment-stripping does not remove it — and
+    /// a whole-file `contains(key)` is therefore satisfied by the refusal message
+    /// of a loop that no longer checks them. Dropping `SUFeedURL` and
+    /// `SUPublicEDKey` from the list left this suite green before the set
+    /// comparison replaced it, which is exactly the "a literal mention stands in
+    /// for the live setting" failure the type doc says every assertion here must
+    /// be immune to. Equality rather than containment additionally catches a key
+    /// added to the loop that nothing in this suite knows about.
     func testArchivedAppIsVerifiedForEachRequiredInfoPlistKeySeparately() throws {
-        let text = try activeText()
-
-        XCTAssertTrue(text.contains("plutil -extract"), """
-            The archived app's Info.plist must be checked key by key with `plutil -extract`, which \
-            exits non-zero on an absent key. A `grep -E` alternation cannot fail for an individual \
-            key — see this test's doc comment.
+        let script = try stepScript(named: Self.verifyStepName, because: """
+            It is the step that reads the merged Info.plist back out of the archived bundle.
             """)
-        for key in ["CFBundleVersion", "CFBundleShortVersionString", "SUFeedURL", "SUPublicEDKey"] {
-            XCTAssertTrue(text.contains(key), """
-                release.yml must verify \(key) is present in the archived app's Info.plist. \
-                Without SUFeedURL or SUPublicEDKey the shipped app can never find or verify an \
-                update, and nothing in the build fails.
-                """)
-        }
-        XCTAssertFalse(text.contains("plutil -p"), """
+
+        XCTAssertTrue(script.contains { $0.contains("plutil -extract") }, """
+            release.yml's `\(Self.verifyStepName)` step must check the archived app's Info.plist \
+            key by key with `plutil -extract`, which exits non-zero on an absent key. A `grep -E` \
+            alternation cannot fail for an individual key — see this test's doc comment.
+            """)
+
+        let loop = try XCTUnwrap(script.first { $0.hasPrefix("for KEY in ") }, """
+            release.yml's `\(Self.verifyStepName)` step no longer iterates the required Info.plist \
+            keys with a `for KEY in …` list. This suite reads the checked keys out of that list; \
+            without it, nothing can tell a key that is verified from a key that is merely \
+            mentioned in the step's refusal message.
+            """)
+        let checked = Set(loop
+            .dropFirst("for KEY in ".count)
+            .components(separatedBy: .whitespaces)
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ";")) }
+            .filter { !$0.isEmpty && $0 != "do" })
+
+        XCTAssertEqual(checked, ["CFBundleVersion", "CFBundleShortVersionString", "SUFeedURL", "SUPublicEDKey"], """
+            release.yml must verify exactly these Info.plist keys on the archived app, and this \
+            suite must know about every key it verifies. The two Sparkle keys come from the \
+            partial Resources/Info.plist that Xcode merges in — without SUFeedURL or SUPublicEDKey \
+            the shipped app can never find or verify an update, and nothing else in the build \
+            fails. Found: \(checked.sorted()).
+            """)
+
+        XCTAssertFalse(script.contains { $0.contains("plutil -p") }, """
             release.yml still dumps the plist with `plutil -p` and greps it. That check passes as \
             long as *one* of the keys it names is present; use per-key `plutil -extract`.
             """)

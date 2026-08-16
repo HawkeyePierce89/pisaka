@@ -244,15 +244,20 @@ jobs:
           # notarization step is written the same way for the same reason.
           # Both halves of the certificate secret are wrapped, like every other
           # refusal in this file, because bare they are the two least legible
-          # failures in the whole workflow: a truncated or mis-pasted base64 body
-          # ends the step with `base64: Invalid character in input stream.` and a
-          # password that does not belong to this .p12 ends it with
+          # failures in the whole workflow: a mis-pasted base64 body ends the step
+          # with `base64: Invalid character in input stream.` and a password that
+          # does not belong to this .p12 ends it with
           # `SecKeychainItemImport: MAC verification failed`. Neither names a
           # secret, and the two are fixed by editing *different* ones — which is
           # the case docs/RELEASING.md warns about when only one of the pair is
-          # rotated.
+          # rotated. The split between the two refusals is not clean and is not
+          # claimed to be: `base64 --decode` rejects invalid *characters*, not a
+          # short body, so a paste truncated at a multiple of four bytes decodes
+          # into a partial file and surfaces as the import failure below — which
+          # is why that message names both secrets rather than blaming the
+          # password on the strength of the decode having succeeded.
           (umask 077; printf '%s' "$DEVELOPER_ID_CERT_P12" | base64 --decode > "$CERTIFICATE") || {
-            echo "::error::DEVELOPER_ID_CERT_P12 does not decode as base64. The secret holds the .p12 base64-encoded with no wrapping; a truncated paste or a raw binary upload both land here. Re-run \`base64 -i Certificates.p12 | pbcopy\` and replace the secret. See docs/RELEASING.md."
+            echo "::error::DEVELOPER_ID_CERT_P12 does not decode as base64. The secret holds the .p12 base64-encoded with no wrapping; a raw binary upload and a paste that lost characters both land here. Re-run \`base64 -i Certificates.p12 | pbcopy\` and replace the secret. See docs/RELEASING.md."
             exit 1
           }
           if ! security import "$CERTIFICATE" -k "$KEYCHAIN" -P "$DEVELOPER_ID_CERT_PASSWORD" \
@@ -261,7 +266,7 @@ jobs:
             # whether the file was written, and a step that exits with the private
             # key still on disk leans on the cleanup step it exists to back up.
             rm -f "$CERTIFICATE"
-            echo "::error::Importing the Developer ID certificate failed. The decode above succeeded, so the likely cause is DEVELOPER_ID_CERT_PASSWORD not being the password this .p12 was exported with (security reports \"MAC verification failed\"). The two secrets are a pair and must be replaced together. See docs/RELEASING.md."
+            echo "::error::Importing the Developer ID certificate failed. Two causes reach here and the decode above rules out neither: DEVELOPER_ID_CERT_PASSWORD not being the password this .p12 was exported with (security reports \"MAC verification failed\"), or DEVELOPER_ID_CERT_P12 being truncated at a multiple of four bytes — base64 only rejects invalid characters, so a short paste decodes cleanly into a partial file. Read security's own message above, then replace both secrets together; they are a pair. See docs/RELEASING.md."
             exit 1
           fi
           # The decoded private key does not outlive the step that needed it.
@@ -303,14 +308,23 @@ jobs:
           # Apple Development identity for the same team would otherwise archive
           # happily and be rejected by the notary service.
           IDENTITIES="$(security find-identity -v -p codesigning "$KEYCHAIN")"
+          # The listing the guard actually judges, not a second `find-identity`
+          # run for the log: two invocations can disagree, and the one shown
+          # would then not be the one that was judged.
+          #
+          # Printed *before* it is judged, like the codesign dump in the
+          # verification step below, because the failing path is the one that
+          # needs it. The refusal covers four different causes — the wrong
+          # certificate type, the wrong team, an expired certificate, and a .p12
+          # exported without its private key (`find-identity` exits 0 with
+          # "0 valid identities found") — that need four different fixes, and
+          # the canned message alone cannot tell them apart. This step is
+          # reachable only from a tag, so there is no cheap second look.
+          printf '%s\n' "$IDENTITIES"
           if ! printf '%s\n' "$IDENTITIES" | grep -q 'Developer ID Application:.*(XJT3LK36GS)'; then
             echo "::error::The imported certificate is not a Developer ID Application identity for team XJT3LK36GS. An Apple Development or Mac Developer certificate signs the archive but is rejected by the notary service twenty minutes later, and an expired one is not listed here at all. Re-export the Developer ID Application certificate *with its private key* from Keychain Access and replace DEVELOPER_ID_CERT_P12 and DEVELOPER_ID_CERT_PASSWORD together. See docs/RELEASING.md."
             exit 1
           fi
-          # The listing the guard actually judged, not a second `find-identity`
-          # run for the log: two invocations can disagree, and the one shown
-          # would then not be the one that passed.
-          printf '%s\n' "$IDENTITIES"
 
       # Pinned the same way XcodeGen is: exact URL, digest checked before
       # anything is extracted or executed.

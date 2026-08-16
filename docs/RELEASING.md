@@ -389,15 +389,23 @@ The workflow then, in order:
     to every key item in the keychain), the keychain prepended to the user search
     list — and cheap refusals ten through twelve, one per way the certificate
     pair can be wrong: the base64 body not decoding (`DEVELOPER_ID_CERT_P12`
-    truncated or pasted raw), `security import` failing on it
+    pasted raw or with characters lost), `security import` failing on it
     (`DEVELOPER_ID_CERT_PASSWORD` belonging to some other export — the pair
-    rotated by halves, the case flagged above), and
+    rotated by halves, the case flagged above — *or* a `.p12` truncated at a
+    multiple of four bytes, since `base64 --decode` rejects invalid characters
+    and not a short body, so that paste decodes cleanly into a partial file and
+    arrives here; the refusal names both halves rather than blaming the password
+    on the strength of the decode having passed), and
     `security find-identity -v -p codesigning` showing a Developer ID
-    Application identity for team `XJT3LK36GS`. The first two are wrapped rather
-    than left bare not because bare would continue — `set -e` stops either way —
-    but because `base64: Invalid character in input stream.` and
-    `SecKeychainItemImport: MAC verification failed` name neither a secret nor
-    which of the two to replace, and they are fixed by editing *different* ones.
+    Application identity for team `XJT3LK36GS` — whose listing is printed before
+    it is judged, because that refusal covers four causes (wrong certificate
+    type, wrong team, expired, exported without its private key) needing four
+    different fixes, and only the listing tells them apart. The first two are
+    wrapped rather than left bare not because bare would continue — `set -e`
+    stops either way — but because `base64: Invalid character in input stream.`
+    and `SecKeychainItemImport: MAC verification failed` name neither a secret
+    nor which of the two to replace, and they are fixed by editing *different*
+    ones.
     Mechanics and rationale are in
     [the one-time setup above](#one-time-setup-the-developer-id-certificate-and-the-notarization-key).
   - Sparkle 2.9.5's release tools, pinned exactly as XcodeGen is (the tarball URL
