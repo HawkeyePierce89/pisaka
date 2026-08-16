@@ -11,8 +11,9 @@ import WebKit
 /// `LeetCodeLoginObserver`, which is where the cookie watching lives so the two
 /// cannot drift apart about what a successful login is. See that file and the
 /// macOS one for why this is a real web view rather than a form (no API key, no
-/// OAuth, and SSO accounts a scripted login could not serve) and why the screen
-/// dismisses before the confirmation round trip finishes.
+/// OAuth, and SSO accounts a scripted login could not serve), why the cover comes
+/// down only after `LeetCodeLoginGate` has confirmed the session with LeetCode,
+/// and why the confirmation on the model then runs behind the dismissal anyway.
 ///
 /// **Full screen rather than a sheet**, unlike most secondary surfaces here: a
 /// login page — especially an SSO provider's, mid-redirect — is a full web page
@@ -27,12 +28,13 @@ struct LeetCodeLoginView_iOS: View {
     /// state put it up.
     var onDismiss: () -> Void
 
-    /// The view's own half of "fires once" — the observer has the other half.
+    /// The view's own half of "fires once" — the gate behind the observer has the
+    /// other half.
     @State private var didCapture = false
 
     var body: some View {
         NavigationStack {
-            LeetCodeLoginWebView_iOS(onCredentials: capture)
+            LeetCodeLoginWebView_iOS(model: model, onCredentials: capture)
                 .ignoresSafeArea(edges: .bottom)
                 .navigationTitle("Sign In to LeetCode")
                 .navigationBarTitleDisplayMode(.inline)
@@ -58,10 +60,16 @@ struct LeetCodeLoginView_iOS: View {
 /// The `WKWebView` itself. Holds nothing: the observer is the coordinator, and it
 /// builds and owns the configuration.
 private struct LeetCodeLoginWebView_iOS: UIViewRepresentable {
+    /// Only used to vend the coordinator's gate — this view observes nothing.
+    let model: LeetCodeModel
+
     let onCredentials: (LeetCodeCredentials) -> Void
 
+    /// Built once per cover, which is exactly the gate's intended scope: its
+    /// one-shot latch and its rejected-value memo belong to this login attempt,
+    /// so a second attempt after a failed one starts clean.
     func makeCoordinator() -> LeetCodeLoginObserver {
-        LeetCodeLoginObserver(onCredentials: onCredentials)
+        LeetCodeLoginObserver(gate: model.makeLoginGate(), onCredentials: onCredentials)
     }
 
     func makeUIView(context: Context) -> WKWebView {

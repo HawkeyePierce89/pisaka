@@ -40,16 +40,22 @@ enum LeetCodeWebSession {
     /// The one cookie store both login views read and both sign-outs purge.
     static var dataStore: WKWebsiteDataStore { .default() }
 
-    /// The session the cookie store currently holds, or `nil` when the user is
-    /// not (yet) signed in.
+    /// The session pair the cookie store currently holds — a *candidate*, not a
+    /// login — or `nil` when the two cookies are not both there.
     ///
-    /// The decision itself is Core's (`LeetCodeCredentials.from(cookies:)`) — the
-    /// observers on both platforms are untested view code, so *when a login
-    /// succeeded* must not be decided in either of them. What this adds is the
-    /// domain filter, which Core cannot apply because a `(name, value)` pair
-    /// carries no domain: an SSO detour visits the provider's own site inside this
-    /// same web view, and a `csrftoken` set by whoever that is must not be mistaken
-    /// for LeetCode's.
+    /// Both cookies being present does **not** mean the user signed in: LeetCode's
+    /// SSO runs through django-allauth, which creates an anonymous Django session
+    /// (and so sets `LEETCODE_SESSION`) at `/accounts/<provider>/login/`, on the way
+    /// *out* to GitHub or Google. Turning a candidate into a session is
+    /// `LeetCodeLoginGate`'s job, in Core, by asking LeetCode; see that type.
+    ///
+    /// The parsing decision itself is Core's too
+    /// (`LeetCodeCredentials.from(cookies:)`) — the observers on both platforms are
+    /// untested view code, so nothing about *what a login is* may be decided in
+    /// either of them. What this adds is the domain filter, which Core cannot apply
+    /// because a `(name, value)` pair carries no domain: an SSO detour visits the
+    /// provider's own site inside this same web view, and a `csrftoken` set by
+    /// whoever that is must not be mistaken for LeetCode's.
     static func credentials(in store: WKHTTPCookieStore) async -> LeetCodeCredentials? {
         let cookies = await allCookies(in: store)
         return LeetCodeCredentials.from(
@@ -139,17 +145,29 @@ enum LeetCodeWebSession {
 /// post-login page already carries the session — but a page that stalls on a
 /// slow subresource would otherwise delay the sheet's dismissal for no reason,
 /// and one that sets the cookie from script after load is caught by the later
-/// check. `hasCaptured` makes the pair idempotent: the sign-in confirmation is a
-/// network call and a Keychain write, and firing it twice would race two
-/// `signIn`s against each other for no gain.
+/// check.
+///
+/// **What the cookies produce is a candidate, and the gate decides.** Every check
+/// hands the pair to `LeetCodeLoginGate`, which asks LeetCode whether that session
+/// is signed in and answers `nil` for the anonymous one django-allauth sets on the
+/// way out to an SSO provider; only what the gate hands back reaches
+/// `onCredentials`, so the sheet stays open for the whole OAuth round trip. The
+/// gate is also the *single* latch — this observer keeps no `hasCaptured` of its
+/// own, because "did the login succeed" is a decision and decisions belong in
+/// tested Core code. Idempotence still matters for the same reason it always did:
+/// the sign-in confirmation is a network call and a Keychain write, and firing it
+/// twice would race two `signIn`s against each other for no gain.
 @MainActor
 final class LeetCodeLoginObserver: NSObject, WKNavigationDelegate {
-    /// Handed the session the moment one appears — exactly once.
+    /// Handed the session once the gate confirms one — exactly once.
     var onCredentials: (LeetCodeCredentials) -> Void
 
-    private var hasCaptured = false
+    /// The confirmation policy, one per login surface (built in the
+    /// representable's `makeCoordinator()`, never in `body`).
+    private let gate: LeetCodeLoginGate
 
-    init(onCredentials: @escaping (LeetCodeCredentials) -> Void) {
+    init(gate: LeetCodeLoginGate, onCredentials: @escaping (LeetCodeCredentials) -> Void) {
+        self.gate = gate
         self.onCredentials = onCredentials
     }
 
@@ -195,16 +213,16 @@ final class LeetCodeLoginObserver: NSObject, WKNavigationDelegate {
     }
 
     private func captureIfSignedIn(in webView: WKWebView) {
-        guard !hasCaptured else { return }
         let store = webView.configuration.websiteDataStore.httpCookieStore
         Task { @MainActor in
-            guard let credentials = await LeetCodeWebSession.credentials(in: store)
+            guard let candidate = await LeetCodeWebSession.credentials(in: store)
             else { return }
-            // Checked and set *after* the store read's suspension, in one
-            // synchronous step: two navigations can be in flight, and a check made
-            // before the read would let both of them through it.
-            guard !self.hasCaptured else { return }
-            self.hasCaptured = true
+            // No local guard around this: the gate is the one-shot, and it applies
+            // it *after* its own suspension, so two navigations in flight still
+            // fire once between them. It also memoizes rejected values, so the
+            // several checks of one OAuth round trip cost one request, not one
+            // each.
+            guard let credentials = await self.gate.offer(candidate) else { return }
             self.onCredentials(credentials)
         }
     }

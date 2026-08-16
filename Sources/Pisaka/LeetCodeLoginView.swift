@@ -13,19 +13,24 @@ import WebKit
 /// would in Safari, the app never sees a password, and this file holds no
 /// knowledge of LeetCode's login markup that could break when the page changes.
 ///
-/// Every decision worth being right about lives elsewhere: what counts as a
-/// session is `LeetCodeCredentials.from(cookies:)` in Core, when to look is
+/// Every decision worth being right about lives elsewhere: what the cookies parse
+/// to is `LeetCodeCredentials.from(cookies:)` in Core, whether that pair is
+/// actually a session is `LeetCodeLoginGate`, when to look is
 /// `LeetCodeLoginObserver`, and what a captured session *does* — save to the
 /// Keychain, confirm with the user-status call, publish the name — is
 /// `LeetCodeModel.signIn(with:)`. This view is the chrome around them, untested
 /// like the rest of the app layer.
 ///
-/// **Dismiss first, confirm behind it.** The moment the cookies appear the sheet
-/// goes away and the confirmation round trip runs on the model, which is where
-/// the result belongs anyway: `signedInUsername` fills in when it lands and
+/// **Confirm, then dismiss.** The sheet comes down only once LeetCode has
+/// confirmed the session the cookie store produced — the cookie pair alone is a
+/// candidate, and django-allauth hands one out mid-SSO while the user is still
+/// anonymous, so dismissing on it ended the round trip halfway. Everything after
+/// that dismissal is unchanged and stays deliberately tolerant: `signIn` confirms
+/// once more on the model, `signedInUsername` fills in when it lands and
 /// `lastError` if it does not. Holding a modal web view open over a spinner would
 /// make an offline moment look like a failed login, when the session in hand is
-/// perfectly good and the name is the only thing missing.
+/// perfectly good and the name is the only thing missing — which is also why the
+/// gate itself accepts a candidate it could not reach LeetCode to check.
 struct LeetCodeLoginView: View {
     @ObservedObject var model: LeetCodeModel
 
@@ -54,7 +59,7 @@ struct LeetCodeLoginView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            LeetCodeLoginWebView(onCredentials: capture)
+            LeetCodeLoginWebView(model: model, onCredentials: capture)
             Divider()
             footer
         }
@@ -114,10 +119,16 @@ struct LeetCodeLoginView: View {
 /// The `WKWebView` itself. Holds nothing: the observer is the coordinator, and it
 /// is the one that builds and owns the configuration.
 private struct LeetCodeLoginWebView: NSViewRepresentable {
+    /// Only used to vend the coordinator's gate — this view observes nothing.
+    let model: LeetCodeModel
+
     let onCredentials: (LeetCodeCredentials) -> Void
 
+    /// Built once per sheet, which is exactly the gate's intended scope: its
+    /// one-shot latch and its rejected-value memo belong to this login attempt,
+    /// so a second sheet after a failed one starts clean.
     func makeCoordinator() -> LeetCodeLoginObserver {
-        LeetCodeLoginObserver(onCredentials: onCredentials)
+        LeetCodeLoginObserver(gate: model.makeLoginGate(), onCredentials: onCredentials)
     }
 
     func makeNSView(context: Context) -> WKWebView {

@@ -165,26 +165,26 @@ its own; the gate is the single latch, and it is unit-tested.
 - Modify: `Sources/Pisaka/LeetCodeLoginView.swift`
 - Modify: `Sources/Pisaka/iOS/LeetCodeLoginView_iOS.swift`
 
-- [ ] Give `LeetCodeLoginObserver` a `LeetCodeLoginGate` at init and route every
+- [x] Give `LeetCodeLoginObserver` a `LeetCodeLoginGate` at init and route every
       check through it: read the cookies (unchanged, including the
       `leetcode.com` domain filter), build the candidate with
       `LeetCodeCredentials.from(cookies:)`, offer it to the gate, and fire
       `onCredentials` only for what the gate hands back.
-- [ ] Remove the observer's own `hasCaptured` so there is exactly one latch, in
+- [x] Remove the observer's own `hasCaptured` so there is exactly one latch, in
       tested Core code; keep the two check points (`didCommit`, `didFinish`) and
       the existing pre-load cookie purge in `makeWebView()` exactly as they are.
-- [ ] Update the observer's and `LeetCodeWebSession.credentials(in:)`'s doc
+- [x] Update the observer's and `LeetCodeWebSession.credentials(in:)`'s doc
       comments: what the cookie read now produces is a *candidate*, and the
       sheet stays open until LeetCode confirms one.
-- [ ] Pass the model into both private representables and build the coordinator
+- [x] Pass the model into both private representables and build the coordinator
       as `LeetCodeLoginObserver(gate: model.makeLoginGate(), onCredentials: capture)`
       in `makeCoordinator()` — once per surface, never in `body`.
       `updateNSView`/`updateUIView` keep re-pointing the callback only and still
       never reload.
-- [ ] Update the macOS view's "Dismiss first, confirm behind it" note: dismissal
+- [x] Update the macOS view's "Dismiss first, confirm behind it" note: dismissal
       now happens only after LeetCode has confirmed the session, and the tolerant
       post-dismissal confirmation stays for the offline case.
-- [ ] Run `swift test`, then `xcodegen generate` and both builds (macOS and iOS
+- [x] Run `swift test`, then `xcodegen generate` and both builds (macOS and iOS
       Simulator) — all must be green before Task 4. (No new Core tests here:
       view code is untested by convention; the decision it lost lives in Task 1's
       suite.)
