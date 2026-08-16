@@ -369,9 +369,27 @@ final class ReleaseMetadataTests: XCTestCase {
     /// The `[sdk=macosx*]` condition is asserted verbatim rather than looked for
     /// loosely, because the unconditional key must *stay* — rewriting it instead
     /// of conditioning it would fix macOS by breaking iOS, which is the same bug
-    /// with the destinations swapped.
+    /// with the destinations swapped. That mirror-image regression is what the
+    /// *second* assertion below covers: `project.yml` deliberately declares no
+    /// unconditional `LD_RUNPATH_SEARCH_PATHS` at all, leaving XcodeGen's
+    /// iOS-shaped preset in place, so any bare key here is an override of it.
+    /// Asserting the conditional key alone cannot see that — a "simplification"
+    /// that added `LD_RUNPATH_SEARCH_PATHS: [..., "@executable_path/../Frameworks"]`
+    /// beside it would leave this suite green while the iOS app stopped finding
+    /// its frameworks, and CI boots no simulator, so nothing else would notice
+    /// either (the same blind spot, on the destination that still has no
+    /// runtime gate).
     func testProjectPinsTheMacOSRunpath() throws {
         let settings = try activeProjectLines()
+
+        XCTAssertFalse(settings.contains { $0.hasPrefix("LD_RUNPATH_SEARCH_PATHS:") }, """
+            project.yml now sets an unconditional LD_RUNPATH_SEARCH_PATHS, which overrides \
+            XcodeGen's preset on *both* destinations. The macOS value belongs under \
+            [sdk=macosx*]; iOS must keep the preset (@executable_path/Frameworks), because a \
+            macOS-shaped runpath on iOS is the same dynamic-link failure v1.0 shipped, with the \
+            destinations swapped — and there is no iOS smoke launch to catch it (CI runs no \
+            simulator). Condition the setting instead of replacing it.
+            """)
 
         XCTAssertTrue(settings.contains(consecutively: """
             LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]:

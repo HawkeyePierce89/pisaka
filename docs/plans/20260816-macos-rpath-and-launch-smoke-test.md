@@ -543,33 +543,44 @@ byte-identical.
 
 ### Task 6: Update documentation index
 
-- [x] No `README.md` change — this is not user-facing (state it rather than
-      leaving it implicit).
+- [x] `README.md`: judged unnecessary here, then changed in review (see the
+      correction below) — the decision and its reversal are both stated rather
+      than left implicit.
 - [x] Confirm `CLAUDE.md` and `docs/architecture/core-services.md` were updated
       per convention in Task 4 and that the per-file index needs no new entry (no
       new source file was added).
 
 **Task 6 completion notes**
 
-**`README.md` is deliberately unchanged, and this is the statement of that.**
-`README.md` documents what a user of the editor can do — the feature list and the
-shortcuts, with the detail in `docs/FEATURES.md`. Everything this plan shipped is
-invisible from there: a linker search path, two CI steps, the static pins that
-hold them and the release documentation around them. The user-visible half of the
-incident — that `v1.0` would not open — is a fixed defect, not a feature to
-describe; a README that started narrating its own build settings would be
-documenting the pipeline in the one file that is not about the pipeline. The
-release-facing account lives in `docs/RELEASING.md`, the design rationale in
+**Originally: `README.md` deliberately unchanged.** `README.md` documents what a
+user of the editor can do — the feature list and the shortcuts, with the detail
+in `docs/FEATURES.md`. Most of what this plan shipped is invisible from there: a
+linker search path, the static pins that hold it and the release documentation
+around them. The user-visible half of the incident — that `v1.0` would not
+open — is a fixed defect, not a feature to describe; a README that started
+narrating its own build settings would be documenting the pipeline in the one
+file that is not about the pipeline. The release-facing account lives in
+`docs/RELEASING.md`, the design rationale in
 `docs/architecture/core-services.md`, and the index-level clauses in `CLAUDE.md`,
 which is where the repository's own placement convention sends each of them.
 
-Both convention checks confirmed against the branch rather than recalled:
+**Corrected in review: `README.md` *was* changed, in commit `765d944`.** The
+reasoning above holds for the build setting and misses the two CI steps: this
+README does not only describe the editor — its "Releasing" and CI paragraphs
+already enumerate the pipeline step by step, and leaving them untouched meant
+the one step that *executes the product* was the only one missing from an
+otherwise complete list. That is a description gone stale, not placement
+detail leaking upward, so both paragraphs now name the smoke launch (and the
+absence of an iOS equivalent). The paragraph above is kept rather than
+rewritten because the note it belongs to is this branch's record of what was
+decided *and* of what review corrected.
+
+The convention check, re-run after that commit rather than recalled:
 
 - `git diff --name-only master...HEAD` lists exactly `project.yml`, the two
-  workflows, the two test files, `CLAUDE.md`, `docs/RELEASING.md`,
-  `docs/architecture/core-services.md` and this plan. `README.md` is absent, and
-  so is all of `Sources/` — `git diff --stat master...HEAD -- Sources/ README.md`
-  is empty.
+  workflows, the two test files, `README.md`, `CLAUDE.md`, `docs/RELEASING.md`,
+  `docs/architecture/core-services.md` and this plan. All of `Sources/` is
+  absent — `git diff --stat master...HEAD -- Sources/` is empty.
 - `docs/architecture/core-services.md:616` carries
   `### The macOS runpath, and the one gate that can see it`, and `CLAUDE.md`
   carries the runpath pin on the `ReleaseMetadataTests` sentence (line 370), the
