@@ -221,6 +221,19 @@ struct ContentView: View {
                 bottomPanel.wrappedValue = nil
             }
         }
+        // The terminal zone's size, pushed into the live sessions the way the
+        // theme is — but from the *window root* rather than from the panel,
+        // because a session can be created while the panel is not on screen
+        // (⌘R/⌘U make one and only then show the panel) and because the panel is
+        // torn down whenever the dock shows Log or Changes instead. Seeding on
+        // appear is what lets `TerminalSessionsModel` size those later sessions
+        // correctly; the `onChange` carries a Preferences edit or a zoom gesture
+        // to every session, active or not. Both are no-ops for a session already
+        // at that size.
+        .onAppear { terminalSessions.applyFontSize(settings.terminalFontSize) }
+        .onChange(of: settings.terminalFontSize) { size in
+            terminalSessions.applyFontSize(size)
+        }
         // Ask the model what statement — if any — belongs to the tab the user is
         // looking at. Attached to the window root rather than to the pane
         // because the pane renders nothing until this has produced something,

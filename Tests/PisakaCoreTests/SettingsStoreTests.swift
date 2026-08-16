@@ -326,6 +326,49 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.interfaceScale, ZoomScaleRule.interfaceScale.defaultValue)
     }
 
+    // MARK: - The terminal zone and its Preferences row
+
+    func testTerminalZoomStepsOnePointAtATimeThroughTheZoneAPI() {
+        // What the app layer actually pushes into the live sessions: whole point
+        // sizes, one per step, from SwiftTerm's own default.
+        let store = SettingsStore(defaults: makeDefaults())
+
+        store.stepZoom(.terminal, by: 1)
+        XCTAssertEqual(store.terminalFontSize, 14)
+        store.stepZoom(.terminal, by: 3)
+        XCTAssertEqual(store.terminalFontSize, 17)
+        store.stepZoom(.terminal, by: -5)
+        XCTAssertEqual(store.terminalFontSize, 12)
+
+        // …and the same value read back through the zone-keyed accessor the
+        // controller uses, so neither surface needs to know which property holds
+        // it.
+        XCTAssertEqual(store.scale(for: .terminal), store.terminalFontSize)
+    }
+
+    func testThePreferencesStepperCannotLeaveTheTerminalZoomGrid() {
+        // The Preferences row declares its bounds and step straight from
+        // `ZoomScaleRule.terminalFont`, so it cannot present a value the store
+        // would clamp away — asserted here rather than in the (untested) view.
+        let rule = ZoomScaleRule.terminalFont
+        let store = SettingsStore(defaults: makeDefaults())
+
+        store.terminalFontSize = rule.minimum
+        XCTAssertEqual(store.terminalFontSize, rule.minimum, "the stepper's lower bound is clamped away")
+        store.terminalFontSize = rule.maximum
+        XCTAssertEqual(store.terminalFontSize, rule.maximum, "the stepper's upper bound is clamped away")
+
+        // A stepper press and a zoom step move by the same amount from the same
+        // place, so the two surfaces can never drift apart the way two
+        // independent step constants would.
+        store.terminalFontSize = rule.defaultValue
+        store.terminalFontSize += rule.step
+        let byStepper = store.terminalFontSize
+        store.resetZoom(.terminal)
+        store.stepZoom(.terminal, by: 1)
+        XCTAssertEqual(store.terminalFontSize, byStepper)
+    }
+
     func testTheThreeScalesRoundTripAcrossAFreshStore() {
         let defaults = makeDefaults()
 

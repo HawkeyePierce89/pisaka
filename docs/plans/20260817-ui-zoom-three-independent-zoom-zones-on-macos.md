@@ -220,19 +220,19 @@ the theme already is, and a Preferences row beside the editor's.
   `TerminalPanelView.swift`, `ContentView.swift`, `SettingsView.swift`
 - Modify: `Tests/PisakaCoreTests/SettingsStoreTests.swift`
 
-- [ ] `TerminalSession.applyFont(size:)` setting `terminalView.font` to a
+- [x] `TerminalSession.applyFont(size:)` setting `terminalView.font` to a
       monospaced system font, guarded like `applyTheme` so a no-op assignment
       does not disturb a running session
-- [ ] `TerminalSessionsModel.applyFontSize(_:)` fanning it over every session,
+- [x] `TerminalSessionsModel.applyFontSize(_:)` fanning it over every session,
       and applying the current size to each newly created session
-- [ ] Wire the size from `settings.terminalFontSize` at creation and on change
+- [x] Wire the size from `settings.terminalFontSize` at creation and on change
       (the `applyTheme` precedent), leaving the panel's tab strip on the
       *interface* zone
-- [ ] Preferences: a "Terminal font size" stepper beside the editor's, sharing
+- [x] Preferences: a "Terminal font size" stepper beside the editor's, sharing
       the store's clamping
-- [ ] Extend the settings tests with the terminal size's stepping/clamping
+- [x] Extend the settings tests with the terminal size's stepping/clamping
       through the zone-keyed API
-- [ ] run `swift test` — must pass before Task 5
+- [x] run `swift test` — must pass before Task 5
 
 ### Task 5: App — interface scale plumbing and the main window sweep
 

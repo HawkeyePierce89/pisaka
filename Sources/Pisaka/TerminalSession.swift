@@ -103,6 +103,38 @@ final class TerminalSession: Identifiable {
         TerminalTheme.apply(to: terminalView, appearance: appearance)
     }
 
+    /// The point size this session's font currently carries, or `nil` while it
+    /// still carries SwiftTerm's own default font.
+    private var appliedFontSize: Double?
+
+    /// Redraws this session at `size` points, the terminal zoom zone's persisted
+    /// value (`SettingsStore.terminalFontSize`).
+    ///
+    /// The font is built exactly the way SwiftTerm builds its own default —
+    /// `NSFont.monospacedSystemFont(ofSize:weight: .regular)`, which at the
+    /// zone's default of 13 (`NSFont.systemFontSize`) is the very font the view
+    /// was already drawing with. So a fresh install at 100% is byte-identical to
+    /// today, and only a deliberate zoom changes anything.
+    ///
+    /// Setting `TerminalView.font` re-derives the whole font set, recomputes the
+    /// cell dimensions and `resize`s the terminal to the new column/row count —
+    /// which resizes the *PTY* — so the running shell reflows to the new size
+    /// rather than being restarted. The scrollback and the process are untouched.
+    ///
+    /// The unchanged-size guard is load-bearing for the same reason
+    /// `applyTheme(for:)`'s is, and then some: SwiftTerm's setter also calls
+    /// `selectNone()`, so an unconditional assignment would drop the user's
+    /// selection. This is called from the window root on every settings change
+    /// *and* on mount, and each call fans out over every live session, so without
+    /// the guard an unrelated preference edit would clear a selection in a
+    /// terminal the user never touched — and pay a full font-set rebuild and PTY
+    /// resize per session for it.
+    func applyFont(size: Double) {
+        guard appliedFontSize != size else { return }
+        appliedFontSize = size
+        terminalView.font = NSFont.monospacedSystemFont(ofSize: CGFloat(size), weight: .regular)
+    }
+
     /// Sends `SIGTERM` to the shell so a closed tab / app quit doesn't leak it.
     ///
     /// Only signals a *live* child: if the shell already exited its `shellPid` is

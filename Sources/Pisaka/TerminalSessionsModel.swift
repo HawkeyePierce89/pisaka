@@ -37,6 +37,18 @@ final class TerminalSessionsModel: ObservableObject {
     /// nothing.
     private var appearance: NSAppearance?
 
+    /// The terminal zone's font size the sessions were last set to, remembered for
+    /// the same reason `appearance` is: a session created *later* (a new tab, a
+    /// Run/Test session) must be born at the user's size instead of appearing at
+    /// SwiftTerm's 13 pt default and then jumping.
+    ///
+    /// `nil` until the window root has pushed `settings.terminalFontSize` in, at
+    /// which point it is the remembered truth. Deliberately not `@Published`:
+    /// applying a font mutates the AppKit view directly (which re-lays the PTY
+    /// out itself), so publishing it would only invalidate the panel for a redraw
+    /// that changes nothing.
+    private var fontSize: Double?
+
     /// Observer for `NSColor.systemColorsDidChangeNotification`, removed on deinit.
     private var systemColorsObserver: NSObjectProtocol?
 
@@ -93,6 +105,35 @@ final class TerminalSessionsModel: ObservableObject {
         }
     }
 
+    /// Remembers `size` and redraws **every** live session at it — the theme
+    /// fan-out's exact shape, and for the same reason: an inactive session's view
+    /// is out of the hierarchy and would otherwise surface the old size on the
+    /// next tab switch.
+    ///
+    /// Idempotent, so the window root can call it on mount and on every change to
+    /// `settings.terminalFontSize` without tracking whether the value actually
+    /// moved: a session whose font already is that size does nothing at all (see
+    /// `TerminalSession.applyFont(size:)`, where the guard also protects the
+    /// selection SwiftTerm's font setter would clear).
+    func applyFontSize(_ size: Double) {
+        fontSize = size
+        for session in sessions {
+            session.applyFont(size: size)
+        }
+    }
+
+    /// Sizes a freshly created session before it is ever drawn, so a new tab (or a
+    /// Run/Test session started while the panel was hidden) does not appear at
+    /// SwiftTerm's default and then flip.
+    ///
+    /// The fallback is that same default — `ZoomScaleRule.terminalFont`'s resting
+    /// value *is* SwiftTerm's `NSFont.systemFontSize` — so the pre-seeding window
+    /// (app launch until the window root's first push) is a no-op rather than a
+    /// wrong guess.
+    private func applyCurrentFontSize(to session: TerminalSession) {
+        session.applyFont(size: fontSize ?? ZoomScaleRule.terminalFont.defaultValue)
+    }
+
     /// Colors a freshly created session before it is ever drawn, so a new tab does
     /// not appear in SwiftTerm's dark defaults and then flip.
     ///
@@ -123,6 +164,7 @@ final class TerminalSessionsModel: ObservableObject {
             workingDirectory: workingDirectory
         )
         applyCurrentTheme(to: session)
+        applyCurrentFontSize(to: session)
         sessions.append(session)
         activeID = session.id
         return session
@@ -175,6 +217,7 @@ final class TerminalSessionsModel: ObservableObject {
             workingDirectory: workingDirectory
         )
         applyCurrentTheme(to: session)
+        applyCurrentFontSize(to: session)
         sessions.append(session)
         activeID = session.id
         runSessions[sessionKey] = session.id

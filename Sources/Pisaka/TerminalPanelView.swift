@@ -6,6 +6,15 @@ import SwiftTerm
 /// The embedded terminal panel: a tab bar above the active session's terminal
 /// view. Hosting one persistent `LocalProcessTerminalView` per session means
 /// switching tabs only swaps which view is on screen, never restarting a shell.
+///
+/// The panel straddles two zoom zones, on purpose. Only the hosted terminal
+/// views carry the **terminal** zone's size, and they get it from
+/// `TerminalSessionsModel` (pushed from the window root, which stays mounted
+/// while this panel is not — see `ContentView`), so nothing about the font is
+/// plumbed through here. The tab strip below is ordinary chrome and belongs to
+/// the **interface** zone: zooming the terminal must not move the tabs, which is
+/// exactly what the pointer rule produces, since the tabs are not a
+/// `ZoomSurfaceProviding` view.
 struct TerminalPanelView: View {
     @ObservedObject var model: TerminalSessionsModel
 

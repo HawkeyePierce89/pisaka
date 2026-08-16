@@ -187,6 +187,20 @@ struct GeneralSettingsView: View {
                 Text("Editor font size: \(Int(settings.fontSize)) pt")
             }
 
+            // The terminal zone's size, beside the code zone's — the two are
+            // independent settings and this is the one place both are visible at
+            // once. Bounds and step come from `ZoomScaleRule.terminalFont`, the
+            // same rule the zoom gestures and ⌘0 go through, so a stepper press
+            // and a zoom step land on the same grid and the store's
+            // clamp-on-write can never be driven out of range from here.
+            Stepper(
+                value: $settings.terminalFontSize,
+                in: ZoomScaleRule.terminalFont.minimum...ZoomScaleRule.terminalFont.maximum,
+                step: ZoomScaleRule.terminalFont.step
+            ) {
+                Text("Terminal font size: \(Int(settings.terminalFontSize)) pt")
+            }
+
             // The same flag the status-bar lightbulb writes: both bind straight
             // through to the store, so the two surfaces can never disagree. Off
             // is total — the automatic popup *and* explicit invocation (⌃Space,
