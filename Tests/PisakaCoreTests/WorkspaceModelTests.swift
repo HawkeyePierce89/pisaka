@@ -2209,6 +2209,162 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertEqual(restored.selectedID, restored.openFiles[1].id)
     }
 
+    // MARK: - Project switch (isCurrentProjectRoot / replaceSession)
+
+    func testReplaceSessionDropsTheOutgoingTabsAndOpensTheIncomingOnes() {
+        let service = PathContentsFileService(contents: [
+            "/a/one.txt": "one",
+            "/a/two.txt": "two",
+            "/b/x.txt": "ex",
+            "/b/y.txt": "why",
+        ])
+        let model = WorkspaceModel(fileService: service)
+        _ = try? model.open(url: URL(fileURLWithPath: "/a/one.txt"))
+        _ = try? model.open(url: URL(fileURLWithPath: "/a/two.txt"))
+
+        model.replaceSession(with: EditorSession(
+            folderPath: "/b",
+            tabs: [.file(path: "/b/x.txt"), .file(path: "/b/y.txt")],
+            selectedIndex: 0
+        ))
+
+        // Project A's tabs are gone, not appended to.
+        XCTAssertEqual(model.openFiles.map(\.displayName), ["x.txt", "y.txt"])
+        XCTAssertEqual(model.openFiles.map(\.text), ["ex", "why"])
+        // The recorded selection, not the fallback (which would be the last tab).
+        XCTAssertEqual(model.selectedID, model.openFiles.first?.id)
+        XCTAssertNotEqual(model.selectedID, model.openFiles.last?.id)
+    }
+
+    func testReplaceSessionWithAnEmptySessionEmptiesTheEditor() {
+        // A folder opened for the first time has no stored session, so the app
+        // hands over an empty one. `restoreSession`'s "an empty session is a no-op"
+        // rule must not preserve the outgoing project's tabs or selection here —
+        // the force-close half is what makes the swap total.
+        let service = PathContentsFileService(contents: ["/a/one.txt": "one"])
+        let model = WorkspaceModel(fileService: service)
+        _ = try? model.open(url: URL(fileURLWithPath: "/a/one.txt"))
+        XCTAssertNotNil(model.selectedID)
+
+        model.replaceSession(with: EditorSession())
+
+        XCTAssertTrue(model.openFiles.isEmpty)
+        XCTAssertNil(model.selectedID)
+    }
+
+    func testReplaceSessionForceClosesDirtyTitledAndUntitledTabs() {
+        // Both kinds of dirty buffer go, with no `.needsConfirmation` path: the app
+        // has already refused the switch if a dirty *titled* buffer failed to flush,
+        // and an untitled one traveled into the outgoing snapshot.
+        let service = PathContentsFileService(contents: [
+            "/a/one.txt": "one",
+            "/b/x.txt": "ex",
+        ])
+        let model = WorkspaceModel(fileService: service)
+        let titled = try? model.open(url: URL(fileURLWithPath: "/a/one.txt"))
+        model.updateText("edited but never saved", for: titled!.id)
+        let untitled = model.newFile()
+        model.updateText("scratch", for: untitled.id)
+        XCTAssertEqual(model.openFiles.map(\.isDirty), [true, true])
+
+        model.replaceSession(with: EditorSession(
+            folderPath: "/b",
+            tabs: [.file(path: "/b/x.txt")],
+            selectedIndex: 0
+        ))
+
+        XCTAssertEqual(model.openFiles.map(\.displayName), ["x.txt"])
+        XCTAssertFalse(model.openFiles.contains { $0.id == titled?.id || $0.id == untitled.id })
+    }
+
+    func testReplaceSessionRestoresAnUntitledRecordDirtyWithItsText() {
+        // An untitled scratch buffer is the one thing with nowhere on disk to live,
+        // so it travels inside its project's session and must come back editable and
+        // dirty — closing it asks for confirmation exactly as before the switch.
+        let service = PathContentsFileService(contents: ["/a/one.txt": "one"])
+        let model = WorkspaceModel(fileService: service)
+        _ = try? model.open(url: URL(fileURLWithPath: "/a/one.txt"))
+
+        model.replaceSession(with: EditorSession(
+            folderPath: "/b",
+            tabs: [.untitled(text: "notes for B")],
+            selectedIndex: 0
+        ))
+
+        let restored = model.openFiles.first
+        XCTAssertEqual(model.openFiles.count, 1)
+        XCTAssertNil(restored?.url)
+        XCTAssertEqual(restored?.text, "notes for B")
+        XCTAssertTrue(restored?.isDirty == true)
+        XCTAssertEqual(model.selectedID, restored?.id)
+    }
+
+    func testReplaceSessionSkipsUnreadableRecordsSilently() {
+        // Inherited from `restoreSession` verbatim: a file that moved since the
+        // incoming project was last open costs its own tab and nothing else.
+        let service = PathContentsFileService(contents: ["/b/y.txt": "why"])
+        let model = WorkspaceModel(fileService: service)
+        _ = model.newFile()
+
+        model.replaceSession(with: EditorSession(
+            folderPath: "/b",
+            tabs: [.file(path: "/b/gone.txt"), .file(path: "/b/y.txt")],
+            selectedIndex: 1
+        ))
+
+        XCTAssertEqual(model.openFiles.map(\.displayName), ["y.txt"])
+        XCTAssertEqual(model.selectedID, model.openFiles.first?.id)
+    }
+
+    func testReplaceSessionLeavesProjectRootUntouched() {
+        // The folder half of a switch is the app's job (it has to register the
+        // change with the watcher, Local Changes, the Log, …), so the tab half must
+        // not move `projectRoot` behind its back.
+        let service = PathContentsFileService(contents: ["/b/x.txt": "ex"])
+        let model = WorkspaceModel(fileService: service)
+        model.openFolder(url: URL(fileURLWithPath: "/a", isDirectory: true))
+
+        model.replaceSession(with: EditorSession(
+            folderPath: "/b",
+            tabs: [.file(path: "/b/x.txt")],
+            selectedIndex: 0
+        ))
+
+        XCTAssertEqual(model.projectRoot?.path, "/a")
+    }
+
+    func testIsCurrentProjectRootMatchesAcrossSpellingsOfOneFolder() {
+        let model = WorkspaceModel(fileService: PathContentsFileService())
+        model.openFolder(url: URL(fileURLWithPath: "/tmp", isDirectory: true))
+
+        // Re-opening the folder already open must read as a re-open, not a switch,
+        // however the incoming url happens to be spelled: the `/private` symlink,
+        // a trailing slash, a `.`/`..` detour.
+        XCTAssertTrue(model.isCurrentProjectRoot(URL(fileURLWithPath: "/tmp", isDirectory: true)))
+        XCTAssertTrue(model.isCurrentProjectRoot(URL(fileURLWithPath: "/private/tmp")))
+        XCTAssertTrue(model.isCurrentProjectRoot(URL(fileURLWithPath: "/tmp/")))
+        XCTAssertTrue(model.isCurrentProjectRoot(URL(fileURLWithPath: "/tmp/sub/..")))
+    }
+
+    func testIsCurrentProjectRootIsFalseForASiblingDirectory() {
+        let model = WorkspaceModel(fileService: PathContentsFileService())
+        model.openFolder(url: URL(fileURLWithPath: "/projects/alpha", isDirectory: true))
+
+        XCTAssertFalse(model.isCurrentProjectRoot(URL(fileURLWithPath: "/projects/beta", isDirectory: true)))
+        // A prefix relationship is not a match either, in either direction.
+        XCTAssertFalse(model.isCurrentProjectRoot(URL(fileURLWithPath: "/projects", isDirectory: true)))
+        XCTAssertFalse(model.isCurrentProjectRoot(URL(fileURLWithPath: "/projects/alpha/sub", isDirectory: true)))
+    }
+
+    func testIsCurrentProjectRootIsFalseWhenNoFolderIsOpen() {
+        // The first Open Folder of a run has to read as a switch, so the incoming
+        // project's stored session gets applied rather than skipped.
+        let model = WorkspaceModel(fileService: PathContentsFileService())
+
+        XCTAssertNil(model.projectRoot)
+        XCTAssertFalse(model.isCurrentProjectRoot(URL(fileURLWithPath: "/projects/alpha", isDirectory: true)))
+    }
+
     // MARK: - Helpers
 
     /// The current disk-content token of every open file, for the before/after

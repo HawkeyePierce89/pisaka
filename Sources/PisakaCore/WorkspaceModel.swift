@@ -125,10 +125,59 @@ public final class WorkspaceModel: ObservableObject {
 
     /// Open `url` as the project root, shown in the project tree.
     ///
-    /// This only sets `projectRoot`; the open tabs and selection are left
-    /// untouched (opening a folder is independent of opening files).
+    /// This still only sets `projectRoot`; the open tabs and selection are left
+    /// untouched. That is not because tabs are unrelated to the folder — sessions
+    /// *are* per-project — but because the two halves of a project switch have
+    /// different owners: the tab half is `replaceSession(with:)`, driven by the app
+    /// orchestration, which is the only layer that holds the `SessionStore` (and
+    /// which must snapshot the outgoing project *before* this method moves
+    /// `projectRoot`, or the snapshot would be filed under the incoming folder).
+    /// Keeping the two separate is also what lets restore call this without
+    /// disturbing tabs it is about to apply itself.
     public func openFolder(url: URL) {
         projectRoot = url
+    }
+
+    /// Whether `url` names the folder already open as `projectRoot`.
+    ///
+    /// Compared canonically (the model's one rule — symlinks resolved, path
+    /// standardized), so `/tmp` vs. `/private/tmp`, a trailing slash and a `.`/`..`
+    /// detour all count as the same folder. `false` when no folder is open, so a
+    /// first Open Folder reads as a switch rather than as a re-open.
+    ///
+    /// This is the test the app's folder-switch orchestration takes *first*:
+    /// re-opening the current folder must stay a no-op for the tabs, while a real
+    /// switch has to snapshot the outgoing session and apply the incoming one.
+    public func isCurrentProjectRoot(_ url: URL) -> Bool {
+        guard let root = projectRoot else { return false }
+        return canonicalURL(root) == canonicalURL(url)
+    }
+
+    /// Swap the whole tab set for `session`'s: force-close everything currently
+    /// open, then restore the incoming project's tabs and selection.
+    ///
+    /// The closes are **forced**, dirty tabs included, and that is safe only
+    /// because of what the caller does first: the app refuses the switch outright
+    /// while the disk-writer gate is up, flushes autosave, and refuses again —
+    /// naming the files — if any dirty *titled* buffer is still unsaved afterwards.
+    /// So by the time this runs, every titled buffer's text is on disk and every
+    /// untitled one has already traveled into the outgoing project's snapshot. A
+    /// `.needsConfirmation` path here would be the wrong shape anyway: the user
+    /// already answered that question by choosing a different project.
+    ///
+    /// `closeFiles(ids:)` leaves `selectedID` `nil` once the last tab goes, so an
+    /// **empty** incoming session — a folder opened for the first time — genuinely
+    /// empties the editor rather than leaving `restoreSession`'s "empty session is a
+    /// no-op" rule to preserve a stale selection.
+    ///
+    /// Applying the session goes through `restoreSession(_:)` verbatim, inheriting
+    /// all of it: silent skipping of records this build cannot open, the
+    /// canonical-path dedup, restored titled tabs clean and untitled ones dirty.
+    /// `projectRoot` is deliberately **not** touched here either — for the reason
+    /// `restoreSession(_:)` records, the folder is the app layer's job.
+    public func replaceSession(with session: EditorSession) {
+        closeFiles(ids: openFiles.map(\.id))
+        restoreSession(session)
     }
 
     /// Apply a persisted `EditorSession` to this (normally empty) model: reopen the

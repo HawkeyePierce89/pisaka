@@ -168,25 +168,25 @@ half-swapped state can be written.
 - Modify: `Sources/PisakaCore/WorkspaceModel.swift`
 - Modify: `Tests/PisakaCoreTests/WorkspaceModelTests.swift`
 
-- [ ] add `public func isCurrentProjectRoot(_ url: URL) -> Bool`, canonical-comparing
+- [x] add `public func isCurrentProjectRoot(_ url: URL) -> Bool`, canonical-comparing
       against `projectRoot` (`false` when none is open), reusing the model's existing
       `canonicalURL` helper
-- [ ] add `public func replaceSession(with session: EditorSession)`: force-close every
+- [x] add `public func replaceSession(with session: EditorSession)`: force-close every
       open tab (`closeFiles(ids:)`, which leaves `selectedID` `nil` once the last one
       goes), then apply `session` through the existing `restoreSession(_:)` — same
       silent, skip-what-cannot-open semantics, and `projectRoot` deliberately
       untouched (the app owns that, as `restoreSession` already documents)
-- [ ] document on `openFolder(url:)` that setting `projectRoot` is still all it does,
+- [x] document on `openFolder(url:)` that setting `projectRoot` is still all it does,
       and that the tab half of a project switch is `replaceSession(with:)`, driven by
       the app orchestration that owns the store
-- [ ] write tests: `replaceSession` drops the previous project's tabs and opens the
+- [x] write tests: `replaceSession` drops the previous project's tabs and opens the
       incoming ones with the recorded selection; an empty incoming session leaves an
       empty editor with `nil` selection; a dirty titled tab and a dirty untitled tab
       are both force-closed (no `needsConfirmation` path); an untitled record in the
       incoming session comes back dirty with its text; unreadable records are skipped
       silently; `isCurrentProjectRoot` is `true` across spelling differences and
       `false` for a sibling directory and when no folder is open
-- [ ] run `swift test` — must pass before Task 4
+- [x] run `swift test` — must pass before Task 4
 
 ### Task 4: The app trigger inside the existing folder-switch orchestration
 
