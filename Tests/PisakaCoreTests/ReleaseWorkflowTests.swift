@@ -1994,6 +1994,16 @@ final class ReleaseWorkflowTests: XCTestCase {
     ///    so replacing any signature afterwards invalidates it and the staple
     ///    fails — or, if the staple somehow ran first, ships a bundle whose
     ///    ticket does not describe it;
+    ///  * **smoke-launching before the re-sign** runs a bundle this run then
+    ///    replaces: the four nested helpers it launched are not the ones that
+    ///    ship, so the step reports on an artefact that no longer exists by the
+    ///    time anything is submitted — the same defect as verifying too early,
+    ///    arriving from the other side;
+    ///  * **smoke-launching after the submission** lets a build that cannot
+    ///    start occupy the notary queue for twenty minutes to learn what five
+    ///    seconds answers, and — the part that matters — leaves it one accepted
+    ///    verdict away from a publish, since every step after the notary is
+    ///    about packaging rather than about whether the app runs;
     ///  * stapling before the verdict staples a ticket that does not exist;
     ///  * **zipping before the staple** is the quiet one — the shipped zip then
     ///    carries an accepted-but-unstapled app, which passes `spctl` on the
@@ -2009,6 +2019,7 @@ final class ReleaseWorkflowTests: XCTestCase {
             Self.archiveStepName,
             Self.reSignStepName,
             Self.verifyStepName,
+            Self.releaseSmokeLaunchStepName,
             Self.notarizeStepName,
             Self.stapleStepName,
             "Stage the update archive",
@@ -2671,6 +2682,126 @@ final class ReleaseWorkflowTests: XCTestCase {
             ci.yml carries a step condition: \(conditions). No step in this workflow is optional — \
             `swift test`, the two builds and the launch smoke test are the whole gate — and a \
             skipped step runs none of the guards this suite asserts about it.
+            """)
+    }
+
+    /// The release runs the bundle it is about to submit.
+    ///
+    /// CI's smoke launch is not this one and cannot stand in for it. CI launches
+    /// an unsigned `xcodebuild build` product out of DerivedData; this launches
+    /// the archived bundle *after* the re-sign — hardened runtime, Developer ID
+    /// signature, Sparkle's four nested helpers replaced — which is the artefact
+    /// that reaches users. The two differ in exactly the ways that can break a
+    /// launch on their own: an archive lays the bundle out differently from a
+    /// build, and the hardened runtime is a load-time policy. A green CI job
+    /// says nothing about either.
+    ///
+    /// The mechanism assertions are the release-side half of what
+    /// `testCILaunchesWhatItBuilds` pins; the *shape* of the script is pinned
+    /// once, against both files, by `testTheTwoSmokeLaunchesAreTheSameCheck`.
+    /// What is asserted here is that this copy is pointed at the archive product
+    /// — the same path every other step in this job names — rather than at
+    /// DerivedData, which in this job does not exist.
+    func testTheReleaseLaunchesWhatItArchived() throws {
+        let script = try stepScript(named: Self.releaseSmokeLaunchStepName, because: """
+            It is the only place in the release where the app is executed before a user executes it.
+            """)
+
+        XCTAssertTrue(script.contains(#"APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app""#), """
+            release.yml's `\(Self.releaseSmokeLaunchStepName)` step must launch the archive product \
+            every other step in this job names. Pointed anywhere else — DerivedData, a copy — it \
+            launches something this run is not going to notarize, publish, or both.
+            """)
+        XCTAssertTrue(script.contains(#"EXECUTABLE="$APP/Contents/MacOS/Pisaka""#), """
+            The smoke launch must exec the bundle's own executable at \
+            `$APP/Contents/MacOS/Pisaka`. `open -a` would hand the launch to LaunchServices, which \
+            reports success once it has *asked* for the app to open and gives this step no process \
+            to poll and no output to print.
+            """)
+
+        let launch = try XCTUnwrap(script.first(where: {
+            $0.contains(#""$EXECUTABLE""#) && $0.hasSuffix("&")
+        }), """
+            release.yml's `\(Self.releaseSmokeLaunchStepName)` step must launch the executable in \
+            the background. Run in the foreground it is an AppKit app that never returns, and the \
+            release hangs until the job's own budget kills it — which reports as a cancelled release \
+            rather than as anything about the app.
+            """)
+        XCTAssertTrue(launch.contains(#"> "$LOG" 2>&1"#), """
+            The launch must capture both streams into the log the refusal below prints. dyld writes \
+            its "Library not loaded" message to stderr, so a launch that redirects only stdout \
+            refuses with an empty log — a failure with its one piece of evidence discarded. Got \
+            “\(launch)”.
+            """)
+
+        XCTAssertTrue(script.contains { $0.contains("kill -0 \"$PID\"") }, """
+            Liveness must be polled with `kill -0 "$PID"`. It is what makes "the app is still \
+            running" and "the app is gone" two structurally different code paths rather than two \
+            exit codes to tell apart afterwards — a process this step kills and a process that \
+            aborted in dyld both report ≥128 through `wait`.
+            """)
+
+        assertGuardExits(#""$ALIVE" -eq 0"#,
+                         in: script,
+                         step: Self.releaseSmokeLaunchStepName,
+                         because: """
+            the process being gone before the deadline is the failure this step exists to catch, and \
+            it must refuse for *every* reason the process could be gone — a dyld abort, a crash in \
+            startup, or a clean exit. A branch that only annotates here submits the dead build to \
+            the notary and publishes whatever Apple says about it
+            """)
+    }
+
+    /// The two smoke launches are one check written twice, and must stay that
+    /// way.
+    ///
+    /// They are deliberately not factored into a script or a composite action —
+    /// the repository's workflows are written inline — which makes drift the
+    /// standing risk rather than a hypothetical one. And drift here is silent in
+    /// the worst direction: each copy keeps passing its own mechanism
+    /// assertions, so the suite stays green while one half of the pipeline
+    /// checks something the other no longer does. A fix applied to CI's copy and
+    /// not to the release's leaves the *release* — the only one whose failure
+    /// reaches users — running the older, weaker check.
+    ///
+    /// So the bodies are compared line for line, comment-stripped, after
+    /// dropping the one line that is supposed to differ. When this fails the fix
+    /// is to **copy** the intended body over the other, not to reconcile the two
+    /// by hand: a hand-merge is how they came to differ.
+    func testTheTwoSmokeLaunchesAreTheSameCheck() throws {
+        let ci = try stepScript(named: Self.ciSmokeLaunchStepName, in: "ci.yml", because: """
+            It is one of the two copies of the launch smoke test.
+            """)
+        let release = try stepScript(named: Self.releaseSmokeLaunchStepName, because: """
+            It is the other copy of the launch smoke test.
+            """)
+
+        // `APP=` is the one line the two are allowed to disagree on: CI launches
+        // the DerivedData build product, the release launches the archived
+        // bundle. Both copies are asserted to name the right one of those by
+        // `testCILaunchesWhatItBuilds` and `testTheReleaseLaunchesWhatItArchived`,
+        // so dropping the line here loses no coverage.
+        let ciBody = ci.filter { !$0.hasPrefix("APP=") }
+        let releaseBody = release.filter { !$0.hasPrefix("APP=") }
+
+        XCTAssertEqual(ci.count - ciBody.count, 1, """
+            ci.yml's `\(Self.ciSmokeLaunchStepName)` step must assign `APP=` exactly once. Got \
+            \(ci.filter { $0.hasPrefix("APP=") }).
+            """)
+        XCTAssertEqual(release.count - releaseBody.count, 1, """
+            release.yml's `\(Self.releaseSmokeLaunchStepName)` step must assign `APP=` exactly once. \
+            Got \(release.filter { $0.hasPrefix("APP=") }).
+            """)
+
+        let difference = zip(ciBody, releaseBody).first { $0 != $1 }
+        XCTAssertEqual(ciBody, releaseBody, """
+            The two launch smoke tests have drifted apart. \(difference.map {
+                "The first line they disagree on is “\($0.0)” in ci.yml against “\($0.1)” in release.yml."
+            } ?? "They are the same up to the length of the shorter one, which is \(ciBody.count) lines against \(releaseBody.count).") \
+            Apart from the `APP=` line they must be identical: they are one check written twice, and \
+            each copy keeps passing its own assertions while it drifts, so this is the only thing \
+            that notices. Copy the intended body over the other one — do not reconcile them by hand, \
+            which is how they came to differ.
             """)
     }
 

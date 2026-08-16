@@ -347,34 +347,60 @@ and the step moved above the build. `ci.yml` was restored after each
 - Modify: `.github/workflows/release.yml`
 - Modify: `Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
 
-- [ ] Add the step `Launch the archived app (smoke test)` **between**
+- [x] Add the step `Launch the archived app (smoke test)` **between**
       `Verify the archived app` and `Notarize the archived app`, with the same
       script and
       `APP="build/Pisaka-macOS.xcarchive/Products/Applications/Pisaka.app"`.
-- [ ] Comment it in the file's style: it runs after the re-sign so it launches
+- [x] Comment it in the file's style: it runs after the re-sign so it launches
       what ships (hardened runtime, Developer ID, not yet notarized — nothing
       quarantined, so Gatekeeper is not in play); it runs before the submission so
       a build that cannot start never reaches the notary queue, twenty minutes and
       a full archive later; launching does not modify the bundle, and the staple
       step's `codesign --verify --deep --strict` afterwards is the standing proof
       of that rather than an assumption.
-- [ ] Extend `testTheReleaseIsAssembledInTheOnlyOrderThatShipsAWorkingApp`: add
+- [x] Extend `testTheReleaseIsAssembledInTheOnlyOrderThatShipsAWorkingApp`: add
       the step to the pinned sequence between verify and notarize, and extend the
       doc comment with what the two new inversions ship — smoke-launching before
       the re-sign tests a bundle the run then replaces, and launching after the
       submission lets a dead build occupy the notary queue and, worse, reach a
       publish.
-- [ ] Add `testTheReleaseLaunchesWhatItArchived`: the release-side step's own
+- [x] Add `testTheReleaseLaunchesWhatItArchived`: the release-side step's own
       mechanism pins (background exec of the archived app's
       `Contents/MacOS/Pisaka`, `kill -0` liveness poll, refusal on death, `APP=`
       naming the archive product path used by every other step).
-- [ ] Add `testTheTwoSmokeLaunchesAreTheSameCheck`: both step bodies, read through
+- [x] Add `testTheTwoSmokeLaunchesAreTheSameCheck`: both step bodies, read through
       `stepScript`, are **equal after dropping the `APP=` line**, with a failure
       message explaining that two hand-maintained copies drifting apart means one
       pipeline half stops checking what the other does — and that the fix is to
       copy, not to reconcile by hand.
-- [ ] `swift test` — must pass (including the existing
+- [x] `swift test` — must pass (including the existing
       `testEveryStepFailureStopsTheRelease`, which now also covers this step).
+
+**Task 3 completion notes — measured evidence**
+
+The step body was written by copying ci.yml's verbatim and changing only the
+`APP=` line and the one comment naming the twin workflow; `stepScript`'s parse of
+both, comment-stripped, is 33 lines each and equal after dropping `APP=`
+(confirmed out-of-band with the same parse before running the suite). The
+release job's step list now reads `… Re-sign Sparkle's nested helpers → Verify
+the archived app → Launch the archived app (smoke test) → Notarize the archived
+app → Staple …`.
+
+The three new/extended assertions were each confirmed non-vacuous by mutating
+`release.yml` and watching exactly the intended test fail, restoring after each:
+
+- a shared line perturbed (`No executable at` → `No exe at`) →
+  `testTheTwoSmokeLaunchesAreTheSameCheck` alone;
+- `APP=` repointed at the DerivedData product →
+  `testTheReleaseLaunchesWhatItArchived` alone;
+- the death branch's `exit 1` deleted → `testTheReleaseLaunchesWhatItArchived`
+  (its `assertGuardExits`) *and* the equivalence test, which is the right pair:
+  removing a refusal from one copy is also drift;
+- the whole step moved to after the notarization →
+  `testTheReleaseIsAssembledInTheOnlyOrderThatShipsAWorkingApp` alone.
+
+`swift test`: **2771 tests, 0 failures**. `git diff --stat` on `release.yml`
+after the last restore: 76 insertions, no deletions.
 
 ### Task 4: Documentation
 
