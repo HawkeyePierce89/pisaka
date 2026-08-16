@@ -84,6 +84,11 @@ struct LeetCodeBrowserView: View {
         }
         .frame(minWidth: 620, minHeight: 380)
         .preferredColorScheme(settings.themePreference.colorScheme)
+        // Its own SwiftUI root (an `NSHostingController` made by
+        // `LeetCodeBrowserWindowController`), so it injects the interface scale
+        // itself; the rows and controls above adopt it with the rest of the
+        // LeetCode surfaces.
+        .interfaceScaled(settings)
         // Keyed on `loadKey` so this covers every half with one rule: the load on
         // appear, the re-arm after a sign-in that flips `availability`, and the
         // re-arm after a session *replacement*, which clears the rows while

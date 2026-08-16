@@ -15,9 +15,13 @@ struct TabRowView: View {
 
     @State private var isHovering = false
 
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: metrics.scaled(6)) {
             Text(file.displayName)
+                .font(metrics.scaledFont(.body))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(
@@ -30,21 +34,21 @@ struct TabRowView: View {
                 if isHovering {
                     Button(action: onClose) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: metrics.scaled(9), weight: .bold))
                     }
                     .buttonStyle(.plain)
                     .help("Close")
                 } else if file.isDirty {
                     Circle()
                         .fill(Color.secondary)
-                        .frame(width: 7, height: 7)
+                        .frame(width: metrics.scaled(7), height: metrics.scaled(7))
                         .help("Unsaved changes")
                 }
             }
-            .frame(width: 14, height: 14)
+            .frame(width: metrics.scaled(14), height: metrics.scaled(14))
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, metrics.scaled(10))
+        .padding(.vertical, metrics.scaled(6))
         // A horizontal-strip tab hugs its content (no full-width stretch); a
         // vertical-column tab fills the column.
         .frame(maxWidth: orientation == .vertical ? .infinity : nil, alignment: .leading)

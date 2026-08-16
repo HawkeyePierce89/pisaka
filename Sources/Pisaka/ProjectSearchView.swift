@@ -66,14 +66,26 @@ struct ProjectSearchView: View {
 
     @FocusState private var isQueryFocused: Bool
 
+    /// The interface zone's metrics. Computed from the store rather than read
+    /// from the environment because this view is the *root* of its own window and
+    /// injects the value below. It reaches the query controls, the group headers
+    /// and the window's minimum size — but **not** the result rows, which draw at
+    /// `settings.fontSize` and are tagged as code surfaces for exactly that
+    /// reason.
+    private var metrics: InterfaceMetrics { settings.interfaceMetrics }
+
     var body: some View {
         VStack(spacing: 0) {
             controls
             Divider()
             resultsArea
         }
-        .frame(minWidth: 520, minHeight: 320)
+        .frame(minWidth: metrics.scaled(520), minHeight: metrics.scaled(320))
         .preferredColorScheme(settings.themePreference.colorScheme)
+        // Its own SwiftUI root (an `NSHostingController` made by
+        // `ProjectSearchWindowController`), so it injects the interface scale
+        // itself.
+        .interfaceScaled(settings)
         .onAppear {
             // Re-seed from the model so reopening the window shows the query whose
             // results are still on screen.
@@ -90,19 +102,21 @@ struct ProjectSearchView: View {
     // MARK: - Controls
 
     private var controls: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: metrics.scaled(6)) {
+            HStack(spacing: metrics.scaled(6)) {
                 Button {
                     isReplaceExpanded.toggle()
                 } label: {
                     Image(systemName: isReplaceExpanded ? "chevron.down" : "chevron.right")
-                        .frame(width: 12)
+                        .font(metrics.scaledFont(.body))
+                        .frame(width: metrics.scaled(12))
                 }
                 .buttonStyle(.plain)
                 .help(isReplaceExpanded ? "Hide replace" : "Show replace")
 
                 TextField("Find in files", text: $pattern)
                     .textFieldStyle(.roundedBorder)
+                    .font(metrics.scaledFont(.body))
                     .focused($isQueryFocused)
                     // Enter jumps to the first result, so a search can be walked
                     // without leaving the keyboard.
@@ -116,18 +130,20 @@ struct ProjectSearchView: View {
                 if model.isSearching {
                     ProgressView()
                         .controlSize(.small)
-                        .padding(.leading, 2)
+                        .padding(.leading, metrics.scaled(2))
                 }
             }
 
             if isReplaceExpanded {
-                HStack(spacing: 6) {
-                    Spacer().frame(width: 12)
+                HStack(spacing: metrics.scaled(6)) {
+                    Spacer().frame(width: metrics.scaled(12))
 
                     TextField("Replace with", text: $template)
                         .textFieldStyle(.roundedBorder)
+                        .font(metrics.scaledFont(.body))
 
                     Button("Replace All") { confirmReplaceAll() }
+                        .font(metrics.scaledFont(.body))
                         .disabled(
                             model.results.isEmpty || isReplacing || model.isSearching
                                 || !resultsMatchControls
@@ -135,22 +151,23 @@ struct ProjectSearchView: View {
                 }
             }
 
-            HStack(spacing: 6) {
-                Spacer().frame(width: 12)
+            HStack(spacing: metrics.scaled(6)) {
+                Spacer().frame(width: metrics.scaled(12))
 
                 Text("File mask")
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(.secondary)
 
                 TextField("*.ts, *.tsx", text: $mask)
                     .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 220)
+                    .font(metrics.scaledFont(.body))
+                    .frame(maxWidth: metrics.scaled(220))
                     .onChange(of: mask) { _ in scheduleSearch() }
 
-                Spacer(minLength: 4)
+                Spacer(minLength: metrics.scaled(4))
 
                 Text(summaryText)
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(.secondary)
             }
 
@@ -158,14 +175,14 @@ struct ProjectSearchView: View {
                 // An invalid regular expression reports its reason inline, in red
                 // — never as an alert: the pattern is being typed.
                 Text(error)
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(Color(NSColor.systemRed))
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, metrics.scaled(10))
+        .padding(.vertical, metrics.scaled(8))
         .onChange(of: caseSensitive) { _ in scheduleSearch() }
         .onChange(of: wholeWord) { _ in scheduleSearch() }
         .onChange(of: isRegex) { _ in scheduleSearch() }
@@ -178,11 +195,13 @@ struct ProjectSearchView: View {
             isOn.wrappedValue.toggle()
         } label: {
             Text(label)
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
+                // 11pt semibold monospaced — `subheadline`'s base size, matching
+                // the editor bar's toggle both at 100% and as the scale grows.
+                .font(metrics.scaledFont(.subheadline, weight: .semibold, design: .monospaced))
+                .padding(.horizontal, metrics.scaled(5))
+                .padding(.vertical, metrics.scaled(2))
                 .background(isOn.wrappedValue ? Color.accentColor.opacity(0.25) : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(4)))
         }
         .buttonStyle(.plain)
         .foregroundStyle(isOn.wrappedValue ? Color.accentColor : Color.primary)
@@ -205,15 +224,18 @@ struct ProjectSearchView: View {
                             row(result: result, index: index)
                         }
                     } header: {
+                        // The group header names the *file*; it is chrome around
+                        // the rows, not one of them, so it follows the interface
+                        // zone while the rows below stay on the code font.
                         Text(result.relativePath)
-                            .font(.caption)
+                            .font(metrics.scaledFont(.caption))
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
                 }
                 if model.truncated {
                     Text("Results truncated — narrow the query or the file mask to see the rest.")
-                        .font(.caption)
+                        .font(metrics.scaledFont(.caption))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -227,6 +249,11 @@ struct ProjectSearchView: View {
         Button {
             onActivate(result.fileURL, result.matches[index].range)
         } label: {
+            // Everything in this row is sized by the *code* zone, deliberately:
+            // both `Text`s below read `settings.fontSize`, so the gutter width
+            // and the baseline spacing that hold them have to follow the same
+            // number. Multiplying them by the interface scale would make the two
+            // zones interact — the one thing the split exists to prevent.
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("\(result.matches[index].lineNumber)")
                     .font(.system(size: settings.fontSize - 2, design: .monospaced))
@@ -269,6 +296,7 @@ struct ProjectSearchView: View {
 
     private func placeholder(_ text: String) -> some View {
         Text(text)
+            .font(metrics.scaledFont(.body))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

@@ -44,6 +44,9 @@ struct ProjectTreeView: View {
     /// (`TestCommand.isTestFile`).
     var onRunTest: (URL) -> Void = { _ in }
 
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
         Group {
             if let root = model.projectRoot {
@@ -57,7 +60,7 @@ struct ProjectTreeView: View {
                     Spacer()
                     Text("Click to open a folder")
                         .foregroundStyle(.secondary)
-                        .font(.callout)
+                        .font(metrics.scaledFont(.callout))
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -72,7 +75,7 @@ struct ProjectTreeView: View {
     /// its whole area stays the open-folder click target). Modeled on the
     /// `LocalChangesView` header.
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: metrics.scaled(8)) {
             Spacer()
 
             Button {
@@ -81,12 +84,13 @@ struct ProjectTreeView: View {
                 model.bumpTreeRevision()
             } label: {
                 Image(systemName: "arrow.clockwise")
+                    .font(metrics.scaledFont(.body))
             }
             .buttonStyle(.borderless)
             .help("Refresh project tree")
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, metrics.scaled(8))
+        .padding(.vertical, metrics.scaled(6))
     }
 
     private func tree(root: URL) -> some View {
@@ -117,7 +121,7 @@ struct ProjectTreeView: View {
                 // reusing the previous root's cached @State children.
                 .id(root)
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, metrics.scaled(4))
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -143,6 +147,9 @@ private struct DirectoryNodeView: View {
 
     @State private var isExpanded: Bool
     @State private var children: [DirectoryEntry]?
+
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
 
     /// `startsExpanded` seeds the initial expansion state. The root node is
     /// built with `true` so a freshly opened folder shows its immediate
@@ -192,7 +199,7 @@ private struct DirectoryNodeView: View {
                         onRun: onRun,
                         onRunTest: onRunTest
                     )
-                    .padding(.leading, 12)
+                    .padding(.leading, metrics.scaled(12))
                 } else {
                     FileRowView(
                         entry: entry,
@@ -202,18 +209,19 @@ private struct DirectoryNodeView: View {
                         onRun: { onRun(entry.url) },
                         onRunTest: { onRunTest(entry.url) }
                     )
-                    .padding(.leading, 12)
+                    .padding(.leading, metrics.scaled(12))
                 }
             }
         } label: {
             // The root node is built from a URL, so synthesize an equivalent
             // directory entry to resolve the folder icon through `FileIcon`.
             let icon = FileIcon(for: DirectoryEntry(url: url, isDirectory: true))
-            HStack(spacing: 4) {
+            HStack(spacing: metrics.scaled(4)) {
                 Image(systemName: icon.symbolName)
                     .foregroundStyle(color(for: icon.color))
                 Text(name)
             }
+            .font(metrics.scaledFont(.body))
             .lineLimit(1)
             .truncationMode(.middle)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -301,17 +309,21 @@ private struct FileRowView: View {
 
     @State private var isHovering = false
 
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
         let icon = FileIcon(for: entry)
-        HStack(spacing: 4) {
+        HStack(spacing: metrics.scaled(4)) {
             Image(systemName: icon.symbolName)
                 .foregroundStyle(color(for: icon.color))
             Text(entry.name)
         }
+        .font(metrics.scaledFont(.body))
         .lineLimit(1)
         .truncationMode(.middle)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
+        .padding(.horizontal, metrics.scaled(6))
+        .padding(.vertical, metrics.scaled(3))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(isHovering ? Color.accentColor.opacity(0.15) : Color.clear)
         .contentShape(Rectangle())

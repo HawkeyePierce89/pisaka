@@ -56,6 +56,11 @@ struct SourceViewerContent: View {
             reveal: reveal
         )
         .preferredColorScheme(settings.themePreference.colorScheme)
+        // Its own SwiftUI root (an `NSHostingController` made by
+        // `SourceViewerWindowController`), so it injects the interface scale
+        // itself — for the chrome only: the pane is a code surface and stays on
+        // `settings.fontSize`.
+        .interfaceScaled(settings)
     }
 }
 

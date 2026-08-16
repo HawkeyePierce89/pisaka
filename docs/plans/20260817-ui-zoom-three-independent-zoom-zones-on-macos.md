@@ -248,24 +248,24 @@ surfaces the user lives in genuinely proportional.
   `MergeView.swift`, `DiffWindowContent.swift`, `ProjectSearchView.swift`,
   `PisakaApp.swift`
 
-- [ ] `EnvironmentValues.interfaceMetrics` plus an `.interfaceScaled(settings)`
+- [x] `EnvironmentValues.interfaceMetrics` plus an `.interfaceScaled(settings)`
       modifier applied at the `ContentView` root, the `Settings` scene, and
       every `NSHostingController` root (diff windows, source viewer, Find in
       Files, LeetCode browser, merge windows, sheets) — each of which already
       receives the one shared `SettingsStore`
-- [ ] Sweep the main-window chrome: every `.font(...)`, numeric `.padding(...)`,
+- [x] Sweep the main-window chrome: every `.font(...)`, numeric `.padding(...)`,
       fixed `.frame(...)`, icon size and row height goes through
       `metrics.font(...)` / `metrics.pt(...)`, including the minimum window/pane
       widths so nothing clips at the top of the range
-- [ ] Leave code-font sites alone: anything reading `settings.fontSize` (the
+- [x] Leave code-font sites alone: anything reading `settings.fontSize` (the
       Find-in-Files snippets, the commit dialog's diff) stays on the code zone
       and must **not** be multiplied by the interface scale
-- [ ] Scale the commit-graph gutter's lane geometry with the interface scale so
+- [x] Scale the commit-graph gutter's lane geometry with the interface scale so
       the graph keeps pace with the Log rows
-- [ ] Tests: any per-view constant that becomes a computed value derived from
+- [x] Tests: any per-view constant that becomes a computed value derived from
       the scale gets its arithmetic covered by `InterfaceMetricsTests`
       (extend rather than duplicate)
-- [ ] run `swift test` — must pass before Task 6
+- [x] run `swift test` — must pass before Task 6
 
 ### Task 6: App — sweep the dialogs, Preferences, LSP and LeetCode surfaces
 

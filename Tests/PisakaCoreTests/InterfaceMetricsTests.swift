@@ -174,6 +174,72 @@ final class InterfaceMetricsTests: XCTestCase {
         }
     }
 
+    // MARK: - Composites the view sweep builds out of these metrics
+
+    /// The Log's branch-graph gutter is the one place in the sweep where a
+    /// metric is *composed* rather than applied once: the row reserves
+    /// `lanes × laneSpacing + margin` points and the AppKit cell then draws its
+    /// lanes and node dot inside exactly that width. Two independently scaled
+    /// numbers that disagree would put the last lane's dot outside the gutter —
+    /// so the composition, not just its parts, is pinned here.
+    private func graphGutterWidth(lanes: Int, _ metrics: InterfaceMetrics) -> Double {
+        Double(max(lanes, 1)) * metrics.pt(14) + metrics.pt(6)
+    }
+
+    func testTheCommitGraphGutterWidthIsUnchangedAtRestAndGrowsWithTheScale() {
+        // Unchanged at 100%: the pre-sweep constants, verbatim.
+        for lanes in 1...6 {
+            XCTAssertEqual(
+                graphGutterWidth(lanes: lanes, .unscaled),
+                Double(lanes) * 14 + 6,
+                "\(lanes) lanes"
+            )
+        }
+
+        for lanes in 1...6 {
+            var previous = 0.0
+            for scale in gridScales {
+                let width = graphGutterWidth(lanes: lanes, InterfaceMetrics(scale: scale))
+                XCTAssertGreaterThanOrEqual(width, previous, "\(lanes) lanes at \(scale)")
+                previous = width
+            }
+            XCTAssertLessThan(
+                graphGutterWidth(lanes: lanes, InterfaceMetrics(scale: ZoomScaleRule.interfaceScale.minimum)),
+                graphGutterWidth(lanes: lanes, InterfaceMetrics(scale: ZoomScaleRule.interfaceScale.maximum)),
+                "\(lanes) lanes"
+            )
+        }
+    }
+
+    func testEveryLanesNodeDotFitsInsideTheGutterAtEveryScale() {
+        // What the composition is *for*: lane `i`'s center sits at
+        // `spacing/2 + i × spacing`, and its dot extends one radius past that.
+        // The reserved width has to cover the last one at every scale, or the
+        // rightmost branch is clipped exactly when the user zooms in to see it.
+        for scale in gridScales {
+            let metrics = InterfaceMetrics(scale: scale)
+            let spacing = metrics.pt(14)
+            let radius = metrics.pt(3.5)
+            for lanes in 1...6 {
+                let width = graphGutterWidth(lanes: lanes, metrics)
+                let lastCenter = spacing / 2 + Double(lanes - 1) * spacing
+                XCTAssertLessThanOrEqual(lastCenter + radius, width, "\(lanes) lanes at \(scale)")
+            }
+        }
+    }
+
+    func testTheGraphNodeStaysInsideItsRowAndItsLaneAtEveryScale() {
+        // The gutter cell is drawn at the commit row's own height, from the same
+        // base (24). A dot wider than its lane, or taller than the row, is what
+        // scaling one of the three and forgetting the others looks like.
+        for scale in gridScales {
+            let metrics = InterfaceMetrics(scale: scale)
+            let diameter = metrics.pt(3.5) * 2
+            XCTAssertLessThan(diameter, metrics.pt(24), "row height at \(scale)")
+            XCTAssertLessThan(diameter, metrics.pt(14), "lane spacing at \(scale)")
+        }
+    }
+
     func testTheExtremesActuallyDiffer() {
         // Monotonic but flat would satisfy the property above and change
         // nothing on screen.

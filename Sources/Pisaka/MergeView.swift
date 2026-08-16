@@ -33,6 +33,13 @@ struct MergeView: View {
     /// navigates between (conflict order). Clamped to the document's conflicts.
     @State private var currentConflict = 0
 
+    /// The interface zone's metrics. Computed from the store rather than read
+    /// from the environment because this view is the *root* of its own window and
+    /// injects the value below (`SettingsStore.interfaceMetrics`). It reaches the
+    /// toolbar, the pane labels and the window's minimum size; the three text
+    /// panes stay on `settings.fontSize`, the code zone.
+    private var metrics: InterfaceMetrics { settings.interfaceMetrics }
+
     var body: some View {
         VStack(spacing: 0) {
             toolbar
@@ -43,33 +50,36 @@ struct MergeView: View {
             if let message = model.errorMessage, model.document != nil {
                 Divider()
                 Text(message)
-                    .font(.callout)
+                    .font(metrics.scaledFont(.callout))
                     .foregroundStyle(Color.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, metrics.scaled(8))
+                    .padding(.vertical, metrics.scaled(4))
             }
         }
-        .frame(minWidth: 720, minHeight: 420)
+        .frame(minWidth: metrics.scaled(720), minHeight: metrics.scaled(420))
         // Apply the theme preference here too, so a forced Light/Dark reaches this
         // separate merge window's hosted AppKit content (the main window does the
         // same on its root). The shared font size already propagates via `settings`.
         .preferredColorScheme(settings.themePreference.colorScheme)
+        // This window is its own SwiftUI root — an `NSHostingController` created by
+        // `MergeWindowController` — so it injects the interface scale itself.
+        .interfaceScaled(settings)
     }
 
     // MARK: Toolbar
 
     private var toolbar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: metrics.scaled(8)) {
             if let document = model.document, document.conflictCount > 0 {
                 Button { navigate(-1) } label: { Image(systemName: "chevron.up") }
                     .disabled(currentConflict <= 0)
                 Text("Conflict \(min(currentConflict + 1, document.conflictCount)) of \(document.conflictCount)")
-                    .font(.callout.monospacedDigit())
+                    .font(metrics.scaledFont(.callout).monospacedDigit())
                 Button { navigate(1) } label: { Image(systemName: "chevron.down") }
                     .disabled(currentConflict >= document.conflictCount - 1)
 
-                Divider().frame(height: 16)
+                Divider().frame(height: metrics.scaled(16))
 
                 Button("◀ Ours") { accept(.ours) }
                 Button("Ours+Theirs") { accept(.bothOursFirst) }
@@ -80,15 +90,16 @@ struct MergeView: View {
             Spacer()
 
             Text(statusText)
-                .font(.callout)
+                .font(metrics.scaledFont(.callout))
                 .foregroundStyle(model.isFullyResolved ? Color.green : Color.secondary)
 
             Button("Apply", action: onApply)
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!model.isFullyResolved)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .font(metrics.scaledFont(.body))
+        .padding(.horizontal, metrics.scaled(8))
+        .padding(.vertical, metrics.scaled(6))
     }
 
     private var statusText: String {
@@ -106,12 +117,12 @@ struct MergeView: View {
             Divider()
             paneLabel("Theirs")
         }
-        .frame(height: 22)
+        .frame(height: metrics.scaled(22))
     }
 
     private func paneLabel(_ title: String) -> some View {
         Text(title)
-            .font(.caption.weight(.semibold))
+            .font(metrics.scaledFont(.caption, weight: .semibold))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
     }
@@ -129,6 +140,7 @@ struct MergeView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             Text(model.errorMessage ?? "Loading…")
+                .font(metrics.scaledFont(.body))
                 .foregroundStyle(model.errorMessage == nil ? Color.secondary : Color.red)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

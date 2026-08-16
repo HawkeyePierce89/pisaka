@@ -1140,6 +1140,11 @@ struct PisakaApp: App {
                 installEngine: lspInstallEngine,
                 leetCode: leetCode
             )
+            // The interface scale, injected *here* rather than inside
+            // `SettingsView`: applied by the scene it reaches the settings form
+            // itself, not only the views below it (an environment write never
+            // reaches the view that makes it).
+            .interfaceScaled(settings)
         }
     }
 

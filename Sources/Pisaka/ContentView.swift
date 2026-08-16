@@ -204,6 +204,11 @@ struct ContentView: View {
     /// against the live `panelHeight` each frame. `nil` when not dragging.
     @State private var panelDragStartHeight: CGFloat?
 
+    /// The interface zone's metrics. Computed from the store rather than read
+    /// from the environment because this view is the *root* that injects it (see
+    /// `SettingsStore.interfaceMetrics`); every view below reads the environment.
+    private var metrics: InterfaceMetrics { settings.interfaceMetrics }
+
     var body: some View {
         // The editor (or editor-over-panel split) fills the window above an
         // always-visible bottom bar of Terminal/Git/Changes toggle buttons,
@@ -265,6 +270,11 @@ struct ContentView: View {
         // preference re-applies live (`.system` maps to `nil`, i.e. follow the
         // system appearance).
         .preferredColorScheme(settings.themePreference.colorScheme)
+        // The interface zone's scale, injected at the window root so every chrome
+        // view below — including the commit sheet presented from this body —
+        // inherits it. The editor, the terminal and the diff/merge panes are
+        // deliberately unaffected: they draw at their own zones' font sizes.
+        .interfaceScaled(settings)
     }
 
     /// What a statement request depends on: which tab is selected, and where the
@@ -318,7 +328,7 @@ struct ContentView: View {
     private func panelDivider(maxHeight: CGFloat) -> some View {
         Rectangle()
             .fill(Color(NSColor.separatorColor))
-            .frame(height: 5)
+            .frame(height: metrics.scaled(5))
             .contentShape(Rectangle())
             .onHover { hovering in
                 if hovering { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
@@ -338,14 +348,17 @@ struct ContentView: View {
     }
 
     /// `panelHeight` clamped to `[120, maxHeight / 2]` (lower bound floored so a
-    /// tiny window still yields a usable lower bound).
+    /// tiny window still yields a usable lower bound), the floor itself scaled by
+    /// the interface zone so a 200% terminal tab strip still leaves room for the
+    /// panel's content.
     private func clampedPanelHeight(maxHeight: CGFloat) -> CGFloat {
         clampedPanelHeight(proposed: panelHeight, maxHeight: maxHeight)
     }
 
     private func clampedPanelHeight(proposed: CGFloat, maxHeight: CGFloat) -> CGFloat {
-        let upper = max(120, maxHeight / 2)
-        return min(max(proposed, 120), upper)
+        let floor = metrics.scaled(120)
+        let upper = max(floor, maxHeight / 2)
+        return min(max(proposed, floor), upper)
     }
 
     /// The panel to actually render below the editor: the selected `bottomPanel`,
@@ -368,7 +381,7 @@ struct ContentView: View {
             // No `minWidth: 640`/`minHeight: 400` here — those over-expand the
             // shorter bottom panel; a modest `minHeight` keeps it usable.
             CommitLogView(model: commitLog, projectRoot: model.projectRoot, onOpenCommitDiff: onOpenCommitDiff)
-                .frame(minHeight: 160)
+                .frame(minHeight: metrics.scaled(160))
         case .changes:
             // Local Changes is now a bottom dock panel (beside Terminal/Git),
             // rendered as the file list only — the diff opens in a separate window
@@ -382,7 +395,7 @@ struct ContentView: View {
                 onCommit: onOpenCommitDialog,
                 onCommitFile: onCommitFile
             )
-                .frame(minHeight: 120)
+                .frame(minHeight: metrics.scaled(120))
         }
     }
 
@@ -391,7 +404,7 @@ struct ContentView: View {
     /// the View
     /// menu) so a button and its matching command behave identically.
     private var bottomBar: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: metrics.scaled(4)) {
             bottomBarButton(title: "Terminal", systemImage: "terminal", panel: .terminal)
             bottomBarButton(title: "Git", systemImage: "arrow.triangle.branch", panel: .log)
             bottomBarButton(title: "Changes", systemImage: "arrow.triangle.pull", panel: .changes)
@@ -407,8 +420,8 @@ struct ContentView: View {
             )
             completionToggleButton
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.horizontal, metrics.scaled(8))
+        .padding(.vertical, metrics.scaled(4))
     }
 
     /// The completion on/off switch at the trailing end of the status bar, in the
@@ -425,9 +438,9 @@ struct ContentView: View {
             settings.completionEnabled.toggle()
         } label: {
             Image(systemName: isOn ? "lightbulb" : "lightbulb.slash")
-                .font(.callout)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
+                .font(metrics.scaledFont(.callout))
+                .padding(.horizontal, metrics.scaled(6))
+                .padding(.vertical, metrics.scaled(3))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -449,11 +462,11 @@ struct ContentView: View {
             onTogglePanel(panel)
         } label: {
             Label(title, systemImage: systemImage)
-                .font(.callout)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
+                .font(metrics.scaledFont(.callout))
+                .padding(.horizontal, metrics.scaled(8))
+                .padding(.vertical, metrics.scaled(3))
                 .background(isActive ? Color.accentColor.opacity(0.2) : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(5)))
         }
         .buttonStyle(.plain)
         .foregroundStyle(isActive ? Color.accentColor : Color.primary)
@@ -474,13 +487,25 @@ struct ContentView: View {
                 onRun: onRun,
                 onRunTest: onRunTest
             )
-            .frame(minWidth: 180, idealWidth: 240, maxWidth: 360)
+            // Every pane's minimum, ideal and maximum width is scaled: at the top
+            // of the range the tree's rows are half again as tall and their names
+            // half again as wide, so a fixed 180pt floor would clip exactly the
+            // content the zoom was asked to enlarge.
+            .frame(
+                minWidth: metrics.scaled(180),
+                idealWidth: metrics.scaled(240),
+                maxWidth: metrics.scaled(360)
+            )
 
             switch settings.tabOrientation {
             case .vertical:
                 // Middle zone: vertical tab list, as its own resizable column.
                 TabListView(model: model, orientation: .vertical, onClose: onClose)
-                    .frame(minWidth: 180, idealWidth: 220, maxWidth: 320)
+                    .frame(
+                        minWidth: metrics.scaled(180),
+                        idealWidth: metrics.scaled(220),
+                        maxWidth: metrics.scaled(320)
+                    )
 
                 // Right zone: the editor zone for the selected tab, with the
                 // LeetCode statement beside it when there is one.
@@ -491,7 +516,7 @@ struct ContentView: View {
                     // view to a sliver. The zone's own minimum then composes as
                     // editor + pane, which is what it should be.
                     editorZone
-                        .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(minWidth: metrics.scaled(320), maxWidth: .infinity, maxHeight: .infinity)
                     descriptionPane
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -506,17 +531,20 @@ struct ContentView: View {
                     // reason spelled out in the vertical branch above.
                     VStack(spacing: 0) {
                         TabListView(model: model, orientation: .horizontal, onClose: onClose)
-                            .frame(height: 32)
+                            .frame(height: metrics.scaled(32))
                         Divider()
                         editorZone
                     }
-                    .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(minWidth: metrics.scaled(320), maxWidth: .infinity, maxHeight: .infinity)
                     descriptionPane
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(minWidth: 640, minHeight: 400)
+        // The window's own minimum, scaled with the rest: at 200% the panes it
+        // has to hold are twice as wide, so a fixed floor would let the user
+        // shrink the window until the chrome clipped.
+        .frame(minWidth: metrics.scaled(640), minHeight: metrics.scaled(400))
     }
 
     /// The LeetCode statement beside the editor. Renders **nothing at all** —
@@ -545,7 +573,12 @@ struct ContentView: View {
     private var editorZone: some View {
         if let file = model.selectedFile {
             VStack(spacing: 0) {
-                PathBarView(fileURL: file.url, projectRoot: model.projectRoot)
+                // The metrics travel as a stored property rather than through the
+                // environment precisely because this view is `.equatable()`:
+                // SwiftUI compares the view's *values* to decide whether to
+                // re-render, so a scale that lived only in the environment would
+                // leave the breadcrumb at its old size until the file changed.
+                PathBarView(fileURL: file.url, projectRoot: model.projectRoot, metrics: metrics)
                     .equatable()
                 Divider()
                 // The consent banner (D15), between the breadcrumb and the find
@@ -592,6 +625,7 @@ struct ContentView: View {
             }
         } else {
             Text("No file open")
+                .font(metrics.scaledFont(.body))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -628,9 +662,14 @@ struct ContentView: View {
 /// `openFiles`. Keying the view on `(fileURL, projectRoot)` alone lets SwiftUI
 /// skip the recompute unless the tab or the project root actually changed, so
 /// that filesystem work stays off the typing path.
+///
+/// The interface metrics are a stored property for the same reason the identity
+/// is: equality decides whether SwiftUI re-runs this body at all, so the scale
+/// has to be part of what it compares.
 private struct PathBarView: View, Equatable {
     let fileURL: URL?
     let projectRoot: URL?
+    let metrics: InterfaceMetrics
 
     var body: some View {
         Text(
@@ -641,12 +680,17 @@ private struct PathBarView: View, Equatable {
             )
             .joined(separator: " › ")
         )
-        .font(.caption)
+        .font(metrics.scaledFont(.caption))
         .foregroundStyle(.secondary)
         .lineLimit(1)
         .truncationMode(.middle)
-        .padding(.horizontal, 8)
-        .frame(maxWidth: .infinity, minHeight: 22, maxHeight: 22, alignment: .leading)
+        .padding(.horizontal, metrics.scaled(8))
+        .frame(
+            maxWidth: .infinity,
+            minHeight: metrics.scaled(22),
+            maxHeight: metrics.scaled(22),
+            alignment: .leading
+        )
     }
 }
 
