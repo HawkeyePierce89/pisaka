@@ -195,7 +195,7 @@ its own; the gate is the single latch, and it is unit-tested.
 - Modify: `docs/architecture/core-leetcode.md`
 - Modify: `CLAUDE.md`
 
-- [ ] Add decision **L26 — "signed in" means LeetCode confirmed it**: the false
+- [x] Add decision **L26 — "signed in" means LeetCode confirmed it**: the false
       assumption (`LEETCODE_SESSION` appears only after login), the allauth
       mechanism that breaks it (the OAuth `state` needs a server-side session
       before the redirect, so an anonymous session exists on the way *out* to
@@ -204,23 +204,23 @@ its own; the gate is the single latch, and it is unit-tested.
       transport-failure-accepts fallback and its rationale, and the note that
       `signIn`'s own confirmation is left in place rather than being fed the
       gate's result.
-- [ ] Add the `LeetCodeLoginGate.swift` file entry under the Core section, and
+- [x] Add the `LeetCodeLoginGate.swift` file entry under the Core section, and
       update the `Platform/LeetCodeWebSession.swift` and login-view entries: the
       "fired at most once / `hasCaptured`" paragraph becomes the gate's latch,
       and "dismiss first" becomes "confirm, then dismiss — with the offline
       fallback intact".
-- [ ] Correct the stale claim wherever it is stated: the `LeetCodeCredentials`
+- [x] Correct the stale claim wherever it is stated: the `LeetCodeCredentials`
       doc comment and the file entry around line 137 of the architecture doc —
       both cookies are still required, but their presence now means *candidate*,
       not session.
-- [ ] Extend the doc's Tests section with the new suite, and add one
+- [x] Extend the doc's Tests section with the new suite, and add one
       Known-limits line: a provider that drives its flow through a popup window
       would still need a `WKUIDelegate`; GitHub's does not, and this was not
       verified for every provider.
-- [ ] Add the one `CLAUDE.md` index line for `LeetCodeLoginGate.swift` under
+- [x] Add the one `CLAUDE.md` index line for `LeetCodeLoginGate.swift` under
       `docs/architecture/core-leetcode.md` (a Core file is added — the only
       reason convention permits touching that file here).
-- [ ] Run `swift test` — must pass.
+- [x] Run `swift test` — must pass. (2783 tests, 0 failures.)
 
 ### Task 5: Verify acceptance criteria
 
