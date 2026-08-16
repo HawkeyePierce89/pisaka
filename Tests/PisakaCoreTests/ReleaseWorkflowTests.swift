@@ -1211,7 +1211,7 @@ final class ReleaseWorkflowTests: XCTestCase {
     }
 
     /// The archive's signature is *read back off the bundle*, on the app and on
-    /// the embedded framework both.
+    /// the embedded framework both — and off every Mach-O inside it.
     ///
     /// `codesign --verify --deep --strict` — which this step already ran before
     /// this ticket — answers "is this signature internally valid", and an ad-hoc
@@ -1232,6 +1232,16 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// machine after an update is unpacked, so a framework signed differently
     /// from its host is a failure that happens after publication, on somebody
     /// else's computer.
+    ///
+    /// **The call-site count is two no longer, and the assertion was deliberately
+    /// updated rather than deleted.** Both bundle checks passed on `v1.0`, and
+    /// the notary service rejected it anyway, naming four Mach-Os nested inside
+    /// the framework — a bundle-level read says nothing about the binaries below
+    /// it. So the third call site is the enumeration loop
+    /// (`testTheSignatureCheckRecursesToEveryNestedMachO`), and the count is
+    /// pinned at three with each site named individually: a recursion that
+    /// replaced the two bundle reads rather than joining them would drop the
+    /// resource seal, which is sealed by a bundle's signature and by no Mach-O's.
     func testTheArchivedAppAndItsFrameworkAreCheckedForTheDeveloperIDSignature() throws {
         let script = try stepScript(named: Self.verifyStepName, because: """
             It is the last place the signature can be inspected before the app is notarized and \
@@ -1287,13 +1297,14 @@ final class ReleaseWorkflowTests: XCTestCase {
             --strict` and all three checks above
             """)
 
-        // Both bundles, not just the app. The framework is separately signed and
-        // separately re-checked on the user's machine.
+        // Three call sites, each named. Both bundles *and* the enumeration: the
+        // two bundle reads carry the resource seal no Mach-O's signature does,
+        // and the loop carries the nested binaries no bundle read reaches.
         let checks = script.filter { $0.hasPrefix("verify_developer_id_signature ") }
-        XCTAssertEqual(checks.count, 2, """
-            release.yml's `\(Self.verifyStepName)` step must apply its signature check to exactly \
-            two bundles — the app and the embedded Sparkle.framework. It currently applies it to \
-            \(checks.count): \(checks).
+        XCTAssertEqual(checks.count, 3, """
+            release.yml's `\(Self.verifyStepName)` step must apply its signature check at exactly \
+            three sites — the app, the embedded Sparkle.framework, and the loop over every \
+            enumerated Mach-O. It currently applies it at \(checks.count): \(checks).
             """)
         XCTAssertTrue(checks.contains { $0.hasSuffix(#""$APP""#) }, """
             The signature check must run against the archived app itself ("$APP"). Got \(checks).
@@ -1304,12 +1315,141 @@ final class ReleaseWorkflowTests: XCTestCase {
             rather than believing — and it is the one nested bundle Sparkle itself re-checks on \
             the user's machine after unpacking an update. Got \(checks).
             """)
+        XCTAssertTrue(checks.contains { $0.hasSuffix(#""$BINARY""#) }, """
+            The signature check must also run against each enumerated Mach-O ("$BINARY"). The two \
+            bundle reads above both passed on v1.0 and the notary service rejected it anyway, \
+            naming four binaries nested inside the framework. Got \(checks).
+            """)
+    }
 
-        // The nested-code check the three above do not replace.
+    /// The four facts are read back off **every Mach-O in the app**, discovered
+    /// by enumeration rather than by a second hand-written list.
+    ///
+    /// A list would be the same mistake at one remove: the re-sign step's
+    /// explicit list is deliberate — it is what a Sparkle layout change has to
+    /// invalidate loudly — but a *verification* that only looks where the
+    /// re-sign looked can never report a binary the re-sign forgot, which is the
+    /// whole class of failure `v1.0` belongs to. So the verification enumerates,
+    /// and the re-sign's list is checked against what the enumeration found
+    /// (`testTheMachOEnumerationRefusesRatherThanCheckingNothing`).
+    ///
+    /// `-type f` is load-bearing rather than tidy: a framework is a tree of
+    /// symlinks, and following them checks the same binary several times under
+    /// several names while covering nothing extra.
+    func testTheSignatureCheckRecursesToEveryNestedMachO() throws {
+        let script = try stepScript(named: Self.verifyStepName, because: """
+            It is the only step that can see the archived bundle's insides before the notary \
+            service does.
+            """)
+
+        let enumeration = try XCTUnwrap(script.first(where: {
+            $0.contains("find ") && $0.contains("\"$APP\"") && $0.contains("Mach-O")
+        }), """
+            release.yml's `\(Self.verifyStepName)` step must enumerate the app's Mach-O binaries \
+            with a `find` over "$APP" filtered on `Mach-O`. Without the enumeration the step reads \
+            two bundle signatures and nothing below them — exactly the coverage that let v1.0 reach \
+            the notary service with four ad-hoc signed helpers inside Sparkle.framework.
+            """)
+        XCTAssertTrue(enumeration.contains("-type f"), """
+            The Mach-O enumeration in release.yml's `\(Self.verifyStepName)` step must pass \
+            `-type f`. A framework is a tree of symlinks (Versions/Current and the top-level \
+            links), so without it the same binary is verified several times under several names. \
+            Got “\(enumeration)”.
+            """)
+        XCTAssertTrue(enumeration.contains("file "), """
+            The Mach-O enumeration must decide what is a Mach-O with `file`, not by path or \
+            extension: the binaries that matter here (Autoupdate, the XPC services' executables) \
+            have no extension at all. Got “\(enumeration)”.
+            """)
+
+        // The enumeration has to be *used*. A `find` whose output nothing reads
+        // is a green step that verifies two bundles, which is the state this
+        // whole recursion replaces.
+        XCTAssertTrue(script.contains { $0.hasPrefix("verify_developer_id_signature ") && $0.contains("$BINARY") }, """
+            release.yml's `\(Self.verifyStepName)` step must feed the enumerated Mach-Os to \
+            `verify_developer_id_signature`. Enumerating them and not checking them is the same \
+            coverage as not enumerating them.
+            """)
+
+        // Read in the current shell, not a pipeline subshell. `exit 1` inside
+        // the function ends a subshell and nothing else, so a piped `while`
+        // would log four refusals and notarize the build anyway.
+        XCTAssertTrue(script.contains { $0.hasPrefix("done <<<") }, """
+            release.yml's `\(Self.verifyStepName)` step must feed its verification loop from a \
+            here-string (`done <<< "$MACH_OS"`). A `while` on the right of a pipe runs in a \
+            subshell, where `verify_developer_id_signature`'s `exit 1` ends the subshell and lets \
+            the step continue — a refusal that prints its ::error:: and then publishes anyway.
+            """)
+    }
+
+    /// Two refusals guard the enumeration itself, because an enumeration that
+    /// silently matches nothing is indistinguishable from one that passed.
+    ///
+    /// The first is the empty case: `find` and `file` are two tools whose output
+    /// this step parses, and either could stop matching without failing. The loop
+    /// then runs zero times and every assertion in this suite stays green while
+    /// no binary is checked at all.
+    ///
+    /// The second is the floor under it — the four Mach-Os the notary service
+    /// named when it rejected `v1.0` must be among what was found, by exact path.
+    /// It is the counterpart to the re-sign step's explicit list: those two are
+    /// the same fact written twice, and this is what refuses when a Sparkle
+    /// version bump makes one of them stale. The paths are built from
+    /// `sparkleNestedHelpers` here for that reason — the two halves cannot drift
+    /// apart without failing this test.
+    func testTheMachOEnumerationRefusesRatherThanCheckingNothing() throws {
+        let script = try stepScript(named: Self.verifyStepName, because: """
+            It is the step whose enumeration decides how much of the app is actually verified.
+            """)
+
+        assertGuardExits(#"-z "$MACH_OS""#, in: script, step: Self.verifyStepName, because: """
+            an empty enumeration is not a pass: the per-binary loop below it would run zero times, \
+            print nothing and leave the step green while checking no binary at all — which is the \
+            very failure the recursion was added to catch, arriving through the recursion itself
+            """)
+
+        assertGuardExits(#"grep -qxF "$APP/$REQUIRED""#, in: script, step: Self.verifyStepName, because: """
+            the four helper Mach-Os the notary service named when it rejected v1.0 must be among \
+            what the enumeration found. They are the floor under it and the counterpart to the \
+            re-sign step's explicit list: a Sparkle version that moved one of them leaves that list \
+            stale, and this is what notices before the submission does
+            """)
+
+        // The required set is the re-sign step's list, one level in: the guards
+        // there are on the four *bundles*, these are the Mach-Os inside them,
+        // which is the level the notary service reports at.
+        for helper in Self.sparkleNestedHelpers {
+            let required = "Contents/Frameworks/Sparkle.framework/\(helper)"
+            XCTAssertTrue(script.contains { $0.contains(required) }, """
+                release.yml's `\(Self.verifyStepName)` step must require \(helper)'s Mach-O to be \
+                among the binaries it enumerated. The re-sign step signs that bundle; if this step \
+                does not insist on seeing it, a Sparkle layout change silently narrows both.
+                """)
+        }
+    }
+
+    /// `codesign --verify --deep --strict` stays, and is not what the recursion
+    /// replaces.
+    ///
+    /// The two answer different questions and `v1.0` is the proof: `--deep
+    /// --strict` passed on an app whose four nested helpers carried upstream's
+    /// ad-hoc signatures, because an ad-hoc signature is a *valid* signature.
+    /// Validity is not identity. Conversely the four facts are read per binary
+    /// and say nothing about whether the seals nest correctly — a helper
+    /// re-signed after its framework passes all four and fails `--deep --strict`.
+    /// Deleting either one because "the other covers it" is the mistake this
+    /// assertion exists to fail.
+    func testNestedCodeValidityIsStillCheckedAlongsideTheRecursion() throws {
+        let script = try stepScript(named: Self.verifyStepName, because: """
+            It is the step that inspects the archived bundle before it is submitted.
+            """)
+
         XCTAssertTrue(script.contains { $0.contains("codesign --verify --deep --strict") }, """
             release.yml's `\(Self.verifyStepName)` step must keep `codesign --verify --deep \
-            --strict`. The Developer ID / team / runtime checks say the *right certificate* was \
-            used; they say nothing about whether every nested executable is validly signed.
+            --strict`. The per-binary Developer ID / team / runtime / timestamp checks say the \
+            right certificate was used on each Mach-O; they say nothing about whether the \
+            signatures nest — a helper re-signed after its framework passes all four and leaves the \
+            framework sealing a hash that no longer exists.
             """)
     }
 

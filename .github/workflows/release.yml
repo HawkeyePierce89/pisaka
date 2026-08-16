@@ -518,11 +518,22 @@ jobs:
       # signed by Xcode as part of the archive, and it is the one piece of nested
       # code whose signature Sparkle itself re-checks on the user's machine.
       #
-      # These checks are not exhaustive and are not meant to be. `--deep --strict`
-      # covers nested code validity, and the notary service remains the authority
-      # on every nested executable, every timestamp and every hardened-runtime
-      # violation. This is the cheap subset that catches the whole-build mistakes
-      # locally, twenty minutes before the notary would.
+      # Those two are bundle-level reads, and bundle-level was not enough: `v1.0`
+      # passed both, passed `codesign --verify --deep --strict` on the whole app,
+      # and was rejected by the notary service naming four Mach-Os nested inside
+      # `Sparkle.framework`. `--deep --strict` asks whether every nested signature
+      # is *valid*, and an ad-hoc signature is a perfectly valid signature —
+      # validity is not identity, which is the entire distinction this step
+      # exists to draw. So the same four facts now also run over **every Mach-O
+      # in the app**, enumerated rather than listed, with two refusals guarding
+      # the enumeration itself (see below). The bundle-level checks stay
+      # alongside it: a bundle's signature seals its resources too, which no
+      # single Mach-O's signature does.
+      #
+      # These checks are still not exhaustive and are not meant to be. The notary
+      # service remains the authority on every entitlement and every
+      # hardened-runtime violation. This is the cheap subset that catches the
+      # whole-build mistakes locally, twenty minutes before the notary would.
       - name: Verify the archived app
         run: |
           set -euo pipefail
@@ -591,6 +602,65 @@ jobs:
 
           verify_developer_id_signature "The archived app" "$APP"
           verify_developer_id_signature "The embedded Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
+
+          # Every Mach-O in the app, discovered rather than listed. `-type f` is
+          # what makes "discovered" mean "once each": a framework is a tree of
+          # symlinks (`Versions/Current`, the top-level links), and following
+          # them would check the same binary several times under several names
+          # while proving nothing extra. The `-exec … \; -print` combination is
+          # the filter — `file -b` describes each candidate and `find` prints
+          # only the ones `grep` recognized as Mach-O — so a resource, a plist or
+          # a nib costs one `file` call and is skipped.
+          #
+          # `codesign --display` on a nested bundle's *executable* reports that
+          # bundle's signature (identifier, authority, flags, timestamp), so
+          # enumerating Mach-Os covers `Updater.app` and the two XPC services
+          # without a second, bundle-shaped walk.
+          MACH_OS="$(find "$APP" -type f -exec sh -c 'file -b "$1" | grep -q Mach-O' _ {} \; -print)"
+          printf '%s\n' "$MACH_OS"
+
+          # An empty enumeration is a refusal, not a pass. Two tools' output is
+          # parsed here, and either could stop matching without failing: a `file`
+          # whose wording changed, a `find` predicate that silently matches
+          # nothing after a layout change. The loop below would then run zero
+          # times, print nothing, and leave this step — and every assertion in
+          # ReleaseWorkflowTests about it — green while checking no binary at all.
+          # That is the exact shape of the bug this recursion was added to catch,
+          # so it must not be reachable through the recursion itself.
+          if [ -z "$MACH_OS" ]; then
+            echo "::error::No Mach-O binaries were found inside the archived app. The enumeration this step's per-binary signature check depends on (find -type f filtered through file) matched nothing, which cannot be true of a built app — so the check ran over nothing rather than passing. Fix the enumeration here before releasing. See docs/RELEASING.md."
+            exit 1
+          fi
+
+          # The floor under the enumeration, and the counterpart to the re-sign
+          # step's explicit list: the four helper binaries the notary service
+          # named when it rejected v1.0 must be *among* what was enumerated, by
+          # exact path. If a Sparkle version moves or renames one of them, the
+          # re-sign list is stale — and this refuses here rather than letting the
+          # submission discover it twenty minutes later. The re-sign step guards
+          # the same four bundles by existence; these are the Mach-Os inside
+          # them, which is the level the notary service reports at.
+          for REQUIRED in \
+            "Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc/Contents/MacOS/Downloader" \
+            "Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc/Contents/MacOS/Installer" \
+            "Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate" \
+            "Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater"; do
+            if ! printf '%s\n' "$MACH_OS" | grep -qxF "$APP/$REQUIRED"; then
+              echo "::error::${REQUIRED} is not among the Mach-O binaries found in the archived app. The pinned Sparkle version's internal layout changed, which also makes the re-sign step's explicit list stale: re-derive both from the new framework before releasing. These four are the binaries the notary service named when it rejected v1.0. See docs/RELEASING.md."
+              exit 1
+            fi
+          done
+
+          # Fed by a here-string rather than a pipe on purpose: a `while` on the
+          # right-hand side of a pipeline runs in a subshell, where the `exit 1`
+          # inside verify_developer_id_signature would end that subshell and let
+          # the step carry on to the notarization with a failed binary behind it.
+          # The label is the path relative to the app so a refusal names which
+          # binary failed, not just that one did.
+          while IFS= read -r BINARY; do
+            RELATIVE="${BINARY#"$APP/"}"
+            verify_developer_id_signature "$RELATIVE" "$BINARY"
+          done <<< "$MACH_OS"
 
           # One extraction per key, not one `grep -E` alternation over the whole
           # dump: `grep` succeeds when *any* alternative matches, and

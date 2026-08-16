@@ -165,13 +165,13 @@ bundle-level signature (resource seal included) rather than the Mach-O's, which
 the enumeration does not replace. So the step ends up with three
 `verify_developer_id_signature` call sites: the app, the framework, and the loop.
 
-- [ ] add the Mach-O enumeration, the per-binary verification loop with relative-path labels, the empty-enumeration refusal and the required-four-paths refusal
-- [ ] extend the step's comment block: what the recursion covers that `--deep --strict` does not (validity is not identity — the ad-hoc upstream signatures passed `--deep --strict` in the v1.0 run and were rejected by the notary), and why the bundle-level checks remain
-- [ ] update `testTheArchivedAppAndItsFrameworkAreCheckedForTheDeveloperIDSignature`: three call sites, each pinned individually (the app, `Sparkle.framework`, the enumeration loop's variable), with its doc comment updated to say why the count grew — the assertion is deliberately updated, not deleted
-- [ ] new test: the step enumerates Mach-Os (a `find` over `$APP` whose results are filtered on `Mach-O`) and feeds them to `verify_developer_id_signature`, so deleting the recursion fails the suite
-- [ ] new test: the empty-enumeration refusal and the four required helper paths refusal both exist and both `exit 1` (`assertGuardExits`), with the required paths matched against the constant shared with Task 1
-- [ ] new test: `codesign --verify --deep --strict` is still present (it answers a question the four facts do not)
-- [ ] run `swift test` — must pass before Task 3
+- [x] add the Mach-O enumeration, the per-binary verification loop with relative-path labels, the empty-enumeration refusal and the required-four-paths refusal
+- [x] extend the step's comment block: what the recursion covers that `--deep --strict` does not (validity is not identity — the ad-hoc upstream signatures passed `--deep --strict` in the v1.0 run and were rejected by the notary), and why the bundle-level checks remain
+- [x] update `testTheArchivedAppAndItsFrameworkAreCheckedForTheDeveloperIDSignature`: three call sites, each pinned individually (the app, `Sparkle.framework`, the enumeration loop's variable), with its doc comment updated to say why the count grew — the assertion is deliberately updated, not deleted
+- [x] new test: the step enumerates Mach-Os (a `find` over `$APP` whose results are filtered on `Mach-O`) and feeds them to `verify_developer_id_signature`, so deleting the recursion fails the suite
+- [x] new test: the empty-enumeration refusal and the four required helper paths refusal both exist and both `exit 1` (`assertGuardExits`), with the required paths matched against the constant shared with Task 1
+- [x] new test: `codesign --verify --deep --strict` is still present (it answers a question the four facts do not)
+- [x] run `swift test` — must pass before Task 3
 
 ### Task 3: Documentation
 
