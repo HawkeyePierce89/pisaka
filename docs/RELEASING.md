@@ -597,9 +597,44 @@ The workflow then, in order:
     `sparkle:shortVersionString` the app does not report under a zip named after
     neither. Here the archive is the authority, which is the same argument the
     `CFBundleVersion` check makes.
+  - **Launch the archived app (smoke test)** — the one step in the whole
+    pipeline that *executes* the product instead of reading bytes off it. It
+    runs `Contents/MacOS/Pisaka` in the background, polls the process with
+    `kill -0` for five seconds and then kills it. **Being killed is the pass.**
+    The app going away on its own is a refusal *whatever its exit status*,
+    including `0`: a clean exit seconds after launch is not a working editor
+    either, and a killed process and a crashed one both report ≥128, which is
+    why liveness is polled rather than read back out of `wait`. On the refusing
+    path both the redirected output and the newest `Pisaka*.ips` report under
+    `~/Library/Logs/DiagnosticReports/` are printed before the `::error::`,
+    because a refusal nobody can re-run interactively has to carry its own
+    evidence. The
+    assertion is that the process *lives*, nothing more — windows appearing, the
+    updater polling github.com, its first-launch permission prompt and session
+    restore finding no session are all inert to it.
+
+    It sits **after the re-sign and before the submission**, and both halves of
+    that matter. After, so what it launches is what ships — hardened runtime,
+    Developer ID signature, Sparkle's four nested helpers already replaced;
+    launching before would exercise a bundle this run then throws away. Before,
+    so a build that cannot start never reaches the notary queue: the alternative
+    costs twenty minutes and a full archive to learn what five seconds answers
+    here, and leaves a dead build one accepted verdict away from a publish. The
+    bundle is not yet notarized, which changes nothing — nothing quarantined it,
+    so Gatekeeper is not in play and this step says nothing about whether Apple
+    will accept it. Launching does not modify the bundle either, and that is not
+    an assumption: the staple step's `codesign --verify --deep --strict` runs
+    afterwards and is the standing proof.
+
+    An identical script — identical to the line, apart from `APP=`, which
+    `ReleaseWorkflowTests` asserts — runs in `ci.yml` against the DerivedData
+    Release product, so the same failure is caught on a pull request rather than
+    on a tag. Why the step exists at all is
+    [the `v1.0` launch crash](#the-v10-launch-crash-and-why-every-gate-missed-it)
+    below.
   - **Notarize**, then **staple** — the two steps described in
     [Notarization and stapling](#notarization-and-stapling) above. They sit
-    between the verification and the shipped zip, which is the only order that
+    between the smoke launch and the shipped zip, which is the only order that
     ships a working app.
   - `ditto -c -k --sequesterRsrc --keepParent` into a staging directory that
     holds nothing else. `ditto` and not `zip`: the embedded framework is a bundle
@@ -688,16 +723,31 @@ verdict, the guarded JSON reads, the non-`Accepted` branch exiting 1, the log
 fetch, the `.p8` written under the same `umask 077` subshell and removed by a
 `trap … EXIT`), the fact that
 every step is fatal to the job (no `continue-on-error:`, and `if: always()` on
-the cleanup as the only step condition), the job budget exceeding the notary
+the cleanup as the only step condition — the ci.yml-scoped counterpart of which
+is asserted too, since without it every refusal below would be a log line), the
+**two smoke launches** — each pinned by mechanism on its own side (the app
+launched in the background, liveness polled with `kill -0`, the death branch
+reaching `exit 1`, `APP=` naming that workflow's own product), the success path
+asserted to be survival rather than a zero exit (no comparison of any status
+against zero, no `exit 0`, the only non-refusing path running `kill "$PID"`), the
+`DEADLINE` pinned against the degenerate `0` that would make the loop body never
+run and every launch "survive", the death branch printing the captured output
+before refusing, and the two bodies asserted **equal after dropping the `APP=`
+line** — because two hand-maintained copies drifting apart means one half of the
+pipeline stops checking what the other does, and the fix is to copy rather than
+to reconcile by hand, the job budget exceeding the notary
 `--timeout` by at least `ci.yml`'s build budget — *read out of `ci.yml`* rather
 than restated as a number, so raising CI's budget cannot leave this claim true
 only by coincidence — the
 staple (refusing with a message of its own rather than bare `Error 65`) and its
-`stapler validate`, the full step ordering (archive < re-sign < verify <
-notarize < staple < shipped zip < `generate_appcast` < `gh release create` —
+`stapler validate`, the full step ordering (archive < re-sign < verify < smoke
+launch < notarize < staple < shipped zip < `generate_appcast` <
+`gh release create` —
 re-signing after the verification would verify signatures the run is about to
-replace, and re-signing after the submission would invalidate the ticket Apple
-issued), the shipped zip
+replace, re-signing after the submission would invalidate the ticket Apple
+issued, smoke-launching before the re-sign would test a bundle the run then
+replaces, and smoke-launching after the submission would let a dead build occupy
+the notary queue and, worse, reach a publish), the shipped zip
 being a different artefact from the submitted one, the absence of the old
 Gatekeeper workaround strings from every document that used to carry them, the
 unsigned-appcast refusal and its position
@@ -742,6 +792,60 @@ obvious before the notary service said so:
   about code nested inside the bundle, and `--deep --strict` only asks whether
   that nested code's signature is valid. Truth at the level you happened to check
   is not coverage of the level Apple checks.
+
+### The `v1.0` launch crash, and why every gate missed it
+
+The re-pushed `v1.0` tag ran green end to end: signed, notarized, stapled,
+`spctl` reporting `source=Notarized Developer ID`, both assets published. The
+published app then **aborted in dyld on the first machine that opened it**,
+before any code of ours ran:
+
+```
+dyld[…]: Library not loaded: @rpath/Sparkle.framework/Versions/B/Sparkle
+  Referenced from: /Applications/Pisaka.app/Contents/MacOS/Pisaka
+  Reason: tried: '/usr/lib/swift/Sparkle.framework/…' (no such file),
+          '…/Pisaka.app/Contents/MacOS/Frameworks/Sparkle.framework/…' (no such file)
+```
+
+**The root cause is one build setting that had been wrong since the first
+commit.** The multiplatform target inherited XcodeGen's `LD_RUNPATH_SEARCH_PATHS`
+preset — `$(inherited)` plus `@executable_path/Frameworks` — on *both*
+destinations. That is the iOS layout, where the executable sits at the bundle
+root; on macOS the executable is in `Contents/MacOS/` and frameworks in
+`Contents/Frameworks/`, so the entry has to be `@executable_path/../Frameworks`.
+The searched path in the message above is exactly the preset resolving against
+the macOS layout. Nothing had ever dereferenced it, because Sparkle is this
+project's **first embedded dynamic framework**: every other dependency links
+statically into the executable, and a runpath nobody resolves through is a
+runpath nobody notices. The fix is `LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]` in
+`project.yml`, pinned by `ReleaseMetadataTests` and explained in
+`docs/architecture/core-services.md`.
+
+**Every gate passed, and none of them could have failed.** `swift test` compiles
+`PisakaCore` and reads repository files; CI builds the app, which only proves it
+*links* against the framework's stub; this workflow reads signatures, plist keys,
+a notary verdict and a Gatekeeper assessment back off the archive. Every one of
+those is byte-level. **Nothing between the compiler and the user had ever
+executed the binary** — and a dynamic-link failure is invisible until something
+does. The gates were not weak at what they check; the pipeline had no step that
+asked the only question a user asks first.
+
+**The smoke launch is the structural answer**, and it is deliberately structural
+rather than a check for this one message: it runs the product in both places that
+build the shipping configuration (`ci.yml` against the DerivedData Release
+product, `release.yml` against the archived app before the submission) and
+refuses if the process is not still alive five seconds later. Any startup crash
+fails it, not just an unresolved `@rpath`.
+
+Recovery was the ordinary one and needs no special case — delete the tag, push
+it again, as [above](#cutting-a-release); the fresh run archives under a new
+`github.run_number` (see [the build number](#the-build-number)). A release that
+was already published has to be deleted along with the tag.
+
+**Known limit, recorded rather than fixed: there is no iOS runtime smoke test.**
+CI runs no simulator by design, so the iOS product's dynamic loading is checked
+by nothing. The same class of failure on that destination would still reach a
+user.
 
 ### Upgrading Sparkle
 
@@ -836,19 +940,38 @@ downloaded the app rather than built it.
 - ~~**Swap in the real key.**~~ Done 2026-08-16: the real `SUPublicEDKey` is
   committed, `swift test` passes the shape assertions against it, and the
   placeholder string appears nowhere in `Resources/Info.plist`.
-- **The first tag push — partly done, and it failed.** `v1.0` (run 31936509608)
-  was pushed and the run got as far as the notary service, which returned
+- **The first tag push — done, in two runs, and the second one published.** The
+  first `v1.0` run (31936509608) reached the notary service, which returned
   `Invalid` for the four nested Sparkle helpers (see
-  [the re-sign pass](#automated-releases) above). What that proved is not
-  nothing: the preflight passed, the throwaway keychain imported the certificate
-  and found the identity, the archive produced a Developer ID signed,
-  hardened-runtime build, and the rejection surfaced with its log printed while
-  **nothing was published** — the failure path behaving as designed. What is
-  still owed is a *successful* run: the release created with both assets and the
-  expected build number, and — deliberately — the check that a tag whose version
-  does not match `MARKETING_VERSION` fails in the preflight, *before* archiving,
-  with the intended message.
-- **The first notarized tag, from a real download.** The workflow's own
+  [the re-sign pass](#automated-releases) above); nothing was published and the
+  rejection surfaced with its log printed — the failure path behaving as
+  designed. The re-pushed tag then ran green end to end and **published `v1.0`
+  with both assets and the expected build number**, so the whole happy path is
+  now exercised: preflight, throwaway keychain, Developer ID signed
+  hardened-runtime archive, the re-sign pass, notarization, stapling, `spctl`,
+  the signed appcast and the draft-then-promote publication.
+
+  That is also where this document's own limits showed. A green run means every
+  *byte-level* gate passed, and the published app then crashed in dyld on first
+  launch — see
+  [the `v1.0` launch crash](#the-v10-launch-crash-and-why-every-gate-missed-it).
+  The two smoke launches close that gap for future tags; what a successful run
+  proves is stated above and does not extend to "the app works".
+
+  Still owed, deliberately: the check that a tag whose version does not match
+  `MARKETING_VERSION` fails in the preflight, *before* archiving, with the
+  intended message.
+- **The first notarized tag, from a real download — attempted, and it is what
+  caught the crash.** The published `v1.0` was downloaded, moved to
+  `/Applications` and double-clicked, and the app aborted in dyld
+  ([the launch crash](#the-v10-launch-crash-and-why-every-gate-missed-it)) —
+  found here because every automated gate in this pipeline had already said yes.
+  So this stays **owed in full** against the next release rather than partly
+  done: the criterion below is not "no refusal dialog", it is that dialog
+  *followed by an app that runs*, and half of it is exactly what failed. The
+  pass, in full:
+
+  The workflow's own
   `spctl --assess` gate proves the bundle it built passes the system policy; what
   a runner structurally cannot do is the thing users do. So: download the zip
   from the release page in a browser (so it carries the quarantine flag a `curl`

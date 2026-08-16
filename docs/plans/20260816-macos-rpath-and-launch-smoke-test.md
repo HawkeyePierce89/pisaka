@@ -409,11 +409,11 @@ after the last restore: 76 insertions, no deletions.
 - Modify: `docs/architecture/core-services.md`
 - Modify: `CLAUDE.md`
 
-- [ ] `docs/RELEASING.md`, in the ordered workflow walk-through under *Cutting a
+- [x] `docs/RELEASING.md`, in the ordered workflow walk-through under *Cutting a
       release*: a bullet for the smoke launch between the verification and
       notarization bullets — what it asserts, the crash-vs-killed distinction, why
       it sits before the submission.
-- [ ] `docs/RELEASING.md`: the incident record, beside the existing "**Why the
+- [x] `docs/RELEASING.md`: the incident record, beside the existing "**Why the
       step exists: `v1.0` was rejected**" note — the dyld message and the searched
       `Contents/MacOS/Frameworks/`, the root cause (an XcodeGen default nobody had
       ever exercised, because Sparkle is the first embedded dynamic framework),
@@ -423,17 +423,17 @@ after the last restore: 76 insertions, no deletions.
       binary), and the smoke launch as the structural answer. The recovery (delete
       and re-push the tag) is already documented — link it, do not restate it
       differently.
-- [ ] `docs/RELEASING.md`: reconcile the *Manual verification owed* bullet about
+- [x] `docs/RELEASING.md`: reconcile the *Manual verification owed* bullet about
       the first tag push with what actually happened, so the document does not
       describe a state that has been overtaken — what the notarized publish did
       prove, and that the download-and-double-click pass is what caught the crash.
-- [ ] `docs/architecture/core-services.md`: a subsection beside *Release-metadata
+- [x] `docs/architecture/core-services.md`: a subsection beside *Release-metadata
       resources* for the build setting that only the shipped app dereferences —
       the conditional spelling and why XcodeGen passes it through, why iOS keeps
       the preset, why `/usr/lib/swift` is not this setting's to preserve, the
       `ReleaseMetadataTests` pin, and the two smoke launches with the **known
       limit** that there is no iOS runtime equivalent because CI has no simulator.
-- [ ] `CLAUDE.md`: extend the `ReleaseWorkflowTests` inventory sentence with the
+- [x] `CLAUDE.md`: extend the `ReleaseWorkflowTests` inventory sentence with the
       two smoke launches (step-scoped and by mechanism, success = "survived until
       we killed it" and not "exited zero", the non-degenerate deadline, the
       ordering slot before notarization, and the cross-file equivalence); extend
@@ -441,8 +441,49 @@ after the last restore: 76 insertions, no deletions.
       CI paragraph in *Commands* to say the macOS job now launches what it built,
       and note the absent iOS runtime check. Keep the file's size discipline —
       clauses, not essays.
-- [ ] `swift test` — must pass (`ReleaseWorkflowTests` reads `CLAUDE.md`-adjacent
+- [x] `swift test` — must pass (`ReleaseWorkflowTests` reads `CLAUDE.md`-adjacent
       documents for the Gatekeeper-workaround absence assertions).
+
+**Task 4 completion notes**
+
+`swift test`: **2771 tests, 0 failures** — including
+`testTheGatekeeperWorkaroundIsGoneFromEveryDocumentThatCarriedIt`, which reads
+`docs/RELEASING.md` raw and is the one assertion the new prose could have broken.
+
+Where each piece landed:
+
+- `docs/RELEASING.md` — a *Launch the archived app (smoke test)* bullet in the
+  ordered walk-through, between the verification and notarization bullets; a new
+  `### The v1.0 launch crash, and why every gate missed it` section carrying the
+  incident record (the dyld message and the searched
+  `Contents/MacOS/Frameworks/`, the XcodeGen preset as root cause, Sparkle as the
+  first embedded dynamic framework, why every byte-level gate passed, the smoke
+  launch as the structural answer, the no-iOS-runtime-check limit) with the
+  recovery *linked* to `Cutting a release` / `the build number` rather than
+  restated; the `ReleaseWorkflowTests` pin inventory extended with the two smoke
+  launches and the step ordering updated to `verify < smoke launch < notarize`;
+  and the two *Manual verification owed* bullets reconciled — the re-pushed
+  `v1.0` did publish, so the happy path is exercised, and the
+  download-and-double-click attempt is what found the crash, which is why that
+  bullet is now owed **in full** rather than partly done.
+- `docs/architecture/core-services.md` — `### The macOS runpath, and the one gate
+  that can see it`, beside *Release-metadata resources*: the conditional
+  spelling, XcodeGen passing it through, iOS keeping the preset, the measured
+  `$(inherited)` behaviour, `/usr/lib/swift` not being this setting's to
+  preserve, the `ReleaseMetadataTests` pin, the two smoke launches and the known
+  limit.
+- `CLAUDE.md` — clauses, not essays: the runpath pin on the
+  `ReleaseMetadataTests` sentence, the two smoke launches on the
+  `ReleaseWorkflowTests` one (by mechanism, survival-not-zero-exit, the
+  non-degenerate `DEADLINE`, the slot before notarization, the cross-file
+  equivalence), and the CI paragraph now saying the macOS job launches what it
+  built with no iOS runtime equivalent.
+
+One note for the reviewer: `CLAUDE.md` was already 39,989 characters and these
+three clauses put it at ~40.5k, over the repo hook's 40k guideline. The per-file
+rationale went into the two docs above (the hook's own prescription) and what
+stayed in `CLAUDE.md` is index-level, but the file is over the line and trimming
+it back is a separate edit to prose this task did not write.
 
 ### Task 5: Verify acceptance criteria
 

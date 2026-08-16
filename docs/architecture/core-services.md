@@ -613,6 +613,71 @@ Connect validation. One base setting covers both destinations, so the key also
 lands in the macOS plist, where AppKit never reads it (the same harmless spill as
 `INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace`).
 
+### The macOS runpath, and the one gate that can see it
+
+A second build setting is pinned here, for a sharper version of the same reason:
+**`LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]`** in `project.yml`'s
+`targets.Pisaka.settings.base`, `$(inherited)` plus
+`"@executable_path/../Frameworks"`. Nothing in this repository dereferences it —
+not the compiler, not the linker, not `swift test`, not CI's build. The *shipped
+app* dereferences it, once, in dyld, before any of our code runs.
+
+XcodeGen's preset is `$(inherited)` plus `@executable_path/Frameworks`, applied
+unconditionally and therefore to both destinations. That is the iOS layout, where
+the executable sits at the bundle root; on macOS the executable is in
+`Contents/MacOS/` and the frameworks in `Contents/Frameworks/`, so the entry has
+to climb one level. The wrong default survived from the first commit to the
+published `v1.0`, which **aborted at launch** with `Library not loaded:
+@rpath/Sparkle.framework/Versions/B/Sparkle`, having searched
+`Contents/MacOS/Frameworks/` — the preset resolving against the macOS layout.
+Sparkle is the project's first *embedded dynamic framework* (everything else
+links statically into the executable), so it is the first thing ever to resolve
+through this setting. The whole incident is in `docs/RELEASING.md`.
+
+Four decisions in that one line, each measured rather than assumed:
+
+  - **A `[sdk=macosx*]` condition rather than a rewritten unconditional value**,
+    so iOS keeps the preset untouched — confirmed by rebuilding
+    `generic/platform=iOS` and re-reading its `LC_RPATH` set (`@executable_path`,
+    the `PackageFrameworks` entry, `@executable_path/Frameworks`), which is
+    unchanged. XcodeGen passes the bracketed key through verbatim into both the
+    Debug and Release target configurations; it needs no XcodeGen feature beyond
+    "emit what you were given".
+  - **`$(inherited)` picks up the target's own unconditional entry**, not just a
+    project-level one. Xcode layers the conditional assignment on top of the
+    *same-level* unconditional one, so the macOS product carries both
+    `@executable_path/Frameworks` (dead — it resolves to nothing) and
+    `@executable_path/../Frameworks` (the one that works). Dropping `$(inherited)`
+    would prune the dead entry and is deliberately not done: it would also drop
+    whatever a future project-level or xcconfig value contributes, to buy a
+    shorter `otool` listing.
+  - **`/usr/lib/swift` is not this setting's to preserve.** The Swift toolchain
+    emits that `LC_RPATH` itself, so overriding the search paths cannot lose it —
+    read back with `otool -l` on the Release product rather than reasoned about.
+  - **`ReleaseMetadataTests.testProjectPinsTheMacOSRunpath` pins the three
+    lines**, matched consecutively over the comment-stripped `project.yml`.
+    Deleting them leaves every build green, both destinations linking, and every
+    byte-level release check passing; only a launch can tell.
+
+That last point is the general one. Every other gate in this repository is
+byte-level — `swift test` compiles Core and reads repository files, CI builds the
+app, the release workflow reads signatures, plist keys and a notary verdict back
+off the archive — and a dynamic-link failure is invisible to all of them. So the
+two workflows that build the shipping configuration now **run the product**:
+`ci.yml`'s macOS job launches the DerivedData Release app, and `release.yml`
+launches the archived app after the re-sign and before the notary submission.
+Both use the same script (identical apart from `APP=`, which
+`ReleaseWorkflowTests` asserts): background-launch, poll with `kill -0` for five
+seconds, kill it. Being killed is the pass; the process going away on its own is
+a refusal whatever its status, `0` included.
+
+**Known limit: there is no iOS runtime equivalent.** CI runs no simulator by
+design — the iOS job builds `generic/platform=iOS` and boots nothing — so the iOS
+product's dynamic loading is checked by nothing. The setting above is
+macOS-conditional precisely so iOS keeps a preset that is correct for it, but the
+class of failure is unguarded on that destination and is recorded rather than
+designed around.
+
 ## Third-party license catalog
 
 `LicenseNotice.swift` is the domain half of license compliance: the app must
