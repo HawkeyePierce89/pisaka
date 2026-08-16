@@ -577,10 +577,20 @@ final class LeetCodeModelTests: XCTestCase {
         let transport = makeTransport()
         let model = makeModel(tree: tree, transport: transport)
 
-        let captured = await model.makeLoginGate().offer(credentials)
+        // Deliberately *not* the pair this model is already holding: the wiring
+        // claim is "the gate confirms the candidate through the model's transport",
+        // and a gate that confirmed the model's own stored session instead would
+        // pass an assertion made with the same pair on both sides — while accepting
+        // whatever the cookie store produced, which is the bug.
+        let candidate = LeetCodeCredentials(session: "candidate-session", csrfToken: "candidate-csrf")
 
-        XCTAssertEqual(captured, credentials)
+        let captured = await model.makeLoginGate().offer(candidate)
+
+        XCTAssertEqual(captured, candidate)
         XCTAssertEqual(transport.count(for: .userStatus), 1)
+        let sent = transport.requests(for: .userStatus).last
+        XCTAssertEqual(sent?.headers["Cookie"], candidate.cookieHeaderValue)
+        XCTAssertEqual(sent?.headers["x-csrftoken"], candidate.csrfToken)
     }
 
     /// One gate per login surface: the latch and the rejected-value memo belong to

@@ -70,6 +70,28 @@ final class LeetCodeLoginGateTests: XCTestCase {
         XCTAssertEqual(transport.count(for: .userStatus), 1)
     }
 
+    /// The gate's whole job is asking LeetCode about **this** pair, so the pair has
+    /// to be on the wire. Every other assertion in this suite is about the route
+    /// and the answer, which a confirmation of some *other* session — the model's
+    /// stored credentials, a stale candidate, an empty pair — would satisfy just as
+    /// well while producing exactly the bug this file fixes: an anonymous candidate
+    /// accepted because a different session is signed in, or the real one refused.
+    func testTheConfirmationCarriesTheOfferedCandidatesCookies() async {
+        let transport = ScriptedLeetCodeTransport()
+        transport.serve(.userStatus, sequence: [Self.signedOut, Self.signedIn])
+        let gate = LeetCodeLoginGate(transport: transport)
+
+        _ = await gate.offer(anonymous)
+        _ = await gate.offer(rotated)
+
+        let sent = transport.requests(for: .userStatus)
+        XCTAssertEqual(sent.count, 2)
+        XCTAssertEqual(sent.first?.headers["Cookie"], anonymous.cookieHeaderValue)
+        XCTAssertEqual(sent.first?.headers["x-csrftoken"], anonymous.csrfToken)
+        XCTAssertEqual(sent.last?.headers["Cookie"], rotated.cookieHeaderValue)
+        XCTAssertEqual(sent.last?.headers["x-csrftoken"], rotated.csrfToken)
+    }
+
     /// The one-shot: the sheet fires `onCredentials` once, and the observer's two
     /// check points (`didCommit`, `didFinish`) both see the same pair.
     func testAConfirmedCandidateIsHandedOutExactlyOnce() async {
@@ -142,12 +164,28 @@ final class LeetCodeLoginGateTests: XCTestCase {
         transport.hold(.userStatus, on: hold)
         let gate = LeetCodeLoginGate(transport: transport)
 
+        // The held route is released more times than any run can consume, and
+        // unconditionally: `Gate` is a semaphore blocking a cooperative-pool
+        // thread, so a regression that issues the forbidden second request would
+        // otherwise block forever and take the rest of the suite with it — a hung
+        // job instead of a failure.
+        defer { for _ in 0..<4 { hold.release() } }
+
         let first = Task { await gate.offer(rotated) }
         await hold.waitUntilReached()
         let second = Task { await gate.offer(rotated) }
         // Let the second offer reach its wait before the first one is answered;
         // otherwise this would only be testing the memo again.
         for _ in 0..<4 { await Task.yield() }
+        // Asserted *while the first confirmation is still held*, which is the only
+        // point at which "the two offers raced to the wire" is distinguishable from
+        // "the second one hit the memo". The fake records a request before it
+        // blocks, so a parallel confirmation is visible here and fails fast.
+        XCTAssertEqual(
+            transport.count(for: .userStatus),
+            1,
+            "the second offer issued a parallel confirmation instead of waiting"
+        )
         hold.release()
 
         let captured = [await first.value, await second.value].compactMap { $0 }
@@ -165,10 +203,23 @@ final class LeetCodeLoginGateTests: XCTestCase {
         transport.hold(.userStatus, on: hold)
         let gate = LeetCodeLoginGate(transport: transport)
 
+        // Released unconditionally and to excess, for the same reason as the
+        // previous test: a blocked cooperative-pool thread is a hang, not a
+        // failure.
+        defer { for _ in 0..<4 { hold.release() } }
+
         let first = Task { await gate.offer(anonymous) }
         await hold.waitUntilReached()
         let second = Task { await gate.offer(rotated) }
         for _ in 0..<4 { await Task.yield() }
+        // The rotated value must not be on the wire yet: waiting for the running
+        // confirmation, rather than racing it, is the property under test, and
+        // without this the case degrades silently into "two sequential offers".
+        XCTAssertEqual(
+            transport.count(for: .userStatus),
+            1,
+            "the rotated value was confirmed in parallel instead of waiting"
+        )
         // Twice: the held route stops the second confirmation as well.
         hold.release()
         hold.release()

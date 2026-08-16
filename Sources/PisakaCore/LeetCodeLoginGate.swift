@@ -94,8 +94,15 @@ public final class LeetCodeLoginGate {
             // Nothing known and nothing running: confirm it ourselves. The task
             // records the verdict and clears itself *before* it completes, so
             // everyone waiting on it resumes into settled state.
-            let task = Task { @MainActor [weak self] in
-                guard let self else { return }
+            //
+            // `self` is captured **strongly**, deliberately. The gate cannot go
+            // away while this runs — `offer` is its own instance method and it
+            // awaits the task below, so the call itself holds it — and a `[weak
+            // self]` whose `else` branch ever ran would be far worse than a
+            // retain: it would leave `confirmation` non-nil with no verdict
+            // recorded, and every offer would then spin between "await a task
+            // that already completed" and "continue", forever.
+            let task = Task { @MainActor in
                 let accepted = await Self.confirm(candidate, through: self.transport)
                 self.verdicts[candidate.session] = accepted
                 self.confirmation = nil

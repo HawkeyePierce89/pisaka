@@ -214,15 +214,27 @@ final class LeetCodeLoginObserver: NSObject, WKNavigationDelegate {
 
     private func captureIfSignedIn(in webView: WKWebView) {
         let store = webView.configuration.websiteDataStore.httpCookieStore
-        Task { @MainActor in
-            guard let candidate = await LeetCodeWebSession.credentials(in: store)
+        // `[weak self]`, re-checked after **every** suspension, is what makes
+        // Cancel mean cancel. The gate turned this from a cookie-store read into
+        // a network round trip, so the window between "the cookies appeared" and
+        // "the session is captured" is now long enough for the user to dismiss
+        // the sheet inside it — and a confirmation landing after that would call
+        // `onCredentials`, re-enter a presenter that has already torn the sheet
+        // down, and sign in a login the user explicitly abandoned. The coordinator
+        // dies with the surface (the web view's delegate reference is weak), so
+        // its absence *is* "the sheet is gone".
+        Task { @MainActor [weak self] in
+            guard let candidate = await LeetCodeWebSession.credentials(in: store),
+                  let gate = self?.gate
             else { return }
-            // No local guard around this: the gate is the one-shot, and it applies
-            // it *after* its own suspension, so two navigations in flight still
-            // fire once between them. It also memoizes rejected values, so the
-            // several checks of one OAuth round trip cost one request, not one
-            // each.
-            guard let credentials = await self.gate.offer(candidate) else { return }
+            // No local guard around the offer: the gate is the one-shot, and it
+            // applies it *after* its own suspension, so two navigations in flight
+            // still fire once between them. It also memoizes rejected values, so
+            // the several checks of one OAuth round trip cost one request, not one
+            // each. The gate is bound locally so it outlives the call it is
+            // running, which is what lets `self` be re-checked *after* it.
+            guard let credentials = await gate.offer(candidate), let self
+            else { return }
             self.onCredentials(credentials)
         }
     }
