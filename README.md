@@ -50,8 +50,9 @@ description of each — and of what it deliberately does *not* do — is in
   with the app; **Run File** (Cmd+R) and **Run Test** (Cmd+U) reuse dedicated
   terminal tabs, with the test runner detected from the project's config files.
 - **Autosave & sessions** — JetBrains-style autosave (idle, tab switch, focus
-  loss, quit), and session restore on launch including hot exit for "Untitled"
-  buffers.
+  loss, quit), and **per-project** session restore: each project folder keeps its
+  own tabs and selection, brought back when you open it again and on launch,
+  including hot exit for "Untitled" buffers.
 - **Automatic updates** via Sparkle 2 — release builds check GitHub, ask once
   for consent, verify every download against a baked-in EdDSA key; **Check for
   Updates…** is always in the app menu. DEBUG builds have no updater at all.

@@ -49,11 +49,15 @@ already funnels every open through.
 ## Design decisions (recorded here, then in the architecture docs)
 
 **Storage shape.** One property-list blob under a new stable key
-`session.projects`, decoding to `SessionCatalog`: an **MRU-ordered array of entries**,
-each a `folderPath: String?` (verbatim spelling; `nil` is the no-folder workspace)
-plus its `EditorSession`. The "last opened" pointer *is* `entries.first` — one piece
-of state rather than a separate field that could name an absent entry, so "the
-pointer points at a session that is not stored" is unrepresentable.
+`session.projects`, decoding to `SessionCatalog`: an **MRU-ordered array of
+`EditorSession`s**, each keyed by its own `folderPath: String?` (verbatim spelling;
+`nil` is the no-folder workspace). The "last opened" pointer *is* `entries.first` —
+one piece of state rather than a separate field that could name an absent entry, so
+"the pointer points at a session that is not stored" is unrepresentable. The same
+reasoning is why the key is *not* stored beside the session in a wrapper: two
+independent fields a decoder cannot hold in agreement would reintroduce exactly that
+class of state one level down. (Review correction — the first implementation had a
+`SessionCatalog.Entry` wrapper; it was flattened.)
 
 **Retention.** Capped at **20 entries** (`SessionCatalog.maxStoredProjects`, the same
 number and rationale as the iOS recents cap), evicting the tail. The cap is by
@@ -108,12 +112,12 @@ half-swapped state can be written.
 - Modify: `Sources/PisakaCore/EditorSession.swift`
 - Modify: `Tests/PisakaCoreTests/EditorSessionTests.swift`
 
-- [x] add `public struct SessionCatalog: Codable, Equatable` with a nested
-      `Entry: Codable, Equatable` (`folderPath: String?`, `session: EditorSession`)
-      and `entries: [Entry]`, MRU-ordered (index 0 = last opened)
+- [x] add `public struct SessionCatalog: Codable, Equatable` with
+      `entries: [EditorSession]`, MRU-ordered (index 0 = last opened), each session
+      keyed by its own `folderPath` (no wrapper — see Storage shape)
 - [x] add `public static let maxStoredProjects = 20` and document the count-not-bytes
       reasoning on the type
-- [x] add `public var lastOpened: EditorSession?` (`entries.first?.session`) — the
+- [x] add `public var lastOpened: EditorSession?` (`entries.first`) — the
       launch pointer, with the doc note that head *is* the pointer
 - [x] add `public func session(forFolder folder: URL?) -> EditorSession?`, matching
       via `CanonicalPath.canonical(_:)` on both sides (`nil` matches only the

@@ -519,6 +519,20 @@ final class EditorSessionTests: XCTestCase {
         XCTAssertNil(SessionStore(defaults: defaults).loadLastOpened())
     }
 
+    func testStoreWrongTypedCatalogDoesNotResurrectTheLegacyBlob() throws {
+        let defaults = makeDefaults()
+        try writeLegacyBlob(EditorSession(folderPath: "/p/legacy"), into: defaults)
+        // Not `Data` at all — which is precisely why presence is tested on
+        // `object(forKey:)` and not on `data(forKey:)`: the latter answers `nil`
+        // here, so a store that asked it would read the new key as *absent* and
+        // migrate the pre-upgrade session back in.
+        defaults.set("a string, not a blob", forKey: SessionStore.Keys.projectSessions)
+
+        let store = SessionStore(defaults: defaults)
+        XCTAssertNil(store.loadLastOpened())
+        XCTAssertNil(store.session(forFolder: URL(fileURLWithPath: "/p/legacy")))
+    }
+
     // MARK: - SessionStore migration
 
     func testStoreMigratesALegacyBlobWithAFolder() throws {
@@ -586,23 +600,19 @@ final class EditorSessionTests: XCTestCase {
 
     func testStoreLoadsACatalogCarryingUnknownKeys() throws {
         // Forward compatibility: a catalog written by a future version carries
-        // keys this build has no property for — at the catalog, entry, session and
-        // tab levels — and must still load with everything this build understands.
+        // keys this build has no property for — at the catalog, session and tab
+        // levels — and must still load with everything this build understands.
         let plist: [String: Any] = [
             "futureCatalogField": "head-of-mru",
             "entries": [
                 [
                     "folderPath": "/p/root",
-                    "futureEntryField": true,
-                    "session": [
-                        "folderPath": "/p/root",
-                        "futureSessionField": 42,
-                        "tabs": [
-                            ["path": "/p/a.swift", "futureTabField": true],
-                            ["text": "scratch"],
-                        ],
-                        "selectedIndex": 1,
+                    "futureSessionField": 42,
+                    "tabs": [
+                        ["path": "/p/a.swift", "futureTabField": true],
+                        ["text": "scratch"],
                     ],
+                    "selectedIndex": 1,
                 ]
             ],
         ]

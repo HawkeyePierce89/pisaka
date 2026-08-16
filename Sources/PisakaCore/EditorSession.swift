@@ -64,14 +64,16 @@ public struct SessionTab: Codable, Equatable {
 ///    so a pathologically large scratch buffer is written on every debounce. If
 ///    that ever bites, move the blob to Application Support — the model does not
 ///    change, only `SessionStore`'s backing store.
-/// 3. **One session, under one key, with no per-window identity.** That is exact
-///    today rather than a limitation: the app is single-window and its
+/// 3. **One session per project, with no per-window identity.** The project half
+///    is `SessionCatalog`: one entry per folder, keyed by that folder, so opening
+///    a different project no longer overwrites the one you left. The window half
+///    is exact today rather than a limitation: the app is single-window and its
 ///    `WorkspaceModel` is a single `@StateObject` on the `App`, shared by every
 ///    scene, so there is only ever one workspace state to snapshot. It becomes a
-///    limitation the moment genuinely independent windows exist — two of them
-///    would write their own snapshots under this one key, last writer winning, and
-///    merging their tabs would need a per-window identity this model does not
-///    carry.
+///    limitation the moment genuinely independent windows exist — two of them on
+///    the *same* project would write their own snapshots under that project's one
+///    key, last writer winning, and merging their tabs would need a per-window
+///    identity this model does not carry.
 public struct EditorSession: Codable, Equatable {
     /// The opened project folder's path, or `nil` when no folder was open.
     public var folderPath: String?
@@ -179,29 +181,22 @@ public struct EditorSession: Codable, Equatable {
 /// is the one already recorded on `EditorSession`: move the backing store to
 /// Application Support — this model does not change.
 public struct SessionCatalog: Codable, Equatable {
-    /// One project's stored session, under the folder path spelled verbatim.
-    public struct Entry: Codable, Equatable {
-        /// The project folder's path as the user spelled it, or `nil` for the
-        /// no-folder workspace. Matched canonically, never stored canonically.
-        public var folderPath: String?
-
-        /// That project's session.
-        public var session: EditorSession
-
-        public init(folderPath: String?, session: EditorSession) {
-            self.folderPath = folderPath
-            self.session = session
-        }
-    }
-
     /// How many projects are remembered before the least recently opened is
     /// dropped. Counted in *entries*, deliberately — see the type's note.
     public static let maxStoredProjects = 20
 
-    /// The stored projects, most recently opened first.
-    public var entries: [Entry]
+    /// The stored projects' sessions, most recently opened first.
+    ///
+    /// **A session is its own key**: `EditorSession.folderPath` already records
+    /// the folder verbatim, so no key is stored beside it. That is the `lastOpened`
+    /// reasoning one level down — a key field naming a *different* folder than the
+    /// session next to it would be a state someone has to handle (a lookup for
+    /// `/a` handing back a session whose own path is `/b`, which the next
+    /// `store(_:)` then files under `/b`, orphaning `/a`). Here it is
+    /// unrepresentable.
+    public var entries: [EditorSession]
 
-    public init(entries: [Entry] = []) {
+    public init(entries: [EditorSession] = []) {
         self.entries = entries
     }
 
@@ -210,7 +205,7 @@ public struct SessionCatalog: Codable, Equatable {
     /// This *is* the launch-restore pointer: the head of the MRU order, not a
     /// field that could disagree with it.
     public var lastOpened: EditorSession? {
-        entries.first?.session
+        entries.first
     }
 
     /// The session stored for `folder`, matched canonically, or `nil` when that
@@ -218,7 +213,7 @@ public struct SessionCatalog: Codable, Equatable {
     /// matches only the `nil`-key entry.
     public func session(forFolder folder: URL?) -> EditorSession? {
         let wanted = Self.key(for: folder)
-        return entries.first { Self.key(forPath: $0.folderPath) == wanted }?.session
+        return entries.first { Self.key(forPath: $0.folderPath) == wanted }
     }
 
     /// Upsert `session` under its own `folderPath` and promote it to the head.
@@ -232,7 +227,7 @@ public struct SessionCatalog: Codable, Equatable {
     public mutating func store(_ session: EditorSession, limit: Int = maxStoredProjects) {
         let key = Self.key(forPath: session.folderPath)
         entries.removeAll { Self.key(forPath: $0.folderPath) == key }
-        entries.insert(Entry(folderPath: session.folderPath, session: session), at: 0)
+        entries.insert(session, at: 0)
         let cap = max(1, limit)
         if entries.count > cap {
             entries.removeLast(entries.count - cap)
@@ -243,7 +238,7 @@ public struct SessionCatalog: Codable, Equatable {
     /// `folderPath` (possibly `nil`) is the key, and it is the head — which is
     /// what keeps launch restore finding exactly the session it found before.
     public static func migrating(_ legacy: EditorSession) -> SessionCatalog {
-        SessionCatalog(entries: [Entry(folderPath: legacy.folderPath, session: legacy)])
+        SessionCatalog(entries: [legacy])
     }
 
     /// The match key: `CanonicalPath.canonical(_:).path` — the *path*, not the
@@ -347,7 +342,7 @@ public final class SessionStore {
     /// on the *object*, not on `data(forKey:)`, so a wrong-typed value under the
     /// new key still counts as written and does not fall back to the legacy one.
     private func catalog() -> SessionCatalog {
-        guard defaults.object(forKey: Keys.projectSessions) == nil else {
+        if defaults.object(forKey: Keys.projectSessions) != nil {
             guard
                 let data = defaults.data(forKey: Keys.projectSessions),
                 let decoded = try? PropertyListDecoder().decode(SessionCatalog.self, from: data)

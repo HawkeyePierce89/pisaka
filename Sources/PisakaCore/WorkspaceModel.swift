@@ -134,6 +134,14 @@ public final class WorkspaceModel: ObservableObject {
     /// `projectRoot`, or the snapshot would be filed under the incoming folder).
     /// Keeping the two separate is also what lets restore call this without
     /// disturbing tabs it is about to apply itself.
+    ///
+    /// **Only the macOS app drives that tab half today.** iOS has no `SessionStore`
+    /// at all (session restore is macOS-only — on iOS just the folder comes back,
+    /// through its security-scoped bookmark), so `FileAccessController.openFolder`
+    /// calls this and stops, and a folder switch there leaves the previous project's
+    /// tabs open. That is deliberate and depended upon — the scoped-access bookkeeping
+    /// keeps a root registered exactly while a tab still lives under it — so "sessions
+    /// are per-project" is a statement about the macOS layer until iOS grows a store.
     public func openFolder(url: URL) {
         projectRoot = url
     }

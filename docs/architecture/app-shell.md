@@ -630,15 +630,34 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     *before* the controller is started, so an unguarded snapshot would write the
     empty live model over the no-folder workspace's stored session. Then
     `model.openFolder(url:)` moves the root and, still ahead of the collaborator
-    registrations, the incoming tabs are applied —
-    `model.replaceSession(with: sessionStore.session(forFolder: url) ?? EditorSession())` —
-    the explicit empty session being what makes a folder's *first* open empty the
-    editor rather than leave the previous project's tabs behind the new tree. After
-    the swap the model has changed, so the controller's ordinary 1 s debounce
-    promotes the incoming project to the catalog's head; since the debounce always
-    snapshots the *live* model at fire time, no half-swapped state can be written.
-    Every existing collaborator call is untouched — a re-open of the current folder
-    stays for the tabs the no-op it already is for them.
+    registrations, the incoming tabs are applied: `sessionStore.session(forFolder:
+    url) ?? EditorSession()`, re-stamped with `url.path` so the promotion below
+    files it under the spelling the user just opened (the verbatim-latest-spelling
+    rule `SessionCatalog.store(_:)` states, and the one the debounced writer would
+    use anyway since it snapshots `projectRoot`; both apply methods ignore the
+    field). The explicit empty session is what makes a folder's *first* open empty
+    the editor rather than leave the previous project's tabs behind the new tree.
+    **The one asymmetric case is an outgoing workspace with no folder** — the first
+    Open Folder of a run, which `isCurrentProjectRoot` reports as a switch. Its key
+    is `nil`, and launch restore can only reach the `nil` entry while it is the
+    catalog's head, which opening this folder is about to take; force-closing there
+    would file an unsaved Untitled buffer under a key nothing reads again. So when
+    `model.projectRoot` was `nil` the incoming session is applied with
+    `model.restoreSession(_:)` — *on top of* the pre-folder tabs, carrying them into
+    the project — and with `replaceSession(with:)` otherwise. At launch the two are
+    the same thing, there being nothing open to carry.
+    Then `sessionController.noteProjectSwitch(promoting:)` files the incoming
+    session at the catalog's head. That replaces relying on the 1 s debounce the
+    swap arms, for two reasons: promotion becomes immediate, so a crash inside that
+    second still records which project the user is in; and, the reason it exists,
+    applying a session **silently skips records this build cannot open**, so the
+    debounced write would persist that truncated restore over the recorded session
+    with the user having touched nothing — the very loss `SessionController.start`'s
+    `dropFirst()`s prevent at launch, reached by the same route. It seeds
+    `lastWritten` with the post-swap snapshot, which `writeSession()`'s
+    equal-snapshot guard turns into the suppression; a genuine user change afterwards
+    writes normally. Every existing collaborator call is untouched — a re-open of the
+    current folder stays for the tabs the no-op it already is for them.
     `restoreLastSession()` runs
     **once**, from the window content's `.onAppear` (gated by `didRestoreSession`,
     since `.onAppear` can fire again for a reopened window or a second

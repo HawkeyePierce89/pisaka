@@ -268,14 +268,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     that one project's key, last writer winning, and merging their tabs would need
     an identity this model does not carry.
     `SessionCatalog` (`Codable`/`Equatable`, in this same file) is **every
-    project's session, keyed by its folder and MRU-ordered**: an `entries: [Entry]`
-    array, each `Entry` a `folderPath: String?` (verbatim) plus its
-    `EditorSession`, index 0 the last opened. **Head is the pointer** —
-    `lastOpened` is `entries.first?.session`, a *derivation* rather than a stored
+    project's session, keyed by its folder and MRU-ordered**: an
+    `entries: [EditorSession]` array, index 0 the last opened. **Head is the
+    pointer** — `lastOpened` is `entries.first`, a *derivation* rather than a stored
     field, which is the whole reason the order is load-bearing: a separate
     "last opened folder" field could name a folder no entry carries, and "the
     pointer points at a session that is not stored" would be a state someone has to
-    handle; here it is unrepresentable. **Keying follows store-as-spelled /
+    handle; here it is unrepresentable. **A session is likewise its own key** —
+    there is no key field stored beside it, because `EditorSession.folderPath`
+    already records the folder verbatim. That is the same reasoning one level down:
+    a key naming a *different* folder than the session next to it would be a state
+    someone has to handle (a lookup for `/a` handing back a session whose own path
+    is `/b`, which the next `store(_:)` then files under `/b`, orphaning `/a`), and
+    a decoder cannot enforce agreement between two independent fields. **Keying
+    follows store-as-spelled /
     match-canonically**, the same asymmetry `snapshot` and `open(url:)` already
     share: the entry records the spelling the user opened, while
     `session(forFolder:)` and `store(_:)` both match through

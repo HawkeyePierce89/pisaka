@@ -388,12 +388,27 @@ user sees it.
 - While one of the app's own git operations is writing to the working tree — a
   revert, a merge apply, a branch checkout, a project-wide Replace All, or a
   commit — saving (Cmd+S, the close prompt's Save, and the implicit save before
-  Run and Run Test) and the project-tree create/rename/delete are refused with a
+  Run and Run Test), the project-tree create/rename/delete, and switching the
+  project folder are refused with a
   "Git operation in progress" notice rather than racing git over the same files.
   Autosave pauses for the same window and resumes on its own afterwards.
+- Switching to another folder (macOS) swaps the tabs along with the tree: the
+  project you leave keeps its tabs and selection, and the one you open comes back
+  exactly as you left it — empty the first time you open it, rather than showing
+  the previous project's files behind the new tree. "Untitled" buffers travel with
+  their project. Re-opening the folder already open changes nothing. Before the
+  switch every unsaved titled file is written to disk; if one cannot be written
+  the switch is refused and an alert names it, because switching would close it and
+  lose those edits (save it elsewhere or close its tab, then switch). The very
+  first folder you open in a run is the exception in one way: there was no project
+  to file the already-open tabs under, so they are carried into the folder you
+  open instead of being closed. The last 20 projects are remembered; opening a
+  21st drops the least recently opened one's session.
 - Session restore on launch (macOS): starting the app brings back the last
-  session — the opened folder, the open tabs in the same order, and the tab that
-  was selected. "Untitled" buffers get hot exit: their text survives a restart
+  session — the last opened project's folder, its open tabs in the same order, and
+  the tab that was selected. Sessions are kept **per project**, so returning to a
+  project you opened earlier restores that project's own tabs, not the last one
+  you were in. "Untitled" buffers get hot exit: their text survives a restart
   and comes back in a tab still marked unsaved (closing it asks for confirmation
   as usual), which is what autosave cannot do for them since they have no path
   to write to. An empty "Untitled" buffer is not stored — there is nothing in it
@@ -857,10 +872,13 @@ and iPhone. The feature scope landed so far:
   own.
 - Session restore is macOS-only: on iOS only the last opened folder comes back
   (through its security-scoped bookmark) — the tabs, the selection, and "Untitled"
-  text are not restored. What comes back on macOS is the folder, the tabs and the
-  selected tab, but not per-tab caret or scroll positions, and not the
-  bottom-panel / terminal / project-tree state. There is no history of earlier
-  sessions and no setting to turn restore off.
+  text are not restored — and a folder switch there leaves the previous project's
+  tabs open, since there is no per-project session to swap them for. What comes
+  back on macOS is the last opened project's folder, its tabs and the selected
+  tab, but not per-tab caret or scroll positions, and not the
+  bottom-panel / terminal / project-tree state. One session is kept per project
+  (the last 20), so there is no history of earlier sessions *for the same project*
+  and no setting to turn restore off.
 - A single editor window only (diffs open in separate read-only windows on
   double-click; the bottom-panel height is not persisted across launches).
 - The LeetCode integration talks to LeetCode's **unofficial** API — the same

@@ -2140,6 +2140,30 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertEqual(model.selectedID, scratch.id)
     }
 
+    func testRestoreSessionKeepsTabsAlreadyOpenAndSelectsTheRestoredOne() {
+        // The first Open Folder of a run applies the incoming project's session
+        // through `restoreSession` rather than `replaceSession`, precisely so an
+        // unsaved Untitled buffer typed before any folder was open is carried into
+        // the project instead of being force-closed under the no-folder key — a key
+        // launch restore can only reach while it is the catalog's head, which
+        // opening a folder takes.
+        let service = PathContentsFileService(contents: ["/b/x.txt": "ex"])
+        let model = WorkspaceModel(fileService: service)
+        let scratch = model.newFile()
+        model.updateText("notes typed before any folder was open", for: scratch.id)
+
+        model.restoreSession(EditorSession(
+            folderPath: "/b",
+            tabs: [.file(path: "/b/x.txt")],
+            selectedIndex: 0
+        ))
+
+        XCTAssertEqual(model.openFiles.map(\.displayName), ["Untitled", "x.txt"])
+        XCTAssertEqual(model.openFiles.first?.text, "notes typed before any folder was open")
+        XCTAssertTrue(model.openFiles[0].isDirty)
+        XCTAssertEqual(model.selectedID, model.openFiles.last?.id)
+    }
+
     func testRestoreSessionLeavesProjectRootUntouched() {
         let service = PathContentsFileService(contents: ["/p/a.txt": "alpha"])
         let model = WorkspaceModel(fileService: service)

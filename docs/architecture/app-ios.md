@@ -584,7 +584,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     also synchronously registers the switch with `LocalChangesModel`/`CommitLogModel`
     (`prepareForFolderChange`/`prepareForRefresh` + a generation-pinned refresh),
     mirroring `PisakaApp.openFolder`, so an in-flight revert can't keep mutating the
-    repo the user just left.
+    repo the user just left. What it deliberately does **not** mirror is the macOS
+    **per-project session swap**: `openFolder(at:)` ends at
+    `model.openFolder(url:)`, so a folder switch here leaves the previous project's
+    tabs open. There is no `SessionStore` on iOS at all (session restore is the
+    folder alone, through its bookmark — `FEATURES.md`'s known limitation), so
+    there would be nothing to swap them *for*; and `registeredRoot`'s
+    `hasOpenTab(under:)` check depends on exactly that outliving, keeping a root's
+    scope registered while a tab from it is still open. Growing the iOS half is a
+    follow-up: it needs a store first, not just a call to `replaceSession(with:)`.
   - `iOS/TabStrip_iOS.swift` / `iOS/SettingsView_iOS.swift` — the open-tabs strip/
     switcher (form picked by Core's `TabLayout.presentation`) and the Preferences
     sheet bound to `SettingsStore`. Its "Editor" section carries the font-size

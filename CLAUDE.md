@@ -192,7 +192,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `DiffWindowTitle.swift` — diff-window titles.
 - `TabOrientation.swift` / `ThemePreference.swift` — persisted preference enums.
 - `SettingsStore.swift` — persisted preferences; the one `completionEnabled` flag; per-server LSP consent (D15).
-- `EditorSession.swift` — session persistence (`SessionTab`, snapshot rules).
+- `EditorSession.swift` — per-project session persistence (`SessionTab`, `SessionCatalog`, the keyed store + legacy migration).
 - `ScopedFileAccess.swift` — iOS security-scope helpers + `BookmarkStore`.
 - `TabLayout.swift` — iOS tab-presentation decision.
 - `LicenseNotice.swift` — license manifest model + `LicenseCatalog`; the coverage invariant lives in the same doc.

@@ -286,7 +286,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     must snapshot the *outgoing* project before this method moves `projectRoot`,
     or the snapshot would be filed under the incoming folder. Keeping the halves
     separate is also what lets launch restore call this without disturbing tabs it
-    is about to apply itself), `isCurrentProjectRoot(_:)` (whether a url names the
+    is about to apply itself. **Only the macOS app drives that tab half today**:
+    iOS has no `SessionStore` at all — session restore there is the folder alone,
+    through its security-scoped bookmark — so `FileAccessController.openFolder`
+    calls this and stops, and a folder switch leaves the previous project's tabs
+    open, which its scoped-access bookkeeping deliberately depends on. "Sessions
+    are per-project" is a statement about the macOS layer until iOS grows a
+    store), `isCurrentProjectRoot(_:)` (whether a url names the
     folder already open, compared **canonically** through the model's own
     `canonicalURL` helper, so `/tmp` vs. `/private/tmp`, a trailing slash and a
     `.`/`..` detour all count as the same folder; `false` when no folder is open,
@@ -308,7 +314,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     for the first time — genuinely empty the editor instead of letting
     `restoreSession`'s "an empty session is a no-op" rule preserve a stale
     selection. `projectRoot` is deliberately untouched here too, for the reason
-    `restoreSession(_:)` records: the folder is the app layer's job),
+    `restoreSession(_:)` records: the folder is the app layer's job. Note this is
+    the *project→project* path only — when the outgoing workspace had no folder at
+    all the app applies the incoming session with `restoreSession(_:)` instead, so
+    a pre-folder Untitled buffer is carried into the project rather than
+    force-closed under a key nothing reads again; see `app-shell.md`),
     `restoreSession(_:)`
     (applies a persisted `EditorSession` to a normally empty model — see
     `EditorSession.swift`: reopen the recorded tabs in order and restore the

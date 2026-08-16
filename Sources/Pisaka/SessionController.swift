@@ -21,10 +21,9 @@ import PisakaCore
 /// being what launch restore follows). So this controller keeps writing one
 /// snapshot of the live model and the store decides where it lands — which is
 /// exactly why a project switch persists the outgoing project's tabs simply by
-/// calling `flushNow()` *before* `projectRoot` moves, and why the debounced write
-/// that lands after the swap promotes the incoming project instead of corrupting
-/// the outgoing one. The snapshot is always of the live model at fire time, so no
-/// half-swapped state is writable.
+/// calling `flushNow()` *before* `projectRoot` moves. The incoming half is
+/// `noteProjectSwitch(promoting:)`, called after the swap. The snapshot is always
+/// of the live model at fire time, so no half-swapped state is writable.
 ///
 /// An **empty session is written like any other**: a user who closed every tab
 /// and quit must come back to an empty editor rather than have the session before
@@ -146,6 +145,36 @@ final class SessionController {
     func flushNow() {
         guard hasObservedChange else { return }
         writeSession()
+    }
+
+    /// Register the project just switched *to*: promote `session` — the entry as it
+    /// is **stored**, not as it was restored — to the catalog head, and treat the
+    /// swap the app just performed as already written.
+    ///
+    /// Two things need this. First, promotion becomes immediate rather than resting
+    /// on the 1 s debounce the swap arms, so a crash in that second still records
+    /// which project the user is in. Second, and the reason it exists: applying a
+    /// session **silently skips records this build cannot open** (a file deleted
+    /// since, a volume not mounted yet), and the swap itself mutates `openFiles`,
+    /// `selectedID` and `projectRoot` — so the debounced write that follows would
+    /// persist that truncated restore over the recorded session with the user having
+    /// touched nothing. That is exactly the loss `start`'s `dropFirst()`s prevent at
+    /// launch, and the switch path reaches it by the same route. Seeding
+    /// `lastWritten` with the post-swap snapshot makes `writeSession()`'s
+    /// equal-snapshot guard suppress it; a genuine user change afterwards produces a
+    /// different snapshot and writes normally.
+    ///
+    /// A no-op before `start`, which is what launch restore wants: it opens the
+    /// recorded folder before the controller has a model, and the head is already
+    /// that project.
+    func noteProjectSwitch(promoting session: EditorSession) {
+        guard let model, let store else { return }
+        store.save(session)
+        lastWritten = EditorSession.snapshot(
+            openFiles: model.openFiles,
+            selectedID: model.selectedID,
+            projectRoot: model.projectRoot
+        )
     }
 
     /// Snapshot the live model and persist it. An empty session is stored like any

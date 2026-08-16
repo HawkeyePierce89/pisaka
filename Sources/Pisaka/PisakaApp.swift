@@ -1480,14 +1480,24 @@ struct PisakaApp: App {
     ///    an unguarded snapshot would write the empty live model over the no-folder
     ///    workspace's stored session.
     ///
-    /// After the swap the model has changed, so the controller's ordinary 1 s
-    /// debounce promotes the incoming project to the catalog's head — and since the
-    /// debounce always snapshots the *live* model at fire time, no half-swapped
-    /// state can ever be written.
+    /// After the swap, `sessionController.noteProjectSwitch(promoting:)` files the
+    /// incoming project at the catalog's head and suppresses the debounced write the
+    /// swap would otherwise arm — see there for why persisting a restore that
+    /// skipped records would be a loss.
+    ///
+    /// **The one asymmetric case is the outgoing workspace that has no folder** —
+    /// the first Open Folder of a run. It is a switch for the tree, but its key is
+    /// `nil`, and launch restore can only reach the `nil` entry while it is the
+    /// catalog's head, which opening this folder is about to take. Force-closing
+    /// there would file an unsaved Untitled buffer under a key nothing reads again,
+    /// so the pre-folder tabs travel *into* the project instead: the incoming
+    /// session is applied on top of them rather than replacing them. At launch that
+    /// is the same thing, since there is nothing open to carry.
     private func openFolder(url: URL) {
-        // Decided *before* `model.openFolder(url:)` moves `projectRoot`, which would
-        // make every later test read as a re-open.
+        // Both decided *before* `model.openFolder(url:)` moves `projectRoot`, which
+        // would make every later test read as a re-open.
         let isSwitch = !model.isCurrentProjectRoot(url)
+        let hadFolder = model.projectRoot != nil
         if isSwitch {
             guard !revertInFlight() else { return }
             autosave.flushNow(reportingSaves: true)
@@ -1504,9 +1514,23 @@ struct PisakaApp: App {
         // Apply the incoming project's tabs, before the collaborators below are
         // pointed at the new root: a first open of this folder has no stored session
         // and gets an explicitly empty one, which empties the editor rather than
-        // leaving the previous project's tabs behind the new tree.
+        // leaving the previous project's tabs behind the new tree. The empty session
+        // still carries this folder as its `folderPath`, so promoting it below files
+        // it under the right key rather than under the no-folder workspace's.
+        //
+        // `folderPath` is re-stamped with the spelling the user just opened — the
+        // verbatim-latest-spelling rule `SessionCatalog.store(_:)` states, and the
+        // one the debounced writer would use anyway, since it snapshots
+        // `projectRoot`. `restoreSession`/`replaceSession` ignore the field.
         if isSwitch {
-            model.replaceSession(with: sessionStore.session(forFolder: url) ?? EditorSession())
+            var incoming = sessionStore.session(forFolder: url) ?? EditorSession()
+            incoming.folderPath = url.path
+            if hadFolder {
+                model.replaceSession(with: incoming)
+            } else {
+                model.restoreSession(incoming)
+            }
+            sessionController.noteProjectSwitch(promoting: incoming)
         }
         // Watch the newly opened folder so external changes (a generator run in the
         // embedded terminal, a Finder rename, a console `git checkout`) reach the
