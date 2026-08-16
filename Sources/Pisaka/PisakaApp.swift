@@ -1828,7 +1828,7 @@ struct PisakaApp: App {
     /// triggered by the launch itself would persist that truncated session over the
     /// recorded one before the user has touched anything — see `SessionController`.
     private func restoreLastSession() {
-        if let session = sessionStore.load() {
+        if let session = sessionStore.loadLastOpened() {
             if let folderPath = session.folderPath, isExistingDirectory(atPath: folderPath) {
                 openFolder(url: URL(fileURLWithPath: folderPath))
             }

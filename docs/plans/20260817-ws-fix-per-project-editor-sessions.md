@@ -139,20 +139,20 @@ half-swapped state can be written.
 - Modify: `Sources/PisakaCore/EditorSession.swift`
 - Modify: `Tests/PisakaCoreTests/EditorSessionTests.swift`
 
-- [ ] add `Keys.projectSessions = "session.projects"` alongside the untouched
+- [x] add `Keys.projectSessions = "session.projects"` alongside the untouched
       `Keys.lastSession`, both documented as never-renamed
-- [ ] add a private `catalog()` read: decode `session.projects` when present;
+- [x] add a private `catalog()` read: decode `session.projects` when present;
       otherwise migrate from a decodable `session.lastSession`; otherwise an empty
       catalog — every failure resolving to a blank slate via `try?`, as today
-- [ ] replace `load()` with `public func loadLastOpened() -> EditorSession?`
+- [x] replace `load()` with `public func loadLastOpened() -> EditorSession?`
       (the catalog head; `nil` when nothing was ever written), and add
       `public func session(forFolder folder: URL?) -> EditorSession?`
-- [ ] keep `save(_ session: EditorSession)`'s signature, reimplemented as
+- [x] keep `save(_ session: EditorSession)`'s signature, reimplemented as
       "upsert into the catalog keyed by `session.folderPath`, promote to head, apply
       the cap, encode under `session.projects`" — so `SessionController` needs no
       change; an encode failure still leaves the previous blob in place
-- [ ] make `clear()` remove both keys
-- [ ] write tests: a legacy blob (with a folder, and with `folderPath == nil`)
+- [x] make `clear()` remove both keys
+- [x] write tests: a legacy blob (with a folder, and with `folderPath == nil`)
       migrates so `loadLastOpened()` and `session(forFolder:)` both find it; the
       legacy key is ignored once `session.projects` exists; two projects saved in
       turn are both retrievable and the second is the head; saving under a different
@@ -160,7 +160,7 @@ half-swapped state can be written.
       an empty session is stored and read back like any other; a corrupt or
       wrong-typed `session.projects` yields no sessions rather than trapping; the
       existing store tests are updated to the new entry points
-- [ ] run `swift test` — must pass before Task 3
+- [x] run `swift test` — must pass before Task 3
 
 ### Task 3: `WorkspaceModel` — the same-root test and the tab swap
 

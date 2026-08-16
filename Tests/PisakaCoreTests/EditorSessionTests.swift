@@ -378,9 +378,18 @@ final class EditorSessionTests: XCTestCase {
         return defaults
     }
 
+    /// Write `session` under the pre-catalog single-blob key, which is what a
+    /// `UserDefaults` domain written by the version before this change holds.
+    private func writeLegacyBlob(_ session: EditorSession, into defaults: UserDefaults) throws {
+        let data = try PropertyListEncoder().encode(session)
+        defaults.set(data, forKey: SessionStore.Keys.lastSession)
+    }
+
     func testStoreMissingKeyLoadsNil() {
         let store = SessionStore(defaults: makeDefaults())
-        XCTAssertNil(store.load())
+        XCTAssertNil(store.loadLastOpened())
+        XCTAssertNil(store.session(forFolder: URL(fileURLWithPath: "/p/root")))
+        XCTAssertNil(store.session(forFolder: nil))
     }
 
     func testStoreRoundTripsAcrossTwoInstances() {
@@ -392,7 +401,9 @@ final class EditorSessionTests: XCTestCase {
         )
         SessionStore(defaults: defaults).save(session)
         // A second store over the same suite is what a relaunch looks like.
-        XCTAssertEqual(SessionStore(defaults: defaults).load(), session)
+        let reopened = SessionStore(defaults: defaults)
+        XCTAssertEqual(reopened.loadLastOpened(), session)
+        XCTAssertEqual(reopened.session(forFolder: URL(fileURLWithPath: "/p/root")), session)
     }
 
     func testStoreRoundTripsAnEmptySession() {
@@ -400,53 +411,222 @@ final class EditorSessionTests: XCTestCase {
         // "Everything closed" is a real answer and must not read back as
         // "nothing stored" — that would resurrect the session before last.
         SessionStore(defaults: defaults).save(EditorSession())
-        let loaded = SessionStore(defaults: defaults).load()
-        XCTAssertEqual(loaded, EditorSession())
-        XCTAssertTrue(loaded?.isEmpty == true)
+        let store = SessionStore(defaults: defaults)
+        XCTAssertEqual(store.loadLastOpened(), EditorSession())
+        XCTAssertTrue(store.loadLastOpened()?.isEmpty == true)
+        // The no-folder workspace is a key like any other.
+        XCTAssertEqual(store.session(forFolder: nil), EditorSession())
     }
 
-    func testStoreSaveReplacesThePreviousSession() {
+    func testStoreKeepsBothProjectsAndMakesTheLatestTheHead() {
         let defaults = makeDefaults()
         let store = SessionStore(defaults: defaults)
-        store.save(EditorSession(folderPath: "/p/one", tabs: [.file(path: "/p/a.swift")]))
+        let one = EditorSession(folderPath: "/p/one", tabs: [.file(path: "/p/one/a.swift")])
+        let two = EditorSession(folderPath: "/p/two", tabs: [.file(path: "/p/two/b.swift")])
+        store.save(one)
+        store.save(two)
+
+        // The old store replaced; the keyed one keeps both and points at the last.
+        XCTAssertEqual(store.loadLastOpened(), two)
+        XCTAssertEqual(store.session(forFolder: URL(fileURLWithPath: "/p/one")), one)
+        XCTAssertEqual(store.session(forFolder: URL(fileURLWithPath: "/p/two")), two)
+    }
+
+    func testStoreSaveUnderADifferentSpellingOverwritesTheSameEntry() throws {
+        let defaults = makeDefaults()
+        let store = SessionStore(defaults: defaults)
+        store.save(EditorSession(folderPath: "/tmp", tabs: [.file(path: "/tmp/a.swift")]))
+        store.save(EditorSession(folderPath: "/private/tmp/", tabs: [.file(path: "/tmp/b.swift")]))
+
+        // One project, one entry — spellings must not accumulate sessions.
+        let data = try XCTUnwrap(defaults.data(forKey: SessionStore.Keys.projectSessions))
+        let catalog = try PropertyListDecoder().decode(SessionCatalog.self, from: data)
+        XCTAssertEqual(catalog.entries.count, 1)
+        XCTAssertEqual(catalog.entries.first?.folderPath, "/private/tmp/")
+        XCTAssertEqual(
+            store.session(forFolder: URL(fileURLWithPath: "/tmp")),
+            EditorSession(folderPath: "/private/tmp/", tabs: [.file(path: "/tmp/b.swift")])
+        )
+    }
+
+    func testStoreSaveOfOneProjectLeavesAnotherProjectsSessionIntact() {
+        let defaults = makeDefaults()
+        let store = SessionStore(defaults: defaults)
+        let one = EditorSession(folderPath: "/p/one", tabs: [.untitled(text: "one's scratch")])
+        store.save(one)
         store.save(EditorSession(folderPath: "/p/two"))
-        XCTAssertEqual(store.load(), EditorSession(folderPath: "/p/two"))
+        store.save(EditorSession(folderPath: "/p/two", tabs: [.file(path: "/p/two/b.swift")]))
+        XCTAssertEqual(store.session(forFolder: URL(fileURLWithPath: "/p/one")), one)
     }
 
-    func testStoreClearRemovesTheSession() {
+    func testStoreCapsTheStoredProjects() {
         let defaults = makeDefaults()
         let store = SessionStore(defaults: defaults)
-        store.save(EditorSession(folderPath: "/p/root"))
-        XCTAssertNotNil(store.load())
+        for index in 0...SessionCatalog.maxStoredProjects {
+            store.save(EditorSession(folderPath: "/p/\(index)"))
+        }
+        // The first one saved is the least recently opened and is the one gone.
+        XCTAssertNil(store.session(forFolder: URL(fileURLWithPath: "/p/0")))
+        XCTAssertNotNil(store.session(forFolder: URL(fileURLWithPath: "/p/1")))
+        XCTAssertEqual(store.loadLastOpened()?.folderPath, "/p/\(SessionCatalog.maxStoredProjects)")
+    }
+
+    func testStoreClearRemovesEverySession() throws {
+        let defaults = makeDefaults()
+        let store = SessionStore(defaults: defaults)
+        try writeLegacyBlob(EditorSession(folderPath: "/p/legacy"), into: defaults)
+        store.save(EditorSession(folderPath: "/p/one"))
+        store.save(EditorSession(folderPath: "/p/two"))
+        XCTAssertNotNil(store.loadLastOpened())
+
         store.clear()
-        XCTAssertNil(store.load())
+
+        // Both keys go: leaving the legacy blob would migrate it straight back in.
+        XCTAssertNil(store.loadLastOpened())
+        XCTAssertNil(store.session(forFolder: URL(fileURLWithPath: "/p/one")))
+        XCTAssertNil(defaults.object(forKey: SessionStore.Keys.lastSession))
     }
 
     func testStoreCorruptBlobLoadsNil() {
         let defaults = makeDefaults()
-        defaults.set(Data("not a property list".utf8), forKey: SessionStore.Keys.lastSession)
-        XCTAssertNil(SessionStore(defaults: defaults).load())
+        defaults.set(Data("not a property list".utf8), forKey: SessionStore.Keys.projectSessions)
+        XCTAssertNil(SessionStore(defaults: defaults).loadLastOpened())
     }
 
-    func testStoreTruncatedBlobLoadsNil() {
+    func testStoreTruncatedBlobLoadsNil() throws {
         let defaults = makeDefaults()
-        let data = try! PropertyListEncoder().encode(
-            EditorSession(folderPath: "/p/root", tabs: [.file(path: "/p/a.swift")])
-        )
-        defaults.set(data.prefix(data.count / 2), forKey: SessionStore.Keys.lastSession)
-        XCTAssertNil(SessionStore(defaults: defaults).load())
+        var catalog = SessionCatalog()
+        catalog.store(EditorSession(folderPath: "/p/root", tabs: [.file(path: "/p/a.swift")]))
+        let data = try PropertyListEncoder().encode(catalog)
+        defaults.set(data.prefix(data.count / 2), forKey: SessionStore.Keys.projectSessions)
+        XCTAssertNil(SessionStore(defaults: defaults).loadLastOpened())
     }
 
     func testStoreValueOfTheWrongTypeLoadsNil() {
         let defaults = makeDefaults()
-        defaults.set("a string, not a blob", forKey: SessionStore.Keys.lastSession)
-        XCTAssertNil(SessionStore(defaults: defaults).load())
+        defaults.set("a string, not a blob", forKey: SessionStore.Keys.projectSessions)
+        let store = SessionStore(defaults: defaults)
+        XCTAssertNil(store.loadLastOpened())
+        XCTAssertNil(store.session(forFolder: URL(fileURLWithPath: "/p/root")))
     }
 
-    func testStoreLoadsABlobCarryingUnknownKeys() throws {
-        // Forward compatibility: a session written by a future version carries
-        // keys this build has no property for — at the session level and inside a
-        // tab record — and must still load with everything this build understands.
+    func testStoreCorruptCatalogDoesNotResurrectTheLegacyBlob() throws {
+        let defaults = makeDefaults()
+        try writeLegacyBlob(EditorSession(folderPath: "/p/legacy"), into: defaults)
+        defaults.set(Data("not a property list".utf8), forKey: SessionStore.Keys.projectSessions)
+        // Garbage under the new key means something wrote it; a blank slate beats
+        // silently restoring a session from before the upgrade.
+        XCTAssertNil(SessionStore(defaults: defaults).loadLastOpened())
+    }
+
+    // MARK: - SessionStore migration
+
+    func testStoreMigratesALegacyBlobWithAFolder() throws {
+        let defaults = makeDefaults()
+        let legacy = EditorSession(
+            folderPath: "/p/root",
+            tabs: [.file(path: "/p/root/a.swift"), .untitled(text: "scratch")],
+            selectedIndex: 1
+        )
+        try writeLegacyBlob(legacy, into: defaults)
+
+        let store = SessionStore(defaults: defaults)
+        XCTAssertEqual(store.loadLastOpened(), legacy)
+        XCTAssertEqual(store.session(forFolder: URL(fileURLWithPath: "/p/root")), legacy)
+        XCTAssertNil(store.session(forFolder: nil))
+    }
+
+    func testStoreMigratesALegacyBlobWithoutAFolder() throws {
+        let defaults = makeDefaults()
+        let legacy = EditorSession(tabs: [.untitled(text: "scratch")], selectedIndex: 0)
+        try writeLegacyBlob(legacy, into: defaults)
+
+        let store = SessionStore(defaults: defaults)
+        XCTAssertEqual(store.loadLastOpened(), legacy)
+        XCTAssertEqual(store.session(forFolder: nil), legacy)
+        XCTAssertNil(store.session(forFolder: URL(fileURLWithPath: "/p/root")))
+    }
+
+    func testStoreMigrationLeavesTheLegacyKeyInPlaceAndNeverWritesItAgain() throws {
+        let defaults = makeDefaults()
+        let legacy = EditorSession(folderPath: "/p/root")
+        try writeLegacyBlob(legacy, into: defaults)
+        let legacyData = defaults.data(forKey: SessionStore.Keys.lastSession)
+
+        let store = SessionStore(defaults: defaults)
+        store.save(EditorSession(folderPath: "/p/other"))
+
+        // Kept, byte for byte: deleting buys nothing, and a downgrade can still
+        // restore from it.
+        XCTAssertEqual(defaults.data(forKey: SessionStore.Keys.lastSession), legacyData)
+    }
+
+    func testStoreIgnoresTheLegacyBlobOnceTheCatalogExists() throws {
+        let defaults = makeDefaults()
+        try writeLegacyBlob(EditorSession(folderPath: "/p/legacy"), into: defaults)
+        let store = SessionStore(defaults: defaults)
+        store.save(EditorSession(folderPath: "/p/new"))
+
+        XCTAssertEqual(store.loadLastOpened()?.folderPath, "/p/new")
+        // The migrated entry is still there — but it came in through the catalog,
+        // and a later save must not re-read the legacy key.
+        store.save(EditorSession(folderPath: "/p/newer"))
+        XCTAssertEqual(store.loadLastOpened()?.folderPath, "/p/newer")
+        XCTAssertEqual(
+            store.session(forFolder: URL(fileURLWithPath: "/p/legacy"))?.folderPath,
+            "/p/legacy"
+        )
+    }
+
+    func testStoreMigrationSurvivesAnUndecodableLegacyBlob() {
+        let defaults = makeDefaults()
+        defaults.set(Data("not a property list".utf8), forKey: SessionStore.Keys.lastSession)
+        XCTAssertNil(SessionStore(defaults: defaults).loadLastOpened())
+    }
+
+    func testStoreLoadsACatalogCarryingUnknownKeys() throws {
+        // Forward compatibility: a catalog written by a future version carries
+        // keys this build has no property for — at the catalog, entry, session and
+        // tab levels — and must still load with everything this build understands.
+        let plist: [String: Any] = [
+            "futureCatalogField": "head-of-mru",
+            "entries": [
+                [
+                    "folderPath": "/p/root",
+                    "futureEntryField": true,
+                    "session": [
+                        "folderPath": "/p/root",
+                        "futureSessionField": 42,
+                        "tabs": [
+                            ["path": "/p/a.swift", "futureTabField": true],
+                            ["text": "scratch"],
+                        ],
+                        "selectedIndex": 1,
+                    ],
+                ]
+            ],
+        ]
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: plist,
+            format: .binary,
+            options: 0
+        )
+        let defaults = makeDefaults()
+        defaults.set(data, forKey: SessionStore.Keys.projectSessions)
+
+        let expected = EditorSession(
+            folderPath: "/p/root",
+            tabs: [.file(path: "/p/a.swift"), .untitled(text: "scratch")],
+            selectedIndex: 1
+        )
+        let store = SessionStore(defaults: defaults)
+        XCTAssertEqual(store.loadLastOpened(), expected)
+        XCTAssertEqual(store.session(forFolder: URL(fileURLWithPath: "/p/root")), expected)
+    }
+
+    func testStoreMigratesALegacyBlobCarryingUnknownKeys() throws {
+        // The same permissiveness on the migration path: the legacy blob is
+        // decoded by the very same session decoder before it seeds the catalog.
         let plist: [String: Any] = [
             "folderPath": "/p/root",
             "futureSessionField": 42,
@@ -465,7 +645,7 @@ final class EditorSessionTests: XCTestCase {
         defaults.set(data, forKey: SessionStore.Keys.lastSession)
 
         XCTAssertEqual(
-            SessionStore(defaults: defaults).load(),
+            SessionStore(defaults: defaults).loadLastOpened(),
             EditorSession(
                 folderPath: "/p/root",
                 tabs: [.file(path: "/p/a.swift"), .untitled(text: "scratch")],
@@ -494,7 +674,7 @@ final class EditorSessionTests: XCTestCase {
         let defaults = makeDefaults()
         defaults.set(data, forKey: SessionStore.Keys.lastSession)
 
-        let loaded = SessionStore(defaults: defaults).load()
+        let loaded = SessionStore(defaults: defaults).loadLastOpened()
         XCTAssertEqual(loaded?.tabs, [
             .file(path: "/p/a.swift"),
             SessionTab(),

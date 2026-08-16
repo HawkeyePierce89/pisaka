@@ -2201,7 +2201,7 @@ final class WorkspaceModelTests: XCTestCase {
         defer { store.clear() }
 
         let restored = WorkspaceModel(fileService: service)
-        restored.restoreSession(store.load()!)
+        restored.restoreSession(store.loadLastOpened()!)
 
         XCTAssertEqual(restored.openFiles.map(\.displayName), ["a.txt", "Untitled", "b.txt"])
         XCTAssertEqual(restored.openFiles.map(\.text), ["alpha", "scratch", "beta"])

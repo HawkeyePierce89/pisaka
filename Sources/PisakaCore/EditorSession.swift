@@ -260,27 +260,44 @@ public struct SessionCatalog: Codable, Equatable {
     }
 }
 
-/// Persists the last `EditorSession` through an injected `UserDefaults`, following
-/// `BookmarkStore`'s shape exactly: Foundation-only, one property-list blob under a
-/// stable key, `UserDefaults` injected so tests run against an isolated suite.
+/// Persists every project's `EditorSession` through an injected `UserDefaults`,
+/// following `BookmarkStore`'s shape exactly: Foundation-only, one property-list
+/// blob under a stable key, `UserDefaults` injected so tests run against an
+/// isolated suite. The blob is a `SessionCatalog`, so the store is *keyed* — one
+/// session per project folder, MRU-ordered, its head the launch pointer.
 ///
-/// Everything that can go wrong reading the blob resolves to `nil` rather than
-/// trapping — a missing key (no session was ever written), a value of the wrong
-/// type, a truncated or hand-edited plist, a plist whose shape this version cannot
-/// decode. There is nothing better to do with a corrupt session than start from a
-/// blank slate, and a launch is precisely where a trap would be least recoverable.
-/// Forward compatibility inside a *well-formed* blob is `SessionTab`'s job (see
-/// there): unknown keys are skipped by the synthesized keyed decoder, so a session
-/// written by a future version still loads with everything this build understands.
+/// Everything that can go wrong reading the blob resolves to "nothing stored"
+/// rather than trapping — a missing key (nothing was ever written), a value of
+/// the wrong type, a truncated or hand-edited plist, a plist whose shape this
+/// version cannot decode. There is nothing better to do with a corrupt catalog
+/// than start from a blank slate, and a launch is precisely where a trap would be
+/// least recoverable. Forward compatibility inside a *well-formed* blob is
+/// `SessionTab`'s job (see there): unknown keys are skipped by the synthesized
+/// keyed decoder, so a session written by a future version still loads with
+/// everything this build understands.
+///
+/// **Migration.** `Keys.lastSession` — the single blob this store wrote before
+/// sessions became per-project — is read **only when `Keys.projectSessions` is
+/// absent**, and seeds a one-entry catalog whose key is that blob's own
+/// `folderPath` (possibly `nil`) and which is therefore also the head, so the
+/// first launch after the upgrade restores exactly what the last launch would
+/// have. Once the new key exists the legacy one is ignored *even if the new blob
+/// is unreadable* — garbage under the new key means something wrote it, and
+/// resurrecting a stale session at that point would be worse than a blank slate.
+/// The legacy key is never written again and deliberately **not deleted**:
+/// deleting buys nothing, and keeping it lets a downgrade still restore.
 ///
 /// An **empty session is an ordinary value** — stored, read back and returned like
 /// any other. It must not be conflated with "nothing stored": a user who closed
 /// every tab and quit has to come back to an empty editor, not to the session
 /// before last.
 public final class SessionStore {
-    /// Stable persisted key — must not be renamed.
+    /// Stable persisted keys — neither may ever be renamed. `lastSession` is the
+    /// pre-catalog single blob, read for migration only (see the type's note);
+    /// `projectSessions` holds the `SessionCatalog`.
     public enum Keys {
         public static let lastSession = "session.lastSession"
+        public static let projectSessions = "session.projects"
     }
 
     private let defaults: UserDefaults
@@ -289,26 +306,58 @@ public final class SessionStore {
         self.defaults = defaults
     }
 
-    /// The persisted session, or `nil` when none was ever written or the stored
-    /// blob cannot be decoded.
-    public func load() -> EditorSession? {
-        guard
-            let data = defaults.data(forKey: Keys.lastSession),
-            let decoded = try? PropertyListDecoder().decode(EditorSession.self, from: data)
-        else { return nil }
-        return decoded
+    /// The last opened project's session — the catalog's head — or `nil` when
+    /// nothing was ever written. This is what launch restore follows.
+    public func loadLastOpened() -> EditorSession? {
+        catalog().lastOpened
     }
 
-    /// Persist `session`, replacing whatever was stored. A failure to encode is
-    /// swallowed, leaving the previous session in place — the same `try?` posture
-    /// as `BookmarkStore`.
+    /// The session stored for `folder`, matched canonically (`nil` asks for the
+    /// no-folder workspace's), or `nil` when that project has none — which is
+    /// what a folder being opened for the first time looks like.
+    public func session(forFolder folder: URL?) -> EditorSession? {
+        catalog().session(forFolder: folder)
+    }
+
+    /// Upsert `session` into the catalog under its own `folderPath`, promoting it
+    /// to the head and applying the retention cap.
+    ///
+    /// The signature is unchanged from the single-blob store on purpose: the
+    /// snapshot already names the project it belongs to, so the debounced writer
+    /// (`SessionController`) needs to know nothing about the keying. A failure to
+    /// encode is swallowed, leaving the previous blob — every other project's
+    /// session included — in place, the same `try?` posture as `BookmarkStore`.
     public func save(_ session: EditorSession) {
-        guard let data = try? PropertyListEncoder().encode(session) else { return }
-        defaults.set(data, forKey: Keys.lastSession)
+        var catalog = catalog()
+        catalog.store(session)
+        guard let data = try? PropertyListEncoder().encode(catalog) else { return }
+        defaults.set(data, forKey: Keys.projectSessions)
     }
 
-    /// Drop the stored session, so the next `load()` reports `nil`.
+    /// Drop every stored session, so the next read reports `nil`. Removes the
+    /// legacy key too — otherwise clearing would migrate the pre-upgrade blob
+    /// back in on the very next read.
     public func clear() {
+        defaults.removeObject(forKey: Keys.projectSessions)
         defaults.removeObject(forKey: Keys.lastSession)
+    }
+
+    /// The stored catalog: the new blob when its key is present, the migrated
+    /// legacy blob when it is not, an empty catalog otherwise. Presence is tested
+    /// on the *object*, not on `data(forKey:)`, so a wrong-typed value under the
+    /// new key still counts as written and does not fall back to the legacy one.
+    private func catalog() -> SessionCatalog {
+        guard defaults.object(forKey: Keys.projectSessions) == nil else {
+            guard
+                let data = defaults.data(forKey: Keys.projectSessions),
+                let decoded = try? PropertyListDecoder().decode(SessionCatalog.self, from: data)
+            else { return SessionCatalog() }
+            return decoded
+        }
+        guard
+            let legacyData = defaults.data(forKey: Keys.lastSession),
+            let legacy = try? PropertyListDecoder().decode(EditorSession.self, from: legacyData)
+        else { return SessionCatalog() }
+        return SessionCatalog.migrating(legacy)
     }
 }
