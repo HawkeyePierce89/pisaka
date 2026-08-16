@@ -487,17 +487,59 @@ it back is a separate edit to prose this task did not write.
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] `swift test` — full suite green.
-- [ ] `xcodegen generate` + macOS Release build green; `otool -l` on the product
+- [x] `swift test` — full suite green.
+- [x] `xcodegen generate` + macOS Release build green; `otool -l` on the product
       shows `@executable_path/../Frameworks`; direct exec survives past the
       deadline (record the output).
-- [ ] iOS build (`generic/platform=iOS`) green; its rpath set unchanged from the
+- [x] iOS build (`generic/platform=iOS`) green; its rpath set unchanged from the
       before-state recorded in Task 1.
-- [ ] The two workflow smoke steps are byte-identical apart from `APP=` (the test
+- [x] The two workflow smoke steps are byte-identical apart from `APP=` (the test
       asserts it; confirm the assertion actually ran and is not vacuous, e.g. by
       temporarily perturbing one line and seeing it fail).
-- [ ] `git status` clean apart from the intended changes; no generated project,
+- [x] `git status` clean apart from the intended changes; no generated project,
       DerivedData or archive committed.
+
+**Task 5 completion notes — measured evidence**
+
+`swift test`: **2771 tests, 0 failures**, run both at the start of the task and
+again after the last mutation was restored.
+
+`xcodegen generate` then
+`xcodebuild -configuration Release -destination 'platform=macOS' -derivedDataPath DerivedData`:
+**BUILD SUCCEEDED**. `otool -l …/Pisaka.app/Contents/MacOS/Pisaka`:
+
+```
+path /usr/lib/swift
+path @executable_path/Frameworks
+path @executable_path/../Frameworks
+```
+
+The launch was not re-improvised: `ci.yml`'s `run:` body was extracted back out
+of the workflow programmatically (38 lines, `APP="DerivedData/Build/Products/Release/Pisaka.app"`)
+and executed verbatim — exit **0**:
+
+```
+The app survived 5s and was terminated by this step.
+```
+
+iOS (`generic/platform=iOS`): **BUILD SUCCEEDED**, and
+`otool -l …/Debug-iphoneos/Pisaka.app/Pisaka` reports the same three entries the
+Task 1 before-state recorded, in the same order — `@executable_path`, the
+absolute `…/Debug-iphoneos/PackageFrameworks` entry, `@executable_path/Frameworks`.
+The macOS-conditional key is invisible to it, as intended.
+
+Cross-file equivalence, confirmed non-vacuous rather than merely green:
+`testTheTwoSmokeLaunchesAreTheSameCheck` passes as committed; changing
+`release.yml`'s `DEADLINE=5` to `DEADLINE=7` fails **that test and only that
+test** (52 `ReleaseWorkflowTests`, 1 failure), which is also the useful proof
+that the release-side deadline is pinned *through* the equivalence assertion
+rather than by a second literal. `release.yml` was restored from a copy taken
+before the edit.
+
+`git status --porcelain`: **empty**. `DerivedData/` and `build/` are matched by
+`.gitignore` (lines 9 and 17) and `Pisaka.xcodeproj` is untracked apart from the
+deliberately committed workspace `Package.resolved`, which the resolve step left
+byte-identical.
 
 ### Task 6: Update documentation index
 
