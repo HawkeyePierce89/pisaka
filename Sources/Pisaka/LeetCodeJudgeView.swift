@@ -53,16 +53,22 @@ struct LeetCodeJudgeSection: View {
 
     /// How tall the result area may grow before it scrolls. The statement above
     /// is what the pane is mostly for; a Wrong Answer with four long fields must
-    /// not push it off the top.
+    /// not push it off the top. Scaled at the point of use: the fields inside it
+    /// grow with the interface zone, so a cap that did not would show fewer of
+    /// them the further the user zoomed in.
     private static let resultMaximumHeight: CGFloat = 220
 
+    /// The interface zone's metrics, inherited from the statement pane above,
+    /// which inherits them from `ContentView`'s root.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: metrics.scaled(6)) {
             controls
             testCaseBox
             resultArea
         }
-        .padding(8)
+        .padding(metrics.scaled(8))
         // The statement pane's own key, on the same two halves: re-pointing the
         // folder has to re-ask the question for the tab already open. `prepare`
         // is a no-op for a repeat of the same file, so a re-render costs nothing
@@ -90,7 +96,7 @@ struct LeetCodeJudgeSection: View {
     // MARK: - The controls
 
     private var controls: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: metrics.scaled(8)) {
             Button("Run") {
                 shownKind = .run
                 judgeTask = Task { await judge.run() }
@@ -107,11 +113,11 @@ struct LeetCodeJudgeSection: View {
                 ProgressView()
                     .controlSize(.small)
                 Text(judge.phase.kind == .submit ? "Submitting…" : "Running…")
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundColor(.secondary)
             }
 
-            Spacer(minLength: 4)
+            Spacer(minLength: metrics.scaled(4))
 
             // A disabled button always has something to say — that is what
             // `LeetCodeJudgeAvailability` carries a sentence per case for. While a
@@ -124,6 +130,7 @@ struct LeetCodeJudgeSection: View {
                     .accessibilityLabel(reason)
             }
         }
+        .font(metrics.scaledFont(.body))
         // Both buttons carry the same explanation, so hovering either one answers
         // "why can I not press this?" without hunting for the badge.
         .help(judge.availability.reason ?? "Run against the test cases below, or submit to LeetCode.")
@@ -132,17 +139,17 @@ struct LeetCodeJudgeSection: View {
     // MARK: - The editable input
 
     private var testCaseBox: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: metrics.scaled(2)) {
             Text("Test Cases")
-                .font(.caption)
+                .font(metrics.scaledFont(.caption))
                 .foregroundColor(.secondary)
             // Prefilled from the problem's own examples and used verbatim by Run;
             // Submit ignores it entirely. Session state — never written to disk.
             TextEditor(text: $judge.testInput)
-                .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 46, maxHeight: 92)
+                .font(metrics.scaledFont(.body, design: .monospaced))
+                .frame(minHeight: metrics.scaled(46), maxHeight: metrics.scaled(92))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: metrics.scaled(4))
                         .stroke(Color(NSColor.separatorColor))
                 )
         }
@@ -155,6 +162,7 @@ struct LeetCodeJudgeSection: View {
         if let error = judge.lastError {
             scrolling {
                 Text(error.localizedDescription)
+                    .font(metrics.scaledFont(.body))
                     .foregroundColor(.red)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
@@ -171,12 +179,12 @@ struct LeetCodeJudgeSection: View {
 
     private func scrolling<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: metrics.scaled(4)) {
                 content()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxHeight: Self.resultMaximumHeight)
+        .frame(maxHeight: metrics.scaled(Self.resultMaximumHeight))
     }
 
     @ViewBuilder
@@ -189,7 +197,7 @@ struct LeetCodeJudgeSection: View {
             Text(matched
                 ? "Output matched the expected answer."
                 : "Output did not match the expected answer.")
-                .font(.caption)
+                .font(metrics.scaledFont(.caption))
                 .foregroundColor(.secondary)
         }
         measurements(runtime: result.runtime, memory: result.memory)
@@ -198,15 +206,15 @@ struct LeetCodeJudgeSection: View {
         // `LeetCodeRunResult.input`.
         field("Input", result.input)
         ForEach(Array(0..<result.caseCount), id: \.self) { index in
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: metrics.scaled(2)) {
                 Text("Case \(index + 1)")
-                    .font(.caption.weight(.semibold))
+                    .font(metrics.scaledFont(.caption, weight: .semibold))
                     .foregroundColor(.secondary)
                 field("Output", result.answers[safe: index])
                 field("Expected", result.expectedAnswers[safe: index])
                 field("Stdout", result.stdOutputs[safe: index])
             }
-            .padding(.top, 2)
+            .padding(.top, metrics.scaled(2))
         }
         errorText(result.errorText)
     }
@@ -216,7 +224,7 @@ struct LeetCodeJudgeSection: View {
         verdict(result.verdict, isGood: result.verdict.isAccepted)
         if let correct = result.totalCorrect, let total = result.totalTestcases {
             Text("\(correct) / \(total) test cases passed")
-                .font(.caption)
+                .font(metrics.scaledFont(.caption))
                 .foregroundColor(.secondary)
         }
         measurements(
@@ -234,7 +242,7 @@ struct LeetCodeJudgeSection: View {
     /// against the site reads the same words.
     private func verdict(_ verdict: LeetCodeVerdict, isGood: Bool) -> some View {
         Text(verdict.displayName)
-            .font(.headline)
+            .font(metrics.scaledFont(.headline, weight: .semibold))
             .foregroundColor(isGood ? .green : .red)
     }
 
@@ -245,7 +253,7 @@ struct LeetCodeJudgeSection: View {
         let parts = [runtime.map { "Runtime \($0)" }, memory.map { "Memory \($0)" }].compactMap { $0 }
         if !parts.isEmpty {
             Text(parts.joined(separator: " · "))
-                .font(.caption)
+                .font(metrics.scaledFont(.caption))
                 .foregroundColor(.secondary)
         }
     }
@@ -258,12 +266,12 @@ struct LeetCodeJudgeSection: View {
     @ViewBuilder
     private func field(_ label: String, _ value: String?) -> some View {
         if let value, !value.isEmpty {
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: metrics.scaled(1)) {
                 Text(label)
-                    .font(.caption2)
+                    .font(metrics.scaledFont(.caption2))
                     .foregroundColor(.secondary)
                 Text(value)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(metrics.scaledFont(.caption, design: .monospaced))
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
@@ -280,11 +288,11 @@ struct LeetCodeJudgeSection: View {
     private func errorText(_ text: String?) -> some View {
         if let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             Text(text)
-                .font(.system(.caption, design: .monospaced))
+                .font(metrics.scaledFont(.caption, design: .monospaced))
                 .foregroundColor(.red)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
-                .padding(.top, 2)
+                .padding(.top, metrics.scaled(2))
         }
     }
 }

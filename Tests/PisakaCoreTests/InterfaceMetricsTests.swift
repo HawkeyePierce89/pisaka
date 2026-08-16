@@ -240,6 +240,72 @@ final class InterfaceMetricsTests: XCTestCase {
         }
     }
 
+    /// A `.frame(minWidth:idealWidth:maxWidth:)` whose bounds cross is a layout
+    /// the framework cannot satisfy, and the sweep scales all three of them
+    /// independently — so the ordering has to survive the scaling rather than be
+    /// assumed to. The triples are the real ones: the commit sheet's file list,
+    /// the Acknowledgements dependency list, the sheet itself and the login sheet.
+    func testScalingPreservesTheOrderingOfEverySizeTriple() {
+        let triples: [(String, Double, Double, Double)] = [
+            ("commit file list", 220, 280, 420),
+            ("acknowledgements list", 180, 200, 280),
+            ("browser number column", 48, 56, 90),
+            ("browser difficulty column", 72, 88, 120),
+            ("login sheet width", 520, 760, .infinity),
+        ]
+        for scale in gridScales {
+            let metrics = InterfaceMetrics(scale: scale)
+            for (name, minimum, ideal, maximum) in triples {
+                XCTAssertLessThanOrEqual(metrics.pt(minimum), metrics.pt(ideal), "\(name) at \(scale)")
+                XCTAssertLessThanOrEqual(metrics.pt(ideal), metrics.pt(maximum), "\(name) at \(scale)")
+            }
+        }
+    }
+
+    /// The commit sheet is the other composition the sweep builds: its own
+    /// minimum width has to hold both panes of the `HSplitView` inside it at
+    /// their own minimums, at every scale. Scaling the sheet and forgetting a
+    /// pane — or rounding them apart — squeezes the diff out of a dialog whose
+    /// whole point is the diff.
+    func testTheCommitSheetsMinimumWidthHoldsBothPanesAtEveryScale() {
+        for scale in gridScales {
+            let metrics = InterfaceMetrics(scale: scale)
+            let sheet = metrics.pt(900)
+            let fileList = metrics.pt(220)
+            let diff = metrics.pt(380)
+            XCTAssertGreaterThanOrEqual(sheet, fileList + diff, "at \(scale)")
+            // And the ideal is never narrower than the minimum it accompanies.
+            XCTAssertGreaterThanOrEqual(metrics.pt(1000), sheet, "at \(scale)")
+            XCTAssertGreaterThanOrEqual(metrics.pt(640), metrics.pt(560), "at \(scale)")
+        }
+    }
+
+    /// Acknowledgements is a fixed-width pane holding a list beside a license.
+    /// Both halves scale, so what has to be pinned is that the *remainder* — the
+    /// room the license text is read in — never shrinks as the scale grows.
+    func testTheAcknowledgementsDetailPaneKeepsItsRoomAtEveryScale() {
+        var previousRemainder = 0.0
+        for scale in gridScales {
+            let metrics = InterfaceMetrics(scale: scale)
+            let remainder = metrics.pt(640) - metrics.pt(280)
+            XCTAssertGreaterThan(remainder, 0, "at \(scale)")
+            XCTAssertGreaterThanOrEqual(remainder, previousRemainder, "at \(scale)")
+            previousRemainder = remainder
+        }
+    }
+
+    /// The one text size in the sweep that is handed to an AppKit view rather
+    /// than to SwiftUI: the license pane takes a point size, and it has to be
+    /// `NSFont.smallSystemFontSize` — 11 — at rest, or adopting the metrics
+    /// silently restyles the longest text in Preferences.
+    func testTheLicensePanesRestingSizeIsTheSmallSystemFontSize() {
+        XCTAssertEqual(InterfaceMetrics.unscaled.font(.subheadline), 11)
+        XCTAssertGreaterThan(
+            InterfaceMetrics(scale: ZoomScaleRule.interfaceScale.maximum).font(.subheadline),
+            11
+        )
+    }
+
     func testTheExtremesActuallyDiffer() {
         // Monotonic but flat would satisfy the property above and change
         // nothing on screen.

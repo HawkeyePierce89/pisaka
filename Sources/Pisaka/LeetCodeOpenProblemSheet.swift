@@ -72,6 +72,10 @@ struct LeetCodeOpenProblemSheet: View {
     /// the "one click instead of a trip to the menu bar" the row promises.
     @State private var isSigningIn = false
 
+    /// The interface zone's metrics, inherited from `ContentView`'s root through
+    /// the presentation slot that raises this sheet.
+    @Environment(\.interfaceMetrics) private var metrics
+
     private var parsed: LeetCodeProblemInput? { LeetCodeProblemInput.parse(text) }
 
     private var isBlank: Bool {
@@ -79,15 +83,18 @@ struct LeetCodeOpenProblemSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: metrics.scaled(14)) {
             header
             if !model.isSignedIn { signedOutNotice }
             input
             status
             buttons
         }
-        .padding(20)
-        .frame(width: 440)
+        .font(metrics.scaledFont(.body))
+        .padding(metrics.scaled(20))
+        // The field holds a whole problem URL, so the sheet's fixed width has to
+        // grow with the text inside it or a 200% sheet shows the middle of one.
+        .frame(width: metrics.scaled(440))
         // Every closing path — the Cancel button, Esc, and the presenter taking
         // the sheet down after a successful open — comes through here, so this is
         // the one place the in-flight open has to be cancelled. Straight-line work
@@ -108,11 +115,11 @@ struct LeetCodeOpenProblemSheet: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: metrics.scaled(2)) {
             Text("Open LeetCode Problem")
-                .font(.headline)
+                .font(metrics.scaledFont(.headline, weight: .semibold))
             Text("A problem number, its slug, or a leetcode.com problem URL.")
-                .font(.caption)
+                .font(metrics.scaledFont(.caption))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -122,11 +129,11 @@ struct LeetCodeOpenProblemSheet: View {
     /// without a session, so saying so *here*, with the action beside it, is the
     /// difference between one click and a trip through the menu bar.
     private var signedOutNotice: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: metrics.scaled(10)) {
             Image(systemName: "person.crop.circle.badge.exclamationmark")
                 .foregroundStyle(.secondary)
             Text("Opening a problem needs a LeetCode session.")
-                .font(.caption)
+                .font(metrics.scaledFont(.caption))
                 .foregroundStyle(.secondary)
             Spacer()
             Button("Sign In…") { isSigningIn = true }
@@ -134,7 +141,7 @@ struct LeetCodeOpenProblemSheet: View {
     }
 
     private var input: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: metrics.scaled(10)) {
             TextField("1, two-sum, or https://leetcode.com/problems/two-sum/", text: $text)
                 .textFieldStyle(.roundedBorder)
                 // Enter submits, but only when the text names something — the
@@ -169,18 +176,18 @@ struct LeetCodeOpenProblemSheet: View {
                 Text(" ")
             }
         }
-        .font(.caption)
+        .font(metrics.scaledFont(.caption))
         .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity, minHeight: 26, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: metrics.scaled(26), alignment: .leading)
     }
 
     private var buttons: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: metrics.scaled(10)) {
             if model.isOpening {
                 ProgressView()
                     .controlSize(.small)
                 Text("Fetching from LeetCode…")
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(.secondary)
             }
             Spacer()

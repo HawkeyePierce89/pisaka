@@ -279,17 +279,17 @@ surfaces the user lives in genuinely proportional.
   `LeetCodeJudgeView.swift`, `LeetCodeLoginView.swift`,
   `LeetCodeOpenProblemSheet.swift`
 
-- [ ] Same sweep over the commit dialog (its chrome; the unified diff body stays
+- [x] Same sweep over the commit dialog (its chrome; the unified diff body stays
       on the code font), Preferences and Acknowledgements, the three LSP
       provisioning surfaces, and the five LeetCode surfaces
-- [ ] Scale sheet and window minimum sizes so a 200% Preferences pane or commit
+- [x] Scale sheet and window minimum sizes so a 200% Preferences pane or commit
       sheet still fits its content and nothing becomes unreachable
-- [ ] Confirm by inspection that the statement `WKWebView` body remains on the
+- [x] Confirm by inspection that the statement `WKWebView` body remains on the
       code zone (its CSS already takes `settings.fontSize`) and note it for the
       known-limits doc entry in Task 7
-- [ ] Tests: extend `InterfaceMetricsTests` with any newly derived metric that
+- [x] Tests: extend `InterfaceMetricsTests` with any newly derived metric that
       is not a plain multiply
-- [ ] run `swift test` — must pass before Task 7
+- [x] run `swift test` — must pass before Task 7
 
 ### Task 7: Documentation
 

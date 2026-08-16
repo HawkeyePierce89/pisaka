@@ -79,6 +79,9 @@ struct LeetCodeSettingsView: View {
     /// borrowing the main window's.
     @State private var isSigningIn = false
 
+    /// The interface zone's metrics, inherited from the `Settings` scene root.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
         Form {
             Section("Account") {
@@ -103,7 +106,7 @@ struct LeetCodeSettingsView: View {
                 // silently flips back to "Sign In…" with no explanation.
                 if let error = model.lastError {
                     Text(error.errorDescription ?? "LeetCode reported a failure.")
-                        .font(.caption)
+                        .font(metrics.scaledFont(.caption))
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -129,8 +132,11 @@ struct LeetCodeSettingsView: View {
                 }
             }
         }
-        .padding(20)
-        .frame(width: 460)
+        .font(metrics.scaledFont(.body))
+        .padding(metrics.scaled(20))
+        // The tab's fixed width scales with its content: a 200% path row in a
+        // 460pt column would be truncated to the point of naming no folder at all.
+        .frame(width: metrics.scaled(460))
         .sheet(isPresented: $isSigningIn) {
             LeetCodeLoginView(
                 model: model,
@@ -162,6 +168,14 @@ struct LeetCodeSettingsView: View {
 /// SwiftUI controls bound to the store's `@Published` properties.
 struct GeneralSettingsView: View {
     @ObservedObject var settings: SettingsStore
+
+    /// The interface zone's metrics, inherited from the `Settings` scene root.
+    ///
+    /// The form is chrome like any other, including the two font-size steppers:
+    /// what they *set* is the code and terminal zones, but the row that sets it
+    /// belongs to the interface — so a 150% Preferences window shows a 150% label
+    /// beside a value that is still whatever the editor is drawn at.
+    @Environment(\.interfaceMetrics) private var metrics
 
     var body: some View {
         Form {
@@ -208,8 +222,9 @@ struct GeneralSettingsView: View {
             // the LSP layer and Go to Definition are untouched.
             Toggle("Offer completions as you type", isOn: $settings.completionEnabled)
         }
-        .padding(20)
-        .frame(width: 340)
+        .font(metrics.scaledFont(.body))
+        .padding(metrics.scaled(20))
+        .frame(width: metrics.scaled(340))
     }
 }
 

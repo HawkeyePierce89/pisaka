@@ -55,6 +55,12 @@ struct LeetCodeLoginView: View {
     /// cannot reach a presenter that has already torn the sheet down.
     @State private var didCapture = false
 
+    /// The interface zone's metrics, inherited from whichever surface presented
+    /// this sheet — the main window, the LeetCode Preferences tab, the browser
+    /// window or the Open Problem sheet. All four are scaled roots, so the sheet
+    /// arrives scaled from any of them with nothing threaded.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -63,34 +69,43 @@ struct LeetCodeLoginView: View {
             Divider()
             footer
         }
-        .frame(minWidth: 520, idealWidth: 760, minHeight: 520, idealHeight: 780)
+        // Scaled with its own header and footer: the web view in the middle is
+        // LeetCode's page at LeetCode's own size, so the sheet has to be at least
+        // as tall as the chrome around it however far the interface is zoomed.
+        .frame(
+            minWidth: metrics.scaled(520),
+            idealWidth: metrics.scaled(760),
+            minHeight: metrics.scaled(520),
+            idealHeight: metrics.scaled(780)
+        )
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: metrics.scaled(2)) {
             Text("Sign In to LeetCode")
-                .font(.headline)
+                .font(metrics.scaledFont(.headline, weight: .semibold))
             Text("Pisaka signs in through LeetCode's own page and keeps only the session cookie. Your password is never seen by the app.")
-                .font(.caption)
+                .font(metrics.scaledFont(.caption))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
+        .padding(metrics.scaled(12))
     }
 
     private var footer: some View {
         HStack {
             if let username = model.signedInUsername {
                 Text("Signed in as \(username)")
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(.secondary)
             }
             Spacer()
             Button("Cancel") { onDismiss() }
                 .keyboardShortcut(.cancelAction)
+                .font(metrics.scaledFont(.body))
         }
-        .padding(12)
+        .padding(metrics.scaled(12))
     }
 
     private func capture(_ credentials: LeetCodeCredentials) {

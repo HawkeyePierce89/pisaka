@@ -74,6 +74,12 @@ struct LeetCodeBrowserView: View {
     /// the user who pressed the button in *this* window is not looking.
     @State private var isSigningIn = false
 
+    /// The interface zone's metrics. Computed from the store rather than read from
+    /// the environment because this view is the *root* of its own window and
+    /// injects the value below — an environment write reaches descendants, not the
+    /// view that makes it.
+    private var metrics: InterfaceMetrics { settings.interfaceMetrics }
+
     var body: some View {
         VStack(spacing: 0) {
             controls
@@ -82,7 +88,7 @@ struct LeetCodeBrowserView: View {
             Divider()
             footer
         }
-        .frame(minWidth: 620, minHeight: 380)
+        .frame(minWidth: metrics.scaled(620), minHeight: metrics.scaled(380))
         .preferredColorScheme(settings.themePreference.colorScheme)
         // Its own SwiftUI root (an `NSHostingController` made by
         // `LeetCodeBrowserWindowController`), so it injects the interface scale
@@ -136,8 +142,8 @@ struct LeetCodeBrowserView: View {
     // MARK: - The controls
 
     private var controls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: metrics.scaled(8)) {
+            HStack(spacing: metrics.scaled(8)) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
                 TextField(
@@ -145,27 +151,27 @@ struct LeetCodeBrowserView: View {
                     text: $browser.filter.query
                 )
                 .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 320)
+                .frame(maxWidth: metrics.scaled(320))
 
                 Picker("Language", selection: $settings.leetCodeLanguage) {
                     ForEach(LeetCodeSolutionFile.offerableLanguages, id: \.self) { language in
                         Text(language.displayName).tag(language)
                     }
                 }
-                .frame(maxWidth: 220)
+                .frame(maxWidth: metrics.scaled(220))
 
-                Spacer(minLength: 4)
+                Spacer(minLength: metrics.scaled(4))
 
                 Button("Open") { open(slug: selection) }
                     .disabled(selection == nil || isOpening)
             }
 
-            HStack(spacing: 12) {
+            HStack(spacing: metrics.scaled(12)) {
                 // Set membership, and an empty set means no filtering — so these
                 // toggles need no "All" case: nothing selected and everything
                 // selected are the same list, which is what `LeetCodeProblemFilter`
                 // documents.
-                HStack(spacing: 4) {
+                HStack(spacing: metrics.scaled(4)) {
                     ForEach(LeetCodeDifficulty.allCases, id: \.self) { difficulty in
                         Toggle(
                             LeetCodeBrowserView.title(for: difficulty),
@@ -176,9 +182,9 @@ struct LeetCodeBrowserView: View {
                 }
 
                 Divider()
-                    .frame(height: 16)
+                    .frame(height: metrics.scaled(16))
 
-                HStack(spacing: 4) {
+                HStack(spacing: metrics.scaled(4)) {
                     ForEach(LeetCodeProblemStatus.allCases, id: \.self) { status in
                         Toggle(
                             LeetCodeBrowserView.title(for: status),
@@ -188,18 +194,19 @@ struct LeetCodeBrowserView: View {
                     }
                 }
 
-                Spacer(minLength: 4)
+                Spacer(minLength: metrics.scaled(4))
             }
-            .font(.callout)
+            .font(metrics.scaledFont(.callout))
 
             if let message {
                 Text(message)
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(10)
+        .font(metrics.scaledFont(.body))
+        .padding(metrics.scaled(10))
     }
 
     // MARK: - The list
@@ -218,14 +225,15 @@ struct LeetCodeBrowserView: View {
     /// content of the window — a value the browser publishes rather than an error
     /// this view has to invent a sentence for.
     private func signedOutOffer(_ reason: String) -> some View {
-        VStack(spacing: 12) {
+        VStack(spacing: metrics.scaled(12)) {
             Image(systemName: "person.crop.circle.badge.exclamationmark")
-                .font(.system(size: 28))
+                .font(.system(size: metrics.scaled(28)))
                 .foregroundStyle(.secondary)
             Text(reason)
                 .foregroundStyle(.secondary)
             Button("Sign In…") { isSigningIn = true }
         }
+        .font(metrics.scaledFont(.body))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -236,10 +244,10 @@ struct LeetCodeBrowserView: View {
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
-            .width(min: 48, ideal: 56, max: 90)
+            .width(min: metrics.scaled(48), ideal: metrics.scaled(56), max: metrics.scaled(90))
 
             TableColumn("Title") { row in
-                HStack(spacing: 6) {
+                HStack(spacing: metrics.scaled(6)) {
                     Text(row.problem.title)
                         .lineLimit(1)
                     // Premium rows are always listed and can never be filtered
@@ -258,13 +266,17 @@ struct LeetCodeBrowserView: View {
                 Text(LeetCodeBrowserView.title(for: row.problem.difficulty))
                     .foregroundStyle(LeetCodeBrowserView.color(for: row.problem.difficulty))
             }
-            .width(min: 72, ideal: 88, max: 120)
+            .width(min: metrics.scaled(72), ideal: metrics.scaled(88), max: metrics.scaled(120))
 
             TableColumn("Status") { row in
                 statusCell(row.problem.status)
             }
-            .width(min: 72, ideal: 96, max: 140)
+            .width(min: metrics.scaled(72), ideal: metrics.scaled(96), max: metrics.scaled(140))
         }
+        // One font for every cell and header: a `Table` column takes its size from
+        // what it draws, so the rows follow the interface zone with the chrome
+        // above them rather than staying at the system size inside a scaled window.
+        .font(metrics.scaledFont(.body))
         // Double-click opens (`primaryAction`), and the same action is in the
         // row's context menu — the explicit Open button above is the third way in,
         // for a user who reached the row with the keyboard.
@@ -293,7 +305,7 @@ struct LeetCodeBrowserView: View {
     // MARK: - The footer
 
     private var footer: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: metrics.scaled(10)) {
             Text(countLine)
                 .foregroundStyle(.secondary)
 
@@ -308,7 +320,7 @@ struct LeetCodeBrowserView: View {
                     .help(error)
             }
 
-            Spacer(minLength: 4)
+            Spacer(minLength: metrics.scaled(4))
 
             if browser.isLoading || isOpening {
                 ProgressView()
@@ -327,9 +339,9 @@ struct LeetCodeBrowserView: View {
             }
             .disabled(browser.isLoading || !browser.availability.isReady)
         }
-        .font(.caption)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .font(metrics.scaledFont(.caption))
+        .padding(.horizontal, metrics.scaled(10))
+        .padding(.vertical, metrics.scaled(6))
     }
 
     /// "Showing X of Y", or the two different empty sentences: a filter that

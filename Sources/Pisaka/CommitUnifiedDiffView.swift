@@ -43,6 +43,15 @@ struct CommitUnifiedDiffView: View {
     /// Toggle one unit (a `.modified` pair's two lines report the same index).
     var onToggleUnit: (Int) -> Void = { _ in }
 
+    /// The interface zone's metrics, inherited from the commit sheet.
+    ///
+    /// Read by the **placeholder alone**. The diff itself is the code zone: every
+    /// row draws at `fontSize`, so the checkbox column, the number gutter and the
+    /// row's own spacing are derived from that same number and are deliberately
+    /// left off the interface scale — the Find in Files result rows' rule, which
+    /// exists so the two zones cannot interact.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
         if let wholeOnlyMessage {
             placeholder(wholeOnlyMessage)
@@ -54,16 +63,16 @@ struct CommitUnifiedDiffView: View {
     }
 
     private func placeholder(_ text: String) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: metrics.scaled(8)) {
             Spacer()
             Image(systemName: "doc.fill")
-                .font(.largeTitle)
+                .font(metrics.scaledFont(.largeTitle))
                 .foregroundStyle(.tertiary)
             Text(text)
-                .font(.callout)
+                .font(metrics.scaledFont(.callout))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, metrics.scaled(24))
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

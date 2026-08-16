@@ -69,8 +69,19 @@ struct LeetCodeDescriptionPane: View {
     /// handle's own note.
     @State private var isHoveringHandle = false
 
+    /// The interface zone's metrics, inherited from `ContentView`'s root.
+    ///
+    /// Reaches this pane's *chrome* — the header, the collapsed strip, the drag
+    /// handle and the width bounds below. Not the statement itself: the document's
+    /// CSS is composed from `settings.fontSize`, so the body is the code zone and
+    /// is marked as one for the pointer (see `pane(_:)`).
+    @Environment(\.interfaceMetrics) private var metrics
+
     /// Narrower than this and the statement's example blocks stop being
-    /// readable; wider and the editor is the one being squeezed.
+    /// readable; wider and the editor is the one being squeezed. Scaled at the
+    /// point of use rather than here — `ContentView`'s bottom-panel floor rule:
+    /// the *bounds* follow the interface scale while `width` stays exactly where
+    /// the user dragged it.
     private static let minimumWidth: CGFloat = 260
     private static let maximumWidth: CGFloat = 900
 
@@ -122,7 +133,7 @@ struct LeetCodeDescriptionPane: View {
     }
 
     private func header(_ statement: LeetCodeStatement) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: metrics.scaled(6)) {
             Button { isCollapsed = true } label: {
                 Image(systemName: "chevron.right")
             }
@@ -130,11 +141,11 @@ struct LeetCodeDescriptionPane: View {
             .help("Hide the problem description")
 
             Text("\(statement.number). \(statement.title)")
-                .font(.callout.weight(.medium))
+                .font(metrics.scaledFont(.callout, weight: .medium))
                 .lineLimit(1)
                 .truncationMode(.tail)
 
-            Spacer(minLength: 4)
+            Spacer(minLength: metrics.scaled(4))
 
             // The same destination a link inside the statement goes to, for the
             // parts of a problem this panel deliberately does not render:
@@ -147,8 +158,9 @@ struct LeetCodeDescriptionPane: View {
             .buttonStyle(.plain)
             .help("Open this problem on leetcode.com")
         }
-        .padding(.horizontal, 8)
-        .frame(minHeight: 24, maxHeight: 24)
+        .font(metrics.scaledFont(.body))
+        .padding(.horizontal, metrics.scaled(8))
+        .frame(minHeight: metrics.scaled(24), maxHeight: metrics.scaled(24))
     }
 
     /// The strip left behind when the pane is folded away — the only thing that
@@ -161,10 +173,11 @@ struct LeetCodeDescriptionPane: View {
             }
             .buttonStyle(.plain)
             .help("Show the problem description")
-            .padding(.top, 6)
+            .font(metrics.scaledFont(.body))
+            .padding(.top, metrics.scaled(6))
             Spacer(minLength: 0)
         }
-        .frame(width: 28)
+        .frame(width: metrics.scaled(28))
         .frame(maxHeight: .infinity)
     }
 
@@ -173,7 +186,7 @@ struct LeetCodeDescriptionPane: View {
     private var resizeHandle: some View {
         Rectangle()
             .fill(Color(NSColor.separatorColor))
-            .frame(width: 5)
+            .frame(width: metrics.scaled(5))
             .contentShape(Rectangle())
             // Paired with `onDisappear`, unlike `ContentView.panelDivider`'s
             // otherwise identical idiom: that divider goes away only when the
@@ -204,7 +217,7 @@ struct LeetCodeDescriptionPane: View {
     }
 
     private func clamped(_ proposed: CGFloat) -> CGFloat {
-        min(max(proposed, Self.minimumWidth), Self.maximumWidth)
+        min(max(proposed, metrics.scaled(Self.minimumWidth)), metrics.scaled(Self.maximumWidth))
     }
 
     /// The whole document, composed in Core.

@@ -27,8 +27,20 @@ import SwiftUI
 struct LicenseTextView: View {
     let text: String
 
+    /// The point size to draw the text at, or `nil` for the platform's small
+    /// system size — what it drew before the interface zoom zone existed, and what
+    /// every iOS caller still passes.
+    ///
+    /// Present so the macOS Acknowledgements pane can hand down
+    /// `InterfaceMetrics.font(.caption)`: it is the largest reading surface in
+    /// Preferences, and a license pinned at 11pt inside a window scaled to 200%
+    /// would be the one island left in the interface zone. Defaulting to `nil`
+    /// rather than to a number keeps the two platforms' resting appearance the
+    /// property of the platform, not of this parameter.
+    var pointSize: Double?
+
     var body: some View {
-        Representable(text: text)
+        Representable(text: text, pointSize: pointSize)
     }
 }
 
@@ -38,6 +50,13 @@ import AppKit
 extension LicenseTextView {
     fileprivate struct Representable: NSViewRepresentable {
         let text: String
+        let pointSize: Double?
+
+        /// The size to draw at: the interface zone's, or the one this pane used
+        /// before there was a zone.
+        private var resolvedPointSize: CGFloat {
+            pointSize.map { CGFloat($0) } ?? NSFont.smallSystemFontSize
+        }
 
         func makeNSView(context: Context) -> NSScrollView {
             let scrollView = NSTextView.scrollableTextView()
@@ -65,15 +84,19 @@ extension LicenseTextView {
             guard let textView = scrollView.documentView as? NSTextView else { return }
             // Selecting a different dependency reuses this view, so guard on the
             // content: re-setting an unchanged string would drop the user's
-            // selection and scroll position for nothing.
-            guard textView.string != text else { return }
+            // selection and scroll position for nothing. A zoom step changes the
+            // size without changing the text, so that is a second reason to
+            // re-apply — and the *only* one that must not scroll back to the top,
+            // since the user is reading where they are.
+            let isNewDocument = textView.string != text
+            guard isNewDocument || textView.font?.pointSize != resolvedPointSize else { return }
             apply(text: text, to: textView)
-            textView.scroll(.zero)
+            if isNewDocument { textView.scroll(.zero) }
         }
 
         private func apply(text: String, to textView: NSTextView) {
             textView.string = text
-            textView.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+            textView.font = .monospacedSystemFont(ofSize: resolvedPointSize, weight: .regular)
             textView.textColor = .labelColor
         }
     }
@@ -84,6 +107,10 @@ import UIKit
 extension LicenseTextView {
     fileprivate struct Representable: UIViewRepresentable {
         let text: String
+        /// Always `nil` on this platform — no iOS screen passes one, so the base
+        /// size stays `UIFont.smallSystemFontSize` and Dynamic Type scales it, as
+        /// it always has. Present so the two halves take the same value.
+        let pointSize: Double?
 
         func makeUIView(context: Context) -> UITextView {
             let textView = UITextView()
@@ -111,7 +138,10 @@ extension LicenseTextView {
             // vended by `UIFontMetrics`, so the monospaced face is scaled through
             // the caption metric rather than pinned at a fixed point size — the
             // `.system(.caption, design: .monospaced)` this replaced scaled too.
-            let base = UIFont.monospacedSystemFont(ofSize: UIFont.smallSystemFontSize, weight: .regular)
+            let base = UIFont.monospacedSystemFont(
+                ofSize: pointSize.map { CGFloat($0) } ?? UIFont.smallSystemFontSize,
+                weight: .regular
+            )
             textView.font = UIFontMetrics(forTextStyle: .caption1).scaledFont(for: base)
             textView.adjustsFontForContentSizeCategory = true
             textView.textColor = .label
