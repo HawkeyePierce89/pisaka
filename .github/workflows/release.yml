@@ -87,7 +87,14 @@ jobs:
   release:
     needs: test
     runs-on: macos-15
-    timeout-minutes: 60
+    # Archive (~20 minutes, whole-module optimization across the app and every
+    # linked dependency) plus a notary submission this job is willing to wait
+    # `--timeout 30m` for. Sized so the notary wait always fails with the
+    # notarize step's own actionable message rather than as a job cancellation:
+    # a cancellation between `gh release create --draft` and the promotion
+    # leaves a draft occupying the tag, which is the one failure here that needs
+    # a manual undo.
+    timeout-minutes: 90
     # Scoped to this job alone: creating a release and uploading its assets is
     # the only write this workflow performs.
     permissions:
@@ -220,11 +227,12 @@ jobs:
           KEYCHAIN_PASSWORD="$(/usr/bin/openssl rand -base64 32)"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          # `-lut <seconds>` and no `-l`: no lock-on-sleep, and a timeout well
-          # past this job's 60-minute budget. A keychain that re-locks during the
-          # archive fails codesign with "User interaction is not allowed", which
-          # reads like a missing identity and is not one.
-          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          # `-u -t <seconds>` and deliberately no `-l`: `-l` is "lock when the
+          # system sleeps", and the timeout is set well past this job's budget.
+          # A keychain that re-locks during the archive fails codesign with
+          # "User interaction is not allowed", which reads like a missing
+          # identity and is not one.
+          security set-keychain-settings -ut 21600 "$KEYCHAIN"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
 
           printf '%s' "$DEVELOPER_ID_CERT_P12" | base64 --decode > "$CERTIFICATE"
@@ -243,8 +251,15 @@ jobs:
           # *whole* user search list, so passing the new keychain alone would drop
           # everything already on it for the rest of the job. The previous list is
           # saved so the cleanup step can put it back verbatim.
+          #
+          # The `$(cat …)` is unquoted on purpose — `-s` takes one argument per
+          # keychain and word splitting is what produces them. That assumes no
+          # keychain path contains whitespace, which holds for the runner's
+          # `/Users/runner/Library/Keychains/…` and is the reason this is not
+          # written to accept arbitrary paths.
           security list-keychains -d user | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//' \
             > "${RUNNER_TEMP}/keychains-before"
+          # shellcheck disable=SC2046
           security list-keychains -d user -s "$KEYCHAIN" $(cat "${RUNNER_TEMP}/keychains-before")
 
           # The last cheap refusal. `find-identity -v -p codesigning` lists only
@@ -388,7 +403,12 @@ jobs:
           verify_developer_id_signature() {
             LABEL="$1"
             TARGET="$2"
-            SIGNATURE="$(codesign --display --verbose=4 "$TARGET" 2>&1)"
+            # `|| true`: an unsigned or damaged bundle makes `codesign --display`
+            # itself exit non-zero, and under `set -e` that would end the step
+            # with no `::error::` line at all. Keeping the output and letting the
+            # three checks below fail on it is what turns that case into a
+            # message naming which fact is missing.
+            SIGNATURE="$(codesign --display --verbose=4 "$TARGET" 2>&1 || true)"
 
             if ! printf '%s\n' "$SIGNATURE" | grep -q '^Authority=Developer ID Application:'; then
               echo "::error::${LABEL} is not signed by a Developer ID Application certificate. An ad-hoc signature and an Apple Development identity both pass codesign --verify and are both rejected by the notary service. Check the identity the archive step selected and the certificate in DEVELOPER_ID_CERT_P12. See docs/RELEASING.md."
@@ -521,8 +541,16 @@ jobs:
             --output-format json > "$SUBMISSION" || SUBMIT_EXIT=$?
           cat "$SUBMISSION"
 
-          STATUS="$(jq -r '.status // "no status"' "$SUBMISSION")"
-          SUBMISSION_ID="$(jq -r '.id // ""' "$SUBMISSION")"
+          # Both reads are guarded: `jq` exits non-zero on input that is not
+          # valid JSON, and under `set -e` a failing command substitution in an
+          # assignment ends the step *here* — before the ::error:: message,
+          # before the log fetch, on exactly the malformed-output case (a
+          # submission killed mid-write, a tool change emitting plain text) this
+          # refusal exists to explain. An unreadable status is not `Accepted`,
+          # so it falls through to the guard below and is reported like any
+          # other verdict.
+          STATUS="$(jq -r '.status // "no status"' "$SUBMISSION" 2>/dev/null || echo "unreadable")"
+          SUBMISSION_ID="$(jq -r '.id // ""' "$SUBMISSION" 2>/dev/null || echo "")"
           if [ "$STATUS" != "Accepted" ]; then
             echo "::error::The notary service returned status \"${STATUS}\" (notarytool exit ${SUBMIT_EXIT}) for submission ${SUBMISSION_ID}. The log follows; it names the binary and the reason — a missing hardened runtime, a missing secure timestamp, an unsigned nested executable, or an identity the service does not accept. Nothing has been published: fix the cause, delete and re-push the tag. See docs/RELEASING.md."
             xcrun notarytool log "$SUBMISSION_ID" \
@@ -692,12 +720,12 @@ jobs:
           gh release edit "$TAG" --draft=false
 
       # `if: always()` and last, so no path through this job — success, any
-      # failure above, or a cancellation — leaves the signing key on the runner or
-      # the search list rewritten. The runner is thrown away afterwards, which is
-      # an argument for not caring and not a reason to rely on it: the cleanup is
-      # three commands and it is the difference between "the certificate is gone
-      # because we removed it" and "the certificate is gone because we assume the
-      # fleet removed it".
+      # failure above, or a cancellation — leaves either private key on the runner
+      # or the search list rewritten. The runner is thrown away afterwards, which
+      # is an argument for not caring and not a reason to rely on it: the cleanup
+      # is four commands and it is the difference between "the keys are gone
+      # because we removed them" and "the keys are gone because we assume the
+      # fleet removed them".
       #
       # No `set -e`: this step's whole point is to run all of it. A failure to
       # restore the search list must not skip deleting the keychain, and neither
@@ -708,12 +736,20 @@ jobs:
           set -uo pipefail
           KEYCHAIN="${RUNNER_TEMP}/pisaka-signing.keychain-db"
           if [ -s "${RUNNER_TEMP}/keychains-before" ]; then
+            # Unquoted for the same reason as the import step's call: `-s` takes
+            # one argument per keychain, and word splitting is what makes them.
+            # shellcheck disable=SC2046
             security list-keychains -d user -s $(cat "${RUNNER_TEMP}/keychains-before")
             rm -f "${RUNNER_TEMP}/keychains-before"
           fi
           if [ -f "$KEYCHAIN" ]; then
             security delete-keychain "$KEYCHAIN"
           fi
-          # Belt and braces: the import step removes the decoded .p12 itself, but
-          # it can fail between the decode and the `rm`.
-          rm -f "${RUNNER_TEMP}/developer-id.p12"
+          # Belt and braces for both private keys. Each is removed by the step
+          # that wrote it — the .p12 by an `rm` after `security import` consumes
+          # it, the .p8 by a `trap … EXIT` — and neither removal covers a
+          # cancellation: a `SIGKILL`ed step runs no EXIT trap and no trailing
+          # line, which is precisely the path this `if: always()` step exists
+          # for. Both paths are spelled out literally because a variable would
+          # be one the cancelled step never got to set.
+          rm -f "${RUNNER_TEMP}/developer-id.p12" "${RUNNER_TEMP}/notary-key.p8"

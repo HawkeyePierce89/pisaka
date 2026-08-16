@@ -370,7 +370,7 @@ final class ReleaseWorkflowTests: XCTestCase {
     ///  * `security import` without `-T /usr/bin/codesign`, or without the
     ///    partition list, leaves the key's ACL asking for interactive
     ///    authorization — on a headless runner that is a hang until the job's
-    ///    60-minute timeout, not an error;
+    ///    own timeout, not an error;
     ///  * `security list-keychains -s` replaces the *whole* user search list, so
     ///    passing the new keychain alone silently drops every other keychain for
     ///    the rest of the job. Prepending is the only correct call, and the
@@ -402,6 +402,31 @@ final class ReleaseWorkflowTests: XCTestCase {
             The imported key needs `security set-key-partition-list -S apple-tool:,apple:`. \
             Without it the first codesign raises the "wants to sign using key in your keychain" \
             dialog and the job hangs until its timeout.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("security unlock-keychain") }, """
+            The run's keychain must be unlocked with `security unlock-keychain`. A freshly created \
+            keychain is locked, and `codesign` against a locked keychain fails with "User \
+            interaction is not allowed" — a message that names neither the keychain nor the lock, \
+            and reads like a certificate problem.
+            """)
+
+        // The lock settings, asserted including the flag that must *not* be
+        // there. `-l` is "lock when the system sleeps"; `-lut` is `-l -u -t`,
+        // so the difference between the two spellings is invisible unless the
+        // absence is what is asserted.
+        let settings = try XCTUnwrap(script.first(where: { $0.contains("security set-keychain-settings") }), """
+            release.yml's `\(Self.certificateStepName)` step must set the keychain's lock settings \
+            with `security set-keychain-settings`. The default auto-lock interval is five minutes, \
+            which is shorter than the archive — the keychain then re-locks mid-build and codesign \
+            fails with "User interaction is not allowed".
+            """)
+        XCTAssertTrue(settings.contains("-ut "), """
+            `security set-keychain-settings` must pass `-u -t <seconds>` with a timeout longer than \
+            this job. Got “\(settings)”.
+            """)
+        XCTAssertFalse(settings.contains("-lut") || settings.contains(" -l "), """
+            `security set-keychain-settings` must not pass `-l` — it means "lock when the system \
+            sleeps", not "lock timeout", and `-lut` is `-l -u -t`. Got “\(settings)”.
             """)
 
         // The decoded .p12 is removed by the step that wrote it — not by the
@@ -537,6 +562,20 @@ final class ReleaseWorkflowTests: XCTestCase {
             a keychain that no longer exists.
             """)
 
+        // Both private keys, by literal path. Each is also removed by the step
+        // that wrote it, and neither of those removals survives a cancellation:
+        // a `SIGKILL`ed step runs no `trap … EXIT` and no trailing `rm`, which
+        // is the one path this `if: always()` step exists for. Asserting only
+        // the .p12 would certify the weaker guarantee as the stronger one.
+        for key in ["${RUNNER_TEMP}/developer-id.p12", "${RUNNER_TEMP}/notary-key.p8"] {
+            XCTAssertTrue(script.contains { $0.hasPrefix("rm -f") && $0.contains(key) }, """
+                release.yml's `\(Self.keychainCleanupStepName)` step must `rm -f \(key)`. The step \
+                that writes it removes it on every path it reaches the end of, but a cancelled \
+                run — the case this `if: always()` step is here for — reaches none of them, and \
+                the private key is then what the job leaves behind. \(script)
+                """)
+        }
+
         // Last step of the file, so nothing that needs the identity runs after
         // the keychain is gone.
         let lines = try activeLines()
@@ -546,6 +585,93 @@ final class ReleaseWorkflowTests: XCTestCase {
             The keychain cleanup must be the last step of the release job — the last step in the \
             file. It currently is not: “\(lines[last])” comes after it, and anything that runs \
             after the keychain is deleted cannot sign, notarize or verify anything.
+            """)
+    }
+
+    /// Every refusal in this workflow is a refusal only because the step it sits
+    /// in is fatal to the job.
+    ///
+    /// This is the assumption every `assertGuardExits` in this file rests on and
+    /// none of them can see: they prove an `exit 1` is reachable inside a
+    /// script, not that the job stops when it runs. `continue-on-error: true` on
+    /// a step turns all of them into echoed text — the notarization refusal, the
+    /// signature checks, the appcast-signature guard — and the run still
+    /// publishes, green. `if:` is the same edit spelled differently: a step
+    /// skipped by a condition never runs its guards at all, and an `if: false`
+    /// on the staple step ships an app whose ticket lives only on Apple's
+    /// servers.
+    ///
+    /// So: no `continue-on-error:` anywhere, and the one legitimate `if:` is the
+    /// cleanup step's `always()`, which widens rather than narrows when the step
+    /// runs.
+    func testEveryStepFailureStopsTheRelease() throws {
+        let lines = try activeLines()
+
+        XCTAssertFalse(lines.contains { $0.hasPrefix("continue-on-error:") }, """
+            release.yml carries a `continue-on-error:`. Every refusal in this workflow — the \
+            preflight's, the identity check, the signature verification, the non-Accepted \
+            notarization status, the appcast signature — is a refusal only because its step's \
+            failure ends the job. `continue-on-error: true` demotes all of them to log lines and \
+            publishes the release anyway.
+            """)
+
+        let conditions = lines.filter { $0.hasPrefix("if:") }
+        XCTAssertEqual(conditions, ["if: always()"], """
+            The only step condition release.yml may carry is the keychain cleanup's \
+            `if: always()`, which makes a step run *more* often. Any other `if:` makes a step run \
+            less often, and a skipped step runs none of the guards this suite asserts: `if: false` \
+            on the staple step ships an unstapled app with every assertion here still green. Got \
+            \(conditions).
+            """)
+    }
+
+    /// The job's own budget has to be bigger than the wait it contains.
+    ///
+    /// The notary submission blocks for up to its `--timeout`, on top of an
+    /// archive that pays for whole-module optimization across the app and every
+    /// linked dependency — `ci.yml` gives a strictly *smaller* workload (a
+    /// Release build rather than an archive) 45 minutes. If the two do not fit,
+    /// a slow-but-healthy notary queue ends the run as a GitHub cancellation:
+    /// no `::error::` annotation, none of this workflow's actionable messages,
+    /// and — if it lands after `gh release create --draft` — a draft release
+    /// occupying the tag that has to be deleted by hand before the tag can be
+    /// re-pushed.
+    func testTheJobBudgetCoversTheNotaryWait() throws {
+        let lines = try activeLines()
+
+        // The budget of the job that *contains* the notarization, found by
+        // walking back from the step rather than by taking the file's first
+        // `timeout-minutes:` — this workflow has two jobs and they have
+        // different budgets.
+        let notarize = try XCTUnwrap(lines.firstIndex(where: {
+            $0 == "- name: \(Self.notarizeStepName)"
+        }), "release.yml has no `\(Self.notarizeStepName)` step")
+        let budgetLine = try XCTUnwrap(lines[..<notarize].last(where: { $0.hasPrefix("timeout-minutes:") }), """
+            The job that notarizes must declare a `timeout-minutes:`. Without one it runs under \
+            GitHub's six-hour default, and a stuck submission holds a runner for the afternoon.
+            """)
+        let budget = try XCTUnwrap(Int(budgetLine.dropFirst("timeout-minutes:".count)
+            .trimmingCharacters(in: .whitespaces)), "could not read a number out of “\(budgetLine)”")
+
+        let script = try stepScript(named: Self.notarizeStepName, because: """
+            It is the step whose wait the job budget has to cover.
+            """)
+        let wait = try XCTUnwrap(script.compactMap { firstMatch(#"--timeout (\d+)m"#, in: $0) }.first, """
+            `notarytool submit --wait` must carry a `--timeout <n>m`, in minutes, so this \
+            assertion can compare it against the job's budget.
+            """)
+        let waitMinutes = try XCTUnwrap(Int(wait), "could not read a number out of “\(wait)”")
+
+        // 45 is `ci.yml`'s budget for a Release *build* of the same target — a
+        // strictly smaller job than this one's archive, so it is the floor of
+        // what has to be left over once the notary wait is subtracted.
+        XCTAssertGreaterThanOrEqual(budget - waitMinutes, 45, """
+            The release job budgets \(budget) minutes and is willing to wait \(waitMinutes) of \
+            them for the notary service, leaving \(budget - waitMinutes) for the archive. ci.yml \
+            gives 45 minutes to a Release *build* of this target, which is strictly less work \
+            than an archive of it. A slow-but-healthy notary queue would therefore end this run \
+            as a cancellation — no error annotation, no message, and a draft release possibly \
+            left occupying the tag. Raise `timeout-minutes:` or lower `--timeout`.
             """)
     }
 
@@ -852,8 +978,8 @@ final class ReleaseWorkflowTests: XCTestCase {
         }
         XCTAssertTrue(invocation.contains { $0.contains("--timeout") }, """
             `notarytool submit --wait` must carry a `--timeout`. Without one a stuck submission \
-            waits until the job's own 60-minute budget kills it, which reports as a cancelled \
-            release rather than as a notarization that never came back.
+            waits until the job's own budget kills it, which reports as a cancelled release \
+            rather than as a notarization that never came back.
             """)
 
         for secret in ["APP_STORE_CONNECT_API_KEY_P8",
@@ -863,6 +989,35 @@ final class ReleaseWorkflowTests: XCTestCase {
                 release.yml's `\(Self.notarizeStepName)` step must receive \(secret) through its \
                 `env:` block. The preflight refuses a run without it, so a missing mapping *here* \
                 is the case where every guard passed and the submission still cannot authenticate.
+                """)
+        }
+
+        // `set -e` would end the step on a rejected submission *before* the
+        // verdict is read, which turns everything below into dead code on
+        // exactly the run it exists for. The `|| SUBMIT_EXIT=$?` is what keeps
+        // the step alive long enough to explain itself.
+        XCTAssertTrue(script.contains { $0.contains("|| SUBMIT_EXIT=$?") }, """
+            release.yml's `\(Self.notarizeStepName)` step must capture notarytool's exit code with \
+            `|| SUBMIT_EXIT=$?` rather than letting `set -e` fire. Without it a rejected \
+            submission ends the step immediately and the status check, the log fetch and the \
+            actionable message below are never reached — the run fails with notarytool's own \
+            output and nothing else.
+            """)
+
+        // Both JSON reads are guarded, for the same reason: `jq` exits non-zero
+        // on input that is not valid JSON, and a failing command substitution
+        // in an assignment is a `set -e` exit — again before the message.
+        for read in ["STATUS=", "SUBMISSION_ID="] {
+            let line = try XCTUnwrap(script.first(where: { $0.hasPrefix(read) }), """
+                release.yml's `\(Self.notarizeStepName)` step no longer assigns \(read) from \
+                notarytool's JSON.
+                """)
+            XCTAssertTrue(line.contains("||"), """
+                `\(read)` must tolerate output that is not valid JSON (a submission killed \
+                mid-write, a notarytool that emitted a plain-text error). `jq` exits non-zero on \
+                it, and under `set -e` this assignment then ends the step before the ::error:: \
+                message and the log fetch — the malformed-output case reports as a bare jq parse \
+                error. Got “\(line)”.
                 """)
         }
 
@@ -922,6 +1077,21 @@ final class ReleaseWorkflowTests: XCTestCase {
             The `trap` must be installed *before* the key is written. Installed afterwards it \
             covers everything except the window in which the key exists and the step has not yet \
             reached the trap — which includes the write itself failing part-way.
+            """)
+        XCTAssertTrue(script.contains { $0.contains(#"chmod 600 "$API_KEY""#) }, """
+            The written .p8 must be narrowed to `chmod 600`. It lands under the runner's default \
+            umask otherwise, which is a private key readable by every process on the machine for \
+            as long as the notarization takes.
+            """)
+
+        // The trap's signal is asserted, not just its existence: `trap … ERR`
+        // reads almost identically and fires on none of the paths that matter
+        // here — including the successful one, on which the key would then
+        // survive the whole rest of the job.
+        XCTAssertTrue(script[trap].hasSuffix(" EXIT"), """
+            The .p8's `trap` must be installed on `EXIT`. Any other signal set — `ERR` in \
+            particular — leaves the key on disk on the path where the step succeeds, which is \
+            every published release. Got “\(script[trap])”.
             """)
     }
 

@@ -1,8 +1,9 @@
 # Releasing Pisaka
 
-Everything here is repository-side plus the five Apple-account secrets the
-release workflow reads. The App Store Connect *app record* and store metadata are
-still absent — see [Not here yet](#not-here-yet).
+Everything here is repository-side plus the six repository secrets the release
+workflow reads — the Sparkle EdDSA signing key and five Apple-account ones. The
+App Store Connect *app record* and store metadata are still absent — see
+[Not here yet](#not-here-yet).
 
 There are two paths, and they answer different questions:
 
@@ -213,9 +214,19 @@ key in your keychain" dialog — on a headless runner that is not a failure, it 
 a hang until the job times out — and *prepends* the keychain to the user search
 list, saving the previous list so the cleanup step can restore it verbatim
 (`security list-keychains -s` overwrites the whole list; passing the new keychain
-alone would drop everything else for the rest of the job). The decoded `.p12` is
-removed in the same step, and a final `if: always()` step deletes the keychain
-and restores the list on every path — success, failure or cancellation.
+alone would drop everything else for the rest of the job). The keychain is
+unlocked and given a lock timeout longer than the job (`security
+set-keychain-settings -ut`, deliberately without `-l`, which means "lock when the
+system sleeps" and not "lock timeout") — a keychain that re-locks mid-archive
+fails `codesign` with "User interaction is not allowed", which reads like a
+missing identity and is not one.
+
+The decoded `.p12` is removed in the same step, and a final `if: always()` step
+deletes the keychain, restores the list, and removes **both** private keys by
+path — the `.p12` and the notarization `.p8` — on every path: success, failure
+or cancellation. That last one is why the cleanup repeats removals the writing
+steps already do: a cancelled step is killed, so it runs neither its trailing
+`rm` nor its `trap … EXIT`, and the cleanup step is the only thing left.
 
 **The login keychain is never named and never modified.** A GitHub macOS runner
 is ephemeral, but that is a property of the fleet rather than a guarantee this
@@ -469,8 +480,8 @@ The workflow then, in order:
     is deliberately the last line of the step: anything after it would run
     against an already-visible release.
   - **Remove the signing keychain**, `if: always()` and last, so no path through
-    the job — success, any failure above, or a cancellation — leaves the
-    certificate on the runner or the search list rewritten. It deliberately does
+    the job — success, any failure above, or a cancellation — leaves either
+    private key on the runner or the search list rewritten. It deliberately does
     not `set -e`: a failure to restore the search list must not skip deleting the
     keychain, and neither must stop the job reporting the real error.
 
@@ -484,10 +495,16 @@ the flag cannot stand in for it), the archive's Developer ID identity, team,
 asserted to appear nowhere active — the ad-hoc pin deliberately updated rather
 than deleted), the throwaway keychain (created under `$RUNNER_TEMP`, the login
 keychain never named, the identity refusal, the import before the archive, the
-`if: always()` deletion), the Developer ID / team / hardened-runtime read-back on
-both the app and the framework, `project.yml` staying signing-free, the
-notarization submit (`--wait` plus the API-key trio, the non-`Accepted` branch
-exiting 1, the log fetch, the `.p8` removed by the step that writes it), the
+unlock and the lock settings including the absence of `-l`, the `if: always()`
+deletion of the keychain *and of both private keys by path*), the Developer ID /
+team / hardened-runtime read-back on both the app and the framework,
+`project.yml` staying signing-free, the notarization submit (`--wait` plus the
+API-key trio, the exit-code capture that keeps `set -e` from pre-empting the
+verdict, the guarded JSON reads, the non-`Accepted` branch exiting 1, the log
+fetch, the `.p8` `chmod 600`-ed and removed by a `trap … EXIT`), the fact that
+every step is fatal to the job (no `continue-on-error:`, and `if: always()` on
+the cleanup as the only step condition), the job budget exceeding the notary
+`--timeout` by at least `ci.yml`'s build budget, the
 staple and its `stapler validate`, the full step ordering (archive < notarize <
 staple < shipped zip < `generate_appcast` < `gh release create`), the shipped zip
 being a different artefact from the submitted one, the absence of the old

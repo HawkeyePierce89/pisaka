@@ -366,19 +366,22 @@ run in `swift test` rather than needing an Xcode build.
         by a character or two still base64-decodes, so the byte count is what
         catches a truncated paste.
 
-    **The placeholder-key scheme, and what it can and cannot guarantee.** The
-    committed `SUPublicEDKey` is `UExBQ0VIT0xERVItUkVQTEFDRS1XSVRILVJFQUwtS1k=`
-    — base64 of the ASCII `PLACEHOLDER-REPLACE-WITH-REAL-KY`. It is *structurally
-    valid on purpose*: `swift test` can then assert the shape of whatever is in
-    the file, and the placeholder passes that assertion by design rather than the
-    suite having to special-case it. Asserting the key is the *right* one is
-    structurally impossible here — the matching private half exists only in the
+    **The placeholder-key scheme (retired 2026-08-16), and what it can and
+    cannot guarantee.** The committed `SUPublicEDKey` is now the **real** one;
+    the placeholder it replaced was
+    `UExBQ0VIT0xERVItUkVQTEFDRS1XSVRILVJFQUwtS1k=` — base64 of the ASCII
+    `PLACEHOLDER-REPLACE-WITH-REAL-KY` — and was *structurally valid on purpose*
+    so that `swift test` could assert the shape of whatever is in the file
+    without the suite having to special-case it. That reasoning still governs
+    what is assertable: asserting the key is the *right* one is structurally
+    impossible here, because the matching private half exists only in the
     `SPARKLE_PRIVATE_EDDSA_KEY` repository secret, which nothing in `swift test`
     can reach. The two checks that do cover it live elsewhere and are named so
     the gap is not mistaken for coverage: the release workflow's preflight greps
-    this exact string out of the plist and refuses to publish while it is there
-    (so no release can ship signed by a key installed copies do not trust), and
-    the one-time manual end-to-end update pass in `docs/RELEASING.md`.
+    the placeholder string out of the plist and refuses to publish while it is
+    there — kept permanently, as a revert guard, so no release can ship signed
+    by a key installed copies do not trust — and the one-time manual end-to-end
+    update pass in `docs/RELEASING.md`.
 
     Deliberately **absent**: `SUEnableAutomaticChecks` and
     `SUScheduledCheckInterval`. With neither key present Sparkle asks the user
