@@ -105,38 +105,38 @@ re-expressed in terms of the shared rule rather than duplicated.
 - Create: `Tests/PisakaCoreTests/ZoomScaleRuleTests.swift`
 - Modify: `Tests/PisakaCoreTests/SettingsStoreTests.swift`
 
-- [ ] `ZoomZone` (`code`, `terminal`, `interface`), `ZoomSurfaceKind`
+- [x] `ZoomZone` (`code`, `terminal`, `interface`), `ZoomSurfaceKind`
       (`code`, `terminal` — illegal states unrepresentable, `.interface` is
       never a surface) and `ZoomSurfaceCandidate` (`kind` + `depth`)
-- [ ] `ZoomZone.resolve(pointer:focusedSurface:)` where `pointer` is either
+- [x] `ZoomZone.resolve(pointer:focusedSurface:)` where `pointer` is either
       `.insideApp([ZoomSurfaceCandidate])` or `.outsideApp`: deepest candidate
       wins, ties resolve to the first in scan order (documented), no candidates
       → `.interface`, `.outsideApp` → `focusedSurface?.zone ?? .interface`
-- [ ] `ZoomScaleRule` (min/max/default/step) with `clamp(_:)` — non-finite
+- [x] `ZoomScaleRule` (min/max/default/step) with `clamp(_:)` — non-finite
       collapses to the default, keeping the existing NaN-recursion guard's
       reasoning — and `stepped(_:by:)`, which snaps to the step grid so N steps
       up and N down return *exactly* the starting value
-- [ ] Three shipped rules: `.editorFont` (8…32, default 13, step 1 — the
+- [x] Three shipped rules: `.editorFont` (8…32, default 13, step 1 — the
       existing constants), `.terminalFont` (8…32, default 13 = SwiftTerm's
       `NSFont.systemFontSize` default, step 1), `.interfaceScale`
       (0.8…2.0, default 1.0, step 0.1)
-- [ ] Re-express `SettingsStore.clampFontSize` / `stepFontSize` over
+- [x] Re-express `SettingsStore.clampFontSize` / `stepFontSize` over
       `ZoomScaleRule.editorFont` with the public API and existing behavior
       unchanged
-- [ ] Add `terminalFontSize` and `interfaceScale` `@Published` properties with
+- [x] Add `terminalFontSize` and `interfaceScale` `@Published` properties with
       the same clamp-in-`didSet` write discipline, under new stable keys
       `settings.terminalFontSize` and `settings.interfaceScale`, both clamped on
       load and both falling back to their default for an absent/wrong-typed/
       non-finite stored value
-- [ ] Add the zone-keyed API the app layer will use: `scale(for:)`,
+- [x] Add the zone-keyed API the app layer will use: `scale(for:)`,
       `stepZoom(_:by:)`, `resetZoom(_:)` — so no view has to know which property
       backs which zone
-- [ ] Write tests: zone resolution for every case (deepest wins, nested
+- [x] Write tests: zone resolution for every case (deepest wins, nested
       candidates, empty → interface, outside-app with and without a focused
       surface); step/clamp/reset for all three rules incl. bounds, non-finite,
       and the round-trip-to-exactly-the-default property; settings round-trip
       and clamp-on-write for the two new keys; key stability
-- [ ] run `swift test` — must pass before Task 2
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: Core — continuous gesture accumulation and interface metrics
 
