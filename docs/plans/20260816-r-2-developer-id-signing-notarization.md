@@ -286,10 +286,22 @@ update from a previous release installing normally.
 
 ### Task 6: Update documentation
 
-- [ ] confirm `CLAUDE.md`'s `ReleaseWorkflowTests` description still matches what
+- [x] confirm `CLAUDE.md`'s `ReleaseWorkflowTests` description still matches what
       the suite now asserts, and extend the sentence listing its coverage with the
-      signing/notarization pins
-- [ ] confirm no other document still describes released builds as ad-hoc signed
+      signing/notarization pins (also corrected two stale claims the same file
+      carried: the release-archive command's "unsigned until a `DEVELOPMENT_TEAM`
+      exists" comment, and the release-workflow paragraph, which now names the
+      Developer ID signature, the hardened runtime, notarization/stapling and the
+      per-run keychain)
+- [x] confirm no other document still describes released builds as ad-hoc signed
+      — swept `README.md`, `docs/FEATURES.md`, `docs/RELEASING.md` and all of
+      `docs/architecture/` for `ad-hoc`/`Gatekeeper`/`quarantine`/`unsigned`: the
+      only live mentions are the new signing story, plus
+      `core-provisioning.md`'s note about the *downloaded rust-analyzer* binary
+      being `adhoc, linker-signed` (a different subject, correct as written). The
+      R-1 entries under `docs/plans/completed/` are left alone on purpose: they
+      are the historical record of what that ticket shipped, not a description of
+      the current release
 
 ## Post-Completion (manual, recorded in `docs/RELEASING.md` — not automated)
 
