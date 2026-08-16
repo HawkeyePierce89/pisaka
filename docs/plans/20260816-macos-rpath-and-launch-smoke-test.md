@@ -543,11 +543,49 @@ byte-identical.
 
 ### Task 6: Update documentation index
 
-- [ ] No `README.md` change — this is not user-facing (state it rather than
+- [x] No `README.md` change — this is not user-facing (state it rather than
       leaving it implicit).
-- [ ] Confirm `CLAUDE.md` and `docs/architecture/core-services.md` were updated
+- [x] Confirm `CLAUDE.md` and `docs/architecture/core-services.md` were updated
       per convention in Task 4 and that the per-file index needs no new entry (no
       new source file was added).
+
+**Task 6 completion notes**
+
+**`README.md` is deliberately unchanged, and this is the statement of that.**
+`README.md` documents what a user of the editor can do — the feature list and the
+shortcuts, with the detail in `docs/FEATURES.md`. Everything this plan shipped is
+invisible from there: a linker search path, two CI steps, the static pins that
+hold them and the release documentation around them. The user-visible half of the
+incident — that `v1.0` would not open — is a fixed defect, not a feature to
+describe; a README that started narrating its own build settings would be
+documenting the pipeline in the one file that is not about the pipeline. The
+release-facing account lives in `docs/RELEASING.md`, the design rationale in
+`docs/architecture/core-services.md`, and the index-level clauses in `CLAUDE.md`,
+which is where the repository's own placement convention sends each of them.
+
+Both convention checks confirmed against the branch rather than recalled:
+
+- `git diff --name-only master...HEAD` lists exactly `project.yml`, the two
+  workflows, the two test files, `CLAUDE.md`, `docs/RELEASING.md`,
+  `docs/architecture/core-services.md` and this plan. `README.md` is absent, and
+  so is all of `Sources/` — `git diff --stat master...HEAD -- Sources/ README.md`
+  is empty.
+- `docs/architecture/core-services.md:616` carries
+  `### The macOS runpath, and the one gate that can see it`, and `CLAUDE.md`
+  carries the runpath pin on the `ReleaseMetadataTests` sentence (line 370), the
+  two smoke launches on the `ReleaseWorkflowTests` one (line 394) and the CI
+  paragraph's "launches what it built" (line 459).
+
+**The per-file index needs no new entry.** `CLAUDE.md`'s index maps one line to
+each *source* file, and no source file was added or removed — the branch touches
+no `Sources/` path at all. The two new test methods live in suites the index
+already names, and `docs/architecture/core-services.md` grew a subsection under a
+doc it already points at.
+
+`swift test`: **2771 tests, 0 failures** — re-run on the final tree, which is
+Task 5's tree plus this note. Nothing in the suite reads `docs/plans/`, so the
+run is a regression check on the committed state rather than a gate on this
+edit.
 
 ## Out of Scope
 
