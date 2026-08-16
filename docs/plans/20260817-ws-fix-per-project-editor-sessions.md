@@ -230,7 +230,7 @@ half-swapped state can be written.
 - Modify: `docs/architecture/core-workspace.md`
 - Modify: `docs/architecture/app-shell.md`
 
-- [ ] `core-services.md`, the `EditorSession.swift` entry: rewrite limit (3) from
+- [x] `core-services.md`, the `EditorSession.swift` entry: rewrite limit (3) from
       "one session under one key" to the keyed store — `SessionCatalog`, the MRU
       order, head-is-the-pointer, the count-not-bytes cap of 20 and why, the
       migration from `session.lastSession` and why the legacy key survives — while
@@ -238,17 +238,17 @@ half-swapped state can be written.
       windows would write under one project's key, last writer winning). Describe
       `SessionStore`'s new surface (`loadLastOpened()`, `session(forFolder:)`,
       the upserting `save(_:)`, the two-key `clear()`)
-- [ ] `core-workspace.md`, the `WorkspaceModel` entry: drop the "opening a folder is
+- [x] `core-workspace.md`, the `WorkspaceModel` entry: drop the "opening a folder is
       independent of opening files" rationale from `openFolder(url:)`, and add
       `isCurrentProjectRoot(_:)` and `replaceSession(with:)` with the force-close
       rule and the "`projectRoot` stays the app's job" boundary
-- [ ] `app-shell.md`, the `openFolder(url:)` / `restoreLastSession()` /
+- [x] `app-shell.md`, the `openFolder(url:)` / `restoreLastSession()` /
       `SessionController` entries: the refuse-flush-snapshot-swap order, the
       unsaved-titled-file refusal, why the outgoing snapshot is keyed before
       `projectRoot` moves, and that launch restore now applies its tabs through the
       same switch path
-- [ ] no `CLAUDE.md` index change (no file added or renamed) — confirm this holds
-- [ ] run `swift test` — must stay green
+- [x] no `CLAUDE.md` index change (no file added or renamed) — confirm this holds
+- [x] run `swift test` — must stay green
 
 ### Task 6: Verify acceptance criteria
 

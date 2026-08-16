@@ -278,7 +278,38 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     let the caller refresh Local Changes only when something changed),
     `saveAs(url:for:)`, `close(id:force:)` (returns
     `.needsConfirmation` for a dirty file), `openFolder(url:)` (sets
-    `projectRoot` without touching open tabs/selection), `restoreSession(_:)`
+    `projectRoot` and nothing else — still not touching open tabs or the
+    selection, though **not** because tabs are unrelated to the folder: sessions
+    *are* per-project. The two halves of a project switch simply have different
+    owners. The tab half is `replaceSession(with:)`, driven by the app
+    orchestration, which is the only layer holding the `SessionStore` — and which
+    must snapshot the *outgoing* project before this method moves `projectRoot`,
+    or the snapshot would be filed under the incoming folder. Keeping the halves
+    separate is also what lets launch restore call this without disturbing tabs it
+    is about to apply itself), `isCurrentProjectRoot(_:)` (whether a url names the
+    folder already open, compared **canonically** through the model's own
+    `canonicalURL` helper, so `/tmp` vs. `/private/tmp`, a trailing slash and a
+    `.`/`..` detour all count as the same folder; `false` when no folder is open,
+    so a first Open Folder reads as a switch rather than as a re-open. This is the
+    test the app's folder-switch orchestration takes *first* — re-opening the
+    current folder must stay a tab no-op, while a real switch has to snapshot the
+    outgoing session and apply the incoming one), `replaceSession(with:)` (the tab
+    half of a switch: **force-close every open tab** via `closeFiles(ids:)`, then
+    apply the incoming `EditorSession` through `restoreSession(_:)` verbatim —
+    inheriting all of it, silent skipping included. The closes are forced, dirty
+    tabs and all, which is safe only because of what the caller does first: the app
+    refuses the switch outright while the disk-writer gate is up, flushes autosave,
+    and refuses again — naming the files — if any dirty *titled* buffer is still
+    unsaved, so every titled buffer's text is on disk and every untitled one has
+    already traveled into the outgoing snapshot. A `.needsConfirmation` path here
+    would be the wrong shape anyway: the user answered that question by choosing a
+    different project. `closeFiles(ids:)` leaves `selectedID` `nil` once the last
+    tab goes, which is what makes an **empty** incoming session — a folder opened
+    for the first time — genuinely empty the editor instead of letting
+    `restoreSession`'s "an empty session is a no-op" rule preserve a stale
+    selection. `projectRoot` is deliberately untouched here too, for the reason
+    `restoreSession(_:)` records: the folder is the app layer's job),
+    `restoreSession(_:)`
     (applies a persisted `EditorSession` to a normally empty model — see
     `EditorSession.swift`: reopen the recorded tabs in order and restore the
     selection. **Everything is silent** — a launch is the worst moment for a stack
