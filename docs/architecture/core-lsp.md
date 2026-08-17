@@ -75,10 +75,12 @@ stay testable in a target that cannot spawn a process. `LSPSourceGatingTests`
 enforces the split statically: no `Sources/PisakaCore` file of this layer may
 mention `Process`, `AppKit`, `UIKit` or `SwiftTreeSitter`, and every app-side file
 of it must be wrapped in `#if os(macOS)`. Files are *discovered* by a per-side
-prefix list (`LSP`, plus `SourceViewer` in the app and
+prefix list (`LSP`, plus `SourceViewer` and `Hover` in the app and
 `CompletionEditPlan`/`HoverContent`/`RoutingIntelligenceProvider` in Core — the
 layer's members that are named for what they decide rather than for the
-protocol), and the
+protocol; the hover popover's two app files are as `AppKit`-dependent as
+`LSPProcessTransport` and exist only because a server can answer the question,
+so a prefix sweep over `LSP` alone would leave them unpinned), and the
 discovered set is then pinned by **set equality against a named list on both
 sides**, in the `SymbolQueryTests` mould. Both halves need it, for slightly
 different reasons: a rename that empties a prefix leaves a suite that passes while
@@ -896,7 +898,9 @@ document, together with the limits they carry.
     one, since a server that forgot a closing fence meant everything after it to
     be a signature. A backtick fence whose info string contains a backtick is not
     a fence at all but an inline code span on its own line.
-    Then per line: horizontal rules and headings' `#` go, `-`/`*`/`+` bullets
+    Then per line: horizontal rules go, headings lose their `#` — a *closing* run
+    only when whitespace precedes it, CommonMark's rule and the one that keeps
+    `# Learn C#` from becoming `Learn C` — `-`/`*`/`+` bullets
     become `•` (ordered `1.` markers are left alone — they already read as a list
     and their numbers carry meaning a bullet would throw away), and inline markup
     is stripped in **one left-to-right pass** rather than by a series of
@@ -904,13 +908,31 @@ document, together with the limits they carry.
     kept verbatim (`` `a*b*c` `` keeps its asterisks while `*emphasis*` loses
     them), a link or image keeps its text/alt and loses its URL, and a backslash
     escape yields the character it escaped. An unclosed code span leaves its
-    backticks standing rather than eating the line. `<`…`>` is dropped only when
-    it is genuinely an HTML tag: `<T: Equatable>` and `<https://…>` stay exactly
-    as the server wrote them. Emphasis runs are decided by what they touch — a run
-    with non-whitespace on exactly one side is punctuation, one with none is
-    arithmetic (`a * b`) and stays — and `_` additionally keeps a run touching text
-    on *both* sides, which is precisely what leaves `some_identifier_name` spelled
-    the way the code spells it.
+    backticks standing rather than eating the line.
+    **`<`…`>` is dropped only against an allow-list of HTML element names**, and
+    the attribute list is *walked* rather than skipped to the next `>`. Both
+    halves are deliberate departures from CommonMark, in the one direction this
+    popover can afford. By the spec `<T>` and `<u8>` are perfectly valid raw HTML
+    — and they are also exactly how rust-analyzer, gopls and sourcekit-lsp spell a
+    generic in the unfenced prose beside a signature, so a spec-faithful reader
+    answers `Vec` where the server said `Vec<u8>`: wrong, not merely plain. The
+    walk is the other half: `Compare a<b and x<y>z` opens with something
+    tag-shaped, and a scan to the nearest `>` deletes the clause between them,
+    where an attribute walk rejects the `<` inside `x<y` and leaves the sentence
+    alone. Names are matched case-sensitively for the same reason the list exists
+    — markup is written lowercase and type parameters capitalised, so `<BR>`
+    surviving as text is far cheaper than `Box<B>` losing its parameter.
+    **Emphasis is paired, not merely flanked.** What a run touches decides what it
+    *may* be — non-whitespace on the right may open, on the left may close, none
+    on either side is arithmetic (`a * b`) and stays, and `_` may not do both at
+    once, which is what leaves `some_identifier_name` spelled the way the code
+    spells it — but a run that *may* open is markup only once something closes it.
+    An opener the line never closes is written back literally, which is CommonMark's
+    reading and the difference between `w*h`, `*ptr` and `_private` reaching the
+    popover as themselves and reaching it as `wh`, `ptr` and `private`. This is why
+    the pass assembles pieces rather than one appended string: a delimiter cannot
+    be judged when it is read, so its piece is written empty and rewritten if the
+    promise of a closer is not kept.
     Whitespace last: code blocks lose trailing whitespace per line and blank lines
     at both ends while **every line's leading indentation stays** (it is the code);
     prose additionally collapses runs of blank lines to one, since a server that
@@ -1814,15 +1836,22 @@ obstacle standing between the pointer and the code.
 - **A hover popover is a glance, not a document browser** (D26). Content past
   `HoverContent.maximumLineCount` lines is cut and marked with an ellipsis, code
   lines wider than the panel are truncated rather than wrapped (a wrapped
-  signature invents indentation the language never had), and none of it can be
+  signature invents indentation the language never had), the panel's height is
+  additionally capped at the screen (the line cap counts logical lines and prose
+  wraps, so it alone does not bound the drawn height), and none of it can be
   scrolled, selected or copied, because the panel passes every mouse event
   through. The full text is in the declaration ⌘-click opens.
-- **Markup is degraded, not rendered** (D25). `HoverMarkup` reads the narrow
-  dialect hover answers are written in — fences, paragraphs, lists, links — and
-  drops what a two-font popover cannot draw: emphasis, headings' `#`, rules, HTML
-  tags, link URLs. Tables and block quotes are not modelled: their `|` and `>`
-  reach the popover as ordinary text, which is the degradation this rule promises
-  rather than a rendering bug.
+- **Markup is degraded, not rendered — but never *altered*** (D25). `HoverMarkup`
+  reads the narrow dialect hover answers are written in — fences, paragraphs,
+  lists, links — and drops what a two-font popover cannot draw: emphasis,
+  headings' `#`, rules, HTML tags, link URLs. Tables and block quotes are not
+  modelled: their `|` and `>` reach the popover as ordinary text, which is the
+  degradation this rule promises rather than a rendering bug. The bound on the
+  degradation is what the reader departs from CommonMark for: a construct is
+  dropped only when it is unambiguously markup, so `Vec<u8>` keeps its parameter,
+  `w*h` and `_private` keep their delimiters and `C#` keeps its `#`. **Losing a
+  character of a name is a wrong answer, not a plain one**, and it is the one
+  failure a popover whose whole job is naming things cannot have.
 - **No Xcode, no server.** `xcrun --find` answering nothing is an ordinary
   outcome: one restart is spent, the negative result is cached for the app run,
   and Swift files behave exactly as they did before this phase.

@@ -45,6 +45,10 @@ final class HoverPanel {
     /// panel never sits directly on the glyphs it describes.
     private static let gap: CGFloat = 4
 
+    /// The floor the height clamp will not go below, for the degenerate screen
+    /// the arithmetic could otherwise reduce to nothing.
+    private static let minimumHeight: CGFloat = 24
+
     /// The panel, built on first use and reused for the lifetime of the editor —
     /// a hover is shown and dismissed constantly, and a fresh `NSPanel` per
     /// dwell is a window-server round trip per identifier.
@@ -84,9 +88,20 @@ final class HoverPanel {
             with: NSSize(width: maximumWidth, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading]
         )
+        // Core's cap counts *logical* lines, and prose wraps: a server that stores
+        // a doc comment as a few long unwrapped paragraphs passes the cap and
+        // still measures taller than the screen. The panel is drawn from the top
+        // of its frame down, so an unclamped one is placed with its bottom on the
+        // screen edge and its **first line — the signature — above the top of the
+        // display**, which is the opposite of the placement rule below. Clamping
+        // the height cuts the tail instead, which is the end already meant to go.
+        let ceiling = max(
+            Self.minimumHeight,
+            Self.visibleFrame(for: anchor).height - inset * 2 - Self.gap * 2
+        )
         let contentSize = NSSize(
             width: min(maximumWidth, ceil(bounding.width)),
-            height: ceil(bounding.height)
+            height: min(ceiling, ceil(bounding.height))
         )
         let panel = panel ?? makePanel()
         self.panel = panel
@@ -114,11 +129,16 @@ final class HoverPanel {
         panel.orderFront(nil)
     }
 
-    /// Take the popover down. **Idempotent**: dismissal arrives from a dozen
-    /// unrelated places (a scroll, an edit, a tab switch, teardown) and several
-    /// of them routinely fire when nothing is on screen.
+    /// Take the popover down.
+    ///
+    /// **Idempotent**: dismissal arrives from a dozen unrelated places (a scroll,
+    /// an edit, a tab switch, teardown) and several of them routinely fire when
+    /// nothing is on screen. The visibility check is what makes it *free* as well
+    /// as safe — the controller dismisses on every mouse-moved event over
+    /// whitespace or punctuation, and an `orderOut` of an already-hidden window is
+    /// a window-server round trip per pixel of pointer movement.
     func dismiss() {
-        guard let panel else { return }
+        guard let panel, isVisible else { return }
         attachedParent?.removeChildWindow(panel)
         attachedParent = nil
         panel.orderOut(nil)
@@ -137,6 +157,11 @@ final class HoverPanel {
         // overlay, so it is not a hit-test obstacle, not a focus target and not a
         // zoom surface. See this type's documentation.
         panel.ignoresMouseEvents = true
+        // The panel is owned by this object's `panel` property, so AppKit must not
+        // also own it: `NSWindow`'s default is to release itself on `close()`, and
+        // a child window torn down with its parent would be released out from
+        // under a reference ARC still holds.
+        panel.isReleasedWhenClosed = false
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.hidesOnDeactivate = true
@@ -229,10 +254,15 @@ final class HoverPanel {
     /// than flipped: a popover pushed left to stay on screen still points at the
     /// right line, while one flipped to the other side of the identifier would
     /// not.
+    /// The usable area of the screen the anchor is on — the one both the height
+    /// clamp and the placement below have to agree about.
+    private static func visibleFrame(for anchor: NSRect) -> NSRect {
+        let screen = NSScreen.screens.first { $0.frame.intersects(anchor) } ?? NSScreen.main
+        return screen?.visibleFrame ?? anchor
+    }
+
     private static func origin(for size: NSSize, anchoredTo anchor: NSRect) -> NSPoint {
-        let screen = NSScreen.screens.first { $0.frame.intersects(anchor) }
-            ?? NSScreen.main
-        let visible = screen?.visibleFrame ?? anchor
+        let visible = visibleFrame(for: anchor)
 
         var y = anchor.minY - gap - size.height
         if y < visible.minY {

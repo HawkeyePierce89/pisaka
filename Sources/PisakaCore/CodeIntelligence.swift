@@ -257,11 +257,12 @@ public struct CompletionRequest: Equatable, Sendable {
     /// completion — and every test that only cares about ranking — compiling
     /// and meaning exactly what it meant before.
     ///
-    /// Note that this grew the *request*, not `CodeIntelligenceProviding`: the
-    /// protocol still has the same two methods with the same shapes, so a
-    /// phase-2 LSP provider implements the same contract and simply maps these
-    /// two fields onto a completion-context parameter instead of onto an index
-    /// lookup.
+    /// Note that this grew the *request*, not `CodeIntelligenceProviding`:
+    /// `completions(for:)` kept its shape, so a phase-2 LSP provider implements
+    /// the same contract and simply maps these two fields onto a
+    /// completion-context parameter instead of onto an index lookup. (The
+    /// protocol itself has since grown — `resolveEdits(for:)` and `hover(for:)`,
+    /// both defaulted — but never for a field a request could carry.)
     public init(
         prefix: String,
         fileURL: URL?,

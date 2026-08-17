@@ -41,17 +41,21 @@ final class LSPSourceGatingTests: XCTestCase {
         "LSPRustToolchainService.swift",
         "LSPServerSettingsView.swift",
         "LSPToolchain.swift",
+        "HoverController.swift",
+        "HoverPanel.swift",
         "SourceViewerContent.swift",
         "SourceViewerWindowController.swift",
     ]
 
     /// File-name prefixes that mark a file as belonging to this layer. `LSP` is
-    /// the obvious one; `SourceViewer` is here because the read-only definition
-    /// viewer is app-side machinery this layer introduced (an out-of-root jump
-    /// has nowhere else to land) and is exactly as dependent on `AppKit` — a
-    /// forgotten `#if os(macOS)` there breaks the iOS build the same way, and a
-    /// prefix-only sweep would not have noticed.
-    private static let appFilePrefixes = ["LSP", "SourceViewer"]
+    /// the obvious one; `SourceViewer` and `Hover` are here because both are
+    /// app-side machinery this layer introduced — an out-of-root jump has nowhere
+    /// else to land, and hover is the one question with no fallback, so its whole
+    /// app half exists only because a server can answer it (D25). Both are exactly
+    /// as dependent on `AppKit` as `LSPProcessTransport` is: a forgotten
+    /// `#if os(macOS)` in either breaks the iOS build the same way, and a
+    /// prefix-only sweep over `LSP` would not have noticed.
+    private static let appFilePrefixes = ["LSP", "SourceViewer", "Hover"]
 
     /// The same, for Core. `CompletionEditPlan`, `HoverContent` and
     /// `RoutingIntelligenceProvider` carry no `LSP` prefix — they are named for

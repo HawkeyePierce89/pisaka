@@ -363,9 +363,10 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   gesture *and* menu shortcut targets whichever zone the pointer is over then
   (deepest surface wins; nothing hit ≡ interface). One local `NSEvent` monitor
   receives them all — per-view `scrollWheel` overrides cannot reach the terminal
-  or the chrome. **Anything drawn at the code font declares itself a surface**,
-  including views merely *beside* a text view (rulers, the minimap), since
-  unreachable ≡ chrome; the interface scale reaches views only as
+  or the chrome. **Anything drawn at the code font the pointer can reach declares
+  itself a surface**, including views merely *beside* a text view (rulers, the
+  minimap); unreachable ≡ chrome exempts the hover popover alone (D26). The
+  interface scale reaches views only as
   `InterfaceMetrics` through `\.interfaceMetrics`, never inline and never on a
   code-font site. `ZoomSourceGatingTests` pins both sets (`core-zoom.md`).
 - **Open-tab resync** after an operation rewrites the worktree: buffers are
@@ -417,10 +418,11 @@ layer's platform split, by set equality over both sides),
 `SparkleSourceGatingTests` (`import Sparkle` in exactly one file inside both
 `#if os(macOS)` and `#if !DEBUG`, no `SPU…` reference in the DEBUG branch, and
 that file as the *only* DEBUG-only branch outside `Sources/Pisaka/iOS/`) and
-`ZoomSourceGatingTests` (the zoom zones' four view-layer rules — who may name
+`ZoomSourceGatingTests` (the zoom zones' five view-layer rules — who may name
 `interfaceScale`, which roots inject the environment, which views declare a zoom
-surface, and the Preferences stepper reading its grid from `ZoomScaleRule` — the
-first three by set equality).
+surface, that the hover popover passes mouse events through and declares none,
+and the Preferences stepper reading its grid from `ZoomScaleRule` — the first
+three by set equality).
 **Every one of these suites matches against comment- and literal-stripped
 text** — load-bearing, not tidy: these files quote their own settings in
 comments, so a raw `contains` stays green when the setting it names is deleted.

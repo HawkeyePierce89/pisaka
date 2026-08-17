@@ -280,17 +280,33 @@ final class LSPSessionTests: XCTestCase {
         let transport = makeTransport()
         transport.script(LSPMethod.hover, .drop)
         transport.script(LSPMethod.definition, .reply(definitionResult))
+        // Every other budget is set far longer than this test may run, so the
+        // assertion below can only hold if `hover` is the one being spent. D25's
+        // rule is that hover has a budget *of its own* — asserting merely that a
+        // dropped request eventually throws would pass just as well if the method
+        // read `definition`'s three seconds, which is the mistake worth catching.
         let session = try await start(
             transport,
-            budgets: LSPSession.Budgets(handshake: 2, definition: 2, hover: 0.05)
+            budgets: LSPSession.Budgets(
+                handshake: 2,
+                definition: 30,
+                completion: 30,
+                resolve: 30,
+                hover: 0.05
+            )
         )
 
+        let started = Date()
         do {
             _ = try await session.hover(definitionParams)
             XCTFail("A dropped hover must not hang forever")
         } catch {
             XCTAssertEqual(error as? LSPSessionError, .timedOut(method: LSPMethod.hover))
         }
+        XCTAssertLessThan(
+            Date().timeIntervalSince(started), 2,
+            "hover spent a budget other than its own"
+        )
 
         // Hover's budget is its own: a pointer resting on a wedged symbol must
         // cost one question, not the ⌘-click behind it.

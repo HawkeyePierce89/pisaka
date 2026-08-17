@@ -751,8 +751,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     which `prefix` may legitimately be empty. Both are **defaulted to `nil`**, so
     every construction site that predates member completion — and every test that
     only cares about ranking — compiles and means exactly what it meant before.
-    Note what grew: the *request*, not `CodeIntelligenceProviding`. The protocol
-    still has the same two methods with the same shapes, so a phase-2 LSP provider
+    Note what grew: the *request*, not `CodeIntelligenceProviding`.
+    `completions(for:)` kept its shape, so a phase-2 LSP provider
     implements the same contract and simply maps these two fields onto a
     completion-context parameter instead of onto an index lookup — which is the
     whole point of putting them here rather than in a second method. Phase 2a added

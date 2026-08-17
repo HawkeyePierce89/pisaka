@@ -310,7 +310,17 @@ enum HoverMarkup {
         let rest = line.dropFirst(hashes)
         guard rest.isEmpty || rest.first == " " || rest.first == "\t" else { return nil }
         var text = Substring(rest.drop { $0 == " " || $0 == "\t" })
-        while text.last == "#" { text = text.dropLast() }
+        // A closing run of `#` is a marker only when whitespace separates it from
+        // the heading text (CommonMark), or when it is the whole heading. The
+        // distinction is not pedantry here: `C#`, `F#` and a shell `$#` all end in
+        // one, and a popover that renames `C#` to `C` is wrong rather than plain.
+        let closing = text.reversed().prefix { $0 == "#" }.count
+        if closing > 0 {
+            let preceding = text.dropLast(closing).last
+            if preceding == nil || preceding == " " || preceding == "\t" {
+                text = text.dropLast(closing)
+            }
+        }
         return Substring(text.reversed().drop { $0 == " " || $0 == "\t" }.reversed())
     }
 
@@ -332,17 +342,43 @@ enum HoverMarkup {
     /// a code span's contents are kept **verbatim**, so `` `a*b*c` `` keeps its
     /// asterisks while `*emphasis*` loses them, and a link's text is degraded
     /// while its URL is dropped whole.
+    ///
+    /// The output is assembled as *pieces* rather than one appended string for
+    /// one reason: an emphasis delimiter cannot be judged when it is read. A run
+    /// that opens emphasis is markup only if something later closes it, so its
+    /// piece is written empty and rewritten with the literal delimiters if the
+    /// line ends with it still unmatched — see the loop at the bottom.
     static func inline(_ line: String) -> String {
         let characters = Array(line)
-        var result = ""
-        var index = 0
+        var pieces: [String] = []
+        /// The piece plain text is currently accumulating into, or `nil` when the
+        /// last thing written was a delimiter (whose index must stay stable).
+        var openPiece: Int?
+        /// Delimiter runs dropped on the promise of a closer: where the empty
+        /// piece is, and what to put back if the promise is not kept.
+        var pendingOpeners: [Character: [(piece: Int, literal: String)]] = [:]
 
+        func write(_ text: String) {
+            if let openPiece {
+                pieces[openPiece] += text
+            } else {
+                pieces.append(text)
+                openPiece = pieces.count - 1
+            }
+        }
+        func writeDelimiter(_ text: String) -> Int {
+            pieces.append(text)
+            openPiece = nil
+            return pieces.count - 1
+        }
+
+        var index = 0
         while index < characters.count {
             let character = characters[index]
 
             if character == "\\", index + 1 < characters.count,
                characters[index + 1].isMarkdownPunctuation {
-                result.append(characters[index + 1])
+                write(String(characters[index + 1]))
                 index += 2
                 continue
             }
@@ -350,10 +386,10 @@ enum HoverMarkup {
             if character == "`" {
                 let run = runLength(of: "`", in: characters, at: index)
                 if let span = codeSpan(in: characters, openingAt: index, length: run) {
-                    result.append(span.text)
+                    write(span.text)
                     index = span.end
                 } else {
-                    result.append(String(repeating: "`", count: run))
+                    write(String(repeating: "`", count: run))
                     index += run
                 }
                 continue
@@ -361,13 +397,13 @@ enum HoverMarkup {
 
             if character == "!", index + 1 < characters.count, characters[index + 1] == "[",
                let label = bracketedLabel(in: characters, openingAt: index + 1) {
-                result.append(inline(label.text))
+                write(inline(label.text))
                 index = skippingLinkTarget(in: characters, from: label.end)
                 continue
             }
 
             if character == "[", let label = bracketedLabel(in: characters, openingAt: index) {
-                result.append(inline(label.text))
+                write(inline(label.text))
                 index = skippingLinkTarget(in: characters, from: label.end)
                 continue
             }
@@ -379,19 +415,34 @@ enum HoverMarkup {
 
             if character == "*" || character == "_" {
                 let run = runLength(of: character, in: characters, at: index)
-                if isEmphasisRun(character, in: characters, at: index, length: run) {
-                    index += run
+                let literal = String(repeating: character, count: run)
+                let role = emphasisRole(character, in: characters, at: index, length: run)
+                if role.canClose, pendingOpeners[character]?.isEmpty == false {
+                    pendingOpeners[character]?.removeLast()
+                    _ = writeDelimiter("")
+                } else if role.canOpen {
+                    let piece = writeDelimiter("")
+                    pendingOpeners[character, default: []].append((piece, literal))
                 } else {
-                    result.append(String(repeating: character, count: run))
-                    index += run
+                    _ = writeDelimiter(literal)
                 }
+                index += run
                 continue
             }
 
-            result.append(character)
+            write(String(character))
             index += 1
         }
-        return result
+
+        // An opener nothing closed is not markup. CommonMark leaves such a run as
+        // literal text, and here that is the difference between `w*h`, `*ptr` and
+        // `_private` reaching the popover spelled the way the code spells them and
+        // reaching it as `wh`, `ptr` and `private` — a wrong name rather than an
+        // unformatted one, in the one popover whose job is naming things.
+        for (_, openers) in pendingOpeners {
+            for opener in openers { pieces[opener.piece] = opener.literal }
+        }
+        return pieces.joined()
     }
 
     private static func runLength(of character: Character, in characters: [Character], at index: Int) -> Int {
@@ -484,46 +535,123 @@ enum HoverMarkup {
         return index
     }
 
+    /// The HTML element names a hover answer is allowed to contain, lowercase.
+    ///
+    /// An allow-list, where CommonMark accepts *any* name — and the difference is
+    /// the whole point. `<T>`, `<u8>` and `<Element>` are perfectly valid raw HTML
+    /// by the spec, and they are also exactly how every server writes a generic in
+    /// the unfenced prose beside a signature, so spelling this rule the spec's way
+    /// deletes the type parameter the popover exists to show.
+    ///
+    /// Matched **case-sensitively** for the same reason: markup is written
+    /// lowercase and type parameters are written capitalised, so `<BR>` surviving
+    /// as text is a far cheaper mistake than `Box<B>` losing its parameter.
+    private static let htmlTagNames: Set<String> = [
+        "a", "abbr", "b", "blockquote", "br", "code", "dd", "del", "details",
+        "div", "dl", "dt", "em", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i",
+        "img", "ins", "kbd", "li", "ol", "p", "pre", "q", "s", "samp", "small",
+        "span", "strong", "sub", "summary", "sup", "table", "tbody", "td",
+        "tfoot", "th", "thead", "tr", "tt", "u", "ul", "var",
+    ]
+
     /// The index just past `<tag …>` or `</tag>`, or `nil` when the `<` starts
     /// something else — a comparison, a generic parameter list, an autolinked
     /// URL — all of which stay exactly as the server wrote them.
+    ///
+    /// The attribute list is *walked* rather than skipped to the next `>`, which
+    /// is the second half of not eating prose: `Compare a<b and x<y>z` opens with
+    /// something tag-shaped, and a scan to the nearest `>` deletes the clause
+    /// between them. Here the `<` inside `x<y` is not a character an attribute may
+    /// contain, so the whole thing is rejected and stays text.
     private static func htmlTagEnd(in characters: [Character], from index: Int) -> Int? {
         var cursor = index + 1
-        if cursor < characters.count, characters[cursor] == "/" { cursor += 1 }
+        let isClosing = cursor < characters.count && characters[cursor] == "/"
+        if isClosing { cursor += 1 }
+        let nameStart = cursor
         guard cursor < characters.count, characters[cursor].isLetter else { return nil }
         while cursor < characters.count, characters[cursor].isLetter || characters[cursor].isNumber
             || characters[cursor] == "-" {
             cursor += 1
         }
-        // A tag name ends at whitespace, a self-closing slash or the `>` itself;
-        // anything else (`<T:Equatable>`, `<https://…>`) is not a tag.
-        guard cursor < characters.count else { return nil }
-        let after = characters[cursor]
-        guard after == ">" || after == "/" || after == " " || after == "\t" else { return nil }
-        while cursor < characters.count, characters[cursor] != ">" { cursor += 1 }
-        return cursor < characters.count ? cursor + 1 : nil
+        guard htmlTagNames.contains(String(characters[nameStart..<cursor])) else { return nil }
+
+        func skippingSpaces(from start: Int) -> Int {
+            var cursor = start
+            while cursor < characters.count, characters[cursor] == " " || characters[cursor] == "\t" {
+                cursor += 1
+            }
+            return cursor
+        }
+
+        if isClosing {
+            cursor = skippingSpaces(from: cursor)
+            return cursor < characters.count && characters[cursor] == ">" ? cursor + 1 : nil
+        }
+
+        while cursor < characters.count {
+            switch characters[cursor] {
+            case ">":
+                return cursor + 1
+            case "/":
+                cursor += 1
+                return cursor < characters.count && characters[cursor] == ">" ? cursor + 1 : nil
+            case " ", "\t":
+                cursor = skippingSpaces(from: cursor)
+            default:
+                return nil
+            }
+            guard cursor < characters.count else { return nil }
+            let start = characters[cursor]
+            if start == ">" || start == "/" { continue }
+            guard start.isLetter || start == "_" || start == ":" else { return nil }
+            while cursor < characters.count, characters[cursor].isLetter
+                || characters[cursor].isNumber || "_:.-".contains(characters[cursor]) {
+                cursor += 1
+            }
+            var value = skippingSpaces(from: cursor)
+            guard value < characters.count, characters[value] == "=" else { continue }
+            value = skippingSpaces(from: value + 1)
+            guard value < characters.count else { return nil }
+            let quote = characters[value]
+            if quote == "\"" || quote == "'" {
+                value += 1
+                while value < characters.count, characters[value] != quote { value += 1 }
+                guard value < characters.count else { return nil }
+                cursor = value + 1
+            } else {
+                let start = value
+                while value < characters.count, !" \t\"'=<>`".contains(characters[value]) { value += 1 }
+                guard value > start else { return nil }
+                cursor = value
+            }
+        }
+        return nil
     }
 
-    /// Whether a run of `*` or `_` is emphasis punctuation rather than text.
+    /// What a run of `*` or `_` is *allowed* to be, from what touches it.
     ///
-    /// A run touching non-whitespace on exactly one side opens or closes
-    /// emphasis; one touching it on neither side is arithmetic (`a * b`) and
-    /// stays. `*` additionally drops when it touches text on *both* sides —
-    /// Markdown allows intra-word emphasis with asterisks — while `_` does not,
+    /// A run touching non-whitespace on its right may open emphasis; one touching
+    /// it on its left may close it. A run touching it on neither side is
+    /// arithmetic (`a * b`) and can do neither. `*` may do both at once —
+    /// Markdown allows intra-word emphasis with asterisks — while `_` may not,
     /// which is precisely what keeps `some_identifier_name` spelled the way the
     /// code spells it.
-    static func isEmphasisRun(
+    ///
+    /// **Permission, not a verdict.** Whether a run that *may* open actually is
+    /// markup depends on a closer arriving, which is `inline(_:)`'s bookkeeping
+    /// and not something a rule reading two adjacent characters can know.
+    static func emphasisRole(
         _ character: Character,
         in characters: [Character],
         at index: Int,
         length: Int
-    ) -> Bool {
+    ) -> (canOpen: Bool, canClose: Bool) {
         let before = index > 0 ? characters[index - 1] : nil
         let after = index + length < characters.count ? characters[index + length] : nil
         let opens = after.map { !$0.isWhitespace } ?? false
         let closes = before.map { !$0.isWhitespace } ?? false
-        if character == "*" { return opens || closes }
-        return opens != closes
+        if character == "*" { return (opens, closes) }
+        return (opens && !closes, closes && !opens)
     }
 
     // MARK: Whitespace

@@ -133,12 +133,30 @@ final class HoverController: NSObject {
         // anchors the popover before the server names a range of its own. This
         // is also the gate that keeps whitespace, punctuation and the empty
         // region past a line's end from reaching the provider at all.
-        guard let match = IdentifierScanner.identifier(in: textView.string as NSString, at: offset)
+        //
+        // Read through the storage's own `NSMutableString` rather than
+        // `textView.string`: this line runs on every mouse-moved event, and the
+        // bridge to a Swift `String` copies the whole document each time. Every
+        // other `textView.string` in the editor sits behind a debounce or an
+        // explicit command; nothing here may. Read-only, and synchronously on the
+        // main actor, so no edit can interleave.
+        guard let storage = textView.textStorage,
+              let match = IdentifierScanner.identifier(in: storage.mutableString, at: offset)
         else {
             dismiss()
             return
         }
-        if let anchorRange, NSLocationInRange(offset, anchorRange) { return }
+        // Still about the answer on screen? Two ways that can be true, and the
+        // second is not decoration: `IdentifierScanner` also resolves the
+        // identifier *ending* at an offset, so the pointer sitting on the `.` of
+        // `worker.name`, on a `(`, or on the space after a name resolves to the
+        // word before it while lying outside that word's range. Testing only the
+        // offset would take the popover down and re-ask on every pixel of jitter
+        // at exactly the positions a pointer comes to rest on.
+        if let anchorRange,
+           NSLocationInRange(offset, anchorRange) || Self.range(anchorRange, contains: match.range) {
+            return
+        }
 
         // Everything older is now about a different word. The token is bumped
         // *before* the hop, so an answer already in flight for the previous
@@ -238,6 +256,15 @@ final class HoverController: NSObject {
 
     @objc private func windowDidResignKey(_ notification: Notification) {
         dismiss()
+    }
+
+    /// Whether `outer` covers the whole of `inner` — the "the pointer is still on
+    /// the thing the popover describes" test, asked of the *identifier* rather
+    /// than of the offset. A server's range is usually the wider of the two (a
+    /// qualified name, an operator expression), which is exactly why moving
+    /// within it must not re-ask.
+    private static func range(_ outer: NSRange, contains inner: NSRange) -> Bool {
+        inner.location >= outer.location && NSMaxRange(inner) <= NSMaxRange(outer)
     }
 
     // MARK: - Resolving the character under the pointer

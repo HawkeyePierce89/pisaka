@@ -333,14 +333,28 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
     /// own budget.
     func testAHoverTimeoutShowsNothingAndCancelsTheRequest() async {
         transport.script(LSPMethod.hover, .drop)
+        // The other three budgets are set far past this test's own runtime, so
+        // the elapsed-time assertion is what pins *which* budget the whole-attempt
+        // race is run against — without it, reading `completion`'s or
+        // `definition`'s would pass this test unchanged.
         let router = makeRouter(
             index: makeIndex(),
-            budgets: RoutingIntelligenceProvider.Budgets(hover: 0.05)
+            budgets: RoutingIntelligenceProvider.Budgets(
+                definition: 30,
+                completion: 30,
+                resolve: 30,
+                hover: 0.05
+            )
         )
 
+        let started = Date()
         let answer = await router.hover(for: hoverRequest())
 
         XCTAssertNil(answer)
+        XCTAssertLessThan(
+            Date().timeIntervalSince(started), 2,
+            "the hover attempt was raced against a budget other than its own"
+        )
         XCTAssertEqual(transport.requests(for: LSPMethod.hover).count, 1)
         await untilTrue("the abandoned hover is cancelled") {
             self.transport.notifications(for: LSPMethod.cancelRequest).count == 1

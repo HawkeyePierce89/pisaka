@@ -853,6 +853,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     The anchor is deliberately also set for a request that turns out to have **no**
     answer, so a server that knows nothing about an identifier is asked once per
     visit rather than once per mouse-moved event.
+    **"Still inside" is asked of the identifier, not only of the offset**, and the
+    second half is not decoration: `IdentifierScanner` resolves the identifier
+    *ending* at an offset as well as the one containing it, so the pointer sitting
+    on the `.` of `worker.name`, on a `(`, or on the space after a name resolves to
+    that name while lying **outside** its range. Testing the offset alone would
+    therefore take the popover down and re-ask on every pixel of jitter at exactly
+    the positions a pointer comes to rest on. Containment of the resolved range
+    inside the anchor answers both cases, and keeps a server range wider than the
+    identifier (a qualified name, an operator expression) doing what it is for:
+    moving within it re-asks nothing.
+    The buffer is read through the text storage's own `NSMutableString` rather than
+    `textView.string`, which bridges — and therefore **copies the whole document**
+    — every time it is named. Every other `textView.string` in the editor sits
+    behind a debounce or an explicit command; this one runs per mouse-moved event,
+    and on a large file the copy alone is the stutter. Read-only and synchronously
+    on the main actor, so no edit can interleave.
     **Resolving the character under the pointer is not one line, and that is the
     point.** `characterIndexForInsertion(at:)` — what ⌘-click and the viewport
     memory use — answers the nearest *insertion point*, which past the end of a
@@ -924,7 +940,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     outlive it, re-attached only when the parent actually changed (`addChildWindow`
     on the current parent re-orders the whole child list on every dwell).
     `dismiss()` is idempotent, because dismissal arrives from a dozen unrelated
-    places and several of them routinely fire when nothing is on screen. It is
+    places and several of them routinely fire when nothing is on screen — and it
+    returns early when the panel is not on screen, which is what makes it *free* as
+    well as safe: the controller dismisses on every mouse-moved event over
+    whitespace or punctuation, and an `orderOut` of an already-hidden window is a
+    window-server round trip per pixel of pointer movement.
+    `isReleasedWhenClosed` is cleared because this object owns the panel through a
+    strong property and `NSWindow`'s default is to release itself on `close()`. It
+    is
     `.transient`, `.ignoresCycle`, excluded from the Windows menu, immovable and
     not restored across launches: a transient annotation of the editor, not a
     window the user owns.
@@ -943,8 +966,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     machinery into a window that ignores mouse events anyway.
     `maximumWidth` (520 pt, interface-scaled) is a **cap rather than a fit**: a
     one-line generic signature can be hundreds of characters wide, and a popover as
-    wide as the screen is unreadable long before it is informative. Placement is
-    below the anchor line by default and flipped above it when the popover would
+    wide as the screen is unreadable long before it is informative. The **height is
+    capped too**, at the anchor screen's visible frame, and Core's line cap does
+    not make that redundant: `HoverContent.maximumLineCount` counts *logical* lines
+    and prose wraps, so a server that stores a doc comment as a few long unwrapped
+    paragraphs passes the cap and still measures taller than the display. The panel
+    draws from the top of its frame down, so an unclamped one is placed with its
+    bottom on the screen edge and its **first line — the signature — above the top
+    of the screen**, which is precisely the outcome the placement rule below exists
+    to avoid. Clamping the height cuts the tail instead, which is the end already
+    meant to go. Placement is below the anchor line by default and flipped above it when the popover would
     run off the bottom — a menu's rule, and the one a user reading downward expects
     — but only when the flipped position is genuinely better, since on a screen too
     short either way hanging below at least keeps the first line, which is the

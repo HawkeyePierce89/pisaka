@@ -31,6 +31,16 @@ import PisakaCore
 /// - **The empty-region rule.** A conforming view answers only for the area it
 ///   actually covers, which for a content-sized text view is the text and not the
 ///   pane — see `CodeScrollView`.
+///
+/// And one rule that reads like an exception and is not: **unreachable ≡ chrome.**
+/// A view the pointer can never actually be *over* is not a surface however it is
+/// drawn. The hover popover (`HoverPanel`) draws a type signature at the code
+/// font directly on top of the editor and declares nothing, because it sets
+/// `ignoresMouseEvents = true`: a gesture aimed at where it appears to be is a
+/// gesture over the text view underneath, which is the zone the user means. The
+/// sibling rule above is about views the pointer *can* reach; this is what bounds
+/// it. `ZoomSourceGatingTests` pins both halves — that the panel passes events
+/// through, and that it declares no surface.
 @MainActor
 protocol ZoomSurfaceProviding: AnyObject {
     var zoomSurfaceKind: ZoomSurfaceKind { get }

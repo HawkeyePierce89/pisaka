@@ -198,11 +198,36 @@ final class HoverContentTests: XCTestCase {
         XCTAssertEqual(prose("`__init__` stays"), "__init__ stays")
     }
 
+    /// A delimiter nothing closes is text, which is CommonMark's rule and the
+    /// only one that leaves a symbol spelled the way the code spells it.
+    ///
+    /// Every case here is prose a real server writes: `w*h` and `5*3` in a
+    /// formula, `*ptr` in a C or Rust doc comment, `_private` naming a field.
+    /// Dropping the delimiter would rename each of them — the popover's one
+    /// unforgivable failure, since a wrong name reads as the code's, not as the
+    /// renderer's.
+    func testAnUnmatchedEmphasisDelimiterStaysLiteral() {
+        XCTAssertEqual(prose("The area is w*h square units."), "The area is w*h square units.")
+        XCTAssertEqual(prose("Dereference with *ptr to read it."), "Dereference with *ptr to read it.")
+        XCTAssertEqual(prose("Use _private fields sparingly."), "Use _private fields sparingly.")
+        XCTAssertEqual(prose("5*3 = 15"), "5*3 = 15")
+        // ...and a matched pair on the same line still goes, so the rule is
+        // "unmatched", not "never".
+        XCTAssertEqual(prose("*emphasis* beside w*h"), "emphasis beside w*h")
+    }
+
     func testHeadingsLoseTheirMarker() {
         XCTAssertEqual(prose("# Title"), "Title")
         XCTAssertEqual(prose("### Deeper ###"), "Deeper")
         XCTAssertEqual(prose("####### not a heading"), "####### not a heading")
         XCTAssertEqual(prose("#hashtag"), "#hashtag")
+        // A closing run is only a marker when whitespace precedes it, so a
+        // language whose name ends in `#` keeps its name.
+        XCTAssertEqual(prose("# Learn C#"), "Learn C#")
+        XCTAssertEqual(prose("## F# basics ##"), "F# basics")
+        // A heading that is *only* a closing run has no text left, and no text is
+        // no answer.
+        XCTAssertNil(markdown("# ###"))
     }
 
     func testListBulletsKeepABullet() {
@@ -239,9 +264,29 @@ final class HoverContentTests: XCTestCase {
     }
 
     /// The `<` that is not a tag: generics and comparisons read as themselves.
+    ///
+    /// The single-parameter forms are the ones that matter and the ones a
+    /// spec-faithful reader gets wrong: `<T>` and `<u8>` are *valid* raw HTML by
+    /// CommonMark's grammar, and they are also how rust-analyzer, gopls and
+    /// sourcekit-lsp all spell a generic in the prose beside a signature. An
+    /// answer of `Vec` where the server said `Vec<u8>` is wrong, not plain.
     func testAngleBracketsThatAreNotTagsSurvive() {
         XCTAssertEqual(prose("Dictionary<String, Int> when a < b"), "Dictionary<String, Int> when a < b")
         XCTAssertEqual(prose("<https://example.com>"), "<https://example.com>")
+        XCTAssertEqual(prose("Returns a Vec<u8> of bytes."), "Returns a Vec<u8> of bytes.")
+        XCTAssertEqual(prose("The value is Array<T> here."), "The value is Array<T> here.")
+        XCTAssertEqual(prose("Wraps an Option<String> value."), "Wraps an Option<String> value.")
+        XCTAssertEqual(prose("Boxed as Box<B> and Set<S>."), "Boxed as Box<B> and Set<S>.")
+    }
+
+    /// A `<` that merely *looks* like a tag opening must not license a scan to
+    /// the next `>`: everything between them is prose, and deleting it loses a
+    /// clause of documentation rather than a glyph of markup.
+    func testATagLikeOpeningNeverSwallowsTheTextAfterIt() {
+        XCTAssertEqual(prose("Compare a<b and x<y>z"), "Compare a<b and x<y>z")
+        XCTAssertEqual(prose("Holds when i<n>0 for all i."), "Holds when i<n>0 for all i.")
+        // An unterminated real tag is left alone too, rather than eating the line.
+        XCTAssertEqual(prose("a <b class=\"x and more"), "a <b class=\"x and more")
     }
 
     func testEscapedPunctuationLosesItsBackslash() {
