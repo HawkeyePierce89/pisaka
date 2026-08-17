@@ -20,7 +20,11 @@ user sees it.
   them at all. iOS has no updater.
 - Open a folder as a project ("Open Folder…", Cmd+Shift+O) and browse it in a
   project tree on the left; directories expand on demand and clicking a file
-  opens it in a tab. When the project pane is empty, clicking anywhere in it
+  opens it in a tab. Folder and file rows behave alike: the *whole* row is the
+  click target, so a directory toggles wherever you hit it — the chevron, the
+  folder icon, the name or the blank space right of it, one click one toggle —
+  and both row kinds highlight identically under the pointer.
+  When the project pane is empty, clicking anywhere in it
   opens the folder picker. Opening a folder auto-expands its first level so the
   immediate children are visible right away. Each entry shows a file-type icon
   (tinted by type) so Swift, JS/TS, JSON, Markdown, images, archives, and other
@@ -30,7 +34,9 @@ user sees it.
   be created or renamed to from the tree — a create path refuses them in any
   casing, since a case-insensitive volume would resolve `.GIT` onto the real
   `.git`). Entries are sorted directories-first,
-  then alphabetically. Right-click a row for a context menu: directories offer New
+  then alphabetically. Right-click anywhere on a row — the same rectangle that
+  highlights and that a left click acts on — for a context menu, which never
+  changes a folder's expansion: directories offer New
   File…, New Folder…, Rename…, and Delete; files offer Rename… and Delete, plus a
   "Run" item for runnable file types and a "Run Test" item for test files; the
   project root offers the two create actions. New File… and New Folder… accept a

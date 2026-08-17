@@ -24,7 +24,8 @@ import PisakaCore
 ///
 /// Both row kinds are full-width click targets: a file row opens the file, a
 /// directory row toggles its expansion (see `FolderDisclosureStyle`), and both
-/// carry the same hover highlight, so the tree reads uniformly.
+/// carry the same hover highlight and the same full-row right-click menu, so the
+/// tree reads uniformly.
 struct ProjectTreeView: View {
     @ObservedObject var model: WorkspaceModel
     var onOpenFile: (URL) -> Void = { _ in }
@@ -137,9 +138,10 @@ struct ProjectTreeView: View {
 ///
 /// It is drawn with `FolderDisclosureStyle`, so the *whole* row — chevron, icon,
 /// name and the blank space right of it — is one click target that toggles
-/// expansion, with a file row's hover highlight. Expansion state, the lazy first
-/// load, the `treeRevision` re-read and the error path are unaffected by that:
-/// a row-body click loads children through the identical `onChange(of:
+/// expansion, with a file row's hover highlight; the right-click menu is handed
+/// to the style so it covers that same rectangle. Expansion state, the lazy
+/// first load, the `treeRevision` re-read and the error path are unaffected by
+/// that: a row-body click loads children through the identical `onChange(of:
 /// isExpanded)` path a chevron click has always used.
 private struct DirectoryNodeView: View {
     @ObservedObject var model: WorkspaceModel
@@ -235,14 +237,19 @@ private struct DirectoryNodeView: View {
             .font(metrics.scaledFont(.body))
             .lineLimit(1)
             .truncationMode(.middle)
-            // Load-bearing pair: they stretch the label across the row's
-            // remaining width and make the blank space right of the name a
-            // right-click target. Removing them shrinks the context-menu surface
-            // to the icon + name; they add no left-click gesture, so the row's
-            // own tap still toggles (see `FolderDisclosureStyle`).
+            // Stretches the label across the row's remaining width, so the name
+            // truncates against the pane's edge rather than sitting at its
+            // natural width. The click and right-click targets do not depend on
+            // it — both live on the row (see `FolderDisclosureStyle`).
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .contextMenu {
+        }
+        // The menu travels to the style so it can hang off the *row* rather than
+        // the label, exactly as `FileRowView` hangs its own off the row it
+        // highlights: the chevron column and the row's padding are inside the
+        // hover highlight and the tap target, so they must be inside the
+        // right-click target too.
+        .disclosureGroupStyle(
+            FolderDisclosureStyle {
                 Button("New File…") { onNewFile(url) }
                 Button("New Folder…") { onNewFolder(url) }
                 if !isRoot {
@@ -251,8 +258,7 @@ private struct DirectoryNodeView: View {
                     Button("Delete") { onDelete(url) }
                 }
             }
-        }
-        .disclosureGroupStyle(FolderDisclosureStyle())
+        )
         .onChange(of: isExpanded) { expanded in
             if expanded && children == nil {
                 loadChildren()
@@ -329,18 +335,18 @@ private struct DirectoryNodeView: View {
 /// style re-supplies the leading inset the default style used to add to
 /// `content`, since a custom style indents nothing on its own.
 ///
-/// The label keeps its own `.frame(maxWidth: .infinity, alignment: .leading)` +
-/// `.contentShape(Rectangle())` under its `.contextMenu`: that pair is what
-/// stretches the label across the row's remaining width and makes the blank
-/// space right of the name a *right*-click target, so dropping it would silently
-/// shrink the context-menu surface to the icon and name. It costs nothing on the
-/// left button — a child's `contentShape` adds no gesture, so a left click on
-/// the label falls through to the row's `.onTapGesture`, and `.contextMenu`
-/// handles the right button only, so opening the menu never toggles.
-private struct FolderDisclosureStyle: DisclosureGroupStyle {
+/// The row's *right*-click menu is passed in rather than left on the label, so
+/// the three targets a folder row has — the hover highlight, the tap and the
+/// context menu — are the same rectangle, as they are on a file row. Left on the
+/// label it would have excluded the chevron column and the row's own horizontal
+/// padding while the highlight covered them.
+private struct FolderDisclosureStyle<Menu: View>: DisclosureGroupStyle {
+    /// The row's right-click menu items, built by `DirectoryNodeView`.
+    @ViewBuilder var menu: () -> Menu
+
     func makeBody(configuration: Configuration) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            FolderDisclosureRow(configuration: configuration)
+            FolderDisclosureRow(configuration: configuration, menu: menu)
             if configuration.isExpanded {
                 configuration.content
                     .modifier(FolderContentInset())
@@ -351,9 +357,12 @@ private struct FolderDisclosureStyle: DisclosureGroupStyle {
 
 /// The chevron + label row `FolderDisclosureStyle` draws. A separate view (not
 /// inline in `makeBody`) because it needs its own `@State` for hover tracking
-/// and its own `\.interfaceMetrics` read.
-private struct FolderDisclosureRow: View {
+/// and its own `\.interfaceMetrics` read — and because keeping the hover state
+/// off the enclosing view means hovering a folder invalidates the row, not its
+/// whole expanded subtree.
+private struct FolderDisclosureRow<Menu: View>: View {
     let configuration: DisclosureGroupStyleConfiguration
+    @ViewBuilder var menu: () -> Menu
 
     @State private var isHovering = false
 
@@ -385,6 +394,18 @@ private struct FolderDisclosureRow: View {
         // not need.
         .onTapGesture { configuration.isExpanded.toggle() }
         .onHover { isHovering = $0 }
+        .contextMenu { menu() }
+        // Drawing the chevron ourselves removes the one control in this tree
+        // that assistive technology could actuate — a `DisclosureGroup`'s own
+        // triangle is a button with an expanded/collapsed value, and an
+        // `onTapGesture` on an `HStack` is nothing at all. Re-declare the row as
+        // that button so a folder is still reachable without a pointer. The
+        // action toggles through the same binding the tap does, so this adds no
+        // second path to expansion.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityValue(configuration.isExpanded ? "expanded" : "collapsed")
+        .accessibilityAction { configuration.isExpanded.toggle() }
     }
 }
 
@@ -399,6 +420,12 @@ private struct FolderContentInset: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // Two separate `scaled(_:)` calls, *not* `scaled(chevronWidth +
+            // spacing)`: the row lays those two out as separately scaled
+            // quantities and `InterfaceMetrics` rounds each to the half-point
+            // grid, so scaling the sum lands on a different point at most
+            // scales (at 1.3: 15.5 + 5.0 = 20.5 vs. 21.0) and would skew every
+            // nested row against its parent's label.
             .padding(
                 .leading,
                 metrics.scaled(FolderRowLayout.chevronWidth)

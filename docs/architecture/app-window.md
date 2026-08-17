@@ -343,27 +343,39 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     same shape as `onOpenFile`). Otherwise recursive rows from the root.
     Directories are `DisclosureGroup`s (`DirectoryNodeView`) that lazily load
     children via `model.children(of:)` on expansion (with `@State`); files are
-    clickable rows that call an `onOpenFile(url)` callback. They are still
-    `DisclosureGroup`s, but drawn through a private `DisclosureGroupStyle`
-    (`FolderDisclosureStyle` + its `FolderDisclosureRow`) that renders chevron and
+    clickable rows that call an `onOpenFile(url)` callback. Directory rows are
+    drawn through a private `DisclosureGroupStyle` (`FolderDisclosureStyle` + its
+    `FolderDisclosureRow`) that renders chevron and
     label as **one full-width row**: the whole row toggles expansion, not just the
     ~10pt chevron, and it carries the same hover highlight and padding as a file
     row (`FileRowView`), so both row kinds read and behave alike. Because the
     style draws the chevron itself there is no separate disclosure control, so
     "one click, one state change" holds by construction — the row's single
     `.onTapGesture` is the only path that changes expansion, and it is the same
-    path a chevron click takes. The right-click context menu stays on the
-    *label*, which keeps its `.frame(maxWidth: .infinity, alignment: .leading)`
-    and `.contentShape(Rectangle())`: that pair is what stretches the label
-    across the row's remaining width and makes the blank space right of the name
-    a right-click target, and it costs nothing on the left button (a child's
-    `contentShape` adds no gesture, so a left click falls through to the row's
-    tap, and `.contextMenu` handles the right button only, so opening the menu
-    never toggles). The style renders `configuration.content` **only while
+    path a chevron click takes. Drawing it also *removes* a control assistive
+    technology could actuate (a real disclosure triangle is a button with an
+    expanded/collapsed value; an `onTapGesture` on an `HStack` is nothing), so
+    the row re-declares itself as one — combined element, `.isButton`, the
+    expansion state as its `accessibilityValue`, and an `accessibilityAction`
+    toggling the same binding, adding no second expansion path.
+    `DirectoryNodeView` hands its right-click menu **to the style** (a
+    `@ViewBuilder` closure the style stores) so the menu hangs off the row rather
+    than the label: hover highlight, tap target and context menu are then one
+    rectangle, as they already are on a file row. Left on the label the menu
+    would have excluded the chevron column and the row's horizontal padding while
+    the highlight covered them. The label therefore keeps only its
+    `.frame(maxWidth: .infinity, alignment: .leading)`, and for truncation rather
+    than for hit testing. The style renders `configuration.content` **only while
     expanded** — as the default style does, and `DirectoryNodeView`'s lazy first
-    load depends on it — and re-supplies the leading inset the default style used
-    to add to `content` (the chevron column plus the row spacing, both scaled),
-    which a custom style does not, so nesting indentation is unchanged. Every new
+    load depends on it — and re-supplies, through `FolderContentInset`, the
+    leading inset the default style used to add to `content` (the chevron column
+    plus the row spacing — the two `FolderRowLayout` constants, 12 and 4, that
+    the row and the inset must agree on), which a custom style does not, so
+    nesting indentation is unchanged. That inset scales the two constants
+    **separately** and adds the results, mirroring the row's own two independent
+    scalings: `InterfaceMetrics` rounds to the half-point grid, so scaling the
+    sum instead lands elsewhere at most scales (15.5 + 5.0 = 20.5 vs. 21.0 at
+    1.3) and would skew every nested row against its parent's label. Every new
     size goes through `\.interfaceMetrics` like the rest of the tree; the style
     names no `interfaceScale` and declares no zoom surface, so
     `ZoomSourceGatingTests`' set equalities are untouched. `DirectoryNodeView`

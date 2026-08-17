@@ -141,6 +141,23 @@ code path a chevron click uses.
 - [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'platform=macOS' build` succeeds
 
+**Correction made during code review.** The instruction above to leave the
+`.contextMenu` (and its `.contentShape`) on the label rested on an assumption
+that stopped holding the moment the row gained a chevron column and its own
+`.padding(.horizontal, 6)`: the label no longer *is* the row. Right-clicking the
+chevron or either 6pt gutter did nothing while the hover highlight covered them,
+and the surface even shrank by the trailing 6pt it used to reach. The menu is
+therefore built by `DirectoryNodeView` and handed to the style as a
+`@ViewBuilder` closure, so it hangs off the row — hover highlight, tap target and
+context menu are one rectangle, exactly as on `FileRowView`. The label keeps only
+its `.frame(maxWidth: .infinity, alignment: .leading)`, now for truncation rather
+than hit testing. Separately, drawing the chevron ourselves deleted the tree's
+one assistive-technology-actuable control (a real disclosure triangle is a button
+with an expanded/collapsed value), so the row re-declares itself as that button
+via `.accessibilityElement(children: .combine)` / `.isButton` /
+`.accessibilityValue` / `.accessibilityAction`, toggling the same binding the tap
+does.
+
 ### Task 2: Update the architecture documentation
 
 **Files:**
