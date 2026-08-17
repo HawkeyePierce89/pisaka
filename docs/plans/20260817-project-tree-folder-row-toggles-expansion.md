@@ -170,10 +170,10 @@ nesting are unchanged. Mirror the same facts in the file's own header /
 
 ### Task 3: Verify acceptance criteria
 
-- [ ] `swift test` — full suite passes
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
-      'platform=macOS' build` succeeds
-- [ ] re-read the diff against the ticket: file rows untouched, iOS untouched,
+- [x] `swift test` — full suite passes (2917 tests, 0 failures)
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+      'platform=macOS' build` succeeds (** BUILD SUCCEEDED **)
+- [x] re-read the diff against the ticket: file rows untouched, iOS untouched,
       no selection/keyboard/drag changes, no row-height changes beyond the hover
       highlight, every new size scaled through `metrics`, and the label's
       `.frame(maxWidth: .infinity, alignment: .leading)` + `.contentShape` still
