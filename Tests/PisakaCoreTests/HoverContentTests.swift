@@ -545,6 +545,45 @@ final class HoverContentTests: XCTestCase {
         XCTAssertTrue(capped.isTruncated)
     }
 
+    /// A line the length cap cuts does not end the answer: the lines after it are
+    /// still content, and the cap is a bound on what is drawn rather than a
+    /// tripwire that swallows the rest.
+    func testTheLinesAfterAnOverlongOneSurvive() {
+        let content = try! XCTUnwrap(
+            HoverContent(segments: [.code("\(String(repeating: "x", count: 50))\nfunc f()\nfunc g()")])
+        )
+        let capped = content.truncated(toLineCount: 10, lineLength: 4)
+        XCTAssertEqual(capped.segments, [.code("xxxx\nfunc\nfunc")])
+        XCTAssertTrue(capped.isTruncated)
+    }
+
+    /// A payload a language server is free to make enormous (`LSPFraming` carries
+    /// up to 64 MB), cut to the cap — and cut by the *initializer*, which is the
+    /// half of the rule an assertion can state. `truncated` then finds nothing
+    /// left to do, which is what makes the renderer's main-thread work bounded by
+    /// the popover rather than by the answer.
+    func testAHugeSingleLineIsCutToTheCapWhenTheContentIsBuilt() {
+        let huge = String(repeating: "x", count: 4_000_000)
+        let content = try! XCTUnwrap(HoverContent(segments: [.code("\(huge)\ntail")]))
+        XCTAssertEqual(
+            content.segments,
+            [.code("\(String(repeating: "x", count: HoverContent.maximumLineLength))\ntail")]
+        )
+        XCTAssertTrue(content.isTruncated)
+        XCTAssertEqual(content.truncated(), content)
+    }
+
+    /// Interior blank lines are lines: they count against the cap and they are
+    /// kept, which is the one shape a line-by-line reader can get wrong in both
+    /// directions.
+    func testInteriorBlankLinesCountAndAreKept() {
+        let content = try! XCTUnwrap(HoverContent(segments: [.prose("a\n\nb\n\nc")]))
+        XCTAssertEqual(content.lineCount, 5)
+        let capped = content.truncated(toLineCount: 3, lineLength: 10)
+        XCTAssertEqual(capped.segments, [.prose("a\n\nb")])
+        XCTAssertTrue(capped.isTruncated)
+    }
+
     /// Both dimensions at once, which is the shape a runaway answer actually has.
     func testBothCapsApplyTogether() {
         let content = try! XCTUnwrap(markdown(lines(10, prefix: "aaaaaaaa")))
@@ -562,6 +601,85 @@ final class HoverContentTests: XCTestCase {
     func testTheCheckingInitializerStripsBlankEdgeLinesFromASegment() {
         let content = try! XCTUnwrap(HoverContent(segments: [.prose("\n \n  indented\n\n")]))
         XCTAssertEqual(content.segments, [.prose("  indented")])
+    }
+
+    /// The hang guard is the initializer's, so it holds for *every* line of every
+    /// segment however the content was built — that is what lets the renderer walk
+    /// the text without first measuring the server's answer.
+    func testTheCheckingInitializerClipsEveryLineToTheLengthCapAndSaysSo() {
+        let long = String(repeating: "x", count: HoverContent.maximumLineLength + 5)
+        let content = try! XCTUnwrap(
+            HoverContent(segments: [.code("short\n\(long)"), .prose(long)])
+        )
+        XCTAssertTrue(content.isTruncated)
+        for segment in content.segments {
+            for line in segment.lines {
+                XCTAssertLessThanOrEqual(line.count, HoverContent.maximumLineLength)
+            }
+        }
+    }
+
+    /// A line under the cap is not a line the initializer touches, and untouched
+    /// content is not truncated content.
+    func testTheCheckingInitializerLeavesShortLinesAloneAndSaysNothing() {
+        let content = try! XCTUnwrap(HoverContent(segments: [.code("func f()\nfunc g()")]))
+        XCTAssertEqual(content.segments, [.code("func f()\nfunc g()")])
+        XCTAssertFalse(content.isTruncated)
+    }
+
+    /// The character cap alone bounds nothing the renderer pays for: a grapheme
+    /// cluster has no size limit, so a megabyte of combining marks is *one*
+    /// character and passes it whole. The byte cap is what turns "at most twenty
+    /// short lines" into "at most a bounded amount of text to lay out".
+    func testAMegabyteSingleGraphemeLineDoesNotSurviveTheLengthCap() {
+        let blob = "a" + String(repeating: "\u{0301}", count: 500_000)
+        XCTAssertEqual(blob.count, 1)  // the whole point: one Character, one megabyte
+        let content = try! XCTUnwrap(HoverContent(segments: [.code("\(blob)\nfunc f()")]))
+        XCTAssertEqual(content.segments, [.code("func f()")])
+        XCTAssertTrue(content.isTruncated)
+    }
+
+    /// A cluster too big for the byte cap is dropped whole rather than halved, and
+    /// content that is nothing but such a cluster is no content — the same
+    /// no-empty-popover rule the empty answer obeys.
+    func testContentThatIsNothingButAnOversizedGraphemeIsNoContent() {
+        let blob = "a" + String(repeating: "\u{0301}", count: 100_000)
+        XCTAssertNil(HoverContent(segments: [.prose(blob)]))
+    }
+
+    /// The byte cap cuts on a `Character` boundary, so a clipped line is still
+    /// text: whole clusters, none halved, and inside both bounds.
+    func testTheByteCapCutsOnGraphemeBoundaries() {
+        let family = "👨‍👩‍👧‍👦"  // one Character, 25 UTF-8 bytes
+        let line = String(repeating: family, count: 2_000)
+        let content = try! XCTUnwrap(HoverContent(segments: [.code(line)]))
+        XCTAssertTrue(content.isTruncated)
+        let clipped = try! XCTUnwrap(content.segments.first).text
+        XCTAssertLessThanOrEqual(clipped.utf8.count, HoverContent.maximumLineUTF8Length)
+        XCTAssertGreaterThan(clipped.utf8.count, HoverContent.maximumLineUTF8Length - family.utf8.count)
+        XCTAssertEqual(clipped, String(repeating: family, count: clipped.count))
+    }
+
+    /// The byte cap is generous enough that ordinary non-ASCII text never meets
+    /// it: it is a hang guard, not a "no CJK past here" rule.
+    func testOrdinaryMultibyteTextIsNotClipped() {
+        let line = String(repeating: "型", count: 300)  // 900 UTF-8 bytes
+        let content = try! XCTUnwrap(HoverContent(segments: [.prose(line)]))
+        XCTAssertEqual(content.segments, [.prose(line)])
+        XCTAssertFalse(content.isTruncated)
+    }
+
+    /// Clipping happens *before* the blank edges go, so the one line that clips
+    /// down to nothing but indentation cannot become a segment with nothing to
+    /// draw — the same no-empty-popover rule, at the other end of the pipe.
+    func testALineThatClipsDownToWhitespaceIsNotKeptAsASegment() {
+        let indented = String(repeating: " ", count: HoverContent.maximumLineLength + 10) + "x"
+        XCTAssertNil(HoverContent(segments: [.prose(indented)]))
+        let content = try! XCTUnwrap(
+            HoverContent(segments: [.prose(indented), .code("func f()")])
+        )
+        XCTAssertEqual(content.segments, [.code("func f()")])
+        XCTAssertTrue(content.isTruncated)
     }
 
     func testTruncatingContentWithBlankLeadingLinesStillDrawsSomething() {

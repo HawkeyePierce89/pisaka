@@ -877,8 +877,8 @@ document, together with the limits they carry.
     It owns the feature's **two constants**, here rather than in the view for the
     reason every other rule is here: `dwellDelay` (0.35 s — the difference between
     "hovering tells you the type" and "moving the mouse across a file fires a
-    request per identifier"), `maximumLineCount` (20) and `maximumLineLength`
-    (2 000). `truncated(toLineCount:lineLength:)` is the cap as pure, idempotent
+    request per identifier"), `maximumLineCount` (20), `maximumLineLength`
+    (2 000 characters) and `maximumLineUTF8Length` (16 000 bytes). `truncated(toLineCount:lineLength:)` is the cap as pure, idempotent
     arithmetic: it keeps whole segments while they fit, cuts the one that straddles
     the line limit *keeping its kind and language* (half a code block is still
     code), clips every kept line to the length limit on a `Character` boundary (so
@@ -899,6 +899,47 @@ document, together with the limits they carry.
     and it is set far past anything a 520 pt panel can show precisely so that it
     never fires on a real signature or paragraph — it is a hang guard, not a
     display rule.
+    **The cap may not cost what the cap prevents**, and that is why the two
+    dimensions are applied in two different places. The line *count* is the display
+    rule, so `truncated(toLineCount:)` is the renderer's call. The line *length* is
+    the hang guard, so it is established by the **checking initializer** — which is
+    to say wherever a `HoverContent` is *built*, and on the LSP path that is
+    `LSPIntelligenceProvider.hover`, a `nonisolated async` method and therefore off
+    the main thread. A clip there sets `isTruncated` (content was lost; the marker
+    is how the popover says so) and happens *before* the blank edge lines go, so
+    the degenerate line — three thousand spaces and then a character — cannot clip
+    down to whitespace and survive as a segment with nothing to draw. That makes
+    `HoverSegment.text`'s stated shape include "no line longer than
+    `maximumLineLength`", and every later reader — `truncated`, `lineCount`, the
+    panel — walks text that is already bounded. Doing it the other way round is the
+    bug this replaced: a cap applied for the first time in `truncated` still has to
+    *find* the end of the megabyte line before it can drop it, on the main thread,
+    from a mouse-moved event — bounded allocation over unbounded work.
+    **The length cap is itself two caps, in characters and in UTF-8 bytes, and the
+    byte one is what closes the guard.** `maximumLineLength` counts `Character`s, a
+    `Character` is an extended grapheme cluster, and a cluster has no size limit:
+    a letter followed by a million combining marks is *one* character, so a
+    character cap of any size passes that line through whole and the megabyte hang
+    arrives through the guard meant to stop it. `maximumLineUTF8Length` is
+    therefore stated in the unit the layout actually costs — eight bytes per
+    character, twice UTF-8's maximum for a single scalar, so a line can only reach
+    it by not being text. The clip walks characters and checks the byte budget
+    *before* keeping each one, which is what makes the oversized cluster a
+    truncation rather than an exception to the cap: it is dropped whole (never
+    halved — the cut stays on a `Character` boundary), and content that was nothing
+    but such a cluster is then no content at all, the no-empty-popover rule reached
+    from the other end. Ordinary text never meets any of this: a line whose whole
+    UTF-8 size fits the *character* cap can break neither cap, and that check is
+    the first thing the clip does.
+    Within that, `truncated` still reads each segment line by line (`cappedLines`)
+    rather than `segment.lines` + `prefix`, so it materializes only what it keeps
+    and walks only as far as the line budget reaches. Line ends are found on the
+    UTF-8 view (a newline is one byte no multi-byte sequence can contain, so the
+    search is a byte scan rather than grapheme breaking over text about to be
+    discarded); the clip itself stays on the `Character` view, where the
+    no-halved-grapheme promise lives. The renderer's whole cost is therefore at
+    most `maximumLineCount` × `maximumLineLength` characters, whatever the server
+    sent.
     `HoverContent(_ response:)` / `init?(hoverElements:)` are the construction
     from a decoded payload: each element becomes segments, in the order the server
     wrote them, so `[{language: "swift", value: "func f()"}, "Does a thing."]`
@@ -1841,12 +1882,15 @@ there zooms the code — which is the zone the user means.
 Truncation follows from the same line rather than being a separate taste: a
 scrollable popover would need the pointer *inside* it, which would undo all three
 properties at once. So the cap is pure arithmetic in Core
-(`HoverContent.maximumLineCount` and `maximumLineLength`, applied by
-`truncated(toLineCount:lineLength:)`) and the panel's only job is to draw a marker
-when the content was cut. Anything past a screenful is better read in the file
-⌘-click already opens. The cap bounds **lines and their length**, because the panel
-lays the string out synchronously on the main thread from an automatic trigger, and
-a count that permits a twenty-megabyte line bounds nothing that matters.
+(`HoverContent.maximumLineCount`, `maximumLineLength` and
+`maximumLineUTF8Length`, the count applied by `truncated(toLineCount:lineLength:)`
+and the two lengths by the checking initializer) and the panel's only job is to
+draw a marker when the content was cut. Anything past a screenful is better read in
+the file ⌘-click already opens. The cap bounds **lines and their length, the latter
+in characters and in bytes**, because the panel lays the string out synchronously on
+the main thread from an automatic trigger: a count that permits a twenty-megabyte
+line bounds nothing that matters, and a character count that permits a
+twenty-megabyte *grapheme* bounds no more.
 `ZoomSourceGatingTests.testTheHoverPanelPassesEveryMouseEventThroughToTheCode`
 pins the pass-through and the no-surface half statically, over comment- and
 literal-stripped source, because deleting that line changes nothing that compiles,
@@ -1893,8 +1937,9 @@ obstacle standing between the pointer and the code.
   Nor is it offered from the keyboard — the dwell *is* the trigger — so a file
   read without a mouse never sees it.
 - **A hover popover is a glance, not a document browser** (D26). Content past
-  `HoverContent.maximumLineCount` lines — or past `maximumLineLength` characters on
-  any one of them — is cut and marked with an ellipsis, code
+  `HoverContent.maximumLineCount` lines — or past `maximumLineLength` characters
+  (or `maximumLineUTF8Length` bytes) on any one of them — is cut and marked with an
+  ellipsis, code
   lines wider than the panel are truncated rather than wrapped (a wrapped
   signature invents indentation the language never had), the panel's height is
   additionally capped at the screen (the line cap counts logical lines and prose

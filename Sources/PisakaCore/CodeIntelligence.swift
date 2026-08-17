@@ -396,9 +396,13 @@ public struct HoverRequest: Equatable, Sendable {
 /// means "show this", `nil` means "show nothing", and the caller needs no third
 /// case.
 public struct HoverAnswer: Equatable, Sendable {
-    /// What to draw, already normalized into segments and *not* yet capped —
-    /// truncation is the renderer's call, through `HoverContent.truncated(_:)`,
-    /// because the cap is a display fact and only the renderer knows it is one.
+    /// What to draw, already normalized into segments and not yet cut to a *line
+    /// count* — that much is the renderer's call, through
+    /// `HoverContent.truncated(_:)`, because how many lines fit is a display fact
+    /// and only the renderer knows it is one. Each line's *length* is already
+    /// bounded, established when the content was built (here, off the main
+    /// thread): that one is a hang guard rather than a display rule, and applying
+    /// it in the renderer would cost exactly the walk it exists to prevent.
     public let content: HoverContent
     /// The buffer (UTF-16) range the answer describes.
     ///

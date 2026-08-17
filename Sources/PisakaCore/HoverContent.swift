@@ -18,7 +18,10 @@ public struct HoverSegment: Equatable, Hashable, Sendable {
 
     public let kind: Kind
     /// The text to draw, already normalized: no markup, no trailing whitespace,
-    /// no blank first or last line.
+    /// no blank first or last line, and **no line longer than
+    /// `HoverContent.maximumLineLength` characters or
+    /// `HoverContent.maximumLineUTF8Length` bytes** — the last of those is what
+    /// makes the text safe to walk on the main thread (see `HoverContent`'s cap).
     public let text: String
 
     public init(kind: Kind, text: String) {
@@ -74,6 +77,26 @@ public struct HoverSegment: Equatable, Hashable, Sendable {
 /// from an event that fires whenever the pointer stops moving, so an unbounded
 /// line is a hang nobody asked for. Bounding it here keeps that a Core rule
 /// rather than a defensive `if` in a view.
+///
+/// **The length dimension is itself two caps**, in characters and in UTF-8 bytes,
+/// and the second is not belt-and-braces: a `Character` is an extended grapheme
+/// cluster and a cluster has no size limit, so `"a"` followed by a million
+/// combining marks is *one* character. A character cap alone would pass that line
+/// through whole — the megabyte hang arriving through the guard meant to stop it —
+/// which is why the bound is also stated in the unit the layout actually costs.
+///
+/// **The two dimensions are applied in two different places, and that is the
+/// point.** The line *count* is a display rule, so `truncated(toLineCount:)` is
+/// the renderer's call. The line *length* is not a display rule at all — it is
+/// the hang guard — so it is established by the **checking initializer**, which
+/// is to say wherever a `HoverContent` is *built*: on the LSP path that is
+/// `LSPIntelligenceProvider.hover`, a `nonisolated async` method, and therefore
+/// off the main thread. The one pass that costs the size of the server's answer
+/// happens there, once; every later reader — `truncated`, `lineCount`, the panel
+/// — walks text whose lines are already bounded, so the renderer's work is
+/// `maximumLineCount` × `maximumLineLength` characters whatever the server sent.
+/// **The cap must not cost what the cap prevents**, and a cap applied for the
+/// first time on the main thread would.
 public struct HoverContent: Equatable, Hashable, Sendable {
     /// The segments to draw, in the order the server wrote them. Never empty.
     public let segments: [HoverSegment]
@@ -107,41 +130,112 @@ public struct HoverContent: Equatable, Hashable, Sendable {
     /// actually use.
     public static let maximumLineLength = 2_000
 
+    /// The most UTF-8 bytes a single drawn line may carry.
+    ///
+    /// The other half of the same guard, and the half that actually closes it:
+    /// `maximumLineLength` counts `Character`s, an extended grapheme cluster has
+    /// no size limit, and so a line of one cluster — a letter and a million
+    /// combining marks — passes a character cap of any size and still costs
+    /// megabytes to break, measure and lay out on the main thread.
+    ///
+    /// Eight bytes per character: twice UTF-8's maximum for a single scalar, and
+    /// past what any script spends on a character somebody reads. A line can
+    /// therefore only reach this bound by not being text, and the two together
+    /// bound the renderer's work in the unit the renderer pays it in.
+    public static let maximumLineUTF8Length = 8 * maximumLineLength
+
     /// The failable, checking initializer: segments that carry nothing are
     /// dropped, and content left with no segments at all is no content.
     ///
-    /// A kept segment additionally loses its blank first and last *lines*, so
-    /// `HoverSegment.text`'s stated shape ("no blank first or last line") holds
-    /// for every segment that exists rather than only for the ones `HoverMarkup`
-    /// built — `codeBlock`/`proseBlock` already strip them, so this is a no-op on
-    /// the LSP path and the rule for every other caller. **`truncated` depends on
-    /// it**: it keeps a prefix of a segment's lines, so a segment whose first line
-    /// were blank could be cut down to nothing but whitespace — a popover drawing
-    /// an ellipsis and no answer, the one state D25 says cannot exist. Stripped
-    /// line-wise, never off the joined string, for `proseBlock`'s reason: trimming
-    /// the join takes the first line's indentation with it and leaves the rest.
+    /// **This is where `HoverSegment.text`'s stated shape is established**, for
+    /// every segment that exists rather than only for the ones `HoverMarkup`
+    /// built, and it is two rules rather than one:
+    ///
+    /// - A kept segment loses its blank first and last *lines*.
+    ///   `codeBlock`/`proseBlock` already strip them, so this is a no-op on the
+    ///   LSP path and the rule for every other caller. **`truncated` depends on
+    ///   it**: it keeps a prefix of a segment's lines, so a segment whose first
+    ///   line were blank could be cut down to nothing but whitespace — a popover
+    ///   drawing an ellipsis and no answer, the one state D25 says cannot exist.
+    ///   Stripped line-wise, never off the joined string, for `proseBlock`'s
+    ///   reason: trimming the join takes the first line's indentation with it and
+    ///   leaves the rest.
+    /// - No line survives longer than `maximumLineLength` characters *or*
+    ///   `maximumLineUTF8Length` bytes, and a clip sets `isTruncated` — content
+    ///   was lost, and the marker is how the popover says so. This is the hang
+    ///   guard, and it is here rather than in `truncated`
+    ///   because *here* is off the main thread (see the type's doc): the single
+    ///   pass that costs the size of a 64 MB answer belongs beside the parse that
+    ///   already paid for it, not in a renderer answering a mouse-moved event.
+    ///
+    /// Clipped *before* the blank edges go, so the degenerate line — three
+    /// thousand spaces and then a character — cannot be clipped down to
+    /// whitespace and then kept as a segment with nothing to draw.
     public init?(segments: [HoverSegment], isTruncated: Bool = false) {
+        var didClip = false
         let kept = segments.compactMap { segment -> HoverSegment? in
-            let text = HoverContent.strippingBlankEdgeLines(segment.text)
-            guard !text.isEmpty else { return nil }
-            return HoverSegment(kind: segment.kind, text: text)
+            let normalized = HoverContent.normalized(segment.text)
+            if normalized.didClip { didClip = true }
+            guard !normalized.text.isEmpty else { return nil }
+            return HoverSegment(kind: segment.kind, text: normalized.text)
         }
         guard !kept.isEmpty else { return nil }
         self.segments = kept
-        self.isTruncated = isTruncated
+        self.isTruncated = isTruncated || didClip
     }
 
-    /// `text` without the leading and trailing lines that carry nothing but
-    /// whitespace. Interior blank lines and every line's own indentation stay:
+    /// `text` with every line clipped to the two length caps and the leading and
+    /// trailing lines that then carry nothing but whitespace removed, plus whether
+    /// the clip fired. Interior blank lines and every line's own indentation stay:
     /// they are the content.
-    private static func strippingBlankEdgeLines(_ text: String) -> String {
+    private static func normalized(_ text: String) -> (text: String, didClip: Bool) {
         var lines = HoverMarkup.lines(of: text)
+        var didClip = false
+        for index in lines.indices {
+            let clip = clipped(lines[index])
+            guard clip.didClip else { continue }
+            lines[index] = clip.text
+            didClip = true
+        }
         let isBlank: (String) -> Bool = {
             $0.trimmingCharacters(in: .whitespaces).isEmpty
         }
         while let first = lines.first, isBlank(first) { lines.removeFirst() }
         while let last = lines.last, isBlank(last) { lines.removeLast() }
-        return lines.joined(separator: "\n")
+        return (lines.joined(separator: "\n"), didClip)
+    }
+
+    /// One line cut at whichever of the two length caps it reaches first, plus
+    /// whether anything was cut.
+    ///
+    /// Cut on a `Character` boundary — no clip here halves a grapheme — which is
+    /// exactly why the byte cap is checked *before* a character is kept rather
+    /// than after: a single cluster too big for it is dropped whole, and "keep it,
+    /// it is only one character" is the hole the byte cap exists to close. A line
+    /// that is nothing but such a cluster clips to nothing, and a segment left
+    /// with nothing is dropped by the initializer above — a hover answer whose
+    /// entire content is an unrenderable blob draws no popover, which is the
+    /// no-empty-popover rule reached from the other end.
+    ///
+    /// The walk is the *only* pass either cap costs, and it never runs on real
+    /// text: a line whose whole UTF-8 size fits the character cap can break
+    /// neither cap, since a character is at least one byte, so ordinary answers
+    /// leave here on the first line of this function.
+    private static func clipped(_ line: String) -> (text: String, didClip: Bool) {
+        guard line.utf8.count > maximumLineLength else { return (line, false) }
+        var cursor = line.startIndex
+        var characters = 0
+        var bytes = 0
+        while cursor < line.endIndex, characters < maximumLineLength {
+            let next = line.index(after: cursor)
+            let width = line.utf8.distance(from: cursor, to: next)
+            guard bytes + width <= maximumLineUTF8Length else { break }
+            bytes += width
+            characters += 1
+            cursor = next
+        }
+        guard cursor < line.endIndex else { return (line, false) }
+        return (String(line[..<cursor]), true)
     }
 
     /// The unchecked one, for the paths that have already established the
@@ -167,6 +261,15 @@ public struct HoverContent: Equatable, Hashable, Sendable {
     ///
     /// Either dimension cutting sets `isTruncated`: the marker says "there was
     /// more", and a line whose tail is gone is exactly that.
+    ///
+    /// **The length dimension has nothing left to do at its default**, because the
+    /// checking initializer already established it — which is what makes this safe
+    /// to call on the main thread, since every line it walks is at most
+    /// `maximumLineLength` characters *and* `maximumLineUTF8Length` bytes long
+    /// (the second is the one that makes the first a bound on work rather than on
+    /// a count). It stays a parameter all the same: the
+    /// cap is stated here whole, so a caller asking for a *smaller* popover gets
+    /// one and the function remains idempotent at whatever limits it was given.
     public func truncated(
         toLineCount limit: Int = HoverContent.maximumLineCount,
         lineLength lengthLimit: Int = HoverContent.maximumLineLength
@@ -184,24 +287,15 @@ public struct HoverContent: Equatable, Hashable, Sendable {
                 didCut = true
                 break
             }
-            var lines = segment.lines
-            if lines.count > remaining {
-                lines = Array(lines.prefix(remaining))
-                didCut = true
-            }
-            remaining -= lines.count
+            let capped = HoverContent.cappedLines(
+                of: segment.text,
+                count: remaining,
+                length: lengthCap
+            )
+            if capped.didCut { didCut = true }
+            remaining -= capped.lines.count
             kept.append(
-                HoverSegment(
-                    kind: segment.kind,
-                    text: lines.map { line in
-                        // `prefix` is O(lengthCap), not O(line): the whole point
-                        // is never to walk a line that may be megabytes long.
-                        let head = line.prefix(lengthCap)
-                        guard head.endIndex < line.endIndex else { return line }
-                        didCut = true
-                        return String(head)
-                    }.joined(separator: "\n")
-                )
+                HoverSegment(kind: segment.kind, text: capped.lines.joined(separator: "\n"))
             )
         }
         guard didCut else { return self }
@@ -217,6 +311,52 @@ public struct HoverContent: Equatable, Hashable, Sendable {
         }
         guard !survivors.isEmpty else { return self }
         return HoverContent(checkedSegments: survivors, isTruncated: true)
+    }
+
+    /// The first `count` lines of `text`, each clipped to `length` characters,
+    /// plus whether anything was left behind.
+    ///
+    /// Exactly what `segment.lines` + `prefix` would answer, and deliberately not
+    /// spelled that way: `lines` splits the *whole* string, so it allocates a copy
+    /// of every line past the cap before the cap can drop them. This walks only as
+    /// far as the budget reaches, so what it materializes is what will be drawn —
+    /// `count` × `length` characters at most — and, because every line it can meet
+    /// is already bounded by the checking initializer *in bytes as well as in
+    /// characters*, the walk itself is bounded too: the newline search below and
+    /// the grapheme breaking `prefix` does both cost at most one bounded line.
+    /// That is the whole of `truncated`'s main-thread cost.
+    ///
+    /// Line ends are found on the UTF-8 view rather than by iterating
+    /// `Character`s: a newline is one byte that no multi-byte sequence can
+    /// contain, so the search is a byte scan instead of grapheme breaking over
+    /// text that is about to be discarded. `prefix` then does the clipping on the
+    /// `Character` view, where the no-halved-grapheme promise lives.
+    ///
+    /// The separator is `"\n"` alone, matching `HoverSegment.lines`: every text a
+    /// `HoverContent` holds has been through `HoverMarkup.lines`, which normalizes
+    /// `\r\n` and `\r` away.
+    private static func cappedLines(
+        of text: String,
+        count: Int,
+        length: Int
+    ) -> (lines: [String], didCut: Bool) {
+        var lines: [String] = []
+        var didCut = false
+        var cursor = text.startIndex
+        while lines.count < count {
+            let lineEnd = text.utf8[cursor...].firstIndex(of: UInt8(ascii: "\n")) ?? text.endIndex
+            let line = text[cursor..<lineEnd]
+            let head = line.prefix(length)
+            if head.endIndex < line.endIndex { didCut = true }
+            lines.append(String(head))
+            // The last line is the one no separator follows. A separator at the
+            // very end is a trailing empty line, which is a line like any other —
+            // the same one `components(separatedBy:)` would report.
+            guard lineEnd < text.endIndex else { return (lines, didCut) }
+            cursor = text.index(after: lineEnd)
+        }
+        // The line budget ran out with text still to come.
+        return (lines, true)
     }
 }
 
