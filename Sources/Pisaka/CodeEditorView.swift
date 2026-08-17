@@ -402,9 +402,10 @@ struct CodeEditorView: NSViewRepresentable {
             for: fileID
         )
 
-        // Drop undo managers for files that are no longer open so closed tabs
-        // don't retain their undo history (and text snapshots) indefinitely.
-        context.coordinator.pruneUndoManagers(keeping: openFileIDs)
+        // Drop the per-file state of files that are no longer open so closed tabs
+        // don't retain their undo history (and text snapshots) — or their
+        // remembered viewport — indefinitely.
+        context.coordinator.prunePerFileState(keeping: openFileIDs)
 
         let language = SyntaxLanguage(forFileName: fileName)
 
@@ -647,6 +648,13 @@ struct CodeEditorView: NSViewRepresentable {
         /// back a per-file instance keeps each tab's undo/redo history isolated
         /// and intact across tab switches.
         private var undoManagers: [UUID: UndoManager] = [:]
+
+        /// Where each file was last left: the caret and the scroll anchor. Keyed
+        /// by the same `fileID` as `undoManagers` and pruned on the same call —
+        /// the single reused text view forgets the outgoing tab's position the
+        /// moment its buffer is swapped, so this is the only thing that remembers
+        /// it. App-run lifetime only; nothing is persisted.
+        private var viewports = EditorViewportMemory()
 
         /// Guards against re-entering the change interceptors while applying a
         /// programmatic indent or auto-pair edit. `insertText(_:replacementRange:)`
@@ -1123,6 +1131,20 @@ struct CodeEditorView: NSViewRepresentable {
             }
         }
 
+        /// Whether `applyReveal` would act on this request for this file — the
+        /// same three guards, asked without consuming anything (no token is
+        /// recorded, no selection moved).
+        ///
+        /// `updateNSView` uses it to let an explicit reveal outrank the remembered
+        /// viewport: activating a Find in Files result (or a go-to-definition) in
+        /// an already-open background tab must land on the match, not on wherever
+        /// the tab was last left. The `textView` guard is not repeated here —
+        /// without one there is nothing to restore either.
+        func hasPendingReveal(_ request: EditorRevealState.Request?, fileID: UUID) -> Bool {
+            guard let request else { return false }
+            return request.token != appliedRevealToken && request.fileID == fileID
+        }
+
         /// Esc in the editor: close an open search bar (and drop its highlight),
         /// reporting whether it did — `false` leaves Esc to its stock behavior.
         func closeSearchBar() -> Bool {
@@ -1512,12 +1534,141 @@ struct CodeEditorView: NSViewRepresentable {
             return manager
         }
 
-        /// Removes undo managers for files no longer open. Without this, closing
-        /// a tab would leave its undo manager (and the text snapshots it holds)
-        /// alive for the lifetime of the coordinator.
-        func pruneUndoManagers(keeping openFileIDs: Set<UUID>) {
+        /// Removes every per-file dictionary's entries for files no longer open:
+        /// the undo managers, the external-replacement tokens and the remembered
+        /// viewports. Without this, closing a tab would leave its undo manager
+        /// (and the text snapshots it holds) alive for the lifetime of the
+        /// coordinator, and reopening the file would resume at a position from a
+        /// previous life rather than at the top.
+        ///
+        /// All three are keyed by `OpenFile.id` and pruned together on purpose:
+        /// they answer the same question about the same object, so they must not
+        /// disagree about which files still exist.
+        func prunePerFileState(keeping openFileIDs: Set<UUID>) {
             undoManagers = undoManagers.filter { openFileIDs.contains($0.key) }
             externalTextRevisions = externalTextRevisions.filter { openFileIDs.contains($0.key) }
+            viewports.prune(keeping: openFileIDs)
+        }
+
+        // MARK: - Viewport memory
+
+        /// Where the text view is *right now*: the selection and the character at
+        /// the top of the visible rectangle.
+        ///
+        /// The scroll anchor is resolved to a character offset rather than kept as
+        /// a point, for the reason `EditorViewport` documents: the geometry that
+        /// produced the point does not survive a code-zoom change, a font change,
+        /// a window resize or a rewrite of the text. The clip view's visible
+        /// rectangle is in the text view's coordinates, so the container origin
+        /// (the text container inset) comes off before the layout manager is asked
+        /// which glyph sits there.
+        ///
+        /// Answers `nil` when the views are gone (a torn-down tab) or the document
+        /// has no glyphs at all — an empty buffer has no character to anchor to,
+        /// and `characterIndexForGlyph(at:)` raises past the last glyph.
+        func captureViewport() -> EditorViewport? {
+            guard let textView,
+                  let scrollView,
+                  let layoutManager = textView.layoutManager,
+                  let container = textView.textContainer
+            else { return nil }
+            let selection = textView.selectedRange()
+            guard layoutManager.numberOfGlyphs > 0 else {
+                return EditorViewport(selection: selection, topCharacterOffset: 0)
+            }
+            let visible = scrollView.documentVisibleRect
+            let origin = textView.textContainerOrigin
+            let topLeft = NSPoint(x: visible.minX - origin.x, y: visible.minY - origin.y)
+            let glyph = layoutManager.glyphIndex(for: topLeft, in: container)
+            guard glyph < layoutManager.numberOfGlyphs else {
+                return EditorViewport(selection: selection, topCharacterOffset: 0)
+            }
+            return EditorViewport(
+                selection: selection,
+                topCharacterOffset: layoutManager.characterIndexForGlyph(at: glyph)
+            )
+        }
+
+        /// Remember where `fileID` is currently sitting. Must be called *before*
+        /// anything touches the buffer: the text view is reused, so once the
+        /// incoming file's text is installed the outgoing position is gone.
+        func recordViewport(for fileID: UUID) {
+            guard let viewport = captureViewport() else { return }
+            viewports.record(viewport, for: fileID)
+        }
+
+        /// Drop `fileID`'s remembered position — its text was replaced out from
+        /// under it, so the recorded offsets describe characters that no longer
+        /// exist. The next visit starts at the top, exactly as a first visit does.
+        func forgetViewport(for fileID: UUID) {
+            viewports.forget(fileID)
+        }
+
+        /// Put `fileID` back where it was left, if anything was recorded for it.
+        ///
+        /// Everything here is synchronous, unlike the reveal path's one-turn hop
+        /// (`applyReveal`). It has to be: a restore deferred to the next main-loop
+        /// turn would run after a *second* tab switch had already swapped the
+        /// buffer again, scrolling the newly shown file to the previous file's
+        /// offset. What makes synchronous work is the explicit `ensureLayout`
+        /// below — the layout manager runs with `allowsNonContiguousLayout`, so
+        /// the incoming text is not laid out yet at this point in `updateNSView`
+        /// and the anchor's rectangle would otherwise be an estimate.
+        ///
+        /// The range comes back clamped to the live buffer (`EditorViewport
+        /// .clamped(toLength:)`), and the scroll goes through `scrollEditor(to:)`,
+        /// which clamps to the document's real end — so neither a shrunken file
+        /// nor a stale anchor can position past the end.
+        func restoreViewport(for fileID: UUID) {
+            guard let textView,
+                  let layoutManager = textView.layoutManager,
+                  let container = textView.textContainer
+            else { return }
+            let length = textView.textStorage?.length ?? 0
+            guard let viewport = viewports.viewport(for: fileID, clampedToLength: length)
+            else { return }
+            // A caret at `length` is a legal selection (the end of the file), so
+            // this needs no end-of-buffer special case — unlike the anchor below.
+            textView.setSelectedRange(viewport.selection)
+            let anchor = viewport.topCharacterOffset
+            let top: CGFloat
+            if anchor >= length {
+                // The clamp deliberately allows `length` as an anchor ("the end of
+                // the document"), but there is no character there: the glyph range
+                // for that offset is empty and `boundingRect(forGlyphRange:in:)`
+                // answers a zero rect for it, which would scroll to the top. Take
+                // the document's end instead — the trailing empty line's fragment
+                // when TextKit is showing one (a buffer ending in a newline, and
+                // the empty buffer), the last character's line otherwise.
+                if layoutManager.extraLineFragmentTextContainer != nil {
+                    top = layoutManager.extraLineFragmentRect.minY
+                } else if length > 0 {
+                    layoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: length))
+                    let glyphRange = layoutManager.glyphRange(
+                        forCharacterRange: NSRange(location: length - 1, length: 1),
+                        actualCharacterRange: nil
+                    )
+                    top = layoutManager.lineFragmentRect(
+                        forGlyphAt: glyphRange.location,
+                        effectiveRange: nil
+                    ).minY
+                } else {
+                    top = 0
+                }
+            } else {
+                // Lay out from the start of the document: the anchor's *position*
+                // depends on every preceding line's height, which non-contiguous
+                // layout would otherwise only estimate.
+                layoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: anchor + 1))
+                let glyphRange = layoutManager.glyphRange(
+                    forCharacterRange: NSRange(location: anchor, length: 1),
+                    actualCharacterRange: nil
+                )
+                top = layoutManager.boundingRect(forGlyphRange: glyphRange, in: container).minY
+            }
+            // Back from container space into the document's, i.e. the coordinates
+            // `scrollEditor(to:)` scrolls the clip view in.
+            scrollEditor(to: top + textView.textContainerOrigin.y)
         }
 
         /// The `WorkspaceModel.textReplacementRevision(for:)` value last seen for

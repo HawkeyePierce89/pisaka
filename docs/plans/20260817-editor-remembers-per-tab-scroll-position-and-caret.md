@@ -85,18 +85,18 @@ AppKit reads/writes stay thin in `CodeEditorView.Coordinator`.
 **Files:**
 - Modify: `Sources/Pisaka/CodeEditorView.swift`
 
-- [ ] Add `private var viewports = EditorViewportMemory()` to `Coordinator`.
-- [ ] Add `func captureViewport() -> EditorViewport?`: read `textView.selectedRange()`, and
+- [x] Add `private var viewports = EditorViewportMemory()` to `Coordinator`.
+- [x] Add `func captureViewport() -> EditorViewport?`: read `textView.selectedRange()`, and
       resolve the top visible character by asking the layout manager for the glyph at the
       clip view's `documentVisibleRect` top-left (accounting for `textContainerOrigin`) and
       converting it to a character index. Return nil when the text view/scroll view/layout
       manager is unavailable.
-- [ ] Add `func recordViewport(for fileID: UUID)` / `func forgetViewport(for fileID: UUID)`
+- [x] Add `func recordViewport(for fileID: UUID)` / `func forgetViewport(for fileID: UUID)`
       writing into the memory, and extend the existing prune call site to prune the memory
       too — rename `pruneUndoManagers(keeping:)` to `prunePerFileState(keeping:)`, since it
       already prunes `externalTextRevisions` as well and now prunes a third dictionary; update
       its doc comment and the one call site.
-- [ ] Add `func restoreViewport(for fileID: UUID)`: fetch the entry clamped to the live
+- [x] Add `func restoreViewport(for fileID: UUID)`: fetch the entry clamped to the live
       `textStorage.length`; return if there is none. Apply `setSelectedRange` first, then
       `layoutManager.ensureLayout(forCharacterRange:)` up to the anchor and take
       `boundingRect(forGlyphRange:in:)` for it, and scroll through the existing
@@ -105,17 +105,17 @@ AppKit reads/writes stay thin in `CodeEditorView.Coordinator`.
       `ensureLayout` is what replaces the reveal path's `DispatchQueue.main.async` hop, and
       why a hop is not acceptable here (a fast second tab switch would land the restore in
       the wrong buffer).
-- [ ] Handle the end-of-buffer edge the Core clamp deliberately allows: when the clamped
+- [x] Handle the end-of-buffer edge the Core clamp deliberately allows: when the clamped
       anchor equals `textStorage.length` (a shrunk buffer, or an empty file), the glyph range
       at that offset is empty and `boundingRect(forGlyphRange:in:)` answers a zero/garbage
       rect — take the document end instead, from the layout manager's
       `extraLineFragmentRect` when it is in use or the last character's line fragment
       otherwise, and let the existing `scrollEditor(to:)` clamp remain the final guard. The
       same offset needs no special case for `setSelectedRange`: a caret at `length` is legal.
-- [ ] Add `func hasPendingReveal(_ request: EditorRevealState.Request?, fileID: UUID) -> Bool`
+- [x] Add `func hasPendingReveal(_ request: EditorRevealState.Request?, fileID: UUID) -> Bool`
       — the same guards `applyReveal` uses (non-nil, token not yet applied, matching file),
       without consuming anything, so `updateNSView` can let an explicit reveal win.
-- [ ] No Core tests here (view layer, untested by convention); the Task 1 suite must still
+- [x] No Core tests here (view layer, untested by convention); the Task 1 suite must still
       pass — run `swift test`.
 
 ### Task 3: Wire capture and restore into the update sequence
