@@ -249,11 +249,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     property backs which zone: the pointer resolves a `ZoomZone` and the gesture,
     the menu item and the accumulator all speak that one word. `resetZoom` moves
     only the zone it is given, which is what makes ⌘0 as targeted as the
-    gestures. `SettingsStoreTests` covers the two defaults, the round trip across
+    gestures. That writer **drops a write that changes nothing**, on
+    `setConsent(_:for:)`'s reasoning and for a sharper reason: a zone pinned at
+    its clamp keeps receiving whole steps for as long as the ⌘-scroll continues,
+    and each one would otherwise republish a store `ContentView` and every
+    hosting root observe, re-apply the editor font and rewrite `UserDefaults` at
+    the trackpad's event rate for no visible change (⌘0 pressed at rest is the
+    same write twice over). A plain equality guard suffices because nothing
+    out-of-range can reach it or be held: `stepped(_:by:)` clamps, `defaultValue`
+    is in range, and both the `didSet`s and `init`'s reads clamp.
+    `SettingsStoreTests` covers the two defaults, the round trip across
     a rebuilt store, clamping on write and on load at both bounds, non-finite and
-    wrong-typed stored values, the two key strings, and the zone-keyed API's
+    wrong-typed stored values, the two key strings, the zone-keyed API's
     stepping/clamping/resetting for all three zones (including that stepping one
-    zone leaves the other two untouched).
+    zone leaves the other two untouched), and — by counting `objectWillChange` —
+    that a step or reset which cannot move the zone publishes nothing while one
+    that can still does.
   - `EditorSession.swift` — the persisted editor session behind launch-time
     session restore and "Untitled" hot exit (macOS today; the iOS variant is a
     follow-up over this same model). Foundation-only: the value types, the pure

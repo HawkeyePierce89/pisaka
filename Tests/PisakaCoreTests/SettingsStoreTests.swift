@@ -296,6 +296,53 @@ final class SettingsStoreTests: XCTestCase {
         }
     }
 
+    /// A zone held against its clamp keeps receiving whole steps — a ⌘-scroll does
+    /// not stop producing them because the value stopped moving — and ⌘0 pressed at
+    /// rest is the same write twice over. Republishing there re-evaluates
+    /// `ContentView`, re-applies the editor font and rewrites `UserDefaults` at the
+    /// trackpad's event rate for no visible change, which is exactly the cost
+    /// `setConsent(_:for:)` already guards against.
+    func testSteppingOrResettingAZoneThatCannotMovePublishesNothing() {
+        let store = SettingsStore(defaults: makeDefaults())
+        var notifications = 0
+        let subscription = store.objectWillChange.sink { _ in notifications += 1 }
+        defer { subscription.cancel() }
+
+        for zone in ZoomZone.allCases {
+            let rule = ZoomScaleRule.rule(for: zone)
+
+            // At rest: a reset changes nothing, and neither does re-stepping back
+            // onto the value the zone already holds.
+            store.resetZoom(zone)
+            XCTAssertEqual(notifications, 0, "\(zone) republished on a reset at its resting value")
+
+            // Walk to the top of the range, then keep going: every further step is
+            // a no-op the user's fingers cannot tell apart from the last real one.
+            let steps = Int(((rule.maximum - rule.defaultValue) / rule.step).rounded()) + 1
+            for _ in 0..<steps { store.stepZoom(zone, by: 1) }
+            XCTAssertEqual(store.scale(for: zone), rule.maximum)
+            let atTheClamp = notifications
+
+            for _ in 0..<5 { store.stepZoom(zone, by: 1) }
+            XCTAssertEqual(
+                notifications, atTheClamp,
+                "\(zone) republished the whole store while pinned at its maximum"
+            )
+
+            // A step that really moves still lands, in both directions.
+            store.stepZoom(zone, by: -1)
+            XCTAssertEqual(notifications, atTheClamp + 1)
+            store.resetZoom(zone)
+            XCTAssertEqual(notifications, atTheClamp + 2)
+            store.resetZoom(zone)
+            XCTAssertEqual(
+                notifications, atTheClamp + 2,
+                "\(zone) republished on a second reset to the value it already held"
+            )
+            notifications = 0
+        }
+    }
+
     func testTerminalSizeAndInterfaceScaleAreClampedOnWrite() {
         let store = SettingsStore(defaults: makeDefaults())
 

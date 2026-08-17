@@ -389,7 +389,24 @@ public final class SettingsStore: ObservableObject {
 
     /// The one writer behind `stepZoom`/`resetZoom`. Each property's own `didSet`
     /// still clamps, so this cannot be the place a bad value slips in.
+    ///
+    /// A value equal to the one the zone already holds writes nothing, for the
+    /// reason `setConsent(_:for:)` states one screen up: assigning into a
+    /// `@Published` property republishes the *whole* store — which `ContentView`
+    /// and every hosting root observe — and re-runs the `didSet` that writes
+    /// `UserDefaults`. A zone sitting at its clamp is not a corner case here: a
+    /// held ⌘-scroll keeps producing whole steps at the trackpad's event rate
+    /// long after the zone stopped moving, and each one would otherwise
+    /// re-evaluate the tree, re-apply the editor font and rewrite the defaults
+    /// for no visible change. ⌘0 pressed at rest is the same write twice over.
+    ///
+    /// A plain equality guard is enough: every value that reaches here is already
+    /// inside the rule's range (`stepped(_:by:)` clamps, and `defaultValue` is in
+    /// range by construction), and no property can be holding an out-of-range
+    /// value that this guard would strand — the `didSet`s clamp every write and
+    /// `init` clamps every stored value it reads.
     private func setScale(_ value: Double, for zone: ZoomZone) {
+        guard value != scale(for: zone) else { return }
         switch zone {
         case .code: fontSize = value
         case .terminal: terminalFontSize = value
