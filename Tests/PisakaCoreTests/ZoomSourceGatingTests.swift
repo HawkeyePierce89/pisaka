@@ -119,10 +119,12 @@ final class ZoomSourceGatingTests: XCTestCase {
     /// SwiftUI marker.
     ///
     /// The list reads as the answer to "what can the pointer be over that is not
-    /// chrome": the four code text views, the three views that draw *beside* them
-    /// (two rulers and the minimap — siblings of a text view, so unreachable
-    /// through it), SwiftTerm's terminal view, and the four SwiftUI-drawn code
-    /// regions that carry `ZoomSurfaceMarker`.
+    /// chrome": the four code text views and the `CodeScrollView` each is the
+    /// document of (a content-sized text view answers only for its text, not for
+    /// the pane around it), the three views that draw *beside* them (two rulers
+    /// and the minimap — siblings of a text view, so unreachable through it),
+    /// SwiftTerm's terminal view, and the four SwiftUI-drawn code regions that
+    /// carry `ZoomSurfaceMarker`.
     ///
     /// Set equality rather than a subset check, because both directions are the
     /// bug: a code surface that stops declaring itself starts zooming the chrome,
@@ -157,6 +159,39 @@ final class ZoomSourceGatingTests: XCTestCase {
             }
         }
         XCTAssertEqual(found, Self.zoomSurfaceDeclarers)
+    }
+
+    /// The four files that build a code pane, each of which must scroll its text
+    /// view inside a `CodeScrollView` rather than a plain `NSScrollView`.
+    private static let codePaneBuilders: Set<String> = [
+        "CodeEditorView.swift",
+        "DiffView.swift",
+        "MergeView.swift",
+        "SourceViewerContent.swift",
+    ]
+
+    func testTheCodePanesScrollInsideTheCodeScrollView() throws {
+        // The companion to the surface list above, and the rule it cannot state:
+        // all four text views are content-sized (`minSize = .zero`, both resizable
+        // flags, an unbounded container), so each answers only for the area its
+        // text covers. With a plain `NSScrollView` the pointer below the last line
+        // or right of the longest one is over no conforming view at all, and the
+        // gesture resizes the whole chrome — while every one of these files still
+        // appears in `zoomSurfaceDeclarers`, so nothing above notices.
+        var offenders: [String] = []
+        var found: Set<String> = []
+        for url in try Self.swiftSources() {
+            let name = url.lastPathComponent
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if code.contains("CodeScrollView()") { found.insert(name) }
+            // A code pane that constructs the stock scroll view is the regression;
+            // `ZoomSurface.swift` declares the subclass and builds no pane.
+            if Self.codePaneBuilders.contains(name), code.contains("NSScrollView()") {
+                offenders.append(name)
+            }
+        }
+        XCTAssertEqual(offenders, [], "a code pane still builds a plain NSScrollView, so its empty region zooms the chrome")
+        XCTAssertEqual(found, Self.codePaneBuilders)
     }
 
     // MARK: - The Preferences stepper shares the zoom grid

@@ -208,7 +208,10 @@ struct CodeEditorView: NSViewRepresentable {
             ) ?? false
         }
 
-        let scrollView = NSScrollView()
+        // `CodeScrollView`, not `NSScrollView`: the text view below is
+        // content-sized, so the pane's empty region belongs to no conforming view
+        // and a zoom aimed there would grow the chrome instead of the code.
+        let scrollView = CodeScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.documentView = textView

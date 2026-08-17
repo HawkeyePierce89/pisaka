@@ -99,7 +99,9 @@ struct DiffView: NSViewRepresentable {
         let textView = DiffTextView(usingTextLayoutManager: false)
         textView.side = side
 
-        let scrollView = NSScrollView()
+        // `CodeScrollView` so the pane's empty region — below the last line, right
+        // of the longest one — is still the code zone (see `ZoomSurface`).
+        let scrollView = CodeScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.documentView = textView

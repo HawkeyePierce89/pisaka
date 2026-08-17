@@ -208,7 +208,8 @@ items, and applies the three scales to views.
     the answer lives in `ZoomController`, every rule for turning answers into a
     zone lives in Core. Conformed to by the four code text views
     (`EditorTextView`, `DiffTextView`, `MergePaneTextView`,
-    `SourceViewerTextView`), by the three views that draw **beside** a text view
+    `SourceViewerTextView`), by `CodeScrollView` — the scroll view each of those
+    four is the document of — by the three views that draw **beside** a text view
     rather than inside it — `LineNumberRulerView` (the editor's gutter *and* its
     blame column), `DiffGutterView` and `MinimapView` — by SwiftTerm's
     `TerminalView` — declared as an
@@ -229,6 +230,26 @@ items, and applies the three scales to views.
     `ZoomSourceGatingTests` pins the resulting set by equality, in both
     directions, so a surface cannot be added or dropped without this doc being
     revisited.
+
+    **The empty-region rule is its twin, and cost `CodeScrollView`.** A
+    conformance answers only for the area the view actually *covers*, and all
+    four code text views are content-sized — `minSize = .zero`,
+    `autoresizingMask = []`, both resizable flags, an unbounded text container —
+    so each one's frame is its laid-out text, not its pane. (`CodeEditorView`
+    already relies on this, clamping its scroll offset with
+    `max(0, textView.frame.height - clipView.bounds.height)`.) The pointer below
+    the last line of a short file, or right of the longest line of a narrow one —
+    the ordinary case, not a corner — was therefore over the pane but over no
+    candidate, so the zone resolved to `.interface` and a ⌘= aimed at the code
+    grew the chrome. `CodeScrollView` is an `NSScrollView` subclass declaring
+    `.code`, used by all four panes: a strictly *shallower* candidate than its
+    document view and its ruler, so the deepest-candidate rule is untouched
+    (wherever one of those is hit it still wins, and all of them name the same
+    zone). It is a subclass rather than an `extension NSScrollView` on purpose —
+    the latter would have made the project tree and every settings list a code
+    surface. `ZoomSourceGatingTests.testTheCodePanesScrollInsideTheCodeScrollView`
+    pins it in both directions, because every one of those four files stays in
+    the surface list above even after regressing to a plain `NSScrollView`.
 
     `ZoomSurfaceMarker` is the `NSViewRepresentable` for the surfaces that
     draw at the code font with no `NSTextView` behind them — the Find in Files
@@ -379,13 +400,25 @@ pass while the code it describes was deleted) and asserts:
   - **The set of files declaring a zoom surface** (by conformance or by
     `ZoomSurfaceMarker`) equals the list under `ZoomSurface.swift`. This is the
     rule that has already gone wrong once, and the sibling trap makes it silent.
+  - **Every code pane scrolls inside a `CodeScrollView`**, and no file outside
+    the four builds one — the empty-region rule, which the check above cannot
+    see: all four files stay in the surface set even while their panes' blank
+    areas zoom the chrome.
   - **The Preferences terminal stepper reads its bounds and step from
     `ZoomScaleRule.terminalFont`** rather than restating them. `SettingsStoreTests`
     can only assert that the *store* accepts those bounds; whether the row
     presents them is a fact about a view, and hard-coding `in: 8...40, step: 2`
     there would compile and drift from the grid ⌘0 and the gestures land on.
 
-## Known limit
+## Known limits
+
+**AppKit-drawn chrome is outside the interface zone by construction.** Context
+menus, `DefinitionPicker`'s `NSMenu`, the completion popup `CompletionController`
+drives, `NSAlert`/`PlatformAlert` dialogs, the open/save panels in `FilePanels`
+and the Preferences window's own tab bar are drawn by the system, not by SwiftUI
+views the environment can reach, so they stay at the system size at every scale.
+This is a boundary, not a gap: nothing about `\.interfaceMetrics` can reach them
+short of overriding the system's own menu and panel appearance.
 
 The LeetCode statement pane is a `WKWebView`. Its body follows the **code** zone
 through the CSS size `LeetCodeStatementDocument` builds from `settings.fontSize`

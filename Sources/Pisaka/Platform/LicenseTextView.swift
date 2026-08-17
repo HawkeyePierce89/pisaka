@@ -32,9 +32,11 @@ struct LicenseTextView: View {
     /// every iOS caller still passes.
     ///
     /// Present so the macOS Acknowledgements pane can hand down
-    /// `InterfaceMetrics.font(.caption)`: it is the largest reading surface in
-    /// Preferences, and a license pinned at 11pt inside a window scaled to 200%
-    /// would be the one island left in the interface zone. Defaulting to `nil`
+    /// `InterfaceMetrics.font(.subheadline)` — whose base of 11 is
+    /// `NSFont.smallSystemFontSize`, so 100% still draws what it always did. It is
+    /// the largest reading surface in Preferences, and a license pinned at 11pt
+    /// inside a window scaled to 200% would be the one island left in the
+    /// interface zone. Defaulting to `nil`
     /// rather than to a number keeps the two platforms' resting appearance the
     /// property of the platform, not of this parameter.
     var pointSize: Double?
@@ -84,20 +86,29 @@ extension LicenseTextView {
             guard let textView = scrollView.documentView as? NSTextView else { return }
             // Selecting a different dependency reuses this view, so guard on the
             // content: re-setting an unchanged string would drop the user's
-            // selection and scroll position for nothing. A zoom step changes the
-            // size without changing the text, so that is a second reason to
-            // re-apply — and the *only* one that must not scroll back to the top,
-            // since the user is reading where they are.
-            let isNewDocument = textView.string != text
-            guard isNewDocument || textView.font?.pointSize != resolvedPointSize else { return }
-            apply(text: text, to: textView)
-            if isNewDocument { textView.scroll(.zero) }
+            // selection and scroll position for nothing.
+            if textView.string != text {
+                apply(text: text, to: textView)
+                textView.scroll(.zero)
+                return
+            }
+            // A zoom step changes the size without changing the text, and that is
+            // the path that must *not* disturb where the user is reading — so it
+            // sets the font alone. Re-entering `apply` here would re-assign the
+            // whole 66 KB string on every step, which drops the selection and the
+            // scroll position exactly as the guard above exists to prevent.
+            guard textView.font?.pointSize != resolvedPointSize else { return }
+            textView.font = font
         }
 
         private func apply(text: String, to textView: NSTextView) {
             textView.string = text
-            textView.font = .monospacedSystemFont(ofSize: resolvedPointSize, weight: .regular)
+            textView.font = font
             textView.textColor = .labelColor
+        }
+
+        private var font: NSFont {
+            .monospacedSystemFont(ofSize: resolvedPointSize, weight: .regular)
         }
     }
 }

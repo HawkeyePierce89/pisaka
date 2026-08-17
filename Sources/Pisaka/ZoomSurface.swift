@@ -12,8 +12,9 @@ import PisakaCore
 /// conforms in order to be *found*, not in order to act.
 ///
 /// Conformed to by the four code text views (the editor, the diff panes, the
-/// merge panes, the source viewer), by the three views that draw *beside* them
-/// and are therefore unreachable through them — `LineNumberRulerView` and
+/// merge panes, the source viewer), by `CodeScrollView`, the scroll view each of
+/// them is the document of, by the three views that draw *beside* them and are
+/// therefore unreachable through them — `LineNumberRulerView` and
 /// `DiffGutterView` (a scroll view's ruler is a sibling of its text view) and
 /// `MinimapView` (a sibling of the editor's scroll view) — by SwiftTerm's
 /// terminal view, and by `ZoomSurfaceMarkerView`, the AppKit half of the marker
@@ -21,13 +22,41 @@ import PisakaCore
 /// what is left when no surface was hit, which is why `ZoomSurfaceKind` has no
 /// case for it.
 ///
-/// The sibling rule is the easy thing to get wrong: a view that *looks* like part
-/// of the editor but sits next to its text view produces no candidate at all, so
-/// the pointer over it resolves to `.interface` and the gesture resizes the whole
-/// application chrome. Anything drawn at the code font needs its own conformance.
+/// Two things are easy to get wrong here, and both have already gone wrong:
+///
+/// - **The sibling rule.** A view that *looks* like part of the editor but sits
+///   next to its text view produces no candidate at all, so the pointer over it
+///   resolves to `.interface` and the gesture resizes the whole application
+///   chrome. Anything drawn at the code font needs its own conformance.
+/// - **The empty-region rule.** A conforming view answers only for the area it
+///   actually covers, which for a content-sized text view is the text and not the
+///   pane — see `CodeScrollView`.
 @MainActor
 protocol ZoomSurfaceProviding: AnyObject {
     var zoomSurfaceKind: ZoomSurfaceKind { get }
+}
+
+/// The scroll view of a code pane, declaring the *whole pane* a code surface.
+///
+/// The four code text views are content-sized: each is configured with
+/// `minSize = .zero`, `autoresizingMask = []`, both resizable flags set and an
+/// unbounded text container, so its frame is the laid-out text's own size — not
+/// the clip view's. (`CodeEditorView` already depends on this, clamping its
+/// scroll offset with `max(0, textView.frame.height - clipView.bounds.height)`.)
+/// The pointer below the last line of a short file, or right of the longest line
+/// of a narrow one — the ordinary case, not a corner — is therefore over the
+/// pane but over *no* conforming view, so `ZoomZone.resolve` answered
+/// `.interface` and ⌘=/⌘0/a ⌘-scroll aimed at the code resized the whole chrome.
+///
+/// Conforming the scroll view fixes that without touching the deepest-candidate
+/// rule: it is a strictly shallower candidate than its document view and its
+/// ruler, so wherever one of those is hit it still wins, and both name the same
+/// zone anyway. Nothing but a code pane uses this subclass — an
+/// `extension NSScrollView` would have made the project tree and every settings
+/// list a code surface too.
+@MainActor
+final class CodeScrollView: NSScrollView, ZoomSurfaceProviding {
+    let zoomSurfaceKind: ZoomSurfaceKind = .code
 }
 
 /// Marks a region of SwiftUI-drawn content as a zoom surface.
