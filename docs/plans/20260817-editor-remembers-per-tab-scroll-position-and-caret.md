@@ -123,22 +123,22 @@ AppKit reads/writes stay thin in `CodeEditorView.Coordinator`.
 **Files:**
 - Modify: `Sources/Pisaka/CodeEditorView.swift`
 
-- [ ] In `updateNSView`, capture the previous `context.coordinator.fileID` before it is
+- [x] In `updateNSView`, capture the previous `context.coordinator.fileID` before it is
       overwritten and, when `switchedFile` and a previous id exists, record its viewport
       **before** anything touches the buffer — i.e. above the `textView.string = text` swap.
       Comment the ordering constraint the way the neighbouring steps are commented.
-- [ ] Keep the record *before* `prunePerFileState(keeping: openFileIDs)`, so closing the
+- [x] Keep the record *before* `prunePerFileState(keeping: openFileIDs)`, so closing the
       displayed tab records and then immediately discards it — closed tabs retain nothing.
-- [ ] When `externallyReplaced` is true for the incoming file, `forgetViewport(for: fileID)`
+- [x] When `externallyReplaced` is true for the incoming file, `forgetViewport(for: fileID)`
       in the same branch that clears the undo stack, so a Replace All / post-revert reload /
       merge apply that rewrote a background tab yields a plain top-of-file state rather than
       a viewport describing text that no longer exists.
-- [ ] Compute `hasPendingReveal(...)` before the restore, and restore the viewport only when
+- [x] Compute `hasPendingReveal(...)` before the restore, and restore the viewport only when
       `switchedFile` and no reveal is pending for this file — placed immediately before the
       existing `applyReveal` call, i.e. after the highlighter/minimap/bracket/search/blame
       reconciliation, so the scroll's bounds notification refreshes geometry that is already
       correct for the incoming file.
-- [ ] Run `swift test` (must stay green) and build the macOS app:
+- [x] Run `swift test` (must stay green) and build the macOS app:
       `xcodegen generate && xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`.
 
 ### Task 4: Verify acceptance criteria

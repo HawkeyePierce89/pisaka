@@ -386,8 +386,25 @@ struct CodeEditorView: NSViewRepresentable {
         // below rather than after it.
         context.coordinator.setCompletionEnabled(completionEnabled)
 
-        let switchedFile = context.coordinator.fileID != fileID
+        let previousFileID = context.coordinator.fileID
+        let switchedFile = previousFileID != fileID
         context.coordinator.fileID = fileID
+
+        // Remember where the *outgoing* tab was sitting. Ordering is load-bearing
+        // twice over, which is why this is the first thing a switch does:
+        //
+        // - It must run before the `textView.string = text` swap below. One text
+        //   view serves every tab, so once the incoming file's contents are
+        //   installed the previous file's selection and scroll offset are gone —
+        //   there is nothing left to read.
+        // - It must run before `prunePerFileState(keeping:)` on purpose, not by
+        //   accident: closing the displayed tab records its position and the prune
+        //   immediately discards it again (the id is no longer in `openFileIDs`),
+        //   so a closed tab retains nothing and reopening the file starts at the
+        //   top. Recording afterwards would leave that entry alive for the run.
+        if switchedFile, let previousFileID {
+            context.coordinator.recordViewport(for: previousFileID)
+        }
 
         // Did this file's buffer get replaced from outside the editor since this
         // coordinator last showed it? A replacement of the *displayed* tab is
@@ -464,6 +481,15 @@ struct CodeEditorView: NSViewRepresentable {
             // switch and be replayed against contents it never described.
             if !switchedFile || externallyReplaced {
                 textView.undoManager?.removeAllActions()
+                // The remembered viewport goes stale for exactly the same reason
+                // and on exactly the same signal: a Replace All, a post-revert
+                // `reloadFromDisk` or a merge apply rewrote this file while it sat
+                // off screen, so the recorded selection and anchor name characters
+                // the incoming text never had. Drop it and let the restore below
+                // find nothing — a plain top-of-file state, as on a first visit.
+                if externallyReplaced {
+                    context.coordinator.forgetViewport(for: fileID)
+                }
             }
         }
 
@@ -542,6 +568,25 @@ struct CodeEditorView: NSViewRepresentable {
             // The candidates computed for the outgoing buffer answer a file that
             // is no longer on screen (see `clearCompletions`).
             context.coordinator.clearCompletions()
+        }
+
+        // Put the incoming tab back where it was last left. Deliberately last, and
+        // only on a tab switch:
+        //
+        // - After the buffer swap for the same reason the reveal is, and after the
+        //   minimap/bracket/search/blame reconciliation above so the bounds
+        //   notification the scroll posts refreshes geometry that already describes
+        //   the incoming file rather than the outgoing one.
+        // - Only on a *switch*: an update driven by an ordinary keystroke must
+        //   leave the user's own scrolling alone.
+        // - An explicit reveal outranks the memory. Activating a Find in Files
+        //   result (or a go-to-definition) in an already-open background tab is a
+        //   switch too, and must land on the match rather than on where the tab
+        //   happened to be; `hasPendingReveal` asks the question without consuming
+        //   the request, which `applyReveal` below still does.
+        if switchedFile,
+           !context.coordinator.hasPendingReveal(reveal.request, fileID: fileID) {
+            context.coordinator.restoreViewport(for: fileID)
         }
 
         // Consume a pending Find in Files activation. Deliberately *after* the
