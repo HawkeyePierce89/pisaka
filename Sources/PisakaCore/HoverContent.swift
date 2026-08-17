@@ -144,6 +144,24 @@ public struct HoverContent: Equatable, Hashable, Sendable {
     /// bound the renderer's work in the unit the renderer pays it in.
     public static let maximumLineUTF8Length = 8 * maximumLineLength
 
+    /// The most lines the markup reader is ever handed, across the whole answer.
+    ///
+    /// The third side of the same guard, and the one the two length caps leave
+    /// open: they bound what *a line* costs, not how many arrive. A server
+    /// answering with four hundred thousand short lines passes both — every line
+    /// is well under either cap — and still spends seconds in `HoverMarkup`
+    /// before `truncated(toLineCount:)` throws all but twenty of them away. The
+    /// caps have to close both dimensions or they close neither, and this one is
+    /// counted across the elements together rather than per element: the payload
+    /// carries an *array*, so a per-element bound is no bound at all.
+    ///
+    /// Ten times what the popover draws. Generous, because the guard must never
+    /// be what cuts a real answer — the lines it counts are the server's, before
+    /// blank ones and fences are folded away, so the twenty that get drawn can
+    /// sit some way down — and still small enough that the whole interpretation
+    /// is bounded work rather than work bounded by what the server chose to send.
+    public static let maximumInterpretedLineCount = 10 * maximumLineCount
+
     /// The failable, checking initializer: segments that carry nothing are
     /// dropped, and content left with no segments at all is no content.
     ///
@@ -210,9 +228,16 @@ public struct HoverContent: Equatable, Hashable, Sendable {
     /// pays in full exactly what it exists to prevent: one 80 KB line of `[a](`
     /// spent eighteen seconds producing two thousand characters that were then
     /// thrown away. Clipped here, the interpreter never sees an unbounded line.
-    static func clippedLines(of text: String) -> (lines: [String], didClip: Bool) {
-        var lines = HoverMarkup.lines(of: text)
-        var didClip = false
+    ///
+    /// `lineLimit` closes the other dimension the same way and for the same
+    /// reason — see `maximumInterpretedLineCount`. It defaults to no limit
+    /// because the checking initializer's own use runs on text the caller built,
+    /// which no server sized; the LSP path passes the budget.
+    static func clippedLines(
+        of text: String,
+        lineLimit: Int = .max
+    ) -> (lines: [String], didClip: Bool) {
+        var (lines, didClip) = HoverMarkup.lines(of: text, limit: lineLimit)
         for index in lines.indices {
             let clip = clipped(lines[index])
             guard clip.didClip else { continue }
@@ -397,15 +422,27 @@ extension HoverContent {
     /// interpreted** — see `clippedLines(of:)`. The caps are a hang guard, and a
     /// hang guard downstream of the parse guards nothing: the parse is the pass
     /// that costs the size of the server's answer.
+    ///
+    /// **And to the line-count cap**, spent as one budget over the elements
+    /// together — see `maximumInterpretedLineCount`. An element that exhausts it
+    /// is cut, and the ones after it are not read at all; either is content lost,
+    /// so either marks the answer truncated.
     public init?(hoverElements: [LSPHoverElement]) {
         var didClip = false
-        let bounded = hoverElements.map { element -> LSPHoverElement in
-            let clip = HoverContent.clippedLines(of: element.value)
+        var remaining = HoverContent.maximumInterpretedLineCount
+        var bounded: [LSPHoverElement] = []
+        for element in hoverElements {
+            guard remaining > 0 else {
+                didClip = true
+                break
+            }
+            let clip = HoverContent.clippedLines(of: element.value, lineLimit: remaining)
             if clip.didClip { didClip = true }
+            remaining -= clip.lines.count
             let value = clip.lines.joined(separator: "\n")
             switch element {
-            case .markup(let kind, _): return .markup(kind: kind, value: value)
-            case .code(let language, _): return .code(language: language, value: value)
+            case .markup(let kind, _): bounded.append(.markup(kind: kind, value: value))
+            case .code(let language, _): bounded.append(.code(language: language, value: value))
             }
         }
         self.init(
@@ -941,9 +978,52 @@ enum HoverMarkup {
     // MARK: Whitespace
 
     static func lines(of text: String) -> [String] {
-        text.replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .components(separatedBy: "\n")
+        lines(of: text, limit: .max).lines
+    }
+
+    /// The same split, stopped after `limit` lines, plus whether content was
+    /// left behind.
+    ///
+    /// The bounded form exists for `HoverContent.clippedLines(of:lineLimit:)` —
+    /// a line-count guard that first materializes every line has already paid
+    /// what it exists to save — so it walks only as far as the budget reaches
+    /// and never copies the whole string, which the two `replacingOccurrences`
+    /// passes this replaced did twice over.
+    ///
+    /// Scanned on the UTF-8 view: `\r` and `\n` are single bytes that no
+    /// multi-byte sequence can contain, so finding line ends is a byte scan
+    /// rather than grapheme breaking over text that may be about to be dropped.
+    /// `\r\n` is consumed as one break, which is why the scan looks for either
+    /// byte rather than reaching for `firstIndex(of:)` — and why the lines come
+    /// back through `String(decoding:as:)`, since the `\n` of a `\r\n` pair is
+    /// not a `Character` boundary and slicing the `String` there would round.
+    ///
+    /// A text ending in a terminator has a trailing empty line, exactly as
+    /// `components(separatedBy:)` reports it. Running the budget out on that
+    /// empty line is not content lost, so it does not set the flag.
+    static func lines(of text: String, limit: Int) -> (lines: [String], didClip: Bool) {
+        let utf8 = text.utf8
+        var lines: [String] = []
+        var cursor = utf8.startIndex
+        while lines.count < limit {
+            guard
+                let end = utf8[cursor...].firstIndex(where: {
+                    $0 == UInt8(ascii: "\n") || $0 == UInt8(ascii: "\r")
+                })
+            else {
+                lines.append(String(decoding: utf8[cursor...], as: UTF8.self))
+                return (lines, false)
+            }
+            lines.append(String(decoding: utf8[cursor..<end], as: UTF8.self))
+            var next = utf8.index(after: end)
+            if utf8[end] == UInt8(ascii: "\r"), next < utf8.endIndex,
+                utf8[next] == UInt8(ascii: "\n")
+            {
+                next = utf8.index(after: next)
+            }
+            cursor = next
+        }
+        return (lines, cursor < utf8.endIndex)
     }
 
     static func strippingBlockIndent(_ line: String) -> Substring {

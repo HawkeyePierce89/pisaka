@@ -878,7 +878,8 @@ document, together with the limits they carry.
     reason every other rule is here: `dwellDelay` (0.35 s — the difference between
     "hovering tells you the type" and "moving the mouse across a file fires a
     request per identifier"), `maximumLineCount` (20), `maximumLineLength`
-    (2 000 characters) and `maximumLineUTF8Length` (16 000 bytes). `truncated(toLineCount:lineLength:)` is the cap as pure, idempotent
+    (2 000 characters), `maximumLineUTF8Length` (16 000 bytes) and
+    `maximumInterpretedLineCount` (200). `truncated(toLineCount:lineLength:)` is the cap as pure, idempotent
     arithmetic: it keeps whole segments while they fit, cuts the one that straddles
     the line limit *keeping its kind and language* (half a code block is still
     code), clips every kept line to the length limit on a `Character` boundary (so
@@ -951,6 +952,27 @@ document, together with the limits they carry.
     from the other end. Ordinary text never meets any of this: a line whose whole
     UTF-8 size fits the *character* cap can break neither cap, and that check is
     the first thing the clip does.
+    **The third side of the guard is the line *count*, and the two length caps
+    leave it open**: they bound what a line costs, not how many arrive. Four
+    hundred thousand short lines pass both — every one is far inside either cap —
+    and still cost seconds in `HoverMarkup` before `truncated(toLineCount:)`
+    throws all but twenty away, off the main thread but on the same cooperative
+    pool completions, definitions and the index walk share, and with the whole
+    attempt's budget already expired. `maximumInterpretedLineCount` closes it in
+    the same place and the same pass as the other two, and is spent as **one
+    budget across the elements together**: the payload carries an array, so a
+    per-element bound is no bound at all. Ten times what the popover draws, so
+    the guard is never what cuts a real answer — the lines it counts are the
+    server's, before blank ones and fences fold away — and an element cut for
+    want of budget, or one never read at all, marks the answer truncated like any
+    other loss. `HoverMarkup.lines(of:limit:)` is what makes the bound cost less
+    than what it prevents: it scans the UTF-8 view for `\n`/`\r` (either byte is
+    one break, `\r\n` is one break, and the lines come back through
+    `String(decoding:as:)` because the `\n` of a `\r\n` pair is not a `Character`
+    boundary), stops when the budget runs out, and so never copies the whole
+    string — which the two `replacingOccurrences` passes it replaced did twice
+    over. A line-count guard that first materializes every line has already paid
+    what it exists to save.
     Within that, `truncated` still reads each segment line by line (`cappedLines`)
     rather than `segment.lines` + `prefix`, so it materializes only what it keeps
     and walks only as far as the line budget reaches. Line ends are found on the
@@ -1902,9 +1924,10 @@ there zooms the code — which is the zone the user means.
 Truncation follows from the same line rather than being a separate taste: a
 scrollable popover would need the pointer *inside* it, which would undo all three
 properties at once. So the cap is pure arithmetic in Core
-(`HoverContent.maximumLineCount`, `maximumLineLength` and
-`maximumLineUTF8Length`, the count applied by `truncated(toLineCount:lineLength:)`
-and the two lengths by the checking initializer) and the panel's only job is to
+(`HoverContent.maximumLineCount`, `maximumLineLength`,
+`maximumLineUTF8Length` and `maximumInterpretedLineCount`, the drawn count applied
+by `truncated(toLineCount:lineLength:)`, the two lengths by the checking
+initializer and the interpreted count by `init?(hoverElements:)`) and the panel's only job is to
 draw a marker when the content was cut. Anything past a screenful is better read in
 the file ⌘-click already opens. The cap bounds **lines and their length, the latter
 in characters and in bytes**, because the panel lays the string out synchronously on

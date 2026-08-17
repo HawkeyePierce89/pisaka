@@ -853,4 +853,88 @@ final class HoverContentTests: XCTestCase {
         XCTAssertEqual(content?.segments, [.prose("an inner label")])
     }
 
+
+    // MARK: - The line-count guard
+
+    /// The guard's reason for existing: a server answering with far more lines
+    /// than the popover can draw is bounded *before* the markup reader walks
+    /// them, not after `truncated(toLineCount:)` throws them away.
+    func testAnAnswerOfManyLinesIsBoundedBeforeItIsInterpreted() {
+        let lines = HoverContent.maximumInterpretedLineCount * 50
+        let markdown = Array(repeating: "x", count: lines).joined(separator: "\n")
+        let content = HoverContent(hoverElements: [.markup(kind: .markdown, value: markdown)])
+        XCTAssertEqual(content?.lineCount, HoverContent.maximumInterpretedLineCount)
+        XCTAssertEqual(content?.isTruncated, true)
+    }
+
+    /// The budget is spent over the elements together. A payload of many small
+    /// elements is the same threat as one big one, so a per-element bound would
+    /// be no bound at all.
+    func testTheLineBudgetIsSpentAcrossElementsTogether() {
+        let elements = Array(
+            repeating: LSPHoverElement.markup(kind: .plaintext, value: "a\nb\nc\nd\ne"),
+            count: HoverContent.maximumInterpretedLineCount
+        )
+        let content = HoverContent(hoverElements: elements)
+        XCTAssertEqual(content?.lineCount, HoverContent.maximumInterpretedLineCount)
+        XCTAssertEqual(content?.isTruncated, true)
+    }
+
+    /// Elements dropped for want of budget are content lost, and the marker is
+    /// how the popover says so — even when nothing in the elements that *were*
+    /// read had to be cut.
+    func testElementsLeftUnreadMarkTheAnswerTruncated() {
+        let filler = Array(repeating: "x", count: HoverContent.maximumInterpretedLineCount)
+            .joined(separator: "\n")
+        let content = HoverContent(hoverElements: [
+            .code(language: "swift", value: filler),
+            .markup(kind: .plaintext, value: "never read"),
+        ])
+        XCTAssertEqual(content?.isTruncated, true)
+        XCTAssertEqual(content?.segments.count, 1)
+        XCTAssertEqual(content?.segments.first?.text.contains("never read"), false)
+    }
+
+    /// The guard must never be what cuts a real answer: an ordinary hover — a
+    /// signature and a paragraph — passes it whole and unmarked.
+    func testAnOrdinaryAnswerIsNotTouchedByTheLineGuard() {
+        let content = HoverContent(hoverElements: [
+            .code(language: "swift", value: "func f() -> Int"),
+            .markup(kind: .markdown, value: "Does a thing.\n\nTwice."),
+        ])
+        XCTAssertEqual(content?.isTruncated, false)
+        XCTAssertEqual(
+            content?.segments,
+            [.code("func f() -> Int", language: "swift"), .prose("Does a thing.\n\nTwice.")]
+        )
+    }
+
+    /// The bound leaves the drawn popover room: the twenty lines the renderer
+    /// shows sit well inside what the reader is handed.
+    func testTheLineGuardLeavesTheRendererItsFullCap() {
+        XCTAssertGreaterThan(
+            HoverContent.maximumInterpretedLineCount,
+            HoverContent.maximumLineCount
+        )
+    }
+
+    /// The bounded split is the unbounded one, stopped: same lines, same
+    /// separators — `\r\n` and a bare `\r` are each one break — and a text that
+    /// ends on a terminator has a trailing empty line like any other.
+    func testTheBoundedSplitAgreesWithTheUnboundedOne() {
+        for text in ["a\r\nb\rc\nd", "", "\n", "a\n", "\r\n\r\n", "one line", "a\n\nb"] {
+            let bounded = HoverMarkup.lines(of: text, limit: .max)
+            XCTAssertEqual(bounded.lines, HoverMarkup.lines(of: text), "text: \(text.debugDescription)")
+            XCTAssertFalse(bounded.didClip, "text: \(text.debugDescription)")
+        }
+    }
+
+    /// Running the budget out exactly on a trailing empty line is not content
+    /// lost, so it does not raise the flag.
+    func testABudgetSpentOnATrailingEmptyLineIsNotAClip() {
+        XCTAssertEqual(HoverMarkup.lines(of: "a\nb", limit: 2).didClip, false)
+        XCTAssertEqual(HoverMarkup.lines(of: "a\nb\n", limit: 2).didClip, false)
+        XCTAssertEqual(HoverMarkup.lines(of: "a\nb\nc", limit: 2).didClip, true)
+    }
+
 }

@@ -116,7 +116,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LSPServerDescription.swift` — description + registry (D9).
 - `LSPWorkspace.swift` — one server per `(server, root)`; the D2 flush, D7 backoff, `updateRegistry(_:)` (D16).
 - `CompletionEditPlan.swift` — the pure auto-import rule.
-- `HoverContent.swift` — hover markup → renderable segments; the dwell delay and the two-dimensional cap (D25/D26).
+- `HoverContent.swift` — hover markup → renderable segments; the dwell delay and the three-dimensional cap (D25/D26).
 - `LSPIntelligenceProvider.swift` — protocol answers as seam values (D6 ranking).
 - `RoutingIntelligenceProvider.swift` — LSP first, tree-sitter otherwise; the whole-attempt budget.
 - `LSPGoToolchain.swift` — the gopls pin, discovery report, prompt, Settings row (D17–D19).
