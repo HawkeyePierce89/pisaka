@@ -562,7 +562,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     exists to catch. `syncHover(codeFontSize:metrics:)` forwards both on every
     `updateNSView`, cheaply and unconditionally, because the controller only stores
     them and they are read when the *next* answer is drawn.
-    Four of the popover's dismissal triggers are observations this file already
+    Five of the popover's dismissal triggers are observations this file already
     owned, and each is dismissed at the existing call site rather than by a second
     observer: the text storage's `didProcessEditing` (any edit — programmatic ones
     included, which is why it is the storage's notification and not
@@ -570,8 +570,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `boundsDidChangeNotification` (a scroll moves the text out from under a
     popover anchored in *screen* coordinates — reusing the observation the minimap
     already installs, because two observers of one notification eventually
-    disagree about what a scroll is), and the buffer-swap branch of `updateNSView`,
-    which invalidates a popover describing an offset in the text it just replaced.
+    disagree about what a scroll is), the buffer-swap branch of `updateNSView`,
+    which invalidates a popover describing an offset in the text it just replaced,
+    and the **font-change branch of `updateNSView`**, which is a reflow of the same
+    kind: the anchored line moves and the popover's code is drawn at the old size.
+    That last one is the only dismissal the pointer cannot stand in for — the
+    "moving the pointer an inch takes it down anyway" argument that lets
+    `syncHover(codeFontSize:metrics:)` merely *store* its two values fails for
+    ⌘+/⌘−, which involves no mouse movement at all, and for ⌘-scroll, whose event
+    `ZoomController`'s monitor consumes so the clip view never posts a bounds
+    change.
     `teardown` calls `hover.reset()` beside `completion.reset()`, so a closed tab
     cannot leave a floating annotation of its file on screen.
   - `CompletionController.swift` — feeds AppKit's built-in completion popup from
@@ -868,21 +876,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     inside the anchor answers both cases, and keeps a server range wider than the
     identifier (a qualified name, an operator expression) doing what it is for:
     moving within it re-asks nothing.
-    **Asking, however, requires the offset to be inside the identifier**, and that
-    guard is what makes the "whitespace, punctuation and the empty region past a
-    line" claim above true rather than merely intended. The ending-at probe is
-    wanted only for the suppression test; once there is nothing on screen to keep,
-    a match the offset lies *outside* of is dismissed instead of asked about. A
-    character's laid-out rectangle is not as narrow as it looks — a line's trailing
-    newline is drawn spanning the **whole remainder of its line fragment** — so
-    without the guard a pointer resting in the empty space to the right of a line
-    resolves to that newline, the ending-at probe answers the line's last word, and
-    the popover describes a symbol an inch from the pointer: precisely what
-    `characterIndex(at:in:)` exists to refuse. It is also what keeps the offset the
-    question carries and the range the answer is anchored to talking about the same
-    thing, which matters because the servers disagree at exactly those positions
-    (sourcekit-lsp resolves at the preceding token, gopls' node lookup is
-    `[Pos, End)`).
+    **Asking, however, requires the offset to be inside the identifier.** The
+    ending-at probe is wanted only for the suppression test; once there is nothing
+    on screen to keep, a match the offset lies *outside* of is dismissed instead of
+    asked about — so the space after a name and the `.` of `worker.name` never reach
+    the provider as questions about the word before them. It is also what keeps the
+    offset the question carries and the range the answer is anchored to talking
+    about the same thing, which matters because the servers disagree at exactly
+    those positions (sourcekit-lsp resolves at the preceding token, gopls' node
+    lookup is `[Pos, End)`).
+    **The empty region past a line's end is refused a step earlier, and it has to
+    be.** A character's laid-out rectangle is not as narrow as it looks — a line's
+    trailing separator is drawn spanning the **whole remainder of its line
+    fragment** — so a pointer resting inches to the right of the text resolves to
+    that separator and the ending-at probe answers the line's last word. The
+    ask-side guard alone cannot fix this, because the popover for that word may
+    already be up: the `.` after a name and the newline after one sit at *the very
+    same offset relative to it*, so the suppression test cannot tell them apart and
+    would keep the answer on screen while the pointer sweeps the blank half of the
+    line. `characterIndex(at:in:)` therefore answers `nil` for a line separator
+    outright (`LineStartIndex.isLineSeparator`, so "where a line ends" means what it
+    means to the gutter, the minimap and TextKit), which makes both tests agree and
+    turns the blank region into an ordinary dismissal.
     The buffer is read through the text storage's own `NSMutableString` rather than
     `textView.string`, which bridges — and therefore **copies the whole document**
     — every time it is named. Every other `textView.string` in the editor sits
@@ -906,10 +921,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     contains the point, and two candidates are tried (the index and the one before
     it) because an insertion point is a boundary — a pointer in the right half of a
     glyph reports the index after it. Both halves of every glyph therefore resolve
-    to the glyph. What it does **not** buy is `nil` past a line's end — a trailing
-    newline's rectangle spans the rest of its line fragment, so a point far to the
-    right of the text really is inside it — which is why the identifier gate above
-    carries the offset-inside-the-match guard. The obvious spelling — `glyphIndex(for:in:)` guarded against
+    to the glyph. A **line separator is no character** here, checked before the
+    rectangle test: a trailing newline's rectangle spans the rest of its line
+    fragment, so a point far to the right of the text really is inside it, and
+    answering it would hand the gate above an offset the re-ask suppressor accepts
+    (see the paragraph on the blank region). The obvious spelling — `glyphIndex(for:in:)` guarded against
     `numberOfGlyphs` — is rejected on cost: it forces glyph generation for the
     **entire document** on every mouse-moved event, the exact thing
     `allowsNonContiguousLayout` exists to avoid (see `restoreViewport`).

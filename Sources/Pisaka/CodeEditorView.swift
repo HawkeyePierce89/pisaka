@@ -407,6 +407,13 @@ struct CodeEditorView: NSViewRepresentable {
             textView.font = editorFont()
             context.coordinator.lineNumberRuler?.editorFontChanged()
             context.coordinator.refreshGeometry()
+            // A font change re-lays out the whole buffer, so a popover anchored in
+            // *screen* coordinates now points at a different line and is drawn at
+            // the previous code size. This is the one dismissal the pointer cannot
+            // stand in for: ⌘+/⌘− involves no mouse movement at all, and the
+            // ⌘-scroll path is consumed by `ZoomController`'s event monitor, so the
+            // clip view never posts the bounds change that would otherwise catch it.
+            context.coordinator.dismissHover()
         }
 
         // Re-apply the completion preference. Unconditional because the controller

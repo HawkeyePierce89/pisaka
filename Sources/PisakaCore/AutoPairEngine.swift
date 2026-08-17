@@ -158,14 +158,10 @@ public enum AutoPairEngine {
         return UnicodeScalar(text.character(at: index)).map(Character.init)
     }
 
-    /// Whether `ch` is a line separator under the same semantics `LineStartIndex`
-    /// (and `IndentEngine`) splits lines on: LF, CR, NEL, U+2028, U+2029.
+    /// Whether `ch` is a line separator, deferring to `LineStartIndex` so this
+    /// engine, `IndentEngine` and the gutter can never disagree about where a line
+    /// ends: LF, CR, NEL, U+2028, U+2029.
     private static func isLineSeparator(_ ch: unichar) -> Bool {
-        switch ch {
-        case 0x0A, 0x0D, 0x85, 0x2028, 0x2029:
-            return true
-        default:
-            return false
-        }
+        LineStartIndex.isLineSeparator(ch)
     }
 }

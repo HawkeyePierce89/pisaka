@@ -209,4 +209,33 @@ final class LineStartIndexTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - isLineSeparator(_:)
+
+    /// The predicate must answer exactly the set `offsets(in:)` splits on — asserted
+    /// *against* `offsets` rather than against a second literal list, since a copy of
+    /// the set in the test is the very duplication the predicate exists to remove.
+    func testIsLineSeparatorAgreesWithLineSplitting() {
+        let candidates: [unichar] = [
+            0x0A, 0x0D, 0x85, 0x2028, 0x2029,   // the separators
+            0x09, 0x0B, 0x0C, 0x20, 0x41, 0x7A, // tab, VT, FF, space, letters
+        ]
+        for ch in candidates {
+            let text = "a\(Character(UnicodeScalar(ch)!))b" as NSString
+            let splits = LineStartIndex.offsets(in: text).count > 1
+            XCTAssertEqual(
+                LineStartIndex.isLineSeparator(ch),
+                splits,
+                "U+\(String(format: "%04X", ch))"
+            )
+        }
+    }
+
+    /// CRLF is two separator characters even though it is one line break, which is
+    /// what the callers reading a single `unichar` need it to be.
+    func testIsLineSeparatorAnswersBothHalvesOfCRLF() {
+        XCTAssertTrue(LineStartIndex.isLineSeparator(0x0D))
+        XCTAssertTrue(LineStartIndex.isLineSeparator(0x0A))
+        XCTAssertEqual(offsets("a\r\nb"), [0, 3])
+    }
 }

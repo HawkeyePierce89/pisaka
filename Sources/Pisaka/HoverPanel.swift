@@ -261,15 +261,6 @@ final class HoverPanel {
 
     // MARK: - Placement
 
-    /// Where a panel of `size` goes for an anchor line at `anchor`, in screen
-    /// coordinates.
-    ///
-    /// Below the line by default and flipped above it when the popover would run
-    /// off the bottom of the screen — the same rule a menu follows, and the one a
-    /// user reading downward expects. The horizontal position is clamped rather
-    /// than flipped: a popover pushed left to stay on screen still points at the
-    /// right line, while one flipped to the other side of the identifier would
-    /// not.
     /// The usable area of the screen the anchor is on — the one both the height
     /// clamp and the placement below have to agree about.
     ///
@@ -286,6 +277,15 @@ final class HoverPanel {
         return screen?.visibleFrame ?? anchor
     }
 
+    /// Where a panel of `size` goes for an anchor line at `anchor`, in screen
+    /// coordinates.
+    ///
+    /// Below the line by default and flipped above it when the popover would run
+    /// off the bottom of the screen — the same rule a menu follows, and the one a
+    /// user reading downward expects. The horizontal position is clamped rather
+    /// than flipped: a popover pushed left to stay on screen still points at the
+    /// right line, while one flipped to the other side of the identifier would
+    /// not.
     private static func origin(for size: NSSize, anchoredTo anchor: NSRect) -> NSPoint {
         let visible = visibleFrame(for: anchor)
 

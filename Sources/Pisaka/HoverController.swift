@@ -109,8 +109,11 @@ final class HoverController: NSObject {
     }
 
     /// Keep the two font inputs current (`makeNSView`/`updateNSView`). Applied to
-    /// the next popover; a change while one is up is not worth re-laying out,
-    /// since the pointer moving an inch takes it down anyway.
+    /// the next popover: a live one is never re-laid out, it is dismissed. For the
+    /// code size `CodeEditorView` does that itself, in the same branch that
+    /// re-applies the font — a zoom reflows the buffer under a popover anchored in
+    /// screen coordinates, and neither ⌘+/⌘− nor ⌘-scroll moves the pointer, so
+    /// nothing else would take it down.
     func syncAppearance(codeFontSize: CGFloat, metrics: InterfaceMetrics) {
         self.codeFontSize = codeFontSize
         self.metrics = metrics
@@ -153,6 +156,16 @@ final class HoverController: NSObject {
         // word before it while lying outside that word's range. Testing only the
         // offset would take the popover down and re-ask on every pixel of jitter
         // at exactly the positions a pointer comes to rest on.
+        //
+        // The *empty region past a line's end* is not one of those positions, and
+        // it is `characterIndex(at:in:)` that keeps it out of here: a trailing
+        // separator is laid out spanning the whole remainder of its line fragment,
+        // so a pointer inches to the right of the text resolves to it and the
+        // ending-at probe would answer the line's last word — retaining a popover
+        // about a symbol the pointer has plainly left. Rejecting the separator
+        // there is what makes this test and the ask below agree; a guard on the
+        // offset alone cannot, because the `.` after a name and the newline after
+        // one sit at the very same offset relative to it.
         if let anchorRange,
            NSLocationInRange(offset, anchorRange) || Self.range(anchorRange, contains: match.range) {
             return
@@ -160,16 +173,12 @@ final class HoverController: NSObject {
         // Nothing on screen to keep, so the *second* probe's answer is no longer
         // wanted: a question is only asked when the pointer is over the word
         // itself. `IdentifierScanner` also resolves the identifier *ending* at an
-        // offset (the caret's rule), and a character's laid-out rectangle is not
-        // as narrow as it looks — a line's trailing newline is drawn spanning the
-        // whole remainder of its line fragment, so a pointer resting in the empty
-        // space to the right of a line resolves to that newline, and the ending-at
-        // probe then answers the line's last word. Without this the popover would
-        // describe a symbol an inch away from the pointer, which is precisely what
-        // `characterIndex(at:in:)` refuses to let `characterIndexForInsertion` do.
-        // The same guard is what keeps the space after a name and the `.` of
-        // `worker.name` from reaching the provider, and it makes the offset the
-        // question carries agree with the range the answer is anchored to.
+        // offset (the caret's rule), so without this the space after a name and the
+        // `.` of `worker.name` would reach the provider as questions about the word
+        // before them. Keeping them out also makes the offset the question carries
+        // agree with the range the answer is anchored to, which matters because the
+        // servers disagree at exactly those positions (sourcekit-lsp resolves at the
+        // preceding token, gopls' node lookup is `[Pos, End)`).
         guard NSLocationInRange(offset, match.range) else {
             dismiss()
             return
@@ -321,13 +330,16 @@ final class HoverController: NSObject {
     /// containment test is what tells the two apart — so both halves of every
     /// glyph resolve to the glyph.
     ///
-    /// It does **not** answer `nil` for the empty space past a line's end, which
-    /// is the one thing a rectangle test cannot buy here: a line's trailing
-    /// newline is laid out spanning the whole remainder of its line fragment, so
-    /// a point far to the right of the text is genuinely inside that glyph's
-    /// rectangle and resolves to the newline. What keeps *that* from becoming a
-    /// popover about the line's last word is the offset-inside-the-identifier
-    /// guard in `pointerMoved(to:in:)`, not this method.
+    /// A **line separator is no character** for this purpose, and that is the one
+    /// thing the rectangle test cannot buy on its own: a line's trailing newline is
+    /// laid out spanning the whole remainder of its line fragment, so a point far to
+    /// the right of the text is genuinely inside that glyph's rectangle. Answering
+    /// the separator would hand `pointerMoved(to:in:)` an offset whose ending-at
+    /// probe resolves to the line's last word — which the ask path rejects, but which
+    /// the re-ask suppressor would happily accept, leaving a popover up while the
+    /// pointer sweeps the blank half of the line. The separator set is
+    /// `LineStartIndex`', so "where a line ends" means here what it means to the
+    /// gutter, the minimap and TextKit's own layout.
     ///
     /// The insertion index is clamped by AppKit and both probes are bounded by the
     /// buffer's length, so nothing here can name a glyph that does not exist. That
@@ -337,14 +349,20 @@ final class HoverController: NSObject {
     /// exists to avoid (see `restoreViewport`).
     private static func characterIndex(at point: NSPoint, in textView: NSTextView) -> Int? {
         guard let layoutManager = textView.layoutManager,
-              let container = textView.textContainer
+              let container = textView.textContainer,
+              let storage = textView.textStorage
         else { return nil }
-        let length = textView.textStorage?.length ?? 0
+        let length = storage.length
         guard length > 0 else { return nil }
         let origin = textView.textContainerOrigin
         let containerPoint = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
         let insertion = textView.characterIndexForInsertion(at: point)
         for candidate in [insertion, insertion - 1] where candidate >= 0 && candidate < length {
+            // Read through the storage's own `NSMutableString`, as the identifier
+            // scan does and for the same per-mouse-moved-event reason.
+            if LineStartIndex.isLineSeparator(storage.mutableString.character(at: candidate)) {
+                continue
+            }
             let glyphRange = layoutManager.glyphRange(
                 forCharacterRange: NSRange(location: candidate, length: 1),
                 actualCharacterRange: nil

@@ -49,6 +49,26 @@ public enum LineStartIndex {
         return lastLine.location == content.length
     }
 
+    /// Whether `ch` is one of the editor-wide line separators this type splits
+    /// lines on: LF, CR (the CRLF pair is two of them), NEL, U+2028 (line) and
+    /// U+2029 (paragraph).
+    ///
+    /// The *exact* set, unlike the deliberately over-inclusive `couldStartLine`
+    /// below: callers use this to decide what a character **is**, not whether a
+    /// fast path may be taken, so a false positive is a wrong answer rather than a
+    /// forfeited shortcut. Public because the same question is asked outside the
+    /// line index — `IndentEngine` and `AutoPairEngine` in Core, and the hover
+    /// controller's "is the pointer over a character at all" test, which must
+    /// agree with TextKit's own layout about where a line ends.
+    public static func isLineSeparator(_ ch: unichar) -> Bool {
+        switch ch {
+        case 0x0A, 0x0D, 0x85, 0x2028, 0x2029:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Incrementally update a cached `offsets` array after a single edit, instead
     /// of rescanning the whole document.
     ///
