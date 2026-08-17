@@ -343,7 +343,70 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     same shape as `onOpenFile`). Otherwise recursive rows from the root.
     Directories are `DisclosureGroup`s (`DirectoryNodeView`) that lazily load
     children via `model.children(of:)` on expansion (with `@State`); files are
-    clickable rows that call an `onOpenFile(url)` callback. `DirectoryNodeView`
+    clickable rows that call an `onOpenFile(url)` callback. Directory rows are
+    drawn through a private `DisclosureGroupStyle` (`FolderDisclosureStyle` + its
+    `FolderDisclosureRow`) that renders chevron and
+    label as **one full-width row**: the whole row toggles expansion, not just the
+    ~10pt chevron, and it carries the same hover highlight and padding as a file
+    row (`FileRowView`), so both row kinds read and behave alike. Because the
+    style draws the chevron itself there is no separate disclosure control, so
+    "one click, one state change" holds by construction — the row's single
+    `.onTapGesture` is the only path that changes expansion, and it is the same
+    path a chevron click takes. Drawing it also *removes* a control assistive
+    technology could actuate (a real disclosure triangle is a button with an
+    expanded/collapsed value; an `onTapGesture` on an `HStack` is nothing), so
+    the row re-declares itself as one — combined element, `.isButton`, the
+    expansion state as its `accessibilityValue`, and an `accessibilityAction`
+    toggling the same binding, adding no second expansion path. Both symbols
+    inside that element — the style's chevron and the label's folder icon — are
+    `.accessibilityHidden(true)`: combining children folds an unhidden SF
+    Symbol's own name into the element's label ("chevron.right, folder fill,
+    Sources"), and both are decorative beside the name, the button trait and the
+    value. That restores
+    **VoiceOver** actuation only: a trait is not a focusable control, so the
+    chevron can no longer be reached under Full Keyboard Access. Accepted, and
+    recorded rather than fixed — the tree has no keyboard navigation at all (a
+    file row is an `onTapGesture` too), so focusing folder rows alone would make
+    it half-navigable; restoring it is a tree-wide keyboard pass.
+    `DirectoryNodeView` hands its right-click menu **to the style** (a
+    `@ViewBuilder` closure the style stores) so the menu hangs off the row rather
+    than the label: hover highlight, tap target and context menu are then one
+    rectangle, as they already are on a file row. Left on the label the menu
+    would have excluded the chevron column and the row's horizontal padding while
+    the highlight covered them. The label therefore keeps only its
+    `.frame(maxWidth: .infinity, alignment: .leading)`, and for truncation rather
+    than for hit testing. The style renders `configuration.content` **only while
+    expanded**, so a collapsed folder shows nothing — as the default style does,
+    tearing content state down on collapse the same way. The lazy first load does
+    *not* depend on that: it hangs off `onChange(of: isExpanded)` / `onAppear` and
+    is unaffected either way. The style adds **no inset of its own** to `content`:
+    measured on macOS, the default disclosure style indents content by **zero**
+    (only its *label* sits right of the triangle), so all of the tree's *nesting*
+    indent comes — before and after — from the `.padding(.leading,
+    metrics.scaled(12))` `DirectoryNodeView` puts on each child row. A
+    chevron-column-plus-spacing inset on `content` was tried and reverted: it
+    measured 28pt of indent per level against today's 12pt, i.e. indent that never
+    existed, truncating names in a ~200pt pane. What the chevron column *does*
+    change is the **row lead**, and it changes it for both row kinds on purpose. A
+    folder row's label starts one `horizontalPadding` + chevron column + spacing
+    in (6 + 12 + 4 = 22pt at scale 1), which is more than the 12pt a child row is
+    inset by; a file row therefore leads with the same empty gutter
+    (`TreeRowLayout.chevronGutter`, the two constants scaled *separately* so the
+    half-point grid cannot drift them apart). Without it, files sat at 18pt under a
+    folder label at 22pt — children rendering 4pt **left** of their own parent,
+    i.e. an inverted hierarchy. With it, a file's icon and a sibling folder's icon
+    share a vertical line and every child sits exactly 12pt right of its parent at
+    every depth and scale; the cost is that the tree's whole content, files
+    included, sits one gutter further right than before this change (which is the
+    ordinary file-tree layout, and the one visible geometry change here). The
+    unscaled row geometry lives in one `TreeRowLayout` enum that **both** row kinds
+    read (the horizontal/vertical padding and the hover-highlight color, plus the
+    chevron column, its spacing and the gutter derived from the two) — as literals
+    they would drift apart, and reading alike is the whole point. Every size goes
+    through
+    `\.interfaceMetrics` like the rest of the tree; the style names no
+    `interfaceScale` and declares no zoom surface, so `ZoomSourceGatingTests`' set
+    equalities are untouched. `DirectoryNodeView`
     takes a `startsExpanded` flag seeding `@State isExpanded` via
     `State(initialValue:)`: the root node is built with `startsExpanded: true`
     (its `.onAppear` loads children, since `onChange` never fires for an
@@ -353,7 +416,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     so each newly opened folder also starts expanded. Rows render type-specific
     icons via `FileIcon(for:)` (a private `FileIconColor → SwiftUI Color` helper
     maps the semantic token to a concrete color). Directory-read errors are
-    swallowed (empty list / `NSSound.beep()`), never crashing the view — *except*
+    swallowed (`PlatformFeedback.warning()`, and `children` left *unset* rather
+    than cached as an empty list, so collapsing and re-expanding retries a
+    transient failure), never crashing the view — *except*
     a "no such file" error, which is swallowed silently: a revision-driven reload
     runs for every expanded node, so an external `rm -rf build` (which now reaches
     the tree on its own through `ProjectWatcher`) would otherwise beep once per

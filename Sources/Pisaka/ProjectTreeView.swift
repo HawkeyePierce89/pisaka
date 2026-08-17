@@ -21,6 +21,11 @@ import PisakaCore
 /// volume, or simply not wanting to wait out the 1 s latency). The button calls
 /// `model.bumpTreeRevision()` directly rather than through a callback, since
 /// this view already observes the model and the bump needs no disk I/O.
+///
+/// Both row kinds are full-width click targets: a file row opens the file, a
+/// directory row toggles its expansion (see `FolderDisclosureStyle`), and both
+/// carry the same hover highlight and the same full-row right-click menu, so the
+/// tree reads uniformly.
 struct ProjectTreeView: View {
     @ObservedObject var model: WorkspaceModel
     var onOpenFile: (URL) -> Void = { _ in }
@@ -130,6 +135,14 @@ struct ProjectTreeView: View {
 /// One directory row: a `DisclosureGroup` that lazily loads its children the
 /// first time it is expanded. Children are cached in `@State` so collapsing and
 /// re-expanding does not re-read the disk on every toggle.
+///
+/// It is drawn with `FolderDisclosureStyle`, so the *whole* row — chevron, icon,
+/// name and the blank space right of it — is one click target that toggles
+/// expansion, with a file row's hover highlight; the right-click menu is handed
+/// to the style so it covers that same rectangle. Expansion state, the lazy
+/// first load, the `treeRevision` re-read and the error path are unaffected by
+/// that: a row-body click loads children through the identical `onChange(of:
+/// isExpanded)` path a chevron click has always used.
 private struct DirectoryNodeView: View {
     @ObservedObject var model: WorkspaceModel
     let url: URL
@@ -219,14 +232,31 @@ private struct DirectoryNodeView: View {
             HStack(spacing: metrics.scaled(4)) {
                 Image(systemName: icon.symbolName)
                     .foregroundStyle(color(for: icon.color))
+                    // Decorative, and hidden for the same reason the style hides
+                    // its chevron: this label sits *inside* the row's combined
+                    // accessibility element, so an unhidden symbol prepends its
+                    // own name to that element's label ("folder fill, Sources").
+                    // Directory-ness is already carried by the row's button
+                    // trait and its expanded/collapsed `accessibilityValue`.
+                    .accessibilityHidden(true)
                 Text(name)
             }
             .font(metrics.scaledFont(.body))
             .lineLimit(1)
             .truncationMode(.middle)
+            // Stretches the label across the row's remaining width, so the name
+            // truncates against the pane's edge rather than sitting at its
+            // natural width. The click and right-click targets do not depend on
+            // it — both live on the row (see `FolderDisclosureStyle`).
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .contextMenu {
+        }
+        // The menu travels to the style so it can hang off the *row* rather than
+        // the label, exactly as `FileRowView` hangs its own off the row it
+        // highlights: the chevron column and the row's padding are inside the
+        // hover highlight and the tap target, so they must be inside the
+        // right-click target too.
+        .disclosureGroupStyle(
+            FolderDisclosureStyle {
                 Button("New File…") { onNewFile(url) }
                 Button("New Folder…") { onNewFolder(url) }
                 if !isRoot {
@@ -235,7 +265,7 @@ private struct DirectoryNodeView: View {
                     Button("Delete") { onDelete(url) }
                 }
             }
-        }
+        )
         .onChange(of: isExpanded) { expanded in
             if expanded && children == nil {
                 loadChildren()
@@ -297,6 +327,154 @@ private struct DirectoryNodeView: View {
     }
 }
 
+/// The disclosure style every directory row in the tree is drawn with: chevron
+/// and label as one full-width row that toggles expansion wherever it is
+/// clicked, matching a file row's hover treatment.
+///
+/// It exists so there is exactly *one* toggle path. The default macOS style
+/// keeps the chevron as its own control, so making the label clickable too would
+/// give a chevron click two chances to fire and a row click and a chevron click
+/// different code. Drawing the chevron here removes that control entirely: the
+/// row's single `.onTapGesture` is the only way expansion changes.
+///
+/// `configuration.content` is rendered only while expanded, so a collapsed
+/// folder shows nothing — the default style does the same, and both tear the
+/// content's state down on collapse. `DirectoryNodeView`'s lazy first load does
+/// *not* hang off this: it is driven entirely by `onChange(of: isExpanded)` /
+/// `onAppear`, and is unaffected either way.
+///
+/// The style adds **no** inset of its own to `content`. Measured on macOS 13+,
+/// the default disclosure style indents content by zero (only its *label* sits
+/// right of the triangle), so every point of the tree's nesting indent comes —
+/// before and after this change — from the `.padding(.leading,
+/// metrics.scaled(12))` `DirectoryNodeView` puts on each child row. An inset
+/// here would be indent that never existed: it measured 28pt per level against
+/// today's 12pt, truncating names in a pane only ~200pt wide.
+///
+/// The row's *right*-click menu is passed in rather than left on the label, so
+/// the three targets a folder row has — the hover highlight, the tap and the
+/// context menu — are the same rectangle, as they are on a file row. Left on the
+/// label it would have excluded the chevron column and the row's own horizontal
+/// padding while the highlight covered them.
+private struct FolderDisclosureStyle<Menu: View>: DisclosureGroupStyle {
+    /// The row's right-click menu items, built by `DirectoryNodeView`.
+    @ViewBuilder var menu: () -> Menu
+
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FolderDisclosureRow(configuration: configuration, menu: menu)
+            if configuration.isExpanded {
+                configuration.content
+            }
+        }
+    }
+}
+
+/// The chevron + label row `FolderDisclosureStyle` draws. A separate view (not
+/// inline in `makeBody`) because it needs its own `@State` for hover tracking
+/// and its own `\.interfaceMetrics` read — and because keeping the hover state
+/// off the enclosing view means hovering a folder invalidates the row, not its
+/// whole expanded subtree.
+private struct FolderDisclosureRow<Menu: View>: View {
+    let configuration: DisclosureGroupStyleConfiguration
+    @ViewBuilder var menu: () -> Menu
+
+    @State private var isHovering = false
+
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+
+    var body: some View {
+        HStack(spacing: metrics.scaled(TreeRowLayout.chevronSpacing)) {
+            Image(systemName: "chevron.right")
+                .font(metrics.scaledFont(.caption))
+                .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(configuration.isExpanded ? 90 : 0))
+                // A fixed column so sibling labels line up regardless of the
+                // chevron glyph's own metrics.
+                .frame(width: metrics.scaled(TreeRowLayout.chevronWidth))
+                // Decorative: the row below combines its children into one
+                // element, so an unhidden symbol contributes its own name to
+                // that element's label ("chevron.right, Sources"). The state it
+                // draws is already carried, properly, by `accessibilityValue`.
+                .accessibilityHidden(true)
+            configuration.label
+        }
+        // Exactly `FileRowView`'s treatment — the same three `TreeRowLayout`
+        // values, not a second copy of them — so a folder row and a file row read
+        // and highlight alike. The label brings its own `maxWidth: .infinity`
+        // frame, but the row repeats it: the highlight must cover the chevron
+        // column too, edge to edge.
+        .padding(.horizontal, metrics.scaled(TreeRowLayout.horizontalPadding))
+        .padding(.vertical, metrics.scaled(TreeRowLayout.verticalPadding))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(isHovering ? TreeRowLayout.hoverHighlight : Color.clear)
+        .contentShape(Rectangle())
+        // Plain assignment, deliberately not `withAnimation`: animating the
+        // insertion of a deep nested subtree is a regression this change does
+        // not need.
+        .onTapGesture { configuration.isExpanded.toggle() }
+        .onHover { isHovering = $0 }
+        .contextMenu { menu() }
+        // Drawing the chevron ourselves removes the one control in this tree
+        // that assistive technology could actuate — a `DisclosureGroup`'s own
+        // triangle is a button with an expanded/collapsed value, and an
+        // `onTapGesture` on an `HStack` is nothing at all. Re-declare the row as
+        // that button, which restores *VoiceOver* actuation: the element carries
+        // the button trait, the expansion state as its value and a press action
+        // toggling the same binding the tap does, so this adds no second path to
+        // expansion. It does **not** restore keyboard focus — an accessibility
+        // trait is not a focusable control — so under Full Keyboard Access the
+        // triangle can no longer be tabbed to. That is an accepted limitation,
+        // not a fixed one: this tree has no keyboard navigation to fit it into
+        // (a file row is an `onTapGesture` too, so no file was ever openable
+        // that way), and adding focus to folder rows alone would make the tree
+        // half-navigable. Restoring it belongs to a tree-wide keyboard pass.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityValue(configuration.isExpanded ? "expanded" : "collapsed")
+        .accessibilityAction { configuration.isExpanded.toggle() }
+    }
+}
+
+/// The unscaled geometry a tree row is drawn with. The first three values are
+/// what makes a folder row and a file row read alike, so both row kinds read
+/// them from here: duplicated as literals, a change to one row kind would
+/// silently desynchronize the other. Each is scaled through
+/// `\.interfaceMetrics` at its use site, like every other size in the tree.
+private enum TreeRowLayout {
+    /// The row's horizontal padding, inside the hover highlight.
+    static let horizontalPadding: Double = 6
+    /// The row's vertical padding, inside the hover highlight.
+    static let verticalPadding: Double = 3
+    /// The row's hover highlight.
+    static let hoverHighlight = Color.accentColor.opacity(0.15)
+    /// The folder row's fixed chevron column width.
+    static let chevronWidth: Double = 12
+    /// The folder row's gap between the chevron column and the label.
+    static let chevronSpacing: Double = 4
+
+    /// The empty chevron gutter a *file* row leads with — the folder row's
+    /// chevron column plus its spacing, so a file's icon and a sibling folder's
+    /// icon land on the same vertical line.
+    ///
+    /// Load-bearing, not cosmetic. A child row is inset by
+    /// `metrics.scaled(12)`, which is *less* than the gutter: without it a
+    /// folder's label sat 22pt in while its own file children sat at 18pt, so
+    /// files rendered 4pt to the **left** of the folder containing them and the
+    /// hierarchy read inverted. Both row kinds leading with the same gutter puts
+    /// every child strictly 12pt right of its parent again, at every depth and
+    /// every interface scale.
+    ///
+    /// Scaled as the sum of the two *separately scaled* constants rather than
+    /// `scaled(16)`: `InterfaceMetrics.scaled(_:)` rounds to the half-point
+    /// grid, so only scaling each the way the folder row does keeps the two row
+    /// kinds in lockstep instead of drifting half a point apart at some scales.
+    static func chevronGutter(_ metrics: InterfaceMetrics) -> Double {
+        metrics.scaled(chevronWidth) + metrics.scaled(chevronSpacing)
+    }
+}
+
 /// One file row in the tree: a clickable label that opens the file. The icon
 /// is resolved from the file's `DirectoryEntry` via `FileIcon`.
 private struct FileRowView: View {
@@ -322,10 +500,18 @@ private struct FileRowView: View {
         .font(metrics.scaledFont(.body))
         .lineLimit(1)
         .truncationMode(.middle)
-        .padding(.horizontal, metrics.scaled(6))
-        .padding(.vertical, metrics.scaled(3))
+        // A file has nothing to disclose, but it still leads with the space a
+        // folder row's chevron column occupies: that is what aligns its icon
+        // with a sibling folder's and what keeps a child row from out-denting
+        // the folder it sits in (see `TreeRowLayout.chevronGutter`). Applied
+        // inside the row's horizontal padding, like the chevron column is.
+        .padding(.leading, TreeRowLayout.chevronGutter(metrics))
+        // Shared with `FolderDisclosureRow` through `TreeRowLayout`, which is
+        // what keeps the two row kinds' treatment identical.
+        .padding(.horizontal, metrics.scaled(TreeRowLayout.horizontalPadding))
+        .padding(.vertical, metrics.scaled(TreeRowLayout.verticalPadding))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isHovering ? Color.accentColor.opacity(0.15) : Color.clear)
+        .background(isHovering ? TreeRowLayout.hoverHighlight : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture(perform: onOpen)
         .onHover { isHovering = $0 }
