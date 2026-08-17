@@ -254,8 +254,10 @@ final class HoverContentTests: XCTestCase {
     func testLinksAndImagesKeepTheirTextAndLoseTheUrl() {
         XCTAssertEqual(prose("see [the docs](https://example.com/very/long)"), "see the docs")
         XCTAssertEqual(prose("![a diagram](img.png) follows"), "a diagram follows")
-        XCTAssertEqual(prose("a [reference][ref] link"), "a reference link")
         XCTAssertEqual(prose("emphasised [*link*](u)"), "emphasised link")
+        // A reference-style link is *not* read as one: see
+        // `testDoublyBracketedExpressionsAreLeftAsText`.
+        XCTAssertEqual(prose("a [reference][ref] link"), "a [reference][ref] link")
     }
 
     /// Brackets with nothing linked behind them are text, not a label.
@@ -277,6 +279,22 @@ final class HoverContentTests: XCTestCase {
         // Inline markup *inside* such a bracket run is still degraded, because the
         // brackets are the only thing being kept.
         XCTAssertEqual(prose("keep [a *b* c] here"), "keep [a b c] here")
+    }
+
+    /// The same rule, for the shape a reference-style link is indistinguishable
+    /// from: only a `(destination)` makes a `[…]` a link.
+    ///
+    /// `a[i][j]` is a doubly-indexed expression in every language a server
+    /// answers for and is also exactly CommonMark's collapsed-reference syntax,
+    /// so the two cannot both be honoured. Reference links lose: their
+    /// definitions (`[ref]: url`) are never sent inside a hover string — there
+    /// is no document for them to live in — so reading one costs a real name and
+    /// buys nothing.
+    func testDoublyBracketedExpressionsAreLeftAsText() {
+        XCTAssertEqual(prose("the value matrix[i][j] is used"), "the value matrix[i][j] is used")
+        XCTAssertEqual(prose("grid[x][y] and a[b][c]"), "grid[x][y] and a[b][c]")
+        // Including the image spelling of the same shape.
+        XCTAssertEqual(prose("negate ![flag][ref] first"), "negate ![flag][ref] first")
     }
 
     /// A rule leaves the blank line it was standing in — the separation it meant

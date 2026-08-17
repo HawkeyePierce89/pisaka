@@ -549,7 +549,7 @@ enum HoverMarkup {
         return nil
     }
 
-    /// Past a link label's destination — `(url)` or `[reference]` — or `nil` when
+    /// Past a link label's destination — `(url)`, and only that — or `nil` when
     /// no target follows. The URL is what is being thrown away.
     ///
     /// **`nil` is the load-bearing answer**, and it is what makes a `[…]` a link
@@ -560,15 +560,19 @@ enum HoverMarkup {
     /// name rather than an unformatted one, in exactly the prose Go and Rust
     /// servers write beside a signature. Same reasoning as the unclosed emphasis
     /// run at the bottom of `inline(_:)`: unmatched markup is text.
+    ///
+    /// **A reference target (`[label][ref]`) is deliberately not read**, which is
+    /// where this stops following CommonMark. The two syntaxes are
+    /// indistinguishable from `a[i][j]` — a doubly-indexed expression in every
+    /// language a server answers for — and honouring the markup answers `ai`,
+    /// the same class of wrong name the paragraph above exists to prevent. The
+    /// trade is one-sided: a reference link needs a `[ref]: url` definition to
+    /// resolve against, and a hover string is a fragment with no document for
+    /// one to live in, so nothing is lost that a server can actually send. Such
+    /// a label stays literal text, which is the degraded-not-wrong direction the
+    /// whole reader is built around.
     private static func skippingLinkTarget(in characters: [Character], from index: Int) -> Int? {
-        guard index < characters.count else { return nil }
-        let opener = characters[index]
-        let closer: Character
-        switch opener {
-        case "(": closer = ")"
-        case "[": closer = "]"
-        default: return nil
-        }
+        guard index < characters.count, characters[index] == "(" else { return nil }
         var depth = 0
         var cursor = index
         while cursor < characters.count {
@@ -577,8 +581,8 @@ enum HoverMarkup {
                 cursor += 2
                 continue
             }
-            if character == opener { depth += 1 }
-            if character == closer {
+            if character == "(" { depth += 1 }
+            if character == ")" {
                 depth -= 1
                 if depth == 0 { return cursor + 1 }
             }

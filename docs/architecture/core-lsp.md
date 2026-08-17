@@ -920,16 +920,22 @@ document, together with the limits they carry.
     them), a link or image keeps its text/alt and loses its URL, and a backslash
     escape yields the character it escaped. An unclosed code span leaves its
     backticks standing rather than eating the line.
-    **A `[…]` is a link label only when a target actually follows it** — `(url)`
-    or `[reference]` — and otherwise the brackets are written out as the text they
-    are. This is the same rule as the unclosed emphasis run below and it is
-    load-bearing for the same reason: reading every balanced bracket pair as a
-    label answers `byte` for `[]byte`, `mapstringint` for `map[string]int` and
-    `T; N` for `[T; N]`, which is how Go and Rust spell *types* in exactly the
-    unfenced prose this normalizer sees. A wrong name, not an unformatted one. The
-    cost is that a CommonMark *shortcut* reference (`[Vec]` with its definition
-    elsewhere in the document) keeps its brackets, which is the harmless direction
-    to be wrong in.
+    **A `[…]` is a link label only when a `(url)` destination actually follows
+    it**, and otherwise the brackets are written out as the text they are. This is
+    the same rule as the unclosed emphasis run below and it is load-bearing for
+    the same reason: reading every balanced bracket pair as a label answers `byte`
+    for `[]byte`, `mapstringint` for `map[string]int` and `T; N` for `[T; N]`,
+    which is how Go and Rust spell *types* in exactly the unfenced prose this
+    normalizer sees. A wrong name, not an unformatted one.
+    **A reference target is not read either** — `[label][ref]` and the shortcut
+    `[Vec]` both keep their brackets — which is where the rule stops following
+    CommonMark rather than merely narrowing it. `a[i][j]` is a doubly-indexed
+    expression in every language a server answers for *and* is character-for-
+    character CommonMark's collapsed-reference syntax, so the two cannot both be
+    honoured, and honouring the markup answers `ai`. The trade is one-sided: a
+    reference link resolves against a `[ref]: url` definition, a hover answer is a
+    fragment with no document for one to live in, so no server can send a
+    reference that would have resolved anyway.
     **`<`…`>` is dropped only against an allow-list of HTML element names**, and
     the attribute list is *walked* rather than skipped to the next `>`. Both
     halves are deliberate departures from CommonMark, in the one direction this
