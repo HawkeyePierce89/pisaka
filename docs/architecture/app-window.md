@@ -357,7 +357,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     expanded/collapsed value; an `onTapGesture` on an `HStack` is nothing), so
     the row re-declares itself as one — combined element, `.isButton`, the
     expansion state as its `accessibilityValue`, and an `accessibilityAction`
-    toggling the same binding, adding no second expansion path.
+    toggling the same binding, adding no second expansion path. That restores
+    **VoiceOver** actuation only: a trait is not a focusable control, so the
+    chevron can no longer be reached under Full Keyboard Access. Accepted, and
+    recorded rather than fixed — the tree has no keyboard navigation at all (a
+    file row is an `onTapGesture` too), so focusing folder rows alone would make
+    it half-navigable; restoring it is a tree-wide keyboard pass.
     `DirectoryNodeView` hands its right-click menu **to the style** (a
     `@ViewBuilder` closure the style stores) so the menu hangs off the row rather
     than the label: hover highlight, tap target and context menu are then one
@@ -366,19 +371,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the highlight covered them. The label therefore keeps only its
     `.frame(maxWidth: .infinity, alignment: .leading)`, and for truncation rather
     than for hit testing. The style renders `configuration.content` **only while
-    expanded** — as the default style does, and `DirectoryNodeView`'s lazy first
-    load depends on it — and re-supplies, through `FolderContentInset`, the
-    leading inset the default style used to add to `content` (the chevron column
-    plus the row spacing — the two `FolderRowLayout` constants, 12 and 4, that
-    the row and the inset must agree on), which a custom style does not, so
-    nesting indentation is unchanged. That inset scales the two constants
-    **separately** and adds the results, mirroring the row's own two independent
-    scalings: `InterfaceMetrics` rounds to the half-point grid, so scaling the
-    sum instead lands elsewhere at most scales (15.5 + 5.0 = 20.5 vs. 21.0 at
-    1.3) and would skew every nested row against its parent's label. Every new
-    size goes through `\.interfaceMetrics` like the rest of the tree; the style
-    names no `interfaceScale` and declares no zoom surface, so
-    `ZoomSourceGatingTests`' set equalities are untouched. `DirectoryNodeView`
+    expanded**, so a collapsed folder shows nothing — as the default style does,
+    tearing content state down on collapse the same way. The lazy first load does
+    *not* depend on that: it hangs off `onChange(of: isExpanded)` / `onAppear` and
+    is unaffected either way. The style adds **no inset of its own** to `content`,
+    which is what keeps nesting indentation unchanged: measured on macOS, the
+    default disclosure style indents content by **zero** (only its *label* sits
+    right of the triangle), so all of the tree's nesting indent comes — before and
+    after — from the `.padding(.leading, metrics.scaled(12))` `DirectoryNodeView`
+    puts on each child row. A chevron-column-plus-spacing inset was tried and
+    reverted: it measured 28pt of indent per level against today's 12pt, i.e.
+    indent that never existed, truncating names in a ~200pt pane. The unscaled row
+    geometry lives in one `TreeRowLayout` enum that **both** row kinds read (the
+    horizontal/vertical padding and the hover-highlight color, plus the folder
+    row's chevron column and spacing) — as literals they would drift apart, and
+    reading alike is the whole point. Every size goes through
+    `\.interfaceMetrics` like the rest of the tree; the style names no
+    `interfaceScale` and declares no zoom surface, so `ZoomSourceGatingTests`' set
+    equalities are untouched. `DirectoryNodeView`
     takes a `startsExpanded` flag seeding `@State isExpanded` via
     `State(initialValue:)`: the root node is built with `startsExpanded: true`
     (its `.onAppear` loads children, since `onChange` never fires for an

@@ -330,10 +330,19 @@ private struct DirectoryNodeView: View {
 /// different code. Drawing the chevron here removes that control entirely: the
 /// row's single `.onTapGesture` is the only way expansion changes.
 ///
-/// `configuration.content` is rendered only while expanded — the default style
-/// does the same, and `DirectoryNodeView`'s lazy first load depends on it. The
-/// style re-supplies the leading inset the default style used to add to
-/// `content`, since a custom style indents nothing on its own.
+/// `configuration.content` is rendered only while expanded, so a collapsed
+/// folder shows nothing — the default style does the same, and both tear the
+/// content's state down on collapse. `DirectoryNodeView`'s lazy first load does
+/// *not* hang off this: it is driven entirely by `onChange(of: isExpanded)` /
+/// `onAppear`, and is unaffected either way.
+///
+/// The style adds **no** inset of its own to `content`. Measured on macOS 13+,
+/// the default disclosure style indents content by zero (only its *label* sits
+/// right of the triangle), so every point of the tree's nesting indent comes —
+/// before and after this change — from the `.padding(.leading,
+/// metrics.scaled(12))` `DirectoryNodeView` puts on each child row. An inset
+/// here would be indent that never existed: it measured 28pt per level against
+/// today's 12pt, truncating names in a pane only ~200pt wide.
 ///
 /// The row's *right*-click menu is passed in rather than left on the label, so
 /// the three targets a folder row has — the hover highlight, the tap and the
@@ -349,7 +358,6 @@ private struct FolderDisclosureStyle<Menu: View>: DisclosureGroupStyle {
             FolderDisclosureRow(configuration: configuration, menu: menu)
             if configuration.isExpanded {
                 configuration.content
-                    .modifier(FolderContentInset())
             }
         }
     }
@@ -370,24 +378,25 @@ private struct FolderDisclosureRow<Menu: View>: View {
     @Environment(\.interfaceMetrics) private var metrics
 
     var body: some View {
-        HStack(spacing: metrics.scaled(FolderRowLayout.spacing)) {
+        HStack(spacing: metrics.scaled(TreeRowLayout.chevronSpacing)) {
             Image(systemName: "chevron.right")
                 .font(metrics.scaledFont(.caption))
                 .foregroundStyle(.secondary)
                 .rotationEffect(.degrees(configuration.isExpanded ? 90 : 0))
                 // A fixed column so sibling labels line up regardless of the
                 // chevron glyph's own metrics.
-                .frame(width: metrics.scaled(FolderRowLayout.chevronWidth))
+                .frame(width: metrics.scaled(TreeRowLayout.chevronWidth))
             configuration.label
         }
-        // Exactly `FileRowView`'s treatment, so a folder row and a file row read
+        // Exactly `FileRowView`'s treatment — the same three `TreeRowLayout`
+        // values, not a second copy of them — so a folder row and a file row read
         // and highlight alike. The label brings its own `maxWidth: .infinity`
         // frame, but the row repeats it: the highlight must cover the chevron
         // column too, edge to edge.
-        .padding(.horizontal, metrics.scaled(6))
-        .padding(.vertical, metrics.scaled(3))
+        .padding(.horizontal, metrics.scaled(TreeRowLayout.horizontalPadding))
+        .padding(.vertical, metrics.scaled(TreeRowLayout.verticalPadding))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isHovering ? Color.accentColor.opacity(0.15) : Color.clear)
+        .background(isHovering ? TreeRowLayout.hoverHighlight : Color.clear)
         .contentShape(Rectangle())
         // Plain assignment, deliberately not `withAnimation`: animating the
         // insertion of a deep nested subtree is a regression this change does
@@ -399,9 +408,16 @@ private struct FolderDisclosureRow<Menu: View>: View {
         // that assistive technology could actuate — a `DisclosureGroup`'s own
         // triangle is a button with an expanded/collapsed value, and an
         // `onTapGesture` on an `HStack` is nothing at all. Re-declare the row as
-        // that button so a folder is still reachable without a pointer. The
-        // action toggles through the same binding the tap does, so this adds no
-        // second path to expansion.
+        // that button, which restores *VoiceOver* actuation: the element carries
+        // the button trait, the expansion state as its value and a press action
+        // toggling the same binding the tap does, so this adds no second path to
+        // expansion. It does **not** restore keyboard focus — an accessibility
+        // trait is not a focusable control — so under Full Keyboard Access the
+        // triangle can no longer be tabbed to. That is an accepted limitation,
+        // not a fixed one: this tree has no keyboard navigation to fit it into
+        // (a file row is an `onTapGesture` too, so no file was ever openable
+        // that way), and adding focus to folder rows alone would make the tree
+        // half-navigable. Restoring it belongs to a tree-wide keyboard pass.
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityValue(configuration.isExpanded ? "expanded" : "collapsed")
@@ -409,37 +425,22 @@ private struct FolderDisclosureRow<Menu: View>: View {
     }
 }
 
-/// Re-supplies the leading inset the default disclosure style adds to `content`
-/// and a custom style does not: the chevron column plus the row's spacing, so
-/// nesting lands where it did before. A modifier rather than a `.padding` inside
-/// `makeBody` because the inset is scaled and `DisclosureGroupStyle.makeBody`
-/// cannot read the environment.
-private struct FolderContentInset: ViewModifier {
-    /// The interface zone's metrics, inherited from the window root.
-    @Environment(\.interfaceMetrics) private var metrics
-
-    func body(content: Content) -> some View {
-        content
-            // Two separate `scaled(_:)` calls, *not* `scaled(chevronWidth +
-            // spacing)`: the row lays those two out as separately scaled
-            // quantities and `InterfaceMetrics` rounds each to the half-point
-            // grid, so scaling the sum lands on a different point at most
-            // scales (at 1.3: 15.5 + 5.0 = 20.5 vs. 21.0) and would skew every
-            // nested row against its parent's label.
-            .padding(
-                .leading,
-                metrics.scaled(FolderRowLayout.chevronWidth)
-                    + metrics.scaled(FolderRowLayout.spacing)
-            )
-    }
-}
-
-/// The two unscaled sizes the folder row and its content inset must agree on.
-private enum FolderRowLayout {
-    /// The fixed chevron column's width.
+/// The unscaled geometry a tree row is drawn with. The first three values are
+/// what makes a folder row and a file row read alike, so both row kinds read
+/// them from here: duplicated as literals, a change to one row kind would
+/// silently desynchronize the other. Each is scaled through
+/// `\.interfaceMetrics` at its use site, like every other size in the tree.
+private enum TreeRowLayout {
+    /// The row's horizontal padding, inside the hover highlight.
+    static let horizontalPadding: Double = 6
+    /// The row's vertical padding, inside the hover highlight.
+    static let verticalPadding: Double = 3
+    /// The row's hover highlight.
+    static let hoverHighlight = Color.accentColor.opacity(0.15)
+    /// The folder row's fixed chevron column width.
     static let chevronWidth: Double = 12
-    /// The gap between the chevron column and the label.
-    static let spacing: Double = 4
+    /// The folder row's gap between the chevron column and the label.
+    static let chevronSpacing: Double = 4
 }
 
 /// One file row in the tree: a clickable label that opens the file. The icon
@@ -467,10 +468,12 @@ private struct FileRowView: View {
         .font(metrics.scaledFont(.body))
         .lineLimit(1)
         .truncationMode(.middle)
-        .padding(.horizontal, metrics.scaled(6))
-        .padding(.vertical, metrics.scaled(3))
+        // Shared with `FolderDisclosureRow` through `TreeRowLayout`, which is
+        // what keeps the two row kinds' treatment identical.
+        .padding(.horizontal, metrics.scaled(TreeRowLayout.horizontalPadding))
+        .padding(.vertical, metrics.scaled(TreeRowLayout.verticalPadding))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isHovering ? Color.accentColor.opacity(0.15) : Color.clear)
+        .background(isHovering ? TreeRowLayout.hoverHighlight : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture(perform: onOpen)
         .onHover { isHovering = $0 }

@@ -156,7 +156,26 @@ one assistive-technology-actuable control (a real disclosure triangle is a butto
 with an expanded/collapsed value), so the row re-declares itself as that button
 via `.accessibilityElement(children: .combine)` / `.isButton` /
 `.accessibilityValue` / `.accessibilityAction`, toggling the same binding the tap
-does.
+does. That restores VoiceOver actuation but not keyboard focus (a trait is not a
+focusable control), so the chevron can no longer be tabbed to under Full Keyboard
+Access — accepted and recorded in `app-window.md` rather than fixed, since the
+tree has no keyboard navigation for a focusable folder row to fit into.
+
+**Second correction made during code review.** The instruction above to inset
+`configuration.content` rested on a premise that measured false: the default
+macOS `DisclosureGroup` style indents its content by **zero** (probed with
+`NSHostingView` — content `minX` 0.0, label `minX` 11.5; only the label sits right
+of the triangle). Every point of today's nesting indent already comes from the
+`.padding(.leading, metrics.scaled(12))` on each child row, so the inset was not
+re-supplying anything — it added 16pt per level that never existed (measured
+28pt/level against master's 12pt; a 4-deep file row moved 48pt → 112pt), which is
+exactly the visible indentation change this task forbids. `FolderContentInset` is
+therefore deleted and `configuration.content` rendered unmodified, reproducing
+master's geometry to the point (12pt/level, leaf row at 48pt). The half-point-grid
+reasoning about scaling the two constants separately goes with it — with no inset
+there is nothing for the row to agree with. Separately, the row's padding and
+hover color, duplicated as literals against `FileRowView`, moved into one
+`TreeRowLayout` enum both row kinds read.
 
 ### Task 2: Update the architecture documentation
 
@@ -170,12 +189,15 @@ Record the observable change where the tree's contract lives. In
 `DisclosureGroupStyle` that renders chevron + label as one full-width row — the
 whole row toggles expansion (the chevron is drawn by the style, so there is
 exactly one toggle path), the row carries the same hover highlight as a file row,
-and the right-click context menu stays on the label, which keeps its full-width
-frame and content shape so the blank space right of the name still opens it.
-State that the style renders `configuration.content` only while expanded and
-re-supplies the content indent the default style used to add, so lazy loading and
-nesting are unchanged. Mirror the same facts in the file's own header /
-`DirectoryNodeView` doc comments.
+and the right-click context menu hangs off the *row* (see Task 1's first
+correction — an earlier draft of this task said "stays on the label", which the
+shipped code and `app-window.md` contradict), so hover highlight, tap target and
+context menu are one rectangle. State that the style renders
+`configuration.content` only while expanded so a collapsed folder shows nothing —
+not because the lazy load depends on it, which it does not — and that it adds no
+content inset, the default style's own content indent being zero, so nesting is
+unchanged (Task 1's second correction). Mirror the same facts in the file's own
+header / `DirectoryNodeView` doc comments.
 
 - [x] update the `ProjectTreeView.swift` entry in `docs/architecture/app-window.md`
 - [x] update the doc comments on `ProjectTreeView` / `DirectoryNodeView` and add
@@ -190,11 +212,23 @@ nesting are unchanged. Mirror the same facts in the file's own header /
 - [x] `swift test` — full suite passes (2917 tests, 0 failures)
 - [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'platform=macOS' build` succeeds (** BUILD SUCCEEDED **)
-- [x] re-read the diff against the ticket: file rows untouched, iOS untouched,
-      no selection/keyboard/drag changes, no row-height changes beyond the hover
-      highlight, every new size scaled through `metrics`, and the label's
-      `.frame(maxWidth: .infinity, alignment: .leading)` + `.contentShape` still
-      present under its `.contextMenu`
+- [x] re-read the diff against the ticket: iOS untouched, no selection/drag
+      changes, every new size scaled through `metrics`, and the label keeps its
+      `.frame(maxWidth: .infinity, alignment: .leading)` (for truncation; the
+      `.contentShape` + `.contextMenu` moved to the row per Task 1's first
+      correction). Three claims an earlier pass got wrong and this one states
+      accurately: folder rows *did* change height and horizontal offset — they
+      gained `FileRowView`'s `.padding(.vertical, 3)` / `.padding(.horizontal, 6)`,
+      which is the deliberate parity the ticket asks for, not "no row-height
+      change"; `FileRowView` is no longer literally untouched (its padding and
+      hover color now read from the shared `TreeRowLayout`, same values); and
+      keyboard actuation of the chevron *is* lost, accepted and documented rather
+      than unchanged
+- [x] nesting indent verified by measurement, not by eye: an `NSHostingView`
+      probe of master's and this branch's row structure puts a 4-deep file row's
+      leading edge at 48.0pt in both, i.e. 12pt per level unchanged (the
+      intermediate `FolderContentInset` measured 112.0pt / 28pt per level and was
+      deleted — Task 1's second correction)
 
 ## Post-Completion (manual, in the running app)
 
