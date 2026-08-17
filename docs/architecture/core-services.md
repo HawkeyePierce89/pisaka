@@ -126,21 +126,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (`.system`/`.light`/`.dark`) is the appearance preference, mapped to a SwiftUI
     `ColorScheme?` in the view layer (`.system → nil`).
   - `SettingsStore.swift` — `ObservableObject` (Foundation only, the
-    `WorkspaceModel` precedent) holding the three persisted preferences:
-    `@Published` `tabOrientation`, `themePreference`, and the shared editor
-    `fontSize` (`Double`). `UserDefaults` is injected (`init(defaults: .standard)`)
+    `WorkspaceModel` precedent) holding the persisted preferences. The three this
+    paragraph describes came first: `@Published` `tabOrientation`,
+    `themePreference`, and the shared editor `fontSize` (`Double`); the zoom
+    paragraph below adds `terminalFontSize` and `interfaceScale`, the other two
+    zones, and `completionEnabled` and `lspServerConsent` follow further down.
+    `UserDefaults` is injected (`init(defaults: .standard)`)
     so tests run against an isolated `UserDefaults(suiteName:)`; values are loaded
     in `init` (falling back to `.vertical`/`.system`/`defaultFontSize`), and each
     `@Published` change is written straight back through `didSet` under stable
     keys (`Keys.*`, never renamed). `fontSize` is clamped to
     `[minFontSize, maxFontSize]` (8…32) on every write — the `didSet` re-assigns
-    the clamped value (a one-pass fixed point) so neither the Stepper, the
-    Cmd+scroll path, nor a corrupt persisted value can drive it out of range — and
+    the clamped value (a one-pass fixed point) so neither the Stepper, a zoom
+    gesture, nor a corrupt persisted value can drive it out of range — and
     `init` distinguishes "unset" (→ `defaultFontSize` 13) from a stored 0 via
     `object(forKey:)`. Exposes `minFontSize`/`maxFontSize`/`defaultFontSize`/
     `fontSizeStep` (static + instance mirrors), `clampFontSize(_:)`, and
-    `stepFontSize(by:)` (steps then clamps — the Cmd+scroll path calls it with
-    `+1`/`-1`). Fully unit-tested in `SettingsStoreTests` (defaults, clamping at
+    `stepFontSize(by:)` (steps then clamps). Those four numbers and both helpers
+    are now aliases of `ZoomScaleRule.editorFont`, and the *macOS* zoom path does
+    not go through them at all — `ZoomController` calls the zone-keyed
+    `stepZoom(_:by:)`/`resetZoom(_:)` below. They survive because the iOS pinch
+    (`RootView_iOS`) and both platforms' Preferences steppers still name them.
+    Fully unit-tested in `SettingsStoreTests` (defaults, clamping at
     both bounds, the step helper staying clamped, a persistence round-trip across
     two instances over one suite, and the enums' raw-value stability).
     Phase 2b adds a fourth persisted value, `lspServerConsent`: one dictionary of
@@ -213,6 +220,51 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the same provider, is entirely unaffected. `SettingsStoreTests` covers the
     default on a fresh store, the round trip across a rebuilt store, a
     wrong-typed stored value falling back to on, and the key string.
+    The macOS zoom feature adds **two more persisted values and a zone-keyed
+    API** (the whole layer's entry is `core-zoom.md`). `terminalFontSize`
+    (`Keys.terminalFontSize = "settings.terminalFontSize"`, default 13) and
+    `interfaceScale` (`Keys.interfaceScale = "settings.interfaceScale"`, default
+    1.0) each follow `fontSize`'s write discipline *verbatim*: clamped inside
+    `didSet` against their `ZoomScaleRule` — the re-entrant assignment reaching a
+    fixed point on the second pass — and read in `init` through
+    `object(forKey:)` so an absent key is told from a stored 0, a wrong-typed
+    value falls back instead of reading as zero, and a non-finite or
+    out-of-range stored value collapses to the default. The terminal size is a
+    key of its own rather than a reuse of `fontSize` because the whole point of
+    the three zones is that code and terminal grow independently; its default is
+    SwiftTerm's own, so an existing install sees no change until it zooms the
+    terminal. The interface scale is a *multiplier* and not a point size because
+    the zone covers fonts, paddings, frames, icon sizes and row heights at once —
+    there is no one number to store, only the factor every one of them is derived
+    from. `fontSize` itself is unchanged in behavior and public API but
+    re-expressed over `ZoomScaleRule.editorFont`: the four
+    `minFontSize`/`maxFontSize`/`defaultFontSize`/`fontSizeStep` constants now
+    *read* from that rule, `clampFontSize(_:)` forwards to `clamp(_:)` and
+    `stepFontSize(by:)` to `stepped(_:by:)` — same range, same step, same result
+    for every value on the grid, which every value the Stepper, the shortcuts or
+    a fresh install produces is. On top sits the zone-keyed trio the app layer
+    actually uses — `scale(for:)`, `stepZoom(_:by:)`, `resetZoom(_:)`, over a
+    single private `setScale(_:for:)` writer whose values still pass each
+    property's own clamping `didSet` — so that no view has to know which stored
+    property backs which zone: the pointer resolves a `ZoomZone` and the gesture,
+    the menu item and the accumulator all speak that one word. `resetZoom` moves
+    only the zone it is given, which is what makes ⌘0 as targeted as the
+    gestures. That writer **drops a write that changes nothing**, on
+    `setConsent(_:for:)`'s reasoning and for a sharper reason: a zone pinned at
+    its clamp keeps receiving whole steps for as long as the ⌘-scroll continues,
+    and each one would otherwise republish a store `ContentView` and every
+    hosting root observe, re-apply the editor font and rewrite `UserDefaults` at
+    the trackpad's event rate for no visible change (⌘0 pressed at rest is the
+    same write twice over). A plain equality guard suffices because nothing
+    out-of-range can reach it or be held: `stepped(_:by:)` clamps, `defaultValue`
+    is in range, and both the `didSet`s and `init`'s reads clamp.
+    `SettingsStoreTests` covers the two defaults, the round trip across
+    a rebuilt store, clamping on write and on load at both bounds, non-finite and
+    wrong-typed stored values, the two key strings, the zone-keyed API's
+    stepping/clamping/resetting for all three zones (including that stepping one
+    zone leaves the other two untouched), and — by counting `objectWillChange` —
+    that a step or reset which cannot move the zone publishes nothing while one
+    that can still does.
   - `EditorSession.swift` — the persisted editor session behind launch-time
     session restore and "Untitled" hot exit (macOS today; the iOS variant is a
     follow-up over this same model). Foundation-only: the value types, the pure

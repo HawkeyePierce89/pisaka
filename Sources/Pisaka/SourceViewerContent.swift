@@ -53,10 +53,14 @@ struct SourceViewerContent: View {
             fileName: fileName,
             text: text,
             fontSize: settings.fontSize,
-            onStepFontSize: { settings.stepFontSize(by: $0) },
             reveal: reveal
         )
         .preferredColorScheme(settings.themePreference.colorScheme)
+        // Its own SwiftUI root (an `NSHostingController` made by
+        // `SourceViewerWindowController`), so it injects the interface scale
+        // itself — for the chrome only: the pane is a code surface and stays on
+        // `settings.fontSize`.
+        .interfaceScaled(settings)
     }
 }
 
@@ -74,7 +78,6 @@ struct SourceViewerPane: NSViewRepresentable {
     let fileName: String
     let text: String
     var fontSize: Double
-    var onStepFontSize: (Double) -> Void
     @ObservedObject var reveal: EditorRevealState
 
     func makeCoordinator() -> Coordinator {
@@ -83,9 +86,10 @@ struct SourceViewerPane: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let textView = SourceViewerTextView(usingTextLayoutManager: false)
-        textView.onStepFontSize = onStepFontSize
 
-        let scrollView = NSScrollView()
+        // `CodeScrollView` so the pane's empty region — below the last line, right
+        // of the longest one — is still the code zone (see `ZoomSurface`).
+        let scrollView = CodeScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.documentView = textView
@@ -251,19 +255,13 @@ struct SourceViewerPane: NSViewRepresentable {
     }
 }
 
-/// The viewer's text view. An ordinary read-only `NSTextView` plus the shared
-/// Cmd+scroll font step, so zooming works the same here as in the editor, the diff
-/// and the merge panes.
+/// The viewer's text view. An ordinary read-only `NSTextView` that declares
+/// itself a code surface, so zooming works the same here as in the editor, the
+/// diff and the merge panes — through the app's one event monitor rather than a
+/// `scrollWheel` override of its own.
 @MainActor
-final class SourceViewerTextView: NSTextView {
-    /// Steps the shared font size on a Command-held scroll. Set by
-    /// `SourceViewerPane.makeNSView`; `nil` until then.
-    var onStepFontSize: ((Double) -> Void)?
-
-    override func scrollWheel(with event: NSEvent) {
-        if handleCommandScrollFontStep(event, step: onStepFontSize) { return }
-        super.scrollWheel(with: event)
-    }
+final class SourceViewerTextView: NSTextView, ZoomSurfaceProviding {
+    let zoomSurfaceKind: ZoomSurfaceKind = .code
 }
 
 #endif

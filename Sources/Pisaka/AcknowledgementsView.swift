@@ -41,20 +41,31 @@ struct AcknowledgementsView: View {
 
     @State private var selection: LicenseDocument.ID?
 
+    /// The interface zone's metrics, inherited from the `Settings` scene root.
+    ///
+    /// Reaches the list, the header, the pane's own size — and the license *text*
+    /// below the header, which `LicenseTextView` draws through TextKit rather than
+    /// SwiftUI and so cannot inherit a `Font`: this view hands it the point size
+    /// explicitly (`metrics.font(.subheadline)`, which rests at
+    /// `NSFont.smallSystemFontSize`). The iOS half of that shared pane is passed
+    /// no size and keeps its own.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
         Group {
             if let failure {
                 // A broken bundle names what is wrong rather than showing an empty
                 // list, which would read as "this app has no dependencies".
-                VStack(spacing: 8) {
+                VStack(spacing: metrics.scaled(8)) {
                     Image(systemName: "exclamationmark.triangle")
-                        .font(.largeTitle)
+                        .font(metrics.scaledFont(.largeTitle))
                         .foregroundStyle(.secondary)
                     Text(failure)
+                        .font(metrics.scaledFont(.body))
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.secondary)
                 }
-                .padding(24)
+                .padding(metrics.scaled(24))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 HSplitView {
@@ -65,8 +76,10 @@ struct AcknowledgementsView: View {
         }
         // Sized for reading a license: the Preferences window takes the widest tab,
         // so the General form keeps its own 340pt width and this one drives the
-        // window.
-        .frame(width: 640, height: 420)
+        // window. Both dimensions scale, so the detail pane keeps its share of the
+        // width as the list beside it grows — `InterfaceMetricsTests` pins that the
+        // room left over never shrinks.
+        .frame(width: metrics.scaled(640), height: metrics.scaled(420))
         // Re-read on open and whenever a row changes state. Keyed on the rows
         // rather than on a timer or a notification: `rows` is the model's own
         // published summary, so an install completing, a removal finishing and a
@@ -103,17 +116,22 @@ struct AcknowledgementsView: View {
                 }
             }
         }
-        .frame(minWidth: 180, idealWidth: 200, maxWidth: 280)
+        .frame(
+            minWidth: metrics.scaled(180),
+            idealWidth: metrics.scaled(200),
+            maxWidth: metrics.scaled(280)
+        )
     }
 
     private func row(_ document: LicenseDocument) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: metrics.scaled(2)) {
             Text(document.notice.name)
+                .font(metrics.scaledFont(.body))
             Text(document.notice.spdx)
-                .font(.caption)
+                .font(metrics.scaledFont(.caption))
                 .foregroundStyle(.secondary)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, metrics.scaled(2))
     }
 
     @ViewBuilder
@@ -125,22 +143,36 @@ struct AcknowledgementsView: View {
                 // TextKit-backed rather than `ScrollView { Text(…) }`: libgit2's
                 // text is 66 KB and a single `Text` would lay all of it out on the
                 // main thread and risk clipping the tail. See `LicenseTextView`.
-                LicenseTextView(text: document.text)
+                // The size is handed down rather than read from the environment:
+                // it is an `NSViewRepresentable`, which sets a font on a text view
+                // instead of inheriting one. `.subheadline` because its base is 11
+                // — `NSFont.smallSystemFontSize`, the size the pane drew at before
+                // this — so 100% still renders exactly what it always did. The
+                // margin is handed down for the same reason and from the same
+                // base as the header's own `padding(metrics.scaled(12))` above,
+                // so the license text stays in line with the header it belongs
+                // to at every step of the range.
+                LicenseTextView(
+                    text: document.text,
+                    pointSize: metrics.font(.subheadline),
+                    inset: metrics.pt(12)
+                )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             Text("Select a dependency.")
+                .font(metrics.scaledFont(.body))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
     private func header(for notice: LicenseNotice) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: metrics.scaled(4)) {
             Text(notice.name)
-                .font(.headline)
+                .font(metrics.scaledFont(.headline, weight: .semibold))
             Text(notice.spdx)
-                .font(.subheadline)
+                .font(metrics.scaledFont(.subheadline))
                 .foregroundStyle(.secondary)
             // `version` is nil for the revision-pinned packages and the vendored
             // grammar with no upstream release — omit the row rather than render a
@@ -152,7 +184,7 @@ struct AcknowledgementsView: View {
             LabeledField(label: "Revision", value: notice.revision, monospaced: true)
             origin(for: notice)
         }
-        .padding(12)
+        .padding(metrics.scaled(12))
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -162,12 +194,12 @@ struct AcknowledgementsView: View {
     @ViewBuilder
     private func origin(for notice: LicenseNotice) -> some View {
         if let url = notice.originURL {
-            HStack(spacing: 4) {
+            HStack(spacing: metrics.scaled(4)) {
                 Text("Origin")
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(.secondary)
                 Link(notice.origin, destination: url)
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
             }
         } else {
             LabeledField(label: "Origin", value: notice.origin)
@@ -181,15 +213,18 @@ private struct LabeledField: View {
     let value: String
     var monospaced = false
 
+    /// The interface zone's metrics, inherited from the `Settings` scene root.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: metrics.scaled(4)) {
             Text(label)
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(monospaced ? .system(.caption, design: .monospaced) : .caption)
+                .font(metrics.scaledFont(.caption, design: monospaced ? .monospaced : .default))
                 .textSelection(.enabled)
         }
-        .font(.caption)
+        .font(metrics.scaledFont(.caption))
     }
 }
 

@@ -44,27 +44,31 @@ struct LogFilterBar: View {
     @State private var until = Date()
     @State private var search: String = ""
 
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+
     /// Sentinel ref-picker tag meaning "all refs" (`--all`); a real ref name can
     /// never be empty, so this is unambiguous.
     private static let allRefsTag = ""
 
     var body: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 8) {
+        VStack(spacing: metrics.scaled(6)) {
+            HStack(spacing: metrics.scaled(8)) {
                 refPicker
                 authorField
                 pathField
-                Spacer(minLength: 8)
+                Spacer(minLength: metrics.scaled(8))
                 searchField
             }
-            HStack(spacing: 8) {
+            HStack(spacing: metrics.scaled(8)) {
                 dateBound("Since", enabled: $sinceEnabled, date: $since)
                 dateBound("Until", enabled: $untilEnabled, date: $until)
                 Spacer()
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .font(metrics.scaledFont(.body))
+        .padding(.horizontal, metrics.scaled(10))
+        .padding(.vertical, metrics.scaled(6))
         .onAppear(perform: seedFromFilter)
         // Re-seed if the model swaps in a different filter/search out from under us
         // (e.g. switching repositories resets to the default filter).
@@ -105,7 +109,7 @@ struct LogFilterBar: View {
             }
         }
         .labelsHidden()
-        .frame(maxWidth: 200)
+        .frame(maxWidth: metrics.scaled(200))
         .help("Branch / ref to show history for")
     }
 
@@ -131,7 +135,7 @@ struct LogFilterBar: View {
     private var authorField: some View {
         TextField("Author", text: $author)
             .textFieldStyle(.roundedBorder)
-            .frame(maxWidth: 140)
+            .frame(maxWidth: metrics.scaled(140))
             .onSubmit { applyFilter() }
             .help("Filter by author (press Return to apply)")
     }
@@ -139,18 +143,18 @@ struct LogFilterBar: View {
     private var pathField: some View {
         TextField("Path", text: $path)
             .textFieldStyle(.roundedBorder)
-            .frame(maxWidth: 160)
+            .frame(maxWidth: metrics.scaled(160))
             .onSubmit { applyFilter() }
             .help("Limit to commits touching this path (press Return to apply)")
     }
 
     private var searchField: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: metrics.scaled(4)) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
             TextField("Filter by message", text: $search)
                 .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 220)
+                .frame(maxWidth: metrics.scaled(220))
                 // Live, client-side — cheap, so apply on every keystroke.
                 .onChange(of: search) { onSearch($0) }
         }
@@ -161,7 +165,7 @@ struct LogFilterBar: View {
         enabled: Binding<Bool>,
         date: Binding<Date>
     ) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: metrics.scaled(4)) {
             Toggle(label, isOn: enabled)
                 .toggleStyle(.checkbox)
                 .onChange(of: enabled.wrappedValue) { _ in applyFilter() }

@@ -28,6 +28,13 @@ struct CommitGraphView: NSViewRepresentable {
     let laneCount: Int
     /// The fixed row height the commit list uses, so the graph aligns with text.
     let rowHeight: CGFloat
+    /// Horizontal spacing between lanes, in points — the same scaled value the
+    /// row reserves width from, so the lanes land inside the gutter it drew.
+    let laneSpacing: CGFloat
+    /// Radius of the commit node dot.
+    let nodeRadius: CGFloat
+    /// Stroke width of the edge lines.
+    let lineWidth: CGFloat
 
     func makeNSView(context: Context) -> CommitGraphRowNSView {
         let view = CommitGraphRowNSView()
@@ -44,6 +51,9 @@ struct CommitGraphView: NSViewRepresentable {
         view.incomingEdges = incomingEdges
         view.laneCount = laneCount
         view.rowHeight = rowHeight
+        view.laneSpacing = laneSpacing
+        view.nodeRadius = nodeRadius
+        view.lineWidth = lineWidth
         view.needsDisplay = true
     }
 }
@@ -64,12 +74,22 @@ final class CommitGraphRowNSView: NSView {
         didSet { needsDisplay = true }
     }
 
-    /// Horizontal spacing between lanes, in points.
-    private let laneSpacing: CGFloat = 14
+    /// Horizontal spacing between lanes, in points. Set by the representable
+    /// from the *interface* scale rather than fixed here: the gutter has to keep
+    /// pace with the rows beside it, and the row is what reserves the width these
+    /// lanes are drawn into (`CommitRow.graphWidth`). The defaults are the
+    /// unscaled values, so a cell nobody configured draws what it always did.
+    var laneSpacing: CGFloat = 14 {
+        didSet { needsDisplay = true }
+    }
     /// Radius of the commit node dot.
-    private let nodeRadius: CGFloat = 3.5
+    var nodeRadius: CGFloat = 3.5 {
+        didSet { needsDisplay = true }
+    }
     /// Stroke width of the edge lines.
-    private let lineWidth: CGFloat = 1.5
+    var lineWidth: CGFloat = 1.5 {
+        didSet { needsDisplay = true }
+    }
 
     override var isFlipped: Bool { true }
 

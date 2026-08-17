@@ -40,6 +40,9 @@ struct LocalChangesView: View {
     /// view without the app wiring.
     var onCommitFile: (ChangedFile) -> Void = { _ in }
 
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -54,7 +57,7 @@ struct LocalChangesView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: metrics.scaled(8)) {
             Picker("", selection: $model.groupingMode) {
                 Image(systemName: "list.bullet")
                     .tag(LocalChangesModel.GroupingMode.flat)
@@ -63,7 +66,8 @@ struct LocalChangesView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(maxWidth: 96)
+            .font(metrics.scaledFont(.body))
+            .frame(maxWidth: metrics.scaled(96))
             .help("Group changes flat or by folder")
 
             Spacer()
@@ -74,6 +78,7 @@ struct LocalChangesView: View {
             // amend is wanted precisely when it is empty).
             Button(action: onCommit) {
                 Image(systemName: "checkmark.circle")
+                    .font(metrics.scaledFont(.body))
             }
             .buttonStyle(.borderless)
             .disabled(projectRoot == nil)
@@ -81,13 +86,14 @@ struct LocalChangesView: View {
 
             Button(action: refreshIfPossible) {
                 Image(systemName: "arrow.clockwise")
+                    .font(metrics.scaledFont(.body))
             }
             .buttonStyle(.borderless)
             .disabled(projectRoot == nil)
             .help("Refresh changed files")
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, metrics.scaled(8))
+        .padding(.vertical, metrics.scaled(6))
     }
 
     @ViewBuilder
@@ -124,7 +130,7 @@ struct LocalChangesView: View {
                         }
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, metrics.scaled(4))
             }
         }
     }
@@ -134,9 +140,11 @@ struct LocalChangesView: View {
             Spacer()
             Text(text)
                 .foregroundStyle(.secondary)
-                .font(.callout)
+                .font(metrics.scaledFont(.callout))
                 .multilineTextAlignment(.center)
-                .padding()
+                // The default `.padding()` inset, stated so it scales with the
+                // rest of the panel instead of staying a fixed 16pt.
+                .padding(metrics.scaled(16))
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -172,6 +180,9 @@ private struct ChangeNodeView: View {
 
     @State private var isExpanded = true
 
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
         if let file = node.file {
             ChangedFileRow(
@@ -191,15 +202,16 @@ private struct ChangeNodeView: View {
             DisclosureGroup(isExpanded: $isExpanded) {
                 ForEach(node.children ?? []) { child in
                     ChangeNodeView(model: model, node: child, onRevert: onRevert, onOpenDiff: onOpenDiff, onResolveConflict: onResolveConflict, onCommitFile: onCommitFile)
-                        .padding(.leading, 12)
+                        .padding(.leading, metrics.scaled(12))
                 }
             } label: {
                 let icon = FileIcon(for: DirectoryEntry(url: node.url, isDirectory: true))
-                HStack(spacing: 4) {
+                HStack(spacing: metrics.scaled(4)) {
                     Image(systemName: icon.symbolName)
                         .foregroundStyle(iconColor(for: icon.color))
                     Text(node.name)
                 }
+                .font(metrics.scaledFont(.body))
                 .lineLimit(1)
                 .truncationMode(.middle)
             }
@@ -224,11 +236,15 @@ private struct ChangedFileRow: View {
 
     @State private var isHovering = false
 
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
         let icon = FileIcon(for: DirectoryEntry(url: url, isDirectory: false))
-        HStack(spacing: 4) {
+        HStack(spacing: metrics.scaled(4)) {
             Button(action: onToggleCheck) {
                 Image(systemName: isChecked ? "checkmark.square.fill" : "square")
+                    .font(metrics.scaledFont(.body))
                     .foregroundStyle(isChecked ? Color.accentColor : Color.secondary)
             }
             .buttonStyle(.borderless)
@@ -236,15 +252,16 @@ private struct ChangedFileRow: View {
             Image(systemName: icon.symbolName)
                 .foregroundStyle(statusColor(status))
             Text(name)
-            Spacer(minLength: 4)
+            Spacer(minLength: metrics.scaled(4))
             Text(statusLetter(status))
-                .font(.caption2.monospaced())
+                .font(metrics.scaledFont(.caption2, design: .monospaced))
                 .foregroundStyle(statusColor(status))
         }
+        .font(metrics.scaledFont(.body))
         .lineLimit(1)
         .truncationMode(.middle)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
+        .padding(.horizontal, metrics.scaled(6))
+        .padding(.vertical, metrics.scaled(3))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(rowBackground)
         .contentShape(Rectangle())

@@ -191,12 +191,18 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `BottomPanel.swift` — bottom-dock toggle state.
 - `DiffWindowTitle.swift` — diff-window titles.
 - `TabOrientation.swift` / `ThemePreference.swift` — persisted preference enums.
-- `SettingsStore.swift` — persisted preferences; the one `completionEnabled` flag; per-server LSP consent (D15).
+- `SettingsStore.swift` — persisted preferences; the three zoom scales and the zone-keyed API; the one `completionEnabled` flag; per-server LSP consent (D15).
 - `EditorSession.swift` — per-project session persistence (`SessionTab`, `SessionCatalog`, the keyed store + legacy migration).
 - `ScopedFileAccess.swift` — iOS security-scope helpers + `BookmarkStore`.
 - `TabLayout.swift` — iOS tab-presentation decision.
 - `LicenseNotice.swift` — license manifest model + `LicenseCatalog`; the coverage invariant lives in the same doc.
 - `PisakaCore.swift` — package constants/version.
+
+`docs/architecture/core-zoom.md` — the three macOS zoom zones (Core + app halves):
+- `ZoomZone.swift` — zone/surface vocabulary; the deepest-candidate pointer rule.
+- `ZoomScaleRule.swift` — the one clamp/step/reset arithmetic; the three rules' numbers.
+- `ZoomGestureAccumulator.swift` — scroll/pinch deltas → the keyboard's discrete steps.
+- `InterfaceMetrics.swift` — `InterfaceTextStyle` base sizes; scaled fonts/metrics.
 
 ### `Pisaka` (app target, `Sources/Pisaka/`)
 
@@ -250,6 +256,11 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `LeetCodeBrowserWindowController.swift` / `LeetCodeBrowserView.swift` — the single macOS browser window (⌘⇧B).
 - `iOS/LeetCodeBrowserView_iOS.swift` — the pushed iOS browser screen.
 
+`docs/architecture/core-zoom.md` — the zoom app surfaces (same doc as the Core half):
+- `ZoomSurface.swift` — the surface marker protocol/representable + the pointer walk.
+- `ZoomController.swift` — the one `NSEvent` monitor; the three View-menu items.
+- `InterfaceScaleEnvironment.swift` — `\.interfaceMetrics` + `.interfaceScaled(_:)`.
+
 `docs/architecture/app-window.md` — window chrome (macOS):
 - `ContentView.swift` — window layout; deliberately non-observed `commitDialog`.
 - `DiffWindowContent.swift` / `DiffWindowController.swift` — separate diff windows.
@@ -259,8 +270,8 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 
 `docs/architecture/app-terminal.md` — embedded terminal (macOS):
 - `TerminalTheme.swift` — light/dark palette incl. themed ANSI-16.
-- `TerminalSession.swift` — one PTY shell; theme-apply guard.
-- `TerminalSessionsModel.swift` — session/tab ownership, run/test sessions.
+- `TerminalSession.swift` — one PTY shell; theme/font apply guards; the terminal zoom surface.
+- `TerminalSessionsModel.swift` — session/tab ownership, run/test sessions; theme/font fan-out.
 - `TerminalPanelView.swift` — panel host.
 
 `docs/architecture/app-editor.md` — code editor & find (macOS):
@@ -339,6 +350,17 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   `openProblem`, so there is no second create path. All schema knowledge is in
   one Core file, every operation requires a login, and opening a problem never
   changes the project root (`core-leetcode.md`).
+- **Zoom is three zones, one arithmetic, one pointer rule** (macOS only): `code`
+  — which *is* `SettingsStore.fontSize`, never a second setting — `terminal` and
+  `interface` each clamp/step/reset through one `ZoomScaleRule`, and every
+  gesture *and* menu shortcut targets whichever zone the pointer is over then
+  (deepest surface wins; nothing hit ≡ interface). One local `NSEvent` monitor
+  receives them all — per-view `scrollWheel` overrides cannot reach the terminal
+  or the chrome. **Anything drawn at the code font declares itself a surface**,
+  including views merely *beside* a text view (rulers, the minimap), since
+  unreachable ≡ chrome; the interface scale reaches views only as
+  `InterfaceMetrics` through `\.interfaceMetrics`, never inline and never on a
+  code-font site. `ZoomSourceGatingTests` pins both sets (`core-zoom.md`).
 - **Open-tab resync** after an operation rewrites the worktree: buffers are
   snapshotted before the hop; a clean, unchanged tab gets `reloadFromDisk`, an
   edited one `reconcileSavedBaseline` + beep, a deleted file force-closes
@@ -369,42 +391,29 @@ that each pin matches the requirement `project.yml` states),
 `ReleaseMetadataTests` (`Resources/Info.plist` incl. the two Sparkle keys'
 shape, `PrivacyInfo.xcprivacy`, the `project.yml` wiring, the iOS launch-screen
 setting, the macOS runpath pin `LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]`),
-`ReleaseWorkflowTests` (`.github/workflows/release.yml`'s whole shape:
-trigger/permissions by set equality, the preflight refusals asserted *by
-mechanism* — the guard's branch must `exit 1` — the throwaway signing keychain
-(under `$RUNNER_TEMP`, the login keychain never named, deleted — with *both*
-private keys, by path — by the job's last step under `if: always()`, each
-written in a `(umask 077; …)` subshell), the
-Developer ID identity, team, `ENABLE_HARDENED_RUNTIME` and `--timestamp` on the
-archive's command line while `project.yml` stays signing-free (entitlements too),
-the inside-out re-sign of Sparkle's four nested helpers (explicit list, no
-`--deep`, guarded on app, framework and each helper, signing behind an
-`::error::` trap), **all four** facts verified on the archived app, its
-`Sparkle.framework` *and* every Mach-O enumerated inside it — that enumeration
-pinned by the four binaries `v1.0` was rejected for, plus two refusals of its
-own, the
-notarize→staple→`spctl` chain (both verdicts — the notary status and `spctl`'s
-`source=Notarized Developer ID` — read explicitly, not inferred from exit codes;
-the submitted zip distinct from the shipped one),
-**that every step is fatal to the job** (no `continue-on-error:`, `if: always()`
-on the cleanup its only step condition — what makes every `exit 1` above a
-refusal), the job budget exceeding the notary `--timeout` by at least `ci.yml`'s
-build budget (read from `ci.yml`, not restated),
-the step ordering and the draft-then-promote publication rules, the tool pins,
-`ci.yml`'s macOS job building `-configuration Release` and **launching what it
-built** (both smoke launches step-scoped and by mechanism — success = *survived
-until we killed it*, never a zero exit; the non-degenerate `DEADLINE`; the
-release-side slot before notarization; the two bodies equal apart from `APP=`),
-the `SUFeedURL`
-cross-file pairs, and the Gatekeeper-workaround strings asserted absent from
-every document that once carried them; full inventory in that suite's doc
-comments and `docs/RELEASING.md`),
+`ReleaseWorkflowTests` (`.github/workflows/release.yml`'s whole shape, asserted
+*by mechanism* rather than by wording: the trigger/permissions by set equality,
+every preflight refusal's branch reaching `exit 1`, the throwaway signing
+keychain and both private keys deleted by path on every path, the Developer ID
+identity/team/hardened runtime/`--timestamp` on the archive command line while
+`project.yml` stays signing-free, the inside-out re-sign of Sparkle's nested
+helpers verified on the app, the framework and every Mach-O inside it, the
+notarize→staple→`spctl` chain with both verdicts read explicitly, that no step
+can be non-fatal, the job budget against the notary timeout, step ordering,
+draft-then-promote, tool pins, `ci.yml`'s Release macOS build *launching what it
+built*, the `SUFeedURL` cross-file pairs and the Gatekeeper-workaround strings
+absent everywhere; **full inventory in that suite's doc comments and
+`docs/RELEASING.md`** — do not restate it here),
 `LicenseCoverageTests` (`licenses.json` vs.
 `project.yml`/`Package.resolved`/`Vendor/`), `LSPSourceGatingTests` (the LSP
-layer's platform split, by set equality over both sides) and
+layer's platform split, by set equality over both sides),
 `SparkleSourceGatingTests` (`import Sparkle` in exactly one file inside both
 `#if os(macOS)` and `#if !DEBUG`, no `SPU…` reference in the DEBUG branch, and
-that file as the *only* DEBUG-only branch outside `Sources/Pisaka/iOS/`).
+that file as the *only* DEBUG-only branch outside `Sources/Pisaka/iOS/`) and
+`ZoomSourceGatingTests` (the zoom zones' four view-layer rules — who may name
+`interfaceScale`, which roots inject the environment, which views declare a zoom
+surface, and the Preferences stepper reading its grid from `ZoomScaleRule` — the
+first three by set equality).
 **Every one of these suites matches against comment- and literal-stripped
 text** — load-bearing, not tidy: these files quote their own settings in
 comments, so a raw `contains` stays green when the setting it names is deleted.

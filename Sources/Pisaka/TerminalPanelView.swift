@@ -6,12 +6,27 @@ import SwiftTerm
 /// The embedded terminal panel: a tab bar above the active session's terminal
 /// view. Hosting one persistent `LocalProcessTerminalView` per session means
 /// switching tabs only swaps which view is on screen, never restarting a shell.
+///
+/// The panel straddles two zoom zones, on purpose. Only the hosted terminal
+/// views carry the **terminal** zone's size, and they get it from
+/// `TerminalSessionsModel` (pushed from the window root, which stays mounted
+/// while this panel is not — see `ContentView`), so nothing about the font is
+/// plumbed through here. The tab strip below is ordinary chrome and belongs to
+/// the **interface** zone: zooming the terminal must not move the tabs, which is
+/// exactly what the pointer rule produces, since the tabs are not a
+/// `ZoomSurfaceProviding` view.
 struct TerminalPanelView: View {
     @ObservedObject var model: TerminalSessionsModel
 
     /// The current project folder, used only when creating a *new* session — an
     /// existing session keeps the directory it was started in.
     let projectRoot: URL?
+
+    /// The interface zone's metrics, inherited from the window root. They reach
+    /// the tab strip and the panel's own minimum height and nothing else: the
+    /// hosted terminal views are the *terminal* zone and take their size from
+    /// `TerminalSessionsModel`.
+    @Environment(\.interfaceMetrics) private var metrics
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,18 +40,18 @@ struct TerminalPanelView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(minHeight: 120)
+        .frame(minHeight: metrics.scaled(120))
     }
 
     private var tabBar: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: metrics.scaled(4)) {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
+                HStack(spacing: metrics.scaled(4)) {
                     ForEach(model.sessions) { session in
                         tab(for: session)
                     }
                 }
-                .padding(.horizontal, 6)
+                .padding(.horizontal, metrics.scaled(6))
             }
 
             Spacer(minLength: 0)
@@ -45,34 +60,37 @@ struct TerminalPanelView: View {
                 model.newSession(projectRoot: projectRoot)
             } label: {
                 Image(systemName: "plus")
+                    .font(metrics.scaledFont(.body))
             }
             .buttonStyle(.borderless)
             .help("New terminal")
-            .padding(.trailing, 6)
+            .padding(.trailing, metrics.scaled(6))
         }
-        .padding(.vertical, 4)
-        .frame(height: 28)
+        .padding(.vertical, metrics.scaled(4))
+        .frame(height: metrics.scaled(28))
     }
 
     private func tab(for session: TerminalSession) -> some View {
         let isActive = session.id == model.activeID
-        return HStack(spacing: 4) {
+        return HStack(spacing: metrics.scaled(4)) {
             Text(session.title)
-                .font(.system(size: 11))
+                // 11pt — `subheadline`'s base size, so the strip is unchanged at
+                // 100% and follows the interface zone above it.
+                .font(metrics.scaledFont(.subheadline))
                 .lineLimit(1)
             Button {
                 model.close(id: session.id)
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: metrics.scaled(8), weight: .bold))
             }
             .buttonStyle(.borderless)
             .help("Close terminal")
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
+        .padding(.horizontal, metrics.scaled(8))
+        .padding(.vertical, metrics.scaled(3))
         .background(isActive ? Color(nsColor: .selectedControlColor) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(4)))
         .contentShape(Rectangle())
         .onTapGesture { model.activate(id: session.id) }
     }

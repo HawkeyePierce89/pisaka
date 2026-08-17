@@ -62,6 +62,12 @@ struct LSPConsentBanner: View {
     /// one is opened, because this flag is part of the `.task` id below.
     let hasProjectRoot: Bool
 
+    /// The interface zone's metrics, inherited from `ContentView`'s root — the
+    /// strip sits between the breadcrumb and the editor and is chrome like both,
+    /// so it grows with them rather than staying a fixed band across a scaled
+    /// window.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
         // An empty `VStack` renders nothing and contributes no height, so the
         // common case — every language that is not TypeScript, JavaScript or
@@ -158,13 +164,13 @@ struct LSPConsentBanner: View {
     }
 
     private func downloadRow(_ prompt: LSPConsentPrompt) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: metrics.scaled(12)) {
             Image(systemName: "arrow.down.circle")
                 .foregroundStyle(.tint)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: metrics.scaled(2)) {
                 Text("Download the \(prompt.displayName) language server?")
-                    .font(.callout)
+                    .font(metrics.scaledFont(.callout))
                 // The size is `pendingDownloadByteCount`, so the second server
                 // offers the ~4 MB it actually costs rather than the ~56 MB the
                 // first one did — see `LSPConsentPrompt`.
@@ -173,12 +179,12 @@ struct LSPConsentBanner: View {
                     + "It adds project-wide completion and Go to Definition for these files; "
                     + "without it they keep using the built-in index."
                 )
-                .font(.caption)
+                .font(metrics.scaledFont(.caption))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: metrics.scaled(8))
 
             // Unawaited: the install runs for minutes and the banner must go
             // away the moment the answer is recorded, which `accept` does
@@ -199,8 +205,9 @@ struct LSPConsentBanner: View {
                 provisioning.decline(prompt.server)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .font(metrics.scaledFont(.body))
+        .padding(.horizontal, metrics.scaled(12))
+        .padding(.vertical, metrics.scaled(8))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(NSColor.controlBackgroundColor))
     }
@@ -226,13 +233,13 @@ struct LSPConsentBanner: View {
     /// *installed* outside its own folder", plus the sentence about the caches, is
     /// what it does.
     private func goRow(_ prompt: LSPGoConsentPrompt) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: metrics.scaled(12)) {
             Image(systemName: "hammer")
                 .foregroundStyle(.tint)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: metrics.scaled(2)) {
                 Text("Install \(prompt.displayName) with your Go toolchain?")
-                    .font(.callout)
+                    .font(metrics.scaledFont(.callout))
                 Text(
                     "Pisaka will build version \(prompt.version) with the Go at "
                     + "\(prompt.goExecutablePath) and keep the result to itself — nothing is "
@@ -242,12 +249,12 @@ struct LSPConsentBanner: View {
                     + "It adds project-wide completion and Go to Definition for these files; "
                     + "without it they keep using the built-in index."
                 )
-                .font(.caption)
+                .font(metrics.scaledFont(.caption))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: metrics.scaled(8))
 
             // Unawaited, and pointer-only, for the download branch's two reasons:
             // the build runs for minutes while the banner must go away the moment
@@ -262,8 +269,9 @@ struct LSPConsentBanner: View {
                 gopls.decline()
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .font(metrics.scaledFont(.body))
+        .padding(.horizontal, metrics.scaled(12))
+        .padding(.vertical, metrics.scaled(8))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(NSColor.controlBackgroundColor))
     }
@@ -288,25 +296,25 @@ struct LSPConsentBanner: View {
     /// and a date is the one version string worth putting in front of someone
     /// before they agree to download it.
     private func rustRow(_ prompt: LSPRustConsentPrompt) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: metrics.scaled(12)) {
             Image(systemName: "arrow.down.circle")
                 .foregroundStyle(.tint)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: metrics.scaled(2)) {
                 Text("Download the \(prompt.displayName) language server?")
-                    .font(.callout)
+                    .font(metrics.scaledFont(.callout))
                 Text(
                     "\(Self.size(prompt.downloadByteCount)) download of the official "
                     + "\(prompt.version) release, verified and kept to itself. "
                     + "It adds project-wide completion and Go to Definition for these files; "
                     + "without it they keep using the built-in index."
                 )
-                .font(.caption)
+                .font(metrics.scaledFont(.caption))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: metrics.scaled(8))
 
             // Unawaited and pointer-only, for the two rows above's reasons: the
             // download runs for as long as it runs while the banner must go away
@@ -323,8 +331,9 @@ struct LSPConsentBanner: View {
                 rust.decline()
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .font(metrics.scaledFont(.body))
+        .padding(.horizontal, metrics.scaled(12))
+        .padding(.vertical, metrics.scaled(8))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(NSColor.controlBackgroundColor))
     }

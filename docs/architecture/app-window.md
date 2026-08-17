@@ -212,19 +212,46 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `.horizontal` drops that column and stacks a horizontal `TabListView` strip
     above the editor zone in the right zone (`VStack { strip; editor/placeholder }`),
     leaving `ProjectTreeView`, the bottom dock, and the rest of the split intact.
-    It threads `settings.fontSize` and an `onStepFontSize` callback
-    (`settings.stepFontSize(by:)`) into the code views.
+    It threads `settings.fontSize` into the code views — the `onStepFontSize`
+    callback that used to accompany it is gone with `CodeFontScroll`, since the
+    app's one zoom event monitor now receives every ⌘/⌃-scroll and pinch
+    (`core-zoom.md`).
+    Two further zoom responsibilities land on this root because it is the window's
+    root. It applies **`.interfaceScaled(settings)`**, so every chrome view below
+    — including the commit sheet presented from this body — inherits the interface
+    zone's `InterfaceMetrics`, while the editor, the terminal and the diff/merge
+    panes are deliberately unaffected (they draw at their own zones' sizes); and it
+    pushes the **terminal** zone's size into the live sessions with `.onAppear {
+    terminalSessions.applyFontSize(settings.terminalFontSize) }` plus an
+    `.onChange(of:)`, from here rather than from the panel because a session can be
+    created while the panel is off screen (⌘R/⌘U) and the panel is torn down
+    whenever the dock shows Log or Changes (`app-terminal.md`). Being the root that
+    *injects* the environment, it reads its own metrics from
+    `settings.interfaceMetrics` rather than from `@Environment` — an environment
+    write reaches descendants, not the view that makes it — and every view below it
+    reads the environment. Its own scaled constants include the panel divider, the
+    bottom bar's paddings and icon fonts, the bottom panels' minimum heights and
+    the panel-height floor, so a 200% terminal tab strip still leaves room for the
+    panel's content.
   - `DiffWindowContent.swift` — the SwiftUI content of a separate diff window
     (opened on double-click of a Local Changes row or a commit's file). Independent
     of the main window's selection: it takes `fileID`, `fileName`, a model-
     agnostic `load: () async -> [DiffRow]` closure (the owner binds the model and
     arguments in — `LocalChangesModel.rows(for:)` or `CommitLogModel.rows(for:in:)`),
     and an observed `settings: SettingsStore` so the separate window's font tracks
-    the shared editor font size (Stepper / Cmd+scroll) and a forced theme reaches it
-    via `.preferredColorScheme`. It
+    the shared editor font size (the Preferences stepper or a zoom over the pane),
+    a forced theme reaches it via `.preferredColorScheme`, and — being an
+    `NSHostingController` root of its own — the interface zone reaches its chrome
+    via `.interfaceScaled(settings)`. Each such root applies that modifier itself:
+    a hosting controller starts a *new* SwiftUI tree, so nothing is inherited from
+    the main window, and the same is true of `SourceViewerContent`,
+    `ProjectSearchView`, `MergeView` and `LeetCodeBrowserView` (sheets, which are
+    presented from an already-scaled root, inherit it and do not repeat it). The
+    diff *rows* stay on the code zone throughout — the interface scale never
+    multiplies a code-font site. It
     shows "Loading…" until the async load resolves (the row methods shell out to
     `git show`), then renders the read-only
-    `DiffView(fileID:fileName:rows:fontSize:onStepFontSize:)`. The
+    `DiffView(fileID:fileName:rows:fontSize:)`. The
     load is guarded by a `@State` generation token mirroring `DiffPane`/
     `CommitDiffPane` (though a window's `(fileID, load)` is fixed for its lifetime,
     so it keeps the single in-flight load honest).
@@ -279,10 +306,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     one file, read-only, syntax-highlighted, scrolled to a range. Modeled on
     `DiffWindowContent` + `DiffView`'s read-only pane — same `preferredColorScheme`
     propagation into a separate window, same Neon highlighting through
-    `SyntaxLanguageConfiguration`/`SyntaxTheme`, same Cmd+scroll font step through a
-    small `NSTextView` subclass, same `@ObservedObject` `SettingsStore` so the
-    viewer's font tracks the editor's. Unlike the diff it loads nothing
-    asynchronously.
+    `SyntaxLanguageConfiguration`/`SyntaxTheme`, same `@ObservedObject`
+    `SettingsStore` so the viewer's font tracks the editor's. Its small
+    `NSTextView` subclass (`SourceViewerTextView`) no longer overrides
+    `scrollWheel`; it declares `zoomSurfaceKind = .code` instead, and the view is
+    one of the `NSHostingController` roots that applies `.interfaceScaled(settings)`
+    — so a gesture over the text grows the code zone and one over the window's
+    chrome grows the interface zone (`docs/architecture/core-zoom.md`). Unlike the
+    diff it loads nothing asynchronously.
     **It is not `CodeEditorView` with `isEditable = false`.** That view brings the
     binding it writes back through, per-file undo managers, auto-pair and auto-indent
     interception, the symbol re-index, blame, the minimap and completion — none of

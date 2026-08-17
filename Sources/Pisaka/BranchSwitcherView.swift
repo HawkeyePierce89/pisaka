@@ -34,14 +34,19 @@ struct BranchSwitcherView: View {
 
     @State private var isPresented = false
 
+    /// The interface zone's metrics, inherited from the window root. The popover
+    /// inherits the environment from this view, so its rows scale with the widget
+    /// that opened them.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
         Button {
             isPresented = true
         } label: {
             Label(currentLabel, systemImage: "arrow.triangle.branch")
-                .font(.callout)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
+                .font(metrics.scaledFont(.callout))
+                .padding(.horizontal, metrics.scaled(8))
+                .padding(.vertical, metrics.scaled(3))
         }
         .buttonStyle(.plain)
         .disabled(model.root == nil)
@@ -59,22 +64,24 @@ struct BranchSwitcherView: View {
     }
 
     private var popoverContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: metrics.scaled(8)) {
             TextField("Filter branches", text: $model.filterText)
                 .textFieldStyle(.roundedBorder)
+                .font(metrics.scaledFont(.body))
 
             Button {
                 isPresented = false
                 onNewBranch()
             } label: {
                 Label("New Branch…", systemImage: "plus")
+                    .font(metrics.scaledFont(.body))
             }
             .buttonStyle(.plain)
 
             Divider()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: metrics.scaled(2)) {
                     let locals = model.filteredLocalBranches
                     if !locals.isEmpty {
                         sectionHeader("Local")
@@ -94,44 +101,44 @@ struct BranchSwitcherView: View {
                     }
                     if locals.isEmpty && remotes.isEmpty {
                         Text("No branches")
-                            .font(.callout)
+                            .font(metrics.scaledFont(.callout))
                             .foregroundStyle(.secondary)
-                            .padding(.vertical, 4)
+                            .padding(.vertical, metrics.scaled(4))
                     }
                 }
             }
-            .frame(maxHeight: 300)
+            .frame(maxHeight: metrics.scaled(300))
 
             if let error = model.errorMessage {
                 Divider()
                 Text(error)
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(10)
-        .frame(width: 300)
+        .padding(metrics.scaled(10))
+        .frame(width: metrics.scaled(300))
     }
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
-            .font(.caption)
-            .fontWeight(.semibold)
+            .font(metrics.scaledFont(.caption, weight: .semibold))
             .foregroundStyle(.secondary)
-            .padding(.top, 4)
+            .padding(.top, metrics.scaled(4))
     }
 
     private func branchRow(_ branch: BranchRef, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 6) {
+            HStack(spacing: metrics.scaled(6)) {
                 Image(systemName: rowIcon(for: branch))
-                    .frame(width: 16)
+                    .frame(width: metrics.scaled(16))
                     .foregroundStyle(branch.isCurrent ? Color.accentColor : Color.secondary)
                 Text(branch.shortName)
                     .foregroundStyle(branch.isCurrent ? Color.accentColor : Color.primary)
                 Spacer()
             }
+            .font(metrics.scaledFont(.body))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -152,14 +159,15 @@ struct BranchSwitcherView: View {
                 onCreateFromRemote(branch)
             }
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: metrics.scaled(6)) {
                 Image(systemName: rowIcon(for: branch))
-                    .frame(width: 16)
+                    .frame(width: metrics.scaled(16))
                     .foregroundStyle(Color.secondary)
                 Text(branch.shortName)
                     .foregroundStyle(Color.primary)
                 Spacer()
             }
+            .font(metrics.scaledFont(.body))
             .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)

@@ -103,6 +103,52 @@ final class TerminalSession: Identifiable {
         TerminalTheme.apply(to: terminalView, appearance: appearance)
     }
 
+    /// The point size this session's font currently carries.
+    ///
+    /// Seeded with the zone's resting value rather than left `nil`, because that
+    /// value *is* the size SwiftTerm's own default font already carries
+    /// (`FontSet.defaultFont` is `NSFont.monospacedSystemFont(ofSize:
+    /// NSFont.systemFontSize)`, and `ZoomScaleRule.terminalFont.defaultValue` is
+    /// that same 13). A `nil` seed would make the first `applyFont(size: 13)` — the
+    /// one `TerminalSessionsModel` performs on every freshly created session,
+    /// before the view has a frame — assign a font that is already installed, and
+    /// SwiftTerm's setter is not free: it rebuilds the font set, calls
+    /// `selectNone()` and runs `resetFont()`, whose `resize` fires `sizeChanged`
+    /// (a `setWinSize` on the PTY of the shell that has just started) and
+    /// `terminal.softReset()`. Seeding is what makes the documented "a session
+    /// born at the resting size is a no-op" literally true.
+    private var appliedFontSize: Double = ZoomScaleRule.terminalFont.defaultValue
+
+    /// Redraws this session at `size` points, the terminal zoom zone's persisted
+    /// value (`SettingsStore.terminalFontSize`).
+    ///
+    /// The font is built exactly the way SwiftTerm builds its own default —
+    /// `NSFont.monospacedSystemFont(ofSize:weight: .regular)`, which at the
+    /// zone's default of 13 (`NSFont.systemFontSize`) is the very font the view
+    /// was already drawing with. So a fresh install at 100% is byte-identical to
+    /// today, and only a deliberate zoom changes anything.
+    ///
+    /// Setting `TerminalView.font` re-derives the whole font set, recomputes the
+    /// cell dimensions and `resize`s the terminal to the new column/row count —
+    /// which resizes the *PTY* — so the running shell reflows to the new size
+    /// rather than being restarted. The scrollback and the process are untouched.
+    ///
+    /// The unchanged-size guard is load-bearing for the same reason
+    /// `applyTheme(for:)`'s is, and then some: SwiftTerm's setter also calls
+    /// `selectNone()`, so an unconditional assignment would drop the user's
+    /// selection. This is called from the window root on every settings change
+    /// *and* on mount, from `TerminalSessionsModel` on every freshly created
+    /// session, and each call fans out over every live session, so without the
+    /// guard an unrelated preference edit would clear a selection in a terminal
+    /// the user never touched — and pay a full font-set rebuild and PTY resize per
+    /// session for it. `appliedFontSize`'s seed is what extends that guard to the
+    /// born-at-the-resting-size case.
+    func applyFont(size: Double) {
+        guard appliedFontSize != size else { return }
+        appliedFontSize = size
+        terminalView.font = NSFont.monospacedSystemFont(ofSize: CGFloat(size), weight: .regular)
+    }
+
     /// Sends `SIGTERM` to the shell so a closed tab / app quit doesn't leak it.
     ///
     /// Only signals a *live* child: if the shell already exited its `shellPid` is
@@ -117,6 +163,10 @@ final class TerminalSession: Identifiable {
     }
 
     /// Reaches SwiftTerm 1.5.0's view-internal `LocalProcess` through `Mirror`.
+    ///
+    /// Note the terminal's zoom surface is declared on SwiftTerm's *view* class
+    /// below, not here: the pointer walk finds `NSView`s, and a session is not
+    /// one.
     /// The dependency is pinned to an exact version (see `Package.swift`), so the
     /// stored-property name (`process`) stays stable.
     private static func localProcess(of view: LocalProcessTerminalView) -> LocalProcess? {
@@ -125,6 +175,21 @@ final class TerminalSession: Identifiable {
         }
         return nil
     }
+}
+
+/// SwiftTerm's terminal view *is* the terminal zoom zone's surface.
+///
+/// Declared as an extension on the dependency's own class because that is the
+/// view the pointer is over: it is what `TerminalPanelView` puts on screen, and
+/// there is no subclass of ours between it and the user. The conformance carries
+/// no behavior — the app's one event monitor does the work — which is what makes
+/// extending a third-party class here harmless.
+///
+/// `TerminalView` rather than `LocalProcessTerminalView`: the subclass inherits
+/// it, and the base class is the one that actually draws the cells the pointer
+/// is over.
+extension TerminalView: ZoomSurfaceProviding {
+    var zoomSurfaceKind: ZoomSurfaceKind { .terminal }
 }
 
 #endif

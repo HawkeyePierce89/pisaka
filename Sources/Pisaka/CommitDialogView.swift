@@ -35,6 +35,11 @@ struct CommitDialogView: View {
     /// Whether the two-field author editor is up.
     @State private var isEditingAuthor = false
 
+    /// The interface zone's metrics, inherited from the window that presents this
+    /// sheet — a sheet is a descendant of its presenter for environment purposes,
+    /// so `ContentView`'s root injection reaches here with nothing threaded.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
         VStack(spacing: 0) {
             if isAwaitingLoad && model.files.isEmpty {
@@ -42,16 +47,28 @@ struct CommitDialogView: View {
             } else {
                 HSplitView {
                     fileList
-                        .frame(minWidth: 220, idealWidth: 280, maxWidth: 420)
+                        .frame(
+                            minWidth: metrics.scaled(220),
+                            idealWidth: metrics.scaled(280),
+                            maxWidth: metrics.scaled(420)
+                        )
                     diffPanel
-                        .frame(minWidth: 380, maxWidth: .infinity)
+                        .frame(minWidth: metrics.scaled(380), maxWidth: .infinity)
                 }
                 .frame(maxHeight: .infinity)
             }
             Divider()
             bottomSection
         }
-        .frame(minWidth: 900, idealWidth: 1000, minHeight: 560, idealHeight: 640)
+        // The sheet's own size scales with the two panes inside it, so a 200%
+        // dialog still holds both at their minimums instead of squeezing the diff
+        // out of the split — `InterfaceMetricsTests` pins that composition.
+        .frame(
+            minWidth: metrics.scaled(900),
+            idealWidth: metrics.scaled(1000),
+            minHeight: metrics.scaled(560),
+            idealHeight: metrics.scaled(640)
+        )
         .sheet(isPresented: $isEditingAuthor) {
             AuthorEditorView(identity: model.identity) { name, email in
                 Task { await model.setLocalIdentity(name: name, email: email) }
@@ -74,18 +91,18 @@ struct CommitDialogView: View {
         VStack(spacing: 0) {
             HStack {
                 Text(fileCountText)
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(.secondary)
                 Spacer()
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.horizontal, metrics.scaled(8))
+            .padding(.vertical, metrics.scaled(6))
             Divider()
             if model.files.isEmpty {
                 VStack {
                     Spacer()
                     Text("No local changes")
-                        .font(.callout)
+                        .font(metrics.scaledFont(.callout))
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
@@ -128,7 +145,7 @@ struct CommitDialogView: View {
                                 )
                             }
                         }
-                        .padding(.vertical, 2)
+                        .padding(.vertical, metrics.scaled(2))
                     }
                     .onAppear {
                         guard let path = model.selectedPath else { return }
@@ -155,14 +172,14 @@ struct CommitDialogView: View {
             VStack(spacing: 0) {
                 HStack {
                     Text(path)
-                        .font(.caption)
+                        .font(metrics.scaledFont(.caption))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer()
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+                .padding(.horizontal, metrics.scaled(8))
+                .padding(.vertical, metrics.scaled(6))
                 Divider()
                 CommitUnifiedDiffView(
                     lines: model.unifiedLines(for: path),
@@ -179,7 +196,7 @@ struct CommitDialogView: View {
             VStack {
                 Spacer()
                 Text("Select a file to see its changes")
-                    .font(.callout)
+                    .font(metrics.scaledFont(.callout))
                     .foregroundStyle(.secondary)
                 Spacer()
             }
@@ -190,9 +207,9 @@ struct CommitDialogView: View {
     // MARK: - Bottom: message, author, switches, buttons
 
     private var bottomSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: metrics.scaled(8)) {
             Text("Commit Message")
-                .font(.caption.weight(.semibold))
+                .font(metrics.scaledFont(.caption, weight: .semibold))
                 .foregroundStyle(.secondary)
             // Disabled while the commit runs, like the switches below and for the
             // same reason: `commit()` pins the message at entry, so text typed
@@ -201,12 +218,19 @@ struct CommitDialogView: View {
             // would vanish with nothing saying the commit did not carry it. The
             // run is exactly the long window (hooks, signing) in which noticing a
             // typo is likely.
+            // The message is written at the *code* font, so the box that holds it
+            // keeps its height off the interface scale for the reason the Find in
+            // Files rows keep their gutter off it: the two zones must not
+            // interact. Only the rule around it is chrome, and it scales. For the
+            // same reason it carries a code `ZoomSurfaceMarker`: a gesture over
+            // text drawn at the code size must grow that size, not the sheet.
             TextEditor(text: $model.message)
                 .font(.system(size: settings.fontSize, design: .monospaced))
                 .frame(minHeight: 70, maxHeight: 120)
                 .disabled(model.isRunning)
+                .background(ZoomSurfaceMarker(kind: .code))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: metrics.scaled(4))
                         .stroke(Color(NSColor.separatorColor))
                 )
 
@@ -215,7 +239,7 @@ struct CommitDialogView: View {
 
             if let message = statusMessage {
                 Text(message)
-                    .font(.callout)
+                    .font(metrics.scaledFont(.callout))
                     .foregroundStyle(statusIsError ? Color.red : Color.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -240,8 +264,9 @@ struct CommitDialogView: View {
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!model.canCommit)
             }
+            .font(metrics.scaledFont(.body))
         }
-        .padding(10)
+        .padding(metrics.scaled(10))
     }
 
     /// The identity git will resolve for this commit — labelled for the role it
@@ -261,21 +286,21 @@ struct CommitDialogView: View {
     /// `git log -1` read; naming the role correctly needs none, and is what stops
     /// the line from lying.
     private var authorLine: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: metrics.scaled(6)) {
             Text(model.amend ? "Committer:" : "Author:")
-                .font(.callout)
+                .font(metrics.scaledFont(.callout))
                 .foregroundStyle(.secondary)
             // An incomplete identity is red *and* blocks the commit (`CommitGate`
             // reports `.identityIncomplete`): the whole point of showing the author
             // is that a repository never commits under a name nobody looked at.
             Text(model.identity.signature)
-                .font(.callout)
+                .font(metrics.scaledFont(.callout))
                 .foregroundStyle(model.identity.isComplete ? Color.primary : Color.red)
                 .lineLimit(1)
                 .truncationMode(.middle)
             if model.amend {
                 Text("(amend keeps the original author)")
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -290,13 +315,14 @@ struct CommitDialogView: View {
             // itself is blocked for that same window by `CommitGate`, not here.
             Button("Edit…") { isEditingAuthor = true }
                 .buttonStyle(.link)
+                .font(metrics.scaledFont(.callout))
                 .disabled(model.root == nil || model.isRunning || model.isWritingIdentity)
             Spacer()
         }
     }
 
     private var switchesLine: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: metrics.scaled(16)) {
             // Amend moves the message field with it, so it goes through the model
             // rather than binding the stored property.
             Toggle("Amend", isOn: Binding(
@@ -315,12 +341,16 @@ struct CommitDialogView: View {
                 .disabled(model.pushPlan?.isAvailable != true || model.isRunning)
             if let text = pushText {
                 Text(text)
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             Spacer()
         }
+        // Applied to the row rather than to each `Toggle`: a switch's label is the
+        // only part of it that carries a font, and the two here are built from
+        // bindings whose labels would otherwise stay at the system size.
+        .font(metrics.scaledFont(.body))
     }
 
     private var pushText: String? {
@@ -382,12 +412,15 @@ private struct CommitFileRow: View {
 
     @State private var isHovering = false
 
+    /// The interface zone's metrics, inherited from the sheet's root.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
         let status = selection.file.status
         let icon = FileIcon(
             for: DirectoryEntry(url: URL(fileURLWithPath: selection.path), isDirectory: false)
         )
-        HStack(spacing: 4) {
+        HStack(spacing: metrics.scaled(4)) {
             Button(action: onToggle) {
                 Image(systemName: symbol)
                     .foregroundStyle(state == .unchecked ? Color.secondary : Color.accentColor)
@@ -401,20 +434,21 @@ private struct CommitFileRow: View {
             let directory = (selection.path as NSString).deletingLastPathComponent
             if !directory.isEmpty {
                 Text(directory)
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.head)
             }
-            Spacer(minLength: 4)
+            Spacer(minLength: metrics.scaled(4))
             Text(statusLetter(status))
-                .font(.caption2.monospaced())
+                .font(metrics.scaledFont(.caption2, design: .monospaced))
                 .foregroundStyle(statusColor(status))
         }
+        .font(metrics.scaledFont(.body))
         .lineLimit(1)
         .truncationMode(.middle)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
+        .padding(.horizontal, metrics.scaled(6))
+        .padding(.vertical, metrics.scaled(3))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(background)
         .contentShape(Rectangle())
@@ -447,6 +481,9 @@ private struct AuthorEditorView: View {
     let onSave: (String, String) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    /// The interface zone's metrics — inherited through the commit sheet that
+    /// presents this one, two levels down from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
     @State private var name: String
     @State private var email: String
 
@@ -458,18 +495,18 @@ private struct AuthorEditorView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: metrics.scaled(10)) {
             Text("Commit Author")
-                .font(.headline)
+                .font(metrics.scaledFont(.headline, weight: .semibold))
             Text("Saved to this repository's local config only — your global git identity is left unchanged.")
-                .font(.caption)
+                .font(metrics.scaledFont(.caption))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Form {
                 TextField("Name", text: $name)
                 TextField("Email", text: $email)
             }
-            .frame(width: 360)
+            .frame(width: metrics.scaled(360))
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
@@ -485,8 +522,11 @@ private struct AuthorEditorView: View {
                 .disabled(!isUsable)
             }
         }
-        .padding(16)
-        .frame(minWidth: 400)
+        .font(metrics.scaledFont(.body))
+        .padding(metrics.scaled(16))
+        // Wider than the 360pt form inside it at every scale, so the two fields
+        // never touch the sheet's edge.
+        .frame(minWidth: metrics.scaled(400))
     }
 
     /// Both fields must be non-blank: writing a blank one would leave the identity

@@ -32,9 +32,15 @@ struct CommitLogView: View {
     /// model replaces `commits` wholesale, matching its refresh contract).
     @State private var limit = CommitLogView.initialLimit
 
-    /// Fixed height of every commit row so the branch-graph gutter (drawn per row
-    /// as a fixed-height AppKit cell) aligns with the text columns.
-    static let rowHeight: CGFloat = 24
+    /// Fixed *base* height of every commit row so the branch-graph gutter (drawn
+    /// per row as a fixed-height AppKit cell) aligns with the text columns. The
+    /// row and its gutter cell both scale it through the same
+    /// `InterfaceMetrics.pt`, so they stay aligned at every scale — an unscaled
+    /// gutter beside scaled rows is the one way this graph can visibly break.
+    static let baseRowHeight: Double = 24
+
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
 
     var body: some View {
         VStack(spacing: 0) {
@@ -67,9 +73,9 @@ struct CommitLogView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: metrics.scaled(8)) {
             Text("History")
-                .font(.headline)
+                .font(metrics.scaledFont(.headline, weight: .semibold))
             if model.isLoading {
                 ProgressView()
                     .controlSize(.small)
@@ -77,13 +83,14 @@ struct CommitLogView: View {
             Spacer()
             Button(action: refreshIfPossible) {
                 Image(systemName: "arrow.clockwise")
+                    .font(metrics.scaledFont(.body))
             }
             .buttonStyle(.borderless)
             .disabled(projectRoot == nil)
             .help("Refresh commit history")
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, metrics.scaled(10))
+        .padding(.vertical, metrics.scaled(6))
     }
 
     @ViewBuilder
@@ -100,10 +107,14 @@ struct CommitLogView: View {
             // window on double-click) opens beside the list.
             HSplitView {
                 commitList
-                    .frame(minWidth: 360, idealWidth: 520, maxWidth: .infinity)
+                    .frame(
+                        minWidth: metrics.scaled(360),
+                        idealWidth: metrics.scaled(520),
+                        maxWidth: .infinity
+                    )
                 if let selected = model.selected {
                     CommitDetailPane(model: model, commit: selected, onOpenCommitDiff: onOpenCommitDiff)
-                        .frame(minWidth: 280, maxWidth: .infinity)
+                        .frame(minWidth: metrics.scaled(280), maxWidth: .infinity)
                 }
             }
         }
@@ -144,7 +155,7 @@ struct CommitLogView: View {
                 }
                 loadMoreRow
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, metrics.scaled(4))
         }
     }
 
@@ -172,11 +183,11 @@ struct CommitLogView: View {
                             .controlSize(.small)
                     } else {
                         Text("Load more")
-                            .font(.callout)
+                            .font(metrics.scaledFont(.callout))
                     }
                     Spacer()
                 }
-                .padding(.vertical, 8)
+                .padding(.vertical, metrics.scaled(8))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
@@ -189,9 +200,11 @@ struct CommitLogView: View {
             Spacer()
             Text(text)
                 .foregroundStyle(.secondary)
-                .font(.callout)
+                .font(metrics.scaledFont(.callout))
                 .multilineTextAlignment(.center)
-                .padding()
+                // The default `.padding()` inset, stated so it scales with the
+                // rest of the Log instead of staying a fixed 16pt.
+                .padding(metrics.scaled(16))
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -253,53 +266,70 @@ private struct CommitRow: View {
 
     @State private var isHovering = false
 
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+
+    /// Base spacing between the gutter's lanes, and the base margin after the
+    /// last one. Both are scaled below and handed to the AppKit cell, so the
+    /// gutter's own drawing keeps pace with the rows it sits beside.
+    private static let baseLaneSpacing: Double = 14
+    private static let baseGraphMargin: Double = 6
+
+    /// This row's height at the current interface scale.
+    private var rowHeight: CGFloat { metrics.scaled(CommitLogView.baseRowHeight) }
+
     /// Width reserved for the graph gutter: one lane's spacing per column, with a
     /// small minimum so a single-lane history still shows its line.
     private var graphWidth: CGFloat {
-        CGFloat(max(laneCount, 1)) * 14 + 6
+        CGFloat(max(laneCount, 1)) * metrics.scaled(Self.baseLaneSpacing)
+            + metrics.scaled(Self.baseGraphMargin)
     }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: metrics.scaled(8)) {
             if let graphRow {
                 CommitGraphView(
                     row: graphRow,
                     incomingEdges: incomingEdges,
                     laneCount: max(laneCount, 1),
-                    rowHeight: CommitLogView.rowHeight
+                    rowHeight: rowHeight,
+                    laneSpacing: metrics.scaled(Self.baseLaneSpacing),
+                    nodeRadius: metrics.scaled(3.5),
+                    lineWidth: metrics.scaled(1.5)
                 )
-                .frame(width: graphWidth, height: CommitLogView.rowHeight)
+                .frame(width: graphWidth, height: rowHeight)
             }
 
             Text(shortHash)
-                .font(.caption.monospaced())
+                .font(metrics.scaledFont(.caption, design: .monospaced))
                 .foregroundStyle(.secondary)
-                .frame(width: 58, alignment: .leading)
+                .frame(width: metrics.scaled(58), alignment: .leading)
 
             ForEach(commit.refs, id: \.self) { ref in
                 RefBadge(name: ref)
             }
 
             Text(commit.subject)
+                .font(metrics.scaledFont(.body))
                 .lineLimit(1)
                 .truncationMode(.tail)
 
-            Spacer(minLength: 8)
+            Spacer(minLength: metrics.scaled(8))
 
             Text(commit.author)
-                .font(.caption)
+                .font(metrics.scaledFont(.caption))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .frame(maxWidth: 160, alignment: .trailing)
+                .frame(maxWidth: metrics.scaled(160), alignment: .trailing)
 
             Text(displayDate)
-                .font(.caption.monospaced())
+                .font(metrics.scaledFont(.caption, design: .monospaced))
                 .foregroundStyle(.secondary)
-                .frame(width: 120, alignment: .trailing)
+                .frame(width: metrics.scaled(120), alignment: .trailing)
         }
-        .padding(.horizontal, 10)
-        .frame(maxWidth: .infinity, minHeight: CommitLogView.rowHeight,
-               maxHeight: CommitLogView.rowHeight, alignment: .leading)
+        .padding(.horizontal, metrics.scaled(10))
+        .frame(maxWidth: .infinity, minHeight: rowHeight,
+               maxHeight: rowHeight, alignment: .leading)
         .background(rowBackground)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
@@ -335,12 +365,15 @@ private struct CommitRow: View {
 private struct RefBadge: View {
     let name: String
 
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
         Text(name)
-            .font(.caption2)
+            .font(metrics.scaledFont(.caption2))
             .lineLimit(1)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
+            .padding(.horizontal, metrics.scaled(5))
+            .padding(.vertical, metrics.scaled(1))
             .background(Color.accentColor.opacity(0.2))
             .foregroundStyle(Color.accentColor)
             .clipShape(Capsule())
@@ -368,6 +401,9 @@ private struct CommitDetailPane: View {
     /// in-flight one before it can assign a stale file list.
     @State private var loadGeneration = 0
 
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
         filesList
             .onAppear { loadChanges(for: commit) }
@@ -377,16 +413,16 @@ private struct CommitDetailPane: View {
     private var filesList: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(commit.subject)
-                .font(.headline)
+                .font(metrics.scaledFont(.headline, weight: .semibold))
                 .lineLimit(2)
-                .padding(.horizontal, 10)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
+                .padding(.horizontal, metrics.scaled(10))
+                .padding(.top, metrics.scaled(8))
+                .padding(.bottom, metrics.scaled(4))
             Divider()
             if files.isEmpty {
                 Text("No changed files")
                     .foregroundStyle(.secondary)
-                    .font(.callout)
+                    .font(metrics.scaledFont(.callout))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
@@ -400,7 +436,7 @@ private struct CommitDetailPane: View {
                             )
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, metrics.scaled(4))
                 }
             }
         }
@@ -434,24 +470,28 @@ private struct CommitFileRow: View {
 
     @State private var isHovering = false
 
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
         let icon = FileIcon(for: DirectoryEntry(
             url: URL(fileURLWithPath: file.path),
             isDirectory: false
         ))
-        HStack(spacing: 4) {
+        HStack(spacing: metrics.scaled(4)) {
             Image(systemName: icon.symbolName)
                 .foregroundStyle(commitStatusColor(file.status))
             Text(file.path)
-            Spacer(minLength: 4)
+            Spacer(minLength: metrics.scaled(4))
             Text(commitStatusLetter(file.status))
-                .font(.caption2.monospaced())
+                .font(metrics.scaledFont(.caption2, design: .monospaced))
                 .foregroundStyle(commitStatusColor(file.status))
         }
+        .font(metrics.scaledFont(.body))
         .lineLimit(1)
         .truncationMode(.middle)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 3)
+        .padding(.horizontal, metrics.scaled(10))
+        .padding(.vertical, metrics.scaled(3))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(rowBackground)
         .contentShape(Rectangle())

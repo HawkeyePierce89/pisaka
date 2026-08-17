@@ -704,7 +704,11 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     one.
 
   - `LSPServerSettingsView.swift` — Preferences → Language Servers, the whole
-    management surface: one row per downloadable server showing the state the
+    management surface. Like the consent banner it is pure chrome: every font,
+    padding and fixed width comes through `\.interfaceMetrics` (injected at the
+    `Settings` scene by `PisakaApp`), it draws no code font, and it declares no
+    zoom surface — so a gesture anywhere in it belongs to the interface zone
+    (`docs/architecture/core-zoom.md`). One row per downloadable server shows the state the
     model derived (not installed · size / not installed · declined / Installing…
     / Removing… / Installed · version) and the actions that apply to it. The
     removal state is checked ahead of the install state, because a removal keeps

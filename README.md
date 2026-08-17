@@ -61,8 +61,12 @@ description of each — and of what it deliberately does *not* do — is in
   problem list (Cmd+Shift+B), get a solution file seeded with the official
   snippet (never overwritten), read the statement in a themed pane beside the
   editor, and **Run / Submit the editor buffer** with full verdicts inline.
-- **Preferences** — tab orientation, theme, shared editor font size
-  (Cmd+scroll), completion on/off, the language-server and LeetCode screens,
+- **Zoom in three independent zones** — code, terminal and interface, with the
+  one under the pointer the one that grows: Cmd+= / Cmd+− / Cmd+0, Ctrl- or
+  Cmd-scroll, and trackpad pinch. Each is stored separately, so resetting one
+  leaves the other two alone (details in `docs/FEATURES.md`).
+- **Preferences** — tab orientation, theme, shared editor font size, terminal
+  font size, completion on/off, the language-server and LeetCode screens,
   and an Acknowledgements tab with every dependency's verbatim license.
 
 ## iOS / iPadOS
@@ -191,7 +195,8 @@ that signs; it runs only on a `v*` tag, never on a pull request.
 | Cmd+Shift+T | Show/Hide the embedded terminal bottom panel |
 | Cmd+Shift+C | Show/Hide the Local Changes bottom panel   |
 | Cmd+,       | Open Preferences                           |
-| Cmd+scroll  | Adjust the editor font size over any code view |
+| Cmd+= / Cmd+− / Cmd+0 | Zoom in / out / reset the zone under the pointer (code, terminal, or interface) |
+| Cmd+ or Ctrl+scroll, pinch | The same zoom, by gesture |
 | Esc         | Close the search bar, or the focused diff / merge / Find in Files / LeetCode Problems / source viewer window |
 
 ## Known Limitations (1.0)

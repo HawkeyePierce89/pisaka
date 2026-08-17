@@ -11,6 +11,9 @@ struct TabListView: View {
     var orientation: TabOrientation = .vertical
     var onClose: (UUID) -> Void = { _ in }
 
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
         switch orientation {
         case .vertical:
@@ -20,7 +23,7 @@ struct TabListView: View {
                         row(for: file)
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, metrics.scaled(4))
             }
         case .horizontal:
             ScrollView(.horizontal) {
@@ -29,7 +32,7 @@ struct TabListView: View {
                         row(for: file)
                     }
                 }
-                .padding(.horizontal, 4)
+                .padding(.horizontal, metrics.scaled(4))
             }
         }
     }

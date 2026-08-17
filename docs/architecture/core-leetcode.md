@@ -1594,7 +1594,14 @@ the limits the design carries.
     arbitrary. Cancelling is an answer, not a failure: nothing is fetched and
     nothing is alerted.
   - `LeetCodeDescriptionView.swift` (macOS) — the right-hand pane, plus its web
-    view. **It observes the model; the window does not**: `ContentView` holds
+    view. **Zones**: the pane's chrome (header, buttons, the judge section)
+    follows the interface scale it inherits from `ContentView`, while the
+    statement *body* follows the **code** zone through the CSS size
+    `LeetCodeStatementDocument` builds from `settings.fontSize` — which is why the
+    web view carries a `ZoomSurfaceMarker(kind: .code)`, and why the body not
+    following the interface scale is recorded as this feature's one known limit
+    (`docs/architecture/core-zoom.md`).
+    **It observes the model; the window does not**: `ContentView` holds
     `leetCode` as a plain `var` beside `provisioning`/`symbolIndex`, so the
     `@ObservedObject` lives in the one view that shows the state and the pane
     appears and disappears while the rest of the window stays still — which is also
@@ -1726,7 +1733,10 @@ the limits the design carries.
     `order(.below, relativeTo:)` and needs it.
   - `LeetCodeBrowserView.swift` (macOS) — the window's contents: the search field,
     the language picker and the two rows of filter toggles at the top, the `Table`
-    below, the count/error/fetch-time/Refresh footer at the bottom.
+    below, the count/error/fetch-time/Refresh footer at the bottom. It is one of
+    the `NSHostingController` roots that applies `.interfaceScaled(settings)`, so
+    the whole window is chrome and belongs to the interface zone — it draws no
+    code font and declares no zoom surface (`docs/architecture/core-zoom.md`).
     **It observes `LeetCodeBrowserModel`, not `LeetCodeModel`** — which is the
     whole reason the browser is a companion model: a text field bound to
     `browser.filter.query` re-renders this view on every keystroke, and observing

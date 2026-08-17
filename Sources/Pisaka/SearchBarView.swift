@@ -29,8 +29,13 @@ struct SearchBarView: View {
     /// happens to be focused elsewhere in the app — see the note there.
     @State private var barWindow: NSWindow?
 
+    /// The interface zone's metrics, inherited from the window root. The bar is
+    /// chrome, not a code surface: it sits above the editor and grows with the
+    /// rest of the interface rather than with the text it searches.
+    @Environment(\.interfaceMetrics) private var metrics
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: metrics.scaled(4)) {
             findRow
             if search.isReplaceExpanded {
                 replaceRow
@@ -40,14 +45,14 @@ struct SearchBarView: View {
                 // red — never as an alert: the pattern is being typed, so a modal
                 // would fire on every intermediate keystroke.
                 Text(error)
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(Color(NSColor.systemRed))
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .padding(.horizontal, metrics.scaled(8))
+        .padding(.vertical, metrics.scaled(5))
         .background(Color(NSColor.controlBackgroundColor))
         .background(WindowAccessor { window in
             // Identity-compared before writing: `updateNSView` runs on every pass,
@@ -66,7 +71,7 @@ struct SearchBarView: View {
     // MARK: - Rows
 
     private var findRow: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: metrics.scaled(6)) {
             // Expands/collapses the replace row. Kept as a disclosure chevron on
             // the leading edge (JetBrains/Xcode convention) so the two rows read as
             // one control rather than two bars.
@@ -74,14 +79,16 @@ struct SearchBarView: View {
                 search.isReplaceExpanded.toggle()
             } label: {
                 Image(systemName: search.isReplaceExpanded ? "chevron.down" : "chevron.right")
-                    .frame(width: 12)
+                    .font(metrics.scaledFont(.body))
+                    .frame(width: metrics.scaled(12))
             }
             .buttonStyle(.plain)
             .help(search.isReplaceExpanded ? "Hide replace" : "Show replace")
 
             TextField("Find", text: $search.pattern)
                 .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 160, idealWidth: 240)
+                .font(metrics.scaledFont(.body))
+                .frame(minWidth: metrics.scaled(160), idealWidth: metrics.scaled(240))
                 .focused($isQueryFocused)
                 // Enter steps to the next match, matching every other editor's
                 // find bar; the bar stays open and focused.
@@ -92,26 +99,29 @@ struct SearchBarView: View {
             toggle(".*", isOn: $search.isRegex, help: "Regular expression")
 
             Text(counterText)
-                .font(.caption)
+                .font(metrics.scaledFont(.caption))
                 .foregroundStyle(.secondary)
-                .frame(minWidth: 64, alignment: .leading)
+                .frame(minWidth: metrics.scaled(64), alignment: .leading)
 
             Button { search.findPrevious() } label: {
                 Image(systemName: "chevron.up")
+                    .font(metrics.scaledFont(.body))
             }
             .help("Find previous")
             .disabled(!search.hasMatches)
 
             Button { search.findNext() } label: {
                 Image(systemName: "chevron.down")
+                    .font(metrics.scaledFont(.body))
             }
             .help("Find next")
             .disabled(!search.hasMatches)
 
-            Spacer(minLength: 4)
+            Spacer(minLength: metrics.scaled(4))
 
             Button { search.close() } label: {
                 Image(systemName: "xmark")
+                    .font(metrics.scaledFont(.body))
             }
             .buttonStyle(.plain)
             .help("Close")
@@ -119,25 +129,28 @@ struct SearchBarView: View {
     }
 
     private var replaceRow: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: metrics.scaled(6)) {
             // Keeps the replace field aligned under the query field, past the
             // disclosure chevron.
-            Spacer().frame(width: 12)
+            Spacer().frame(width: metrics.scaled(12))
 
             TextField("Replace", text: $search.template)
                 .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 160, idealWidth: 240)
+                .font(metrics.scaledFont(.body))
+                .frame(minWidth: metrics.scaled(160), idealWidth: metrics.scaled(240))
                 // Enter in the replace field replaces the current match, so the
                 // common "type, Enter, Enter, …" walk works without the mouse.
                 .onSubmit { search.replaceCurrent() }
 
             Button("Replace") { search.replaceCurrent() }
+                .font(metrics.scaledFont(.body))
                 .disabled(!search.hasMatches)
 
             Button("Replace All") { search.replaceAll() }
+                .font(metrics.scaledFont(.body))
                 .disabled(!search.hasMatches)
 
-            Spacer(minLength: 4)
+            Spacer(minLength: metrics.scaled(4))
         }
     }
 
@@ -149,11 +162,13 @@ struct SearchBarView: View {
             isOn.wrappedValue.toggle()
         } label: {
             Text(label)
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
+                // 11pt semibold monospaced — `subheadline`'s base size, so the
+                // toggle keeps its size at 100% and grows with the bar above it.
+                .font(metrics.scaledFont(.subheadline, weight: .semibold, design: .monospaced))
+                .padding(.horizontal, metrics.scaled(5))
+                .padding(.vertical, metrics.scaled(2))
                 .background(isOn.wrappedValue ? Color.accentColor.opacity(0.25) : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(4)))
         }
         .buttonStyle(.plain)
         .foregroundStyle(isOn.wrappedValue ? Color.accentColor : Color.primary)

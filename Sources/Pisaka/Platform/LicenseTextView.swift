@@ -27,8 +27,34 @@ import SwiftUI
 struct LicenseTextView: View {
     let text: String
 
+    /// The point size to draw the text at, or `nil` for the platform's small
+    /// system size — what it drew before the interface zoom zone existed, and what
+    /// every iOS caller still passes.
+    ///
+    /// Present so the macOS Acknowledgements pane can hand down
+    /// `InterfaceMetrics.font(.subheadline)` — whose base of 11 is
+    /// `NSFont.smallSystemFontSize`, so 100% still draws what it always did. It is
+    /// the largest reading surface in Preferences, and a license pinned at 11pt
+    /// inside a window scaled to 200% would be the one island left in the
+    /// interface zone. Defaulting to `nil`
+    /// rather than to a number keeps the two platforms' resting appearance the
+    /// property of the platform, not of this parameter.
+    var pointSize: Double?
+
+    /// The margin between the pane's edge and the text, or `nil` for the
+    /// platform's own — 12 on macOS, 16 on iOS, the values this pane used before
+    /// the interface zoom zone existed.
+    ///
+    /// Separate from `pointSize` because TextKit takes the two through different
+    /// properties, and scaled for the same reason the size is: the header
+    /// directly above this pane pads by `metrics.scaled(12)`, so a fixed inset
+    /// here would put the license text out of line with its own header at
+    /// anything but 100%, and leave the pane's internal margin as the one
+    /// unscaled thing in a window scaled to 200%.
+    var inset: Double?
+
     var body: some View {
-        Representable(text: text)
+        Representable(text: text, pointSize: pointSize, inset: inset)
     }
 }
 
@@ -38,6 +64,21 @@ import AppKit
 extension LicenseTextView {
     fileprivate struct Representable: NSViewRepresentable {
         let text: String
+        let pointSize: Double?
+        let inset: Double?
+
+        /// The size to draw at: the interface zone's, or the one this pane used
+        /// before there was a zone.
+        private var resolvedPointSize: CGFloat {
+            pointSize.map { CGFloat($0) } ?? NSFont.smallSystemFontSize
+        }
+
+        /// The margin to draw with: the interface zone's, or the 12 this pane
+        /// used before there was a zone.
+        private var resolvedInset: NSSize {
+            let value = inset.map { CGFloat($0) } ?? 12
+            return NSSize(width: value, height: value)
+        }
 
         func makeNSView(context: Context) -> NSScrollView {
             let scrollView = NSTextView.scrollableTextView()
@@ -48,7 +89,7 @@ extension LicenseTextView {
             textView.isEditable = false
             textView.isSelectable = true
             textView.drawsBackground = false
-            textView.textContainerInset = NSSize(width: 12, height: 12)
+            textView.textContainerInset = resolvedInset
             // The pane wraps to its width and scrolls only vertically; a license is
             // hard-wrapped prose, so horizontal scrolling would be noise.
             textView.isHorizontallyResizable = false
@@ -63,18 +104,38 @@ extension LicenseTextView {
 
         func updateNSView(_ scrollView: NSScrollView, context: Context) {
             guard let textView = scrollView.documentView as? NSTextView else { return }
+            // The margin travels with the size — both change on a zoom step and
+            // neither touches the text — and is set before the content guard
+            // below so it lands whether or not the selection also changed.
+            // Guarded so an unrelated re-evaluation does not invalidate layout.
+            if textView.textContainerInset != resolvedInset {
+                textView.textContainerInset = resolvedInset
+            }
             // Selecting a different dependency reuses this view, so guard on the
             // content: re-setting an unchanged string would drop the user's
             // selection and scroll position for nothing.
-            guard textView.string != text else { return }
-            apply(text: text, to: textView)
-            textView.scroll(.zero)
+            if textView.string != text {
+                apply(text: text, to: textView)
+                textView.scroll(.zero)
+                return
+            }
+            // A zoom step changes the size without changing the text, and that is
+            // the path that must *not* disturb where the user is reading — so it
+            // sets the font alone. Re-entering `apply` here would re-assign the
+            // whole 66 KB string on every step, which drops the selection and the
+            // scroll position exactly as the guard above exists to prevent.
+            guard textView.font?.pointSize != resolvedPointSize else { return }
+            textView.font = font
         }
 
         private func apply(text: String, to textView: NSTextView) {
             textView.string = text
-            textView.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+            textView.font = font
             textView.textColor = .labelColor
+        }
+
+        private var font: NSFont {
+            .monospacedSystemFont(ofSize: resolvedPointSize, weight: .regular)
         }
     }
 }
@@ -84,6 +145,16 @@ import UIKit
 extension LicenseTextView {
     fileprivate struct Representable: UIViewRepresentable {
         let text: String
+        /// Always `nil` on this platform — no iOS screen passes one, so the base
+        /// size stays `UIFont.smallSystemFontSize` and Dynamic Type scales it, as
+        /// it always has. Present so the two halves take the same value.
+        let pointSize: Double?
+        /// Always `nil` on this platform too — there is no interface zoom zone
+        /// here, so the margin stays the 16 it has always been. Present for the
+        /// same reason `pointSize` is: the two halves take the same value.
+        let inset: Double?
+
+        private var resolvedInset: CGFloat { inset.map { CGFloat($0) } ?? 16 }
 
         func makeUIView(context: Context) -> UITextView {
             let textView = UITextView()
@@ -91,7 +162,9 @@ extension LicenseTextView {
             textView.isSelectable = true
             textView.backgroundColor = .clear
             textView.alwaysBounceVertical = true
-            textView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+            textView.textContainerInset = UIEdgeInsets(
+                top: resolvedInset, left: resolvedInset, bottom: resolvedInset, right: resolvedInset
+            )
             // `UITextView` insets its container by 5pt on each side on top of
             // `textContainerInset`; zeroing it keeps the left margin equal to the
             // header's above it.
@@ -111,7 +184,10 @@ extension LicenseTextView {
             // vended by `UIFontMetrics`, so the monospaced face is scaled through
             // the caption metric rather than pinned at a fixed point size — the
             // `.system(.caption, design: .monospaced)` this replaced scaled too.
-            let base = UIFont.monospacedSystemFont(ofSize: UIFont.smallSystemFontSize, weight: .regular)
+            let base = UIFont.monospacedSystemFont(
+                ofSize: pointSize.map { CGFloat($0) } ?? UIFont.smallSystemFontSize,
+                weight: .regular
+            )
             textView.font = UIFontMetrics(forTextStyle: .caption1).scaledFont(for: base)
             textView.adjustsFontForContentSizeCategory = true
             textView.textColor = .label

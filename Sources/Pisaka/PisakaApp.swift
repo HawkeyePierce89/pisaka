@@ -203,6 +203,21 @@ struct PisakaApp: App {
     /// development build neither checks nor prompts.
     private let softwareUpdater = SoftwareUpdater()
 
+    /// Where every zoom gesture and every zoom menu item lands: it resolves which
+    /// of the three zones the pointer is over and steps that zone's scale in the
+    /// one `SettingsStore` this app owns.
+    ///
+    /// A plain stored reference like the controllers above — the `@main` App is
+    /// created once, and this reference is what keeps the event monitor's owner
+    /// alive (the monitor holds `self` weakly). Nothing in this scene's `body`
+    /// reads anything published on it; the *settings* it writes are what redraws
+    /// the views.
+    ///
+    /// Built in `init()` because it needs the same store every window and sheet
+    /// receives: three zones with one arithmetic is only true if there is one
+    /// place the numbers live.
+    private let zoom: ZoomController
+
     /// Wire the workspace, the project-search model and the symbol index together.
     ///
     /// `ProjectSearchModel`'s buffer closures are `let`s taken at construction, and
@@ -280,6 +295,10 @@ struct PisakaApp: App {
         // Core's and is unit-tested without a network or a `tar`.
         let settings = SettingsStore()
         _settings = StateObject(wrappedValue: settings)
+        // The zoom controller over that very store. Constructing it installs
+        // nothing — the event monitor goes up in `.onAppear` and comes down in the
+        // termination observer, beside the other app-lifecycle wiring.
+        self.zoom = ZoomController(settings: settings)
         let (installEngine, provisioning) = PisakaApp.makeProvisioning(settings: settings)
         self.lspInstallEngine = installEngine
 
@@ -702,37 +721,52 @@ struct PisakaApp: App {
             // parameter for them and no reason to observe `leetCode` — which is
             // the whole point of the model being a non-observed `let` above.
             .sheet(item: $leetCodeSheet) { sheet in
-                switch sheet {
-                case .signIn:
-                    LeetCodeLoginView(
-                        model: leetCode,
-                        onDismiss: { leetCodeSheet = nil },
-                        // The sheet is already gone when the confirmation lands
-                        // and this window renders `lastError` nowhere, so an
-                        // alert is the only thing between a rejected session and
-                        // a Sign In that appears to do nothing at all.
-                        onFailure: {
-                            PlatformAlert.presentMessage(
-                                title: "Could Not Sign In to LeetCode",
-                                message: $0.errorDescription ?? "LeetCode rejected the session."
-                            )
-                        }
-                    )
-                case .openProblem:
-                    // No sign-in hook: the open sheet presents the login web view
-                    // over *itself*, so the problem the user typed is still there
-                    // when they come back. Swapping this slot from `.openProblem`
-                    // to `.signIn` instead took the open sheet down and never
-                    // brought it back.
-                    LeetCodeOpenProblemSheet(
-                        model: leetCode,
-                        settings: settings,
-                        onOpen: { input, language in
-                            await openLeetCodeProblem(input: input, language: language)
-                        },
-                        onCancel: { leetCodeSheet = nil }
-                    )
+                // The interface scale, injected on the sheet's *content*.
+                //
+                // It cannot be inherited here, and that is the whole reason this
+                // is not a mistake to "clean up": `ContentView` applies
+                // `.interfaceScaled(settings)` inside its own body, so the write
+                // lives below this modifier rather than above it — an environment
+                // value a child's body publishes cannot reach a presentation the
+                // parent attached around that child. The commit dialog looks like
+                // a counter-example and is not: `ContentView` presents it from
+                // the same body, *before* the injection, so the injection is its
+                // ancestor. These two sheets are attached out here (see below),
+                // so they had rendered at 100% over a window at 200%.
+                Group {
+                    switch sheet {
+                    case .signIn:
+                        LeetCodeLoginView(
+                            model: leetCode,
+                            onDismiss: { leetCodeSheet = nil },
+                            // The sheet is already gone when the confirmation lands
+                            // and this window renders `lastError` nowhere, so an
+                            // alert is the only thing between a rejected session and
+                            // a Sign In that appears to do nothing at all.
+                            onFailure: {
+                                PlatformAlert.presentMessage(
+                                    title: "Could Not Sign In to LeetCode",
+                                    message: $0.errorDescription ?? "LeetCode rejected the session."
+                                )
+                            }
+                        )
+                    case .openProblem:
+                        // No sign-in hook: the open sheet presents the login web view
+                        // over *itself*, so the problem the user typed is still there
+                        // when they come back. Swapping this slot from `.openProblem`
+                        // to `.signIn` instead took the open sheet down and never
+                        // brought it back.
+                        LeetCodeOpenProblemSheet(
+                            model: leetCode,
+                            settings: settings,
+                            onOpen: { input, language in
+                                await openLeetCodeProblem(input: input, language: language)
+                            },
+                            onCancel: { leetCodeSheet = nil }
+                        )
+                    }
                 }
+                .interfaceScaled(settings)
             }
             .onAppear {
                 // Start once. `onSaved` reuses `refreshLocalChanges()` so an
@@ -746,6 +780,12 @@ struct PisakaApp: App {
                     refreshLocalChanges()
                     if createdFile { model.bumpTreeRevision() }
                 })
+
+                // Start watching for zoom gestures. Idempotent by contract, for
+                // the same reason `terminateAll()` below is: `.onAppear` can fire
+                // again for a reopened window, and a second monitor would apply
+                // every step twice.
+                zoom.install()
 
                 // Bring the last session back, once, before the first interaction —
                 // and start the writer only afterwards, so the intermediate states
@@ -852,6 +892,12 @@ struct PisakaApp: App {
                         // a staging tree, which the process exit ends and the
                         // next launch's `sweepStaging()` reclaims (D13).
                         lspRustToolchain.terminateNow()
+                        // And the zoom monitor, so no event handler outlives the
+                        // app. Cheap and undramatic next to the teardown above —
+                        // it is here because "installed in `.onAppear`, removed on
+                        // termination" is one statement, and splitting it across
+                        // two places is how the second half gets forgotten.
+                        zoom.uninstall()
                     }
                     // Tear the FSEvents subscription down too, so no stream
                     // outlives the app. `stop()` is idempotent (and a no-op when
@@ -907,6 +953,37 @@ struct PisakaApp: App {
             }
 
             CommandMenu("View") {
+                // The three zoom items. Each resolves the zone from the pointer
+                // **at invocation time**, exactly as a scroll or a pinch does — a
+                // key equivalent fires wherever the pointer happens to be, so ⌘=
+                // over the terminal grows the terminal even while the editor holds
+                // the focus. With the pointer over no window of ours, Core falls
+                // back to the key window's focused surface and then to the
+                // interface (`ZoomZone.resolve`).
+                //
+                // Two items for zooming in, on purpose: ⌘= is the keystroke that
+                // needs no Shift, ⌘+ is the one every other Mac app *displays*,
+                // and AppKit matches a key equivalent literally — "=" does not
+                // answer a ⇧= press, and "+" does not answer a plain one. SwiftUI
+                // offers no `isAlternate`, so the alternate is a second item
+                // rather than a hidden one.
+                Button("Zoom In") { zoom.stepZoomUnderPointer(by: 1) }
+                    .keyboardShortcut("=", modifiers: .command)
+
+                Button("Zoom In") { zoom.stepZoomUnderPointer(by: 1) }
+                    .keyboardShortcut("+", modifiers: .command)
+
+                Button("Zoom Out") { zoom.stepZoomUnderPointer(by: -1) }
+                    .keyboardShortcut("-", modifiers: .command)
+
+                // Only the zone under the pointer — the other two keep whatever
+                // the user set them to, which is what makes the three independent
+                // in both directions.
+                Button("Reset Zoom") { zoom.resetZoomUnderPointer() }
+                    .keyboardShortcut("0", modifiers: .command)
+
+                Divider()
+
                 // Toggle the Git Log bottom dock panel. Showing it makes
                 // `CommitLogView` appear in the panel, whose `.onAppear` triggers a
                 // refresh. Same handler as the bottom bar's Git button.
@@ -1078,6 +1155,11 @@ struct PisakaApp: App {
                 installEngine: lspInstallEngine,
                 leetCode: leetCode
             )
+            // The interface scale, injected *here* rather than inside
+            // `SettingsView`: applied by the scene it reaches the settings form
+            // itself, not only the views below it (an environment write never
+            // reaches the view that makes it).
+            .interfaceScaled(settings)
         }
     }
 

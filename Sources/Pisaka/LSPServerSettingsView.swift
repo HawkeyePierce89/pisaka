@@ -38,6 +38,12 @@ struct LSPServerSettingsView: View {
     /// without reusing its row (D21).
     @ObservedObject var rust: LSPRustProvisioningModel
 
+    /// The interface zone's metrics, inherited from the `Settings` scene root.
+    /// Reaches the pane's own fixed size too: the failure sentences this tab
+    /// exists to show are the longest text in Preferences, and a scaled sentence
+    /// inside an unscaled 480×300 frame is the one that gets clipped.
+    @Environment(\.interfaceMetrics) private var metrics
+
     /// The pane scrolls rather than sizing to its content, and that is about the
     /// failure messages rather than about the rows.
     ///
@@ -57,11 +63,11 @@ struct LSPServerSettingsView: View {
         ScrollView {
             content
         }
-        .frame(width: 480, height: 300)
+        .frame(width: metrics.scaled(480), height: metrics.scaled(300))
     }
 
     private var content: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: metrics.scaled(14)) {
             // "download or build", because the last row is neither downloaded nor
             // bundled: gopls has no official prebuilt binaries, so it is built by
             // the user's own Go toolchain (D17). Saying only "download" here would
@@ -71,7 +77,7 @@ struct LSPServerSettingsView: View {
                 + "It is used only for completion and Go to Definition — nothing is installed "
                 + "until you ask for it, and the languages keep working without it."
             )
-            .font(.callout)
+            .font(metrics.scaledFont(.callout))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
@@ -95,9 +101,9 @@ struct LSPServerSettingsView: View {
                 rustRow(rust.row)
             }
             .background(Color(NSColor.textBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: metrics.scaled(6)))
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: metrics.scaled(6))
                     .stroke(Color(NSColor.separatorColor))
             )
 
@@ -112,7 +118,7 @@ struct LSPServerSettingsView: View {
                 "Anything Pisaka installs lives under ~/Library/Application Support/Pisaka/"
                 + "\(LSPInstallLayout.directoryName)."
             )
-            .font(.caption)
+            .font(metrics.scaledFont(.caption))
             .foregroundStyle(.secondary)
 
             // gopls's whole licence surface, and the reason it is a sentence
@@ -128,7 +134,7 @@ struct LSPServerSettingsView: View {
                 + "by your own Go toolchain, which verifies the module against Go's checksum "
                 + "database."
             )
-            .font(.caption)
+            .font(metrics.scaledFont(.caption))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
@@ -147,36 +153,36 @@ struct LSPServerSettingsView: View {
                 + "official release binary is downloaded on request and checked against a "
                 + "pinned checksum before it is used."
             )
-            .font(.caption)
+            .font(metrics.scaledFont(.caption))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(20)
-        .frame(width: 480, alignment: .topLeading)
+        .padding(metrics.scaled(20))
+        .frame(width: metrics.scaled(480), alignment: .topLeading)
     }
 
     private func row(_ row: LSPServerRow) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .firstTextBaseline, spacing: metrics.scaled(12)) {
+            VStack(alignment: .leading, spacing: metrics.scaled(2)) {
                 Text(row.displayName)
                 Text(row.server.serverComponentID)
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(.secondary)
                 Text(status(of: row))
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(.secondary)
                 // The entire failure surface of this feature. Present only after
                 // an attempt that failed, and replaced by the next attempt's
                 // outcome.
                 if let failure = row.failureMessage {
                     Text(failure)
-                        .font(.caption)
+                        .font(metrics.scaledFont(.caption))
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: metrics.scaled(8))
 
             if row.state == .installing || row.isRemoving {
                 ProgressView()
@@ -203,8 +209,9 @@ struct LSPServerSettingsView: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .font(metrics.scaledFont(.body))
+        .padding(.horizontal, metrics.scaled(12))
+        .padding(.vertical, metrics.scaled(10))
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -218,24 +225,24 @@ struct LSPServerSettingsView: View {
     /// there. Neither rule is spelled here; both are properties of `LSPGoServerRow`
     /// and are unit-tested in Core.
     private func goRow(_ row: LSPGoServerRow) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .firstTextBaseline, spacing: metrics.scaled(12)) {
+            VStack(alignment: .leading, spacing: metrics.scaled(2)) {
                 Text("Go")
                 Text(LSPGopls.componentID)
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(.secondary)
                 Text(status(of: row))
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(.secondary)
                 if let failure = row.failureMessage {
                     Text(failure)
-                        .font(.caption)
+                        .font(metrics.scaledFont(.caption))
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: metrics.scaled(8))
 
             if row.status == .installing || row.isRemoving {
                 ProgressView()
@@ -260,8 +267,9 @@ struct LSPServerSettingsView: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .font(metrics.scaledFont(.body))
+        .padding(.horizontal, metrics.scaled(12))
+        .padding(.vertical, metrics.scaled(10))
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -276,24 +284,24 @@ struct LSPServerSettingsView: View {
     /// size, which this row shows and Go's has none of; it too is the model's
     /// field, read from the manifest.
     private func rustRow(_ row: LSPRustServerRow) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .firstTextBaseline, spacing: metrics.scaled(12)) {
+            VStack(alignment: .leading, spacing: metrics.scaled(2)) {
                 Text("Rust")
                 Text(LSPRustAnalyzer.componentID)
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(.secondary)
                 Text(status(of: row))
-                    .font(.caption)
+                    .font(metrics.scaledFont(.caption))
                     .foregroundStyle(.secondary)
                 if let failure = row.failureMessage {
                     Text(failure)
-                        .font(.caption)
+                        .font(metrics.scaledFont(.caption))
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: metrics.scaled(8))
 
             if row.status == .installing || row.isRemoving {
                 ProgressView()
@@ -316,8 +324,9 @@ struct LSPServerSettingsView: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .font(metrics.scaledFont(.body))
+        .padding(.horizontal, metrics.scaled(12))
+        .padding(.vertical, metrics.scaled(10))
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

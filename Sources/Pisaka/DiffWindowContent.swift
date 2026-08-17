@@ -40,11 +40,11 @@ struct DiffWindowContent: View {
                     fileID: fileID,
                     fileName: fileName,
                     rows: rows,
-                    fontSize: settings.fontSize,
-                    onStepFontSize: { settings.stepFontSize(by: $0) }
+                    fontSize: settings.fontSize
                 )
             } else {
                 Text("Loading…")
+                    .font(settings.interfaceMetrics.scaledFont(.body))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -53,6 +53,10 @@ struct DiffWindowContent: View {
         // separate window's hosted AppKit content (the main window does the same on
         // its root). The shared font size already propagates via `settings`.
         .preferredColorScheme(settings.themePreference.colorScheme)
+        // Its own SwiftUI root (an `NSHostingController` made by
+        // `DiffWindowController`), so it injects the interface scale itself. The
+        // diff panes themselves stay on `settings.fontSize` — the code zone.
+        .interfaceScaled(settings)
         .onAppear(perform: reload)
     }
 

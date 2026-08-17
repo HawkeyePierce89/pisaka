@@ -1,7 +1,9 @@
 import Foundation
 
-/// Persisted user preferences: tab orientation, theme, the shared editor font
-/// size, and whether the editor offers completions at all
+/// Persisted user preferences: tab orientation, theme, the three zoom zones'
+/// scales (the shared editor font size — which *is* the code zone, there is no
+/// second setting — the terminal font size and the interface scale), and
+/// whether the editor offers completions at all
 /// (`completionEnabled`). A plain Foundation-only `ObservableObject` (the `WorkspaceModel`
 /// precedent) so it stays testable and free of any SwiftUI/AppKit dependency —
 /// the Preferences UI and the act of applying each setting are thin view-layer
@@ -9,10 +11,12 @@ import Foundation
 ///
 /// `UserDefaults` is injected (`init(defaults:)`) so tests run against an
 /// isolated `UserDefaults(suiteName:)` rather than the shared domain. Each
-/// `@Published` change is written straight back through `didSet`; `fontSize` is
-/// clamped to `[minFontSize, maxFontSize]` on every write so neither the
-/// Stepper nor the Cmd+scroll path nor a corrupt persisted value can drive it
-/// out of range.
+/// `@Published` change is written straight back through `didSet`; each of the
+/// three zoom scales is clamped to its `ZoomScaleRule`'s range on every write so
+/// neither a Stepper nor a zoom gesture nor a corrupt persisted value can drive
+/// it out of range. The zone-keyed `scale(for:)` / `stepZoom(_:by:)` /
+/// `resetZoom(_:)` trio is what the app layer uses, so a view never has to know
+/// which property backs which zone.
 public final class SettingsStore: ObservableObject {
     /// Stable persisted keys — must not be renamed.
     public enum Keys {
@@ -66,12 +70,27 @@ public final class SettingsStore: ObservableObject {
         /// with, and a stored value naming a language this build no longer offers
         /// must fall back rather than resolve to something adjacent.
         public static let leetCodeLanguage = "settings.leetcode.language"
+
+        /// The terminal zoom zone's font size, in points.
+        ///
+        /// A key of its own rather than a reuse of `fontSize`: the whole point of
+        /// the three zones is that the code and the terminal grow independently,
+        /// so they cannot share a stored value. Absent means 13 — SwiftTerm's own
+        /// default — which is why an existing install sees no change until it
+        /// zooms the terminal.
+        public static let terminalFontSize = "settings.terminalFontSize"
+        /// The interface zoom zone's scale, as a multiplier (1.0 = unchanged).
+        ///
+        /// A multiplier and not a point size, because the zone covers fonts,
+        /// paddings, frames, icon sizes and row heights at once; there is no one
+        /// number to store, only the factor every one of them is derived from.
+        public static let interfaceScale = "settings.interfaceScale"
     }
 
-    public static let minFontSize: Double = 8
-    public static let maxFontSize: Double = 32
-    public static let defaultFontSize: Double = 13
-    public static let fontSizeStep: Double = 1
+    public static let minFontSize: Double = ZoomScaleRule.editorFont.minimum
+    public static let maxFontSize: Double = ZoomScaleRule.editorFont.maximum
+    public static let defaultFontSize: Double = ZoomScaleRule.editorFont.defaultValue
+    public static let fontSizeStep: Double = ZoomScaleRule.editorFont.step
 
     // Instance mirrors so the view layer can read them off a store instance too.
     public let minFontSize = SettingsStore.minFontSize
@@ -97,6 +116,38 @@ public final class SettingsStore: ObservableObject {
                 return
             }
             defaults.set(fontSize, forKey: Keys.fontSize)
+        }
+    }
+
+    /// The terminal zone's font size, in points. Default 13 (SwiftTerm's own),
+    /// so nothing about a terminal changes until the user zooms it.
+    ///
+    /// The `fontSize` write discipline, verbatim: clamped inside `didSet`, with
+    /// the re-entrant assignment reaching a fixed point on the second pass, so
+    /// neither a Preferences stepper, a zoom gesture nor a corrupt persisted
+    /// value can drive it out of range.
+    @Published public var terminalFontSize: Double {
+        didSet {
+            let clamped = ZoomScaleRule.terminalFont.clamp(terminalFontSize)
+            if clamped != terminalFontSize {
+                terminalFontSize = clamped
+                return
+            }
+            defaults.set(terminalFontSize, forKey: Keys.terminalFontSize)
+        }
+    }
+
+    /// The interface zone's scale, as a multiplier. Default 1.0 — every metric
+    /// derived from it then equals the constant it replaced, which is what makes
+    /// the interface sweep invisible at rest.
+    @Published public var interfaceScale: Double {
+        didSet {
+            let clamped = ZoomScaleRule.interfaceScale.clamp(interfaceScale)
+            if clamped != interfaceScale {
+                interfaceScale = clamped
+                return
+            }
+            defaults.set(interfaceScale, forKey: Keys.interfaceScale)
         }
     }
 
@@ -206,6 +257,15 @@ public final class SettingsStore: ObservableObject {
         // `object(forKey:)` distinguishes "unset" (nil → default) from a stored 0.
         let storedFont = (defaults.object(forKey: Keys.fontSize) as? Double)
             .map(SettingsStore.clampFontSize) ?? SettingsStore.defaultFontSize
+        // The two other zoom zones, read exactly like the font size and for the
+        // same reasons: `object(forKey:)` so an absent key is told from a stored
+        // 0, the cast so a value of the wrong type falls back instead of reading
+        // as zero, and the rule's clamp so a non-finite or out-of-range stored
+        // value collapses to the default rather than surviving into the UI.
+        let storedTerminalFont = (defaults.object(forKey: Keys.terminalFontSize) as? Double)
+            .map(ZoomScaleRule.terminalFont.clamp) ?? ZoomScaleRule.terminalFont.defaultValue
+        let storedInterfaceScale = (defaults.object(forKey: Keys.interfaceScale) as? Double)
+            .map(ZoomScaleRule.interfaceScale.clamp) ?? ZoomScaleRule.interfaceScale.defaultValue
         // The `fontSize` precedent, for the same reason and one more: `bool(forKey:)`
         // reads a missing key as `false`, so every user who has never touched this
         // preference would launch with completion silently off. `object(forKey:)`
@@ -241,6 +301,8 @@ public final class SettingsStore: ObservableObject {
         self.tabOrientation = orientation
         self.themePreference = theme
         self.fontSize = storedFont
+        self.terminalFontSize = storedTerminalFont
+        self.interfaceScale = storedInterfaceScale
         self.completionEnabled = storedCompletion
         self.lspServerConsent = storedConsent
         self.leetCodeFolderPath = storedFolderIsBlank ? nil : storedFolder
@@ -280,17 +342,75 @@ public final class SettingsStore: ObservableObject {
     }
 
     /// Step the font size by `delta` whole steps (positive = larger), clamped to
-    /// the valid range. The Cmd+scroll path calls this with `+1`/`-1`.
+    /// the valid range. The zoom path calls this with `+1`/`-1`.
+    ///
+    /// Now one spelling of `ZoomScaleRule.editorFont.stepped(_:by:)` — same
+    /// range, same step, same result for every value on the grid, which every
+    /// value produced by the Stepper, the shortcuts or a fresh install is.
     public func stepFontSize(by steps: Double) {
-        fontSize = SettingsStore.clampFontSize(fontSize + steps * fontSizeStep)
+        fontSize = ZoomScaleRule.editorFont.stepped(fontSize, by: steps)
     }
 
+    /// The editor font size's clamp. Unchanged in behavior and still the entry
+    /// point `LeetCodeStatementDocument` and the tests use; the rule behind it
+    /// is now shared with the two other zoom zones.
     public static func clampFontSize(_ value: Double) -> Double {
-        // A non-finite value (NaN/±inf) must collapse to a finite default, not be
-        // returned as-is: `min`/`max` propagate NaN (every comparison is false), so
-        // a NaN would survive the clamp and then make the `fontSize` `didSet`'s
-        // `clamped != fontSize` (NaN != NaN) always true — recursing without bound.
-        guard value.isFinite else { return defaultFontSize }
-        return min(max(value, minFontSize), maxFontSize)
+        ZoomScaleRule.editorFont.clamp(value)
+    }
+
+    // MARK: - Zoom zones
+
+    /// The current scale of `zone` — a point size for `code`/`terminal`, a
+    /// multiplier for `interface`.
+    ///
+    /// The zone-keyed trio below exists so no view has to know which stored
+    /// property backs which zone: the pointer resolves a `ZoomZone` and the
+    /// gesture, the menu item and the accumulator all speak that one word.
+    public func scale(for zone: ZoomZone) -> Double {
+        switch zone {
+        case .code: return fontSize
+        case .terminal: return terminalFontSize
+        case .interface: return interfaceScale
+        }
+    }
+
+    /// Step `zone` by `steps` whole steps (positive = larger), through the same
+    /// grid-snapping, clamping arithmetic every zone shares.
+    public func stepZoom(_ zone: ZoomZone, by steps: Double) {
+        setScale(ZoomScaleRule.rule(for: zone).stepped(scale(for: zone), by: steps), for: zone)
+    }
+
+    /// Return `zone` to its resting value — 13 pt for the two fonts, 100% for
+    /// the interface. Only the zone under the pointer resets; the other two are
+    /// untouched, which is what makes the zones independent in both directions.
+    public func resetZoom(_ zone: ZoomZone) {
+        setScale(ZoomScaleRule.rule(for: zone).defaultValue, for: zone)
+    }
+
+    /// The one writer behind `stepZoom`/`resetZoom`. Each property's own `didSet`
+    /// still clamps, so this cannot be the place a bad value slips in.
+    ///
+    /// A value equal to the one the zone already holds writes nothing, for the
+    /// reason `setConsent(_:for:)` states one screen up: assigning into a
+    /// `@Published` property republishes the *whole* store — which `ContentView`
+    /// and every hosting root observe — and re-runs the `didSet` that writes
+    /// `UserDefaults`. A zone sitting at its clamp is not a corner case here: a
+    /// held ⌘-scroll keeps producing whole steps at the trackpad's event rate
+    /// long after the zone stopped moving, and each one would otherwise
+    /// re-evaluate the tree, re-apply the editor font and rewrite the defaults
+    /// for no visible change. ⌘0 pressed at rest is the same write twice over.
+    ///
+    /// A plain equality guard is enough: every value that reaches here is already
+    /// inside the rule's range (`stepped(_:by:)` clamps, and `defaultValue` is in
+    /// range by construction), and no property can be holding an out-of-range
+    /// value that this guard would strand — the `didSet`s clamp every write and
+    /// `init` clamps every stored value it reads.
+    private func setScale(_ value: Double, for zone: ZoomZone) {
+        guard value != scale(for: zone) else { return }
+        switch zone {
+        case .code: fontSize = value
+        case .terminal: terminalFontSize = value
+        case .interface: interfaceScale = value
+        }
     }
 }

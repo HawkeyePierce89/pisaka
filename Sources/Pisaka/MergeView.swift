@@ -33,6 +33,13 @@ struct MergeView: View {
     /// navigates between (conflict order). Clamped to the document's conflicts.
     @State private var currentConflict = 0
 
+    /// The interface zone's metrics. Computed from the store rather than read
+    /// from the environment because this view is the *root* of its own window and
+    /// injects the value below (`SettingsStore.interfaceMetrics`). It reaches the
+    /// toolbar, the pane labels and the window's minimum size; the three text
+    /// panes stay on `settings.fontSize`, the code zone.
+    private var metrics: InterfaceMetrics { settings.interfaceMetrics }
+
     var body: some View {
         VStack(spacing: 0) {
             toolbar
@@ -43,33 +50,36 @@ struct MergeView: View {
             if let message = model.errorMessage, model.document != nil {
                 Divider()
                 Text(message)
-                    .font(.callout)
+                    .font(metrics.scaledFont(.callout))
                     .foregroundStyle(Color.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, metrics.scaled(8))
+                    .padding(.vertical, metrics.scaled(4))
             }
         }
-        .frame(minWidth: 720, minHeight: 420)
+        .frame(minWidth: metrics.scaled(720), minHeight: metrics.scaled(420))
         // Apply the theme preference here too, so a forced Light/Dark reaches this
         // separate merge window's hosted AppKit content (the main window does the
         // same on its root). The shared font size already propagates via `settings`.
         .preferredColorScheme(settings.themePreference.colorScheme)
+        // This window is its own SwiftUI root — an `NSHostingController` created by
+        // `MergeWindowController` — so it injects the interface scale itself.
+        .interfaceScaled(settings)
     }
 
     // MARK: Toolbar
 
     private var toolbar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: metrics.scaled(8)) {
             if let document = model.document, document.conflictCount > 0 {
                 Button { navigate(-1) } label: { Image(systemName: "chevron.up") }
                     .disabled(currentConflict <= 0)
                 Text("Conflict \(min(currentConflict + 1, document.conflictCount)) of \(document.conflictCount)")
-                    .font(.callout.monospacedDigit())
+                    .font(metrics.scaledFont(.callout).monospacedDigit())
                 Button { navigate(1) } label: { Image(systemName: "chevron.down") }
                     .disabled(currentConflict >= document.conflictCount - 1)
 
-                Divider().frame(height: 16)
+                Divider().frame(height: metrics.scaled(16))
 
                 Button("◀ Ours") { accept(.ours) }
                 Button("Ours+Theirs") { accept(.bothOursFirst) }
@@ -80,15 +90,16 @@ struct MergeView: View {
             Spacer()
 
             Text(statusText)
-                .font(.callout)
+                .font(metrics.scaledFont(.callout))
                 .foregroundStyle(model.isFullyResolved ? Color.green : Color.secondary)
 
             Button("Apply", action: onApply)
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!model.isFullyResolved)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .font(metrics.scaledFont(.body))
+        .padding(.horizontal, metrics.scaled(8))
+        .padding(.vertical, metrics.scaled(6))
     }
 
     private var statusText: String {
@@ -106,12 +117,12 @@ struct MergeView: View {
             Divider()
             paneLabel("Theirs")
         }
-        .frame(height: 22)
+        .frame(height: metrics.scaled(22))
     }
 
     private func paneLabel(_ title: String) -> some View {
         Text(title)
-            .font(.caption.weight(.semibold))
+            .font(metrics.scaledFont(.caption, weight: .semibold))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
     }
@@ -124,12 +135,12 @@ struct MergeView: View {
             MergeThreePaneView(
                 model: model,
                 currentConflict: $currentConflict,
-                fontSize: settings.fontSize,
-                onStepFontSize: { settings.stepFontSize(by: $0) }
+                fontSize: settings.fontSize
             )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             Text(model.errorMessage ?? "Loading…")
+                .font(metrics.scaledFont(.body))
                 .foregroundStyle(model.errorMessage == nil ? Color.secondary : Color.red)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -189,17 +200,14 @@ private struct MergeThreePaneView: NSViewRepresentable {
     /// font in `updateNSView`.
     var fontSize: Double = Double(NSFont.systemFontSize)
 
-    /// Steps the shared font size (Cmd+scroll over any pane). Called with `+1`/`-1`.
-    var onStepFontSize: (Double) -> Void = { _ in }
-
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> MergeContainerView {
         let coordinator = context.coordinator
 
-        let (oursScroll, oursText) = Self.makePane(editable: false, fontSize: fontSize, onStepFontSize: onStepFontSize)
-        let (resultScroll, resultText) = Self.makePane(editable: true, fontSize: fontSize, onStepFontSize: onStepFontSize)
-        let (theirsScroll, theirsText) = Self.makePane(editable: false, fontSize: fontSize, onStepFontSize: onStepFontSize)
+        let (oursScroll, oursText) = Self.makePane(editable: false, fontSize: fontSize)
+        let (resultScroll, resultText) = Self.makePane(editable: true, fontSize: fontSize)
+        let (theirsScroll, theirsText) = Self.makePane(editable: false, fontSize: fontSize)
 
         coordinator.attach(
             oursScroll: oursScroll, oursText: oursText,
@@ -239,13 +247,13 @@ private struct MergeThreePaneView: NSViewRepresentable {
     /// One non-wrapping TextKit-1 pane, mirroring `DiffView.makePane`.
     private static func makePane(
         editable: Bool,
-        fontSize: Double,
-        onStepFontSize: @escaping (Double) -> Void
+        fontSize: Double
     ) -> (NSScrollView, MergePaneTextView) {
         let textView = MergePaneTextView(usingTextLayoutManager: false)
-        textView.onStepFontSize = onStepFontSize
 
-        let scrollView = NSScrollView()
+        // `CodeScrollView` so the pane's empty region — below the last line, right
+        // of the longest one — is still the code zone (see `ZoomSurface`).
+        let scrollView = CodeScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.documentView = textView
@@ -562,21 +570,16 @@ private struct MergeThreePaneView: NSViewRepresentable {
 /// A merge pane: an `NSTextView` that paints a full-width per-line background by
 /// `MergeLineKind` behind the glyphs (mirroring `DiffTextView`).
 @MainActor
-private final class MergePaneTextView: NSTextView {
+private final class MergePaneTextView: NSTextView, ZoomSurfaceProviding {
     fileprivate var lineKinds: [MergeLineKind] = []
     private(set) var lineStartOffsets: [Int] = [0]
 
-    /// Steps the shared font size on a Command-held scroll. Set by
-    /// `MergeThreePaneView.makePane`; `nil` until then.
-    var onStepFontSize: ((Double) -> Void)?
-
-    /// Intercept Command-held scrolls to zoom the shared font size (consuming the
-    /// event so neither a normal scroll nor the merge's synced vertical scroll
-    /// fires); an ordinary scroll falls through to the stock behavior.
-    override func scrollWheel(with event: NSEvent) {
-        if handleCommandScrollFontStep(event, step: onStepFontSize) { return }
-        super.scrollWheel(with: event)
-    }
+    /// A merge pane draws with the shared editor font, so it is a *code* surface
+    /// like the diff panes: a zoom gesture over any of the three grows the code
+    /// zone. The Command-held `scrollWheel` override this replaced is gone — the
+    /// app's single event monitor now sees the gesture first, so it can no longer
+    /// race the synced vertical scrolling.
+    let zoomSurfaceKind: ZoomSurfaceKind = .code
 
     func setPaneText(_ text: String, kinds: [MergeLineKind]) {
         string = text

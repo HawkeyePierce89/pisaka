@@ -252,7 +252,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     on clicking an annotation, "annotate previous revision", jumping from an
     annotation into the Git Log, and a date-format setting.
   - `LineNumberRulerView.swift` — `NSRulerView` subclass drawing right-aligned,
-    1-based line numbers in the editor's gutter (TextKit 1). In
+    1-based line numbers in the editor's gutter (TextKit 1). It also declares
+    itself a **code** zoom surface (`ZoomSurfaceProviding`, `zoomSurfaceKind =
+    .code`, no behavior). A ruler is the scroll view's `verticalRulerView` and so
+    a *sibling* of the text view, not a subview: the pointer walk cannot reach it
+    through the editor, and without the conformance a gesture over the gutter or
+    the blame column would find no candidate at all and resize the whole
+    application chrome (`docs/architecture/core-zoom.md`). In
     `drawHashMarksAndLabels` it enumerates only the layout manager's *visible*
     line fragments (so scrolling a large file stays O(visible lines)), binary-
     searching a cache of per-line UTF-16 start offsets to seed the first visible
@@ -300,7 +306,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (fontSize, width)?`, dropped in `setAnnotations`/`clearAnnotations`), which is
     the one piece of state the memo deliberately does *not* hold: a label string is
     font-independent, its rendered width is not, and the shared editor font size
-    changes at runtime (the Preferences Stepper, Cmd+scroll). Pairing the width with
+    changes at runtime (the Preferences Stepper, a code-zone zoom). Pairing the width with
     its size is what keeps a runtime font change correct without
     `editorFontChanged()` having to remember to invalidate anything — the next
     `updateThickness()` simply sees a different `pointSize` and re-measures. It is
@@ -345,7 +351,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (minimap draws nothing), mirroring the plain-text path. Color is *not* stored
     — resolved at draw time so the minimap follows the system appearance.
   - `MinimapView.swift` — `MinimapView: NSView` (`isFlipped == true`, so its y
-    axis matches `MinimapGeometry`'s top-down convention with no conversion). Each
+    axis matches `MinimapGeometry`'s top-down convention with no conversion), and
+    a **code** zoom surface for `LineNumberRulerView`'s reason: it is a sibling of
+    the editor's scroll view inside `EditorContainerView`, so a gesture over the
+    strip would otherwise target the interface zone even though what it is over is
+    a rendering of the code at the code zone's size. Its own `scrollWheel`
+    (below) is unaffected — the zoom monitor swallows modified scrolls before any
+    view sees them, and passes unmodified ones straight through. Each
     document line gets a *fixed* row of height `minimapLineHeight` (`gap = rowHeight
     > 2 ? 1 : 0`, `barHeight = max(rowHeight - gap, 1)`); per line `y = line *
     rowHeight - minimapScrollTop + gap/2`, so the rendered content *slides* by the
