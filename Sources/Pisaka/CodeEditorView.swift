@@ -485,8 +485,9 @@ struct CodeEditorView: NSViewRepresentable {
                 // and on exactly the same signal: a Replace All, a post-revert
                 // `reloadFromDisk` or a merge apply rewrote this file while it sat
                 // off screen, so the recorded selection and anchor name characters
-                // the incoming text never had. Drop it and let the restore below
-                // find nothing — a plain top-of-file state, as on a first visit.
+                // the incoming text never had. Drop it; the restore below then
+                // finds nothing and puts the tab at the top of the file, the same
+                // state a first visit gets.
                 if externallyReplaced {
                     context.coordinator.forgetViewport(for: fileID)
                 }
@@ -1154,40 +1155,77 @@ struct CodeEditorView: NSViewRepresentable {
                   request.fileID == fileID,
                   let textView
             else { return }
+            // Resolved *before* the token is marked applied, since the resolver
+            // asks that same question. Consuming the token regardless of whether a
+            // range came back preserves the "a standing request is applied exactly
+            // once" rule: an unusable range is a dead request, not one to retry on
+            // every later update.
+            let target = pendingRevealRange(request, fileID: fileID)
             appliedRevealToken = request.token
+            guard let target else { return }
             DispatchQueue.main.async { [weak textView] in
                 guard let textView else { return }
+                // Re-clamped against the buffer as it is *now*: the hop is a whole
+                // main-loop turn, and nothing promises the text did not shrink in
+                // between.
                 let length = textView.textStorage?.length ?? 0
-                guard request.range.location != NSNotFound,
-                      request.range.location >= 0,
-                      request.range.location <= length
-                else { return }
-                // Clamped by *truncating the length*, not by intersecting: a range
-                // whose location is exactly the buffer end shares no unit with the
-                // document, and `NSIntersectionRange` answers `{0, 0}` for that —
-                // which would scroll to the top of the file instead of leaving the
-                // caret at the end.
+                guard target.location <= length else { return }
                 let range = NSRange(
-                    location: request.range.location,
-                    length: min(request.range.length, length - request.range.location)
+                    location: target.location,
+                    length: min(target.length, length - target.location)
                 )
                 textView.setSelectedRange(range)
                 textView.scrollRangeToVisible(range)
             }
         }
 
-        /// Whether `applyReveal` would act on this request for this file — the
-        /// same three guards, asked without consuming anything (no token is
-        /// recorded, no selection moved).
+        /// The range a pending reveal would select in the live buffer, or `nil`
+        /// when there is nothing for this file to act on.
+        ///
+        /// **The one place the reveal's admission rule lives.** Two callers ask the
+        /// same question — `applyReveal`, which consumes the request, and
+        /// `hasPendingReveal`, which must not — and answering it twice is how the
+        /// two silently drift apart. Concretely: a result row that pre-dates an
+        /// edit shrinking the file names a range that no longer fits, and a
+        /// predicate that only compared tokens and file ids would call that
+        /// "pending" — suppressing the viewport restore for a reveal that then
+        /// declines to select anything, leaving the tab at whatever offset the
+        /// reused text view carried over.
+        ///
+        /// The range is clamped by *truncating the length*, not by intersecting: a
+        /// range whose location is exactly the buffer end shares no unit with the
+        /// document, and `NSIntersectionRange` answers `{0, 0}` for that — which
+        /// would scroll to the top of the file instead of leaving the caret at the
+        /// end.
+        private func pendingRevealRange(
+            _ request: EditorRevealState.Request?,
+            fileID: UUID
+        ) -> NSRange? {
+            guard let request,
+                  request.token != appliedRevealToken,
+                  request.fileID == fileID,
+                  let textView
+            else { return nil }
+            let length = textView.textStorage?.length ?? 0
+            guard request.range.location != NSNotFound,
+                  request.range.location >= 0,
+                  request.range.location <= length
+            else { return nil }
+            return NSRange(
+                location: request.range.location,
+                length: min(max(request.range.length, 0), length - request.range.location)
+            )
+        }
+
+        /// Whether `applyReveal` would act on this request for this file, asked
+        /// without consuming anything (no token is recorded, no selection moved).
         ///
         /// `updateNSView` uses it to let an explicit reveal outrank the remembered
         /// viewport: activating a Find in Files result (or a go-to-definition) in
         /// an already-open background tab must land on the match, not on wherever
-        /// the tab was last left. The `textView` guard is not repeated here —
-        /// without one there is nothing to restore either.
+        /// the tab was last left.
         func hasPendingReveal(_ request: EditorRevealState.Request?, fileID: UUID) -> Bool {
-            guard let request else { return false }
-            return request.token != appliedRevealToken && request.fileID == fileID
+            pendingRevealRange(request, fileID: fileID) != nil
         }
 
         /// Esc in the editor: close an open search bar (and drop its highlight),
@@ -1603,34 +1641,29 @@ struct CodeEditorView: NSViewRepresentable {
         /// The scroll anchor is resolved to a character offset rather than kept as
         /// a point, for the reason `EditorViewport` documents: the geometry that
         /// produced the point does not survive a code-zoom change, a font change,
-        /// a window resize or a rewrite of the text. The clip view's visible
-        /// rectangle is in the text view's coordinates, so the container origin
-        /// (the text container inset) comes off before the layout manager is asked
-        /// which glyph sits there.
+        /// a window resize or a rewrite of the text.
         ///
-        /// Answers `nil` when the views are gone (a torn-down tab) or the document
-        /// has no glyphs at all — an empty buffer has no character to anchor to,
-        /// and `characterIndexForGlyph(at:)` raises past the last glyph.
+        /// The hit test goes through `NSTextView.characterIndexForInsertion(at:)`
+        /// rather than the layout manager's `glyphIndex(for:in:)`. It takes the
+        /// point in the *text view's* coordinates — which `documentVisibleRect`
+        /// already is, so no container-origin correction — answers a character
+        /// index directly, and is clamped rather than raising, so it needs no
+        /// bounds guard. That last part is the reason for the choice:
+        /// `NSLayoutManager.numberOfGlyphs`, the only way to write such a guard,
+        /// forces glyph generation for the *entire* document, which would put an
+        /// O(file size) main-thread cost on every single tab switch — exactly what
+        /// `allowsNonContiguousLayout` (see `makeNSView`) exists to avoid.
+        ///
+        /// Answers `nil` only when the views are gone (a torn-down tab); an empty
+        /// buffer anchors at `0`.
         func captureViewport() -> EditorViewport? {
-            guard let textView,
-                  let scrollView,
-                  let layoutManager = textView.layoutManager,
-                  let container = textView.textContainer
-            else { return nil }
-            let selection = textView.selectedRange()
-            guard layoutManager.numberOfGlyphs > 0 else {
-                return EditorViewport(selection: selection, topCharacterOffset: 0)
-            }
+            guard let textView, let scrollView else { return nil }
             let visible = scrollView.documentVisibleRect
-            let origin = textView.textContainerOrigin
-            let topLeft = NSPoint(x: visible.minX - origin.x, y: visible.minY - origin.y)
-            let glyph = layoutManager.glyphIndex(for: topLeft, in: container)
-            guard glyph < layoutManager.numberOfGlyphs else {
-                return EditorViewport(selection: selection, topCharacterOffset: 0)
-            }
             return EditorViewport(
-                selection: selection,
-                topCharacterOffset: layoutManager.characterIndexForGlyph(at: glyph)
+                selection: textView.selectedRange(),
+                topCharacterOffset: textView.characterIndexForInsertion(
+                    at: NSPoint(x: visible.minX, y: visible.minY)
+                )
             )
         }
 
@@ -1649,7 +1682,17 @@ struct CodeEditorView: NSViewRepresentable {
             viewports.forget(fileID)
         }
 
-        /// Put `fileID` back where it was left, if anything was recorded for it.
+        /// Put `fileID` back where it was left — or at the top of the file when
+        /// nothing was recorded for it.
+        ///
+        /// **The "nothing recorded" case has to be spelled out, not skipped.**
+        /// A first visit, a closed-and-reopened tab and a tab whose text was
+        /// replaced from outside all arrive here with no entry, and the intended
+        /// outcome for all three is a plain top-of-file state. Leaving the text
+        /// view alone does not produce that: assigning `textView.string` (the
+        /// buffer swap in `updateNSView`) leaves the caret at the *end* of the new
+        /// contents, and the clip view keeps the outgoing tab's scroll offset. So
+        /// the top is set explicitly.
         ///
         /// Everything here is synchronous, unlike the reveal path's one-turn hop
         /// (`applyReveal`). It has to be: a restore deferred to the next main-loop
@@ -1659,6 +1702,17 @@ struct CodeEditorView: NSViewRepresentable {
         /// below — the layout manager runs with `allowsNonContiguousLayout`, so
         /// the incoming text is not laid out yet at this point in `updateNSView`
         /// and the anchor's rectangle would otherwise be an estimate.
+        ///
+        /// That `ensureLayout` is the one real cost of this feature and it is not
+        /// free: the anchor's *position* is the sum of every preceding line's
+        /// height, so the layout has to run from offset 0 to the anchor, and it is
+        /// paid again on every switch back (the buffer swap invalidates layout).
+        /// It is bounded by how far into the file the tab was left, so it is
+        /// negligible for ordinary source files and measurable — order 0.5s — for
+        /// a multi-megabyte file left scrolled near its end. Accepted knowingly:
+        /// the alternative is a non-contiguous *estimate*, which lands the restore
+        /// on the wrong line, and there is no third option that yields an exact
+        /// document-space `y` without laying out what is above it.
         ///
         /// The range comes back clamped to the live buffer (`EditorViewport
         /// .clamped(toLength:)`), and the scroll goes through `scrollEditor(to:)`,
@@ -1670,50 +1724,45 @@ struct CodeEditorView: NSViewRepresentable {
                   let container = textView.textContainer
             else { return }
             let length = textView.textStorage?.length ?? 0
-            guard let viewport = viewports.viewport(for: fileID, clampedToLength: length)
-            else { return }
-            // A caret at `length` is a legal selection (the end of the file), so
-            // this needs no end-of-buffer special case — unlike the anchor below.
-            textView.setSelectedRange(viewport.selection)
-            let anchor = viewport.topCharacterOffset
-            let top: CGFloat
-            if anchor >= length {
-                // The clamp deliberately allows `length` as an anchor ("the end of
-                // the document"), but there is no character there: the glyph range
-                // for that offset is empty and `boundingRect(forGlyphRange:in:)`
-                // answers a zero rect for it, which would scroll to the top. Take
-                // the document's end instead — the trailing empty line's fragment
-                // when TextKit is showing one (a buffer ending in a newline, and
-                // the empty buffer), the last character's line otherwise.
-                if layoutManager.extraLineFragmentTextContainer != nil {
-                    top = layoutManager.extraLineFragmentRect.minY
-                } else if length > 0 {
-                    layoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: length))
-                    let glyphRange = layoutManager.glyphRange(
-                        forCharacterRange: NSRange(location: length - 1, length: 1),
-                        actualCharacterRange: nil
-                    )
-                    top = layoutManager.lineFragmentRect(
-                        forGlyphAt: glyphRange.location,
-                        effectiveRange: nil
-                    ).minY
-                } else {
-                    top = 0
-                }
-            } else {
-                // Lay out from the start of the document: the anchor's *position*
-                // depends on every preceding line's height, which non-contiguous
-                // layout would otherwise only estimate.
-                layoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: anchor + 1))
-                let glyphRange = layoutManager.glyphRange(
-                    forCharacterRange: NSRange(location: anchor, length: 1),
-                    actualCharacterRange: nil
-                )
-                top = layoutManager.boundingRect(forGlyphRange: glyphRange, in: container).minY
+            guard let viewport = viewports.viewport(for: fileID, clampedToLength: length) else {
+                textView.setSelectedRange(NSRange(location: 0, length: 0))
+                scrollEditor(to: 0)
+                return
             }
+            // A caret at `length` is a legal selection (the end of the file), so
+            // the selection needs no end-of-buffer special case. The anchor needs
+            // none either: `clamped(toLength:)` guarantees it names a character
+            // that exists, so there is exactly one path below.
+            textView.setSelectedRange(viewport.selection)
+            guard length > 0 else {
+                scrollEditor(to: 0)
+                return
+            }
+            let anchor = viewport.topCharacterOffset
+            layoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: anchor + 1))
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: NSRange(location: anchor, length: 1),
+                actualCharacterRange: nil
+            )
             // Back from container space into the document's, i.e. the coordinates
             // `scrollEditor(to:)` scrolls the clip view in.
-            scrollEditor(to: top + textView.textContainerOrigin.y)
+            let top = layoutManager.boundingRect(forGlyphRange: glyphRange, in: container).minY
+                + textView.textContainerOrigin.y
+            // The anchor's own `y` is exact — everything above it was just laid
+            // out — but `scrollEditor(to:)` clamps against `textView.frame.height`,
+            // and *that* is still an estimate for whatever sits below the anchor.
+            // A tab left within the last screenful of its file would be clamped
+            // short by the size of that error (measured: ~220pt, a dozen-odd
+            // lines, on a 3000-line file left at the bottom). So when the clamp is
+            // about to bind, finish the layout first. It is self-limiting: the
+            // clamp only binds near the end of the document, and by then
+            // everything above the anchor is laid out already, so this costs the
+            // remaining tail rather than the file.
+            if let scrollView,
+               top > max(0, textView.frame.height - scrollView.contentView.bounds.height) {
+                layoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: length))
+            }
+            scrollEditor(to: top)
         }
 
         /// The `WorkspaceModel.textReplacementRevision(for:)` value last seen for

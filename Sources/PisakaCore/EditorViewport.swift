@@ -35,11 +35,16 @@ public struct EditorViewport: Equatable {
     /// been rewritten (or truncated) while the tab sat in the background, and the
     /// restore must never hand `NSTextView` an out-of-bounds range. Rules:
     ///
-    /// - `topCharacterOffset` is clamped into `0...length`. `length` itself is
-    ///   allowed on purpose: "the end of the document" is a legitimate anchor,
-    ///   and the view layer resolves it against the document end rather than a
-    ///   glyph.
-    /// - `selection.location` is clamped into `0...length` and the length is then
+    /// - `topCharacterOffset` is clamped into `0...max(0, length - 1)`, i.e. it
+    ///   always names a character that really exists (`0` for an empty buffer).
+    ///   `length` is deliberately *not* allowed: the anchor's whole job is to be
+    ///   handed to the layout as "which character sits at the top", and at
+    ///   `length` there is no character — the glyph range there is empty and a
+    ///   bounding rectangle for it is meaningless. A stale anchor past the new
+    ///   end therefore resolves to the last character's line, and the view's
+    ///   scroll clamp turns that into "the end of the document" for free.
+    /// - `selection.location` is clamped into `0...length` — `length` *is* legal
+    ///   here, a caret at the end of the file — and the length is then
     ///   **truncated** to what is left (`length - location`) — never intersected.
     ///   `NSIntersectionRange` answers `{0, 0}` for a range starting exactly at
     ///   the buffer end (it shares no unit with the document), which would send a
@@ -49,7 +54,7 @@ public struct EditorViewport: Equatable {
     ///   and collapses to `{0, 0}`.
     public func clamped(toLength length: Int) -> EditorViewport {
         let limit = max(0, length)
-        let anchor = min(max(topCharacterOffset, 0), limit)
+        let anchor = min(max(topCharacterOffset, 0), max(0, limit - 1))
         guard selection.location != NSNotFound, selection.location >= 0 else {
             return EditorViewport(selection: NSRange(location: 0, length: 0), topCharacterOffset: anchor)
         }

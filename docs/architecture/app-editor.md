@@ -441,18 +441,33 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     text` swap above destroys the outgoing tab's position; nothing else in the app
     records it. Three coordinator methods are the whole AppKit half.
     `captureViewport()` reads `textView.selectedRange()` and resolves the top
-    visible character by taking the clip view's `documentVisibleRect` top-left,
-    subtracting `textContainerOrigin` (the visible rect is in the text view's
-    coordinates, the layout manager answers in the container's) and asking
-    `glyphIndex(for:in:)` → `characterIndexForGlyph(at:)`; it answers `nil` when the
-    views are gone and anchors at 0 when the document has no glyphs (an empty
-    buffer has no character to name, and `characterIndexForGlyph(at:)` raises past
-    the last glyph). `recordViewport(for:)`/`forgetViewport(for:)` write the memory,
+    visible character by handing the clip view's `documentVisibleRect` top-left to
+    `NSTextView.characterIndexForInsertion(at:)`; it answers `nil` only when the
+    views are gone (a torn-down tab), and an empty buffer anchors at 0. **That hit
+    test is deliberately not the layout manager's** `glyphIndex(for:in:)` →
+    `characterIndexForGlyph(at:)` pair: the latter raises past the last glyph, the
+    only bounds guard available for it is `NSLayoutManager.numberOfGlyphs`, and
+    that property forces glyph generation for the *entire* document — an O(file
+    size) main-thread cost on every single tab switch, which is precisely what
+    `allowsNonContiguousLayout = true` is set to avoid. `characterIndexForInsertion(
+    at:)` takes the point in the text view's own coordinates (which
+    `documentVisibleRect` already is, so no `textContainerOrigin` correction),
+    answers a character index directly, and clamps rather than raising, so it needs
+    no guard at all. `recordViewport(for:)`/`forgetViewport(for:)` write the memory,
     and `restoreViewport(for:)` reads it back clamped to the live
     `textStorage.length`, applies `setSelectedRange` and scrolls through the
     existing `scrollEditor(to:)` — which already clamps a document-space top offset
     to `max(0, textView.frame.height - clipView.bounds.height)`, so "never past the
-    end of the document" is the final guard for free. **The restore is
+    end of the document" is the final guard for free. That clamp needs one
+    correction, though: the anchor's own `y` is exact (everything above it has just
+    been laid out) while `textView.frame.height` is still an *estimate* for what
+    sits below it, so a tab left within the last screenful of its file would be
+    clamped short by the size of that error — measured at ~220pt, a dozen-odd
+    lines, on a 3000-line file left at the bottom. The restore therefore finishes
+    the layout when, and only when, the clamp is about to bind. That test is
+    self-limiting: the clamp binds only near the end of the document, where
+    everything above the anchor is laid out already, so it costs the remaining tail
+    rather than the file. **The restore is
     synchronous**, unlike `applyReveal`'s one-turn `DispatchQueue.main.async` hop,
     and the difference is not stylistic: a restore deferred to the next main-loop
     turn would run after a *second* tab switch had already swapped the buffer again,
@@ -462,16 +477,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     forGlyphRange:in:)` is asked for it — the layout manager runs with
     `allowsNonContiguousLayout = true`, so the incoming text is not laid out yet at
     this point in `updateNSView` and the anchor's *position* (which depends on every
-    preceding line's height) would otherwise be an estimate. **The anchor at the
-    buffer end is the one special case**, and it is the price of Core's clamp
-    deliberately allowing `length`: there is no character at that offset, so the
-    glyph range for it is empty and `boundingRect(forGlyphRange:in:)` answers a zero
-    rect, which would scroll to the top — the exact opposite of the request. The
-    document end is taken instead, from `extraLineFragmentRect` when TextKit is
-    showing a trailing empty line (a buffer ending in a newline, and the empty
-    buffer, where `extraLineFragmentTextContainer` is non-`nil`) and from the last
-    character's `lineFragmentRect` otherwise. `setSelectedRange` needs no such case:
-    a caret at `length` is a legal selection. The ordering in `updateNSView` is
+    preceding line's height) would otherwise be an estimate. **That `ensureLayout`
+    is the feature's one real cost and it is not free**: the layout runs from
+    offset 0 to the anchor, and again on every switch back (the buffer swap
+    invalidates layout), so it is bounded by how deep into the file the tab was
+    left — negligible for ordinary source files, and order half a second for a
+    multi-megabyte file left scrolled near its end. Accepted knowingly: the only
+    alternative is the non-contiguous *estimate*, which lands the restore on the
+    wrong line, and there is no third way to get an exact document-space `y`
+    without laying out what is above it. There is **no end-of-buffer special
+    case**, because Core's clamp guarantees the anchor names a character that
+    exists (`0...max(0, length - 1)`; an earlier revision admitted `length` and
+    paid for it with three view-layer branches, one of which read a *pre-layout*
+    `extraLineFragmentRect` and scrolled to a fraction of the intended offset).
+    Only the empty buffer is special, and only as an early `scrollEditor(to: 0)`.
+    `setSelectedRange` needs no case either: a caret at `length` is legal, which is
+    why the selection clamp still admits it. **"Nothing recorded" is a state the
+    restore has to write, not skip**: a first visit, a closed-and-reopened tab and
+    a tab whose text was replaced from outside all arrive with no entry, and the
+    intended outcome for all three is the top of the file — but assigning
+    `textView.string` leaves the caret at the **end** of the incoming contents and
+    the clip view at the *outgoing* tab's scroll offset, so `restoreViewport(for:)`
+    sets `{0, 0}` and scrolls to 0 explicitly on the `nil` branch. The ordering in `updateNSView` is
     load-bearing at every step, and reads **capture → prune → buffer swap →
     per-file reconciliation → restore → reveal**: the outgoing tab's viewport is
     recorded first, above the swap (afterwards there is nothing left to read), and
@@ -486,16 +513,26 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     refreshes geometry that already describes the incoming file. **An explicit
     reveal outranks the memory**: activating a Find in Files result or a
     go-to-definition in an already-open background tab is a switch too and must land
-    on the match, so `hasPendingReveal(_:fileID:)` — `applyReveal`'s same three
-    guards (non-`nil` request, token not yet applied, matching `fileID`) asked
-    *without* consuming anything — suppresses the restore, leaving `applyReveal`
-    below to do its usual one-shot work. The memory is dropped on exactly the signal
+    on the match, so `hasPendingReveal(_:fileID:)` suppresses the restore, leaving
+    `applyReveal` below to do its usual one-shot work. Both of them route through
+    one private `pendingRevealRange(_:fileID:)` — **the single place the reveal's
+    admission rule lives**, deliberately, because two copies of it drift: the
+    predicate needs the *range* guards too, not just the token/`fileID` pair, or a
+    result row that pre-dates an edit shrinking the file counts as "pending",
+    suppresses the restore, and is then declined inside `applyReveal`'s hop —
+    leaving the tab at whatever offset the reused text view happened to carry over
+    from the outgoing file. `applyReveal` still consumes the token whether or not a
+    range came back (a standing request is applied exactly once; an unusable range
+    is a dead request, not one to retry on every later update) and still re-clamps
+    inside the hop, since a whole main-loop turn passes and nothing promises the
+    text did not shrink in between. The memory is dropped on exactly the signal
     that drops the undo stack, in the same branch and for the same reason: when
     `noteExternalTextRevision(_:for:)` reports this file's buffer was replaced while
     it sat off screen (a project Replace All, a post-revert `reloadFromDisk`, a merge
     apply), the recorded selection and anchor name characters the incoming text
-    never had, so `forgetViewport(for:)` runs and the restore finds nothing — a plain
-    top-of-file state, as on a first visit. `pruneUndoManagers(keeping:)` is renamed
+    never had, so `forgetViewport(for:)` runs and the restore finds nothing and
+    writes the top-of-file state, exactly as on a first visit.
+    `pruneUndoManagers(keeping:)` is renamed
     `prunePerFileState(keeping:)` accordingly: it already pruned
     `externalTextRevisions` as well as the undo managers, and now prunes a third
     dictionary, so the name naming only one of the three had stopped being true.

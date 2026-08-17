@@ -73,6 +73,19 @@ user sees it.
 - NSTextView-based editor: monospaced font, undo/redo, copy/paste, and a
   line-number gutter on the left that tracks scrolling, edits, and the system
   light/dark appearance.
+- Each open tab remembers where you left it. Switching tabs restores the caret
+  (or the selected range) and the scroll position of the tab you come back to, so
+  bouncing between two files keeps both places. The scroll position is remembered
+  as a position *in the text*, not as a pixel offset, so changing the code zoom or
+  the font size between two visits still lands on the same line. The boundaries:
+  it lasts for the app run only — a relaunch starts every tab at the top, since
+  session restore brings back *which* tabs are open, not where they were; closing
+  a tab forgets its position, so reopening the file starts at the top; if the
+  file's text was replaced while the tab sat in the background (a project Replace
+  All, a revert, a merge apply) the remembered position is dropped and the tab
+  opens at the top; and activating a Find in Files result or a Go to Definition in
+  an already-open background tab scrolls to the match rather than to the
+  remembered position. macOS only — the iOS editor opens each tab at the top.
 - Annotate with Git Blame (macOS): right-click the editor gutter and choose
   "Annotate with Git Blame" to show a column to the left of the line numbers with,
   per line, who last changed it and when. Right-click again ("Close Annotations")
@@ -911,8 +924,9 @@ and iPhone. The feature scope landed so far:
   text are not restored — and a folder switch there leaves the previous project's
   tabs open, since there is no per-project session to swap them for. What comes
   back on macOS is the last opened project's folder, its tabs and the selected
-  tab, but not per-tab caret or scroll positions, and not the
-  bottom-panel / terminal / project-tree state. One session is kept per project
+  tab, but not per-tab caret or scroll positions — those are remembered only
+  within an app run (see the editor section above) and are never written to the
+  session — and not the bottom-panel / terminal / project-tree state. One session is kept per project
   (the last 20), so there is no history of earlier sessions *for the same project*
   and no setting to turn restore off.
 - A single editor window only (diffs open in separate read-only windows on
