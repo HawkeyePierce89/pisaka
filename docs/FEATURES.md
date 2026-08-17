@@ -24,7 +24,7 @@ user sees it.
   opens the folder picker. Opening a folder auto-expands its first level so the
   immediate children are visible right away. Each entry shows a file-type icon
   (tinted by type) so Swift, JS/TS, JSON, Markdown, images, archives, and other
-  common types are recognizable at a glance. Dotfiles are visible (VS Code-style),
+  common types are recognizable at a glance. Dotfiles are visible,
   so `.gitignore` and `.github` are ordinary entries you can open, rename, and
   delete; only the service entries `.git` and `.DS_Store` are hidden (and cannot
   be created or renamed to from the tree — a create path refuses them in any
@@ -34,7 +34,7 @@ user sees it.
   File…, New Folder…, Rename…, and Delete; files offer Rename… and Delete, plus a
   "Run" item for runnable file types and a "Run Test" item for test files; the
   project root offers the two create actions. New File… and New Folder… accept a
-  *relative path*, not just a name (VS Code-style): entering
+  *relative path*, not just a name: entering
   `centrifugo/config.json` creates the `centrifugo` folder and the file inside it
   in one step. Missing intermediate folders are created and existing ones reused,
   a single trailing slash is fine (`a/b/c/`), but the final entry is never
@@ -84,7 +84,7 @@ user sees it.
   away), after which it re-aligns on its own. A file outside a git repository, or
   an unsaved "Untitled" buffer, simply has nothing to annotate — the menu item is
   unavailable or the column stays empty, with no error.
-- A VS Code-style path bar above the editor shows where the open file lives —
+- A path bar above the editor shows where the open file lives —
   its path relative to the opened project root, as breadcrumbs
   (`backend › src › dialogs › dialogs.service.ts`). A file outside the project
   (or with no folder open) shows its absolute path, abbreviated to `~` under your
@@ -110,11 +110,11 @@ user sees it.
   than stranding a closer. Each auto-pair edit is a single undo step. (Pairing is
   a simple character heuristic with no string/comment awareness.)
 - Bracket highlighting, in two flavors at once. Put the caret next to a bracket
-  and both halves of its pair get a background (VS Code/Xcode style); the
+  and both halves of its pair get a background; the
   bracket *after* the caret wins when there is one on each side, a selection
   shows nothing, and moving the caret away clears it. Separately, every bracket
   in the file is colored by its nesting depth through a cycling five-color
-  palette (JetBrains Rainbow Brackets style) — depth 5 starts the palette over —
+  palette — depth 5 starts the palette over —
   and a bracket that has no match, or one that closes the wrong kind, is painted
   red. Both follow the system light/dark appearance and the Preferences theme,
   and neither touches the document, so undo never contains a "highlighting edit".
@@ -122,7 +122,7 @@ user sees it.
   inside a string literal or a comment is highlighted like any other (a
   tree-sitter-aware version is a follow-up). macOS only for now — no iOS variant
   and no settings to turn it off or change the number of colors yet.
-- Duplicate line or selection (Cmd+D), JetBrains-style: with no selection the
+- Duplicate line or selection (Cmd+D): with no selection the
   caret's line is copied below it and the caret moves into the copy at the same
   column; with a selection the selected text is copied right after itself and the
   copy becomes the new selection, so repeated presses grow the text. A multi-line
@@ -134,7 +134,7 @@ user sees it.
   terminal or the project tree. macOS only for now — an iOS
   variant for an external keyboard and an Edit > Duplicate Line menu item are
   out of scope.
-- Find and replace in a file (macOS): Cmd+F opens a JetBrains-style search bar
+- Find and replace in a file (macOS): Cmd+F opens a search bar
   above the editor with `Aa` (match case), `ab` (whole word), and `.*` (regular
   expression) toggles, a `3/17` match counter, and ▲/▼ to step through the
   matches — Cmd+G and Cmd+Shift+G do the same from the keyboard, wrapping around
@@ -145,8 +145,8 @@ user sees it.
   alert) and simply blanks the counter, so a half-typed pattern is not an error.
   A pattern of only spaces counts as an empty field even in regular-expression
   mode, so search for spaces with `\s`, `[ ]` or `\x20`.
-  In a regular-expression search `^` and `$` are **line** boundaries, as in
-  VS Code and JetBrains — `^import` finds every import line, not just one at the
+  In a regular-expression search `^` and `$` are **line** boundaries
+  — `^import` finds every import line, not just one at the
   top of the file — while `.` still stops at a line break; the same holds in the
   Find in Files window, which shares the engine.
   Cmd+Option+F (or the bar's expand button) adds the replace row: `Replace` swaps
@@ -362,7 +362,7 @@ user sees it.
   `rust-analyzer` is dual-licensed `Apache-2.0 OR MIT`; like `gopls` it is not in
   Acknowledgements, because the download is a single compressed binary carrying no
   license file — the Rust row names its origin and license instead.
-- VS Code-style minimap to the right of the editor: a scaled-down,
+- A minimap to the right of the editor: a scaled-down,
   syntax-colored overview of the file with a draggable viewport rectangle.
   Click or drag the rectangle to scroll the editor, or scroll the mouse wheel
   over the minimap; scrolling the editor moves the rectangle. Each line keeps a
@@ -381,7 +381,7 @@ user sees it.
 - Each tab keeps its own independent text; switching tabs swaps the editor
   contents.
 - Save writes to the file's URL; "Untitled" files prompt for a location.
-- JetBrains-style autosave: a file with unsaved changes is written to disk
+- Autosave: a file with unsaved changes is written to disk
   automatically — a short idle delay after you stop typing, when the app loses
   focus, when you switch tabs, and when you quit (Cmd+Q). "Untitled" files (with
   no path yet) are never autosaved, so autosave never pops a Save As panel.
@@ -430,7 +430,7 @@ user sees it.
   Cmd+Shift+C) listing files differing from `HEAD` (via `git`).
   View the list flat or grouped by folder; each file shows a type icon tinted by
   its git status plus a one-letter badge (M/A/D/R/U/C). Double-click a file to open
-  a JetBrains-style side-by-side diff (`HEAD` vs working copy) in a separate
+  a side-by-side diff (`HEAD` vs working copy) in a separate
   window, with aligned panes, red/green row backgrounds, per-side line-number
   gutters, change markers, synced scrolling, and syntax highlighting. The list
   refreshes manually (a refresh button) and automatically after you save a file.
@@ -464,7 +464,7 @@ user sees it.
   up dismisses it (its contents describe a repository that is no longer open), and
   a commit issued for the previous project never runs against the new one;
   reopening always starts with Amend unticked.
-  What is committed is exactly what is selected in the UI (the JetBrains model) —
+  What is committed is exactly what is selected in the UI —
   the commit is assembled in a temporary index seeded from `HEAD`, so anything you
   staged manually with `git add` is *not* part of it and is unstaged afterwards
   (its changes stay in your working tree). A real `git commit` runs against that
@@ -504,7 +504,7 @@ user sees it.
   too.
 - Conflict resolution: a file left in a merge-conflict state shows a purple "C"
   badge in Local Changes; double-clicking it (or choosing "Resolve…" from its
-  context menu) opens a JetBrains-style 3-pane merge editor in a separate window
+  context menu) opens a 3-pane merge editor in a separate window
   — ours on the left, the editable merged result in the middle, theirs on the
   right — sourced from git's merge index stages (`:1` base, `:2` ours, `:3`
   theirs). Spans changed by only one side are merged automatically; spans both
@@ -516,7 +516,7 @@ user sees it.
   Changes, and closes the window. Non-binary text files only.
 - Git Log: a read-only commit history shown in a collapsible bottom panel (toggle
   with "Show/Hide Git Log" in the View menu, the Git button on the bottom bar, or
-  Cmd+Shift+L). It shows a JetBrains-style commit table — short
+  Cmd+Shift+L). It shows a commit table — short
   hash, ref/branch/tag badges, subject, author, and date — with a colored branch
   graph in the left gutter that draws lanes for branches and merges. A "Load
   more" affordance fetches an additional page of history. Selecting a commit shows
@@ -528,7 +528,7 @@ user sees it.
   the loaded commits by message text client-side (no re-query). All git access is
   read-only — no history mutation, and (like Local Changes) no filesystem
   watching: both panels refresh on demand.
-- Branch switcher: a JetBrains-style widget in the always-visible bottom bar shows
+- Branch switcher: a widget in the always-visible bottom bar shows
   the current branch. Click it for a popover listing local and remote branches
   (the current one marked) with a filter field: pick a local branch to check it
   out, or choose "New Branch…" to create and switch to a new branch off any

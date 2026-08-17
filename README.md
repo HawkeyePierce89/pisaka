@@ -19,11 +19,11 @@ description of each — and of what it deliberately does *not* do — is in
   show up on their own via FSEvents.
 - **Editor** — NSTextView-based, monospaced, with a line-number gutter,
   auto-indent, auto-closing brackets/quotes, matched-pair and rainbow bracket
-  highlighting, Cmd+D duplicate line/selection, and a VS Code-style minimap.
+  highlighting, Cmd+D duplicate line/selection, and a minimap.
 - **Syntax highlighting** (tree-sitter via Neon) for Swift, JavaScript,
   TypeScript, JSON, Markdown, Python, Go, Rust, HTML, CSS, YAML, Dockerfiles,
   `.env` and dot-prefixed ignore files — detected from the whole file name.
-- **Find & replace** — a JetBrains-style in-file search bar (regex, whole word,
+- **Find & replace** — an in-file search bar (regex, whole word,
   match case, Replace All as one undo step) and a project-wide **Find in
   Files** window that honors your `.gitignore` files and can Replace All across
   the project with per-file staleness checks.
@@ -49,7 +49,7 @@ description of each — and of what it deliberately does *not* do — is in
 - **Terminal** — an embedded SwiftTerm panel with multiple shell tabs, themed
   with the app; **Run File** (Cmd+R) and **Run Test** (Cmd+U) reuse dedicated
   terminal tabs, with the test runner detected from the project's config files.
-- **Autosave & sessions** — JetBrains-style autosave (idle, tab switch, focus
+- **Autosave & sessions** — automatic saving (idle, tab switch, focus
   loss, quit), and **per-project** session restore: each project folder keeps its
   own tabs and selection, brought back when you open it again and on launch,
   including hot exit for "Untitled" buffers.
