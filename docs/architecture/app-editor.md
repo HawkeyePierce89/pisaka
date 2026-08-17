@@ -863,12 +863,35 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     inside the anchor answers both cases, and keeps a server range wider than the
     identifier (a qualified name, an operator expression) doing what it is for:
     moving within it re-asks nothing.
+    **Asking, however, requires the offset to be inside the identifier**, and that
+    guard is what makes the "whitespace, punctuation and the empty region past a
+    line" claim above true rather than merely intended. The ending-at probe is
+    wanted only for the suppression test; once there is nothing on screen to keep,
+    a match the offset lies *outside* of is dismissed instead of asked about. A
+    character's laid-out rectangle is not as narrow as it looks — a line's trailing
+    newline is drawn spanning the **whole remainder of its line fragment** — so
+    without the guard a pointer resting in the empty space to the right of a line
+    resolves to that newline, the ending-at probe answers the line's last word, and
+    the popover describes a symbol an inch from the pointer: precisely what
+    `characterIndex(at:in:)` exists to refuse. It is also what keeps the offset the
+    question carries and the range the answer is anchored to talking about the same
+    thing, which matters because the servers disagree at exactly those positions
+    (sourcekit-lsp resolves at the preceding token, gopls' node lookup is
+    `[Pos, End)`).
     The buffer is read through the text storage's own `NSMutableString` rather than
     `textView.string`, which bridges — and therefore **copies the whole document**
     — every time it is named. Every other `textView.string` in the editor sits
     behind a debounce or an explicit command; this one runs per mouse-moved event,
     and on a large file the copy alone is the stutter. Read-only and synchronously
     on the main actor, so no edit can interleave.
+    For the same reason the request itself is built **inside the dwell task, after
+    the sleep**, not beside the scan: eager construction would pay the full-document
+    bridge for every identifier a pointer sweeps across, on the main thread, for a
+    question most of those sweeps never live long enough to ask (and that a language
+    with no server, or a server with no `hoverProvider`, would drop immediately). It
+    is no less faithful to D2's "the live buffer travels with the request", because
+    every character edit calls `dismiss()` and cancels the task — the text cannot
+    change under the offset while the dwell sleeps.
     **Resolving the character under the pointer is not one line, and that is the
     point.** `characterIndexForInsertion(at:)` — what ⌘-click and the viewport
     memory use — answers the nearest *insertion point*, which past the end of a
@@ -878,8 +901,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     contains the point, and two candidates are tried (the index and the one before
     it) because an insertion point is a boundary — a pointer in the right half of a
     glyph reports the index after it. Both halves of every glyph therefore resolve
-    to the glyph, and neither half of the empty space past a line resolves to
-    anything. The obvious spelling — `glyphIndex(for:in:)` guarded against
+    to the glyph. What it does **not** buy is `nil` past a line's end — a trailing
+    newline's rectangle spans the rest of its line fragment, so a point far to the
+    right of the text really is inside it — which is why the identifier gate above
+    carries the offset-inside-the-match guard. The obvious spelling — `glyphIndex(for:in:)` guarded against
     `numberOfGlyphs` — is rejected on cost: it forces glyph generation for the
     **entire document** on every mouse-moved event, the exact thing
     `allowsNonContiguousLayout` exists to avoid (see `restoreViewport`).
@@ -941,10 +966,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     on the current parent re-orders the whole child list on every dwell).
     `dismiss()` is idempotent, because dismissal arrives from a dozen unrelated
     places and several of them routinely fire when nothing is on screen — and it
-    returns early when the panel is not on screen, which is what makes it *free* as
-    well as safe: the controller dismisses on every mouse-moved event over
+    returns early when this object has not put a popover up, which is what makes it
+    *free* as well as safe: the controller dismisses on every mouse-moved event over
     whitespace or punctuation, and an `orderOut` of an already-hidden window is a
     window-server round trip per pixel of pointer movement.
+    That early return reads **its own `isShown` flag rather than the panel's
+    `isVisible`**, and the difference is a real popover coming back from the dead:
+    the panel is `hidesOnDeactivate` *and* a child window, so AppKit orders it out
+    behind this object's back when the app deactivates or the parent is
+    miniaturized — and orders it back in on reactivation. Inferring shown-ness from
+    visibility lets a `dismiss()` arriving inside that window do nothing at all,
+    leaving a live child window AppKit later restores: a stale answer about a buffer
+    that has since scrolled, with the pointer nowhere near it. The flag is set in
+    `show`, cleared in `dismiss`, and costs exactly what the visibility read did.
     `isReleasedWhenClosed` is cleared because this object owns the panel through a
     strong property and `NSWindow`'s default is to release itself on `close()`. It
     is
@@ -981,8 +1015,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     short either way hanging below at least keeps the first line, which is the
     signature. The horizontal position is **clamped rather than flipped**: a
     popover pushed left to stay on screen still points at the right line, while one
-    flipped to the other side of the identifier would not. Thin, untested view
-    glue; this file owns fonts, padding and geometry, and nothing else.
+    flipped to the other side of the identifier would not.
+    Which screen those two rules measure against is found by **containing the
+    anchor's origin, not by intersecting the anchor**, because the anchor is
+    routinely *empty*: a server that sent no range leaves the answer on a
+    zero-length one (`LSPIntelligenceProvider.anchorRange`'s last resort), and
+    `firstRect(forCharacterRange:)` answers a zero-width rect for it —
+    `NSRect.intersects` is false whenever either rect is empty, so an intersection
+    test would silently fall back to the main screen for exactly those answers and
+    clamp the height against one display while anchoring on another. Thin, untested
+    view glue; this file owns fonts, padding and geometry, and nothing else.
   - `LSPProcessTransport.swift` — the real `LSPTransport`: one language-server
     process, three pipes, and no opinion whatsoever about what the bytes mean. The
     entire macOS half of the LSP client, written in `GitCLIService`'s idiom for the

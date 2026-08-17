@@ -53,7 +53,7 @@ enum DefinitionPicker {
             menu.addItem(item)
         }
         withExtendedLifetime(target) {
-            menu.popUp(positioning: nil, at: anchorPoint(in: textView, for: range), in: textView)
+            _ = menu.popUp(positioning: nil, at: anchorPoint(in: textView, for: range), in: textView)
         }
     }
 

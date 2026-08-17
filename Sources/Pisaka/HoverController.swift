@@ -157,6 +157,23 @@ final class HoverController: NSObject {
            NSLocationInRange(offset, anchorRange) || Self.range(anchorRange, contains: match.range) {
             return
         }
+        // Nothing on screen to keep, so the *second* probe's answer is no longer
+        // wanted: a question is only asked when the pointer is over the word
+        // itself. `IdentifierScanner` also resolves the identifier *ending* at an
+        // offset (the caret's rule), and a character's laid-out rectangle is not
+        // as narrow as it looks — a line's trailing newline is drawn spanning the
+        // whole remainder of its line fragment, so a pointer resting in the empty
+        // space to the right of a line resolves to that newline, and the ending-at
+        // probe then answers the line's last word. Without this the popover would
+        // describe a symbol an inch away from the pointer, which is precisely what
+        // `characterIndex(at:in:)` refuses to let `characterIndexForInsertion` do.
+        // The same guard is what keeps the space after a name and the `.` of
+        // `worker.name` from reaching the provider, and it makes the offset the
+        // question carries agree with the range the answer is anchored to.
+        guard NSLocationInRange(offset, match.range) else {
+            dismiss()
+            return
+        }
 
         // Everything older is now about a different word. The token is bumped
         // *before* the hop, so an answer already in flight for the previous
@@ -170,22 +187,34 @@ final class HoverController: NSObject {
         guard let source = source() else { return }
         let provider = source.provider
         let rootGeneration = source.rootGeneration
-        // The live buffer travels with the question (D2): document sync is
-        // request-driven, so the text the server type-checks is the text on
-        // screen when the pointer stopped, not whatever is there when the task
-        // happens to resume.
-        let request = HoverRequest(
-            fileURL: source.fileURL,
-            offset: offset,
-            text: textView.string
-        )
+        let fileURL = source.fileURL
         dwellTask = Task { [weak self, weak textView] in
             try? await Task.sleep(for: .seconds(HoverContent.dwellDelay))
             if Task.isCancelled { return }
+            guard let textView else { return }
+            // The live buffer travels with the question (D2): document sync is
+            // request-driven, so the text the server type-checks is the text on
+            // screen when the pointer came to rest.
+            //
+            // Read *after* the dwell, and that is the point: the bridge to a
+            // Swift `String` copies the whole document, and building the request
+            // eagerly would pay that copy for every identifier a pointer sweeps
+            // across — on the main thread, for a question most of those sweeps
+            // never get to ask. It is the same cost the identifier scan above
+            // reads `storage.mutableString` to avoid. Reading it here is no less
+            // faithful: every character edit calls `dismiss()` (the storage's
+            // `editedCharacters` notification), which cancels this task, so the
+            // text cannot have changed under the offset while we slept. The
+            // closure is main-actor isolated like the rest of the class, so the
+            // read is as safe here as it was there.
+            let request = HoverRequest(
+                fileURL: fileURL,
+                offset: offset,
+                text: textView.string
+            )
             let answer = await provider.hover(for: request)
             guard !Task.isCancelled,
                   let self,
-                  let textView,
                   token == self.generation,
                   self.source()?.rootGeneration == rootGeneration
             else { return }
@@ -284,8 +313,15 @@ final class HoverController: NSObject {
     /// character: a pointer in the right half of a glyph reports the index *after*
     /// it. The character before the boundary is therefore checked as well, and the
     /// containment test is what tells the two apart — so both halves of every
-    /// glyph resolve to the glyph, and neither half of the empty space past a line
-    /// resolves to anything.
+    /// glyph resolve to the glyph.
+    ///
+    /// It does **not** answer `nil` for the empty space past a line's end, which
+    /// is the one thing a rectangle test cannot buy here: a line's trailing
+    /// newline is laid out spanning the whole remainder of its line fragment, so
+    /// a point far to the right of the text is genuinely inside that glyph's
+    /// rectangle and resolves to the newline. What keeps *that* from becoming a
+    /// popover about the line's last word is the offset-inside-the-identifier
+    /// guard in `pointerMoved(to:in:)`, not this method.
     ///
     /// The insertion index is clamped by AppKit and both probes are bounded by the
     /// buffer's length, so nothing here can name a glyph that does not exist. That

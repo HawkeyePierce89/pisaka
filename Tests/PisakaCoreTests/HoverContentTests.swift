@@ -246,6 +246,27 @@ final class HoverContentTests: XCTestCase {
         XCTAssertEqual(prose("emphasised [*link*](u)"), "emphasised link")
     }
 
+    /// Brackets with nothing linked behind them are text, not a label.
+    ///
+    /// The mirror of the unclosed-emphasis rule, and it matters for the same
+    /// reason: `[]byte`, `map[string]int` and `[T; N]` are how Go and Rust spell
+    /// *types* in the unfenced prose beside a signature, so reading every
+    /// balanced `[…]` as a link label answers `byte`, `mapstringint` and `T; N` —
+    /// a wrong name in the one popover whose job is naming things.
+    func testBracketsWithNoLinkTargetAreLeftAsText() {
+        XCTAssertEqual(prose("returns []byte from the reader"), "returns []byte from the reader")
+        XCTAssertEqual(prose("a map[string]int value"), "a map[string]int value")
+        XCTAssertEqual(prose("the element at data[index] is used"), "the element at data[index] is used")
+        XCTAssertEqual(prose("slice [T; N] here"), "slice [T; N] here")
+        // An image whose `!` opens nothing linked is text too, `!` included.
+        XCTAssertEqual(prose("negate ![flag] first"), "negate ![flag] first")
+        // A target that is opened and never closed is not a target either.
+        XCTAssertEqual(prose("see [the docs](https://example.com"), "see [the docs](https://example.com")
+        // Inline markup *inside* such a bracket run is still degraded, because the
+        // brackets are the only thing being kept.
+        XCTAssertEqual(prose("keep [a *b* c] here"), "keep [a b c] here")
+    }
+
     /// A rule leaves the blank line it was standing in — the separation it meant
     /// survives, the glyph does not, and the blank-line collapse keeps a run of
     /// rules from opening a hole.

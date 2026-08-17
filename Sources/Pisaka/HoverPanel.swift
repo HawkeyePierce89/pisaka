@@ -58,8 +58,19 @@ final class HoverPanel {
     /// from the same one it was attached to even after the editor moved windows.
     private weak var attachedParent: NSWindow?
 
+    /// Whether this object has put a popover up and not taken it down again.
+    ///
+    /// Deliberately *not* `panel.isVisible`: the panel is `hidesOnDeactivate` and
+    /// a child window, so AppKit hides it behind this object's back when the app
+    /// deactivates or the parent is miniaturized — and it puts it back on
+    /// reactivation. Inferring shown-ness from visibility would let a `dismiss()`
+    /// arriving in that window do nothing at all, leaving a live child window
+    /// AppKit later restores: a stale answer about a buffer that has since
+    /// scrolled, with the pointer nowhere near it.
+    private var isShown = false
+
     /// Whether a popover is on screen right now.
-    var isVisible: Bool { panel?.isVisible ?? false }
+    var isVisible: Bool { isShown }
 
     /// Draw `content` next to `anchor` (a rect in **screen** coordinates, which
     /// is what `NSTextView.firstRect(forCharacterRange:actualRange:)` answers).
@@ -127,18 +138,23 @@ final class HoverPanel {
             attachedParent = parent
         }
         panel.orderFront(nil)
+        isShown = true
     }
 
     /// Take the popover down.
     ///
     /// **Idempotent**: dismissal arrives from a dozen unrelated places (a scroll,
     /// an edit, a tab switch, teardown) and several of them routinely fire when
-    /// nothing is on screen. The visibility check is what makes it *free* as well
+    /// nothing is on screen. The `isShown` check is what makes it *free* as well
     /// as safe — the controller dismisses on every mouse-moved event over
     /// whitespace or punctuation, and an `orderOut` of an already-hidden window is
-    /// a window-server round trip per pixel of pointer movement.
+    /// a window-server round trip per pixel of pointer movement. It is this
+    /// object's own flag rather than the panel's visibility for the reason given
+    /// on `isShown`: a popover AppKit has hidden is still one this object put up,
+    /// and it must still be detached and ordered out.
     func dismiss() {
-        guard let panel, isVisible else { return }
+        guard let panel, isShown else { return }
+        isShown = false
         attachedParent?.removeChildWindow(panel)
         attachedParent = nil
         panel.orderOut(nil)
@@ -256,8 +272,17 @@ final class HoverPanel {
     /// not.
     /// The usable area of the screen the anchor is on — the one both the height
     /// clamp and the placement below have to agree about.
+    ///
+    /// Matched on the anchor's *origin* rather than by intersection, because the
+    /// anchor is routinely empty: a server that sent no range leaves the answer
+    /// anchored to a zero-length range (`LSPIntelligenceProvider.anchorRange`'s
+    /// last resort), and `firstRect(forCharacterRange:)` answers a zero-width
+    /// rect for it. `NSRect.intersects` is false whenever *either* rect is empty,
+    /// so intersecting would fall back to the main screen for exactly those
+    /// answers — clamping the popover's height against one display while
+    /// anchoring it on another.
     private static func visibleFrame(for anchor: NSRect) -> NSRect {
-        let screen = NSScreen.screens.first { $0.frame.intersects(anchor) } ?? NSScreen.main
+        let screen = NSScreen.screens.first { $0.frame.contains(anchor.origin) } ?? NSScreen.main
         return screen?.visibleFrame ?? anchor
     }
 

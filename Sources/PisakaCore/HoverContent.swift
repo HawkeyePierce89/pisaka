@@ -396,15 +396,17 @@ enum HoverMarkup {
             }
 
             if character == "!", index + 1 < characters.count, characters[index + 1] == "[",
-               let label = bracketedLabel(in: characters, openingAt: index + 1) {
+               let label = bracketedLabel(in: characters, openingAt: index + 1),
+               let end = skippingLinkTarget(in: characters, from: label.end) {
                 write(inline(label.text))
-                index = skippingLinkTarget(in: characters, from: label.end)
+                index = end
                 continue
             }
 
-            if character == "[", let label = bracketedLabel(in: characters, openingAt: index) {
+            if character == "[", let label = bracketedLabel(in: characters, openingAt: index),
+               let end = skippingLinkTarget(in: characters, from: label.end) {
                 write(inline(label.text))
-                index = skippingLinkTarget(in: characters, from: label.end)
+                index = end
                 continue
             }
 
@@ -506,16 +508,25 @@ enum HoverMarkup {
         return nil
     }
 
-    /// Past a link label's destination — `(url)`, `[reference]`, or nothing at
-    /// all for a shortcut reference. The URL is what is being thrown away.
-    private static func skippingLinkTarget(in characters: [Character], from index: Int) -> Int {
-        guard index < characters.count else { return index }
+    /// Past a link label's destination — `(url)` or `[reference]` — or `nil` when
+    /// no target follows. The URL is what is being thrown away.
+    ///
+    /// **`nil` is the load-bearing answer**, and it is what makes a `[…]` a link
+    /// rather than any balanced pair of brackets. CommonMark only reads a label
+    /// as a link when a destination or a matching reference definition follows;
+    /// consuming the brackets regardless would rewrite `[]byte` into `byte`,
+    /// `map[string]int` into `mapstringint` and `[T; N]` into `T; N` — a *wrong*
+    /// name rather than an unformatted one, in exactly the prose Go and Rust
+    /// servers write beside a signature. Same reasoning as the unclosed emphasis
+    /// run at the bottom of `inline(_:)`: unmatched markup is text.
+    private static func skippingLinkTarget(in characters: [Character], from index: Int) -> Int? {
+        guard index < characters.count else { return nil }
         let opener = characters[index]
         let closer: Character
         switch opener {
         case "(": closer = ")"
         case "[": closer = "]"
-        default: return index
+        default: return nil
         }
         var depth = 0
         var cursor = index
@@ -532,7 +543,7 @@ enum HoverMarkup {
             }
             cursor += 1
         }
-        return index
+        return nil
     }
 
     /// The HTML element names a hover answer is allowed to contain, lowercase.
