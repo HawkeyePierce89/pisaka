@@ -77,8 +77,41 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
         definition: 5,
         completion: 5,
         resolve: 5,
+        hover: 5,
         shutdown: 1
     )
+
+    /// A fallback that *would* answer a hover — which no real one does.
+    ///
+    /// The only way to assert "the wrapped provider is never consulted" rather
+    /// than merely observe that nothing came back: with a stock
+    /// `SymbolIntelligenceProvider` underneath, a routed `nil` and a fallen-through
+    /// `nil` are the same value, and the rule with no fallback would be the one
+    /// rule in this file no test could see.
+    private final class HoverAnsweringFallback: CodeIntelligenceProviding {
+        let wrapped: SymbolIntelligenceProvider
+        private(set) var hoverCalls = 0
+
+        init(_ wrapped: SymbolIntelligenceProvider) { self.wrapped = wrapped }
+
+        func definitions(for request: DefinitionRequest) async -> [DefinitionCandidate] {
+            await wrapped.definitions(for: request)
+        }
+
+        func completions(for request: CompletionRequest) async -> [CompletionItem] {
+            await wrapped.completions(for: request)
+        }
+
+        func hover(for request: HoverRequest) async -> HoverAnswer? {
+            hoverCalls += 1
+            // Force-unwrapped deliberately: a literal segment cannot normalize
+            // away, and a `nil` here would silently make the assertion vacuous.
+            return HoverAnswer(
+                content: HoverContent(segments: [.prose("from the index")])!,
+                range: NSRange(location: 0, length: 1)
+            )
+        }
+    }
 
     private var harness = Harness()
     private var recordedDelays: [TimeInterval] = []
@@ -123,7 +156,8 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
         index: SymbolIndex,
         registry: LSPServerRegistry = .standard,
         budgets: RoutingIntelligenceProvider.Budgets = .standard,
-        sessionBudgets: LSPSession.Budgets = RoutingIntelligenceProviderTests.patientSession
+        sessionBudgets: LSPSession.Budgets = RoutingIntelligenceProviderTests.patientSession,
+        fallback: (any CodeIntelligenceProviding)? = nil
     ) -> RoutingIntelligenceProvider {
         let harness = self.harness
         let workspace = LSPWorkspace(
@@ -147,7 +181,7 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
         )
         return RoutingIntelligenceProvider(
             lsp: lsp,
-            fallback: makeFallback(index),
+            fallback: fallback ?? makeFallback(index),
             budgets: budgets
         )
     }
@@ -226,6 +260,116 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
         let items = await router.completions(for: completionRequest())
 
         XCTAssertEqual(items.map(\.text), ["GreeterFromTheServer"])
+    }
+
+    // MARK: - Hover: the server or nothing
+
+    private func hoverRequest() -> HoverRequest {
+        HoverRequest(fileURL: mainFile, offset: greeterReference, text: mainSource)
+    }
+
+    /// The server's answer to `textDocument/hover`: a `MarkedString` naming the
+    /// language, over the `Greeter` reference on line 2.
+    private func serverHoverReply() -> JSONValue {
+        .object([
+            "contents": .array([
+                .object([
+                    "language": .string("swift"),
+                    "value": .string("public struct Greeter")
+                ])
+            ]),
+            "range": .object([
+                "start": .object(["line": .int(2), "character": .int(14)]),
+                "end": .object(["line": .int(2), "character": .int(21)])
+            ])
+        ])
+    }
+
+    func testALiveServerAnswersTheHover() async throws {
+        transport.script(LSPMethod.hover, .reply(serverHoverReply()))
+        let router = makeRouter(index: makeIndex())
+
+        let hovered = await router.hover(for: hoverRequest())
+
+        let answer = try XCTUnwrap(hovered)
+        XCTAssertEqual(answer.content.segments, [.code("public struct Greeter", language: "swift")])
+        XCTAssertEqual((mainSource as NSString).substring(with: answer.range), "Greeter")
+        XCTAssertEqual(harness.launches, 1)
+    }
+
+    /// The rule this layer states for hover and for nothing else: the wrapped
+    /// provider is **never** consulted, because tree-sitter knows names and not
+    /// types. A server with nothing to say is the end of the question.
+    func testAServerWithNothingToSayIsNotFollowedByTheIndex() async {
+        transport.script(LSPMethod.hover, .reply(.null))
+        let fallback = HoverAnsweringFallback(makeFallback(makeIndex()))
+        let router = makeRouter(index: makeIndex(), fallback: fallback)
+
+        let answer = await router.hover(for: hoverRequest())
+
+        XCTAssertNil(answer)
+        XCTAssertEqual(transport.requests(for: LSPMethod.hover).count, 1)
+        XCTAssertEqual(fallback.hoverCalls, 0, "hover has no fallback")
+    }
+
+    /// A language nothing serves costs one function call and never enters the LSP
+    /// stack — the same `canServe` gate the other requests take, before the budget
+    /// is spent.
+    func testAHoverForALanguageWithNoServerNeverEntersTheStack() async {
+        transport.script(LSPMethod.hover, .reply(serverHoverReply()))
+        let fallback = HoverAnsweringFallback(makeFallback(makeIndex()))
+        let router = makeRouter(index: makeIndex(), registry: .empty, fallback: fallback)
+
+        let answer = await router.hover(for: hoverRequest())
+
+        XCTAssertNil(answer)
+        XCTAssertEqual(harness.launches, 0)
+        XCTAssertTrue(transport.sentMethods.isEmpty)
+        XCTAssertEqual(fallback.hoverCalls, 0)
+    }
+
+    /// A server that does not answer in time shows nothing, and the abandoned
+    /// question is withdrawn rather than left running — the same race, on hover's
+    /// own budget.
+    func testAHoverTimeoutShowsNothingAndCancelsTheRequest() async {
+        transport.script(LSPMethod.hover, .drop)
+        let router = makeRouter(
+            index: makeIndex(),
+            budgets: RoutingIntelligenceProvider.Budgets(hover: 0.05)
+        )
+
+        let answer = await router.hover(for: hoverRequest())
+
+        XCTAssertNil(answer)
+        XCTAssertEqual(transport.requests(for: LSPMethod.hover).count, 1)
+        await untilTrue("the abandoned hover is cancelled") {
+            self.transport.notifications(for: LSPMethod.cancelRequest).count == 1
+        }
+    }
+
+    /// The acceptance criterion: D7's restart budget is spent by *hover* requests
+    /// like any other, and once a `(server, root)` has been given up on, hovering
+    /// asks nothing at all — no launch, no process, no cost per pointer stop.
+    func testFourFailedLaunchesDrivenByHoverRetireTheKey() async {
+        harness.launchError = .launchFailed("sourcekit-lsp not found")
+        let router = makeRouter(index: makeIndex())
+
+        for _ in 1...4 {
+            let answer = await router.hover(for: hoverRequest())
+            XCTAssertNil(answer)
+        }
+        XCTAssertEqual(harness.launches, 4)
+        XCTAssertEqual(recordedDelays, LSPWorkspace.backoffDelays)
+
+        let afterwards = await router.hover(for: hoverRequest())
+        XCTAssertNil(afterwards)
+        XCTAssertEqual(harness.launches, 4, "a server given up on is never launched again")
+        // And the retirement is the key's, not hover's: the other requests are
+        // answered by the index from here on, exactly as they are when the four
+        // failures came from ⌘-clicks.
+        let candidates = await router.definitions(for: definitionRequest())
+        XCTAssertEqual(candidates.map(\.relativePath), ["Sources/Legacy/Greeter.swift"])
+        XCTAssertEqual(harness.launches, 4)
     }
 
     // MARK: - Waiting

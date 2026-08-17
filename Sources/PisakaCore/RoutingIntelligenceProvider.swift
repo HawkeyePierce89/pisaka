@@ -58,7 +58,12 @@ public protocol LSPIntelligenceSource: CodeIntelligenceProviding, Sendable {
 /// answer it. So an empty LSP result falls through to the index, and only an empty
 /// result from *both* is empty — the case the editor beeps at, once.
 ///
-/// Not `@MainActor`: like both providers it composes, the two request methods are
+/// **Hover is the one question with no fallback** (D25), stated here because
+/// everything above describes the other three. The index cannot answer "what is
+/// this", so there is nothing to fall through *to*: no server means no popover,
+/// and the full reasoning is on `hover(for:)`.
+///
+/// Not `@MainActor`: like both providers it composes, the request methods are
 /// `nonisolated async`, so the deadline race, the ranking and the index read all
 /// stay off the main thread.
 public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
@@ -88,15 +93,22 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
         /// same reason as the rest even though nobody is watching it: an
         /// unbounded prefetch is a task that outlives the popup it belongs to.
         public var resolve: TimeInterval
+        /// `textDocument/hover` (D25). Completion's budget rather than a
+        /// definition's three seconds: nobody asked for this deliberately — the
+        /// pointer merely stopped — and an answer that arrives after it has moved
+        /// on is not late, it is unwanted.
+        public var hover: TimeInterval
 
         public init(
             definition: TimeInterval = 3,
             completion: TimeInterval = 1.5,
-            resolve: TimeInterval = 1.5
+            resolve: TimeInterval = 1.5,
+            hover: TimeInterval = 1.5
         ) {
             self.definition = definition
             self.completion = completion
             self.resolve = resolve
+            self.hover = hover
         }
 
         /// D7's numbers.
@@ -177,6 +189,28 @@ public final class RoutingIntelligenceProvider: CodeIntelligenceProviding {
             return edits
         }
         return await fallback.resolveEdits(for: item)
+    }
+
+    /// The server's answer, or nothing at all.
+    ///
+    /// **The one method here that does not fall through** (D25), and the omission
+    /// is the decision: hover asks what something *is*, and tree-sitter knows
+    /// names and locations, not types. There is no worse answer this layer could
+    /// give than a plausible one, because a popover that says `count` is "a
+    /// property declared on line 40" when the pointer is over a completely
+    /// different `count` is indistinguishable from a correct one. So `canServe`
+    /// first — a language with no server costs a function call, as everywhere else
+    /// — then the same whole-attempt budget the other two race against, and `nil`
+    /// for every other outcome: no server, no capability, a timeout, an empty
+    /// answer. Silently, like every fallback in this file.
+    public func hover(for request: HoverRequest) async -> HoverAnswer? {
+        guard let language = request.fileURL
+            .flatMap({ SyntaxLanguage(forFileName: $0.lastPathComponent) }),
+              await lsp.canServe(language)
+        else { return nil }
+        // Two optionals meaning the same thing — the budget ran out, the server
+        // had nothing — flattened to the one the caller reads as "show nothing".
+        return await withBudget(budgets.hover, { [lsp] in await lsp.hover(for: request) }) ?? nil
     }
 
     // MARK: - The deadline

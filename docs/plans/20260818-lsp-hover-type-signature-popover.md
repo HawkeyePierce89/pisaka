@@ -166,14 +166,14 @@ capability, an empty answer or a failure all mean "no popover", silently.
 - Modify: `Tests/PisakaCoreTests/LSPIntelligenceProviderTests.swift`,
   `Tests/PisakaCoreTests/RoutingIntelligenceProviderTests.swift`
 
-- [ ] Add the third question to `CodeIntelligenceProviding`: a hover request
+- [x] Add the third question to `CodeIntelligenceProviding`: a hover request
       (file URL, UTF-16 offset, the live buffer) answering optional hover
       content plus the buffer range the answer covers. Default it to `nil` in
       the protocol extension, exactly as `resolveEdits` is defaulted — so the
       tree-sitter provider and both iOS surfaces are untouched and no existing
       call site changes. Document that the range is what a caller uses to
       decide the pointer is still over the same thing.
-- [ ] Implement it on `LSPIntelligenceProvider` by mirroring
+- [x] Implement it on `LSPIntelligenceProvider` by mirroring
       `definitions(for:)` step for step: D2's empty-buffer guard, language from
       the file name, `workspace.prepare` (so the live buffer reaches the server
       before the question), position via `LSPPositionMap`, the
@@ -182,13 +182,13 @@ capability, an empty answer or a failure all mean "no popover", silently.
       session's capabilities do not advertise hover. Every uncertainty —
       including a server answering content that normalizes to nothing — is
       `nil`.
-- [ ] Route it in `RoutingIntelligenceProvider`: `canServe` first (so a
+- [x] Route it in `RoutingIntelligenceProvider`: `canServe` first (so a
       language with no server costs a function call), then the same
       whole-attempt `withBudget` race the other two use, with a hover budget
       beside them. **No fallback**: the wrapped provider is never consulted,
       because tree-sitter knows no types — and say so in the doc comment, since
       every other method here does fall through.
-- [ ] Write tests: a scripted server answering each payload shape produces the
+- [x] Write tests: a scripted server answering each payload shape produces the
       expected content and range; a server that does not advertise hover is
       never sent the request; a superseded/stale document (`stillHolds` false)
       answers `nil` and presents nothing; an empty or whitespace-only answer is
@@ -196,7 +196,7 @@ capability, an empty answer or a failure all mean "no popover", silently.
       answers `nil` silently; and — the acceptance criterion — four failed
       launches for one `(server, root)` driven entirely by hover requests
       retire that key, after which hover asks nothing more.
-- [ ] Run `swift test` — must pass before Task 4.
+- [x] Run `swift test` — must pass before Task 4.
 
 ### Task 4: The pointer, the dwell, and the panel (macOS)
 
