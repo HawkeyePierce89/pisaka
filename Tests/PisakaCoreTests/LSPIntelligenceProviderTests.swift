@@ -530,6 +530,33 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual((mainSource as NSString).substring(with: answer.range), "Greeter")
     }
 
+    /// A range that does not cover the offset the question was about is not the
+    /// answer's range. It is the shape a server gets wrong in the direction that
+    /// costs most: the range is both where the popover is drawn and the editor's
+    /// re-ask suppressor, so a degenerate `{0, 0}` would anchor the popover at the
+    /// top of the file *and* make every mouse-moved event over the identifier ask
+    /// again. Falls back to the identifier, exactly as no range at all does.
+    func testAHoverRangeThatDoesNotCoverTheOffsetFallsBackToTheIdentifier() async throws {
+        transport.script(LSPMethod.hover, .reply(.object([
+            "contents": .object([
+                "kind": .string("plaintext"),
+                "value": .string("struct Greeter")
+            ]),
+            // Line 0, characters 0…0: nowhere near the hovered offset.
+            "range": .object([
+                "start": .object(["line": .int(0), "character": .int(0)]),
+                "end": .object(["line": .int(0), "character": .int(0)])
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let hovered = await provider.hover(for: hoverRequest(at: greeterReference))
+
+        let answer = try XCTUnwrap(hovered)
+        XCTAssertEqual(answer.range, NSRange(location: greeterReference, length: 7))
+        XCTAssertEqual((mainSource as NSString).substring(with: answer.range), "Greeter")
+    }
+
     /// A server that does not advertise `hoverProvider` is never asked. Every
     /// other request in this layer would waste one round trip; this one fires
     /// whenever the pointer stops, so an unanswerable question is asked forever.

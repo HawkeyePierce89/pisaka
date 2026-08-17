@@ -864,7 +864,16 @@ document, together with the limits they carry.
     whitespace are dropped, and content left with none is `nil` rather than a
     `HoverContent` with no segments. **There is no empty popover** (D25), so
     "show it if there is one" is the only rule a caller needs and an empty one
-    cannot be drawn by accident.
+    cannot be drawn by accident. The same initializer strips each kept segment's
+    blank first and last *lines*, which makes `HoverSegment.text`'s stated shape
+    true of every segment rather than only of the ones `HoverMarkup` built (whose
+    `codeBlock`/`proseBlock` already did it, so this is a no-op on the LSP path).
+    That is what `truncated` stands on: it keeps a *prefix* of a segment's lines,
+    so a segment whose first line were blank could be cut down to whitespace —
+    a popover drawing an ellipsis and no answer, which is the forbidden state
+    arriving by the back door. Stripped line-wise, never off the joined string,
+    for `proseBlock`'s reason: trimming the join takes the first line's
+    indentation with it and leaves every following line's in place.
     It owns the feature's **two constants**, here rather than in the view for the
     reason every other rule is here: `dwellDelay` (0.35 s — the difference between
     "hovering tells you the type" and "moving the mouse across a file fires a
@@ -875,7 +884,10 @@ document, together with the limits they carry.
     code), clips every kept line to the length limit on a `Character` boundary (so
     no cut can halve a grapheme), and reports that it cut. Either limit below one
     is read as one — a caller asking for a popover is not asking for a smaller
-    answer but for a different and forbidden one. **Long content truncates; it
+    answer but for a different and forbidden one. For the same reason the cap
+    yields before the invariant does: a length limit small enough to leave nothing
+    but a first line's indentation returns the content *whole*, because an answer
+    too big for the cap is still an answer and an empty one is not. **Long content truncates; it
     never scrolls** (D26), and the arithmetic lives here because the renderer's
     only remaining job is to draw a marker when `isTruncated` says so.
     **The cap has two dimensions and both are load-bearing.** A line count bounds
@@ -1117,6 +1129,16 @@ document, together with the limits they carry.
     resort an empty range at the offset. That last case reads as "already left", so
     the popover is re-asked rather than kept — the harmless direction to be wrong
     in.
+    **A server's range is taken only when it covers the offset that was asked
+    about** — the same untrusted-numbers stance `LSPPositionMap` takes on the way
+    in, and not a formality: this one range is *both* where the popover is drawn
+    and the editor's re-ask suppressor, so a range that does not contain the
+    hovered offset (a degenerate `{0, 0}` being the realistic shape) would anchor
+    the popover at the top of the file *and* fail the "still about the word under
+    the pointer" test on every subsequent mouse-moved event — pointer jitter over
+    one identifier becoming a dismiss-and-re-ask loop, on the one request path that
+    runs whenever the pointer stops moving. An empty server range fails the same
+    test and falls back to the identifier, which is strictly the better anchor.
     `resolveEdits(for:)` is the seam's defaulted extension point, implemented here
     and a no-op everywhere else. A handle names an item from the list the popup is
     *actually showing*: handles are monotonic and never reused, and the table is

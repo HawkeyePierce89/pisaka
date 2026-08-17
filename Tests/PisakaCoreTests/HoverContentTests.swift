@@ -553,6 +553,53 @@ final class HoverContentTests: XCTestCase {
         XCTAssertTrue(capped.isTruncated)
     }
 
+    // MARK: - The no-empty-popover invariant, on the initializer's own terms
+
+    /// `HoverMarkup` never hands over a segment with a blank first line, but the
+    /// public initializer is reachable without it — and `truncated` keeps a
+    /// *prefix* of a segment's lines, so a blank first line is the one shape that
+    /// can be cut down to nothing at all.
+    func testTheCheckingInitializerStripsBlankEdgeLinesFromASegment() {
+        let content = try! XCTUnwrap(HoverContent(segments: [.prose("\n \n  indented\n\n")]))
+        XCTAssertEqual(content.segments, [.prose("  indented")])
+    }
+
+    func testTruncatingContentWithBlankLeadingLinesStillDrawsSomething() {
+        let content = try! XCTUnwrap(HoverContent(segments: [.prose("\n\nfoo\nbar")]))
+        let capped = content.truncated(toLineCount: 1)
+        XCTAssertEqual(capped.segments, [.prose("foo")])
+        XCTAssertTrue(capped.isTruncated)
+    }
+
+    /// A length cap small enough to leave a first line's indentation and nothing
+    /// else. The cap loses rather than the invariant: an answer too big for the
+    /// cap is still an answer, an empty popover is not.
+    func testALengthCapThatWouldLeaveOnlyWhitespaceKeepsTheAnswerWhole() {
+        let content = try! XCTUnwrap(HoverContent(segments: [.code("    func f()")]))
+        let capped = content.truncated(toLineCount: 10, lineLength: 2)
+        XCTAssertEqual(capped, content)
+        XCTAssertFalse(capped.isTruncated)
+    }
+
+    /// Whatever the caps, every segment that survives carries something drawable.
+    func testNoCapEverProducesABlankSegment() {
+        let content = try! XCTUnwrap(
+            HoverContent(segments: [.code("  a\n\n  b"), .prose("c\n\nd")])
+        )
+        for limit in 1...6 {
+            for length in 1...4 {
+                let capped = content.truncated(toLineCount: limit, lineLength: length)
+                XCTAssertFalse(capped.segments.isEmpty)
+                for segment in capped.segments {
+                    XCTAssertFalse(
+                        segment.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                        "blank segment at limit \(limit), length \(length)"
+                    )
+                }
+            }
+        }
+    }
+
     // MARK: - The constants
 
     func testTheFeaturesTwoConstantsLiveHere() {

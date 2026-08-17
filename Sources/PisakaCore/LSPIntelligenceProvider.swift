@@ -303,13 +303,27 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     /// to the word the user is pointing at. An empty range at the offset is the
     /// last resort — a pointer is never "inside" it, so the popover is re-asked
     /// rather than kept, which is the harmless direction to be wrong in.
+    ///
+    /// **The server's range is accepted only when it covers the offset the
+    /// question was about**, which is the same untrusted-numbers stance
+    /// `LSPPositionMap` takes on the way in. It is not a formality: this range is
+    /// both where the popover is drawn *and* the editor's re-ask suppressor
+    /// (`HoverController.anchorRange`). A range that does not contain the hovered
+    /// offset — a degenerate `{0, 0}` being the realistic shape — would anchor the
+    /// popover at the top of the file *and* fail the "still about the word under
+    /// the pointer" test on every subsequent mouse-moved event, turning pointer
+    /// jitter over one identifier into a dismiss-and-re-ask loop on the one
+    /// request path that runs whenever the pointer stops moving. An empty range
+    /// fails this test too, and falls back to the identifier, which is strictly
+    /// the better anchor.
     private func anchorRange(
         for response: LSPHoverResponse,
         in source: NSString,
         at offset: Int
     ) -> NSRange {
         if let range = response.range {
-            return LSPPositionMap.range(for: range, in: source)
+            let mapped = LSPPositionMap.range(for: range, in: source)
+            if NSLocationInRange(offset, mapped) { return mapped }
         }
         if let identifier = IdentifierScanner.identifier(in: source, at: offset) {
             return identifier.range

@@ -109,13 +109,39 @@ public struct HoverContent: Equatable, Hashable, Sendable {
 
     /// The failable, checking initializer: segments that carry nothing are
     /// dropped, and content left with no segments at all is no content.
+    ///
+    /// A kept segment additionally loses its blank first and last *lines*, so
+    /// `HoverSegment.text`'s stated shape ("no blank first or last line") holds
+    /// for every segment that exists rather than only for the ones `HoverMarkup`
+    /// built — `codeBlock`/`proseBlock` already strip them, so this is a no-op on
+    /// the LSP path and the rule for every other caller. **`truncated` depends on
+    /// it**: it keeps a prefix of a segment's lines, so a segment whose first line
+    /// were blank could be cut down to nothing but whitespace — a popover drawing
+    /// an ellipsis and no answer, the one state D25 says cannot exist. Stripped
+    /// line-wise, never off the joined string, for `proseBlock`'s reason: trimming
+    /// the join takes the first line's indentation with it and leaves the rest.
     public init?(segments: [HoverSegment], isTruncated: Bool = false) {
-        let kept = segments.filter {
-            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let kept = segments.compactMap { segment -> HoverSegment? in
+            let text = HoverContent.strippingBlankEdgeLines(segment.text)
+            guard !text.isEmpty else { return nil }
+            return HoverSegment(kind: segment.kind, text: text)
         }
         guard !kept.isEmpty else { return nil }
         self.segments = kept
         self.isTruncated = isTruncated
+    }
+
+    /// `text` without the leading and trailing lines that carry nothing but
+    /// whitespace. Interior blank lines and every line's own indentation stay:
+    /// they are the content.
+    private static func strippingBlankEdgeLines(_ text: String) -> String {
+        var lines = HoverMarkup.lines(of: text)
+        let isBlank: (String) -> Bool = {
+            $0.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        while let first = lines.first, isBlank(first) { lines.removeFirst() }
+        while let last = lines.last, isBlank(last) { lines.removeLast() }
+        return lines.joined(separator: "\n")
     }
 
     /// The unchecked one, for the paths that have already established the
@@ -179,7 +205,18 @@ public struct HoverContent: Equatable, Hashable, Sendable {
             )
         }
         guard didCut else { return self }
-        return HoverContent(checkedSegments: kept, isTruncated: true)
+        // Every kept segment starts on a non-blank line (the checking initializer
+        // establishes that), so cutting *lines* can never empty one. Cutting a
+        // line's *tail* can, at a length cap small enough to leave only a first
+        // line's indentation — degenerate, but this returns content that is drawn,
+        // and "there is no empty popover" is the one rule it may not break. So the
+        // blanks go, and content the cap would erase entirely stays whole: an
+        // answer too big for the cap is still an answer, an empty one is not.
+        let survivors = kept.filter {
+            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        guard !survivors.isEmpty else { return self }
+        return HoverContent(checkedSegments: survivors, isTruncated: true)
     }
 }
 
