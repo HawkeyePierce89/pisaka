@@ -89,7 +89,7 @@ capability, an empty answer or a failure all mean "no popover", silently.
 - Modify: `Tests/PisakaCoreTests/LSPProtocolTypesTests.swift`,
   `Tests/PisakaCoreTests/LSPSessionTests.swift`
 
-- [ ] Teach the protocol layer the request and every legal answer: add
+- [x] Teach the protocol layer the request and every legal answer: add
       `LSPMethod.hover`; decode `Hover` in all its spellings — `null`, a bare
       `MarkedString` (plain string **or** `{language, value}`), an array mixing
       both, and a `MarkupContent` (`{kind: "markdown"|"plaintext", value}`) —
@@ -99,24 +99,24 @@ capability, an empty answer or a failure all mean "no popover", silently.
       decoded result must preserve element order and each element's declared
       language, because that is what the renderer distinguishes code from prose
       by.
-- [ ] Advertise the capability the way the closed capability tree is written:
+- [x] Advertise the capability the way the closed capability tree is written:
       `textDocument.hover` with `dynamicRegistration: false` and
       `contentFormat: ["markdown", "plaintext"]`. Read the server's side into
       `LSPServerCapabilities.supportsHover`, using the same `boolean | Options`
       collapse the two existing providers use.
-- [ ] Give `LSPSession` a `hover(_:)` exchange with its own entry in `Budgets`
+- [x] Give `LSPSession` a `hover(_:)` exchange with its own entry in `Budgets`
       (1.5 s — hover is interactive and nobody is waiting deliberately, so it
       is completion's budget, not definition's), decoding through the existing
       `decode(_:as:method:)` so a missing `result` and an explicit `null`
       remain the same answer.
-- [ ] Write tests: every payload shape above decodes to what the renderer
+- [x] Write tests: every payload shape above decodes to what the renderer
       expects, including `null`, an empty array and an empty string; the
       encoded client capability tree contains the new hover node (update the
       existing capability-tree assertion rather than weakening it); a scripted
       transport proves `hover` is sent with the right params, times out on its
       own budget without disturbing other pending requests, and
       `$/cancelRequest`s when the caller's task is cancelled.
-- [ ] Run `swift test` — must pass before Task 2.
+- [x] Run `swift test` — must pass before Task 2.
 
 ### Task 2: Normalize hover markup into renderable segments
 

@@ -21,6 +21,7 @@ final class LSPSessionTests: XCTestCase {
         definition: 2,
         completion: 2,
         resolve: 2,
+        hover: 2,
         shutdown: 1
     )
 
@@ -45,6 +46,17 @@ final class LSPSessionTests: XCTestCase {
                 "start": .object(["line": .int(4), "character": .int(15)]),
                 "end": .object(["line": .int(4), "character": .int(22)])
             ])
+        ])
+    ])
+
+    private let hoverResult: JSONValue = .object([
+        "contents": .object([
+            "kind": .string("markdown"),
+            "value": .string("```swift\nfunc greet()\n```")
+        ]),
+        "range": .object([
+            "start": .object(["line": .int(3), "character": .int(12)]),
+            "end": .object(["line": .int(3), "character": .int(17)])
         ])
     ])
 
@@ -103,6 +115,7 @@ final class LSPSessionTests: XCTestCase {
         XCTAssertEqual(transport.sentMethods, [LSPMethod.initialize, LSPMethod.initialized])
         let capabilities = await session.capabilities
         XCTAssertEqual(capabilities?.supportsDefinition, true)
+        XCTAssertEqual(capabilities?.supportsHover, true)
         XCTAssertEqual(capabilities?.supportsCompletion, true)
         XCTAssertEqual(capabilities?.resolvesCompletionItems, true)
         XCTAssertEqual(capabilities?.completionTriggerCharacters, [".", "("])
@@ -130,6 +143,17 @@ final class LSPSessionTests: XCTestCase {
         XCTAssertEqual(
             capabilities["textDocument"]?["definition"]?["linkSupport"]?.boolValue,
             true
+        )
+        // D25: both formats are asked for — markdown because it is the only way a
+        // server marks a signature as code, plaintext so a server without a
+        // markdown renderer answers anyway.
+        XCTAssertEqual(
+            capabilities["textDocument"]?["hover"]?["contentFormat"],
+            .array([.string("markdown"), .string("plaintext")])
+        )
+        XCTAssertEqual(
+            capabilities["textDocument"]?["hover"]?["dynamicRegistration"]?.boolValue,
+            false
         )
         let item = capabilities["textDocument"]?["completion"]?["completionItem"]
         XCTAssertEqual(item?["snippetSupport"]?.boolValue, false)
@@ -209,6 +233,101 @@ final class LSPSessionTests: XCTestCase {
 
         let response = try await session.definition(definitionParams)
         XCTAssertTrue(response.isEmpty)
+    }
+
+    func testHoverSendsThePositionItWasAskedAboutAndDecodesTheAnswer() async throws {
+        let transport = makeTransport()
+        transport.script(LSPMethod.hover, .reply(hoverResult))
+        let session = try await start(transport)
+
+        let response = try await session.hover(definitionParams)
+        XCTAssertEqual(
+            response.elements,
+            [.markup(kind: .markdown, value: "```swift\nfunc greet()\n```")]
+        )
+        XCTAssertEqual(
+            response.range,
+            LSPRange(
+                start: LSPPosition(line: 3, character: 12),
+                end: LSPPosition(line: 3, character: 17)
+            )
+        )
+
+        // The question, spelled as `textDocument/hover` with nothing but the
+        // document and the position — a mis-spelled method is answered by
+        // silence, never by a build failure.
+        let request = try XCTUnwrap(transport.requests(for: LSPMethod.hover).first)
+        XCTAssertEqual(request.params?["textDocument"]?["uri"]?.stringValue, documentURI)
+        XCTAssertEqual(request.params?["position"]?["line"]?.intValue, 3)
+        XCTAssertEqual(request.params?["position"]?["character"]?.intValue, 12)
+        XCTAssertEqual(request.params?.objectValue?.keys.sorted(), ["position", "textDocument"])
+
+        let pending = await session.pendingRequestCount
+        XCTAssertEqual(pending, 0)
+    }
+
+    func testANullHoverResultIsAnEmptyAnswerRatherThanAFailure() async throws {
+        let transport = makeTransport()
+        transport.script(LSPMethod.hover, .reply(.null))
+        let session = try await start(transport)
+
+        let response = try await session.hover(definitionParams)
+        XCTAssertTrue(response.isEmpty)
+        XCTAssertNil(response.range)
+    }
+
+    func testHoverTimesOutOnItsOwnBudgetWithoutDisturbingOtherRequests() async throws {
+        let transport = makeTransport()
+        transport.script(LSPMethod.hover, .drop)
+        transport.script(LSPMethod.definition, .reply(definitionResult))
+        let session = try await start(
+            transport,
+            budgets: LSPSession.Budgets(handshake: 2, definition: 2, hover: 0.05)
+        )
+
+        do {
+            _ = try await session.hover(definitionParams)
+            XCTFail("A dropped hover must not hang forever")
+        } catch {
+            XCTAssertEqual(error as? LSPSessionError, .timedOut(method: LSPMethod.hover))
+        }
+
+        // Hover's budget is its own: a pointer resting on a wedged symbol must
+        // cost one question, not the ⌘-click behind it.
+        let cancels = transport.notifications(for: LSPMethod.cancelRequest)
+        XCTAssertEqual(cancels.count, 1)
+        XCTAssertEqual(cancels.first?.params?["id"]?.intValue, 2)
+
+        let definitions = try await session.definition(definitionParams)
+        XCTAssertEqual(definitions.targets.count, 1)
+        let pending = await session.pendingRequestCount
+        XCTAssertEqual(pending, 0)
+    }
+
+    /// The pointer moved on. The dwell task is cancelled, and the server is told
+    /// to stop working on an answer nobody will ever see.
+    func testACancelledHoverEmitsCancelRequestAndLeavesNoPendingEntry() async throws {
+        let transport = makeTransport()
+        transport.script(LSPMethod.hover, .drop)
+        let session = try await start(transport)
+
+        let params = definitionParams
+        let task = Task { try await session.hover(params) }
+        await waitFor("the hover to be in flight") { await session.pendingRequestCount == 1 }
+
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("A cancelled hover must not produce an answer")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "Expected CancellationError, got \(error)")
+        }
+
+        let cancels = transport.notifications(for: LSPMethod.cancelRequest)
+        XCTAssertEqual(cancels.count, 1)
+        XCTAssertEqual(cancels.first?.params?["id"]?.intValue, 2)
+        let pending = await session.pendingRequestCount
+        XCTAssertEqual(pending, 0)
     }
 
     func testRequestIDsCountUpFromTheHandshake() async throws {

@@ -47,6 +47,7 @@ public enum LSPMethod {
     public static let didClose = "textDocument/didClose"
 
     public static let definition = "textDocument/definition"
+    public static let hover = "textDocument/hover"
     public static let completion = "textDocument/completion"
     public static let resolveCompletionItem = "completionItem/resolve"
 
@@ -311,6 +312,131 @@ public struct LSPDefinitionResponse: Equatable, Hashable, Sendable, Decodable {
     }
 
     public var isEmpty: Bool { targets.isEmpty }
+}
+
+// MARK: - Hover
+
+/// How a server says a string should be read.
+///
+/// The spec names two kinds and may one day name a third, so an unrecognised
+/// spelling degrades to `plaintext` rather than failing the decode: reading
+/// markup as plain text costs a stray `*` on screen, while refusing the answer
+/// costs the whole popover.
+public enum LSPMarkupKind: String, Equatable, Hashable, Sendable {
+    case markdown
+    case plaintext
+
+    /// The lenient reading — the only one this client uses.
+    public init(spelling: String?) {
+        self = LSPMarkupKind(rawValue: spelling ?? "") ?? .plaintext
+    }
+}
+
+/// One piece of a `textDocument/hover` answer, in the order the server wrote it.
+///
+/// The two cases are the two things a renderer treats differently, and the whole
+/// reason this is not just a string: a `MarkedString` object *is* a code block in
+/// a named language, and flattening it into prose is how a type signature ends up
+/// in the interface font with its `<` and `>` read as markup.
+public enum LSPHoverElement: Equatable, Hashable, Sendable {
+    /// A `MarkupContent` — or a bare `MarkedString` string, which the spec says
+    /// is markdown.
+    case markup(kind: LSPMarkupKind, value: String)
+    /// A `MarkedString` object: a code block whole, in the language the server
+    /// named. `language` is `nil` when the server named an empty one.
+    case code(language: String?, value: String)
+
+    /// The text the element carries, whatever kind it is.
+    public var value: String {
+        switch self {
+        case .markup(_, let value), .code(_, let value): return value
+        }
+    }
+}
+
+extension LSPHoverElement: Decodable {
+    private enum CodingKeys: String, CodingKey { case kind, language, value }
+
+    /// Every spelling of `MarkedString | MarkupContent`, tried by structure.
+    ///
+    /// `kind` wins over `language` when a server sends both (a `MarkupContent`
+    /// with a stray member is still a `MarkupContent`), and an object carrying
+    /// neither is read as plain text rather than dropped — it did send a `value`,
+    /// and showing it unstyled beats showing nothing.
+    public init(from decoder: Swift.Decoder) throws {
+        if let single = try? decoder.singleValueContainer(),
+           let text = try? single.decode(String.self) {
+            self = .markup(kind: .markdown, value: text)
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let value = try container.decode(String.self, forKey: .value)
+        if container.contains(.kind) {
+            self = .markup(
+                kind: LSPMarkupKind(spelling: try? container.decode(String.self, forKey: .kind)),
+                value: value
+            )
+        } else if container.contains(.language) {
+            let language = ((try? container.decode(String.self, forKey: .language)) ?? "")
+                .trimmingCharacters(in: .whitespaces)
+            self = .code(language: language.isEmpty ? nil : language, value: value)
+        } else {
+            self = .markup(kind: .plaintext, value: value)
+        }
+    }
+}
+
+/// The whole `textDocument/hover` result: `null`, or a `Hover` whose `contents`
+/// is a `MarkedString`, a `MarkedString[]` (mixing both spellings) or a
+/// `MarkupContent`, plus the optional `range` the answer covers.
+///
+/// Decode-only, and lenient in the file's stated sense: a malformed *element* of
+/// an array is dropped rather than taking the other elements down with it, and a
+/// `range` that does not parse is simply absent (the caller then falls back to
+/// the identifier range it asked about). A top level that is neither `null` nor
+/// an object still throws — "nothing to show" and "I could not read the answer"
+/// must stay different facts, as they are for `textDocument/definition`.
+///
+/// Element order and each element's declared language are preserved verbatim:
+/// they are the whole input to `HoverContent`'s normalization, which is what
+/// decides code from prose.
+public struct LSPHoverResponse: Equatable, Hashable, Sendable, Decodable {
+    public var elements: [LSPHoverElement]
+    /// The span in the *asking* document the answer describes. Absent for a
+    /// server that does not bother — most do not.
+    public var range: LSPRange?
+
+    public init(elements: [LSPHoverElement], range: LSPRange? = nil) {
+        self.elements = elements
+        self.range = range
+    }
+
+    private enum CodingKeys: String, CodingKey { case contents, range }
+
+    public init(from decoder: Swift.Decoder) throws {
+        if let single = try? decoder.singleValueContainer(), single.decodeNil() {
+            elements = []
+            range = nil
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        range = try? container.decodeIfPresent(LSPRange.self, forKey: .range)
+        let contents = try? container.decodeIfPresent(JSONValue.self, forKey: .contents)
+        elements = LSPHoverResponse.elements(of: contents)
+    }
+
+    private static func elements(of contents: JSONValue?) -> [LSPHoverElement] {
+        guard let contents, !contents.isNull else { return [] }
+        if let array = contents.arrayValue {
+            return array.compactMap { try? $0.decoded(as: LSPHoverElement.self) }
+        }
+        guard let element = try? contents.decoded(as: LSPHoverElement.self) else { return [] }
+        return [element]
+    }
+
+    /// No elements at all. Whether the elements that *are* here amount to
+    /// anything worth showing is `HoverContent`'s question, not this one's.
+    public var isEmpty: Bool { elements.isEmpty }
 }
 
 // MARK: - Completion
@@ -600,6 +726,11 @@ public struct LSPClientInfo: Equatable, Hashable, Sendable, Codable {
 ///   offset in this codebase is UTF-16);
 /// * definition with `linkSupport`, so a server that *can* name the identifier
 ///   range does (`LSPDefinitionTarget.jumpRange`);
+/// * hover accepting **both** content formats: markdown is asked for because it
+///   is the only way a server marks a type signature as *code* rather than prose,
+///   and `HoverContent` degrades the rest of the markup rather than rendering it;
+///   plaintext is listed beside it so a server with no markdown renderer still
+///   answers instead of declining;
 /// * completion with `contextSupport` (the `.` trigger) and `resolveSupport` for
 ///   `additionalTextEdits` and `detail` — D4's auto-import arrives that way;
 /// * **no** `snippetSupport` (D5), so `newText` is always literal text.
@@ -623,6 +754,10 @@ public struct LSPClientCapabilities: Equatable, Hashable, Sendable, Encodable {
         var definition = textDocument.nestedContainer(keyedBy: StringKey.self, forKey: "definition")
         try definition.encode(false, forKey: "dynamicRegistration")
         try definition.encode(true, forKey: "linkSupport")
+
+        var hover = textDocument.nestedContainer(keyedBy: StringKey.self, forKey: "hover")
+        try hover.encode(false, forKey: "dynamicRegistration")
+        try hover.encode(["markdown", "plaintext"], forKey: "contentFormat")
 
         var completion = textDocument.nestedContainer(keyedBy: StringKey.self, forKey: "completion")
         try completion.encode(false, forKey: "dynamicRegistration")
@@ -753,6 +888,9 @@ public struct LSPServerCapabilities: Equatable, Hashable, Sendable, Decodable {
     /// which is what was asked for.
     public var positionEncoding: String?
     public var supportsDefinition: Bool
+    /// Whether `textDocument/hover` is worth asking at all — a server that does
+    /// not advertise it is never sent the request (D25).
+    public var supportsHover: Bool
     public var supportsCompletion: Bool
     /// Whether `completionItem/resolve` is worth sending at all (D4's prefetch).
     public var resolvesCompletionItems: Bool
@@ -761,30 +899,35 @@ public struct LSPServerCapabilities: Equatable, Hashable, Sendable, Decodable {
     public init(
         positionEncoding: String? = nil,
         supportsDefinition: Bool = false,
+        supportsHover: Bool = false,
         supportsCompletion: Bool = false,
         resolvesCompletionItems: Bool = false,
         completionTriggerCharacters: [String] = []
     ) {
         self.positionEncoding = positionEncoding
         self.supportsDefinition = supportsDefinition
+        self.supportsHover = supportsHover
         self.supportsCompletion = supportsCompletion
         self.resolvesCompletionItems = resolvesCompletionItems
         self.completionTriggerCharacters = completionTriggerCharacters
     }
 
     private enum CodingKeys: String, CodingKey {
-        case positionEncoding, definitionProvider, completionProvider
+        case positionEncoding, definitionProvider, hoverProvider, completionProvider
     }
 
     public init(from decoder: Swift.Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         positionEncoding = try container.decodeIfPresent(String.self, forKey: .positionEncoding)
 
-        // Both providers are `boolean | Options` on the wire. Presence of an
+        // Every provider here is `boolean | Options` on the wire. Presence of an
         // options object *is* support — a server that sends `{}` supports the
         // feature — so the two spellings collapse to one question.
         let definition = try container.decodeIfPresent(JSONValue.self, forKey: .definitionProvider)
         supportsDefinition = LSPServerCapabilities.isEnabled(definition)
+
+        let hover = try container.decodeIfPresent(JSONValue.self, forKey: .hoverProvider)
+        supportsHover = LSPServerCapabilities.isEnabled(hover)
 
         let completion = try container.decodeIfPresent(JSONValue.self, forKey: .completionProvider)
         supportsCompletion = LSPServerCapabilities.isEnabled(completion)
