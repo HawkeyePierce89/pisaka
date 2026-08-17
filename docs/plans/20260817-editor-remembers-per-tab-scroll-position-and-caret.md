@@ -143,12 +143,12 @@ AppKit reads/writes stay thin in `CodeEditorView.Coordinator`.
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] Run the full suite: `swift test` — all green.
-- [ ] Build macOS Release the way CI does:
+- [x] Run the full suite: `swift test` — all green.
+- [x] Build macOS Release the way CI does:
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release build`.
-- [ ] Build iOS to confirm nothing macOS-only leaked into shared code:
+- [x] Build iOS to confirm nothing macOS-only leaked into shared code:
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build`.
-- [ ] Re-read the changed `updateNSView` block and confirm the documented order still holds:
+- [x] Re-read the changed `updateNSView` block and confirm the documented order still holds:
       capture → prune → buffer swap → per-file reconciliation → restore → reveal.
 
 ### Task 5: Update documentation
