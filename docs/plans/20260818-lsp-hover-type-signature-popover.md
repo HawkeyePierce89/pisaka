@@ -248,18 +248,23 @@ capability, an empty answer or a failure all mean "no popover", silently.
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] `swift test` — the full suite, green.
-- [ ] `xcodegen generate` if `project.yml` changed (it should not), then
+- [x] `swift test` — the full suite, green. (3017 tests, 0 failures.)
+- [x] `xcodegen generate` if `project.yml` changed (it should not), then
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
-      'platform=macOS' build`.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+      'platform=macOS' build`. (`project.yml` unchanged on this branch — its
+      last commit is the 1.1 version bump — and the committed project already
+      references both new hover files, so no regeneration was needed;
+      `** BUILD SUCCEEDED **`.)
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'generic/platform=iOS' build` — the same destination `ci.yml` gates on
       (device arch, covers libgit2 linking, needs no installed simulator); the
       iOS build must be untouched by this feature (no iOS UI, Core stays
-      platform-agnostic).
-- [ ] Confirm the gating suites specifically: LSP platform split intact (no
+      platform-agnostic). (`** BUILD SUCCEEDED **`.)
+- [x] Confirm the gating suites specifically: LSP platform split intact (no
       `Process` outside the transport), the zoom rules by set equality, the
-      Sparkle split unaffected.
+      Sparkle split unaffected. (`LSPSourceGatingTests` 7,
+      `SparkleSourceGatingTests` 3, `ZoomSourceGatingTests` 7 — 17 tests, 0
+      failures.)
 
 ### Task 6: Update documentation
 
