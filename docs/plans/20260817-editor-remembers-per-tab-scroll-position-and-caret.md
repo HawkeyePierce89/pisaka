@@ -60,25 +60,25 @@ AppKit reads/writes stay thin in `CodeEditorView.Coordinator`.
 - Create: `Sources/PisakaCore/EditorViewport.swift`
 - Create: `Tests/PisakaCoreTests/EditorViewportTests.swift`
 
-- [ ] Add `public struct EditorViewport: Equatable`: `selection: NSRange` (the caret or
+- [x] Add `public struct EditorViewport: Equatable`: `selection: NSRange` (the caret or
       the selected range, UTF-16) and `topCharacterOffset: Int` (the UTF-16 offset of the
       first character visible at the top of the viewport). Document *why* the scroll anchor
       is a character offset and not a point: the document geometry is not stable between
       visits (code zoom, an edit from another path), so points do not survive a round trip.
-- [ ] Add `func clamped(toLength length: Int) -> EditorViewport`: `topCharacterOffset`
+- [x] Add `func clamped(toLength length: Int) -> EditorViewport`: `topCharacterOffset`
       clamped into `0...length`; `selection.location` clamped into `0...length` with the
       length truncated to `length - location` (truncate, never intersect — the same reasoning
       the reveal path already documents: a caret sitting exactly at the buffer end must stay
       there, not jump to `{0, 0}`); a `NSNotFound`/negative location collapses to `{0, 0}`.
-- [ ] Add `public struct EditorViewportMemory` holding `[UUID: EditorViewport]` with
+- [x] Add `public struct EditorViewportMemory` holding `[UUID: EditorViewport]` with
       `record(_:for:)`, `forget(_:)`, `prune(keeping openFileIDs: Set<UUID>)` and
       `viewport(for:clampedToLength:) -> EditorViewport?` (nil when nothing was recorded —
       that is the "shown for the first time keeps today's behavior" rule, expressed once).
-- [ ] Write tests: an unrecorded id answers nil; a recorded one round-trips; `forget` and
+- [x] Write tests: an unrecorded id answers nil; a recorded one round-trips; `forget` and
       `prune` drop entries (and `prune` keeps the still-open ones); clamping covers a caret
       past the new end, a selection straddling the new end, a caret exactly at the end, a
       `NSNotFound` location, an anchor past the new end, and length 0 (empty buffer).
-- [ ] Run `swift test` — must pass before Task 2.
+- [x] Run `swift test` — must pass before Task 2.
 
 ### Task 2: Coordinator capture/restore glue
 
