@@ -21,6 +21,10 @@ import PisakaCore
 /// volume, or simply not wanting to wait out the 1 s latency). The button calls
 /// `model.bumpTreeRevision()` directly rather than through a callback, since
 /// this view already observes the model and the bump needs no disk I/O.
+///
+/// Both row kinds are full-width click targets: a file row opens the file, a
+/// directory row toggles its expansion (see `FolderDisclosureStyle`), and both
+/// carry the same hover highlight, so the tree reads uniformly.
 struct ProjectTreeView: View {
     @ObservedObject var model: WorkspaceModel
     var onOpenFile: (URL) -> Void = { _ in }
@@ -130,6 +134,13 @@ struct ProjectTreeView: View {
 /// One directory row: a `DisclosureGroup` that lazily loads its children the
 /// first time it is expanded. Children are cached in `@State` so collapsing and
 /// re-expanding does not re-read the disk on every toggle.
+///
+/// It is drawn with `FolderDisclosureStyle`, so the *whole* row — chevron, icon,
+/// name and the blank space right of it — is one click target that toggles
+/// expansion, with a file row's hover highlight. Expansion state, the lazy first
+/// load, the `treeRevision` re-read and the error path are unaffected by that:
+/// a row-body click loads children through the identical `onChange(of:
+/// isExpanded)` path a chevron click has always used.
 private struct DirectoryNodeView: View {
     @ObservedObject var model: WorkspaceModel
     let url: URL
@@ -224,6 +235,11 @@ private struct DirectoryNodeView: View {
             .font(metrics.scaledFont(.body))
             .lineLimit(1)
             .truncationMode(.middle)
+            // Load-bearing pair: they stretch the label across the row's
+            // remaining width and make the blank space right of the name a
+            // right-click target. Removing them shrinks the context-menu surface
+            // to the icon + name; they add no left-click gesture, so the row's
+            // own tap still toggles (see `FolderDisclosureStyle`).
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .contextMenu {
@@ -312,6 +328,15 @@ private struct DirectoryNodeView: View {
 /// does the same, and `DirectoryNodeView`'s lazy first load depends on it. The
 /// style re-supplies the leading inset the default style used to add to
 /// `content`, since a custom style indents nothing on its own.
+///
+/// The label keeps its own `.frame(maxWidth: .infinity, alignment: .leading)` +
+/// `.contentShape(Rectangle())` under its `.contextMenu`: that pair is what
+/// stretches the label across the row's remaining width and makes the blank
+/// space right of the name a *right*-click target, so dropping it would silently
+/// shrink the context-menu surface to the icon and name. It costs nothing on the
+/// left button — a child's `contentShape` adds no gesture, so a left click on
+/// the label falls through to the row's `.onTapGesture`, and `.contextMenu`
+/// handles the right button only, so opening the menu never toggles.
 private struct FolderDisclosureStyle: DisclosureGroupStyle {
     func makeBody(configuration: Configuration) -> some View {
         VStack(alignment: .leading, spacing: 0) {

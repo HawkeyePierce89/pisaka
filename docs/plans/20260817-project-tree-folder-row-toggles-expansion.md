@@ -160,13 +160,13 @@ re-supplies the content indent the default style used to add, so lazy loading an
 nesting are unchanged. Mirror the same facts in the file's own header /
 `DirectoryNodeView` doc comments.
 
-- [ ] update the `ProjectTreeView.swift` entry in `docs/architecture/app-window.md`
-- [ ] update the doc comments on `ProjectTreeView` / `DirectoryNodeView` and add
+- [x] update the `ProjectTreeView.swift` entry in `docs/architecture/app-window.md`
+- [x] update the doc comments on `ProjectTreeView` / `DirectoryNodeView` and add
       one on the new style explaining why it exists (single toggle path +
       full-row hit area/highlight) and why the label keeps its full-width frame
       and content shape (the context-menu surface)
-- [ ] no test changes needed (documentation only) — re-run `swift test` to
-      confirm the suite is still green
+- [x] no test changes needed (documentation only) — re-run `swift test` to
+      confirm the suite is still green (2917 tests, 0 failures)
 
 ### Task 3: Verify acceptance criteria
 

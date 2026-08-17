@@ -343,7 +343,30 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     same shape as `onOpenFile`). Otherwise recursive rows from the root.
     Directories are `DisclosureGroup`s (`DirectoryNodeView`) that lazily load
     children via `model.children(of:)` on expansion (with `@State`); files are
-    clickable rows that call an `onOpenFile(url)` callback. `DirectoryNodeView`
+    clickable rows that call an `onOpenFile(url)` callback. They are still
+    `DisclosureGroup`s, but drawn through a private `DisclosureGroupStyle`
+    (`FolderDisclosureStyle` + its `FolderDisclosureRow`) that renders chevron and
+    label as **one full-width row**: the whole row toggles expansion, not just the
+    ~10pt chevron, and it carries the same hover highlight and padding as a file
+    row (`FileRowView`), so both row kinds read and behave alike. Because the
+    style draws the chevron itself there is no separate disclosure control, so
+    "one click, one state change" holds by construction — the row's single
+    `.onTapGesture` is the only path that changes expansion, and it is the same
+    path a chevron click takes. The right-click context menu stays on the
+    *label*, which keeps its `.frame(maxWidth: .infinity, alignment: .leading)`
+    and `.contentShape(Rectangle())`: that pair is what stretches the label
+    across the row's remaining width and makes the blank space right of the name
+    a right-click target, and it costs nothing on the left button (a child's
+    `contentShape` adds no gesture, so a left click falls through to the row's
+    tap, and `.contextMenu` handles the right button only, so opening the menu
+    never toggles). The style renders `configuration.content` **only while
+    expanded** — as the default style does, and `DirectoryNodeView`'s lazy first
+    load depends on it — and re-supplies the leading inset the default style used
+    to add to `content` (the chevron column plus the row spacing, both scaled),
+    which a custom style does not, so nesting indentation is unchanged. Every new
+    size goes through `\.interfaceMetrics` like the rest of the tree; the style
+    names no `interfaceScale` and declares no zoom surface, so
+    `ZoomSourceGatingTests`' set equalities are untouched. `DirectoryNodeView`
     takes a `startsExpanded` flag seeding `@State isExpanded` via
     `State(initialValue:)`: the root node is built with `startsExpanded: true`
     (its `.onAppear` loads children, since `onChange` never fires for an
