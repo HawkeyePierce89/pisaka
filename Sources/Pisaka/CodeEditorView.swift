@@ -386,8 +386,25 @@ struct CodeEditorView: NSViewRepresentable {
         // below rather than after it.
         context.coordinator.setCompletionEnabled(completionEnabled)
 
-        let switchedFile = context.coordinator.fileID != fileID
+        let previousFileID = context.coordinator.fileID
+        let switchedFile = previousFileID != fileID
         context.coordinator.fileID = fileID
+
+        // Remember where the *outgoing* tab was sitting. Ordering is load-bearing
+        // twice over, which is why this is the first thing a switch does:
+        //
+        // - It must run before the `textView.string = text` swap below. One text
+        //   view serves every tab, so once the incoming file's contents are
+        //   installed the previous file's selection and scroll offset are gone —
+        //   there is nothing left to read.
+        // - It must run before `prunePerFileState(keeping:)` on purpose, not by
+        //   accident: closing the displayed tab records its position and the prune
+        //   immediately discards it again (the id is no longer in `openFileIDs`),
+        //   so a closed tab retains nothing and reopening the file starts at the
+        //   top. Recording afterwards would leave that entry alive for the run.
+        if switchedFile, let previousFileID {
+            context.coordinator.recordViewport(for: previousFileID)
+        }
 
         // Did this file's buffer get replaced from outside the editor since this
         // coordinator last showed it? A replacement of the *displayed* tab is
@@ -402,9 +419,10 @@ struct CodeEditorView: NSViewRepresentable {
             for: fileID
         )
 
-        // Drop undo managers for files that are no longer open so closed tabs
-        // don't retain their undo history (and text snapshots) indefinitely.
-        context.coordinator.pruneUndoManagers(keeping: openFileIDs)
+        // Drop the per-file state of files that are no longer open so closed tabs
+        // don't retain their undo history (and text snapshots) — or their
+        // remembered viewport — indefinitely.
+        context.coordinator.prunePerFileState(keeping: openFileIDs)
 
         let language = SyntaxLanguage(forFileName: fileName)
 
@@ -463,6 +481,16 @@ struct CodeEditorView: NSViewRepresentable {
             // switch and be replayed against contents it never described.
             if !switchedFile || externallyReplaced {
                 textView.undoManager?.removeAllActions()
+                // The remembered viewport goes stale for exactly the same reason
+                // and on exactly the same signal: a Replace All, a post-revert
+                // `reloadFromDisk` or a merge apply rewrote this file while it sat
+                // off screen, so the recorded selection and anchor name characters
+                // the incoming text never had. Drop it; the restore below then
+                // finds nothing and puts the tab at the top of the file, the same
+                // state a first visit gets.
+                if externallyReplaced {
+                    context.coordinator.forgetViewport(for: fileID)
+                }
             }
         }
 
@@ -541,6 +569,25 @@ struct CodeEditorView: NSViewRepresentable {
             // The candidates computed for the outgoing buffer answer a file that
             // is no longer on screen (see `clearCompletions`).
             context.coordinator.clearCompletions()
+        }
+
+        // Put the incoming tab back where it was last left. Deliberately last, and
+        // only on a tab switch:
+        //
+        // - After the buffer swap for the same reason the reveal is, and after the
+        //   minimap/bracket/search/blame reconciliation above so the bounds
+        //   notification the scroll posts refreshes geometry that already describes
+        //   the incoming file rather than the outgoing one.
+        // - Only on a *switch*: an update driven by an ordinary keystroke must
+        //   leave the user's own scrolling alone.
+        // - An explicit reveal outranks the memory. Activating a Find in Files
+        //   result (or a go-to-definition) in an already-open background tab is a
+        //   switch too, and must land on the match rather than on where the tab
+        //   happened to be; `hasPendingReveal` asks the question without consuming
+        //   the request, which `applyReveal` below still does.
+        if switchedFile,
+           !context.coordinator.hasPendingReveal(reveal.request, fileID: fileID) {
+            context.coordinator.restoreViewport(for: fileID)
         }
 
         // Consume a pending Find in Files activation. Deliberately *after* the
@@ -647,6 +694,13 @@ struct CodeEditorView: NSViewRepresentable {
         /// back a per-file instance keeps each tab's undo/redo history isolated
         /// and intact across tab switches.
         private var undoManagers: [UUID: UndoManager] = [:]
+
+        /// Where each file was last left: the caret and the scroll anchor. Keyed
+        /// by the same `fileID` as `undoManagers` and pruned on the same call —
+        /// the single reused text view forgets the outgoing tab's position the
+        /// moment its buffer is swapped, so this is the only thing that remembers
+        /// it. App-run lifetime only; nothing is persisted.
+        private var viewports = EditorViewportMemory()
 
         /// Guards against re-entering the change interceptors while applying a
         /// programmatic indent or auto-pair edit. `insertText(_:replacementRange:)`
@@ -1101,26 +1155,77 @@ struct CodeEditorView: NSViewRepresentable {
                   request.fileID == fileID,
                   let textView
             else { return }
+            // Resolved *before* the token is marked applied, since the resolver
+            // asks that same question. Consuming the token regardless of whether a
+            // range came back preserves the "a standing request is applied exactly
+            // once" rule: an unusable range is a dead request, not one to retry on
+            // every later update.
+            let target = pendingRevealRange(request, fileID: fileID)
             appliedRevealToken = request.token
+            guard let target else { return }
             DispatchQueue.main.async { [weak textView] in
                 guard let textView else { return }
+                // Re-clamped against the buffer as it is *now*: the hop is a whole
+                // main-loop turn, and nothing promises the text did not shrink in
+                // between.
                 let length = textView.textStorage?.length ?? 0
-                guard request.range.location != NSNotFound,
-                      request.range.location >= 0,
-                      request.range.location <= length
-                else { return }
-                // Clamped by *truncating the length*, not by intersecting: a range
-                // whose location is exactly the buffer end shares no unit with the
-                // document, and `NSIntersectionRange` answers `{0, 0}` for that —
-                // which would scroll to the top of the file instead of leaving the
-                // caret at the end.
+                guard target.location <= length else { return }
                 let range = NSRange(
-                    location: request.range.location,
-                    length: min(request.range.length, length - request.range.location)
+                    location: target.location,
+                    length: min(target.length, length - target.location)
                 )
                 textView.setSelectedRange(range)
                 textView.scrollRangeToVisible(range)
             }
+        }
+
+        /// The range a pending reveal would select in the live buffer, or `nil`
+        /// when there is nothing for this file to act on.
+        ///
+        /// **The one place the reveal's admission rule lives.** Two callers ask the
+        /// same question — `applyReveal`, which consumes the request, and
+        /// `hasPendingReveal`, which must not — and answering it twice is how the
+        /// two silently drift apart. Concretely: a result row that pre-dates an
+        /// edit shrinking the file names a range that no longer fits, and a
+        /// predicate that only compared tokens and file ids would call that
+        /// "pending" — suppressing the viewport restore for a reveal that then
+        /// declines to select anything, leaving the tab at whatever offset the
+        /// reused text view carried over.
+        ///
+        /// The range is clamped by *truncating the length*, not by intersecting: a
+        /// range whose location is exactly the buffer end shares no unit with the
+        /// document, and `NSIntersectionRange` answers `{0, 0}` for that — which
+        /// would scroll to the top of the file instead of leaving the caret at the
+        /// end.
+        private func pendingRevealRange(
+            _ request: EditorRevealState.Request?,
+            fileID: UUID
+        ) -> NSRange? {
+            guard let request,
+                  request.token != appliedRevealToken,
+                  request.fileID == fileID,
+                  let textView
+            else { return nil }
+            let length = textView.textStorage?.length ?? 0
+            guard request.range.location != NSNotFound,
+                  request.range.location >= 0,
+                  request.range.location <= length
+            else { return nil }
+            return NSRange(
+                location: request.range.location,
+                length: min(max(request.range.length, 0), length - request.range.location)
+            )
+        }
+
+        /// Whether `applyReveal` would act on this request for this file, asked
+        /// without consuming anything (no token is recorded, no selection moved).
+        ///
+        /// `updateNSView` uses it to let an explicit reveal outrank the remembered
+        /// viewport: activating a Find in Files result (or a go-to-definition) in
+        /// an already-open background tab must land on the match, not on wherever
+        /// the tab was last left.
+        func hasPendingReveal(_ request: EditorRevealState.Request?, fileID: UUID) -> Bool {
+            pendingRevealRange(request, fileID: fileID) != nil
         }
 
         /// Esc in the editor: close an open search bar (and drop its highlight),
@@ -1512,12 +1617,152 @@ struct CodeEditorView: NSViewRepresentable {
             return manager
         }
 
-        /// Removes undo managers for files no longer open. Without this, closing
-        /// a tab would leave its undo manager (and the text snapshots it holds)
-        /// alive for the lifetime of the coordinator.
-        func pruneUndoManagers(keeping openFileIDs: Set<UUID>) {
+        /// Removes every per-file dictionary's entries for files no longer open:
+        /// the undo managers, the external-replacement tokens and the remembered
+        /// viewports. Without this, closing a tab would leave its undo manager
+        /// (and the text snapshots it holds) alive for the lifetime of the
+        /// coordinator, and reopening the file would resume at a position from a
+        /// previous life rather than at the top.
+        ///
+        /// All three are keyed by `OpenFile.id` and pruned together on purpose:
+        /// they answer the same question about the same object, so they must not
+        /// disagree about which files still exist.
+        func prunePerFileState(keeping openFileIDs: Set<UUID>) {
             undoManagers = undoManagers.filter { openFileIDs.contains($0.key) }
             externalTextRevisions = externalTextRevisions.filter { openFileIDs.contains($0.key) }
+            viewports.prune(keeping: openFileIDs)
+        }
+
+        // MARK: - Viewport memory
+
+        /// Where the text view is *right now*: the selection and the character at
+        /// the top of the visible rectangle.
+        ///
+        /// The scroll anchor is resolved to a character offset rather than kept as
+        /// a point, for the reason `EditorViewport` documents: the geometry that
+        /// produced the point does not survive a code-zoom change, a font change,
+        /// a window resize or a rewrite of the text.
+        ///
+        /// The hit test goes through `NSTextView.characterIndexForInsertion(at:)`
+        /// rather than the layout manager's `glyphIndex(for:in:)`. It takes the
+        /// point in the *text view's* coordinates — which `documentVisibleRect`
+        /// already is, so no container-origin correction — answers a character
+        /// index directly, and is clamped rather than raising, so it needs no
+        /// bounds guard. That last part is the reason for the choice:
+        /// `NSLayoutManager.numberOfGlyphs`, the only way to write such a guard,
+        /// forces glyph generation for the *entire* document, which would put an
+        /// O(file size) main-thread cost on every single tab switch — exactly what
+        /// `allowsNonContiguousLayout` (see `makeNSView`) exists to avoid.
+        ///
+        /// Answers `nil` only when the views are gone (a torn-down tab); an empty
+        /// buffer anchors at `0`.
+        func captureViewport() -> EditorViewport? {
+            guard let textView, let scrollView else { return nil }
+            let visible = scrollView.documentVisibleRect
+            return EditorViewport(
+                selection: textView.selectedRange(),
+                topCharacterOffset: textView.characterIndexForInsertion(
+                    at: NSPoint(x: visible.minX, y: visible.minY)
+                )
+            )
+        }
+
+        /// Remember where `fileID` is currently sitting. Must be called *before*
+        /// anything touches the buffer: the text view is reused, so once the
+        /// incoming file's text is installed the outgoing position is gone.
+        func recordViewport(for fileID: UUID) {
+            guard let viewport = captureViewport() else { return }
+            viewports.record(viewport, for: fileID)
+        }
+
+        /// Drop `fileID`'s remembered position — its text was replaced out from
+        /// under it, so the recorded offsets describe characters that no longer
+        /// exist. The next visit starts at the top, exactly as a first visit does.
+        func forgetViewport(for fileID: UUID) {
+            viewports.forget(fileID)
+        }
+
+        /// Put `fileID` back where it was left — or at the top of the file when
+        /// nothing was recorded for it.
+        ///
+        /// **The "nothing recorded" case has to be spelled out, not skipped.**
+        /// A first visit, a closed-and-reopened tab and a tab whose text was
+        /// replaced from outside all arrive here with no entry, and the intended
+        /// outcome for all three is a plain top-of-file state. Leaving the text
+        /// view alone does not produce that: assigning `textView.string` (the
+        /// buffer swap in `updateNSView`) leaves the caret at the *end* of the new
+        /// contents, and the clip view keeps the outgoing tab's scroll offset. So
+        /// the top is set explicitly.
+        ///
+        /// Everything here is synchronous, unlike the reveal path's one-turn hop
+        /// (`applyReveal`). It has to be: a restore deferred to the next main-loop
+        /// turn would run after a *second* tab switch had already swapped the
+        /// buffer again, scrolling the newly shown file to the previous file's
+        /// offset. What makes synchronous work is the explicit `ensureLayout`
+        /// below — the layout manager runs with `allowsNonContiguousLayout`, so
+        /// the incoming text is not laid out yet at this point in `updateNSView`
+        /// and the anchor's rectangle would otherwise be an estimate.
+        ///
+        /// That `ensureLayout` is the one real cost of this feature and it is not
+        /// free: the anchor's *position* is the sum of every preceding line's
+        /// height, so the layout has to run from offset 0 to the anchor, and it is
+        /// paid again on every switch back (the buffer swap invalidates layout).
+        /// It is bounded by how far into the file the tab was left, so it is
+        /// negligible for ordinary source files and measurable — order 0.5s — for
+        /// a multi-megabyte file left scrolled near its end. Accepted knowingly:
+        /// the alternative is a non-contiguous *estimate*, which lands the restore
+        /// on the wrong line, and there is no third option that yields an exact
+        /// document-space `y` without laying out what is above it.
+        ///
+        /// The range comes back clamped to the live buffer (`EditorViewport
+        /// .clamped(toLength:)`), and the scroll goes through `scrollEditor(to:)`,
+        /// which clamps to the document's real end — so neither a shrunken file
+        /// nor a stale anchor can position past the end.
+        func restoreViewport(for fileID: UUID) {
+            guard let textView,
+                  let layoutManager = textView.layoutManager,
+                  let container = textView.textContainer
+            else { return }
+            let length = textView.textStorage?.length ?? 0
+            guard let viewport = viewports.viewport(for: fileID, clampedToLength: length) else {
+                textView.setSelectedRange(NSRange(location: 0, length: 0))
+                scrollEditor(to: 0)
+                return
+            }
+            // A caret at `length` is a legal selection (the end of the file), so
+            // the selection needs no end-of-buffer special case. The anchor needs
+            // none either: `clamped(toLength:)` guarantees it names a character
+            // that exists, so there is exactly one path below.
+            textView.setSelectedRange(viewport.selection)
+            guard length > 0 else {
+                scrollEditor(to: 0)
+                return
+            }
+            let anchor = viewport.topCharacterOffset
+            layoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: anchor + 1))
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: NSRange(location: anchor, length: 1),
+                actualCharacterRange: nil
+            )
+            // Back from container space into the document's, i.e. the coordinates
+            // `scrollEditor(to:)` scrolls the clip view in.
+            let top = layoutManager.boundingRect(forGlyphRange: glyphRange, in: container).minY
+                + textView.textContainerOrigin.y
+            // The anchor's own `y` is exact — everything above it was just laid
+            // out — but `scrollEditor(to:)` clamps against `textView.frame.height`,
+            // and *that* is still an estimate for whatever sits below the anchor.
+            // A tab left within the last screenful of its file would be clamped
+            // short by the size of that error (measured: ~220pt, a dozen-odd
+            // lines, on a 3000-line file left at the bottom). So when the clamp is
+            // about to bind, finish the layout first. It is self-limiting: the
+            // clamp only binds near the end of the document, and by then
+            // everything above the anchor is laid out already, so this costs the
+            // remaining tail rather than the file.
+            if let scrollView,
+               top > max(0, textView.frame.height - scrollView.contentView.bounds.height) {
+                layoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: length))
+            }
+            scrollEditor(to: top)
         }
 
         /// The `WorkspaceModel.textReplacementRevision(for:)` value last seen for

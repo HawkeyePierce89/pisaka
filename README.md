@@ -19,7 +19,9 @@ description of each — and of what it deliberately does *not* do — is in
   show up on their own via FSEvents.
 - **Editor** — NSTextView-based, monospaced, with a line-number gutter,
   auto-indent, auto-closing brackets/quotes, matched-pair and rainbow bracket
-  highlighting, Cmd+D duplicate line/selection, and a minimap.
+  highlighting, Cmd+D duplicate line/selection, a minimap, and per-tab position
+  memory: switch away and back and the tab returns to the caret and scroll
+  position you left it at (for the app run; not persisted across launches).
 - **Syntax highlighting** (tree-sitter via Neon) for Swift, JavaScript,
   TypeScript, JSON, Markdown, Python, Go, Rust, HTML, CSS, YAML, Dockerfiles,
   `.env` and dot-prefixed ignore files — detected from the whole file name.

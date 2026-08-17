@@ -89,6 +89,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `BracketMatchEngine.swift` — caret↔bracket-pair matching.
 - `BracketDepthScanner.swift` — rainbow-bracket depth scan.
 - `TextSearch.swift` — the find/replace engine shared by ⌘F and Find in Files.
+- `EditorViewport.swift` — per-tab caret + scroll anchor (a character offset) and the per-file memory.
 
 `docs/architecture/core-search.md` — Find in Files:
 - `GitignoreMatcher.swift` — gitignore(5) matching; oracle-tested against `git check-ignore`.
