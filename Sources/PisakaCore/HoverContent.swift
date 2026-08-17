@@ -65,6 +65,15 @@ public struct HoverSegment: Equatable, Hashable, Sendable {
 /// passes every mouse event through to the code beneath it). So the cap is
 /// applied here, as pure arithmetic over lines, and the renderer's only job is
 /// to draw a marker when `isTruncated` says the answer was cut.
+///
+/// The cap has **two dimensions, and both are load-bearing**: a line count and a
+/// per-line length. A count alone bounds nothing a renderer cares about — twenty
+/// lines can be twenty megabytes, and the answer's size is decided by a language
+/// server rather than by anything here (`LSPFraming` will carry 64 MB). The
+/// renderer measures and lays that string out *synchronously on the main thread*,
+/// from an event that fires whenever the pointer stops moving, so an unbounded
+/// line is a hang nobody asked for. Bounding it here keeps that a Core rule
+/// rather than a defensive `if` in a view.
 public struct HoverContent: Equatable, Hashable, Sendable {
     /// The segments to draw, in the order the server wrote them. Never empty.
     public let segments: [HoverSegment]
@@ -88,6 +97,16 @@ public struct HoverContent: Equatable, Hashable, Sendable {
     /// the file the definition jump already goes to.
     public static let maximumLineCount = 20
 
+    /// The most characters a single drawn line may carry.
+    ///
+    /// Generous on purpose — far past anything the 520 pt panel can show, so no
+    /// real signature or paragraph ever reaches it — because this is not a
+    /// display rule but the bound that keeps `maximumLineCount` meaningful. It is
+    /// what makes "at most twenty lines" also mean "at most a bounded amount of
+    /// text to lay out", which is the only form of the promise the renderer can
+    /// actually use.
+    public static let maximumLineLength = 2_000
+
     /// The failable, checking initializer: segments that carry nothing are
     /// dropped, and content left with no segments at all is no content.
     public init?(segments: [HoverSegment], isTruncated: Bool = false) {
@@ -110,34 +129,56 @@ public struct HoverContent: Equatable, Hashable, Sendable {
     /// Total drawn lines across every segment.
     public var lineCount: Int { segments.reduce(0) { $0 + $1.lines.count } }
 
-    /// This content capped at `limit` lines, saying whether it had to cut.
+    /// This content capped at `limit` lines of `lineLength` characters each,
+    /// saying whether it had to cut.
     ///
-    /// Pure, and idempotent at the same limit. A cap below one line is read as
-    /// one: the caller is asking for a popover, and an empty popover is not a
-    /// smaller answer but a different (and forbidden) one. A partial segment
-    /// keeps its kind and language — half a code block is still code.
-    public func truncated(toLineCount limit: Int = HoverContent.maximumLineCount) -> HoverContent {
+    /// Pure, and idempotent at the same limits. A cap below one line — or below
+    /// one character — is read as one: the caller is asking for a popover, and an
+    /// empty popover is not a smaller answer but a different (and forbidden) one.
+    /// A partial segment keeps its kind and language — half a code block is still
+    /// code — and a cut line is cut on a `Character` boundary, so no truncation
+    /// here can halve a grapheme.
+    ///
+    /// Either dimension cutting sets `isTruncated`: the marker says "there was
+    /// more", and a line whose tail is gone is exactly that.
+    public func truncated(
+        toLineCount limit: Int = HoverContent.maximumLineCount,
+        lineLength lengthLimit: Int = HoverContent.maximumLineLength
+    ) -> HoverContent {
         let cap = max(1, limit)
-        guard lineCount > cap else { return self }
-
+        let lengthCap = max(1, lengthLimit)
         var kept: [HoverSegment] = []
         var remaining = cap
+        var didCut = false
+
         for segment in segments {
-            guard remaining > 0 else { break }
-            let lines = segment.lines
-            if lines.count <= remaining {
-                kept.append(segment)
-                remaining -= lines.count
-            } else {
-                kept.append(
-                    HoverSegment(
-                        kind: segment.kind,
-                        text: lines.prefix(remaining).joined(separator: "\n")
-                    )
-                )
-                remaining = 0
+            guard remaining > 0 else {
+                // Every segment carries text (the checking initializer drops the
+                // ones that do not), so a segment left unvisited is content lost.
+                didCut = true
+                break
             }
+            var lines = segment.lines
+            if lines.count > remaining {
+                lines = Array(lines.prefix(remaining))
+                didCut = true
+            }
+            remaining -= lines.count
+            kept.append(
+                HoverSegment(
+                    kind: segment.kind,
+                    text: lines.map { line in
+                        // `prefix` is O(lengthCap), not O(line): the whole point
+                        // is never to walk a line that may be megabytes long.
+                        let head = line.prefix(lengthCap)
+                        guard head.endIndex < line.endIndex else { return line }
+                        didCut = true
+                        return String(head)
+                    }.joined(separator: "\n")
+                )
+            )
         }
+        guard didCut else { return self }
         return HoverContent(checkedSegments: kept, isTruncated: true)
     }
 }
@@ -702,15 +743,24 @@ enum HoverMarkup {
     /// A prose block's text: as above, plus runs of blank lines collapsed to one
     /// — a server that separates two sentences with four newlines meant a
     /// paragraph break, not a hole in the popover.
+    ///
+    /// Blank lines are stripped off both ends **line-wise**, exactly as
+    /// `codeBlock` does it, rather than by trimming the joined string: trimming
+    /// whitespace off the join takes the *first* line's indentation with it and
+    /// leaves every following line's in place, so an indented plaintext block —
+    /// which is how a server with no markdown renderer sends a signature —
+    /// arrives with its first line shifted left against the rest. `degraded(_:)`
+    /// preserves each line's indent for the same reason; this is the one place
+    /// that was silently disagreeing with it.
     static func proseBlock(_ text: String) -> String {
         var collapsed: [String] = []
         for line in lines(of: text).map(trimmingTrailingWhitespace) {
             if line.isEmpty, collapsed.last?.isEmpty == true { continue }
             collapsed.append(line)
         }
-        return collapsed
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        while collapsed.first?.isEmpty == true { collapsed.removeFirst() }
+        while collapsed.last?.isEmpty == true { collapsed.removeLast() }
+        return collapsed.joined(separator: "\n")
     }
 }
 

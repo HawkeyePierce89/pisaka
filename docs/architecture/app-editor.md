@@ -852,7 +852,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     punctuation and the empty region past a line's end never reach the provider.
     The anchor is deliberately also set for a request that turns out to have **no**
     answer, so a server that knows nothing about an identifier is asked once per
-    visit rather than once per mouse-moved event.
+    visit rather than once per mouse-moved event — but it is set **after** the
+    `Source` is read, not before. The anchor means "this word has been asked
+    about"; claiming it for a question that is never asked (no provider at all —
+    a preview, or an editor whose index controller has gone) would leave the
+    identifier suppressed with nothing on screen, and the pointer would have to
+    leave the word and come back before anything could happen.
     **"Still inside" is asked of the identifier, not only of the offset**, and the
     second half is not decoration: `IdentifierScanner` resolves the identifier
     *ending* at an offset as well as the one containing it, so the pointer sitting
@@ -1001,10 +1006,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `maximumWidth` (520 pt, interface-scaled) is a **cap rather than a fit**: a
     one-line generic signature can be hundreds of characters wide, and a popover as
     wide as the screen is unreadable long before it is informative. The **height is
-    capped too**, at the anchor screen's visible frame, and Core's line cap does
+    capped too**, at the anchor screen's visible frame, and Core's caps do
     not make that redundant: `HoverContent.maximumLineCount` counts *logical* lines
     and prose wraps, so a server that stores a doc comment as a few long unwrapped
-    paragraphs passes the cap and still measures taller than the display. The panel
+    paragraphs passes the cap and still measures taller than the display. (Core's
+    `maximumLineLength` is not a substitute either — it exists to bound the *work*
+    this measurement does, not the height it reports.) The panel
     draws from the top of its frame down, so an unclamped one is placed with its
     bottom on the screen edge and its **first line — the signature — above the top
     of the screen**, which is precisely the outcome the placement rule below exists

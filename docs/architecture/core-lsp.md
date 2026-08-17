@@ -868,14 +868,25 @@ document, together with the limits they carry.
     It owns the feature's **two constants**, here rather than in the view for the
     reason every other rule is here: `dwellDelay` (0.35 s — the difference between
     "hovering tells you the type" and "moving the mouse across a file fires a
-    request per identifier") and `maximumLineCount` (20). `truncated(toLineCount:)`
-    is the cap as pure, idempotent arithmetic over lines: it keeps whole segments
-    while they fit, cuts the one that straddles the limit *keeping its kind and
-    language* (half a code block is still code), and reports that it cut. A limit
-    below one line is read as one — a caller asking for a popover is not asking
-    for a smaller answer but for a different and forbidden one. **Long content
-    truncates; it never scrolls** (D26), and the arithmetic lives here because the
-    renderer's only remaining job is to draw a marker when `isTruncated` says so.
+    request per identifier"), `maximumLineCount` (20) and `maximumLineLength`
+    (2 000). `truncated(toLineCount:lineLength:)` is the cap as pure, idempotent
+    arithmetic: it keeps whole segments while they fit, cuts the one that straddles
+    the line limit *keeping its kind and language* (half a code block is still
+    code), clips every kept line to the length limit on a `Character` boundary (so
+    no cut can halve a grapheme), and reports that it cut. Either limit below one
+    is read as one — a caller asking for a popover is not asking for a smaller
+    answer but for a different and forbidden one. **Long content truncates; it
+    never scrolls** (D26), and the arithmetic lives here because the renderer's
+    only remaining job is to draw a marker when `isTruncated` says so.
+    **The cap has two dimensions and both are load-bearing.** A line count bounds
+    nothing a renderer can use: twenty lines can be twenty megabytes, the answer's
+    size is a language server's to choose (`LSPFraming` will carry 64 MB), and the
+    panel measures and lays that string out *synchronously on the main thread* from
+    an event that fires whenever the pointer stops moving. So the length cap is
+    what makes "at most twenty lines" also mean "at most a bounded amount of work",
+    and it is set far past anything a 520 pt panel can show precisely so that it
+    never fires on a real signature or paragraph — it is a hang guard, not a
+    display rule.
     `HoverContent(_ response:)` / `init?(hoverElements:)` are the construction
     from a decoded payload: each element becomes segments, in the order the server
     wrote them, so `[{language: "swift", value: "func f()"}, "Does a thing."]`
@@ -945,9 +956,16 @@ document, together with the limits they carry.
     promise of a closer is not kept.
     Whitespace last: code blocks lose trailing whitespace per line and blank lines
     at both ends while **every line's leading indentation stays** (it is the code);
-    prose additionally collapses runs of blank lines to one, since a server that
+    prose is stripped **the same way, line-wise**, and additionally collapses runs
+    of blank lines to one, since a server that
     separated two sentences with four newlines meant a paragraph break rather than
-    a hole in the popover. A line that degrades to nothing becomes a blank line and
+    a hole in the popover. Line-wise is the load-bearing word: trimming the *joined*
+    block instead — which is what `proseBlock` used to do — takes the first line's
+    indentation away and leaves every following line's, so an indented plaintext
+    signature (the shape a server with no markdown renderer sends) arrives with its
+    head shifted left against its body. `degraded(_:)` keeps each line's indent to
+    preserve nested lists, and this is the one place that was disagreeing with it.
+    A line that degrades to nothing becomes a blank line and
     is then collapsed away, so a lone `---` between two paragraphs leaves one
     separating blank line rather than a gap or a stray glyph.
 
@@ -1794,10 +1812,13 @@ the text, which simply updates or dismisses the answer, and a zoom gesture aimed
 there zooms the code — which is the zone the user means.
 Truncation follows from the same line rather than being a separate taste: a
 scrollable popover would need the pointer *inside* it, which would undo all three
-properties at once. So the cap is line-based arithmetic in Core
-(`HoverContent.maximumLineCount`, `truncated(toLineCount:)`) and the panel's only
-job is to draw a marker when the content was cut. Anything past a screenful is
-better read in the file ⌘-click already opens.
+properties at once. So the cap is pure arithmetic in Core
+(`HoverContent.maximumLineCount` and `maximumLineLength`, applied by
+`truncated(toLineCount:lineLength:)`) and the panel's only job is to draw a marker
+when the content was cut. Anything past a screenful is better read in the file
+⌘-click already opens. The cap bounds **lines and their length**, because the panel
+lays the string out synchronously on the main thread from an automatic trigger, and
+a count that permits a twenty-megabyte line bounds nothing that matters.
 `ZoomSourceGatingTests.testTheHoverPanelPassesEveryMouseEventThroughToTheCode`
 pins the pass-through and the no-surface half statically, over comment- and
 literal-stripped source, because deleting that line changes nothing that compiles,
@@ -1844,7 +1865,8 @@ obstacle standing between the pointer and the code.
   Nor is it offered from the keyboard — the dwell *is* the trigger — so a file
   read without a mouse never sees it.
 - **A hover popover is a glance, not a document browser** (D26). Content past
-  `HoverContent.maximumLineCount` lines is cut and marked with an ellipsis, code
+  `HoverContent.maximumLineCount` lines — or past `maximumLineLength` characters on
+  any one of them — is cut and marked with an ellipsis, code
   lines wider than the panel are truncated rather than wrapped (a wrapped
   signature invents indentation the language never had), the panel's height is
   additionally capped at the screen (the line cap counts logical lines and prose

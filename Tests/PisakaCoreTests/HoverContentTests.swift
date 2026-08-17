@@ -63,8 +63,20 @@ final class HoverContentTests: XCTestCase {
 
     func testPlaintextIsStillNormalizedForWhitespace() {
         XCTAssertEqual(
-            content([.markup(kind: .plaintext, value: "\n\n  one   \n\n\n\ntwo  \n\n")])?.segments,
-            [.prose("one\n\ntwo")]
+            content([.markup(kind: .plaintext, value: "\n\nleading   \n\n\n\ntwo  \n\n")])?.segments,
+            [.prose("leading\n\ntwo")]
+        )
+    }
+
+    /// Normalization is *line-wise*: blank lines go from both ends and trailing
+    /// whitespace goes from every line, but a line's leading indentation is left
+    /// alone — every line's, including the first. Stripping the first line's and
+    /// keeping the rest is the one shape that is certainly wrong, and it is what
+    /// trimming the joined block silently produced.
+    func testProseIndentationIsTreatedTheSameOnEveryLine() {
+        XCTAssertEqual(
+            content([.markup(kind: .plaintext, value: "\n    func f()\n        where T: P\n\n")])?.segments,
+            [.prose("    func f()\n        where T: P")]
         )
     }
 
@@ -314,8 +326,12 @@ final class HoverContentTests: XCTestCase {
         XCTAssertEqual(prose("a \\* b and \\_c\\_"), "a * b and _c_")
     }
 
+    /// Blank lines go from both ends and trailing whitespace from every line —
+    /// but leading indentation stays, on the first line exactly as on the third.
+    /// Trimming the joined block instead took the first line's and left the
+    /// rest's, which is the one reading no server can have meant.
     func testRunsOfBlankLinesCollapseAndEdgeWhitespaceGoes() {
-        XCTAssertEqual(prose("\n\n  one   \n\n\n\n   two\n  \n"), "one\n\n   two")
+        XCTAssertEqual(prose("\n\n  one   \n\n\n\n   two\n  \n"), "  one\n\n   two")
     }
 
     // MARK: - Emptiness
@@ -445,11 +461,86 @@ final class HoverContentTests: XCTestCase {
         XCTAssertTrue(content.truncated().isTruncated)
     }
 
+    // MARK: - Truncating a line
+
+    /// A line count bounds nothing on its own: the answer's size is the server's
+    /// to choose, and the renderer lays the string out on the main thread.
+    func testALineLongerThanTheCapIsCutAndSaysSo() {
+        let content = try! XCTUnwrap(markdown(String(repeating: "x", count: 50)))
+        let capped = content.truncated(toLineCount: 10, lineLength: 20)
+        XCTAssertEqual(capped.segments, [.prose(String(repeating: "x", count: 20))])
+        XCTAssertTrue(capped.isTruncated)
+    }
+
+    func testALineExactlyAtTheLengthCapIsNotCut() {
+        let content = try! XCTUnwrap(markdown(String(repeating: "x", count: 20)))
+        let capped = content.truncated(toLineCount: 10, lineLength: 20)
+        XCTAssertEqual(capped, content)
+        XCTAssertFalse(capped.isTruncated)
+    }
+
+    /// Every line is bounded, not just the first — and the segment's kind and
+    /// language survive the cut, exactly as they do for the line cap.
+    func testEveryLineIsCutAndTheSegmentKeepsItsKind() {
+        let content = try! XCTUnwrap(markdown("""
+        ```swift
+        aaaaaa
+        bb
+        cccccc
+        ```
+        """))
+        let capped = content.truncated(toLineCount: 10, lineLength: 3)
+        XCTAssertEqual(capped.segments, [.code("aaa\nbb\nccc", language: "swift")])
+        XCTAssertTrue(capped.isTruncated)
+    }
+
+    /// The cut lands on a `Character` boundary, so a popover can never draw half
+    /// a grapheme — the cap is a bound on work, not a licence to corrupt text.
+    func testALineIsCutOnACharacterBoundary() {
+        let content = try! XCTUnwrap(markdown("é🇺🇦👩‍👩‍👧‍👦x"))
+        let capped = try! XCTUnwrap(content.truncated(toLineCount: 10, lineLength: 3).segments.first)
+        XCTAssertEqual(capped.text, "é🇺🇦👩‍👩‍👧‍👦")
+    }
+
+    /// There is no empty popover, so there is no zero-character cap either.
+    func testACapBelowOneCharacterStillKeepsACharacter() {
+        let content = try! XCTUnwrap(markdown("abc"))
+        for limit in [0, -1, Int.min] {
+            let capped = content.truncated(toLineCount: 10, lineLength: limit)
+            XCTAssertEqual(capped.segments, [.prose("a")])
+            XCTAssertTrue(capped.isTruncated)
+        }
+    }
+
+    func testLineLengthTruncationIsIdempotentAtTheSameLimit() {
+        let content = try! XCTUnwrap(markdown("abcdef\nghijkl"))
+        let once = content.truncated(toLineCount: 10, lineLength: 3)
+        XCTAssertEqual(once.truncated(toLineCount: 10, lineLength: 3), once)
+        XCTAssertTrue(once.truncated(toLineCount: 10, lineLength: 3).isTruncated)
+    }
+
+    func testTheDefaultLineLengthCapIsTheDeclaredMaximum() {
+        let long = String(repeating: "x", count: HoverContent.maximumLineLength + 5)
+        let content = try! XCTUnwrap(markdown(long))
+        let capped = content.truncated()
+        XCTAssertEqual(capped.segments.first?.text.count, HoverContent.maximumLineLength)
+        XCTAssertTrue(capped.isTruncated)
+    }
+
+    /// Both dimensions at once, which is the shape a runaway answer actually has.
+    func testBothCapsApplyTogether() {
+        let content = try! XCTUnwrap(markdown(lines(10, prefix: "aaaaaaaa")))
+        let capped = content.truncated(toLineCount: 2, lineLength: 5)
+        XCTAssertEqual(capped.segments, [.prose("aaaaa\naaaaa")])
+        XCTAssertTrue(capped.isTruncated)
+    }
+
     // MARK: - The constants
 
     func testTheFeaturesTwoConstantsLiveHere() {
         XCTAssertEqual(HoverContent.dwellDelay, 0.35, accuracy: 0.0001)
         XCTAssertGreaterThan(HoverContent.maximumLineCount, 1)
+        XCTAssertGreaterThan(HoverContent.maximumLineLength, 1)
     }
 
     // MARK: - A whole answer, end to end

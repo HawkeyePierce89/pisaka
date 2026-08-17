@@ -182,9 +182,15 @@ final class HoverController: NSObject {
         generation += 1
         let token = generation
         panel.dismiss()
-        anchorRange = match.range
+        anchorRange = nil
 
+        // Read the source *before* claiming the identifier. `anchorRange` is the
+        // re-ask suppressor, and it means "this word has been asked about" — so
+        // setting it for a question that is never asked (no provider, i.e. a
+        // preview or an editor whose index controller has gone) would make the
+        // pointer have to leave the word and come back before anything happens.
         guard let source = source() else { return }
+        anchorRange = match.range
         let provider = source.provider
         let rootGeneration = source.rootGeneration
         let fileURL = source.fileURL
