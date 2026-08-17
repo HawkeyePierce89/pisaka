@@ -1,0 +1,432 @@
+import XCTest
+@testable import PisakaCore
+
+/// The one place hover markup is interpreted (D25), pinned rule by rule: what
+/// becomes code and what becomes prose, every construct that is degraded rather
+/// than shown raw, the "empty is no answer" rule, order preservation, and the
+/// line cap.
+final class HoverContentTests: XCTestCase {
+    // MARK: - Helpers
+
+    private func content(_ elements: [LSPHoverElement]) -> HoverContent? {
+        HoverContent(hoverElements: elements)
+    }
+
+    private func markdown(_ value: String) -> HoverContent? {
+        content([.markup(kind: .markdown, value: value)])
+    }
+
+    private func prose(_ value: String) -> String? {
+        guard let content = markdown(value) else { return nil }
+        XCTAssertEqual(content.segments.count, 1, "expected one prose segment, got \(content.segments)")
+        XCTAssertFalse(content.segments[0].isCode)
+        return content.segments[0].text
+    }
+
+    // MARK: - Element kinds
+
+    func testAMarkedStringObjectIsOneCodeSegmentWhole() {
+        let content = self.content([.code(language: "swift", value: "func greet(_ name: String) -> String")])
+        XCTAssertEqual(
+            content?.segments,
+            [.code("func greet(_ name: String) -> String", language: "swift")]
+        )
+        XCTAssertEqual(content?.isTruncated, false)
+    }
+
+    /// The point of the two kinds: a signature full of `*`, `_` and `<>` is not
+    /// markup, and reading it as markup is how `Array<T>` loses its `<T>`.
+    func testACodeElementIsNeverDegraded() {
+        let source = "func f<T>(_ x: *T, _ y: some_type) -> [__C.Thing] // `note`"
+        XCTAssertEqual(
+            content([.code(language: "swift", value: source)])?.segments,
+            [.code(source, language: "swift")]
+        )
+    }
+
+    func testAnEmptyLanguageIsNoLanguage() {
+        XCTAssertEqual(
+            content([.code(language: nil, value: "let x = 1")])?.segments,
+            [.code("let x = 1", language: nil)]
+        )
+    }
+
+    /// A `plaintext` `MarkupContent` is text, not markup: the server said so, and
+    /// stripping its asterisks would corrupt exactly the answers that took care
+    /// to avoid markup in the first place.
+    func testPlaintextIsNotInterpretedAsMarkdown() {
+        XCTAssertEqual(
+            content([.markup(kind: .plaintext, value: "a * b and *not emphasis* and `ticks`")])?.segments,
+            [.prose("a * b and *not emphasis* and `ticks`")]
+        )
+    }
+
+    func testPlaintextIsStillNormalizedForWhitespace() {
+        XCTAssertEqual(
+            content([.markup(kind: .plaintext, value: "\n\n  one   \n\n\n\ntwo  \n\n")])?.segments,
+            [.prose("one\n\ntwo")]
+        )
+    }
+
+    // MARK: - Fenced code blocks
+
+    func testAFencedBlockBecomesACodeSegmentAndItsInfoStringTheLanguage() {
+        let content = markdown("""
+        ```swift
+        func greet() -> String
+        ```
+        """)
+        XCTAssertEqual(content?.segments, [.code("func greet() -> String", language: "swift")])
+    }
+
+    func testAFenceWithNoInfoStringHasNoLanguage() {
+        XCTAssertEqual(
+            markdown("```\nplain\n```")?.segments,
+            [.code("plain", language: nil)]
+        )
+    }
+
+    func testOnlyTheFirstWordOfTheInfoStringIsTheLanguage() {
+        XCTAssertEqual(
+            markdown("```rust ignore\nfn main() {}\n```")?.segments,
+            [.code("fn main() {}", language: "rust")]
+        )
+    }
+
+    func testTildeFencesAndLongerFencesAreFencesToo() {
+        XCTAssertEqual(
+            markdown("~~~~go\nfunc main() {}\n~~~~")?.segments,
+            [.code("func main() {}", language: "go")]
+        )
+    }
+
+    func testAFenceMayBeIndentedAndClosedByALongerRun() {
+        XCTAssertEqual(
+            markdown("  ```swift\n  let x = 1\n  ````")?.segments,
+            [.code("  let x = 1", language: "swift")]
+        )
+    }
+
+    func testCodeInsideAFenceKeepsItsIndentationAndItsInteriorBlankLines() {
+        let content = markdown("""
+        ```swift
+        struct S {
+
+            let x: Int
+        }
+        ```
+        """)
+        XCTAssertEqual(
+            content?.segments,
+            [.code("struct S {\n\n    let x: Int\n}", language: "swift")]
+        )
+    }
+
+    func testCodeInsideAFenceIsNotDegraded() {
+        XCTAssertEqual(
+            markdown("```swift\nlet a = b * c // [see](url) **here**\n```")?.segments,
+            [.code("let a = b * c // [see](url) **here**", language: "swift")]
+        )
+    }
+
+    /// A server that forgets the closing fence still meant the rest to be code.
+    func testAnUnterminatedFenceTakesTheRestOfTheElement() {
+        XCTAssertEqual(
+            markdown("intro\n```swift\nfunc f()\nfunc g()")?.segments,
+            [.prose("intro"), .code("func f()\nfunc g()", language: "swift")]
+        )
+    }
+
+    func testAnEmptyFenceContributesNothing() {
+        XCTAssertNil(markdown("```swift\n```"))
+        XCTAssertEqual(markdown("```swift\n\n```\nafter")?.segments, [.prose("after")])
+    }
+
+    /// The whole reason for two kinds, in the shape rust-analyzer and
+    /// sourcekit-lsp actually send: signature, documentation, signature.
+    func testProseAndCodeAlternateInTheOrderTheServerWroteThem() {
+        let content = markdown("""
+        ```swift
+        func greet() -> String
+        ```
+        Greets somebody.
+
+        ```swift
+        func greet(_ name: String) -> String
+        ```
+        """)
+        XCTAssertEqual(
+            content?.segments,
+            [
+                .code("func greet() -> String", language: "swift"),
+                .prose("Greets somebody."),
+                .code("func greet(_ name: String) -> String", language: "swift"),
+            ]
+        )
+    }
+
+    // MARK: - Prose degrading
+
+    func testInlineCodeLosesItsBackticksAndKeepsItsContentsVerbatim() {
+        XCTAssertEqual(prose("Returns `Array<T>` when `a*b*c` holds"), "Returns Array<T> when a*b*c holds")
+    }
+
+    func testADoubleBacktickSpanIsAlsoACodeSpan() {
+        XCTAssertEqual(prose("write ``a ` b`` here"), "write a ` b here")
+    }
+
+    func testAnUnbalancedBacktickStaysLiteral() {
+        XCTAssertEqual(prose("a ` b"), "a ` b")
+    }
+
+    func testEmphasisAndStrongMarkersAreDropped() {
+        XCTAssertEqual(prose("*one* **two** ***three***"), "one two three")
+        XCTAssertEqual(prose("_one_ __two__"), "one two")
+        XCTAssertEqual(prose("intra*word*emphasis"), "intrawordemphasis")
+    }
+
+    /// The rule that keeps a symbol spelled the way the code spells it — and the
+    /// arithmetic that is not markup either.
+    ///
+    /// Underscores *inside* a word are never emphasis (Markdown says so, and it
+    /// is the difference between `some_identifier_name` and `someidentifiername`
+    /// on screen); a pair wrapping a word is, which is why a server that means
+    /// the literal `__init__` sends it fenced or backticked, as they all do.
+    func testUnderscoresInsideWordsAndLoneAsterisksSurvive() {
+        XCTAssertEqual(prose("some_identifier_name and a_b_c"), "some_identifier_name and a_b_c")
+        XCTAssertEqual(prose("width * height"), "width * height")
+        XCTAssertEqual(prose("`__init__` stays"), "__init__ stays")
+    }
+
+    func testHeadingsLoseTheirMarker() {
+        XCTAssertEqual(prose("# Title"), "Title")
+        XCTAssertEqual(prose("### Deeper ###"), "Deeper")
+        XCTAssertEqual(prose("####### not a heading"), "####### not a heading")
+        XCTAssertEqual(prose("#hashtag"), "#hashtag")
+    }
+
+    func testListBulletsKeepABullet() {
+        XCTAssertEqual(prose("- one\n* two\n+ three"), "• one\n• two\n• three")
+        XCTAssertEqual(prose("- one\n  - nested"), "• one\n  • nested")
+    }
+
+    func testOrderedListsKeepTheirNumbers() {
+        XCTAssertEqual(prose("1. first\n2. second"), "1. first\n2. second")
+    }
+
+    func testLinksAndImagesKeepTheirTextAndLoseTheUrl() {
+        XCTAssertEqual(prose("see [the docs](https://example.com/very/long)"), "see the docs")
+        XCTAssertEqual(prose("![a diagram](img.png) follows"), "a diagram follows")
+        XCTAssertEqual(prose("a [reference][ref] link"), "a reference link")
+        XCTAssertEqual(prose("emphasised [*link*](u)"), "emphasised link")
+    }
+
+    /// A rule leaves the blank line it was standing in — the separation it meant
+    /// survives, the glyph does not, and the blank-line collapse keeps a run of
+    /// rules from opening a hole.
+    func testHorizontalRulesAreDropped() {
+        XCTAssertEqual(prose("above\n\n---\n\nbelow"), "above\n\nbelow")
+        XCTAssertEqual(prose("above\n***\nbelow"), "above\n\nbelow")
+        XCTAssertEqual(prose("above\n___\nbelow"), "above\n\nbelow")
+        XCTAssertEqual(prose("above\n- - -\nbelow"), "above\n\nbelow")
+        XCTAssertNil(markdown("---"))
+    }
+
+    func testStrayHtmlTagsAreDropped() {
+        XCTAssertEqual(prose("a <b>bold</b> word"), "a bold word")
+        XCTAssertEqual(prose("line<br/>break"), "linebreak")
+        XCTAssertEqual(prose("<p class=\"x\">text</p>"), "text")
+    }
+
+    /// The `<` that is not a tag: generics and comparisons read as themselves.
+    func testAngleBracketsThatAreNotTagsSurvive() {
+        XCTAssertEqual(prose("Dictionary<String, Int> when a < b"), "Dictionary<String, Int> when a < b")
+        XCTAssertEqual(prose("<https://example.com>"), "<https://example.com>")
+    }
+
+    func testEscapedPunctuationLosesItsBackslash() {
+        XCTAssertEqual(prose("a \\* b and \\_c\\_"), "a * b and _c_")
+    }
+
+    func testRunsOfBlankLinesCollapseAndEdgeWhitespaceGoes() {
+        XCTAssertEqual(prose("\n\n  one   \n\n\n\n   two\n  \n"), "one\n\n   two")
+    }
+
+    // MARK: - Emptiness
+
+    func testEmptinessInEveryShapeIsNoContentAtAll() {
+        XCTAssertNil(content([]))
+        XCTAssertNil(content([.markup(kind: .markdown, value: "")]))
+        XCTAssertNil(content([.markup(kind: .plaintext, value: "   \n\t\n  ")]))
+        XCTAssertNil(content([.code(language: "swift", value: "")]))
+        XCTAssertNil(content([.code(language: "swift", value: "\n  \n")]))
+        XCTAssertNil(markdown("**  **"))
+        XCTAssertNil(markdown("<div>\n</div>"))
+    }
+
+    func testAnEmptyElementBesideARealOneIsSimplyDropped() {
+        let content = self.content([
+            .code(language: "swift", value: "  \n "),
+            .markup(kind: .markdown, value: "Real."),
+        ])
+        XCTAssertEqual(content?.segments, [.prose("Real.")])
+    }
+
+    func testTheFailableInitRefusesSegmentsThatCarryNothing() {
+        XCTAssertNil(HoverContent(segments: []))
+        XCTAssertNil(HoverContent(segments: [.prose("   "), .code("\n")]))
+        XCTAssertEqual(
+            HoverContent(segments: [.prose(" "), .prose("kept")])?.segments,
+            [.prose("kept")]
+        )
+    }
+
+    func testAnEmptyHoverResponseIsNoContent() {
+        XCTAssertNil(HoverContent(LSPHoverResponse(elements: [])))
+        XCTAssertNotNil(HoverContent(LSPHoverResponse(elements: [.code(language: "go", value: "func f()")])))
+    }
+
+    // MARK: - Order across elements
+
+    func testMultipleElementsStaySeparateSegmentsInOrder() {
+        let content = self.content([
+            .code(language: "swift", value: "func f()"),
+            .markup(kind: .markdown, value: "Does a thing."),
+            .code(language: nil, value: "f()"),
+        ])
+        XCTAssertEqual(
+            content?.segments,
+            [
+                .code("func f()", language: "swift"),
+                .prose("Does a thing."),
+                .code("f()", language: nil),
+            ]
+        )
+    }
+
+    // MARK: - Truncation
+
+    private func lines(_ count: Int, prefix: String = "line") -> String {
+        (1...count).map { "\(prefix) \($0)" }.joined(separator: "\n")
+    }
+
+    func testContentUnderTheCapIsReturnedUnchanged() {
+        let content = try! XCTUnwrap(markdown(lines(5)))
+        let capped = content.truncated(toLineCount: 10)
+        XCTAssertEqual(capped, content)
+        XCTAssertFalse(capped.isTruncated)
+        XCTAssertEqual(capped.lineCount, 5)
+    }
+
+    func testContentExactlyAtTheCapIsNotTruncated() {
+        let content = try! XCTUnwrap(markdown(lines(4)))
+        XCTAssertFalse(content.truncated(toLineCount: 4).isTruncated)
+    }
+
+    func testContentOverTheCapIsCutAndSaysSo() {
+        let content = try! XCTUnwrap(markdown(lines(10)))
+        let capped = content.truncated(toLineCount: 3)
+        XCTAssertTrue(capped.isTruncated)
+        XCTAssertEqual(capped.lineCount, 3)
+        XCTAssertEqual(capped.segments, [.prose("line 1\nline 2\nline 3")])
+    }
+
+    /// The cap counts lines across the whole answer, and a segment cut in half
+    /// keeps its kind and its language — half a code block is still code.
+    func testTruncationSpansSegmentsAndKeepsTheKindOfThePartialOne() {
+        let content = try! XCTUnwrap(markdown("""
+        one
+        two
+        ```swift
+        func a()
+        func b()
+        func c()
+        ```
+        """))
+        let capped = content.truncated(toLineCount: 4)
+        XCTAssertEqual(
+            capped.segments,
+            [.prose("one\ntwo"), .code("func a()\nfunc b()", language: "swift")]
+        )
+        XCTAssertTrue(capped.isTruncated)
+    }
+
+    func testTruncationDropsWholeSegmentsPastTheCap() {
+        let content = try! XCTUnwrap(markdown("one\ntwo\n```swift\nfunc a()\n```"))
+        let capped = content.truncated(toLineCount: 2)
+        XCTAssertEqual(capped.segments, [.prose("one\ntwo")])
+    }
+
+    /// There is no empty popover, so there is no zero-line cap either.
+    func testACapBelowOneLineStillKeepsALine() {
+        let content = try! XCTUnwrap(markdown(lines(3)))
+        for limit in [0, -1, Int.min] {
+            let capped = content.truncated(toLineCount: limit)
+            XCTAssertEqual(capped.segments, [.prose("line 1")])
+            XCTAssertTrue(capped.isTruncated)
+        }
+    }
+
+    func testTruncationIsIdempotentAtTheSameLimit() {
+        let content = try! XCTUnwrap(markdown(lines(10)))
+        let once = content.truncated(toLineCount: 4)
+        XCTAssertEqual(once.truncated(toLineCount: 4), once)
+    }
+
+    func testTheDefaultCapIsTheDeclaredMaximum() {
+        let content = try! XCTUnwrap(markdown(lines(HoverContent.maximumLineCount + 5)))
+        XCTAssertEqual(content.truncated().lineCount, HoverContent.maximumLineCount)
+        XCTAssertTrue(content.truncated().isTruncated)
+    }
+
+    // MARK: - The constants
+
+    func testTheFeaturesTwoConstantsLiveHere() {
+        XCTAssertEqual(HoverContent.dwellDelay, 0.35, accuracy: 0.0001)
+        XCTAssertGreaterThan(HoverContent.maximumLineCount, 1)
+    }
+
+    // MARK: - A whole answer, end to end
+
+    /// The shape a real server sends, read once: signature, documentation with
+    /// a heading, a list and a link, then a second fenced block.
+    func testARealisticAnswerReadsAsSegments() {
+        let content = markdown("""
+        ```swift
+        func decode<T>(_ type: T.Type) throws -> T
+        ```
+
+        ---
+
+        # Decode
+
+        Decodes a value of the **given** type from `data`.
+
+        - Throws `DecodingError` on failure
+        - See [the guide](https://example.com/guide)
+
+        <br/>
+
+        ```swift
+        let value = try decode(Thing.self)
+        ```
+        """)
+        XCTAssertEqual(
+            content?.segments,
+            [
+                .code("func decode<T>(_ type: T.Type) throws -> T", language: "swift"),
+                .prose(
+                    """
+                    Decode
+
+                    Decodes a value of the given type from data.
+
+                    • Throws DecodingError on failure
+                    • See the guide
+                    """
+                ),
+                .code("let value = try decode(Thing.self)", language: "swift"),
+            ]
+        )
+    }
+}

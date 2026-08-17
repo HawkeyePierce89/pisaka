@@ -53,11 +53,11 @@ final class LSPSourceGatingTests: XCTestCase {
     /// prefix-only sweep would not have noticed.
     private static let appFilePrefixes = ["LSP", "SourceViewer"]
 
-    /// The same, for Core. `CompletionEditPlan` and `RoutingIntelligenceProvider`
-    /// carry no `LSP` prefix — they are named for what they decide rather than for
-    /// the protocol that made them necessary — but they are the layer's Core
-    /// surface just as much as `LSPSession` is, and the Foundation-only rule is
-    /// about the whole of it.
+    /// The same, for Core. `CompletionEditPlan`, `HoverContent` and
+    /// `RoutingIntelligenceProvider` carry no `LSP` prefix — they are named for
+    /// what they decide rather than for the protocol that made them necessary —
+    /// but they are the layer's Core surface just as much as `LSPSession` is, and
+    /// the Foundation-only rule is about the whole of it.
     ///
     /// `SHA256` is here for a sharper version of the same reason. It exists only
     /// because provisioning must verify what it downloads and Core cannot link
@@ -69,6 +69,7 @@ final class LSPSourceGatingTests: XCTestCase {
     private static let coreFilePrefixes = [
         "LSP",
         "CompletionEditPlan",
+        "HoverContent",
         "RoutingIntelligenceProvider",
         "SHA256",
     ]
@@ -80,6 +81,7 @@ final class LSPSourceGatingTests: XCTestCase {
     /// while checking a shorter and shorter list of files.
     private static let expectedCoreFiles: Set<String> = [
         "CompletionEditPlan.swift",
+        "HoverContent.swift",
         "LSPFraming.swift",
         "LSPGoToolchain.swift",
         "LSPGoplsProvisioning.swift",

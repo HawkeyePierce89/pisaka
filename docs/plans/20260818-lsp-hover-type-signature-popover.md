@@ -125,13 +125,13 @@ capability, an empty answer or a failure all mean "no popover", silently.
 - Create: `Tests/PisakaCoreTests/HoverContentTests.swift`
 - Modify: `Tests/PisakaCoreTests/LSPSourceGatingTests.swift`
 
-- [ ] Introduce the value types the view renders and nothing more: an ordered
+- [x] Introduce the value types the view renders and nothing more: an ordered
       list of segments, each either code (with the language the server named,
       when it named one) or prose, plus a truncation flag. This type must know
       nothing about LSP — it is what a renderer consumes — while the
       *construction* from the decoded hover payload lives with it and is the
       one place markup is interpreted.
-- [ ] Implement the normalization as pure logic: fenced code blocks become code
+- [x] Implement the normalization as pure logic: fenced code blocks become code
       segments (the info string becomes the language); a `MarkedString` with a
       language is a code segment whole; prose is degraded rather than shown raw
       — inline code loses its backticks, emphasis/strong markers are dropped,
@@ -139,23 +139,23 @@ capability, an empty answer or a failure all mean "no popover", silently.
       keep their text/alt and lose the URL, horizontal rules and stray HTML
       tags are dropped; runs of blank lines collapse; leading/trailing
       whitespace goes.
-- [ ] Make emptiness a first-class answer: content that normalizes to nothing,
+- [x] Make emptiness a first-class answer: content that normalizes to nothing,
       or to whitespace only, is `nil` — there is no such thing as an empty
       popover. Multiple `MarkedString` elements stay separate segments in the
       order the server sent them.
-- [ ] Own the two constants the feature is specified by, here rather than in
+- [x] Own the two constants the feature is specified by, here rather than in
       the view: the dwell delay (0.35 s — one constant, no scattered literals)
       and the maximum rendered line count, with a pure `truncated(...)` that
       caps the segments and reports that it did.
-- [ ] Add the new file to `LSPSourceGatingTests`' Core prefix sweep and its
+- [x] Add the new file to `LSPSourceGatingTests`' Core prefix sweep and its
       expected-file list, the way `CompletionEditPlan` and
       `RoutingIntelligenceProvider` are listed — it is this layer's Core
       surface even without an `LSP` prefix, and the Foundation-only rule must
       cover it.
-- [ ] Write tests for every rule above, each degraded construct, the
+- [x] Write tests for every rule above, each degraded construct, the
       empty/whitespace-only cases, order preservation, and truncation (both
       under and over the cap).
-- [ ] Run `swift test` — must pass before Task 3.
+- [x] Run `swift test` — must pass before Task 3.
 
 ### Task 3: Ask through the seam, answer only when certain
 
