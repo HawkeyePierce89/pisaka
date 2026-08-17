@@ -320,13 +320,21 @@ surfaces the user lives in genuinely proportional.
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] `swift test` — full suite green
-- [ ] `xcodegen generate` (only if `project.yml` changed; it should not have)
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build` — green
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build` — green
-- [ ] Confirm by diff that no file under `Sources/Pisaka/iOS/` was modified and
-      that no new Core type is referenced from iOS code — no behavior change on iOS
-- [ ] Confirm `PisakaCore` still imports Foundation only
+- [x] `swift test` — full suite green (2903 tests, 0 failures)
+- [x] `xcodegen generate` — not needed: `git diff master...HEAD -- project.yml`
+      is empty, so the committed `Pisaka.xcodeproj` is still current
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build` — **BUILD SUCCEEDED**
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build` — **BUILD SUCCEEDED**
+- [x] Confirmed by diff: `git diff --name-only master...HEAD -- Sources/Pisaka/iOS/`
+      is empty, and no `ZoomZone`/`ZoomScaleRule`/`ZoomGestureAccumulator`/
+      `InterfaceMetrics`/`InterfaceTextStyle`/`ZoomSurface`/`terminalFontSize`/
+      `interfaceScale` reference exists anywhere under `Sources/Pisaka/iOS/` —
+      no behavior change on iOS
+- [x] Confirmed: every one of the four new Core files imports Foundation only.
+      The single non-Foundation import in `Sources/PisakaCore/` remains
+      `MinimapGeometry.swift`'s pre-existing `import CoreGraphics`, unchanged by
+      this branch — no Neon/SwiftTreeSitter/SwiftTerm/libgit2/AppKit/UIKit/
+      CoreServices import was added
 
 ## Post-Completion (owed manual verification, performed by the user)
 
