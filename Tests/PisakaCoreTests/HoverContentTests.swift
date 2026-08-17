@@ -769,4 +769,88 @@ final class HoverContentTests: XCTestCase {
             ]
         )
     }
+
+    // MARK: The caps run before the interpreter
+
+    /// A line longer than the character cap is cut *before* `HoverMarkup` reads
+    /// it, so the superlinear inline pass can never walk an unbounded line. The
+    /// pathological shape — an opener that never closes — used to cost eighteen
+    /// seconds for eighty kilobytes; a cap after the parse would have paid it.
+    func testUnclosedLinkOpenersAreClippedBeforeInterpretation() {
+        let markdown = String(repeating: "[a](", count: 20_000)
+        let start = Date()
+        let content = HoverContent(hoverElements: [.markup(kind: .markdown, value: markdown)])
+        let elapsed = Date().timeIntervalSince(start)
+        XCTAssertEqual(content?.isTruncated, true)
+        XCTAssertLessThanOrEqual(
+            content?.segments.first?.text.count ?? .max,
+            HoverContent.maximumLineLength
+        )
+        XCTAssertLessThan(elapsed, 2)
+    }
+
+    /// The same guard on the byte cap's side: one very long line of ordinary
+    /// text reaches the interpreter already bounded.
+    func testALongLineIsBoundedBeforeInterpretationAndMarkedTruncated() {
+        let markdown = String(repeating: "a", count: HoverContent.maximumLineLength + 500)
+        let content = HoverContent(hoverElements: [.markup(kind: .markdown, value: markdown)])
+        XCTAssertEqual(content?.segments.count, 1)
+        XCTAssertEqual(content?.segments.first?.text.count, HoverContent.maximumLineLength)
+        XCTAssertEqual(content?.isTruncated, true)
+    }
+
+    /// Clipping before the parse must not change an answer that fits: a short
+    /// element is interpreted exactly as before and is not marked truncated.
+    func testClippingBeforeInterpretationLeavesOrdinaryAnswersAlone() {
+        let content = HoverContent(hoverElements: [
+            .markup(kind: .markdown, value: "See [the guide](https://example.com) for `Box<T>`.")
+        ])
+        XCTAssertEqual(content?.segments, [.prose("See the guide for Box<T>.")])
+        XCTAssertEqual(content?.isTruncated, false)
+    }
+
+    /// A label degrades by recursion, so nesting is stack depth the *server*
+    /// chooses. Past the nesting bound the bracket is text — the same answer an
+    /// unmatched one gets — and nothing overflows.
+    func testDeeplyNestedLabelsDoNotRecurseWithoutBound() {
+        // Short enough that the length cap alone would not save this: the depth
+        // bound is what stops the recursion.
+        let depth = 300
+        let markdown = String(repeating: "[", count: depth)
+            + "x"
+            + String(repeating: "](u)", count: depth)
+        XCTAssertLessThan(markdown.count, HoverContent.maximumLineLength)
+        let content = HoverContent(hoverElements: [.markup(kind: .markdown, value: markdown)])
+        // It survives, it is bounded, and the label it was nesting is still text.
+        XCTAssertNotNil(content)
+        XCTAssertLessThanOrEqual(
+            content?.segments.first?.text.count ?? .max,
+            HoverContent.maximumLineLength
+        )
+        XCTAssertEqual(content?.segments.first?.text.contains("x"), true)
+    }
+
+    /// The same shape run where the recursion used to overflow: on a
+    /// cooperative-pool thread, which is where `LSPIntelligenceProvider` reads a
+    /// hover answer and whose stack is a fraction of the main thread's.
+    func testDeeplyNestedLabelsSurviveOffTheMainThread() async {
+        let depth = 5_000
+        let markdown = String(repeating: "[", count: depth)
+            + "x"
+            + String(repeating: "](u)", count: depth)
+        let lineCount = await Task.detached {
+            HoverContent(hoverElements: [.markup(kind: .markdown, value: markdown)])?.lineCount
+        }.value
+        XCTAssertEqual(lineCount, 1)
+    }
+
+    /// Nesting the reader *does* follow is unaffected by the bound: a label
+    /// inside a label is still degraded, not left as markup.
+    func testNestingWithinTheBoundIsStillDegraded() {
+        let content = HoverContent(hoverElements: [
+            .markup(kind: .markdown, value: "[an [inner](https://b) label](https://a)")
+        ])
+        XCTAssertEqual(content?.segments, [.prose("an inner label")])
+    }
+
 }

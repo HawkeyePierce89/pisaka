@@ -1641,6 +1641,13 @@ struct CodeEditorView: NSViewRepresentable {
         /// paints them the first time, since the view has no layout yet when
         /// `makeNSView` seeds the scan.
         @objc private func syncableFrameChanged() {
+            // Same reasoning as the scroll above, and the same reasoning as the
+            // font change: a reflow moves the text out from under a popover
+            // anchored in screen coordinates. Unlike a scroll, this one can
+            // happen with the pointer perfectly still — a window resized from
+            // the keyboard, the bottom panel toggled, the sidebar dragged — so
+            // the next mouse-moved event cannot be relied on to clean it up.
+            hover.dismiss()
             refreshGeometry()
             bracketHighlight.refreshVisible()
             searchController.refreshVisibleHighlight()

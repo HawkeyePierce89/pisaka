@@ -562,7 +562,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     exists to catch. `syncHover(codeFontSize:metrics:)` forwards both on every
     `updateNSView`, cheaply and unconditionally, because the controller only stores
     them and they are read when the *next* answer is drawn.
-    Five of the popover's dismissal triggers are observations this file already
+    Six of the popover's dismissal triggers are observations this file already
     owned, and each is dismissed at the existing call site rather than by a second
     observer: the text storage's `didProcessEditing` (any edit — programmatic ones
     included, which is why it is the storage's notification and not
@@ -570,16 +570,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `boundsDidChangeNotification` (a scroll moves the text out from under a
     popover anchored in *screen* coordinates — reusing the observation the minimap
     already installs, because two observers of one notification eventually
-    disagree about what a scroll is), the buffer-swap branch of `updateNSView`,
+    disagree about what a scroll is), its `frameDidChangeNotification`
+    (`syncableFrameChanged`), the buffer-swap branch of `updateNSView`,
     which invalidates a popover describing an offset in the text it just replaced,
     and the **font-change branch of `updateNSView`**, which is a reflow of the same
     kind: the anchored line moves and the popover's code is drawn at the old size.
-    That last one is the only dismissal the pointer cannot stand in for — the
+    The last two are the dismissals the pointer cannot stand in for — the
     "moving the pointer an inch takes it down anyway" argument that lets
     `syncHover(codeFontSize:metrics:)` merely *store* its two values fails for
     ⌘+/⌘−, which involves no mouse movement at all, and for ⌘-scroll, whose event
     `ZoomController`'s monitor consumes so the clip view never posts a bounds
-    change.
+    change — and it fails identically for a *frame* change, which is a reflow with
+    the pointer perfectly still: a window resized from the keyboard or the zoom
+    button, the bottom panel toggled, the sidebar dragged. Frame and bounds are
+    two notifications rather than one because they are two different questions
+    (the minimap's geometry needs both, and only one of them is a scroll), so the
+    dismissal is stated on both.
     `teardown` calls `hover.reset()` beside `completion.reset()`, so a closed tab
     cannot leave a floating annotation of its file on screen.
   - `CompletionController.swift` — feeds AppKit's built-in completion popup from

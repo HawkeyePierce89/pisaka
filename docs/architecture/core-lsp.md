@@ -915,6 +915,26 @@ document, together with the limits they carry.
     bug this replaced: a cap applied for the first time in `truncated` still has to
     *find* the end of the megabyte line before it can drop it, on the main thread,
     from a mouse-moved event — bounded allocation over unbounded work.
+    **The same argument reaches one level further back, and that is where the cap
+    is actually applied: to the server's string, before `HoverMarkup` interprets
+    it.** The checking initializer is off the main thread, but it sees the parse's
+    *output*, and the parse is the pass that costs the size of the answer — worse
+    than linearly. `HoverMarkup.inline(_:)` rescans to the end of the line from
+    every `[` that never finds a target, so a line of unmatched openers is
+    quadratic: 80 KB of `[a](` spent eighteen seconds to produce two thousand
+    characters that the cap downstream then threw away, on the cooperative pool,
+    with no suspension point for `RoutingIntelligenceProvider`'s 1.5 s budget to
+    cancel at — the caller gives up and the thread keeps spinning. So
+    `init?(hoverElements:)` runs `clippedLines(of:)` on each element first and
+    passes the resulting `isTruncated` down; the checking initializer's own clip
+    stays (it is the rule for every other caller) and is simply a no-op on this
+    path. **A label's nesting is bounded for the same reason and separately**: a
+    link label is degraded by calling `inline` on it *recursively*, and the depth
+    is the server's to choose, so a few hundred levels of `[x](u)` overflowed a
+    cooperative-pool stack and killed the process — 2.5 KB of input, well inside
+    every length cap. Past `maximumLabelNesting` (16, past anything a hover answer
+    writes) the `[` is written literally and the scan moves on one character,
+    which is the answer an unmatched bracket already got: unmatched markup is text.
     **The length cap is itself two caps, in characters and in UTF-8 bytes, and the
     byte one is what closes the guard.** `maximumLineLength` counts `Character`s, a
     `Character` is an extended grapheme cluster, and a cluster has no size limit:

@@ -189,6 +189,28 @@ public struct HoverContent: Equatable, Hashable, Sendable {
     /// the clip fired. Interior blank lines and every line's own indentation stay:
     /// they are the content.
     private static func normalized(_ text: String) -> (text: String, didClip: Bool) {
+        var (lines, didClip) = clippedLines(of: text)
+        let isBlank: (String) -> Bool = {
+            $0.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        while let first = lines.first, isBlank(first) { lines.removeFirst() }
+        while let last = lines.last, isBlank(last) { lines.removeLast() }
+        return (lines.joined(separator: "\n"), didClip)
+    }
+
+    /// `text` split into lines with each one cut to the two length caps, plus
+    /// whether the clip fired anywhere.
+    ///
+    /// Shared by `normalized(_:)` above and by `init?(hoverElements:)`, which
+    /// runs it on the server's answer **before** `HoverMarkup` interprets it —
+    /// and that ordering is the whole reason this is its own function. The cap
+    /// is a hang guard, `HoverMarkup.inline(_:)` is superlinear in a line's
+    /// length (an unmatched `[` rescans to the end of the line, and so does the
+    /// next one, and the next), and a guard applied to the *output* of that pass
+    /// pays in full exactly what it exists to prevent: one 80 KB line of `[a](`
+    /// spent eighteen seconds producing two thousand characters that were then
+    /// thrown away. Clipped here, the interpreter never sees an unbounded line.
+    static func clippedLines(of text: String) -> (lines: [String], didClip: Bool) {
         var lines = HoverMarkup.lines(of: text)
         var didClip = false
         for index in lines.indices {
@@ -197,12 +219,7 @@ public struct HoverContent: Equatable, Hashable, Sendable {
             lines[index] = clip.text
             didClip = true
         }
-        let isBlank: (String) -> Bool = {
-            $0.trimmingCharacters(in: .whitespaces).isEmpty
-        }
-        while let first = lines.first, isBlank(first) { lines.removeFirst() }
-        while let last = lines.last, isBlank(last) { lines.removeLast() }
-        return (lines.joined(separator: "\n"), didClip)
+        return (lines, didClip)
     }
 
     /// One line cut at whichever of the two length caps it reaches first, plus
@@ -376,8 +393,25 @@ extension HoverContent {
 
     /// The same, from the elements alone — what the tests drive and what a
     /// caller holding a decoded payload piecemeal would use.
+    /// **Each element is clipped to the two length caps before it is
+    /// interpreted** — see `clippedLines(of:)`. The caps are a hang guard, and a
+    /// hang guard downstream of the parse guards nothing: the parse is the pass
+    /// that costs the size of the server's answer.
     public init?(hoverElements: [LSPHoverElement]) {
-        self.init(segments: hoverElements.flatMap(HoverMarkup.segments(of:)))
+        var didClip = false
+        let bounded = hoverElements.map { element -> LSPHoverElement in
+            let clip = HoverContent.clippedLines(of: element.value)
+            if clip.didClip { didClip = true }
+            let value = clip.lines.joined(separator: "\n")
+            switch element {
+            case .markup(let kind, _): return .markup(kind: kind, value: value)
+            case .code(let language, _): return .code(language: language, value: value)
+            }
+        }
+        self.init(
+            segments: bounded.flatMap(HoverMarkup.segments(of:)),
+            isTruncated: didClip
+        )
     }
 }
 
@@ -566,7 +600,22 @@ enum HoverMarkup {
     /// that opens emphasis is markup only if something later closes it, so its
     /// piece is written empty and rewritten with the literal delimiters if the
     /// line ends with it still unmatched — see the loop at the bottom.
-    static func inline(_ line: String) -> String {
+    static func inline(_ line: String) -> String { inline(line, depth: 0) }
+
+    /// How deeply a link or image label may nest before its brackets are read as
+    /// text.
+    ///
+    /// A label is degraded by calling this function on it, so nesting is
+    /// *recursion* — and the depth is the server's to choose, not this file's.
+    /// Without a bound, `[x](u)` nested a few hundred deep overflows the stack
+    /// and kills the process, and it does so on a cooperative-pool thread whose
+    /// stack is far smaller than the main thread's. Sixteen is past anything a
+    /// hover answer writes and nowhere near what costs anything; past it the `[`
+    /// is written literally and the scan moves on one character, which is the
+    /// same "unmatched markup is text" answer `skippingLinkTarget` gives.
+    private static let maximumLabelNesting = 16
+
+    private static func inline(_ line: String, depth: Int) -> String {
         let characters = Array(line)
         var pieces: [String] = []
         /// The piece plain text is currently accumulating into, or `nil` when the
@@ -614,16 +663,18 @@ enum HoverMarkup {
             }
 
             if character == "!", index + 1 < characters.count, characters[index + 1] == "[",
+               depth < maximumLabelNesting,
                let label = bracketedLabel(in: characters, openingAt: index + 1),
                let end = skippingLinkTarget(in: characters, from: label.end) {
-                write(inline(label.text))
+                write(inline(label.text, depth: depth + 1))
                 index = end
                 continue
             }
 
-            if character == "[", let label = bracketedLabel(in: characters, openingAt: index),
+            if character == "[", depth < maximumLabelNesting,
+               let label = bracketedLabel(in: characters, openingAt: index),
                let end = skippingLinkTarget(in: characters, from: label.end) {
-                write(inline(label.text))
+                write(inline(label.text, depth: depth + 1))
                 index = end
                 continue
             }
