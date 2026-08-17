@@ -374,15 +374,39 @@ Every SwiftUI root that receives the one shared `SettingsStore` applies
 scene (applied by `PisakaApp` at the scene rather than inside `SettingsView`, so
 it reaches the settings form itself), and each `NSHostingController` root —
 `DiffWindowContent`, `SourceViewerContent`, `ProjectSearchView`, `MergeView` and
-`LeetCodeBrowserView`. Sheets inherit it from the root that presents them (the
-commit dialog, the LeetCode login and open-problem sheets), so they are not
-listed separately.
+`LeetCodeBrowserView`.
+
+**A sheet inherits the environment of the view its `.sheet(…)` is attached to —
+which is not the environment that view's *body* publishes.** Get that backwards
+and the sheet renders at 100% over a window at 200%, which is exactly the
+"island" the sweep exists to prevent, and it looks correct at the resting scale
+where it would be reviewed. Three cases, and only the first needs nothing:
+
+- **Inherits.** The commit dialog: `ContentView` attaches `.sheet` from its own
+  body *before* `.interfaceScaled(settings)`, so the injection is genuinely its
+  ancestor. Same for the Preferences sign-in sheet (the scene applies the scale
+  around `SettingsView`) and for the sign-in sheet nested inside the Open
+  Problem sheet.
+- **Attached above the write.** `PisakaApp` presents the two LeetCode sheets at
+  the scene, around `ContentView`, while `ContentView` injects the scale inside
+  its own body. An environment value a child publishes cannot travel up to a
+  presentation the parent attached — so `PisakaApp` applies
+  `.interfaceScaled(settings)` to the sheet's content.
+- **Attached after the write.** `LeetCodeBrowserView` applies the scale and
+  *then* `.sheet(isPresented:)`; a later modifier in a chain wraps the
+  environment write rather than descending from it, so that sheet's content
+  carries its own injection too.
+
+Those two extra call sites are pinned by
+`ZoomSourceGatingTests.testTheSheetPresentersInjectTheScaleOnTheirContent`, by
+set equality over the files with more than one injection — the roots test counts
+*files* and cannot see a missing second call.
 
 ### What `swift test` can still see
 
 The whole app half of this feature is view code and therefore untested by
-convention — but three of its rules are exactly the kind `swift test` *can* pin
-statically, in the `LSPSourceGatingTests`/`SparkleSourceGatingTests` mould.
+convention — but several of its rules are exactly the kind `swift test` *can*
+pin statically, in the `LSPSourceGatingTests`/`SparkleSourceGatingTests` mould.
 `ZoomSourceGatingTests` reads `Sources/` through `#filePath` (reusing that
 suite's Swift scanner, so **comments and string literals are stripped** — every
 file involved documents its own zoom rules at length, and a raw `contains` would
@@ -397,6 +421,10 @@ pass while the code it describes was deleted) and asserts:
     above**, by set equality in both directions. A new `NSHostingController`
     root that forgets it silently draws its whole window at the resting size —
     no error, no warning.
+  - **The set of files injecting it a second time, on a presentation's own
+    content, equals `{PisakaApp, LeetCodeBrowserView}`** — the two sheets the
+    check above cannot see, because it counts files and both of those files
+    already appear in it for their roots.
   - **The set of files declaring a zoom surface** (by conformance or by
     `ZoomSurfaceMarker`) equals the list under `ZoomSurface.swift`. This is the
     rule that has already gone wrong once, and the sibling trap makes it silent.

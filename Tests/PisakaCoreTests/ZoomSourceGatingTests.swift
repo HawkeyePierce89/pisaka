@@ -86,10 +86,15 @@ final class ZoomSourceGatingTests: XCTestCase {
     /// Every file that *applies* `.interfaceScaled(...)`: each SwiftUI root that
     /// receives the shared `SettingsStore` — the main window, the `Settings` scene
     /// (applied by `PisakaApp` at the scene, so it reaches the settings form
-    /// itself) and the five `NSHostingController` roots. Sheets inherit it from
-    /// whatever presents them and are deliberately absent, and so is
-    /// `InterfaceScaleEnvironment.swift`, which *declares* the modifier rather
-    /// than using it.
+    /// itself) and the five `NSHostingController` roots.
+    /// `InterfaceScaleEnvironment.swift` is deliberately absent: it *declares*
+    /// the modifier rather than using it.
+    ///
+    /// Most sheets inherit the scale and need no entry of their own — but only
+    /// the ones a root presents from *inside* the body that publishes it. The
+    /// two that cannot are covered by
+    /// `testTheSheetPresentersInjectTheScaleOnTheirContent` below; this test
+    /// cannot see them, because it counts files rather than call sites.
     ///
     /// Asserted by **set equality**, in both directions: a new root that forgets
     /// the modifier never appears here, and a root deleted without updating this
@@ -111,6 +116,47 @@ final class ZoomSourceGatingTests: XCTestCase {
             if code.contains(".interfaceScaled(") { found.insert(url.lastPathComponent) }
         }
         XCTAssertEqual(found, Self.interfaceScaledRoots)
+    }
+
+    /// The files that inject the scale **more than once** — at their root *and*
+    /// again on the content of a presentation that cannot inherit it.
+    ///
+    /// A sheet inherits the environment of the view its `.sheet(…)` is attached
+    /// to, which is not the same thing as the environment that view's *body*
+    /// publishes. Two presentations sit outside the write and had rendered at
+    /// 100% over a window at 200%:
+    ///
+    /// - `PisakaApp` attaches the LeetCode sheets at the scene, around
+    ///   `ContentView`, while `ContentView` injects the scale inside its own
+    ///   body — below the presentation, so unreachable from it. (The commit
+    ///   dialog is the near-miss that makes this look fine: `ContentView`
+    ///   presents it from that same body *before* the injection, so there the
+    ///   injection really is an ancestor.)
+    /// - `LeetCodeBrowserView` attaches its sign-in sheet *after*
+    ///   `.interfaceScaled(settings)` in the same chain, and a later modifier
+    ///   wraps the environment write rather than descending from it.
+    ///
+    /// Asserted by set equality, like the roots above, and for the same reason
+    /// in both directions: deleting either injection drops that file back to one
+    /// call site and fails here, and a new multi-injection file has to be
+    /// explained rather than counted.
+    private static let interfaceScaledSheetPresenters: Set<String> = [
+        "PisakaApp.swift",
+        "LeetCodeBrowserView.swift",
+    ]
+
+    func testTheSheetPresentersInjectTheScaleOnTheirContent() throws {
+        var found: Set<String> = []
+        for url in try Self.swiftSources() {
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            if code.components(separatedBy: ".interfaceScaled(").count - 1 > 1 {
+                found.insert(url.lastPathComponent)
+            }
+        }
+        XCTAssertEqual(
+            found, Self.interfaceScaledSheetPresenters,
+            "a presentation attached outside the environment write must inject the scale on its own content"
+        )
     }
 
     // MARK: - Every zoom surface is declared

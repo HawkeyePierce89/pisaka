@@ -55,10 +55,17 @@ struct LeetCodeLoginView: View {
     /// cannot reach a presenter that has already torn the sheet down.
     @State private var didCapture = false
 
-    /// The interface zone's metrics, inherited from whichever surface presented
+    /// The interface zone's metrics, arriving from whichever surface presented
     /// this sheet — the main window, the LeetCode Preferences tab, the browser
-    /// window or the Open Problem sheet. All four are scaled roots, so the sheet
-    /// arrives scaled from any of them with nothing threaded.
+    /// window or the Open Problem sheet — with nothing threaded through the
+    /// initializer.
+    ///
+    /// Two of those four *inherit* it, because the injection is an ancestor of
+    /// the body that attaches the presentation (the Preferences tab, scaled by
+    /// `PisakaApp` at the `Settings` scene; the Open Problem sheet, itself
+    /// scaled on its content). The other two inject it on this view directly,
+    /// because there the presentation is attached above or after the scale —
+    /// see the comments at both call sites.
     @Environment(\.interfaceMetrics) private var metrics
 
     var body: some View {

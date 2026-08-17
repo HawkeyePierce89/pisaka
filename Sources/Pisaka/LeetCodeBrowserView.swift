@@ -136,6 +136,13 @@ struct LeetCodeBrowserView: View {
                 // is where every other refusal in this flow is already reported.
                 onFailure: { message = $0.errorDescription }
             )
+            // Injected on the content, because this presentation is attached
+            // *after* the root's own `.interfaceScaled(settings)` above and so
+            // sits outside it: a modifier applied later in a chain wraps the
+            // environment write rather than descending from it. Scaled here, the
+            // sign-in sheet matches the window it is raised over instead of
+            // arriving at 100% on top of a browser at 200%.
+            .interfaceScaled(settings)
         }
     }
 

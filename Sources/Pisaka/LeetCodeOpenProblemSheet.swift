@@ -72,8 +72,13 @@ struct LeetCodeOpenProblemSheet: View {
     /// the "one click instead of a trip to the menu bar" the row promises.
     @State private var isSigningIn = false
 
-    /// The interface zone's metrics, inherited from `ContentView`'s root through
-    /// the presentation slot that raises this sheet.
+    /// The interface zone's metrics, injected by `PisakaApp` on this sheet's
+    /// *content*.
+    ///
+    /// Not inherited from `ContentView`'s root: this sheet is attached out at the
+    /// scene, above the body that publishes the scale, and a presentation cannot
+    /// read an environment value written below it. The nested sign-in sheet at
+    /// `isSigningIn` needs nothing of its own — the injection is its ancestor.
     @Environment(\.interfaceMetrics) private var metrics
 
     private var parsed: LeetCodeProblemInput? { LeetCodeProblemInput.parse(text) }

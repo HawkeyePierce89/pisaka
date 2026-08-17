@@ -721,37 +721,52 @@ struct PisakaApp: App {
             // parameter for them and no reason to observe `leetCode` — which is
             // the whole point of the model being a non-observed `let` above.
             .sheet(item: $leetCodeSheet) { sheet in
-                switch sheet {
-                case .signIn:
-                    LeetCodeLoginView(
-                        model: leetCode,
-                        onDismiss: { leetCodeSheet = nil },
-                        // The sheet is already gone when the confirmation lands
-                        // and this window renders `lastError` nowhere, so an
-                        // alert is the only thing between a rejected session and
-                        // a Sign In that appears to do nothing at all.
-                        onFailure: {
-                            PlatformAlert.presentMessage(
-                                title: "Could Not Sign In to LeetCode",
-                                message: $0.errorDescription ?? "LeetCode rejected the session."
-                            )
-                        }
-                    )
-                case .openProblem:
-                    // No sign-in hook: the open sheet presents the login web view
-                    // over *itself*, so the problem the user typed is still there
-                    // when they come back. Swapping this slot from `.openProblem`
-                    // to `.signIn` instead took the open sheet down and never
-                    // brought it back.
-                    LeetCodeOpenProblemSheet(
-                        model: leetCode,
-                        settings: settings,
-                        onOpen: { input, language in
-                            await openLeetCodeProblem(input: input, language: language)
-                        },
-                        onCancel: { leetCodeSheet = nil }
-                    )
+                // The interface scale, injected on the sheet's *content*.
+                //
+                // It cannot be inherited here, and that is the whole reason this
+                // is not a mistake to "clean up": `ContentView` applies
+                // `.interfaceScaled(settings)` inside its own body, so the write
+                // lives below this modifier rather than above it — an environment
+                // value a child's body publishes cannot reach a presentation the
+                // parent attached around that child. The commit dialog looks like
+                // a counter-example and is not: `ContentView` presents it from
+                // the same body, *before* the injection, so the injection is its
+                // ancestor. These two sheets are attached out here (see below),
+                // so they had rendered at 100% over a window at 200%.
+                Group {
+                    switch sheet {
+                    case .signIn:
+                        LeetCodeLoginView(
+                            model: leetCode,
+                            onDismiss: { leetCodeSheet = nil },
+                            // The sheet is already gone when the confirmation lands
+                            // and this window renders `lastError` nowhere, so an
+                            // alert is the only thing between a rejected session and
+                            // a Sign In that appears to do nothing at all.
+                            onFailure: {
+                                PlatformAlert.presentMessage(
+                                    title: "Could Not Sign In to LeetCode",
+                                    message: $0.errorDescription ?? "LeetCode rejected the session."
+                                )
+                            }
+                        )
+                    case .openProblem:
+                        // No sign-in hook: the open sheet presents the login web view
+                        // over *itself*, so the problem the user typed is still there
+                        // when they come back. Swapping this slot from `.openProblem`
+                        // to `.signIn` instead took the open sheet down and never
+                        // brought it back.
+                        LeetCodeOpenProblemSheet(
+                            model: leetCode,
+                            settings: settings,
+                            onOpen: { input, language in
+                                await openLeetCodeProblem(input: input, language: language)
+                            },
+                            onCancel: { leetCodeSheet = nil }
+                        )
+                    }
                 }
+                .interfaceScaled(settings)
             }
             .onAppear {
                 // Start once. `onSaved` reuses `refreshLocalChanges()` so an
