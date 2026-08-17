@@ -210,8 +210,14 @@ items, and applies the three scales to views.
     scale), the `minWidth/idealWidth/maxWidth` triples the sweep scales
     independently keeping their ordering, the commit sheet's minimum width still
     holding both `HSplitView` panes' minimums, the Acknowledgements detail pane's
-    remainder never shrinking as the scale grows, and the license pane's resting
-    size being `NSFont.smallSystemFontSize` (11).
+    remainder never shrinking as the scale grows, and the two values the license
+    pane takes as *numbers* rather than through SwiftUI — it is a TextKit view,
+    so its font and its `textContainerInset` are set on it and nothing else in
+    the sweep reaches them: the size rests at `NSFont.smallSystemFontSize` (11)
+    and the margin at 12, the same base as the header padding directly above it,
+    and both must be strictly larger at the top of the range. A margin left
+    behind while the text grows is the same island the sweep exists to remove,
+    just a quieter one.
 
 ## The macOS app half
 

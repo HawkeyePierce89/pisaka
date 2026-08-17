@@ -41,8 +41,20 @@ struct LicenseTextView: View {
     /// property of the platform, not of this parameter.
     var pointSize: Double?
 
+    /// The margin between the pane's edge and the text, or `nil` for the
+    /// platform's own — 12 on macOS, 16 on iOS, the values this pane used before
+    /// the interface zoom zone existed.
+    ///
+    /// Separate from `pointSize` because TextKit takes the two through different
+    /// properties, and scaled for the same reason the size is: the header
+    /// directly above this pane pads by `metrics.scaled(12)`, so a fixed inset
+    /// here would put the license text out of line with its own header at
+    /// anything but 100%, and leave the pane's internal margin as the one
+    /// unscaled thing in a window scaled to 200%.
+    var inset: Double?
+
     var body: some View {
-        Representable(text: text, pointSize: pointSize)
+        Representable(text: text, pointSize: pointSize, inset: inset)
     }
 }
 
@@ -53,11 +65,19 @@ extension LicenseTextView {
     fileprivate struct Representable: NSViewRepresentable {
         let text: String
         let pointSize: Double?
+        let inset: Double?
 
         /// The size to draw at: the interface zone's, or the one this pane used
         /// before there was a zone.
         private var resolvedPointSize: CGFloat {
             pointSize.map { CGFloat($0) } ?? NSFont.smallSystemFontSize
+        }
+
+        /// The margin to draw with: the interface zone's, or the 12 this pane
+        /// used before there was a zone.
+        private var resolvedInset: NSSize {
+            let value = inset.map { CGFloat($0) } ?? 12
+            return NSSize(width: value, height: value)
         }
 
         func makeNSView(context: Context) -> NSScrollView {
@@ -69,7 +89,7 @@ extension LicenseTextView {
             textView.isEditable = false
             textView.isSelectable = true
             textView.drawsBackground = false
-            textView.textContainerInset = NSSize(width: 12, height: 12)
+            textView.textContainerInset = resolvedInset
             // The pane wraps to its width and scrolls only vertically; a license is
             // hard-wrapped prose, so horizontal scrolling would be noise.
             textView.isHorizontallyResizable = false
@@ -84,6 +104,13 @@ extension LicenseTextView {
 
         func updateNSView(_ scrollView: NSScrollView, context: Context) {
             guard let textView = scrollView.documentView as? NSTextView else { return }
+            // The margin travels with the size — both change on a zoom step and
+            // neither touches the text — and is set before the content guard
+            // below so it lands whether or not the selection also changed.
+            // Guarded so an unrelated re-evaluation does not invalidate layout.
+            if textView.textContainerInset != resolvedInset {
+                textView.textContainerInset = resolvedInset
+            }
             // Selecting a different dependency reuses this view, so guard on the
             // content: re-setting an unchanged string would drop the user's
             // selection and scroll position for nothing.
@@ -122,6 +149,12 @@ extension LicenseTextView {
         /// size stays `UIFont.smallSystemFontSize` and Dynamic Type scales it, as
         /// it always has. Present so the two halves take the same value.
         let pointSize: Double?
+        /// Always `nil` on this platform too — there is no interface zoom zone
+        /// here, so the margin stays the 16 it has always been. Present for the
+        /// same reason `pointSize` is: the two halves take the same value.
+        let inset: Double?
+
+        private var resolvedInset: CGFloat { inset.map { CGFloat($0) } ?? 16 }
 
         func makeUIView(context: Context) -> UITextView {
             let textView = UITextView()
@@ -129,7 +162,9 @@ extension LicenseTextView {
             textView.isSelectable = true
             textView.backgroundColor = .clear
             textView.alwaysBounceVertical = true
-            textView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+            textView.textContainerInset = UIEdgeInsets(
+                top: resolvedInset, left: resolvedInset, bottom: resolvedInset, right: resolvedInset
+            )
             // `UITextView` insets its container by 5pt on each side on top of
             // `textContainerInset`; zeroing it keeps the left margin equal to the
             // header's above it.

@@ -147,8 +147,16 @@ struct AcknowledgementsView: View {
                 // it is an `NSViewRepresentable`, which sets a font on a text view
                 // instead of inheriting one. `.subheadline` because its base is 11
                 // — `NSFont.smallSystemFontSize`, the size the pane drew at before
-                // this — so 100% still renders exactly what it always did.
-                LicenseTextView(text: document.text, pointSize: metrics.font(.subheadline))
+                // this — so 100% still renders exactly what it always did. The
+                // margin is handed down for the same reason and from the same
+                // base as the header's own `padding(metrics.scaled(12))` above,
+                // so the license text stays in line with the header it belongs
+                // to at every step of the range.
+                LicenseTextView(
+                    text: document.text,
+                    pointSize: metrics.font(.subheadline),
+                    inset: metrics.pt(12)
+                )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {

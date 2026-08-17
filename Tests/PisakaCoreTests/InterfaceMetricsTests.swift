@@ -327,6 +327,21 @@ final class InterfaceMetricsTests: XCTestCase {
         )
     }
 
+    /// The pane's *margin* travels the same way and for the same reason: it is a
+    /// `textContainerInset` set on a TextKit view rather than a SwiftUI padding,
+    /// so nothing else in the sweep would move it. Both it and the header
+    /// directly above it are `pt(12)`, which is what keeps the license text in
+    /// line with its own header at every step; what is worth pinning is the two
+    /// ends — 12 at rest, and genuinely larger at the top of the range, so a
+    /// margin left behind at 200% fails here rather than only on screen.
+    func testTheLicensePanesInsetRestsAtTwelveAndGrows() {
+        XCTAssertEqual(InterfaceMetrics.unscaled.pt(12), 12)
+        XCTAssertGreaterThan(
+            InterfaceMetrics(scale: ZoomScaleRule.interfaceScale.maximum).pt(12),
+            12
+        )
+    }
+
     func testTheExtremesActuallyDiffer() {
         // Monotonic but flat would satisfy the property above and change
         // nothing on screen.

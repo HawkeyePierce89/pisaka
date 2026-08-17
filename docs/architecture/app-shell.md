@@ -1365,7 +1365,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     iOS font is scaled through `UIFontMetrics(forTextStyle: .caption1)`, because
     `adjustsFontForContentSizeCategory` only tracks metrics-vended fonts and the
     `.system(.caption, design: .monospaced)` this replaced scaled with Dynamic
-    Type.
+    Type. Two optional parameters — `pointSize` and `inset` — carry the interface
+    zoom zone in, because a TextKit view sets a font and a `textContainerInset`
+    instead of inheriting SwiftUI's: they travel **together**, since a license
+    drawn at 200% inside a 12pt margin is the same island as one pinned at 11pt,
+    and both default to `nil` ≡ the platform's own resting values (11/12 on
+    macOS, `UIFont.smallSystemFontSize`/16 on iOS), so the two screens' resting
+    appearance stays a property of the platform rather than of a parameter. Only
+    the macOS caller passes either. `updateNSView` sets the inset and the font
+    **in place**, before and outside the unchanged-string guard: a zoom step
+    changes both without changing the text, and re-assigning the 66 KB string on
+    every step would drop the selection and scroll position that guard exists to
+    protect.
   - `AcknowledgementsView.swift` — the Preferences "Acknowledgements" tab: an
     `HSplitView` with the dependency list (name + SPDX, `minWidth: 180` /
     `maxWidth: 280`) beside the selected entry's identity (name, SPDX,
