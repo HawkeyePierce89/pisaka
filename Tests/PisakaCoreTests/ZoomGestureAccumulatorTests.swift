@@ -72,6 +72,40 @@ final class ZoomGestureAccumulatorTests: XCTestCase {
         )
     }
 
+    func testAnAcceleratedWheelEventIsWorthAtMostOneStep() {
+        // macOS accelerates the line-based flavor, so one fast spin arrives as a
+        // *single* event reporting several lines. A step is a visible jump in
+        // font size, so the whole flick must still be worth one — otherwise a
+        // ⌘-wheel flick runs the editor to its ceiling in one gesture.
+        for delta in [2.0, 5.0, 10.0, 120.0] {
+            var up = ZoomGestureAccumulator()
+            var down = ZoomGestureAccumulator()
+            XCTAssertEqual(up.accumulate(.scroll(delta: delta, precise: false)), 1, "\(delta)")
+            XCTAssertEqual(down.accumulate(.scroll(delta: -delta, precise: false)), -1, "\(delta)")
+            // Nothing of the surplus is banked either: the next detent is worth
+            // exactly one more step, not two.
+            XCTAssertEqual(up.pending, 0, accuracy: 1e-9, "\(delta)")
+            XCTAssertEqual(up.accumulate(.scroll(delta: thresholds.scrollLines, precise: false)), 1)
+        }
+
+        // Several accelerated events still step once each, so a long spin is a
+        // steady climb rather than a jump.
+        var accumulator = ZoomGestureAccumulator()
+        var steps = 0
+        for _ in 0..<6 { steps += accumulator.accumulate(.scroll(delta: 8, precise: false)) }
+        XCTAssertEqual(steps, 6)
+    }
+
+    func testThePreciseFlavorIsDeliberatelyNotClamped() {
+        // The clamp is the wheel's alone: a trackpad reports its travel, and a
+        // real flick crossing three thresholds must still be worth three steps.
+        var accumulator = ZoomGestureAccumulator()
+        XCTAssertEqual(
+            accumulator.accumulate(.scroll(delta: thresholds.preciseScrollPoints * 3, precise: true)),
+            3
+        )
+    }
+
     // MARK: - Sub-threshold deltas
 
     func testSubThresholdDeltasProduceNothingButAreNotLost() {
@@ -100,6 +134,12 @@ final class ZoomGestureAccumulatorTests: XCTestCase {
         XCTAssertEqual(accumulator.accumulate(.scroll(delta: 0, precise: true)), 0)
         XCTAssertEqual(accumulator.accumulate(.scroll(delta: .nan, precise: true)), 0)
         XCTAssertEqual(accumulator.accumulate(.magnification(.infinity)), 0)
+        // The line flavor too, and it is the one that can go wrong: its clamp
+        // runs through `min`/`max`, which answer their *other* argument for a
+        // `NaN` and would hand back a whole step.
+        XCTAssertEqual(accumulator.accumulate(.scroll(delta: .nan, precise: false)), 0)
+        XCTAssertEqual(accumulator.accumulate(.scroll(delta: .infinity, precise: false)), 0)
+        XCTAssertEqual(accumulator.accumulate(.scroll(delta: 0, precise: false)), 0)
         XCTAssertEqual(accumulator.pending, pending)
 
         XCTAssertEqual(

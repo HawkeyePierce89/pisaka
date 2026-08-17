@@ -43,7 +43,9 @@ public struct ZoomGestureAccumulator: Equatable, Hashable, Sendable {
         public let preciseScrollPoints: Double
         /// Lines of wheel scroll per step. One detent is one line on a typical
         /// mouse, so a notch is a step — which is what makes ⌃-wheel feel like
-        /// the keyboard rather than like a slider.
+        /// the keyboard rather than like a slider. A *single* line-based event
+        /// is capped at one step whatever it reports, because macOS accelerates
+        /// this flavor; see `normalize(_:thresholds:)`.
         public let scrollLines: Double
         /// Magnification per step. Deliberately the smallest of the three: a
         /// pinch's whole comfortable travel is a magnification of about ±1, so
@@ -122,7 +124,24 @@ public struct ZoomGestureAccumulator: Equatable, Hashable, Sendable {
         case .scroll(let delta, let precise):
             let threshold = precise ? thresholds.preciseScrollPoints : thresholds.scrollLines
             guard threshold > 0 else { return 0 }
-            return delta / threshold
+            let fraction = delta / threshold
+            guard !precise else { return fraction }
+            // **A wheel event is worth at most one step, however fast it spun.**
+            // macOS applies scroll *acceleration* to the line-based flavor, so
+            // one quick flick arrives as a single event reporting five or ten
+            // lines rather than as five or ten events reporting one — and a
+            // step here is a visible jump in font size, so an unclamped flick
+            // took the editor from 13pt to its ceiling, or the interface from
+            // 100% to 200%, in one gesture. The precise flavor is deliberately
+            // left unclamped: it reports many small samples per gesture and its
+            // magnitude *is* the travel, which is what makes a trackpad swipe
+            // feel continuous.
+            //
+            // Non-finite first: `min`/`max` answer their other argument for a
+            // `NaN`, which would turn a poisoned delta into a whole step
+            // instead of letting `accumulate` reject it.
+            guard fraction.isFinite else { return fraction }
+            return Swift.max(-1, Swift.min(1, fraction))
         case .magnification(let delta):
             guard thresholds.magnification > 0 else { return 0 }
             return delta / thresholds.magnification

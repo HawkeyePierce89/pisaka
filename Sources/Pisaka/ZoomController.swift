@@ -34,7 +34,8 @@ final class ZoomController {
     private var activeZone: ZoomZone?
 
     /// Whether the momentum that follows the scroll now in progress belongs to a
-    /// zoom, and must therefore be swallowed whatever the modifiers say by then.
+    /// zoom — and therefore, in both directions, whether it is swallowed or
+    /// passed through whatever the modifiers say by then.
     ///
     /// Stated by the *content* events, which are the only ones that carry the
     /// user's intent: a scroll held under ⌘/⌃ claims its momentum, an unmodified
@@ -143,9 +144,20 @@ final class ZoomController {
                 if !ZoomController.isEnd(event.phase) {
                     momentumIsOurs = ZoomController.isZoomModified(event)
                 }
-            } else if momentumIsOurs {
+            } else {
+                // Both halves of the same statement, and both are needed. Ours:
+                // swallowed whatever the flags say by now. **Not ours: passed
+                // through whatever the flags say by now** — reading only the
+                // first half let an unmodified scroll's momentum tail fall into
+                // the gated classification below the moment the user pressed ⌘
+                // or ⌃ during the coast (reaching for ⌘S, or just resting a
+                // hand), and that classification swallows a modified scroll by
+                // design. The coast stopped dead mid-glide and nothing zoomed,
+                // because the momentum guard in `sample(for:)` contributes no
+                // input — the event was simply lost.
+                let ours = momentumIsOurs
                 if ZoomController.isEnd(event.momentumPhase) { momentumIsOurs = false }
-                return nil
+                return ours ? nil : event
             }
         }
 

@@ -125,8 +125,19 @@ items, and applies the three scales to views.
     makes ⌃-wheel feel like the keyboard rather than like a slider) and 0.05
     magnification (deliberately the smallest: a pinch's whole comfortable travel
     is a magnification of about ±1, and a larger threshold would make the gesture
-    reach two or three steps at full stretch and feel dead). Two rules worth
-    stating: **direction reversal drops the remainder** — a gesture that turns
+    reach two or three steps at full stretch and feel dead). **One line-based
+    event is worth at most one step, however many lines it reports**: macOS
+    applies scroll *acceleration* to that flavor, so a quick spin arrives as a
+    single event reporting five or ten lines rather than as five or ten events
+    reporting one, and a step here is a visible jump in font size — unclamped, a
+    ⌘-wheel flick ran the editor to its ceiling in one gesture (the overrides
+    this replaced stepped ±1 per event by construction, so the clamp is what
+    keeps the port a port). The precise flavor is deliberately left unclamped:
+    it reports many small samples per gesture and its magnitude *is* the travel,
+    which is what makes a trackpad swipe feel continuous. The clamp reads
+    finiteness first, because `min`/`max` answer their other argument for a
+    `NaN` and would turn a poisoned delta into a whole step. Two further rules
+    worth stating: **direction reversal drops the remainder** — a gesture that turns
     around starts from zero rather than first paying off the other direction's
     leftover, otherwise the first backwards step arrives either instantly or a
     whole threshold late, which reads as the gesture ignoring the user; steps
@@ -145,7 +156,10 @@ items, and applies the three scales to views.
     delta cannot trap. `ZoomGestureAccumulatorTests` covers N thresholds → N
     steps, many small samples reaching the same count, one large sample producing
     every step at once, sub-threshold deltas producing nothing but not being
-    lost, zero/non-finite input, mixed precise/line/pinch input in one unit,
+    lost, zero/non-finite input (in *both* flavors, since only the line flavor's
+    clamp can turn a `NaN` into a step), the accelerated-wheel clamp in both
+    directions — including that it banks none of the surplus, and that the
+    precise flavor is not clamped — mixed precise/line/pinch input in one unit,
     reset, both reversal rules, degenerate thresholds, and an absurd delta
     *saturating* at `Int.max`/`Int.min` rather than tripping `Int(_:)`'s overflow
     precondition — the one failure in this file that is a crash rather than a
@@ -344,7 +358,14 @@ items, and applies the three scales to views.
     momentum that will follow, an unmodified one disclaims it) and read by the
     momentum events, which are swallowed on the claim alone and clear it on their
     end phase. End phases write nothing: they carry no modifiers and so state no
-    intent. `stepZoomUnderPointer(by:)` and `resetZoomUnderPointer()`
+    intent. **The flag is honoured in both directions**, and the second half is
+    not decoration: a momentum tail the content events *disclaimed* is passed
+    straight through whatever the flags say by then, because otherwise pressing
+    ⌘ or ⌃ during an ordinary inertial scroll (reaching for ⌘S, or just resting
+    a hand) dropped the rest of the tail into the gated classification, which
+    swallows a modified scroll by design — the coast stopped dead mid-glide and
+    nothing zoomed either, since a momentum event contributes no accumulator
+    input. `stepZoomUnderPointer(by:)` and `resetZoomUnderPointer()`
     back the three View-menu items and resolve the zone **at invocation time from
     the pointer**, exactly as a gesture does — a key equivalent fires wherever
     the pointer happens to be, so ⌘= over the terminal grows the terminal even
