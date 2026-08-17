@@ -207,26 +207,26 @@ capability, an empty answer or a failure all mean "no popover", silently.
   `Sources/Pisaka/ContentView.swift`
 - Modify: `Tests/PisakaCoreTests/ZoomSourceGatingTests.swift`
 
-- [ ] Track the pointer over the editor's text view with a tracking area scoped
+- [x] Track the pointer over the editor's text view with a tracking area scoped
       to the visible rect and the key window, and resolve the character
       actually *under* the pointer — not the nearest insertion point, which
       would answer for the last character of a line when the pointer is past
       its end. Ask only when that character belongs to an identifier per
       `IdentifierScanner`, which is also what gives a stable anchor range
       before the server names one.
-- [ ] Add a hover controller in the `CompletionController` mould: one
+- [x] Add a hover controller in the `CompletionController` mould: one
       cancellable dwell task, one monotonic generation token captured
       synchronously before the hop, one panel. A newer pointer position
       supersedes an older request; an answer whose token is stale is dropped
       and never shown. Re-asking is suppressed while the pointer stays inside
       the range the current answer covers.
-- [ ] Dismiss on everything the ticket lists: the pointer leaving the anchor
+- [x] Dismiss on everything the ticket lists: the pointer leaving the anchor
       range or the text view, a scroll (reuse the clip view's bounds-change
       observation the minimap already installs), any text edit, a selection
       change, a tab or file switch, the window resigning key, and teardown.
       Dismissal must be idempotent and must survive a dismissal racing an
       in-flight answer.
-- [ ] Build the panel as a borderless, non-activating `NSPanel` that never
+- [x] Build the panel as a borderless, non-activating `NSPanel` that never
       becomes key and sets `ignoresMouseEvents = true`, positioned near the
       anchor range and flipped to stay on screen. Render code segments in the
       editor's monospaced font at `SettingsStore.fontSize` and prose in the
@@ -235,16 +235,16 @@ capability, an empty answer or a failure all mean "no popover", silently.
       never by naming the raw interface scale). Cap the width, cap the height
       via Core's line cap, and draw the truncation marker when Core says the
       content was cut.
-- [ ] Confirm by construction that nothing here fights the zoom controller:
+- [x] Confirm by construction that nothing here fights the zoom controller:
       hover uses tracking-area mouse-moved events, the zoom monitor takes only
       scroll and pinch, and the panel is not a zoom surface because the pointer
       cannot reach it.
-- [ ] Write tests: extend `ZoomSourceGatingTests` with an assertion (over
+- [x] Write tests: extend `ZoomSourceGatingTests` with an assertion (over
       comment- and literal-stripped source, like its siblings) that the hover
       panel disables mouse events and declares no zoom surface — the rule that
       keeps it chrome, which nothing else can see; and confirm the existing
       zoom and LSP gating suites still pass unchanged by set equality.
-- [ ] Run `swift test` — must pass before Task 5.
+- [x] Run `swift test` — must pass before Task 5.
 
 ### Task 5: Verify acceptance criteria
 

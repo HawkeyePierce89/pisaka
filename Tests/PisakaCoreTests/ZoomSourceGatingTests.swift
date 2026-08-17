@@ -240,6 +240,66 @@ final class ZoomSourceGatingTests: XCTestCase {
         XCTAssertEqual(found, Self.codePaneBuilders)
     }
 
+    // MARK: - The hover popover is chrome, not a surface
+
+    /// The hover popover's whole claim to being chrome is one line of AppKit
+    /// configuration, and nothing else in the repository can see it.
+    ///
+    /// `ZoomSurface.swift` states the rule this rests on — **unreachable ≡
+    /// chrome** — and the popover is the one view in the app that satisfies it by
+    /// *construction* rather than by position: it draws code at the editor's own
+    /// font, floats directly over the text view, and would by every other measure
+    /// be a code surface. What makes it chrome instead is `ignoresMouseEvents`,
+    /// which means the pointer is over the editor even when it looks as though it
+    /// is over the popover — so a zoom aimed there is a zoom of the code, which is
+    /// what the user means.
+    ///
+    /// Delete that one line and everything still compiles, still draws identically
+    /// and still passes `testTheZoomSurfacesAreExactlyTheDocumentedSet` (the panel
+    /// declares no surface either way). What changes is invisible until somebody
+    /// zooms over a popover: the panel becomes a hit-test obstacle standing
+    /// between the pointer and the code, so the walk finds no conforming view and
+    /// the gesture resizes the whole application chrome — and, worse, clicks and
+    /// drag-selection stop reaching the text at all. Hence this assertion, over
+    /// comment- and literal-stripped source like its siblings, since the file
+    /// explains the rule at length in prose a raw `contains` would match.
+    func testTheHoverPanelPassesEveryMouseEventThroughToTheCode() throws {
+        let url = try XCTUnwrap(
+            try Self.swiftSources().first { $0.lastPathComponent == "HoverPanel.swift" },
+            "HoverPanel.swift is gone — the hover popover's chrome rule has no home"
+        )
+        let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+
+        XCTAssertTrue(
+            code.contains("ignoresMouseEvents = true"),
+            "the hover panel must pass mouse events through: it is chrome only because the pointer cannot reach it"
+        )
+        // And it must not take focus either — a popover that can become key steals
+        // the editor's first-responder status mid-typing.
+        XCTAssertTrue(
+            code.contains("override var canBecomeKey: Bool { false }"),
+            "the hover panel must refuse key status"
+        )
+        // The other half of the same rule, stated where the reason for it lives:
+        // an unreachable view declaring a surface would be a candidate the pointer
+        // can never actually be over.
+        for file in ["HoverPanel.swift", "HoverController.swift"] {
+            let url = try XCTUnwrap(
+                try Self.swiftSources().first { $0.lastPathComponent == file },
+                "\(file) is gone — update this test with the feature"
+            )
+            let code = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(url))
+            XCTAssertFalse(
+                LSPSourceGatingTests.containsToken("ZoomSurfaceProviding", in: code),
+                "\(file) declares a zoom surface the pointer can never reach"
+            )
+            XCTAssertFalse(
+                code.contains("ZoomSurfaceMarker(kind:"),
+                "\(file) plants a zoom surface marker the pointer can never reach"
+            )
+        }
+    }
+
     // MARK: - The Preferences stepper shares the zoom grid
 
     func testThePreferencesTerminalStepperReadsItsGridFromTheZoomRule() throws {

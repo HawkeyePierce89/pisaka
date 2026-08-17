@@ -79,6 +79,19 @@ struct CodeEditorView: NSViewRepresentable {
     /// untested by convention). Requiring it makes that a compile error.
     let completionEnabled: Bool
 
+    /// The interface zone's metrics, for the one piece of *chrome* this editor
+    /// owns: the hover popover's prose.
+    ///
+    /// A **plain value beside `fontSize`**, following that property's precedent
+    /// exactly, and undefaulted for its reason too. The two are deliberately
+    /// different zones travelling together: the popover draws code at `fontSize`
+    /// (the code zone, untouched) and prose at these metrics (the interface
+    /// zone), and the raw interface scale is never named here — an
+    /// `NSViewRepresentable` cannot read `@Environment` for an AppKit window it
+    /// creates itself, and multiplying anything inline is the mistake
+    /// `ZoomSourceGatingTests` exists to catch.
+    let interfaceMetrics: InterfaceMetrics
+
     /// The find/replace bar's state. Window-scoped and owned by `PisakaApp` so
     /// the pattern and toggles survive a tab switch; the coordinator's
     /// `EditorSearchController` registers itself as its executor on attach.
@@ -200,6 +213,15 @@ struct CodeEditorView: NSViewRepresentable {
         // captured for the same retain-cycle reason; a deallocated coordinator
         // answers `false`, which is the stock insertion — the same graceful
         // degradation as losing the flag above.
+        // The pointer resting over an identifier asks the intelligence seam what
+        // it is (D25). Weakly captured for the same retain-cycle reason as the
+        // closures above; a deallocated coordinator simply shows no popover.
+        textView.onPointerMoved = { [weak coordinator = context.coordinator] tv, point in
+            coordinator?.pointerMoved(to: point, in: tv)
+        }
+        textView.onPointerExited = { [weak coordinator = context.coordinator] in
+            coordinator?.pointerExitedEditor()
+        }
         textView.onInsertCompletion = { [weak coordinator = context.coordinator] word, range, isFinal, tv in
             coordinator?.insertCompletion(
                 word,
@@ -334,6 +356,14 @@ struct CodeEditorView: NSViewRepresentable {
         // `updateNSView` so an editor built while the preference is already off
         // never asks the provider even once.
         context.coordinator.setCompletionEnabled(completionEnabled)
+        // Bind the hover popover. Nothing is asked here either: the first request
+        // is made once the pointer has rested over an identifier for
+        // `HoverContent.dwellDelay`.
+        context.coordinator.attachHover(textView: textView)
+        context.coordinator.syncHover(
+            codeFontSize: CGFloat(fontSize),
+            metrics: interfaceMetrics
+        )
         // Record which file the gutter would annotate (enabling/disabling its menu
         // item). Nothing loads here: annotate starts off for every tab and is only
         // turned on from the context menu.
@@ -385,6 +415,14 @@ struct CodeEditorView: NSViewRepresentable {
         // which is why this runs before the buffer/blame/index reconciliation
         // below rather than after it.
         context.coordinator.setCompletionEnabled(completionEnabled)
+
+        // Keep the popover's two font inputs current. Cheap and unconditional:
+        // the controller only stores them, and they are read when the *next*
+        // answer is drawn.
+        context.coordinator.syncHover(
+            codeFontSize: CGFloat(fontSize),
+            metrics: interfaceMetrics
+        )
 
         let previousFileID = context.coordinator.fileID
         let switchedFile = previousFileID != fileID
@@ -569,6 +607,9 @@ struct CodeEditorView: NSViewRepresentable {
             // The candidates computed for the outgoing buffer answer a file that
             // is no longer on screen (see `clearCompletions`).
             context.coordinator.clearCompletions()
+            // ...and so does a popover: it describes an offset in a buffer this
+            // very update has replaced.
+            context.coordinator.dismissHover()
         }
 
         // Put the incoming tab back where it was last left. Deliberately last, and
@@ -662,6 +703,12 @@ struct CodeEditorView: NSViewRepresentable {
         /// answer ready when it asks. Owned strongly here (it holds the text view
         /// weakly, so there is no cycle), like the search controller.
         private let completion = CompletionController()
+
+        /// The hover popover: the pointer's dwell, the request it makes of the
+        /// same intelligence seam, and the pass-through panel that draws the
+        /// answer. Owned strongly here (it holds the text view weakly, so there
+        /// is no cycle), like the search and completion controllers.
+        private let hover = HoverController()
 
         /// Schedules the symbol index's re-index of the shown file. Held *weakly*,
         /// like `searchBarState`: the app owns it for its whole lifetime, and the
@@ -891,6 +938,51 @@ struct CodeEditorView: NSViewRepresentable {
             )
         }
 
+        // MARK: - Hover
+
+        /// Bind the hover popover to this text view (`makeNSView`).
+        ///
+        /// The source closure is what keeps the request honest across a folder
+        /// switch: the provider, the file URL and the index's project token are
+        /// all read *at the moment a question is asked* rather than captured now,
+        /// exactly as `updateCompletions` re-reads the provider per call. Captured
+        /// weakly — the coordinator owns the controller — so a torn-down editor
+        /// answers "nothing to ask", which is the same graceful nothing a preview
+        /// gets.
+        func attachHover(textView: NSTextView) {
+            hover.attach(textView: textView)
+            hover.source = { [weak self] in
+                guard let self, let symbolIndex = self.symbolIndex else { return nil }
+                return HoverController.Source(
+                    provider: symbolIndex.provider,
+                    fileURL: self.fileURL,
+                    rootGeneration: symbolIndex.currentRootGeneration
+                )
+            }
+        }
+
+        /// Forward the two font inputs the popover draws with
+        /// (`makeNSView`/`updateNSView`).
+        func syncHover(codeFontSize: CGFloat, metrics: InterfaceMetrics) {
+            hover.syncAppearance(codeFontSize: codeFontSize, metrics: metrics)
+        }
+
+        /// The pointer moved over the text, in the text view's coordinates.
+        func pointerMoved(to point: NSPoint, in textView: NSTextView) {
+            hover.pointerMoved(to: point, in: textView)
+        }
+
+        /// The pointer left the text view.
+        func pointerExitedEditor() {
+            hover.pointerExited()
+        }
+
+        /// Take any popover down — the single entry point every dismissal
+        /// trigger outside `HoverController` itself goes through.
+        func dismissHover() {
+            hover.dismiss()
+        }
+
         // MARK: - Symbol index
 
         /// Re-index the shown file from its live buffer text.
@@ -1052,6 +1144,13 @@ struct CodeEditorView: NSViewRepresentable {
                 let textStorage = notification.object as? NSTextStorage,
                 textStorage.editedMask.contains(.editedCharacters)
             else { return }
+            // Any text edit invalidates a popover: it describes an offset in the
+            // buffer as it was, and the edit may have moved, rewritten or deleted
+            // the very thing it names. The *storage's* notification rather than
+            // `textDidChange`, for the same reason the brackets use it — it
+            // covers programmatic edits (auto-pair, dedent, ⌘D, a buffer swap) as
+            // well as typing.
+            hover.dismiss()
             bracketHighlight.noteEdit(
                 in: textStorage.editedRange,
                 changeInLength: textStorage.changeInLength,
@@ -1075,6 +1174,11 @@ struct CodeEditorView: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             bracketHighlight.updateSelection(textView.selectedRange())
+            // A selection change is the user working in the text rather than
+            // reading an annotation of it — and a click, a drag-select or an
+            // arrow key can all move the caret out from under a popover that is
+            // still on screen.
+            hover.dismiss()
             // The find bar's "current" match follows the caret (see
             // `EditorSearchController.selectionChanged()`), so it must move with
             // it — otherwise Replace edits a different match than the one shown.
@@ -1513,6 +1617,12 @@ struct CodeEditorView: NSViewRepresentable {
         /// are changed by a scroll, so this only re-resolves *which* of them are on
         /// screen — no rescan, no re-search.
         @objc private func clipViewBoundsChanged() {
+            // A scroll moves the text out from under a popover anchored to screen
+            // coordinates, so it comes down. Reusing this observation — the one
+            // the minimap already installs — rather than adding a second is the
+            // point: two observers of the same notification would eventually
+            // disagree about what a scroll is.
+            hover.dismiss()
             refreshGeometry()
             bracketHighlight.refreshVisible()
             searchController.refreshVisibleHighlight()
@@ -1600,6 +1710,10 @@ struct CodeEditorView: NSViewRepresentable {
             // call, so a torn-down tab can neither serve a closed file's
             // identifiers nor open a popup over the tab that replaced it.
             completion.reset()
+            // Takes the popover down, supersedes an in-flight hover answer and
+            // stops observing the key-window notification, so a torn-down tab
+            // cannot leave a floating annotation of a closed file on screen.
+            hover.reset()
             // Empties the column, supersedes an in-flight blame load and drops the
             // per-tab annotate state wholesale (see `BlameController.enabledFileIDs`
             // on why nothing prunes it before this point).
@@ -1986,6 +2100,57 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// `nil` until then, and `false` from it for everything that is just a word
     /// replacing the typed prefix.
     var onInsertCompletion: ((String, NSRange, Bool, NSTextView) -> Bool)?
+
+    /// Reports where the pointer is over the text, in this view's coordinates, so
+    /// the hover controller can resolve the character under it. Set by
+    /// `CodeEditorView.makeNSView` to the coordinator's `pointerMoved(to:in:)`;
+    /// `nil` until then.
+    var onPointerMoved: ((NSTextView, NSPoint) -> Void)?
+
+    /// Reports that the pointer left the text: whatever a popover was describing,
+    /// the pointer is no longer on it. Set by `CodeEditorView.makeNSView`.
+    var onPointerExited: (() -> Void)?
+
+    /// The hover feature's own tracking area, kept so it can be replaced rather
+    /// than accumulated — `updateTrackingAreas` runs on every resize.
+    private var hoverTrackingArea: NSTrackingArea?
+
+    /// Install (or reinstall) the tracking area hover is driven by.
+    ///
+    /// `.inVisibleRect` is what scopes it to the *visible* rect and — crucially —
+    /// keeps it there: AppKit resizes such an area itself as the view scrolls
+    /// inside its clip view, so the passed rect is ignored and there is no
+    /// scroll-position staleness to manage. `.activeInKeyWindow` scopes it to the
+    /// window the user is working in, which is the only one a popover may appear
+    /// over; `super` keeps every tracking area `NSTextView` installs for its own
+    /// cursor and link handling.
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.inVisibleRect, .activeInKeyWindow, .mouseMoved, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        onPointerMoved?(self, convert(event.locationInWindow, from: nil))
+    }
+
+    /// Only *this* area's exit is the pointer leaving the text. `NSTextView`
+    /// installs tracking areas of its own (cursor rects, link hovering), and
+    /// treating their exits as ours would dismiss a popover the pointer never
+    /// left.
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        guard event.trackingArea === hoverTrackingArea else { return }
+        onPointerExited?()
+    }
 
     /// Complete from the caret — the entry point shared by this view's own ⌃Space
     /// (`keyDown`) and the Find menu's "Complete", which reaches this view as the

@@ -616,6 +616,7 @@ struct ContentView: View {
                     text: binding(for: file.id),
                     fontSize: settings.fontSize,
                     completionEnabled: settings.completionEnabled,
+                    interfaceMetrics: metrics,
                     search: search,
                     reveal: reveal,
                     symbolIndex: symbolIndex,
