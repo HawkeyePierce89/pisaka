@@ -1037,8 +1037,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     draws from the top of its frame down, so an unclamped one is placed with its
     bottom on the screen edge and its **first line — the signature — above the top
     of the screen**, which is precisely the outcome the placement rule below exists
-    to avoid. Clamping the height cuts the tail instead, which is the end already
-    meant to go. Placement is below the anchor line by default and flipped above it when the popover would
+    to avoid. So the answer is cut at the end, which is the end already meant to
+    go — but `fitted(_:…)` cuts it **in Core, by line, and never by the frame**.
+    Clamping the frame would cut wrapped prose mid-glyph and, because the ellipsis
+    is the *last* line of the string, would take the truncation marker with it,
+    leaving a popover that looks complete while its tail is gone; the one guarantee
+    this feature makes about a long answer is that a cut is *marked*, so the cut has
+    to happen where the marker is applied — `HoverContent.truncated(toLineCount:)`,
+    the same function that enforces the twenty-line cap. Each pass estimates the
+    line count that fits from the ratio the last measurement gave and re-measures
+    the string it will actually draw (marker included), so it converges in a couple
+    of iterations over at most twenty lines, and is paid only on the overflow path.
+    The floor is one line: an answer that overflows even at a single line is a
+    screen too short for a popover at all (`minimumHeight`), and the head clipped
+    beats nothing. Placement is below the anchor line by default and flipped above it when the popover would
     run off the bottom — a menu's rule, and the one a user reading downward expects
     — but only when the flipped position is genuinely better, since on a screen too
     short either way hanging below at least keeps the first line, which is the

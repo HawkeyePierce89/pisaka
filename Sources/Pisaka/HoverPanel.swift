@@ -88,31 +88,26 @@ final class HoverPanel {
         codeFontSize: CGFloat,
         metrics: InterfaceMetrics
     ) {
-        let text = Self.attributedString(
-            for: content,
-            codeFontSize: codeFontSize,
-            metrics: metrics
-        )
         let inset = CGFloat(metrics.pt(Double(Self.padding)))
         let maximumWidth = CGFloat(metrics.pt(Double(Self.maximumWidth)))
-        let bounding = text.boundingRect(
-            with: NSSize(width: maximumWidth, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading]
-        )
         // Core's cap counts *logical* lines, and prose wraps: a server that stores
         // a doc comment as a few long unwrapped paragraphs passes the cap and
         // still measures taller than the screen. The panel is drawn from the top
         // of its frame down, so an unclamped one is placed with its bottom on the
         // screen edge and its **first line — the signature — above the top of the
-        // display**, which is the opposite of the placement rule below. Clamping
-        // the height cuts the tail instead, which is the end already meant to go.
+        // display**, which is the opposite of the placement rule below. So the
+        // answer is cut at the end, which is the end already meant to go — but it
+        // is cut in Core, by line, not by the frame.
         let ceiling = max(
             Self.minimumHeight,
             Self.visibleFrame(for: anchor).height - inset * 2 - Self.gap * 2
         )
-        let contentSize = NSSize(
-            width: min(maximumWidth, ceil(bounding.width)),
-            height: min(ceiling, ceil(bounding.height))
+        let (text, contentSize) = Self.fitted(
+            content,
+            codeFontSize: codeFontSize,
+            metrics: metrics,
+            maximumWidth: maximumWidth,
+            ceiling: ceiling
         )
         let panel = panel ?? makePanel()
         self.panel = panel
@@ -207,6 +202,71 @@ final class HoverPanel {
     }
 
     // MARK: - Drawing the content
+
+    /// The answer as much of it as fits in `ceiling` points, and the size to draw
+    /// it at.
+    ///
+    /// **The height is never clamped below what the text measures**, and that is
+    /// the whole reason this exists. Clamping the frame would cut wrapped prose
+    /// mid-glyph and — because the ellipsis is the *last* line of the string —
+    /// would take the truncation marker with it, leaving a popover that looks
+    /// complete while its tail is gone. The one guarantee this feature makes about
+    /// long answers is that a cut is marked, so the cut has to happen where the
+    /// marker is applied: in Core, over whole lines, through the same
+    /// `truncated(toLineCount:)` that already enforces the twenty-line cap. Each
+    /// pass estimates the line count that fits from the ratio the last measurement
+    /// gives, so it converges in a couple of iterations over at most twenty lines
+    /// — paid only on the overflow path, which is the screen-height case Core's
+    /// logical-line cap cannot see.
+    ///
+    /// The floor is one line: an answer that overflows even at a single line is a
+    /// screen too short for a popover at all (`minimumHeight`), and showing its
+    /// head clipped is still better than showing nothing.
+    private static func fitted(
+        _ content: HoverContent,
+        codeFontSize: CGFloat,
+        metrics: InterfaceMetrics,
+        maximumWidth: CGFloat,
+        ceiling: CGFloat
+    ) -> (text: NSAttributedString, size: NSSize) {
+        var candidate = content
+        while true {
+            let text = attributedString(
+                for: candidate,
+                codeFontSize: codeFontSize,
+                metrics: metrics
+            )
+            let bounding = text.boundingRect(
+                with: NSSize(width: maximumWidth, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading]
+            )
+            let width = min(maximumWidth, ceil(bounding.width))
+            let height = ceil(bounding.height)
+            if height <= ceiling {
+                return (text, NSSize(width: width, height: height))
+            }
+            let lines = candidate.lineCount
+            // Proportional rather than one-at-a-time, and capped at one line less
+            // than the last try so the loop cannot stall on an estimate that
+            // rounds back to where it started.
+            let target = min(
+                lines - 1,
+                Int((Double(lines) * Double(ceiling / height)).rounded(.down))
+            )
+            guard target >= 1 else {
+                return (text, NSSize(width: width, height: min(ceiling, height)))
+            }
+            let smaller = candidate.truncated(toLineCount: target)
+            // `truncated` answers `self` when there is nothing it may cut — the
+            // degenerate case where every line but the first is what keeps the
+            // content non-empty. Clamp then, rather than measure the same string
+            // again forever.
+            guard smaller.lineCount < lines else {
+                return (text, NSSize(width: width, height: min(ceiling, height)))
+            }
+            candidate = smaller
+        }
+    }
 
     /// The whole popover as one attributed string: code segments monospaced at
     /// the editor's size, prose in the interface font, and — when Core says the
