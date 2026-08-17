@@ -236,6 +236,7 @@ private struct DirectoryNodeView: View {
                 }
             }
         }
+        .disclosureGroupStyle(FolderDisclosureStyle())
         .onChange(of: isExpanded) { expanded in
             if expanded && children == nil {
                 loadChildren()
@@ -295,6 +296,98 @@ private struct DirectoryNodeView: View {
         guard nsError.domain == NSCocoaErrorDomain else { return false }
         return nsError.code == NSFileReadNoSuchFileError || nsError.code == NSFileNoSuchFileError
     }
+}
+
+/// The disclosure style every directory row in the tree is drawn with: chevron
+/// and label as one full-width row that toggles expansion wherever it is
+/// clicked, matching a file row's hover treatment.
+///
+/// It exists so there is exactly *one* toggle path. The default macOS style
+/// keeps the chevron as its own control, so making the label clickable too would
+/// give a chevron click two chances to fire and a row click and a chevron click
+/// different code. Drawing the chevron here removes that control entirely: the
+/// row's single `.onTapGesture` is the only way expansion changes.
+///
+/// `configuration.content` is rendered only while expanded — the default style
+/// does the same, and `DirectoryNodeView`'s lazy first load depends on it. The
+/// style re-supplies the leading inset the default style used to add to
+/// `content`, since a custom style indents nothing on its own.
+private struct FolderDisclosureStyle: DisclosureGroupStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            FolderDisclosureRow(configuration: configuration)
+            if configuration.isExpanded {
+                configuration.content
+                    .modifier(FolderContentInset())
+            }
+        }
+    }
+}
+
+/// The chevron + label row `FolderDisclosureStyle` draws. A separate view (not
+/// inline in `makeBody`) because it needs its own `@State` for hover tracking
+/// and its own `\.interfaceMetrics` read.
+private struct FolderDisclosureRow: View {
+    let configuration: DisclosureGroupStyleConfiguration
+
+    @State private var isHovering = false
+
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+
+    var body: some View {
+        HStack(spacing: metrics.scaled(FolderRowLayout.spacing)) {
+            Image(systemName: "chevron.right")
+                .font(metrics.scaledFont(.caption))
+                .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(configuration.isExpanded ? 90 : 0))
+                // A fixed column so sibling labels line up regardless of the
+                // chevron glyph's own metrics.
+                .frame(width: metrics.scaled(FolderRowLayout.chevronWidth))
+            configuration.label
+        }
+        // Exactly `FileRowView`'s treatment, so a folder row and a file row read
+        // and highlight alike. The label brings its own `maxWidth: .infinity`
+        // frame, but the row repeats it: the highlight must cover the chevron
+        // column too, edge to edge.
+        .padding(.horizontal, metrics.scaled(6))
+        .padding(.vertical, metrics.scaled(3))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(isHovering ? Color.accentColor.opacity(0.15) : Color.clear)
+        .contentShape(Rectangle())
+        // Plain assignment, deliberately not `withAnimation`: animating the
+        // insertion of a deep nested subtree is a regression this change does
+        // not need.
+        .onTapGesture { configuration.isExpanded.toggle() }
+        .onHover { isHovering = $0 }
+    }
+}
+
+/// Re-supplies the leading inset the default disclosure style adds to `content`
+/// and a custom style does not: the chevron column plus the row's spacing, so
+/// nesting lands where it did before. A modifier rather than a `.padding` inside
+/// `makeBody` because the inset is scaled and `DisclosureGroupStyle.makeBody`
+/// cannot read the environment.
+private struct FolderContentInset: ViewModifier {
+    /// The interface zone's metrics, inherited from the window root.
+    @Environment(\.interfaceMetrics) private var metrics
+
+    func body(content: Content) -> some View {
+        content
+            .padding(
+                .leading,
+                metrics.scaled(FolderRowLayout.chevronWidth)
+                    + metrics.scaled(FolderRowLayout.spacing)
+            )
+    }
+}
+
+/// The two unscaled sizes the folder row and its content inset must agree on.
+private enum FolderRowLayout {
+    /// The fixed chevron column's width.
+    static let chevronWidth: Double = 12
+    /// The gap between the chevron column and the label.
+    static let spacing: Double = 4
 }
 
 /// One file row in the tree: a clickable label that opens the file. The icon

@@ -127,17 +127,18 @@ re-read and collapsed-node cache drop, the beep-and-stay-retryable failure path
 — is untouched, so a row-body expansion loads children through the identical
 code path a chevron click uses.
 
-- [ ] add the private disclosure style + its private row view (own chevron,
+- [x] add the private disclosure style + its private row view (own chevron,
       full-row tap toggle, `FileRowView`'s hover highlight and padding, content
       rendered only while expanded and inset to preserve today's nesting)
-- [ ] apply the style in `DirectoryNodeView`, leaving the label's full-width
+- [x] apply the style in `DirectoryNodeView`, leaving the label's full-width
       frame, content shape and context menu exactly as they are
-- [ ] confirm no behavior in `DirectoryNodeView`'s state handling changed
-      (lazy first load, cached children, `treeRevision`, error path)
-- [ ] no new Core tests: this task adds no Core logic (view layer is untested by
+- [x] confirm no behavior in `DirectoryNodeView`'s state handling changed
+      (lazy first load, cached children, `treeRevision`, error path) — the diff
+      adds exactly one line inside `DirectoryNodeView`, the style modifier
+- [x] no new Core tests: this task adds no Core logic (view layer is untested by
       convention) — instead re-run `swift test` in full and confirm it is green,
-      including `ZoomSourceGatingTests`
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+      including `ZoomSourceGatingTests` (2917 tests, 0 failures)
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'platform=macOS' build` succeeds
 
 ### Task 2: Update the architecture documentation
