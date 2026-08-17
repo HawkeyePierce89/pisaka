@@ -153,17 +153,17 @@ AppKit reads/writes stay thin in `CodeEditorView.Coordinator`.
 
 ### Task 5: Update documentation
 
-- [ ] `docs/architecture/core-editor.md`: add the `EditorViewport.swift` entry — the value
+- [x] `docs/architecture/core-editor.md`: add the `EditorViewport.swift` entry — the value
       type, the clamp rules and why truncation rather than intersection, the memory's
       record/forget/prune contract, and why the anchor is a character offset.
-- [ ] `docs/architecture/app-editor.md`: extend the `CodeEditorView` entry with the viewport
+- [x] `docs/architecture/app-editor.md`: extend the `CodeEditorView` entry with the viewport
       capture/restore step in the order-sensitive `updateNSView` sequence, its pairing with
       the per-file undo managers (same key, same prune, same `externalTextRevision` drop),
       the synchronous-restore rationale (`ensureLayout` instead of a main-loop hop), the
       anchor-at-buffer-end special case (why an empty glyph range cannot give the scroll
       offset), and the explicit reveal-wins rule; note the `pruneUndoManagers` →
       `prunePerFileState` rename.
-- [ ] `CLAUDE.md`: one index line for `EditorViewport.swift` under the `core-editor.md`
+- [x] `CLAUDE.md`: one index line for `EditorViewport.swift` under the `core-editor.md`
       section. No new invariant paragraph — this is view-layer state under an existing rule.
 
 ## Post-Completion Manual Verification (requires running the app)

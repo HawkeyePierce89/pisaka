@@ -482,3 +482,56 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     **Boundaries** (deliberate, not omissions): no query history, no "replace in
     selection", no incremental/streaming search, and no string/comment awareness —
     the same raw-scan boundary the rest of the editor's engines draw.
+  - `EditorViewport.swift` — "where was this tab left?", as a pure value plus the
+    per-file store the macOS editor keeps it in. The macOS editor reuses **one**
+    `NSTextView` for every tab, so `CodeEditorView.updateNSView`'s wholesale
+    `textView.string = text` swap destroys the outgoing tab's position: unless
+    something records it first, it exists nowhere and the reader comes back to the
+    top of the file with the caret at 0. `public struct EditorViewport: Equatable`
+    is that record — `selection: NSRange` (the caret or the selected range, in the
+    editor's own UTF-16 coordinates, i.e. `NSTextView.selectedRange()`) and
+    `topCharacterOffset: Int` (the UTF-16 offset of the first character visible at
+    the top of the viewport). **The scroll anchor is a character offset, not a
+    point**, and that is the one design decision in the file: a point is only
+    meaningful against the geometry that produced it, and that geometry is not
+    stable between two visits to the same tab — the code zoom rescales every line
+    (⌘+/⌘-, and `ZoomScaleRule` makes `code` *be* `SettingsStore.fontSize`), the
+    font or window width can change, and the text itself can be rewritten by
+    another path (a project Replace All, a post-revert `reloadFromDisk`, a merge
+    apply). Any of those re-wraps the document, so a remembered `y` names a
+    different line, or one past the end; an offset into the *text* survives all of
+    them, because the restore asks the live layout where that character is now.
+    `clamped(toLength:)` is what makes a record safe to hand back to AppKit after
+    the buffer it described has changed (a background tab can be truncated while
+    off screen, and an out-of-bounds range is an exception, not a wrong scroll):
+    `topCharacterOffset` is clamped into `0...length` — **`length` itself is
+    allowed on purpose**, "the end of the document" being a legitimate anchor that
+    the view layer resolves against the document end rather than against a glyph —
+    and `selection.location` is clamped into `0...length` with the length then
+    **truncated** to what is left (`length - location`), never intersected. The
+    truncation is the same reasoning `applyReveal` already documents: a range
+    starting exactly at the buffer end shares no unit with the document, so
+    `NSIntersectionRange` answers `{0, 0}` for it and a caret sitting at the end of
+    the file would be sent back to the top. A `NSNotFound` or negative location has
+    no position at all and collapses to `{0, 0}`. `public struct
+    EditorViewportMemory` is the store — `[UUID: EditorViewport]` behind
+    `record(_:for:)`, `forget(_:)`, `prune(keeping openFileIDs: Set<UUID>)` and
+    `viewport(for:clampedToLength:)`. It is keyed by `OpenFile.id`, the same key
+    the coordinator's per-file undo managers use, and pruned by the same open-tabs
+    set on the same call, because the two answer the same question about the same
+    object and must not disagree about which files still exist. **Absence is half
+    the contract**: `viewport(for:clampedToLength:)` answers `nil` for a file with
+    no entry, which is the "a tab shown for the first time keeps today's
+    top-of-file behavior" rule expressed once, in Core, instead of as a scattering
+    of view-layer `if`s. `forget(_:)` exists for the one signal that invalidates a
+    record without closing the tab — this file's text was replaced out from under a
+    background tab, so the offsets name characters the incoming text never had.
+    App-run lifetime only: nothing here is persisted, so a relaunch starts every
+    tab at the top (`EditorSession` restores *which* tabs are open, not where they
+    were). Unit-tested in `EditorViewportTests` (round trip, `nil` for an
+    unrecorded id, `forget`/`prune`, and the clamp's edges: a caret past the new
+    end, a selection straddling it, a caret exactly *at* it, `NSNotFound`, an
+    anchor past the end, and length 0). **Boundaries**: no points, no line/column,
+    no horizontal scroll offset (the editor does not soft-wrap, but a long-line
+    x-position has never been remembered and is not part of this), and no
+    persistence — the view-layer half is in `app-editor.md`.

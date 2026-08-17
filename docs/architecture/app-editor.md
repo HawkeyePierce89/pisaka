@@ -432,6 +432,73 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     coordinator just beeps) is swallowed whole and the click has no effect at all,
     and a ⌘-click into an editor that is not yet focused jumps without ever
     focusing it.
+    **Per-tab viewport memory** (the caret and the scroll position surviving a tab
+    switch) is the third thing keyed by `fileID` in the coordinator, alongside the
+    per-file undo managers it deliberately mirrors: `private var viewports =
+    EditorViewportMemory()` (Core — the value type, the clamp rules and why the
+    anchor is a *character offset* rather than a point are in `core-editor.md`).
+    It exists because one `NSTextView` serves every tab, so the `textView.string =
+    text` swap above destroys the outgoing tab's position; nothing else in the app
+    records it. Three coordinator methods are the whole AppKit half.
+    `captureViewport()` reads `textView.selectedRange()` and resolves the top
+    visible character by taking the clip view's `documentVisibleRect` top-left,
+    subtracting `textContainerOrigin` (the visible rect is in the text view's
+    coordinates, the layout manager answers in the container's) and asking
+    `glyphIndex(for:in:)` → `characterIndexForGlyph(at:)`; it answers `nil` when the
+    views are gone and anchors at 0 when the document has no glyphs (an empty
+    buffer has no character to name, and `characterIndexForGlyph(at:)` raises past
+    the last glyph). `recordViewport(for:)`/`forgetViewport(for:)` write the memory,
+    and `restoreViewport(for:)` reads it back clamped to the live
+    `textStorage.length`, applies `setSelectedRange` and scrolls through the
+    existing `scrollEditor(to:)` — which already clamps a document-space top offset
+    to `max(0, textView.frame.height - clipView.bounds.height)`, so "never past the
+    end of the document" is the final guard for free. **The restore is
+    synchronous**, unlike `applyReveal`'s one-turn `DispatchQueue.main.async` hop,
+    and the difference is not stylistic: a restore deferred to the next main-loop
+    turn would run after a *second* tab switch had already swapped the buffer again,
+    scrolling the newly shown file to the previous file's offset. What makes
+    synchronous work is an explicit `layoutManager.ensureLayout(forCharacterRange:)`
+    from the start of the document up to the anchor before `boundingRect(
+    forGlyphRange:in:)` is asked for it — the layout manager runs with
+    `allowsNonContiguousLayout = true`, so the incoming text is not laid out yet at
+    this point in `updateNSView` and the anchor's *position* (which depends on every
+    preceding line's height) would otherwise be an estimate. **The anchor at the
+    buffer end is the one special case**, and it is the price of Core's clamp
+    deliberately allowing `length`: there is no character at that offset, so the
+    glyph range for it is empty and `boundingRect(forGlyphRange:in:)` answers a zero
+    rect, which would scroll to the top — the exact opposite of the request. The
+    document end is taken instead, from `extraLineFragmentRect` when TextKit is
+    showing a trailing empty line (a buffer ending in a newline, and the empty
+    buffer, where `extraLineFragmentTextContainer` is non-`nil`) and from the last
+    character's `lineFragmentRect` otherwise. `setSelectedRange` needs no such case:
+    a caret at `length` is a legal selection. The ordering in `updateNSView` is
+    load-bearing at every step, and reads **capture → prune → buffer swap →
+    per-file reconciliation → restore → reveal**: the outgoing tab's viewport is
+    recorded first, above the swap (afterwards there is nothing left to read), and
+    deliberately *before* `prunePerFileState(keeping: openFileIDs)` rather than
+    after — closing the displayed tab records its position and the prune
+    immediately discards it again, since the id is no longer in `openFileIDs`, so a
+    closed tab retains nothing and reopening the file starts at the top, whereas
+    recording afterwards would leave that entry alive for the app run. The restore
+    runs *last*, on a `switchedFile` update only (an ordinary keystroke must leave
+    the user's own scrolling alone) and after the highlighter/minimap/bracket/
+    search/blame reconciliation, so the bounds notification the scroll posts
+    refreshes geometry that already describes the incoming file. **An explicit
+    reveal outranks the memory**: activating a Find in Files result or a
+    go-to-definition in an already-open background tab is a switch too and must land
+    on the match, so `hasPendingReveal(_:fileID:)` — `applyReveal`'s same three
+    guards (non-`nil` request, token not yet applied, matching `fileID`) asked
+    *without* consuming anything — suppresses the restore, leaving `applyReveal`
+    below to do its usual one-shot work. The memory is dropped on exactly the signal
+    that drops the undo stack, in the same branch and for the same reason: when
+    `noteExternalTextRevision(_:for:)` reports this file's buffer was replaced while
+    it sat off screen (a project Replace All, a post-revert `reloadFromDisk`, a merge
+    apply), the recorded selection and anchor name characters the incoming text
+    never had, so `forgetViewport(for:)` runs and the restore finds nothing — a plain
+    top-of-file state, as on a first visit. `pruneUndoManagers(keeping:)` is renamed
+    `prunePerFileState(keeping:)` accordingly: it already pruned
+    `externalTextRevisions` as well as the undo managers, and now prunes a third
+    dictionary, so the name naming only one of the three had stopped being true.
   - `CompletionController.swift` — feeds AppKit's built-in completion popup from
     the *asynchronous* code-intelligence seam. **The whole problem it exists to
     solve is a mismatch of shapes:**
