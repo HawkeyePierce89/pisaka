@@ -357,7 +357,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     expanded/collapsed value; an `onTapGesture` on an `HStack` is nothing), so
     the row re-declares itself as one — combined element, `.isButton`, the
     expansion state as its `accessibilityValue`, and an `accessibilityAction`
-    toggling the same binding, adding no second expansion path. That restores
+    toggling the same binding, adding no second expansion path. Both symbols
+    inside that element — the style's chevron and the label's folder icon — are
+    `.accessibilityHidden(true)`: combining children folds an unhidden SF
+    Symbol's own name into the element's label ("chevron.right, folder fill,
+    Sources"), and both are decorative beside the name, the button trait and the
+    value. That restores
     **VoiceOver** actuation only: a trait is not a focusable control, so the
     chevron can no longer be reached under Full Keyboard Access. Accepted, and
     recorded rather than fixed — the tree has no keyboard navigation at all (a

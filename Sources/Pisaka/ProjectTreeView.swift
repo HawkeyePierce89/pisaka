@@ -232,6 +232,13 @@ private struct DirectoryNodeView: View {
             HStack(spacing: metrics.scaled(4)) {
                 Image(systemName: icon.symbolName)
                     .foregroundStyle(color(for: icon.color))
+                    // Decorative, and hidden for the same reason the style hides
+                    // its chevron: this label sits *inside* the row's combined
+                    // accessibility element, so an unhidden symbol prepends its
+                    // own name to that element's label ("folder fill, Sources").
+                    // Directory-ness is already carried by the row's button
+                    // trait and its expanded/collapsed `accessibilityValue`.
+                    .accessibilityHidden(true)
                 Text(name)
             }
             .font(metrics.scaledFont(.body))
