@@ -1,6 +1,6 @@
 # Pisaka
 
-A native code editor for **macOS, iPad, and iPhone**, sharing one
+A native code editor for **macOS**, ~~**iPad, and iPhone**~~ *(coming soon)*, sharing one
 Foundation-only domain core (`PisakaCore`) across platforms. On macOS it uses a
 three-column layout: a project file tree on the left, a vertical list of open
 files (tabs) in the middle, and a text editor on the right. On iPad it adapts to
