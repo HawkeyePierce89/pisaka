@@ -126,21 +126,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (`.system`/`.light`/`.dark`) is the appearance preference, mapped to a SwiftUI
     `ColorScheme?` in the view layer (`.system → nil`).
   - `SettingsStore.swift` — `ObservableObject` (Foundation only, the
-    `WorkspaceModel` precedent) holding the three persisted preferences:
-    `@Published` `tabOrientation`, `themePreference`, and the shared editor
-    `fontSize` (`Double`). `UserDefaults` is injected (`init(defaults: .standard)`)
+    `WorkspaceModel` precedent) holding the persisted preferences. The three this
+    paragraph describes came first: `@Published` `tabOrientation`,
+    `themePreference`, and the shared editor `fontSize` (`Double`); the zoom
+    paragraph below adds `terminalFontSize` and `interfaceScale`, the other two
+    zones, and `completionEnabled` and `lspServerConsent` follow further down.
+    `UserDefaults` is injected (`init(defaults: .standard)`)
     so tests run against an isolated `UserDefaults(suiteName:)`; values are loaded
     in `init` (falling back to `.vertical`/`.system`/`defaultFontSize`), and each
     `@Published` change is written straight back through `didSet` under stable
     keys (`Keys.*`, never renamed). `fontSize` is clamped to
     `[minFontSize, maxFontSize]` (8…32) on every write — the `didSet` re-assigns
-    the clamped value (a one-pass fixed point) so neither the Stepper, the
-    Cmd+scroll path, nor a corrupt persisted value can drive it out of range — and
+    the clamped value (a one-pass fixed point) so neither the Stepper, a zoom
+    gesture, nor a corrupt persisted value can drive it out of range — and
     `init` distinguishes "unset" (→ `defaultFontSize` 13) from a stored 0 via
     `object(forKey:)`. Exposes `minFontSize`/`maxFontSize`/`defaultFontSize`/
     `fontSizeStep` (static + instance mirrors), `clampFontSize(_:)`, and
-    `stepFontSize(by:)` (steps then clamps — the Cmd+scroll path calls it with
-    `+1`/`-1`). Fully unit-tested in `SettingsStoreTests` (defaults, clamping at
+    `stepFontSize(by:)` (steps then clamps). Those four numbers and both helpers
+    are now aliases of `ZoomScaleRule.editorFont`, and the *macOS* zoom path does
+    not go through them at all — `ZoomController` calls the zone-keyed
+    `stepZoom(_:by:)`/`resetZoom(_:)` below. They survive because the iOS pinch
+    (`RootView_iOS`) and both platforms' Preferences steppers still name them.
+    Fully unit-tested in `SettingsStoreTests` (defaults, clamping at
     both bounds, the step helper staying clamped, a persistence round-trip across
     two instances over one suite, and the enums' raw-value stability).
     Phase 2b adds a fourth persisted value, `lspServerConsent`: one dictionary of

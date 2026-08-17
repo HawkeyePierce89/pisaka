@@ -207,4 +207,25 @@ final class ZoomGestureAccumulatorTests: XCTestCase {
         XCTAssertEqual(degenerate.accumulate(.magnification(100)), 0)
         XCTAssertEqual(degenerate.pending, 0)
     }
+
+    // MARK: - Overflow
+
+    func testAnAbsurdDeltaSaturatesRatherThanTrapping() {
+        // `wholeSteps` converts through `Int(_:)`, which has an overflow
+        // *precondition*: a delta large enough to make the whole-step magnitude
+        // exceed `Int.max` would crash the app rather than produce a wrong
+        // number. The value saturates instead, and `SettingsStore` clamps it to
+        // the zone's maximum on the way in — so the worst an absurd event can do
+        // is one full-range jump.
+        var accumulator = ZoomGestureAccumulator()
+        XCTAssertEqual(accumulator.accumulate(.scroll(delta: 1e300, precise: true)), Int.max)
+        XCTAssertEqual(accumulator.accumulate(.scroll(delta: -1e300, precise: true)), Int.min)
+        XCTAssertEqual(accumulator.accumulate(.magnification(-1e300)), Int.min)
+
+        // Saturating leaves the remainder in a defined state rather than a
+        // meaningless residue, so the next ordinary sample starts clean.
+        var pinched = ZoomGestureAccumulator()
+        XCTAssertEqual(pinched.accumulate(.magnification(1e300)), Int.max)
+        XCTAssertTrue(pinched.pending.isFinite)
+    }
 }

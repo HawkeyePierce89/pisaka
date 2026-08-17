@@ -221,11 +221,14 @@ struct CommitDialogView: View {
             // The message is written at the *code* font, so the box that holds it
             // keeps its height off the interface scale for the reason the Find in
             // Files rows keep their gutter off it: the two zones must not
-            // interact. Only the rule around it is chrome, and it scales.
+            // interact. Only the rule around it is chrome, and it scales. For the
+            // same reason it carries a code `ZoomSurfaceMarker`: a gesture over
+            // text drawn at the code size must grow that size, not the sheet.
             TextEditor(text: $model.message)
                 .font(.system(size: settings.fontSize, design: .monospaced))
                 .frame(minHeight: 70, maxHeight: 120)
                 .disabled(model.isRunning)
+                .background(ZoomSurfaceMarker(kind: .code))
                 .overlay(
                     RoundedRectangle(cornerRadius: metrics.scaled(4))
                         .stroke(Color(NSColor.separatorColor))

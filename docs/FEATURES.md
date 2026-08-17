@@ -603,14 +603,17 @@ user sees it.
   by **what the pointer is over at that moment**, in whichever window it happens
   to be over:
   - over the editor, a diff or merge pane, the read-only source viewer, a Find in
-    Files result or the LeetCode statement text → the **code** zone, i.e. the
-    shared editor font size, exactly what the Preferences row sets (the gutter,
-    the blame column and the minimap follow it as always);
+    Files result, the LeetCode statement text, or the commit dialog's diff and
+    message box → the **code** zone, i.e. the shared editor font size, exactly
+    what the Preferences row sets. The editor's gutter, its blame column and the
+    minimap follow that size as always — and count as the editor for this
+    purpose, so zooming with the pointer over any of them grows the code too;
   - over the terminal → the **terminal** font size, its own setting. The running
     shell survives and reflows to the new cell size — nothing is restarted — and
     the panel's tab strip does not change;
   - over anything else — the project tree, the tab list, the bottom bar, the Log,
-    Local Changes, the commit dialog, Preferences, the LeetCode browser → the
+    Local Changes, the commit dialog's own chrome, Preferences, the LeetCode
+    browser → the
     **interface** scale, which grows the chrome proportionally: fonts, paddings,
     row heights, icon sizes and pane widths together, from 80% up to 200%.
   The three are stored separately and never affect one another, so Cmd+0 resets

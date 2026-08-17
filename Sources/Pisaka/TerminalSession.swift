@@ -103,9 +103,21 @@ final class TerminalSession: Identifiable {
         TerminalTheme.apply(to: terminalView, appearance: appearance)
     }
 
-    /// The point size this session's font currently carries, or `nil` while it
-    /// still carries SwiftTerm's own default font.
-    private var appliedFontSize: Double?
+    /// The point size this session's font currently carries.
+    ///
+    /// Seeded with the zone's resting value rather than left `nil`, because that
+    /// value *is* the size SwiftTerm's own default font already carries
+    /// (`FontSet.defaultFont` is `NSFont.monospacedSystemFont(ofSize:
+    /// NSFont.systemFontSize)`, and `ZoomScaleRule.terminalFont.defaultValue` is
+    /// that same 13). A `nil` seed would make the first `applyFont(size: 13)` — the
+    /// one `TerminalSessionsModel` performs on every freshly created session,
+    /// before the view has a frame — assign a font that is already installed, and
+    /// SwiftTerm's setter is not free: it rebuilds the font set, calls
+    /// `selectNone()` and runs `resetFont()`, whose `resize` fires `sizeChanged`
+    /// (a `setWinSize` on the PTY of the shell that has just started) and
+    /// `terminal.softReset()`. Seeding is what makes the documented "a session
+    /// born at the resting size is a no-op" literally true.
+    private var appliedFontSize: Double = ZoomScaleRule.terminalFont.defaultValue
 
     /// Redraws this session at `size` points, the terminal zoom zone's persisted
     /// value (`SettingsStore.terminalFontSize`).
@@ -125,10 +137,12 @@ final class TerminalSession: Identifiable {
     /// `applyTheme(for:)`'s is, and then some: SwiftTerm's setter also calls
     /// `selectNone()`, so an unconditional assignment would drop the user's
     /// selection. This is called from the window root on every settings change
-    /// *and* on mount, and each call fans out over every live session, so without
-    /// the guard an unrelated preference edit would clear a selection in a
-    /// terminal the user never touched — and pay a full font-set rebuild and PTY
-    /// resize per session for it.
+    /// *and* on mount, from `TerminalSessionsModel` on every freshly created
+    /// session, and each call fans out over every live session, so without the
+    /// guard an unrelated preference edit would clear a selection in a terminal
+    /// the user never touched — and pay a full font-set rebuild and PTY resize per
+    /// session for it. `appliedFontSize`'s seed is what extends that guard to the
+    /// born-at-the-resting-size case.
     func applyFont(size: Double) {
         guard appliedFontSize != size else { return }
         appliedFontSize = size

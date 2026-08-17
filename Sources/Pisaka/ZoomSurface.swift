@@ -12,10 +12,19 @@ import PisakaCore
 /// conforms in order to be *found*, not in order to act.
 ///
 /// Conformed to by the four code text views (the editor, the diff panes, the
-/// merge panes, the source viewer), by SwiftTerm's terminal view, and by
-/// `ZoomSurfaceMarkerView` — the AppKit half of the marker the two SwiftUI-drawn
-/// code surfaces use. Nothing declares `.interface`: chrome is what is left when
-/// no surface was hit, which is why `ZoomSurfaceKind` has no case for it.
+/// merge panes, the source viewer), by the three views that draw *beside* them
+/// and are therefore unreachable through them — `LineNumberRulerView` and
+/// `DiffGutterView` (a scroll view's ruler is a sibling of its text view) and
+/// `MinimapView` (a sibling of the editor's scroll view) — by SwiftTerm's
+/// terminal view, and by `ZoomSurfaceMarkerView`, the AppKit half of the marker
+/// the SwiftUI-drawn code surfaces use. Nothing declares `.interface`: chrome is
+/// what is left when no surface was hit, which is why `ZoomSurfaceKind` has no
+/// case for it.
+///
+/// The sibling rule is the easy thing to get wrong: a view that *looks* like part
+/// of the editor but sits next to its text view produces no candidate at all, so
+/// the pointer over it resolves to `.interface` and the gesture resizes the whole
+/// application chrome. Anything drawn at the code font needs its own conformance.
 @MainActor
 protocol ZoomSurfaceProviding: AnyObject {
     var zoomSurfaceKind: ZoomSurfaceKind { get }
@@ -69,10 +78,6 @@ final class ZoomSurfaceMarkerView: NSView, ZoomSurfaceProviding {
     /// so refusing hits costs the zoom nothing and keeps the marker from ever
     /// standing between the user and the row it marks.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    override var isOpaque: Bool { false }
-
-    override func draw(_ dirtyRect: NSRect) {}
 }
 
 /// What is under the pointer, right now, expressed in Core's vocabulary.

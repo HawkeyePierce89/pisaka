@@ -346,10 +346,13 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.scale(for: .terminal), store.terminalFontSize)
     }
 
-    func testThePreferencesStepperCannotLeaveTheTerminalZoomGrid() {
-        // The Preferences row declares its bounds and step straight from
-        // `ZoomScaleRule.terminalFont`, so it cannot present a value the store
-        // would clamp away — asserted here rather than in the (untested) view.
+    func testTheStoreAcceptsTheTerminalRulesBoundsAndItsStepMatchesAZoomStep() {
+        // The half of "the Preferences stepper cannot leave the zoom grid" that a
+        // store test can actually see: the bounds the row presents survive the
+        // clamp-on-write, and a stepper press moves by exactly what a zoom step
+        // moves by. That the *row* reads those numbers from `ZoomScaleRule` rather
+        // than restating them is a fact about a view, asserted statically by
+        // `ZoomSourceGatingTests`.
         let rule = ZoomScaleRule.terminalFont
         let store = SettingsStore(defaults: makeDefaults())
 

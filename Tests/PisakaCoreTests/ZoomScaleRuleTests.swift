@@ -162,4 +162,34 @@ final class ZoomScaleRuleTests: XCTestCase {
         }
         XCTAssertEqual(seen, [1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0])
     }
+
+    func testADegenerateStepClampsInsteadOfDividingByZero() {
+        // `init` is public and validates nothing, so a rule with a zero (or
+        // negative) step is constructible. Without the guard the step *index* is
+        // a division by zero and `stepped` returns NaN, which `clamp` then turns
+        // into the resting value — a silent reset rather than an inert step. The
+        // accumulator's own degenerate-threshold case is asserted the same way.
+        let degenerate = ZoomScaleRule(minimum: 0, maximum: 10, defaultValue: 5, step: 0)
+        XCTAssertEqual(degenerate.stepped(7, by: 3), 7)
+        XCTAssertEqual(degenerate.stepped(7, by: -3), 7)
+        // Still clamped, so a degenerate rule cannot hand a layout a value out of
+        // its own range.
+        XCTAssertEqual(degenerate.stepped(99, by: 1), 10)
+        XCTAssertEqual(degenerate.stepped(.nan, by: 1), 5)
+
+        let negative = ZoomScaleRule(minimum: 0, maximum: 10, defaultValue: 5, step: -1)
+        XCTAssertEqual(negative.stepped(7, by: 3), 7)
+    }
+
+    func testANonFiniteStepCountLeavesTheValueWhereItIs() {
+        // A NaN reaching `steps` would make `index + steps` NaN and the clamp
+        // collapse the zone to its resting value — the same silent reset, from
+        // the other argument.
+        for (name, rule) in allRules {
+            let start = rule.stepped(rule.defaultValue, by: 1)
+            XCTAssertEqual(rule.stepped(start, by: .nan), start, name)
+            XCTAssertEqual(rule.stepped(start, by: .infinity), start, name)
+            XCTAssertEqual(rule.stepped(start, by: -.infinity), start, name)
+        }
+    }
 }

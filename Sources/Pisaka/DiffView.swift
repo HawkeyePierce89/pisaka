@@ -353,8 +353,15 @@ final class DiffTextView: NSTextView, ZoomSurfaceProviding {
 /// draws right-aligned 1-based numbers beside each visible line fragment, but the
 /// number comes from the row's `DiffLine` for this side (blank for a filler line),
 /// and it paints a thin change marker at the inner edge for non-`unchanged` rows.
+///
+/// A **code** zoom surface for `LineNumberRulerView`'s reason: the gutter is the
+/// scroll view's `verticalRulerView` and therefore a sibling of the pane's text
+/// view, so a gesture over it would otherwise find no candidate and target the
+/// interface while the numbers under the pointer follow the code zone.
 @MainActor
-final class DiffGutterView: NSRulerView {
+final class DiffGutterView: NSRulerView, ZoomSurfaceProviding {
+    let zoomSurfaceKind: ZoomSurfaceKind = .code
+
     private weak var diffTextView: DiffTextView?
     private let side: DiffTextView.Side
     private let horizontalPadding: CGFloat = 4

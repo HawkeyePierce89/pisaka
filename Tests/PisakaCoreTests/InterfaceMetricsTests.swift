@@ -110,6 +110,27 @@ final class InterfaceMetricsTests: XCTestCase {
         XCTAssertEqual(InterfaceMetrics(scale: 2.0).font(.callout), 24)
         // 13 × 0.8 = 10.4, rounded to a whole point.
         XCTAssertEqual(InterfaceMetrics(scale: 0.8).font(.body), 10)
+
+        // The half-point cases, which pin the rule as *nearest* rather than
+        // truncation. Roughly half the shipped grid lands on a .5 for some style,
+        // so without these every chrome font could silently lose a point across
+        // half the range with this suite still green.
+        XCTAssertEqual(InterfaceMetrics(scale: 1.5).font(.body), 20)      // 19.5
+        XCTAssertEqual(InterfaceMetrics(scale: 1.5).font(.callout), 18)   // 18.0
+        XCTAssertEqual(InterfaceMetrics(scale: 1.1).font(.title3), 17)    // 16.5
+        XCTAssertEqual(InterfaceMetrics(scale: 1.5).font(.subheadline), 17) // 16.5
+        XCTAssertEqual(InterfaceMetrics(scale: 0.9).font(.title), 20)     // 19.8
+    }
+
+    func testAScaleOfExactlyOneReturnsEveryBaseSizeIdentically() {
+        // The resting metrics are the whole reason a view the sweep has not
+        // reached still draws what it drew before this feature existed. Asserted
+        // against `basePointSize` itself, not against restated numbers, so the
+        // claim is "unchanged" rather than "equal to a second copy of the table".
+        for style in InterfaceTextStyle.allCases {
+            XCTAssertEqual(InterfaceMetrics.unscaled.font(style), style.basePointSize, "\(style)")
+            XCTAssertEqual(InterfaceMetrics(scale: 1).font(style), style.basePointSize, "\(style)")
+        }
     }
 
     func testMetricsLandOnTheHalfPointGridAndNeverCollapseToZero() {

@@ -407,6 +407,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     invitation to exactly the silent corruption the classification exists to
     prevent. Such a file's checkbox in the left-hand list is an ordinary checked
     state, never mixed (`CheckboxState`'s rule).
+    **Zones.** The sheet's chrome follows the interface zone (it inherits
+    `\.interfaceMetrics` from the main window, which is what the placeholder here
+    reads), but the *diff itself* is the code zone: every row's text draws at
+    `settings.fontSize`, so the diff carries `ZoomSurfaceMarker(kind: .code)` and
+    a gesture over it grows the code rather than the sheet. The commit **message**
+    `TextEditor` in `CommitDialogView` is the same thing for the same reason. The
+    fixed geometry inside a row (the checkbox column, the number gutter's width,
+    the row's own spacing and padding) is deliberately on *neither* scale: it is
+    chrome belonging to a code row, and scaling it with the interface would make
+    the two zones interact (`docs/architecture/core-zoom.md`).
   - `MergeView.swift` — the 3-pane conflict-resolution editor (`ours | result |
     theirs`): the left/right panes are read-only views of each side's full content
     (stable regions plus that side's version of every conflict hunk), the middle
@@ -416,8 +426,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     intentionally untested `@ObservedObject MergeModel` view (the same split as
     `DiffView`/`CodeEditorView` — all domain logic is in Core). It also takes an
     observed `settings: SettingsStore` and applies its shared `fontSize` uniformly
-    across all three panes (so rows stay aligned), with Cmd+scroll over any pane
-    stepping it; a forced theme reaches the window via `.preferredColorScheme`. A toolbar drives
+    across all three panes (so rows stay aligned). Each pane
+    (`MergePaneTextView`) declares itself a **code** zoom surface
+    (`ZoomSurfaceProviding`, `zoomSurfaceKind = .code`) rather than overriding
+    `scrollWheel` as it once did — the app's single `NSEvent` monitor owns every
+    zoom gesture now (`docs/architecture/core-zoom.md`) — and the window is one of
+    the `NSHostingController` roots that applies `.interfaceScaled(settings)`, so
+    its chrome follows the interface zone while the panes follow the code zone.
+    A forced theme reaches the window via `.preferredColorScheme`. A toolbar drives
     per-conflict resolution (◀ ours / both orderings / theirs ▶), prev/next conflict
     navigation, and an "Apply" affordance enabled only when
     `MergeModel.isFullyResolved`; editing the middle pane within a conflict region
@@ -513,6 +529,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     glyph's char index to its row via a `LineStartIndex`-built offset cache.
     `DiffGutterView` (an `NSRulerView`, like `LineNumberRulerView`) draws this
     side's 1-based numbers (blank for a filler line) plus a thin change marker.
+    `DiffTextView` and `DiffGutterView` both declare `zoomSurfaceKind = .code`
+    (`ZoomSurfaceProviding`); the pane no longer overrides `scrollWheel` for the
+    font step, and the gutter needs its own conformance because an `NSRulerView`
+    is a *sibling* of the text view, so the pointer walk cannot reach it through
+    the pane (`docs/architecture/core-zoom.md`).
     The `Coordinator` mirrors vertical scroll between the panes (guarded against
     the sync feedback loop), and builds a Neon `TextViewHighlighter` per pane
     (same `SyntaxLanguageConfiguration` + `SyntaxTheme` mapping as the editor),

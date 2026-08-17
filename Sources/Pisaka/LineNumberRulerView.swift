@@ -21,8 +21,18 @@ import PisakaCore
 /// This is a pure view concern (no domain logic — the parsing lives in
 /// `BlameParser` and the edit-driven shift in `BlameShift`), so it lives in the
 /// `Pisaka` executable target rather than `PisakaCore`.
+///
+/// It declares itself a **code** zoom surface. The ruler is a sibling of the text
+/// view (it is the scroll view's `verticalRulerView`), not a subview, so the
+/// pointer walk cannot reach it through the editor; without the conformance a
+/// gesture over the gutter or the blame column would find no candidate at all and
+/// resize the whole application chrome instead — while the numbers it is over
+/// draw at the code font and follow the code zone. The conformance carries no
+/// behavior, exactly like the text views'.
 @MainActor
-final class LineNumberRulerView: NSRulerView {
+final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
+    let zoomSurfaceKind: ZoomSurfaceKind = .code
+
     /// The text view whose lines are numbered. Held weakly; the scroll view's
     /// view hierarchy owns it.
     private weak var textView: NSTextView?

@@ -43,10 +43,12 @@ struct AcknowledgementsView: View {
 
     /// The interface zone's metrics, inherited from the `Settings` scene root.
     ///
-    /// Reaches the list, the header and the pane's own size. The license *text*
-    /// below the header does not come through here: `LicenseTextView` is the
-    /// shared TextKit pane and draws at its own fixed size on both platforms — a
-    /// known gap, recorded with the LeetCode statement in the zoom doc.
+    /// Reaches the list, the header, the pane's own size — and the license *text*
+    /// below the header, which `LicenseTextView` draws through TextKit rather than
+    /// SwiftUI and so cannot inherit a `Font`: this view hands it the point size
+    /// explicitly (`metrics.font(.subheadline)`, which rests at
+    /// `NSFont.smallSystemFontSize`). The iOS half of that shared pane is passed
+    /// no size and keeps its own.
     @Environment(\.interfaceMetrics) private var metrics
 
     var body: some View {

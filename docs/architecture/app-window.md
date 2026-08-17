@@ -306,10 +306,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     one file, read-only, syntax-highlighted, scrolled to a range. Modeled on
     `DiffWindowContent` + `DiffView`'s read-only pane — same `preferredColorScheme`
     propagation into a separate window, same Neon highlighting through
-    `SyntaxLanguageConfiguration`/`SyntaxTheme`, same Cmd+scroll font step through a
-    small `NSTextView` subclass, same `@ObservedObject` `SettingsStore` so the
-    viewer's font tracks the editor's. Unlike the diff it loads nothing
-    asynchronously.
+    `SyntaxLanguageConfiguration`/`SyntaxTheme`, same `@ObservedObject`
+    `SettingsStore` so the viewer's font tracks the editor's. Its small
+    `NSTextView` subclass (`SourceViewerTextView`) no longer overrides
+    `scrollWheel`; it declares `zoomSurfaceKind = .code` instead, and the view is
+    one of the `NSHostingController` roots that applies `.interfaceScaled(settings)`
+    — so a gesture over the text grows the code zone and one over the window's
+    chrome grows the interface zone (`docs/architecture/core-zoom.md`). Unlike the
+    diff it loads nothing asynchronously.
     **It is not `CodeEditorView` with `isEditable = false`.** That view brings the
     binding it writes back through, per-file undo managers, auto-pair and auto-indent
     interception, the symbol re-index, blame, the minimap and completion — none of

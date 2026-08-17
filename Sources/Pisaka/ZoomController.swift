@@ -105,6 +105,20 @@ final class ZoomController {
     /// ordinary scroll would scroll the editor while the user is zooming it,
     /// which is the bug the deleted overrides also guarded against.
     private func handle(_ event: NSEvent) -> NSEvent? {
+        // The end of *any* scroll or pinch closes an in-flight zoom gesture,
+        // whether or not the modifier is still held. Releasing ⌘ before lifting
+        // the fingers is ordinary, and the `.ended` event that follows carries no
+        // modifier at all — so reading the phase only inside the modifier-gated
+        // classification below would strand that gesture's remainder and its
+        // `activeZone` indefinitely, and a much later, unrelated flick would step
+        // immediately. That is exactly what `reset()` exists to prevent.
+        //
+        // Observed here rather than folded into `sample(for:)` because the event
+        // must still be *classified* normally: an unmodified scroll's end phase is
+        // not ours, and swallowing it would deny the scroll view the phase it uses
+        // to finish the scroll and start momentum.
+        if ZoomController.isGestureEnd(event) { endGesture() }
+
         guard let sample = ZoomController.sample(for: event) else { return event }
 
         if sample.endsGesture {
@@ -186,6 +200,21 @@ final class ZoomController {
 
     private static func isEnd(_ phase: NSEvent.Phase) -> Bool {
         phase.contains(.ended) || phase.contains(.cancelled)
+    }
+
+    /// Whether `event` is the end of a continuous gesture, read without the
+    /// modifier gate. See `handle(_:)`.
+    ///
+    /// A legacy mouse wheel reports both phases empty on every event and so never
+    /// answers `true` — it has no end to report. That costs nothing here: a wheel
+    /// detent is one whole line, which is exactly one whole step, so the
+    /// accumulator holds no remainder between detents to strand.
+    private static func isGestureEnd(_ event: NSEvent) -> Bool {
+        switch event.type {
+        case .scrollWheel: return isEnd(event.phase) || isEnd(event.momentumPhase)
+        case .magnify: return isEnd(event.phase)
+        default: return false
+        }
     }
 }
 

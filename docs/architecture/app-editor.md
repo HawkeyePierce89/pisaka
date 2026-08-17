@@ -113,8 +113,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     unchanged).
     Duplicate line/selection (Cmd+D) follows the same pure-engine + thin-glue
     split, via `PisakaCore.DuplicateEngine`. The `EditorTextView` subclass carries
-    an `onDuplicate: ((NSTextView) -> Bool)?` callback (modeled on
-    `onStepFontSize`, wired in `makeNSView` to the coordinator's
+    an `onDuplicate: ((NSTextView) -> Bool)?` callback (an optional closure the
+    representable installs, wired in `makeNSView` to the coordinator's
     `duplicateSelection(in:)`, captured **weakly** — see the retain-cycle note
     below) and overrides `performKeyEquivalent(with:)`, firing
     only on a *clean* Cmd+D: `charactersIgnoringModifiers?.lowercased() == "d"`
@@ -154,23 +154,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `MergeView`'s panes — including its *editable* result pane (`MergePaneTextView`,
     `isEditable = true`), so "untouched" here means "does not use `EditorTextView`",
     not "is read-only" — are deliberately untouched.
-    Shared font size: `CodeEditorView` takes a `fontSize: Double` plus an
-    `onStepFontSize: (Double) -> Void` callback (both threaded from
-    `settings`/`settings.stepFontSize(by:)` via `ContentView`); `makeNSView` sets
-    the text view's `font` to `.monospacedSystemFont(ofSize:weight:.regular)` at
-    that size, and `updateNSView` re-applies it when `fontSize` changes (tracked by
-    the coordinator's `appliedFontSize`), then re-derives the gutter (the
+    Shared font size, and the code zoom surface: `CodeEditorView` takes a
+    `fontSize: Double` (threaded from `settings` via `ContentView`); `makeNSView`
+    sets the text view's `font` to `.monospacedSystemFont(ofSize:weight:.regular)`
+    at that size, and `updateNSView` re-applies it when `fontSize` changes (tracked
+    by the coordinator's `appliedFontSize`), then re-derives the gutter (the
     `LineNumberRulerView` reads `textView.font?.pointSize`, so a redraw +
     `ruleThickness` recompute) and `refreshGeometry` (so the line-height-dependent
-    minimap geometry and viewport rect stay correct). Cmd+scroll: the editor
-    `NSTextView` subclass overrides `scrollWheel(with:)` and, via a shared
-    `handleCommandScrollFontStep` helper, steps `settings.fontSize` (through
-    `onStepFontSize`, clamped in the store) in the sign of `scrollingDeltaY` when
-    `event.modifierFlags.contains(.command)` — consuming the event (no `super`,
-    no normal scroll) — else falls through to `super`. The handler lives on the
-    editor text view, not `MinimapView`, so it never conflicts with the minimap
-    wheel handler or the diff synced-scroll. `DiffView`/`MergeView` take the same
-    `fontSize` and apply it uniformly across their panes (so rows stay aligned).
+    minimap geometry and viewport rect stay correct). There is **no
+    `onStepFontSize` callback and no `scrollWheel(with:)` override** any more:
+    `CodeFontScroll.swift` and the four overrides that used it are gone, replaced
+    by the app's one `NSEvent` monitor (`ZoomController`), which had to own the
+    gesture because per-view overrides could never reach the terminal or the
+    chrome — the two zones the feature added. What the editor contributes instead
+    is a *declaration*: `EditorTextView: ZoomSurfaceProviding` with
+    `zoomSurfaceKind = .code`, so the pointer walk can find it. So do
+    `LineNumberRulerView` and `MinimapView`, which draw beside the text view rather
+    than inside it (a ruler is the scroll view's `verticalRulerView`, the minimap a
+    sibling of the scroll view) and would otherwise produce no candidate at all,
+    sending a gesture over the gutter or the minimap to the interface zone. The
+    whole rule is in `docs/architecture/core-zoom.md`. `DiffView`/`MergeView` take
+    the same `fontSize` and apply it uniformly across their panes (so rows stay
+    aligned).
     Completion on/off (T-4) follows that same shape exactly: `completionEnabled:
     Bool` is a **plain value**, undefaulted like `fontSize` beside it, threaded
     from `settings.completionEnabled` by

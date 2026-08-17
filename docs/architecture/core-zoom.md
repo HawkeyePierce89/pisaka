@@ -97,7 +97,10 @@ items, and applies the three scales to views.
     `ZoomScaleRuleTests` pins the three rules' numbers, the mapping, clamping
     (incl. non-finite and not-snapping), stepping at both bounds, stepping by
     several at once equalling one at a time, walking the whole range one step at
-    a time landing on both bounds *exactly*, the N-up-N-down round trip, and that
+    a time landing on both bounds *exactly*, the N-up-N-down round trip, a
+    degenerate (zero or negative) `step` staying inert instead of dividing by
+    zero into a NaN the clamp would turn into a silent reset, a non-finite step
+    *count* doing the same from the other argument, and that
     interface steps read back as round numbers.
   - `ZoomGestureAccumulator.swift` — the bridge from a trackpad's fractions of a
     point to the *same* discrete grid the keyboard produces. Without it,
@@ -143,7 +146,10 @@ items, and applies the three scales to views.
     steps, many small samples reaching the same count, one large sample producing
     every step at once, sub-threshold deltas producing nothing but not being
     lost, zero/non-finite input, mixed precise/line/pinch input in one unit,
-    reset, both reversal rules and degenerate thresholds.
+    reset, both reversal rules, degenerate thresholds, and an absurd delta
+    *saturating* at `Int.max`/`Int.min` rather than tripping `Int(_:)`'s overflow
+    precondition — the one failure in this file that is a crash rather than a
+    wrong number, and therefore the one worth an explicit test.
   - `InterfaceMetrics.swift` — the interface scale turned into concrete point
     sizes, so the whole view sweep is arithmetic-free. `InterfaceTextStyle` is
     the closed set of semantic styles the macOS chrome actually draws with, each
@@ -174,7 +180,12 @@ items, and applies the three scales to views.
     directly, and multiplying them by the interface scale would make two
     independent zones interact.
     `InterfaceMetricsTests` pins the base table (values *and* their ordering),
-    the two "unchanged at 100%" guarantees, clamping, whole-point fonts,
+    the two "unchanged at 100%" guarantees — including every style at scale 1
+    returning `basePointSize` *identically*, asserted against the table itself
+    rather than against a restated copy of it — clamping, whole-point fonts
+    (with the half-point cases that pin the rounding as **nearest**: without
+    `19.5 → 20` and `16.5 → 17`, truncation would pass and every chrome font
+    could silently lose a point across half the shipped grid),
     half-point metrics that never collapse, negatives, non-finite pass-through,
     monotonicity across the whole range, and that the extremes actually differ
     (monotonic-but-flat would satisfy the property and change nothing on screen).
@@ -197,15 +208,34 @@ items, and applies the three scales to views.
     the answer lives in `ZoomController`, every rule for turning answers into a
     zone lives in Core. Conformed to by the four code text views
     (`EditorTextView`, `DiffTextView`, `MergePaneTextView`,
-    `SourceViewerTextView`), by SwiftTerm's `TerminalView` — declared as an
+    `SourceViewerTextView`), by the three views that draw **beside** a text view
+    rather than inside it — `LineNumberRulerView` (the editor's gutter *and* its
+    blame column), `DiffGutterView` and `MinimapView` — by SwiftTerm's
+    `TerminalView` — declared as an
     extension on the dependency's own class because that is the view the pointer
     is over, with `TerminalView` rather than `LocalProcessTerminalView` since the
     subclass inherits it and the base class draws the cells; the conformance
     carries no behavior, which is what makes extending a third-party class here
     harmless — and by `ZoomSurfaceMarkerView`. Nothing declares `.interface`.
-    `ZoomSurfaceMarker` is the `NSViewRepresentable` for the two surfaces that
-    draw at the code font with no `NSTextView` behind them (the Find in Files
-    result rows and the LeetCode statement's `WKWebView` body): an empty,
+
+    **The sibling rule is the one that is easy to get wrong.** A scroll view's
+    ruler is a sibling of its text view, and the minimap is a sibling of the
+    editor's whole scroll view, so neither is reachable by walking *into* the
+    text view: without a conformance of its own, a pointer over the gutter, the
+    blame column or the minimap produces **no candidate at all**, and "no
+    candidates" means `.interface` — a ⌘= aimed at the editor would resize the
+    entire application chrome. The rule to apply to anything new: *if it draws at
+    the code font, it declares itself, wherever it sits in the hierarchy.*
+    `ZoomSourceGatingTests` pins the resulting set by equality, in both
+    directions, so a surface cannot be added or dropped without this doc being
+    revisited.
+
+    `ZoomSurfaceMarker` is the `NSViewRepresentable` for the surfaces that
+    draw at the code font with no `NSTextView` behind them — the Find in Files
+    result rows, the LeetCode statement's `WKWebView` body, and the commit
+    dialog's unified diff and message editor (both drawn at `settings.fontSize`,
+    so targeting the interface zone from them while the text under the pointer
+    followed the code size would be the same incoherence): an empty,
     non-drawing, hit-test-transparent `NSView` placed *behind* the content with
     `.background(...)`, so it inherits exactly that content's frame and nothing
     else about it. Zero-cost is meant literally — it draws nothing, `hitTest`
@@ -265,7 +295,22 @@ items, and applies the three scales to views.
     **every** path, including the ones that step nothing: a ⌘-held scroll leaking
     out as an ordinary scroll would scroll the editor while the user is zooming
     it. The zone is re-resolved per event, and crossing into a new zone resets
-    the one being left. `stepZoomUnderPointer(by:)` and `resetZoomUnderPointer()`
+    the one being left.
+
+    **The end of a gesture is read *outside* the modifier gate**, by
+    `isGestureEnd(_:)` at the top of `handle(_:)` rather than inside
+    `sample(for:)`. Releasing ⌘ before lifting the fingers is ordinary, and the
+    `.ended` event that follows carries no modifier at all — read only inside the
+    gated classification it would never arrive, stranding that gesture's
+    remainder and its `activeZone` indefinitely so that a much later, unrelated
+    flick stepped immediately, which is exactly what `reset()` exists to prevent.
+    It is *observed* there rather than folded into the classification because the
+    event must still be classified normally: an unmodified scroll's end phase is
+    not ours, and swallowing it would deny the scroll view the phase it uses to
+    finish the scroll and start momentum. A legacy mouse wheel reports both
+    phases empty on every event and so never reports an end — which costs
+    nothing, because a wheel detent is one whole line and therefore exactly one
+    whole step, leaving no remainder between detents to strand. `stepZoomUnderPointer(by:)` and `resetZoomUnderPointer()`
     back the three View-menu items and resolve the zone **at invocation time from
     the pointer**, exactly as a gesture does — a key equivalent fires wherever
     the pointer happens to be, so ⌘= over the terminal grows the terminal even
@@ -311,6 +356,34 @@ it reaches the settings form itself), and each `NSHostingController` root —
 `LeetCodeBrowserView`. Sheets inherit it from the root that presents them (the
 commit dialog, the LeetCode login and open-problem sheets), so they are not
 listed separately.
+
+### What `swift test` can still see
+
+The whole app half of this feature is view code and therefore untested by
+convention — but three of its rules are exactly the kind `swift test` *can* pin
+statically, in the `LSPSourceGatingTests`/`SparkleSourceGatingTests` mould.
+`ZoomSourceGatingTests` reads `Sources/` through `#filePath` (reusing that
+suite's Swift scanner, so **comments and string literals are stripped** — every
+file involved documents its own zoom rules at length, and a raw `contains` would
+pass while the code it describes was deleted) and asserts:
+
+  - **`interfaceScale` is named only by the plumbing** — the rule, the metrics,
+    the store and `InterfaceScaleEnvironment` — so the invariant CLAUDE.md
+    states ("reaches views only as `InterfaceMetrics`, never multiplied inline")
+    has a gate. A view writing `settings.interfaceScale * 8` compiles and looks
+    right at 100%, which is when it would be reviewed.
+  - **The set of files applying `.interfaceScaled(...)` equals the roots listed
+    above**, by set equality in both directions. A new `NSHostingController`
+    root that forgets it silently draws its whole window at the resting size —
+    no error, no warning.
+  - **The set of files declaring a zoom surface** (by conformance or by
+    `ZoomSurfaceMarker`) equals the list under `ZoomSurface.swift`. This is the
+    rule that has already gone wrong once, and the sibling trap makes it silent.
+  - **The Preferences terminal stepper reads its bounds and step from
+    `ZoomScaleRule.terminalFont`** rather than restating them. `SettingsStoreTests`
+    can only assert that the *store* accepts those bounds; whether the row
+    presents them is a fact about a view, and hard-coding `in: 8...40, step: 2`
+    there would compile and drift from the grid ⌘0 and the gestures land on.
 
 ## Known limit
 

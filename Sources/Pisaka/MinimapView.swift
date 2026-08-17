@@ -20,8 +20,16 @@ import PisakaCore
 /// it draws small colored rectangles (~1pt/char) for each non-whitespace run.
 /// Colors are resolved through `SyntaxTheme` at *draw time*, so the minimap
 /// follows the system appearance like the editor.
+///
+/// It declares itself a **code** zoom surface. The minimap is a *sibling* of the
+/// editor's scroll view inside `EditorContainerView`, so the pointer walk cannot
+/// reach it through the text view; without the conformance a gesture over the
+/// strip would find no candidate and resize the application chrome, even though
+/// what it is over is a rendering of the code at the code zone's size.
 @MainActor
-final class MinimapView: NSView {
+final class MinimapView: NSView, ZoomSurfaceProviding {
+    let zoomSurfaceKind: ZoomSurfaceKind = .code
+
     /// The line-indexed colored overview to draw. Replacing it redraws.
     var model: MinimapModel = .empty {
         didSet { if model != oldValue { needsDisplay = true } }

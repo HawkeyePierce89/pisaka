@@ -46,10 +46,12 @@ struct CommitUnifiedDiffView: View {
     /// The interface zone's metrics, inherited from the commit sheet.
     ///
     /// Read by the **placeholder alone**. The diff itself is the code zone: every
-    /// row draws at `fontSize`, so the checkbox column, the number gutter and the
-    /// row's own spacing are derived from that same number and are deliberately
-    /// left off the interface scale — the Find in Files result rows' rule, which
-    /// exists so the two zones cannot interact.
+    /// row's text draws at `fontSize`, and the fixed geometry around it (the
+    /// checkbox column, the number gutter's width, the row's own spacing and
+    /// padding) is left off *both* scales — it is chrome that belongs to a code
+    /// row, and putting it on the interface scale would make the two zones
+    /// interact, which is the Find in Files result rows' rule and the one thing
+    /// the three-zone split exists to prevent.
     @Environment(\.interfaceMetrics) private var metrics
 
     var body: some View {
@@ -78,6 +80,12 @@ struct CommitUnifiedDiffView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// The rows draw at `fontSize`, so the region they occupy *is* the code zone:
+    /// a gesture over it must grow the diff, not the sheet around it. The marker
+    /// is what the pointer walk finds — the same zero-cost representable the Find
+    /// in Files result rows and the LeetCode statement carry, and for the same
+    /// reason (`docs/architecture/core-zoom.md`): targeting the interface zone
+    /// while the text under the pointer follows the code size is incoherent.
     private var diff: some View {
         ScrollView([.vertical, .horizontal]) {
             LazyVStack(alignment: .leading, spacing: 0) {
@@ -95,6 +103,7 @@ struct CommitUnifiedDiffView: View {
             }
             .padding(.vertical, 2)
         }
+        .background(ZoomSurfaceMarker(kind: .code))
     }
 
     private func row(_ line: UnifiedDiffLine) -> some View {
