@@ -386,6 +386,11 @@ private struct FolderDisclosureRow<Menu: View>: View {
                 // A fixed column so sibling labels line up regardless of the
                 // chevron glyph's own metrics.
                 .frame(width: metrics.scaled(TreeRowLayout.chevronWidth))
+                // Decorative: the row below combines its children into one
+                // element, so an unhidden symbol contributes its own name to
+                // that element's label ("chevron.right, Sources"). The state it
+                // draws is already carried, properly, by `accessibilityValue`.
+                .accessibilityHidden(true)
             configuration.label
         }
         // Exactly `FileRowView`'s treatment — the same three `TreeRowLayout`
@@ -441,6 +446,26 @@ private enum TreeRowLayout {
     static let chevronWidth: Double = 12
     /// The folder row's gap between the chevron column and the label.
     static let chevronSpacing: Double = 4
+
+    /// The empty chevron gutter a *file* row leads with — the folder row's
+    /// chevron column plus its spacing, so a file's icon and a sibling folder's
+    /// icon land on the same vertical line.
+    ///
+    /// Load-bearing, not cosmetic. A child row is inset by
+    /// `metrics.scaled(12)`, which is *less* than the gutter: without it a
+    /// folder's label sat 22pt in while its own file children sat at 18pt, so
+    /// files rendered 4pt to the **left** of the folder containing them and the
+    /// hierarchy read inverted. Both row kinds leading with the same gutter puts
+    /// every child strictly 12pt right of its parent again, at every depth and
+    /// every interface scale.
+    ///
+    /// Scaled as the sum of the two *separately scaled* constants rather than
+    /// `scaled(16)`: `InterfaceMetrics.scaled(_:)` rounds to the half-point
+    /// grid, so only scaling each the way the folder row does keeps the two row
+    /// kinds in lockstep instead of drifting half a point apart at some scales.
+    static func chevronGutter(_ metrics: InterfaceMetrics) -> Double {
+        metrics.scaled(chevronWidth) + metrics.scaled(chevronSpacing)
+    }
 }
 
 /// One file row in the tree: a clickable label that opens the file. The icon
@@ -468,6 +493,12 @@ private struct FileRowView: View {
         .font(metrics.scaledFont(.body))
         .lineLimit(1)
         .truncationMode(.middle)
+        // A file has nothing to disclose, but it still leads with the space a
+        // folder row's chevron column occupies: that is what aligns its icon
+        // with a sibling folder's and what keeps a child row from out-denting
+        // the folder it sits in (see `TreeRowLayout.chevronGutter`). Applied
+        // inside the row's horizontal padding, like the chevron column is.
+        .padding(.leading, TreeRowLayout.chevronGutter(metrics))
         // Shared with `FolderDisclosureRow` through `TreeRowLayout`, which is
         // what keeps the two row kinds' treatment identical.
         .padding(.horizontal, metrics.scaled(TreeRowLayout.horizontalPadding))
