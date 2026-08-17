@@ -331,7 +331,20 @@ items, and applies the three scales to views.
     finish the scroll and start momentum. A legacy mouse wheel reports both
     phases empty on every event and so never reports an end — which costs
     nothing, because a wheel detent is one whole line and therefore exactly one
-    whole step, leaving no remainder between detents to strand. `stepZoomUnderPointer(by:)` and `resetZoomUnderPointer()`
+    whole step, leaving no remainder between detents to strand.
+
+    **Momentum belongs to the scroll that produced it, not to the modifiers held
+    when it arrives**, and the same released-⌘ case is why. Momentum events are
+    synthesized after the fingers have lifted and report the flags of *that*
+    moment, so gating them like content events would drop the whole tail out of
+    the classification the instant ⌘ came up and scroll the editor the user had
+    just finished zooming — the leak the swallow exists to prevent, arriving by
+    the other door. `handle(_:)` therefore keeps one flag, `momentumIsOurs`,
+    written only by **content** events (a began/changed under ⌘/⌃ claims the
+    momentum that will follow, an unmodified one disclaims it) and read by the
+    momentum events, which are swallowed on the claim alone and clear it on their
+    end phase. End phases write nothing: they carry no modifiers and so state no
+    intent. `stepZoomUnderPointer(by:)` and `resetZoomUnderPointer()`
     back the three View-menu items and resolve the zone **at invocation time from
     the pointer**, exactly as a gesture does — a key equivalent fires wherever
     the pointer happens to be, so ⌘= over the terminal grows the terminal even

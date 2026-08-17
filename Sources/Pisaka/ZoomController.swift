@@ -33,6 +33,15 @@ final class ZoomController {
     /// remainder cannot make a later, unrelated flick step immediately.
     private var activeZone: ZoomZone?
 
+    /// Whether the momentum that follows the scroll now in progress belongs to a
+    /// zoom, and must therefore be swallowed whatever the modifiers say by then.
+    ///
+    /// Stated by the *content* events, which are the only ones that carry the
+    /// user's intent: a scroll held under ⌘/⌃ claims its momentum, an unmodified
+    /// one disclaims it. See `handle(_:)` for why the modifier flags on the
+    /// momentum events themselves cannot be trusted to say this.
+    private var momentumIsOurs = false
+
     /// The installed monitor's opaque token, or `nil` while none is installed.
     private var monitor: Any?
 
@@ -119,6 +128,27 @@ final class ZoomController {
         // to finish the scroll and start momentum.
         if ZoomController.isGestureEnd(event) { endGesture() }
 
+        // **Momentum belongs to the scroll that produced it, not to the modifiers
+        // still held when it arrives.** Momentum events are synthesized after the
+        // fingers have lifted and report the modifier flags of that later moment,
+        // so releasing ⌘ as you lift — the ordinary way a zoom gesture ends, and
+        // the very case the paragraph above handles for the *end phase* — would
+        // drop the whole momentum tail out of the gated classification below and
+        // scroll the editor the user had just finished zooming. The content
+        // events say whose the momentum is; this is where that is honoured.
+        if event.type == .scrollWheel {
+            if event.momentumPhase.isEmpty {
+                // End phases carry no modifiers and so claim nothing either way —
+                // only a began/changed event states an intent.
+                if !ZoomController.isEnd(event.phase) {
+                    momentumIsOurs = ZoomController.isZoomModified(event)
+                }
+            } else if momentumIsOurs {
+                if ZoomController.isEnd(event.momentumPhase) { momentumIsOurs = false }
+                return nil
+            }
+        }
+
         guard let sample = ZoomController.sample(for: event) else { return event }
 
         if sample.endsGesture {
@@ -144,6 +174,12 @@ final class ZoomController {
     private func endGesture() {
         activeZone = nil
         for zone in accumulators.keys { accumulators[zone]?.reset() }
+    }
+
+    /// Whether `event` carries a modifier that makes a scroll a zoom.
+    private static func isZoomModified(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return flags.contains(.command) || flags.contains(.control)
     }
 
     private func zoneUnderPointer() -> ZoomZone {
@@ -175,8 +211,7 @@ final class ZoomController {
     private static func sample(for event: NSEvent) -> GestureSample? {
         switch event.type {
         case .scrollWheel:
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard flags.contains(.command) || flags.contains(.control) else { return nil }
+            guard isZoomModified(event) else { return nil }
             if isEnd(event.phase) || isEnd(event.momentumPhase) {
                 return GestureSample(input: nil, endsGesture: true)
             }

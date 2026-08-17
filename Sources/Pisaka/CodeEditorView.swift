@@ -137,8 +137,9 @@ struct CodeEditorView: NSViewRepresentable {
         // supports both TextKit systems, but a fixed, known-good configuration
         // (matching Neon's own example) avoids any per-OS ambiguity about which
         // layout system `NSTextView.scrollableTextView()` would hand back.
-        // `EditorTextView` adds only a Cmd+scroll font-size step and the Cmd+D
-        // duplicate key on top of `NSTextView`.
+        // `EditorTextView` adds only the Cmd+D duplicate key on top of
+        // `NSTextView` (the zoom gesture now arrives at `ZoomController`'s
+        // monitor, not at a `scrollWheel` override here).
         let textView = EditorTextView(usingTextLayoutManager: false)
         // Swap in the bracket-overlay layout manager before anything else is
         // wired up. `replaceLayoutManager` is the documented API for exactly this
