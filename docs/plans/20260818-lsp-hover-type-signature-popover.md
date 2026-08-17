@@ -268,16 +268,33 @@ capability, an empty answer or a failure all mean "no popover", silently.
 
 ### Task 6: Update documentation
 
-- [ ] `docs/architecture/core-lsp.md`: new decisions numbered from D25 —
+- [x] `docs/architecture/core-lsp.md`: new decisions numbered from D25 —
       hover's payload normalization and its "empty is no answer" rule; hover
       has no tree-sitter fallback and why; the popover is
       unreachable-by-pointer chrome and truncates rather than scrolls. Add the
       file entries for the new Core surface and the new capability/budget.
-- [ ] `docs/architecture/app-editor.md`: full entries for the hover controller
+      (D25 is the hover decision itself — no fallback, empty ≡ no answer, the
+      capability gate, the 1.5 s budget, markup normalized in one place — which
+      is what every `(D25)` citation already in the code means; D26 is the
+      popover's pass-through/truncation rule. New `HoverContent.swift` entry,
+      updated `LSPProtocolTypes`/`LSPSession`/`LSPIntelligenceProvider`/
+      `RoutingIntelligenceProvider` entries, the layer intro, the prefix list,
+      and three new Known limits. `core-intelligence.md`'s `CodeIntelligence`
+      entry got the third question too, since that file's behavior changed.)
+- [x] `docs/architecture/app-editor.md`: full entries for the hover controller
       and the panel — the dwell constant's home, the generation-token rule, the
-      complete dismissal set, and the pass-through panel's guarantees.
-- [ ] `CLAUDE.md`: one index line per new file, in the matching sections; no
-      per-file essays.
-- [ ] `README.md` and `docs/FEATURES.md`: the user-facing line — hovering a
+      complete dismissal set, and the pass-through panel's guarantees. (Plus the
+      wiring half in the `CodeEditorView` entry: the tracking area's
+      `.inVisibleRect`/`.activeInKeyWindow` scoping and the own-area exit test,
+      the `interfaceMetrics` property, and the four dismissals reusing
+      observations that file already owned.)
+- [x] `CLAUDE.md`: one index line per new file, in the matching sections; no
+      per-file essays. (Plus one clause on the Language-servers invariant, since
+      "fallback is per request and silent" is no longer true of every question.)
+- [x] `README.md` and `docs/FEATURES.md`: the user-facing line — hovering a
       symbol shows its type/signature where a language server is available,
-      macOS only.
+      macOS only. (Both files also claimed "no hover types" in four places among
+      their limitations; those now read the other way, and the popover's own
+      limits — no keyboard trigger, not selectable or scrollable, truncated,
+      markup degraded, none of it without a server — are stated where the other
+      per-server limits are.)

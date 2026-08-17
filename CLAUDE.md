@@ -116,6 +116,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LSPServerDescription.swift` — description + registry (D9).
 - `LSPWorkspace.swift` — one server per `(server, root)`; the D2 flush, D7 backoff, `updateRegistry(_:)` (D16).
 - `CompletionEditPlan.swift` — the pure auto-import rule.
+- `HoverContent.swift` — hover markup → renderable segments; the dwell delay and the line cap (D25/D26).
 - `LSPIntelligenceProvider.swift` — protocol answers as seam values (D6 ranking).
 - `RoutingIntelligenceProvider.swift` — LSP first, tree-sitter otherwise; the whole-attempt budget.
 - `LSPGoToolchain.swift` — the gopls pin, discovery report, prompt, Settings row (D17–D19).
@@ -280,6 +281,8 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift` — find/replace bar state, execution, UI.
 - `EditorRevealState.swift` — one-shot reveal request.
 - `CompletionController.swift` — debounced candidate precompute for AppKit's synchronous delegate; applies LSP auto-import edits.
+- `HoverController.swift` — the pointer's dwell, one generation token, the whole dismissal set.
+- `HoverPanel.swift` — the pass-through popover: `ignoresMouseEvents`, two fonts, truncation marker.
 - `DefinitionPicker.swift` — the multi-candidate `NSMenu`.
 - `LSPProcessTransport.swift` — the real `LSPTransport`: one process, three pipes, SIGTERM→SIGKILL teardown.
 - `LSPToolchain.swift` — `xcrun --find`, cached per app run.
@@ -326,7 +329,10 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   and four failures mark that `(server, root)` unavailable for the app run. A
   **reader**, like the index. `Process` lives only in `Sources/Pisaka` behind
   `LSPTransport` — `LSPSourceGatingTests` asserts that. Registration is dynamic
-  (`updateRegistry(_:)`): un-registering a server shuts its process down.
+  (`updateRegistry(_:)`): un-registering a server shuts its process down. **Hover
+  is the one question with no fallback** (D25): tree-sitter knows names, not
+  types, so no server means no popover — and the popover itself is chrome, not a
+  code surface, because the pointer cannot reach it (D26, `core-lsp.md`).
 - **Provisioned servers**: nothing downloads without per-server consent; what
   *may* be downloaded is pinned data in Core (URL + SHA-256 + size), changed
   only by shipping a new app version. Every install verifies before unpacking

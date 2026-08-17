@@ -536,6 +536,44 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `prunePerFileState(keeping:)` accordingly: it already pruned
     `externalTextRevisions` as well as the undo managers, and now prunes a third
     dictionary, so the name naming only one of the three had stopped being true.
+    **The hover popover's wiring lives here, and only its wiring** (`core-lsp.md`'s
+    D25/D26; the controller and the panel have their own entries below).
+    `EditorTextView` gains the tracking area hover is driven by, installed in
+    `updateTrackingAreas` and *replaced* rather than accumulated, since AppKit runs
+    that method on every resize. `.inVisibleRect` is what scopes it to the visible
+    rect **and keeps it there** — AppKit resizes such an area itself as the view
+    scrolls inside its clip view, so the passed rect is ignored and there is no
+    scroll-position staleness to manage — and `.activeInKeyWindow` scopes it to the
+    window the user is working in, the only one a popover may appear over. `super`
+    is called first so every tracking area `NSTextView` installs for its own cursor
+    and link handling survives, and `mouseExited` is answered **only for this
+    area** (`event.trackingArea === hoverTrackingArea`): treating a cursor-rect
+    exit as ours would dismiss a popover the pointer never left. The two events
+    reach the coordinator through `onPointerMoved`/`onPointerExited`, weakly
+    captured for the same retain-cycle reason as every other closure on this view —
+    a deallocated coordinator simply shows no popover.
+    `interfaceMetrics` is a new stored property on the representable, **a plain
+    value beside `fontSize`** and undefaulted for that property's reason. The two
+    are deliberately different zones travelling together: the popover draws code at
+    `fontSize` (the code zone, untouched) and prose at these metrics (the interface
+    zone), and the raw interface scale is never named here — an
+    `NSViewRepresentable` cannot read `@Environment` for an AppKit window it creates
+    itself, and multiplying anything inline is exactly what `ZoomSourceGatingTests`
+    exists to catch. `syncHover(codeFontSize:metrics:)` forwards both on every
+    `updateNSView`, cheaply and unconditionally, because the controller only stores
+    them and they are read when the *next* answer is drawn.
+    Four of the popover's dismissal triggers are observations this file already
+    owned, and each is dismissed at the existing call site rather than by a second
+    observer: the text storage's `didProcessEditing` (any edit — programmatic ones
+    included, which is why it is the storage's notification and not
+    `textDidChange`), `textViewDidChangeSelection`, the clip view's
+    `boundsDidChangeNotification` (a scroll moves the text out from under a
+    popover anchored in *screen* coordinates — reusing the observation the minimap
+    already installs, because two observers of one notification eventually
+    disagree about what a scroll is), and the buffer-swap branch of `updateNSView`,
+    which invalidates a popover describing an offset in the text it just replaced.
+    `teardown` calls `hover.reset()` beside `completion.reset()`, so a closed tab
+    cannot leave a floating annotation of its file on screen.
   - `CompletionController.swift` — feeds AppKit's built-in completion popup from
     the *asynchronous* code-intelligence seam. **The whole problem it exists to
     solve is a mismatch of shapes:**
@@ -793,6 +831,127 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     unaffected. The decision that off is *total* (and that the auto-popup-only
     variant was rejected rather than overlooked) is recorded in
     `core-services.md`.
+  - `HoverController.swift` — turns "the pointer has been sitting on this
+    identifier" into a hover request and its answer into a popover
+    (`core-lsp.md`'s D25). Built in the `CompletionController` mould because it has
+    the same shape of problem — an asynchronous seam behind an event that fires per
+    pixel of mouse movement — so the same three devices do the same jobs. **One
+    cancellable dwell task**, sleeping `HoverContent.dwellDelay` (Core's constant,
+    never a literal here), which is what makes moving the pointer across a file
+    cost nothing: every move supersedes the previous task before it has woken.
+    **One monotonic generation token**, captured synchronously *before* the hop, so
+    an answer whose token is stale is dropped and never shown. **One panel**,
+    reused and dismissed idempotently.
+    `pointerMoved(to:in:)` has exactly three outcomes: the pointer is over
+    something that is not a word (dismiss), it is still inside the range the
+    current answer covers (**do nothing at all** — the popover on screen already
+    describes it, and this is the whole re-ask suppressor), or it is over a new
+    identifier (bump the token, cancel the dwell, take the panel down, and start
+    again). `IdentifierScanner` is the gate and the anchor both, so hover, ⌘-click
+    and completion can never disagree about what a word is, and whitespace,
+    punctuation and the empty region past a line's end never reach the provider.
+    The anchor is deliberately also set for a request that turns out to have **no**
+    answer, so a server that knows nothing about an identifier is asked once per
+    visit rather than once per mouse-moved event.
+    **Resolving the character under the pointer is not one line, and that is the
+    point.** `characterIndexForInsertion(at:)` — what ⌘-click and the viewport
+    memory use — answers the nearest *insertion point*, which past the end of a
+    line is that line's last character, and a popover describing a symbol the
+    pointer is a hand's width away from is worse than no popover. So its answer is
+    **verified**: the character is accepted only when its own laid-out rectangle
+    contains the point, and two candidates are tried (the index and the one before
+    it) because an insertion point is a boundary — a pointer in the right half of a
+    glyph reports the index after it. Both halves of every glyph therefore resolve
+    to the glyph, and neither half of the empty space past a line resolves to
+    anything. The obvious spelling — `glyphIndex(for:in:)` guarded against
+    `numberOfGlyphs` — is rejected on cost: it forces glyph generation for the
+    **entire document** on every mouse-moved event, the exact thing
+    `allowsNonContiguousLayout` exists to avoid (see `restoreViewport`).
+    `Source` is read *at the moment a question is asked* rather than stored — the
+    provider especially, since `SymbolIndexController` hands out the model's latest
+    snapshot and a held reference would answer from the state a folder was opened
+    in (`updateCompletions`' rule). The index's `currentRootGeneration` is pinned
+    before the hop and re-checked after it, so an answer for a folder the user has
+    since left is discarded rather than drawn over the new one — the same
+    main-actor-hop closure both definition call sites make.
+    **`dismiss()` is idempotent and safe against a dismissal racing an in-flight
+    answer**: bumping the generation is what makes the second guarantee, since a
+    provider call landing after it returns finds a stale token and publishes
+    nothing. Every trigger funnels here — the pointer leaving the anchor range or
+    the text view, a scroll, a text edit, a selection change, a tab or file switch,
+    the window resigning key, and teardown — and the first two are this file's
+    while the rest are wired at `CodeEditorView`'s existing observations (see its
+    entry). The key-window observation is registered once in `attach(textView:)`
+    rather than per request, for *any* window's notification, because a window
+    resigning key means the user is somewhere else entirely and an annotation of a
+    buffer they are no longer looking at is stale by definition; `present`
+    re-checks `isKeyWindow` anyway, so an answer arriving a dwell after focus was
+    lost floats over nothing.
+    **Silent throughout**: no server, no capability, no answer, a timeout, a stale
+    document are all "no popover", with no beep and no alert. Unlike ⌘-click,
+    nobody asked for this, and a warning sound for an answer the user never
+    requested is noise. Thin, untested view glue: every decision it acts on — what
+    a word is, whether there is an answer, what it looks like, how much of it fits
+    — is Core's, and this class owns exactly two facts of its own: where the
+    pointer is, and whether the answer on screen still describes it.
+  - `HoverPanel.swift` — the popover itself: a borderless, non-activating `NSPanel`
+    drawing a `HoverContent` beside the identifier the pointer rests on.
+    **The pointer cannot reach it, and that is the whole design** (`core-lsp.md`'s
+    D26). `ignoresMouseEvents = true` is one line and buys three properties at
+    once: every click, ⌘-click, drag-selection and context menu passes straight
+    through to the code beneath, so a pointer that appears to move "onto" the
+    popover is still over the text view and simply updates or dismisses the answer;
+    it is **chrome rather than a code surface** under `ZoomSurface.swift`'s
+    "unreachable ≡ chrome" rule, so nothing here conforms to `ZoomSurfaceProviding`
+    even though the panel draws code at the code zone's font directly over the
+    editor — a zoom gesture aimed at where it appears to be is a gesture over the
+    code, which is the zone the user means; and **it cannot scroll**, which is why
+    Core truncates by line count instead, since a scrollable popover would need the
+    pointer inside it and would undo all three at once. That one line is invisible
+    to every other check in the repository, so
+    `ZoomSourceGatingTests.testTheHoverPanelPassesEveryMouseEventThroughToTheCode`
+    pins it — and the no-surface half — statically, over comment- and
+    literal-stripped source like its siblings.
+    `canBecomeKey`/`canBecomeMain` are overridden to `false` rather than left to
+    the style mask: a borderless panel is already refused key status by AppKit
+    today, and the override states the requirement instead of depending on that.
+    Nothing in the popover is interactive, so key status would buy nothing and
+    would cost the editor its first responder mid-typing.
+    The panel is built on first use and **reused for the lifetime of the editor** —
+    a hover is shown and dismissed constantly, and a fresh `NSPanel` per dwell is a
+    window-server round trip per identifier. It is added as a **child window** of
+    the editor's window so it travels with it, orders out with it and cannot
+    outlive it, re-attached only when the parent actually changed (`addChildWindow`
+    on the current parent re-orders the whole child list on every dwell).
+    `dismiss()` is idempotent, because dismissal arrives from a dozen unrelated
+    places and several of them routinely fire when nothing is on screen. It is
+    `.transient`, `.ignoresCycle`, excluded from the Windows menu, immovable and
+    not restored across launches: a transient annotation of the editor, not a
+    window the user owns.
+    Drawing is one `NSAttributedString` with **per-segment paragraph styles**,
+    because the two kinds want opposite line-breaking: prose wraps (a paragraph is
+    meant to be read at whatever width there is) and code truncates (a wrapped
+    signature invents indentation the language never had). Code segments use
+    `monospacedSystemFont` at the editor's own `SettingsStore.fontSize`, passed
+    through untouched — a signature drawn at any other size reads as a different
+    file — while prose uses the system font at `InterfaceMetrics.font(.body)`, so
+    the two zoom zones stay independent *inside one popover*, exactly as they do
+    everywhere else. When Core says the content was cut, a trailing ellipsis line
+    is appended in the prose font. The content is drawn in an `NSTextField` label
+    rather than a text view: it draws an attributed string, measures itself, and —
+    being non-editable and non-selectable — carries none of a text view's input
+    machinery into a window that ignores mouse events anyway.
+    `maximumWidth` (520 pt, interface-scaled) is a **cap rather than a fit**: a
+    one-line generic signature can be hundreds of characters wide, and a popover as
+    wide as the screen is unreadable long before it is informative. Placement is
+    below the anchor line by default and flipped above it when the popover would
+    run off the bottom — a menu's rule, and the one a user reading downward expects
+    — but only when the flipped position is genuinely better, since on a screen too
+    short either way hanging below at least keeps the first line, which is the
+    signature. The horizontal position is **clamped rather than flipped**: a
+    popover pushed left to stay on screen still points at the right line, while one
+    flipped to the other side of the identifier would not. Thin, untested view
+    glue; this file owns fonts, padding and geometry, and nothing else.
   - `LSPProcessTransport.swift` — the real `LSPTransport`: one language-server
     process, three pipes, and no opinion whatsoever about what the bytes mean. The
     entire macOS half of the LSP client, written in `GitCLIService`'s idiom for the
