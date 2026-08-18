@@ -989,8 +989,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     a hover is shown and dismissed constantly, and a fresh `NSPanel` per dwell is a
     window-server round trip per identifier. It is added as a **child window** of
     the editor's window so it travels with it, orders out with it and cannot
-    outlive it, re-attached only when the parent actually changed (`addChildWindow`
-    on the current parent re-orders the whole child list on every dwell).
+    outlive it; `dismiss()` detaches, and every `show` is preceded by one, so the
+    parent guard is what keeps a parentless preview from pretending it has one.
+    **Its appearance is taken from the parent window on every show**, and that is
+    not the belt-and-braces it looks like: this is the app's one plain-AppKit
+    window, and SwiftUI's `.preferredColorScheme` — which is how the Theme
+    preference is applied — sets the appearance on the window it is attached to
+    rather than on `NSApp` (`TerminalSessionsModel` records the same fact for the
+    terminal), and a child window does not inherit it. Unmatched, Theme = Light on
+    a dark system draws a dark popover over a light editor. The border hairline is
+    repainted in that appearance at the same moment for the second half of the same
+    reason: a `CGColor` is resolved once at assignment, so a colour set on the
+    layer at creation survives every later appearance change as a light line around
+    a dark popover — an `NSColor` is only dynamic while it is still an `NSColor`.
     `dismiss()` is idempotent, because dismissal arrives from a dozen unrelated
     places and several of them routinely fire when nothing is on screen — and it
     returns early when this object has not put a popover up, which is what makes it

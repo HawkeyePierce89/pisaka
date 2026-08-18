@@ -289,6 +289,34 @@ final class HoverContentTests: XCTestCase {
         // A reference-style link is *not* read as one: see
         // `testDoublyBracketedExpressionsAreLeftAsText`.
         XCTAssertEqual(prose("a [reference][ref] link"), "a [reference][ref] link")
+        // A destination may carry a quoted title, and still be one.
+        XCTAssertEqual(prose("see [the docs](https://example.com \"Docs\")"), "see the docs")
+        XCTAssertEqual(prose("see [the docs](<https://example.com/a b>)"), "see the docs")
+    }
+
+    /// A `(…)` that is an *argument list* rather than a destination does not make
+    /// the brackets before it a link.
+    ///
+    /// The third form of the same rule as the two tests below, and the one that
+    /// bites hardest: a balanced `(…)` after a balanced `[…]` is CommonMark's
+    /// inline link *and* is how three languages spell a call on a subscript or on
+    /// a type argument list. Reading it as a link answered `Int` for Swift's
+    /// `[Int]()` and `func MapK comparable, V any []K` for a Go generic — a wrong
+    /// name, which is the one failure this reader exists to avoid.
+    func testAnArgumentListAfterBracketsIsNotALinkTarget() {
+        XCTAssertEqual(
+            prose("Creates an empty [Int]() for you."),
+            "Creates an empty [Int]() for you."
+        )
+        XCTAssertEqual(
+            prose("Use [String](repeating: \"a\", count: 3) here."),
+            "Use [String](repeating: \"a\", count: 3) here."
+        )
+        XCTAssertEqual(
+            prose("func Map[K comparable, V any](m map[K]V) []K"),
+            "func Map[K comparable, V any](m map[K]V) []K"
+        )
+        XCTAssertEqual(prose("func F[T any](x T) T"), "func F[T any](x T) T")
     }
 
     /// Brackets with nothing linked behind them are text, not a label.
@@ -341,8 +369,36 @@ final class HoverContentTests: XCTestCase {
 
     func testStrayHtmlTagsAreDropped() {
         XCTAssertEqual(prose("a <b>bold</b> word"), "a bold word")
-        XCTAssertEqual(prose("line<br/>break"), "linebreak")
         XCTAssertEqual(prose("<p class=\"x\">text</p>"), "text")
+    }
+
+    /// `<br>` is the one allow-listed element whose whole meaning is a separator,
+    /// so it leaves one behind. Dropping it like the rest joined the words either
+    /// side — `one<br>two` reaching the popover as `onetwo`, which reads as a
+    /// typo rather than as text with its formatting removed. The popover's prose
+    /// wraps, so the *line* the tag asked for cannot be honoured; the gap can.
+    func testLineBreakTagsLeaveASeparator() {
+        XCTAssertEqual(prose("line<br/>break"), "line break")
+        XCTAssertEqual(prose("one<br>two"), "one two")
+        // Collapsed from both sides, so a tag already surrounded by spaces does
+        // not gain more.
+        XCTAssertEqual(prose("one <br> two"), "one two")
+        XCTAssertEqual(prose("one<br>  two"), "one two")
+        // Nothing to separate from at the start of a line: no leading space.
+        XCTAssertEqual(prose("<br>leading"), "leading")
+    }
+
+    /// An attribute must carry a value, where HTML allows a bare boolean one.
+    ///
+    /// `a<b and b>c` is a well-formed `<b>` element with two valueless
+    /// attributes, so the attribute *walk* alone accepted it and deleted the
+    /// comparison between the angle brackets — and the single-letter names on the
+    /// allow-list are precisely the ones that collide with variable names.
+    func testValuelessAttributesDoNotLicenseATagScan() {
+        XCTAssertEqual(prose("Holds when a<b and b>c."), "Holds when a<b and b>c.")
+        XCTAssertEqual(prose("true if i<n and n>0"), "true if i<n and n>0")
+        // Real markup with real attribute values still goes.
+        XCTAssertEqual(prose("<span class=\"x\">kept</span>"), "kept")
     }
 
     /// The `<` that is not a tag: generics and comparisons read as themselves.
@@ -817,6 +873,28 @@ final class HoverContentTests: XCTestCase {
             content?.segments.first?.text.count ?? .max,
             HoverContent.maximumLineLength
         )
+        XCTAssertLessThan(elapsed, 2)
+    }
+
+    /// The caps bound the inline pass in *both* dimensions at once.
+    ///
+    /// Clipping each line closed the single-very-long-line case, but the reader
+    /// then matched each `[` by scanning forward on demand — quadratic per line —
+    /// and the line-count cap multiplied that residue rather than closing it. An
+    /// answer inside every cap (200 lines of 2 000 unmatched brackets, which is
+    /// exactly what `[]byte`-shaped prose looks like at scale) cost eight and a
+    /// half seconds on a cooperative-pool thread, past the only cancellation
+    /// check and on a result the request budget had already thrown away.
+    func testTheLineCountCapDoesNotMultiplyASuperlinearInlinePass() {
+        let line = String(repeating: "[", count: HoverContent.maximumLineLength)
+        let markdown = Array(
+            repeating: line,
+            count: HoverContent.maximumInterpretedLineCount
+        ).joined(separator: "\n")
+        let start = Date()
+        let content = HoverContent(hoverElements: [.markup(kind: .markdown, value: markdown)])
+        let elapsed = Date().timeIntervalSince(start)
+        XCTAssertEqual(content?.lineCount, HoverContent.maximumInterpretedLineCount)
         XCTAssertLessThan(elapsed, 2)
     }
 

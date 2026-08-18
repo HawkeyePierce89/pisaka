@@ -936,6 +936,17 @@ document, together with the limits they carry.
     every length cap. Past `maximumLabelNesting` (16, past anything a hover answer
     writes) the `[` is written literally and the scan moves on one character,
     which is the answer an unmatched bracket already got: unmatched markup is text.
+    **Where each `[` closes is precomputed**, in one stack pass over the line
+    (`closingBrackets(in:)`), rather than matched on demand — and that is a third
+    bound rather than a tidier spelling of the second. An on-demand match walks to
+    the end of the line whenever the bracket turns out to be *unmatched*, and an
+    unmatched bracket is the common case in exactly the prose this reader exists
+    for (`[]byte`, `map[string]int`, `data[index]`). That is quadratic per line,
+    so the line-count cap *multiplied* the residue instead of closing it: 200
+    lines of 2 000 brackets — inside every cap above — measured **eight and a half
+    seconds**, spent on a cooperative-pool thread, past the only cancellation
+    check, on a result the request budget had already thrown away. The pass makes
+    the work linear in the text, which is what makes the caps mean what they say.
     **The length cap is itself two caps, in characters and in UTF-8 bytes, and the
     byte one is what closes the guard.** `maximumLineLength` counts `Character`s, a
     `Character` is an extended grapheme cluster, and a cluster has no size limit:
@@ -1022,6 +1033,22 @@ document, together with the limits they carry.
     for `[]byte`, `mapstringint` for `map[string]int` and `T; N` for `[T; N]`,
     which is how Go and Rust spell *types* in exactly the unfenced prose this
     normalizer sees. A wrong name, not an unformatted one.
+    **Nor is an *argument list* a destination**, which is the same rule's third
+    form and the one that bites hardest. A balanced `(…)` after a balanced `[…]`
+    is CommonMark's inline link *and* is how three languages spell a call on a
+    subscript or on a type argument list, so consuming it whole answered `Int` for
+    Swift's `[Int]()`, `String` for `[String](repeating: "a", count: 3)` and
+    `func MapK comparable, V any []K` for a Go generic. The test is CommonMark's
+    own grammar rather than a new invention — a destination is one run of
+    non-whitespace characters (or an angle-bracketed one) plus an optional
+    *quoted* title, so an argument list, carrying unquoted whitespace past its
+    first word, is not one — with the single narrowing that an **empty**
+    destination is refused where the spec allows it: `[X]()` links nowhere, so
+    reading it as a link buys nothing and it is exactly how Swift spells an empty
+    array literal. What is left ambiguous is left: `a[0](b)` and
+    `Dict[str, int](x)` still read as links, because narrowing past this would
+    have to reject a destination for being *short*, which is what a real relative
+    link in a doc comment looks like.
     **A reference target is not read either** — `[label][ref]` and the shortcut
     `[Vec]` both keep their brackets — which is where the rule stops following
     CommonMark rather than merely narrowing it. `a[i][j]` is a doubly-indexed
@@ -1044,6 +1071,23 @@ document, together with the limits they carry.
     alone. Names are matched case-sensitively for the same reason the list exists
     — markup is written lowercase and type parameters capitalised, so `<BR>`
     surviving as text is far cheaper than `Box<B>` losing its parameter.
+    **An attribute must carry a value**, where HTML allows a bare boolean one, and
+    that is the walk's third half: `a<b and b>c` is a well-formed `<b>` element
+    with two valueless attributes, so the walk alone accepted it and deleted the
+    comparison between the angle brackets — and the single-letter names on the
+    allow-list are precisely the ones that collide with variable names. A server
+    that really writes `<details open>` loses its markup to literal text, which is
+    the cheap direction.
+    **`<br>` is the one element that leaves something behind**: a space. Its whole
+    meaning is a separator, so dropping it like the rest joins the words either
+    side (`one<br>two` → `onetwo`), which reads as a typo rather than as text with
+    its formatting removed. The popover's prose wraps at the panel width, so the
+    *line* the tag asked for cannot be honoured anyway; the gap can, and runs are
+    collapsed from both sides so `one <br> two` gains nothing.
+    **HTML entities are not decoded** — `&lt;` reaches the popover spelled that
+    way. A known limit rather than an oversight: it is the degraded-not-wrong
+    direction, and decoding would have to guess whether an `&amp;` in prose about
+    C is markup or the operator.
     **Emphasis is paired, not merely flanked.** What a run touches decides what it
     *may* be — non-whitespace on the right may open, on the left may close, none
     on either side is arithmetic (`a * b`) and stays, and `_` may not do both at

@@ -654,6 +654,7 @@ enum HoverMarkup {
 
     private static func inline(_ line: String, depth: Int) -> String {
         let characters = Array(line)
+        let labelEnds = closingBrackets(in: characters)
         var pieces: [String] = []
         /// The piece plain text is currently accumulating into, or `nil` when the
         /// last thing written was a delimiter (whose index must stay stable).
@@ -662,7 +663,12 @@ enum HoverMarkup {
         /// piece is, and what to put back if the promise is not kept.
         var pendingOpeners: [Character: [(piece: Int, literal: String)]] = [:]
 
+        /// The last character written, whichever piece it landed in — the one
+        /// thing `<br>` needs to know to collapse a run of separators.
+        var lastWritten: Character?
+
         func write(_ text: String) {
+            if let last = text.last { lastWritten = last }
             if let openPiece {
                 pieces[openPiece] += text
             } else {
@@ -671,6 +677,7 @@ enum HoverMarkup {
             }
         }
         func writeDelimiter(_ text: String) -> Int {
+            if let last = text.last { lastWritten = last }
             pieces.append(text)
             openPiece = nil
             return pieces.count - 1
@@ -701,7 +708,7 @@ enum HoverMarkup {
 
             if character == "!", index + 1 < characters.count, characters[index + 1] == "[",
                depth < maximumLabelNesting,
-               let label = bracketedLabel(in: characters, openingAt: index + 1),
+               let label = bracketedLabel(in: characters, openingAt: index + 1, closing: labelEnds),
                let end = skippingLinkTarget(in: characters, from: label.end) {
                 write(inline(label.text, depth: depth + 1))
                 index = end
@@ -709,15 +716,30 @@ enum HoverMarkup {
             }
 
             if character == "[", depth < maximumLabelNesting,
-               let label = bracketedLabel(in: characters, openingAt: index),
+               let label = bracketedLabel(in: characters, openingAt: index, closing: labelEnds),
                let end = skippingLinkTarget(in: characters, from: label.end) {
                 write(inline(label.text, depth: depth + 1))
                 index = end
                 continue
             }
 
-            if character == "<", let end = htmlTagEnd(in: characters, from: index) {
-                index = end
+            if character == "<", let tag = htmlTagEnd(in: characters, from: index) {
+                index = tag.end
+                // `<br>` is the one allow-listed element whose entire meaning is a
+                // separator, so dropping it like the rest joins the words either
+                // side of it — `one<br>two` reaching the popover as `onetwo`, which
+                // reads as a typo rather than as unformatted text. A space is what
+                // survives of the break: the popover's prose wraps anyway, so the
+                // line the tag asked for cannot be honoured, but the gap it stood
+                // for can. Runs are collapsed from both sides so `one <br> two`
+                // does not gain a double space.
+                if tag.name == "br" {
+                    if let lastWritten, !lastWritten.isWhitespace { write(" ") }
+                    while index < characters.count,
+                          characters[index] == " " || characters[index] == "\t" {
+                        index += 1
+                    }
+                }
                 continue
             }
 
@@ -789,29 +811,53 @@ enum HoverMarkup {
         return nil
     }
 
-    /// The text between a `[` and its matching `]`, nesting allowed.
-    private static func bracketedLabel(
-        in characters: [Character],
-        openingAt index: Int
-    ) -> (text: String, end: Int)? {
-        var depth = 0
-        var cursor = index
+    /// Where every `[` in the line is closed, as one left-to-right pass: the
+    /// index of the matching `]`, or `-1` where nothing matches it.
+    ///
+    /// **A precomputation, not an optimization detour — it is what keeps the
+    /// caps meaning what they say.** Matching each `[` on demand walks to the end
+    /// of the line whenever it is *unmatched*, and an unmatched `[` is the common
+    /// case in the prose this reader exists for (`[]byte`, `map[string]int`,
+    /// `data[index]`). That is quadratic per line, and the caps multiply it
+    /// rather than close it: `maximumLineLength` × `maximumInterpretedLineCount`
+    /// bounds one answer at 200 lines of 2 000 characters, which as 400 000
+    /// unmatched brackets measured **eight and a half seconds** — spent on a
+    /// cooperative-pool thread, past the only cancellation check, and on a result
+    /// the request budget has already discarded. The stack pass below answers the
+    /// same question for the whole line at once, so the work is linear in the
+    /// text and the caps bound it the way `HoverContent` says they do.
+    ///
+    /// The escape rule is `bracketedLabel`'s own — a backslash hides the next
+    /// character whatever it is — so the pairs found here are exactly the ones a
+    /// scan from each opener would have found.
+    private static func closingBrackets(in characters: [Character]) -> [Int] {
+        var closing = [Int](repeating: -1, count: characters.count)
+        var openers: [Int] = []
+        var cursor = 0
         while cursor < characters.count {
             let character = characters[cursor]
             if character == "\\" {
                 cursor += 2
                 continue
             }
-            if character == "[" { depth += 1 }
-            if character == "]" {
-                depth -= 1
-                if depth == 0 {
-                    return (String(characters[(index + 1)..<cursor]), cursor + 1)
-                }
-            }
+            if character == "[" { openers.append(cursor) }
+            if character == "]", let opener = openers.popLast() { closing[opener] = cursor }
             cursor += 1
         }
-        return nil
+        return closing
+    }
+
+    /// The text between a `[` and its matching `]`, nesting allowed, read out of
+    /// the line's precomputed `closing` table.
+    private static func bracketedLabel(
+        in characters: [Character],
+        openingAt index: Int,
+        closing: [Int]
+    ) -> (text: String, end: Int)? {
+        guard index < closing.count else { return nil }
+        let end = closing[index]
+        guard end >= 0 else { return nil }
+        return (String(characters[(index + 1)..<end]), end + 1)
     }
 
     /// Past a link label's destination — `(url)`, and only that — or `nil` when
@@ -849,11 +895,54 @@ enum HoverMarkup {
             if character == "(" { depth += 1 }
             if character == ")" {
                 depth -= 1
-                if depth == 0 { return cursor + 1 }
+                if depth == 0 {
+                    guard isLinkDestination(characters[(index + 1)..<cursor]) else { return nil }
+                    return cursor + 1
+                }
             }
             cursor += 1
         }
         return nil
+    }
+
+    /// Whether what a `(…)` encloses is a link *destination*, and not an argument
+    /// list that merely follows a bracketed expression.
+    ///
+    /// **The third place this reader refuses to read markup where the same
+    /// characters spell code**, after the unclosed-emphasis run and the
+    /// reference-link shape, and for the same reason: a balanced `(…)` after a
+    /// balanced `[…]` is CommonMark's inline link *and* is how three languages
+    /// spell a call on a subscript or a type argument list. Consuming it whole
+    /// answered `Int` for Swift's `[Int]()`, `String` for
+    /// `[String](repeating: "a", count: 3)` and `func MapK comparable, V any []K`
+    /// for a Go generic — a *wrong* name, which is the one failure the whole file
+    /// is built to avoid.
+    ///
+    /// The test is CommonMark's own grammar rather than a new invention. A
+    /// destination is a single run of non-whitespace characters (or an
+    /// angle-bracketed one), optionally followed by a *quoted* title — so an
+    /// argument list, which carries unquoted whitespace past its first word, is
+    /// not one. An **empty** destination is refused too, where the spec allows it:
+    /// `[X]()` links nowhere, so reading it as a link buys nothing at all, and it
+    /// is exactly how Swift spells an empty array literal.
+    ///
+    /// The residual ambiguity is real and deliberately left: `a[0](b)` and
+    /// `Dict[str, int](x)` are indistinguishable from a link to a relative target
+    /// and are still read as links. Narrowing further would have to reject
+    /// destinations that are merely *short*, which is what a real relative link in
+    /// a doc comment looks like.
+    private static func isLinkDestination(_ target: ArraySlice<Character>) -> Bool {
+        let destination = target.drop { $0.isWhitespace }.reversed().drop { $0.isWhitespace }
+            .reversed()
+        guard let first = destination.first else { return false }
+        // The angle-bracketed form says "this is a destination" explicitly, and
+        // nothing in any language's call syntax opens with it.
+        if first == "<" { return destination.contains(">") }
+        guard let space = destination.firstIndex(where: { $0.isWhitespace }) else { return true }
+        let title = destination[space...].drop { $0.isWhitespace }
+        guard let open = title.first, let close = title.last, title.count >= 2 else { return false }
+        return (open == "\"" && close == "\"") || (open == "'" && close == "'")
+            || (open == "(" && close == ")")
     }
 
     /// The HTML element names a hover answer is allowed to contain, lowercase.
@@ -884,7 +973,19 @@ enum HoverMarkup {
     /// something tag-shaped, and a scan to the nearest `>` deletes the clause
     /// between them. Here the `<` inside `x<y` is not a character an attribute may
     /// contain, so the whole thing is rejected and stays text.
-    private static func htmlTagEnd(in characters: [Character], from index: Int) -> Int? {
+    ///
+    /// An attribute must carry a **value**, where HTML allows a bare boolean one,
+    /// and that is the third half of not eating prose. `a<b and b>c` is a
+    /// perfectly well-formed `<b>` element with two valueless attributes, so the
+    /// walk alone accepted it and deleted the comparison between the angle
+    /// brackets — and the single-letter names most likely to collide with a
+    /// variable are precisely the ones on the allow-list. A hover answer that
+    /// really does write `<details open>` loses its markup to literal text, which
+    /// is the cheap direction.
+    private static func htmlTagEnd(
+        in characters: [Character],
+        from index: Int
+    ) -> (end: Int, name: String)? {
         var cursor = index + 1
         let isClosing = cursor < characters.count && characters[cursor] == "/"
         if isClosing { cursor += 1 }
@@ -894,7 +995,8 @@ enum HoverMarkup {
             || characters[cursor] == "-" {
             cursor += 1
         }
-        guard htmlTagNames.contains(String(characters[nameStart..<cursor])) else { return nil }
+        let name = String(characters[nameStart..<cursor])
+        guard htmlTagNames.contains(name) else { return nil }
 
         func skippingSpaces(from start: Int) -> Int {
             var cursor = start
@@ -906,16 +1008,16 @@ enum HoverMarkup {
 
         if isClosing {
             cursor = skippingSpaces(from: cursor)
-            return cursor < characters.count && characters[cursor] == ">" ? cursor + 1 : nil
+            return cursor < characters.count && characters[cursor] == ">" ? (cursor + 1, name) : nil
         }
 
         while cursor < characters.count {
             switch characters[cursor] {
             case ">":
-                return cursor + 1
+                return (cursor + 1, name)
             case "/":
                 cursor += 1
-                return cursor < characters.count && characters[cursor] == ">" ? cursor + 1 : nil
+                return cursor < characters.count && characters[cursor] == ">" ? (cursor + 1, name) : nil
             case " ", "\t":
                 cursor = skippingSpaces(from: cursor)
             default:
@@ -930,7 +1032,7 @@ enum HoverMarkup {
                 cursor += 1
             }
             var value = skippingSpaces(from: cursor)
-            guard value < characters.count, characters[value] == "=" else { continue }
+            guard value < characters.count, characters[value] == "=" else { return nil }
             value = skippingSpaces(from: value + 1)
             guard value < characters.count else { return nil }
             let quote = characters[value]

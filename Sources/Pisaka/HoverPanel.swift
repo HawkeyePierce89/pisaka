@@ -111,6 +111,7 @@ final class HoverPanel {
         )
         let panel = panel ?? makePanel()
         self.panel = panel
+        Self.match(panel, to: parent)
         panel.setContentSize(
             NSSize(width: contentSize.width + inset * 2, height: contentSize.height + inset * 2)
         )
@@ -124,9 +125,10 @@ final class HoverPanel {
         panel.setFrameOrigin(Self.origin(for: panel.frame.size, anchoredTo: anchor))
 
         // Attached to the editor's window so the popover travels with it, orders
-        // out with it and cannot outlive it. Re-attached only when the parent
-        // actually changed: `addChildWindow` on the current parent re-orders the
-        // whole child list on every dwell.
+        // out with it and cannot outlive it. `dismiss()` detaches, and every
+        // `show` is preceded by one, so this is the attachment rather than a
+        // re-attachment; the guard is what keeps a parentless preview from
+        // pretending it has one.
         if let parent, attachedParent !== parent {
             attachedParent?.removeChildWindow(panel)
             parent.addChildWindow(panel, ordered: .above)
@@ -153,6 +155,29 @@ final class HoverPanel {
         attachedParent?.removeChildWindow(panel)
         attachedParent = nil
         panel.orderOut(nil)
+    }
+
+    /// Draw the popover in the *editor's* appearance rather than the system's.
+    ///
+    /// The panel is the one plain-AppKit window in the app, and SwiftUI's
+    /// `.preferredColorScheme` — which is how the Theme preference is applied —
+    /// sets the appearance on the window it is attached to, not on `NSApp`
+    /// (`TerminalSessionsModel` records the same fact for the terminal). A child
+    /// window does not inherit it either, so with Theme = Light on a dark system
+    /// an unmatched popover draws dark-on-dark over a light editor.
+    ///
+    /// The border is repainted here rather than in `makePanel()` for the second
+    /// half of the same reason: `CGColor` is resolved once at assignment, so a
+    /// hairline set at creation survives every later appearance change as a light
+    /// line around a dark popover. `NSColor` is only dynamic while it is a
+    /// `NSColor` — the layer keeps what it was given.
+    private static func match(_ panel: PassThroughPanel, to parent: NSWindow?) {
+        let appearance = parent?.effectiveAppearance ?? NSApp.effectiveAppearance
+        guard panel.appearance?.name != appearance.name else { return }
+        panel.appearance = appearance
+        appearance.performAsCurrentDrawingAppearance {
+            panel.contentView?.layer?.borderColor = NSColor.separatorColor.cgColor
+        }
     }
 
     // MARK: - Building the panel
@@ -194,7 +219,8 @@ final class HoverPanel {
         background.wantsLayer = true
         background.layer?.cornerRadius = 6
         background.layer?.borderWidth = 1
-        background.layer?.borderColor = NSColor.separatorColor.cgColor
+        // The border's *colour* is set by `match(_:to:)` on every show, in the
+        // appearance the popover is about to draw in.
         background.layer?.masksToBounds = true
         background.addSubview(panel.label)
         panel.contentView = background

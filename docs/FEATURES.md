@@ -924,8 +924,9 @@ and iPhone. The feature scope landed so far:
   line is trimmed at the edge rather than wrapped. What the server sends is
   *degraded* rather than rendered: fenced code becomes code and everything else
   becomes plain text with its emphasis, headings, rules, HTML tags and link URLs
-  removed, so a table or a block quote in a documentation comment arrives as its
-  own punctuation. There is no syntax colouring inside the popover, no links to
+  removed (a `<br>` leaves a space behind, and HTML entities such as `&lt;` are
+  shown as written), so a table or a block quote in a documentation comment
+  arrives as its own punctuation. There is no syntax colouring inside the popover, no links to
   follow and no "show more".
 - The tree-sitter fallback — which is what every other language, and Swift without
   Xcode, always uses — is index-based, not a compiler: Go to Definition matches a
