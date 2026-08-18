@@ -193,7 +193,7 @@ final class HoverContentTests: XCTestCase {
 
     func testEmphasisAndStrongMarkersAreDropped() {
         XCTAssertEqual(prose("*one* **two** ***three***"), "one two three")
-        XCTAssertEqual(prose("_one_ __two__"), "one two")
+        XCTAssertEqual(prose("_one_"), "one")
         XCTAssertEqual(prose("intra*word*emphasis"), "intrawordemphasis")
     }
 
@@ -202,12 +202,43 @@ final class HoverContentTests: XCTestCase {
     ///
     /// Underscores *inside* a word are never emphasis (Markdown says so, and it
     /// is the difference between `some_identifier_name` and `someidentifiername`
-    /// on screen); a pair wrapping a word is, which is why a server that means
-    /// the literal `__init__` sends it fenced or backticked, as they all do.
+    /// on screen).
     func testUnderscoresInsideWordsAndLoneAsterisksSurvive() {
         XCTAssertEqual(prose("some_identifier_name and a_b_c"), "some_identifier_name and a_b_c")
         XCTAssertEqual(prose("width * height"), "width * height")
         XCTAssertEqual(prose("`__init__` stays"), "__init__ stays")
+    }
+
+    /// The same rule one step out: a `_` run of two or more is never markup, so a
+    /// dunder reaches the popover spelled the way Python spells it.
+    ///
+    /// The intra-word rule above cannot reach these — `__init__`'s runs flank the
+    /// word rather than sit inside it, so CommonMark reads them as strong
+    /// emphasis and the popover would name the symbol `init`. Servers write
+    /// dunders as ordinary prose in a docstring, so the fenced spelling asserted
+    /// above is a courtesy and not something to rely on.
+    func testDunderNamesKeepTheirUnderscores() {
+        XCTAssertEqual(prose("Called by __init__ during construction."),
+                       "Called by __init__ during construction.")
+        XCTAssertEqual(prose("The __name__ attribute."), "The __name__ attribute.")
+        XCTAssertEqual(prose("__all__ lists exports"), "__all__ lists exports")
+        // The shape that made the old reading worst: two identical names in one
+        // sentence, of which the spec renames only the first.
+        XCTAssertEqual(prose("See __str__ and __repr__."), "See __str__ and __repr__.")
+        XCTAssertEqual(prose("_private and __dunder__ and some_name"),
+                       "_private and __dunder__ and some_name")
+    }
+
+    /// The cost of the rule above, paid where it is cheapest.
+    ///
+    /// `__bold__` is markup a server *could* have meant, and it now survives
+    /// unformatted. That is the trade stated in `emphasisRole`: every server
+    /// writes bold as `**bold**`, which still degrades, so the underscore
+    /// spelling is the rare one and an extra pair of underscores on screen beats
+    /// a renamed symbol.
+    func testTheUnderscoreSpellingOfBoldStaysLiteral() {
+        XCTAssertEqual(prose("__bold__ text"), "__bold__ text")
+        XCTAssertEqual(prose("**bold** text"), "bold text")
     }
 
     /// A delimiter nothing closes is text, which is CommonMark's rule and the

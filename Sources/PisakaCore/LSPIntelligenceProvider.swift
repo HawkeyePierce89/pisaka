@@ -290,7 +290,13 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         // server was talked out of underneath this one would be anchored to text
         // that has moved.
         guard await workspace.stillHolds(prepared) else { return nil }
-        guard let content = HoverContent(response) else { return nil }
+        // Interpreting the markup is the one step here that is *work* rather than
+        // waiting, and its cost is the server's to choose: the three caps bound it,
+        // but a line of two thousand `[` costs a scan per character and the budget
+        // above may already have expired. Nothing downstream is waiting for this
+        // answer once the caller's task is cancelled, so stop before paying for it
+        // instead of burning a cooperative-pool thread on a popover nobody will see.
+        guard !Task.isCancelled, let content = HoverContent(response) else { return nil }
 
         return HoverAnswer(content: content, range: anchorRange(for: response, in: source, at: request.offset))
     }

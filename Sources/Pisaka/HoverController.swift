@@ -46,7 +46,12 @@ final class HoverController: NSObject {
         /// The index's project token, pinned before the hop so an answer for a
         /// folder the user has since left is discarded rather than drawn over
         /// the new one (`SymbolIndexController.currentRootGeneration`).
-        let rootGeneration: Int?
+        ///
+        /// Non-optional on purpose. The staleness guard compares this against
+        /// `source()?.rootGeneration`, so an optional here would make the
+        /// editor-has-gone path read `nil == nil` and *accept* the stale answer
+        /// it exists to drop.
+        let rootGeneration: Int
     }
 
     /// Supplies the above; `nil` means "nothing to ask", which is the state a
@@ -261,13 +266,21 @@ final class HoverController: NSObject {
             location: answer.range.location,
             length: min(max(answer.range.length, 0), length - answer.range.location)
         )
+        // Measured *before* the anchor is published, and the order is load-bearing:
+        // `firstRect` can force layout on a range not yet laid out, and a reflow
+        // posts `frameDidChangeNotification` — which lands in `dismissHover()`
+        // synchronously and clears `anchorRange`. Assigning first would leave that
+        // dismissal undone by the `show` below: a popover on screen with no anchor,
+        // which the next mouse-moved event inside the same word tears down and
+        // re-asks, for a visible flicker and a redundant round trip.
+        let anchor = textView.firstRect(forCharacterRange: clamped, actualRange: nil)
         // What the pointer is now measured against: the server's own range when
         // it sent one, which is usually wider than the identifier (a qualified
         // name, an operator expression) and is the honest span of the answer.
         anchorRange = clamped
         panel.show(
             answer.content.truncated(),
-            anchoredTo: textView.firstRect(forCharacterRange: clamped, actualRange: nil),
+            anchoredTo: anchor,
             in: window,
             codeFontSize: codeFontSize,
             metrics: metrics

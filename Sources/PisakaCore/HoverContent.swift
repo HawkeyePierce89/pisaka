@@ -961,6 +961,19 @@ enum HoverMarkup {
     /// **Permission, not a verdict.** Whether a run that *may* open actually is
     /// markup depends on a closer arriving, which is `inline(_:)`'s bookkeeping
     /// and not something a rule reading two adjacent characters can know.
+    ///
+    /// **A `_` run of two or more may do neither**, which is a deliberate
+    /// deviation from CommonMark and the same one the intra-word rule above
+    /// already makes, one step further out. The intra-word rule saves
+    /// `some_identifier_name` because the underscores are *touched on both
+    /// sides*; it does nothing for `__init__`, whose runs flank the word and so
+    /// read as strong emphasis by the spec — leaving the popover to say `init`.
+    /// That is the wrong-name failure this whole reader is built to avoid, and
+    /// Python, whose dunders (`__init__`, `__name__`, `__all__`) are ordinary
+    /// prose in a docstring, is one of the languages a server answers for. The
+    /// trade is one-sided: servers write bold as `**bold**`, so refusing the
+    /// `__bold__` spelling costs an occasional pair of literal underscores —
+    /// unformatted rather than misnamed, the direction this file always picks.
     static func emphasisRole(
         _ character: Character,
         in characters: [Character],
@@ -972,6 +985,7 @@ enum HoverMarkup {
         let opens = after.map { !$0.isWhitespace } ?? false
         let closes = before.map { !$0.isWhitespace } ?? false
         if character == "*" { return (opens, closes) }
+        guard length < 2 else { return (false, false) }
         return (opens && !closes, closes && !opens)
     }
 

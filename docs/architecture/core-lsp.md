@@ -1048,7 +1048,19 @@ document, together with the limits they carry.
     *may* be — non-whitespace on the right may open, on the left may close, none
     on either side is arithmetic (`a * b`) and stays, and `_` may not do both at
     once, which is what leaves `some_identifier_name` spelled the way the code
-    spells it — but a run that *may* open is markup only once something closes it.
+    spells it, and **a `_` run of two or more may do neither** — but a run that
+    *may* open is markup only once something closes it.
+    That last clause is a second deliberate departure, made for the allow-list's
+    reason. The intra-word rule cannot reach a dunder: `__init__`'s runs *flank*
+    the word rather than sit inside it, so CommonMark reads them as strong
+    emphasis and the popover names the symbol `init` — wrong, not merely plain,
+    and pervasive in the docstring prose a Python server attaches to a hover
+    (`__init__`, `__name__`, `__all__`). Its worst shape is `See __str__ and
+    __repr__.`, where the spec renames only the first of two identical names. The
+    trade is one-sided: every server writes bold as `**bold**`, which still
+    degrades, so refusing the `__bold__` spelling costs an occasional literal pair
+    of underscores — unformatted rather than misnamed, the direction this reader
+    picks every time.
     An opener the line never closes is written back literally, which is CommonMark's
     reading and the difference between `w*h`, `*ptr` and `_private` reaching the
     popover as themselves and reaching it as `wh`, `ptr` and `private`. This is why
