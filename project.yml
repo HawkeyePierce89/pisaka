@@ -290,7 +290,7 @@ targets:
         # before, so uploads override it on the `xcodebuild archive` command line
         # (`CURRENT_PROJECT_VERSION=<n>`), which beats the project value and
         # leaves the tree clean. See docs/RELEASING.md.
-        MARKETING_VERSION: "1.1"
+        MARKETING_VERSION: "1.2"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.9"
         CODE_SIGN_STYLE: Automatic
