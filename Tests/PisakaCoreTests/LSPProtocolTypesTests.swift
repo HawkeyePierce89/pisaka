@@ -98,6 +98,9 @@ final class LSPProtocolTypesTests: XCTestCase {
     func testInitializeResultDecodesTheCapabilitiesThisPhaseActsOn() throws {
         let result = try result(of: "initialize-result.json", as: LSPInitializeResult.self)
         XCTAssertTrue(result.capabilities.supportsDefinition)
+        // The recorded sourcekit-lsp advertises `hoverProvider: true`; D25 asks
+        // nothing at all of a server that does not.
+        XCTAssertTrue(result.capabilities.supportsHover)
         XCTAssertTrue(result.capabilities.supportsCompletion)
         XCTAssertTrue(result.capabilities.resolvesCompletionItems)
         XCTAssertEqual(result.capabilities.completionTriggerCharacters, [".", "("])
@@ -129,9 +132,13 @@ final class LSPProtocolTypesTests: XCTestCase {
         // silently disable the feature for every server that sends the other one.
         let capabilities = try JSONDecoder().decode(
             LSPServerCapabilities.self,
-            from: Data(#"{"definitionProvider":{},"completionProvider":{"resolveProvider":false}}"#.utf8)
+            from: (
+                #"{"definitionProvider":{},"hoverProvider":{"workDoneProgress":true},"#
+                    + #""completionProvider":{"resolveProvider":false}}"#
+            ).utf8Data
         )
         XCTAssertTrue(capabilities.supportsDefinition)
+        XCTAssertTrue(capabilities.supportsHover)
         XCTAssertTrue(capabilities.supportsCompletion)
         XCTAssertFalse(capabilities.resolvesCompletionItems)
     }
@@ -139,10 +146,21 @@ final class LSPProtocolTypesTests: XCTestCase {
     func testAbsentOrFalseProvidersCountAsUnsupported() throws {
         let capabilities = try JSONDecoder().decode(
             LSPServerCapabilities.self,
-            from: Data(#"{"definitionProvider":false}"#.utf8)
+            from: Data(#"{"definitionProvider":false,"hoverProvider":false}"#.utf8)
         )
         XCTAssertFalse(capabilities.supportsDefinition)
+        // Both spellings of "no": stated false, and never mentioned at all.
+        XCTAssertFalse(capabilities.supportsHover)
         XCTAssertFalse(capabilities.supportsCompletion)
+    }
+
+    func testAServerThatNeverMentionsHoverDoesNotSupportIt() throws {
+        let capabilities = try JSONDecoder().decode(
+            LSPServerCapabilities.self,
+            from: Data(#"{"definitionProvider":true}"#.utf8)
+        )
+        XCTAssertTrue(capabilities.supportsDefinition)
+        XCTAssertFalse(capabilities.supportsHover)
     }
 
     /// The capability block is asserted byte for byte because it is a *promise*:
@@ -171,6 +189,7 @@ final class LSPProtocolTypesTests: XCTestCase {
             "contextSupport":true,\
             "dynamicRegistration":false},\
             "definition":{"dynamicRegistration":false,"linkSupport":true},\
+            "hover":{"contentFormat":["markdown","plaintext"],"dynamicRegistration":false},\
             "synchronization":{"didSave":false,"dynamicRegistration":false,\
             "willSave":false,"willSaveWaitUntil":false}},\
             "workspace":{"configuration":false,"workspaceFolders":false}}
@@ -383,6 +402,162 @@ final class LSPProtocolTypesTests: XCTestCase {
         XCTAssertThrowsError(
             try JSONDecoder().decode(LSPDefinitionResponse.self, from: Data(#""nonsense""#.utf8))
         )
+    }
+
+    // MARK: - textDocument/hover
+
+    /// Hover asks the same question definition does — the params type is shared,
+    /// so what is pinned here is that nothing extra is sent with it.
+    func testHoverParamsEncodeAsAPlainPositionRequest() throws {
+        let params = LSPTextDocumentPositionParams(
+            uri: "file:///a/b.swift",
+            position: LSPPosition(line: 7, character: 3)
+        )
+        XCTAssertEqual(
+            try json(params),
+            #"{"position":{"character":3,"line":7},"textDocument":{"uri":"file:///a/b.swift"}}"#
+        )
+    }
+
+    private func hover(_ json: String) throws -> LSPHoverResponse {
+        try JSONDecoder().decode(LSPHoverResponse.self, from: Data(json.utf8))
+    }
+
+    /// The shape sourcekit-lsp and rust-analyzer both answer with: one
+    /// `MarkupContent`, the signature fenced inside it, plus the range of the
+    /// identifier asked about.
+    func testAMarkupContentHoverDecodesWithItsKindAndRange() throws {
+        let response = try hover(
+            #"{"contents":{"kind":"markdown","value":"```swift\nfunc greet()\n```"},"#
+                + #""range":{"start":{"line":3,"character":14},"end":{"line":3,"character":19}}}"#
+        )
+        XCTAssertEqual(
+            response.elements,
+            [.markup(kind: .markdown, value: "```swift\nfunc greet()\n```")]
+        )
+        XCTAssertEqual(
+            response.range,
+            LSPRange(
+                start: LSPPosition(line: 3, character: 14),
+                end: LSPPosition(line: 3, character: 19)
+            )
+        )
+    }
+
+    /// A bare string is a `MarkedString`, and the spec says a bare
+    /// `MarkedString` is markdown — reading it as plain text would leave every
+    /// fence visible in the popover.
+    func testABareStringContentsIsMarkdown() throws {
+        let response = try hover(#"{"contents":"**Greeter**"}"#)
+        XCTAssertEqual(response.elements, [.markup(kind: .markdown, value: "**Greeter**")])
+        XCTAssertNil(response.range)
+    }
+
+    /// The other `MarkedString`: an object naming a language, which *is* a code
+    /// block whole. The language is what the renderer distinguishes code from
+    /// prose by, so it must survive the decode.
+    func testAMarkedStringObjectDecodesAsCodeInItsLanguage() throws {
+        let response = try hover(#"{"contents":{"language":"swift","value":"let a: Int"}}"#)
+        XCTAssertEqual(response.elements, [.code(language: "swift", value: "let a: Int")])
+    }
+
+    /// gopls's shape: an array mixing both spellings. Order is the server's and
+    /// is never rearranged — the signature comes first and its documentation
+    /// after, and swapping them is a different answer.
+    func testAnArrayMixingBothMarkedStringSpellingsKeepsOrderAndLanguages() throws {
+        let response = try hover(
+            #"{"contents":[{"language":"go","value":"func Greet(name string)"},"#
+                + #""Greet writes a greeting.",{"language":"","value":"plain block"}]}"#
+        )
+        XCTAssertEqual(
+            response.elements,
+            [
+                .code(language: "go", value: "func Greet(name string)"),
+                .markup(kind: .markdown, value: "Greet writes a greeting."),
+                // A `MarkedString` naming an empty language is still a code
+                // block; it just does not say which language to colour it as.
+                .code(language: nil, value: "plain block")
+            ]
+        )
+    }
+
+    func testANullHoverResultIsNoElementsAndNoRange() throws {
+        let response = try hover("null")
+        XCTAssertTrue(response.isEmpty)
+        XCTAssertNil(response.range)
+    }
+
+    func testAnEmptyContentsArrayIsTheSameAnswerAsNull() throws {
+        let response = try hover(#"{"contents":[]}"#)
+        XCTAssertTrue(response.isEmpty)
+    }
+
+    func testAHoverWithNoContentsMemberIsTheSameAnswerAsNull() throws {
+        let response = try hover(#"{"range":{"start":{"line":0,"character":0},"#
+            + #""end":{"line":0,"character":1}}}"#)
+        XCTAssertTrue(response.isEmpty)
+        // The range still decodes — this layer reports what arrived; whether it
+        // is worth showing is `HoverContent`'s question.
+        XCTAssertNotNil(response.range)
+    }
+
+    /// An empty string is a legal `MarkedString`. It stays an element here on
+    /// purpose: the protocol layer reports what the server said, and "this
+    /// normalizes to nothing, so show no popover" is the next layer's rule.
+    func testAnEmptyStringContentsIsAnElementCarryingNothing() throws {
+        let response = try hover(#"{"contents":""}"#)
+        XCTAssertEqual(response.elements, [.markup(kind: .markdown, value: "")])
+        XCTAssertFalse(response.isEmpty)
+        XCTAssertEqual(response.elements.first?.value, "")
+    }
+
+    /// Lenient decoding, case one: a `kind` from a newer specification must not
+    /// cost the answer. Plain text is the safe reading — the worst it does is
+    /// leave a marker visible.
+    func testAnUnknownMarkupKindDegradesToPlainText() throws {
+        let response = try hover(#"{"contents":{"kind":"asciidoc","value":"= Title"}}"#)
+        XCTAssertEqual(response.elements, [.markup(kind: .plaintext, value: "= Title")])
+        XCTAssertEqual(LSPMarkupKind(spelling: nil), .plaintext)
+        XCTAssertEqual(LSPMarkupKind(spelling: "markdown"), .markdown)
+        XCTAssertEqual(LSPMarkupKind(spelling: "plaintext"), .plaintext)
+    }
+
+    /// Lenient decoding, case two: one unreadable element is dropped, and the
+    /// elements around it still arrive. Failing the whole decode would trade a
+    /// good signature for a server's stray `null`.
+    func testAMalformedElementIsDroppedRatherThanFailingTheWholeAnswer() throws {
+        let response = try hover(
+            #"{"contents":[{"language":"swift","value":"let a: Int"},null,{"nope":1},"#
+                + #""documentation"]}"#
+        )
+        XCTAssertEqual(
+            response.elements,
+            [
+                .code(language: "swift", value: "let a: Int"),
+                .markup(kind: .markdown, value: "documentation")
+            ]
+        )
+    }
+
+    /// Neither `kind` nor `language`, but a `value` all the same. It did send
+    /// text, so it is shown unstyled rather than thrown away.
+    func testAnObjectWithOnlyAValueIsReadAsPlainText() throws {
+        let response = try hover(#"{"contents":{"value":"Int"}}"#)
+        XCTAssertEqual(response.elements, [.markup(kind: .plaintext, value: "Int")])
+    }
+
+    /// A `range` that does not parse costs the range, not the content: the caller
+    /// falls back to the identifier range it asked about.
+    func testARangeThatDoesNotParseLeavesTheContentIntact() throws {
+        let response = try hover(#"{"contents":"Int","range":"everywhere"}"#)
+        XCTAssertEqual(response.elements, [.markup(kind: .markdown, value: "Int")])
+        XCTAssertNil(response.range)
+    }
+
+    func testAnUnrecognisedHoverShapeThrowsRatherThanDecodingToNothing() {
+        // Same rule as definition: "nothing to show" and "I could not read the
+        // answer" are different facts and must stay distinguishable.
+        XCTAssertThrowsError(try hover(#""nonsense""#))
     }
 
     // MARK: - textDocument/completion
@@ -664,6 +839,7 @@ final class LSPProtocolTypesTests: XCTestCase {
         XCTAssertEqual(LSPMethod.didChange, "textDocument/didChange")
         XCTAssertEqual(LSPMethod.didClose, "textDocument/didClose")
         XCTAssertEqual(LSPMethod.definition, "textDocument/definition")
+        XCTAssertEqual(LSPMethod.hover, "textDocument/hover")
         XCTAssertEqual(LSPMethod.completion, "textDocument/completion")
         XCTAssertEqual(LSPMethod.resolveCompletionItem, "completionItem/resolve")
         XCTAssertEqual(LSPMethod.workspaceConfiguration, "workspace/configuration")

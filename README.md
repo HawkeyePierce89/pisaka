@@ -41,7 +41,10 @@ description of each — and of what it deliberately does *not* do — is in
   Preferences); Go via `gopls` (yours if you have it, otherwise built once with
   your own `go`); Rust via `rust-analyzer` (yours if you have it, otherwise the
   official binary downloaded once — a `cargo` is required either way). Every
-  language falls back to the built-in index silently — no alerts, ever.
+  language falls back to the built-in index silently — no alerts, ever. Where a
+  server is available, resting the pointer on a symbol also shows its
+  type/signature in a small popover (macOS only; there is no popover without a
+  server, since the index knows names, not types).
 - **Git** — Local Changes with side-by-side diffs and multi-file revert; an
   IDEA-style commit dialog with per-line selection, amend, author editing and
   optional push; a 3-pane merge-conflict resolver; a Git Log with a branch
@@ -210,10 +213,12 @@ The headline items; the complete list, with the reasoning per item, is in
   dialog, git blame, the terminal, Run File/Run Test, the path bar, session
   restore, every language server, and automatic updates. iOS covers the editor,
   the index-based intelligence, the libgit2-backed git essentials, and LeetCode.
-- Language servers answer Go to Definition and completion only — no diagnostics,
-  rename, hover types or Find Usages — and their versions are pinned in the app.
-  The index fallback matches *names*: no scope, type inference, or reach into
-  dependencies outside the opened folder.
+- Language servers answer Go to Definition, completion and hover types only — no
+  diagnostics, rename or Find Usages — and their versions are pinned in the app.
+  The hover popover is macOS-only, cannot be scrolled or selected (long answers
+  are cut), and has no keyboard trigger. The index fallback matches *names*: no
+  scope, type inference, reach into dependencies outside the opened folder — and
+  no hover at all.
 - The commit dialog has no staging-area interop (a manual `git add` is unstaged
   afterwards); finishing a merge/rebase/cherry-pick stays a console job.
 - One editor window; no split views, tab reordering, or drag-and-drop in the

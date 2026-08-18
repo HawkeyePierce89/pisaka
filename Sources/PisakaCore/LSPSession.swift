@@ -58,6 +58,12 @@ public actor LSPSession {
         /// the popup is open — the same order of magnitude as the completion it
         /// belongs to.
         public var resolve: TimeInterval
+        /// `textDocument/hover` (D25): completion's budget, not definition's.
+        /// Nobody asked for a hover deliberately — the pointer merely stopped
+        /// moving — so an answer that arrives after the pointer has moved on is
+        /// worth nothing, and waiting a definition's three seconds for it only
+        /// keeps a request alive past its own usefulness.
+        public var hover: TimeInterval
         /// How long a polite `shutdown` may take before we stop being polite.
         /// Short on purpose: the process is being killed either way, and this is
         /// only the difference between a clean exit and a SIGTERM.
@@ -68,12 +74,14 @@ public actor LSPSession {
             definition: TimeInterval = 3,
             completion: TimeInterval = 1.5,
             resolve: TimeInterval = 1.5,
+            hover: TimeInterval = 1.5,
             shutdown: TimeInterval = 2
         ) {
             self.handshake = handshake
             self.definition = definition
             self.completion = completion
             self.resolve = resolve
+            self.hover = hover
             self.shutdown = shutdown
         }
 
@@ -315,6 +323,22 @@ public actor LSPSession {
         return try decode(result, as: LSPDefinitionResponse.self, method: LSPMethod.definition)
     }
 
+    /// The same position question as `definition`, on its own budget (D25).
+    ///
+    /// Whether the server was worth asking at all — `capabilities.supportsHover`
+    /// — is the caller's check, not this one's: a session answers what it is
+    /// asked, and the provider is the layer that knows not to ask.
+    public func hover(
+        _ params: LSPTextDocumentPositionParams
+    ) async throws -> LSPHoverResponse {
+        let result = try await request(
+            LSPMethod.hover,
+            params: try JSONValue(encoding: params),
+            timeout: budgets.hover
+        )
+        return try decode(result, as: LSPHoverResponse.self, method: LSPMethod.hover)
+    }
+
     public func completion(
         _ params: LSPCompletionParams
     ) async throws -> LSPCompletionResponse {
@@ -345,7 +369,7 @@ public actor LSPSession {
 
     /// A missing `result` member and an explicit `null` are the same answer to
     /// every method this phase sends (both mean "nothing found"), so they are
-    /// folded together here rather than at four call sites.
+    /// folded together here rather than at every call site.
     private func decode<T: Decodable>(
         _ result: JSONValue?,
         as type: T.Type,

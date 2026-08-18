@@ -693,7 +693,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `IdentifierScanner.completionPrefixRange` unchanged, so a keyword the ranking
     offers can actually be typed and completed.
   - `CodeIntelligence.swift` — the seam between the editor surfaces and whatever
-    knows about code: the two questions, their requests and their results, in one
+    knows about code: the questions, their requests and their results, in one
     file, so the platform layers depend on *this* and never on the index and
     swapping the implementation is a construction change rather than a UI rewrite.
     `CodeIntelligenceProviding` is **async by design even though phase 1 answers
@@ -751,8 +751,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     which `prefix` may legitimately be empty. Both are **defaulted to `nil`**, so
     every construction site that predates member completion — and every test that
     only cares about ranking — compiles and means exactly what it meant before.
-    Note what grew: the *request*, not `CodeIntelligenceProviding`. The protocol
-    still has the same two methods with the same shapes, so a phase-2 LSP provider
+    Note what grew: the *request*, not `CodeIntelligenceProviding`.
+    `completions(for:)` kept its shape, so a phase-2 LSP provider
     implements the same contract and simply maps these two fields onto a
     completion-context parameter instead of onto an index lookup — which is the
     whole point of putting them here rather than in a second method. Phase 2a added
@@ -817,6 +817,28 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     buffer by the fallback path is not a completion, it is damage. The two
     providers that compose these answers, and the rules they follow, are in
     `core-lsp.md`.
+    `hover(for:)` is the **third question**, added for the macOS type/signature
+    popover and defaulted to `nil` on exactly `resolveEdits`' principle: it is
+    meaningful to one implementation only, so the tree-sitter provider and both iOS
+    surfaces answer "nothing to show" by implementing nothing and no existing call
+    site changed. It is a question about a **position**, not about an identifier —
+    which is why `HoverRequest` carries a file URL, a UTF-16 `offset` and the live
+    `text` and nothing to look a name up by: only whatever type-checked the file
+    can say what the thing at an offset *is*, and there is deliberately nothing
+    here for a name-based index to match on (`core-lsp.md`'s D25). The `offset` is
+    the character **under the pointer**, not the nearest insertion point, which past
+    the end of a line would describe that line's last character; `text` is
+    undefaulted, unlike `DefinitionRequest.text`, because nothing predates this
+    question and there is no call site to keep compiling — so D2's forgotten-buffer
+    hazard is closed by the type rather than guarded for (the LSP provider still
+    applies the guard, since an empty document is legitimate at offset 0).
+    `HoverAnswer` is what to draw plus the buffer range it is about: a
+    `HoverContent` (which refuses to exist empty, so there is no "nothing to show"
+    state inside a non-`nil` answer) and an `NSRange` the caller reads as *the
+    pointer is still over the same thing* — inside it, the popover on screen is
+    already right; outside it, the answer stops being about anything. The content
+    arrives **uncapped**, because truncation is a display fact and only the
+    renderer knows the cap applies to it.
   - `SymbolIntelligenceProvider.swift` — the index-backed
     `CodeIntelligenceProviding` implementation and the home of **every ranking
     rule**, all of it `static` and pure over an index value, with the instance

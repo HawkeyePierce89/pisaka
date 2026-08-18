@@ -251,6 +251,17 @@ items, and applies the three scales to views.
     directions, so a surface cannot be added or dropped without this doc being
     revisited.
 
+    **Unreachable ≡ chrome is what bounds that rule**, and one view relies on it:
+    the hover popover (`HoverPanel.swift`, `core-lsp.md`'s D26). It draws a type
+    signature at the code font, directly over the text view, and declares no
+    surface at all — because it sets `ignoresMouseEvents = true`, so a pointer
+    that appears to be "on" it is in fact still over the editor and a gesture
+    aimed there is a gesture over the code, which is the zone the user means. The
+    sibling rule is about views the pointer *can* reach; a view it can never reach
+    has no zone of its own to declare. `ZoomSourceGatingTests` pins both halves,
+    since either one deleted alone leaves a panel that still compiles, still draws
+    identically, and still passes the surface-set check above.
+
     **The empty-region rule is its twin, and cost `CodeScrollView`.** A
     conformance answers only for the area the view actually *covers*, and all
     four code text views are content-sized — `minSize = .zero`,
@@ -468,6 +479,12 @@ pass while the code it describes was deleted) and asserts:
   - **The set of files declaring a zoom surface** (by conformance or by
     `ZoomSurfaceMarker`) equals the list under `ZoomSurface.swift`. This is the
     rule that has already gone wrong once, and the sibling trap makes it silent.
+  - **The hover popover passes every mouse event through and declares no
+    surface.** `ignoresMouseEvents = true` and the `canBecomeKey` override are one
+    line each and invisible to every other check here: delete either and the panel
+    compiles, draws identically and stays out of the surface set — it simply
+    becomes a hit-test obstacle between the pointer and the code, which is the
+    whole of what makes it chrome (D26).
   - **Every code pane scrolls inside a `CodeScrollView`**, and no file outside
     the four builds one — the empty-region rule, which the check above cannot
     see: all four files stay in the surface set even while their panes' blank

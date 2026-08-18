@@ -124,11 +124,12 @@ final class LSPIntelligenceProviderTests: XCTestCase {
     }
 
     /// Short enough that a wedged test fails in a second.
-    private static let quick = LSPSession.Budgets(
+    private nonisolated static let quick = LSPSession.Budgets(
         handshake: 1,
         definition: 1,
         completion: 1,
         resolve: 1,
+        hover: 1,
         shutdown: 1
     )
 
@@ -148,10 +149,13 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         lastWorkspace = nil
     }
 
-    private func makeWorkspace(root: URL? = nil) -> LSPWorkspace {
+    private func makeWorkspace(
+        root: URL? = nil,
+        budgets: LSPSession.Budgets = LSPIntelligenceProviderTests.quick
+    ) -> LSPWorkspace {
         let harness = self.harness
         let workspace = LSPWorkspace(
-            budgets: Self.quick,
+            budgets: budgets,
             processID: 4242,
             transportFactory: { description, launchRoot in
                 harness.makeTransport(description, launchRoot)
@@ -170,13 +174,14 @@ final class LSPIntelligenceProviderTests: XCTestCase {
     private func makeProvider(
         files: [String: String] = [:],
         completionLimit: Int = SymbolIntelligenceProvider.defaultCompletionLimit,
-        root: URL? = nil
+        root: URL? = nil,
+        budgets: LSPSession.Budgets = LSPIntelligenceProviderTests.quick
     ) -> LSPIntelligenceProvider {
         let canonical = Dictionary(
             files.map { (CanonicalPath.canonical(URL(fileURLWithPath: $0.key)).path, $0.value) },
             uniquingKeysWith: { first, _ in first }
         )
-        let workspace = makeWorkspace(root: root)
+        let workspace = makeWorkspace(root: root, budgets: budgets)
         lastWorkspace = workspace
         return LSPIntelligenceProvider(
             workspace: workspace,
@@ -463,6 +468,206 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(candidate.relativePath, "Sources/App/main.swift")
     }
 
+    // MARK: - Hover
+
+    private func hoverRequest(at offset: Int, text: String? = nil) -> HoverRequest {
+        HoverRequest(fileURL: mainFile, offset: offset, text: text ?? mainSource)
+    }
+
+    /// A `MarkupContent` answer, with the range the server named: a fenced
+    /// signature becomes a code segment and the paragraph under it prose, and the
+    /// popover is anchored to the span the server said it was talking about.
+    func testAHoverBecomesSegmentsAnchoredToTheRangeTheServerNamed() async throws {
+        transport.script(LSPMethod.hover, .reply(.object([
+            "contents": .object([
+                "kind": .string("markdown"),
+                "value": .string("```swift\npublic struct Greeter\n```\n\nA greeter used by the tests.")
+            ]),
+            // Line 3, characters 14…21: `Greeter` in `let greeter = Greeter()`.
+            "range": .object([
+                "start": .object(["line": .int(3), "character": .int(14)]),
+                "end": .object(["line": .int(3), "character": .int(21)])
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let hovered = await provider.hover(for: hoverRequest(at: greeterReference))
+
+        let answer = try XCTUnwrap(hovered)
+        XCTAssertEqual(answer.content.segments, [
+            .code("public struct Greeter", language: "swift"),
+            .prose("A greeter used by the tests.")
+        ])
+        XCTAssertFalse(answer.content.isTruncated)
+        // Mapped back into the buffer, not left in the server's line/character
+        // coordinates — the popover is drawn beside characters, not lines.
+        XCTAssertEqual(answer.range, NSRange(location: greeterReference, length: 7))
+        XCTAssertEqual((mainSource as NSString).substring(with: answer.range), "Greeter")
+    }
+
+    /// The `MarkedString[]` shape, and the range fallback: most servers send no
+    /// `range`, so the answer is anchored to the identifier the pointer is over —
+    /// which is the same span the editor resolved before deciding to ask.
+    func testAMarkedStringArrayKeepsItsOrderAndFallsBackToTheIdentifierRange() async throws {
+        transport.script(LSPMethod.hover, .reply(.object([
+            "contents": .array([
+                .object([
+                    "language": .string("swift"),
+                    "value": .string("func greet(_ name: String) -> String")
+                ]),
+                .string("Returns a **greeting**.")
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let hovered = await provider.hover(for: hoverRequest(at: greeterReference))
+
+        let answer = try XCTUnwrap(hovered)
+        XCTAssertEqual(answer.content.segments, [
+            .code("func greet(_ name: String) -> String", language: "swift"),
+            .prose("Returns a greeting.")
+        ])
+        XCTAssertEqual((mainSource as NSString).substring(with: answer.range), "Greeter")
+    }
+
+    /// A range that does not cover the offset the question was about is not the
+    /// answer's range. It is the shape a server gets wrong in the direction that
+    /// costs most: the range is both where the popover is drawn and the editor's
+    /// re-ask suppressor, so a degenerate `{0, 0}` would anchor the popover at the
+    /// top of the file *and* make every mouse-moved event over the identifier ask
+    /// again. Falls back to the identifier, exactly as no range at all does.
+    func testAHoverRangeThatDoesNotCoverTheOffsetFallsBackToTheIdentifier() async throws {
+        transport.script(LSPMethod.hover, .reply(.object([
+            "contents": .object([
+                "kind": .string("plaintext"),
+                "value": .string("struct Greeter")
+            ]),
+            // Line 0, characters 0…0: nowhere near the hovered offset.
+            "range": .object([
+                "start": .object(["line": .int(0), "character": .int(0)]),
+                "end": .object(["line": .int(0), "character": .int(0)])
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let hovered = await provider.hover(for: hoverRequest(at: greeterReference))
+
+        let answer = try XCTUnwrap(hovered)
+        XCTAssertEqual(answer.range, NSRange(location: greeterReference, length: 7))
+        XCTAssertEqual((mainSource as NSString).substring(with: answer.range), "Greeter")
+    }
+
+    /// A server that does not advertise `hoverProvider` is never asked. Every
+    /// other request in this layer would waste one round trip; this one fires
+    /// whenever the pointer stops, so an unanswerable question is asked forever.
+    func testAServerThatDoesNotAdvertiseHoverIsNeverAsked() async {
+        transport.script(
+            LSPMethod.initialize,
+            .reply(ScriptedLSPTransport.initializeResult(hover: false))
+        )
+        transport.script(LSPMethod.hover, .reply(.object([
+            "contents": .string("this must never be read")
+        ])))
+        let provider = makeProvider()
+
+        let answer = await provider.hover(for: hoverRequest(at: greeterReference))
+
+        XCTAssertNil(answer)
+        // The server is still started and the buffer still flushed — the capability
+        // is only knowable *after* the handshake — but nothing is asked.
+        XCTAssertEqual(harness.launches, 1)
+        XCTAssertTrue(transport.requests(for: LSPMethod.hover).isEmpty)
+    }
+
+    /// `null` — the answer every server gives for a keyword, a comment or a
+    /// space. There is no empty popover, so there is no answer.
+    func testANullHoverIsNoAnswer() async {
+        transport.script(LSPMethod.hover, .reply(.null))
+        let provider = makeProvider()
+
+        let answer = await provider.hover(for: hoverRequest(at: greeterReference))
+
+        XCTAssertNil(answer)
+        XCTAssertEqual(transport.requests(for: LSPMethod.hover).count, 1)
+    }
+
+    /// And the shape that *is* an answer on the wire and nothing on screen: a
+    /// server that replied, with content that normalizes away.
+    func testAWhitespaceOnlyHoverIsNoAnswer() async {
+        transport.script(LSPMethod.hover, .reply(.object([
+            "contents": .object([
+                "kind": .string("markdown"),
+                "value": .string("   \n\n---\n\n \t \n")
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let answer = await provider.hover(for: hoverRequest(at: greeterReference))
+
+        XCTAssertNil(answer, "a rule and some whitespace is not a popover")
+    }
+
+    /// The staleness gate, hover's half: an answer about a document the server was
+    /// talked out of underneath this question would anchor a popover to text that
+    /// has moved.
+    func testAHoverIsDroppedWhenAnotherRequestChangedTheServersDocumentUnderIt() async throws {
+        transport.script(LSPMethod.hover, .reply(.object([
+            "contents": .string("public struct Greeter")
+        ]), after: 0.2))
+        let provider = makeProvider()
+        let workspace = try XCTUnwrap(lastWorkspace)
+
+        let hovering = Task { await provider.hover(for: self.hoverRequest(at: self.greeterReference)) }
+        try await Task.sleep(nanoseconds: 40_000_000)
+        let interleaved = await workspace.prepare(
+            url: mainFile,
+            language: .swift,
+            text: "// the document the server now holds\n"
+        )
+        XCTAssertEqual(interleaved?.version, 2, "the staging itself must have moved the server")
+
+        let answer = await hovering.value
+        XCTAssertNil(answer)
+    }
+
+    /// A folder switch mid-question drops it too — the same gate, the wider
+    /// window.
+    func testAHoverIsDroppedWhenTheFolderChangedWhileItWasOutstanding() async throws {
+        transport.script(LSPMethod.hover, .reply(.object([
+            "contents": .string("public struct Greeter")
+        ]), after: 0.2))
+        let provider = makeProvider()
+        let workspace = try XCTUnwrap(lastWorkspace)
+
+        let hovering = Task { await provider.hover(for: self.hoverRequest(at: self.greeterReference)) }
+        try await Task.sleep(nanoseconds: 40_000_000)
+        workspace.prepareForFolderChange(root: otherRoot)
+
+        let answer = await hovering.value
+        XCTAssertNil(answer)
+    }
+
+    /// A server that never answers costs its own budget and then nothing at all —
+    /// no popover, no alert, no trace.
+    func testAHoverThatTimesOutAnswersNothing() async {
+        transport.script(LSPMethod.hover, .drop)
+        let provider = makeProvider(
+            budgets: LSPSession.Budgets(
+                handshake: 1,
+                definition: 1,
+                completion: 1,
+                resolve: 1,
+                hover: 0.05,
+                shutdown: 1
+            )
+        )
+
+        let answer = await provider.hover(for: hoverRequest(at: greeterReference))
+
+        XCTAssertNil(answer)
+        XCTAssertEqual(transport.requests(for: LSPMethod.hover).count, 1)
+    }
+
     // MARK: - The D2 guard
 
     /// The hazard `DefinitionRequest.text`'s default creates: a call site that
@@ -494,6 +699,20 @@ final class LSPIntelligenceProviderTests: XCTestCase {
 
         XCTAssertEqual(harness.launches, 1)
         XCTAssertEqual(transport.requests(for: LSPMethod.definition).count, 1)
+    }
+
+    /// And the same rule for hover, which is a question about a position and
+    /// nothing else: an empty buffer at a non-zero offset would clamp to `0:0` and
+    /// describe the first thing in the file, under the pointer or not.
+    func testAnEmptyBufferWithANonZeroOffsetAsksNoHover() async {
+        transport.script(LSPMethod.hover, .reply(.object(["contents": .string("Greeter")])))
+        let provider = makeProvider()
+
+        let answer = await provider.hover(for: hoverRequest(at: 45, text: ""))
+
+        XCTAssertNil(answer)
+        XCTAssertEqual(harness.launches, 0)
+        XCTAssertTrue(transport.requests(for: LSPMethod.hover).isEmpty)
     }
 
     /// The same rule for completion, expressed the way that request can go wrong:

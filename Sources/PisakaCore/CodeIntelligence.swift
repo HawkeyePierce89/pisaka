@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Phase 1 answers from a tree-sitter symbol index
 /// (`SymbolIntelligenceProvider`); a later phase can answer from a language
-/// server on macOS. Everything the UI needs is in this file — the two questions,
+/// server on macOS. Everything the UI needs is in this file — the questions,
 /// their requests and their results — so the platform layers depend on *this*
 /// and never on the index, and swapping the implementation is a construction
 /// change rather than a UI rewrite.
@@ -39,10 +39,23 @@ public protocol CodeIntelligenceProviding: AnyObject {
     /// superseded list, or an item from a different provider — answers `[]`,
     /// which the caller reads as "insert the plain text and nothing else".
     func resolveEdits(for item: CompletionItem) async -> [CompletionEdit]
+    /// What to show about whatever stands at `request.offset` — a type, a
+    /// signature, the documentation attached to it — and the span of buffer that
+    /// answer is about (D25).
+    ///
+    /// Defaulted to `nil` for exactly `resolveEdits`' reason: it is meaningful to
+    /// one implementation only. A language server is the single thing in this
+    /// editor that knows a *type*; the index knows names and where they are
+    /// declared, and inventing an answer out of that is how a popover ends up
+    /// confidently describing the wrong `count`. So the tree-sitter provider and
+    /// both iOS surfaces answer "nothing to show" by not implementing anything,
+    /// and no existing call site changes.
+    func hover(for request: HoverRequest) async -> HoverAnswer?
 }
 
 public extension CodeIntelligenceProviding {
     func resolveEdits(for item: CompletionItem) async -> [CompletionEdit] { [] }
+    func hover(for request: HoverRequest) async -> HoverAnswer? { nil }
 }
 
 // MARK: - Go to definition
@@ -244,11 +257,12 @@ public struct CompletionRequest: Equatable, Sendable {
     /// completion — and every test that only cares about ranking — compiling
     /// and meaning exactly what it meant before.
     ///
-    /// Note that this grew the *request*, not `CodeIntelligenceProviding`: the
-    /// protocol still has the same two methods with the same shapes, so a
-    /// phase-2 LSP provider implements the same contract and simply maps these
-    /// two fields onto a completion-context parameter instead of onto an index
-    /// lookup.
+    /// Note that this grew the *request*, not `CodeIntelligenceProviding`:
+    /// `completions(for:)` kept its shape, so a phase-2 LSP provider implements
+    /// the same contract and simply maps these two fields onto a
+    /// completion-context parameter instead of onto an index lookup. (The
+    /// protocol itself has since grown — `resolveEdits(for:)` and `hover(for:)`,
+    /// both defaulted — but never for a field a request could carry.)
     public init(
         prefix: String,
         fileURL: URL?,
@@ -337,5 +351,73 @@ public struct CompletionItem: Equatable, Hashable, Sendable {
         self.edits = edits
         self.resolveHandle = resolveHandle
         self.displayText = displayText ?? text
+    }
+}
+
+// MARK: - Hover
+
+/// "What is this?" — what the macOS editor asks once the pointer has rested over
+/// an identifier for `HoverContent.dwellDelay`.
+///
+/// Deliberately *not* an identifier plus a name to look up, which is what a
+/// `DefinitionRequest` carries: hover is a question about a **position**, and the
+/// only honest answer to "what is the thing at this offset" comes from whatever
+/// type-checked the file. There is nothing here for a name-based index to match
+/// on, and that is the point.
+public struct HoverRequest: Equatable, Sendable {
+    /// The file the pointer is over, or `nil` for a url-less buffer — which is
+    /// unanswerable, since a server is only ever asked about a document it has.
+    public let fileURL: URL?
+    /// The UTF-16 offset of the character *under the pointer* — not the nearest
+    /// insertion point, which past the end of a line would answer for that line's
+    /// last character and describe something the pointer is not over.
+    public let offset: Int
+    /// The buffer's *live* text (D2: document sync is request-driven, so the text
+    /// travels with the question).
+    ///
+    /// Not defaulted, unlike `DefinitionRequest.text`: nothing predates this
+    /// question, so there is no call site to keep compiling and no reason to
+    /// leave the forgotten-buffer hazard open. The LSP provider still applies D2's
+    /// guard — an empty buffer at a non-zero offset asks nothing — because the
+    /// editor can legitimately hand over an empty document.
+    public let text: String
+
+    public init(fileURL: URL?, offset: Int, text: String) {
+        self.fileURL = fileURL
+        self.offset = offset
+        self.text = text
+    }
+}
+
+/// A hover worth showing: something to draw, and the span of buffer it is about.
+///
+/// There is no "empty answer" state — `HoverContent` refuses to exist without
+/// segments (D25) — so an optional `HoverAnswer` is the whole vocabulary: a value
+/// means "show this", `nil` means "show nothing", and the caller needs no third
+/// case.
+public struct HoverAnswer: Equatable, Sendable {
+    /// What to draw, already normalized into segments and not yet cut to a *line
+    /// count* — that much is the renderer's call, through
+    /// `HoverContent.truncated(_:)`, because how many lines fit is a display fact
+    /// and only the renderer knows it is one. Each line's *length* is already
+    /// bounded, established when the content was built (here, off the main
+    /// thread): that one is a hang guard rather than a display rule, and applying
+    /// it in the renderer would cost exactly the walk it exists to prevent.
+    public let content: HoverContent
+    /// The buffer (UTF-16) range the answer describes.
+    ///
+    /// **What a caller decides "the pointer is still over the same thing" by.**
+    /// While the pointer stays inside this range the popover already on screen is
+    /// the right one, so nothing is re-asked; the moment it leaves, the popover is
+    /// dismissed. That makes the range load-bearing rather than decorative, which
+    /// is why it is never absent here even though most servers do not send one:
+    /// the provider falls back to the identifier under the offset, and to an empty
+    /// range at the offset when there is not even that (which reads as "already
+    /// left", i.e. the safe direction).
+    public let range: NSRange
+
+    public init(content: HoverContent, range: NSRange) {
+        self.content = content
+        self.range = range
     }
 }

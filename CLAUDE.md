@@ -106,7 +106,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `CodeIntelligence.swift` — the async `CodeIntelligenceProviding` seam + value types.
 - `SymbolIntelligenceProvider.swift` — index-backed provider; every ranking rule.
 
-`docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D24:
+`docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D26:
 - `LSPMessage.swift` — JSON-RPC envelopes; `null` vs. absent.
 - `LSPFraming.swift` — `Content-Length` framing; a framing error is terminal.
 - `LSPProtocolTypes.swift` — decode leniently, encode exactly; the closed capability tree.
@@ -116,6 +116,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LSPServerDescription.swift` — description + registry (D9).
 - `LSPWorkspace.swift` — one server per `(server, root)`; the D2 flush, D7 backoff, `updateRegistry(_:)` (D16).
 - `CompletionEditPlan.swift` — the pure auto-import rule.
+- `HoverContent.swift` — hover markup → renderable segments; the dwell delay and the three-dimensional cap (D25/D26).
 - `LSPIntelligenceProvider.swift` — protocol answers as seam values (D6 ranking).
 - `RoutingIntelligenceProvider.swift` — LSP first, tree-sitter otherwise; the whole-attempt budget.
 - `LSPGoToolchain.swift` — the gopls pin, discovery report, prompt, Settings row (D17–D19).
@@ -280,6 +281,8 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift` — find/replace bar state, execution, UI.
 - `EditorRevealState.swift` — one-shot reveal request.
 - `CompletionController.swift` — debounced candidate precompute for AppKit's synchronous delegate; applies LSP auto-import edits.
+- `HoverController.swift` — the pointer's dwell, one generation token, the whole dismissal set.
+- `HoverPanel.swift` — the pass-through popover: `ignoresMouseEvents`, two fonts, truncation marker.
 - `DefinitionPicker.swift` — the multi-candidate `NSMenu`.
 - `LSPProcessTransport.swift` — the real `LSPTransport`: one process, three pipes, SIGTERM→SIGKILL teardown.
 - `LSPToolchain.swift` — `xcrun --find`, cached per app run.
@@ -326,7 +329,10 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   and four failures mark that `(server, root)` unavailable for the app run. A
   **reader**, like the index. `Process` lives only in `Sources/Pisaka` behind
   `LSPTransport` — `LSPSourceGatingTests` asserts that. Registration is dynamic
-  (`updateRegistry(_:)`): un-registering a server shuts its process down.
+  (`updateRegistry(_:)`): un-registering a server shuts its process down. **Hover
+  is the one question with no fallback** (D25): tree-sitter knows names, not
+  types, so no server means no popover — and the popover itself is chrome, not a
+  code surface, because the pointer cannot reach it (D26, `core-lsp.md`).
 - **Provisioned servers**: nothing downloads without per-server consent; what
   *may* be downloaded is pinned data in Core (URL + SHA-256 + size), changed
   only by shipping a new app version. Every install verifies before unpacking
@@ -357,9 +363,10 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   gesture *and* menu shortcut targets whichever zone the pointer is over then
   (deepest surface wins; nothing hit ≡ interface). One local `NSEvent` monitor
   receives them all — per-view `scrollWheel` overrides cannot reach the terminal
-  or the chrome. **Anything drawn at the code font declares itself a surface**,
-  including views merely *beside* a text view (rulers, the minimap), since
-  unreachable ≡ chrome; the interface scale reaches views only as
+  or the chrome. **Anything drawn at the code font the pointer can reach declares
+  itself a surface**, including views merely *beside* a text view (rulers, the
+  minimap); unreachable ≡ chrome exempts the hover popover alone (D26). The
+  interface scale reaches views only as
   `InterfaceMetrics` through `\.interfaceMetrics`, never inline and never on a
   code-font site. `ZoomSourceGatingTests` pins both sets (`core-zoom.md`).
 - **Open-tab resync** after an operation rewrites the worktree: buffers are
@@ -411,10 +418,11 @@ layer's platform split, by set equality over both sides),
 `SparkleSourceGatingTests` (`import Sparkle` in exactly one file inside both
 `#if os(macOS)` and `#if !DEBUG`, no `SPU…` reference in the DEBUG branch, and
 that file as the *only* DEBUG-only branch outside `Sources/Pisaka/iOS/`) and
-`ZoomSourceGatingTests` (the zoom zones' four view-layer rules — who may name
+`ZoomSourceGatingTests` (the zoom zones' five view-layer rules — who may name
 `interfaceScale`, which roots inject the environment, which views declare a zoom
-surface, and the Preferences stepper reading its grid from `ZoomScaleRule` — the
-first three by set equality).
+surface, that the hover popover passes mouse events through and declares none,
+and the Preferences stepper reading its grid from `ZoomScaleRule` — the first
+three by set equality).
 **Every one of these suites matches against comment- and literal-stripped
 text** — load-bearing, not tidy: these files quote their own settings in
 comments, so a raw `contains` stays green when the setting it names is deleted.

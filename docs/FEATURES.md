@@ -381,6 +381,26 @@ user sees it.
   `rust-analyzer` is dual-licensed `Apache-2.0 OR MIT`; like `gopls` it is not in
   Acknowledgements, because the download is a single compressed binary carrying no
   license file — the Rust row names its origin and license instead.
+- **Hover types** (macOS): rest the pointer on a symbol for a moment and a small
+  popover shows what the language server says it is — the type or signature in
+  the editor's own monospaced font, and whatever documentation the server attached
+  to it below. It works in every language that has a server running (Swift,
+  TypeScript/JavaScript, Python, Go, Rust), needs no setting and has no shortcut:
+  the pause *is* the trigger, and moving the pointer off the symbol takes it away
+  again. So do scrolling, typing, clicking, switching tabs and switching to
+  another window.
+  It is **purely something to look at**: the popover cannot be clicked, selected,
+  copied from or scrolled — every mouse event passes straight through it to the
+  code underneath, so a click where the popover appears to be selects the text
+  below it exactly as if nothing were there. Long answers are cut off after about
+  twenty lines with an ellipsis, and a very wide signature is trimmed at the
+  popover's edge rather than wrapped; the whole declaration is one Cmd+click away.
+  There is **no hover without a language server** — the built-in index matches
+  names and knows nothing about types, and a plausible guess about the wrong
+  `count` would be worse than nothing — so on a machine with no Xcode, in a
+  language with no server, or while a server is still starting, nothing appears.
+  Nothing is ever reported: no server, no answer, a slow answer and a failure all
+  look the same, which is no popover at all.
 - A minimap to the right of the editor: a scaled-down,
   syntax-colored overview of the file with a draggable viewport rectangle.
   Click or drag the rectangle to scroll the editor, or scroll the mouse wheel
@@ -728,7 +748,8 @@ and iPhone. The feature scope landed so far:
   gutter and minimap are deferred on iOS
   (the side-by-side diff panes do still draw per-side line numbers).
 - The same index-based code intelligence as macOS (there is no language server on
-  iOS, so Swift is answered the same way every other language is), through
+  iOS, so Swift is answered the same way every other language is — and, since the
+  hover popover needs one, there is no hover on iOS either), through
   touch-appropriate surfaces:
   **Go to Definition** is an extra item in the selection's edit menu (tap an
   identifier → "Go to Definition"), which jumps straight there, or asks which
@@ -818,8 +839,8 @@ and iPhone. The feature scope landed so far:
   revision", no jump from an annotation into the Git Log, and the date format is
   fixed (not a setting).
 - The semantic Swift intelligence is macOS-only and needs Xcode, and it covers
-  Go to Definition and completion only — there is still no Find Usages, no rename,
-  no hover types, no signature help and no diagnostics, and nothing about the
+  Go to Definition, completion and hover types only — there is still no Find
+  Usages, no rename, no signature help and no diagnostics, and nothing about the
   server is configurable or visible: no status indicator, no "restart server", no
   log. It answers for projects `sourcekit-lsp` can build (a `Package.swift`, a
   `compile_commands.json`, an `.xcodeproj` through the build server protocol); a
@@ -836,7 +857,7 @@ and iPhone. The feature scope landed so far:
   differs and no server line number is ever shown. On iOS there is no language
   server at all (iOS has no subprocesses), so the next item applies there in full.
 - The downloadable TypeScript/JavaScript and Python servers are macOS-only and
-  cover the same Go to Definition and completion — no diagnostics, no hover types,
+  cover the same Go to Definition, completion and hover types — no diagnostics,
   no rename, no status indicator and no log, and nothing about them is
   configurable: no per-project server, no extra options or arguments, and no
   version picker (the versions are pinned in the app and change only when you
@@ -855,8 +876,8 @@ and iPhone. The feature scope landed so far:
   about the packages in your virtualenv. And what is installed is verified once,
   when it is downloaded: if you edit the files under `LanguageServers/` yourself,
   the app runs what you put there.
-- The Go server (`gopls`) is macOS-only and covers the same Go to Definition and
-  completion, with the same absence of diagnostics, hover types, rename, status
+- The Go server (`gopls`) is macOS-only and covers the same Go to Definition,
+  completion and hover types, with the same absence of diagnostics, rename, status
   indicator and log. It needs a Go toolchain — there is no offer without one, and
   a `go` that cannot answer `go env` counts as none. A `gopls` you already have
   is used **at whatever version it is**: none is read, required or shown, and it
@@ -869,7 +890,7 @@ and iPhone. The feature scope landed so far:
   Go toolchain installed while Pisaka is running is found at the next launch. The
   version is pinned in the app and there is no version picker.
 - The Rust server (`rust-analyzer`) is macOS-only and covers the same Go to
-  Definition and completion, with the same absence of diagnostics, hover types,
+  Definition, completion and hover types, with the same absence of diagnostics,
   rename, status indicator and log. It needs a **Rust toolchain** — there is no
   offer and no server without one, and a `cargo` that cannot answer
   `cargo --version` counts as none. The same applies to a `rust-analyzer` it
@@ -890,12 +911,30 @@ and iPhone. The feature scope landed so far:
   simply fails and Rust keeps using the built-in index. Discovery happens once per
   launch too, so a Rust toolchain installed while Pisaka is running is found at
   the next launch.
+- The hover popover is macOS-only and deliberately minimal. It **needs a language
+  server**: there is no index-based version of it, so every language and every
+  situation without a running server simply shows nothing — and nothing is
+  reported when a server has no answer, times out or is still starting either. It
+  has **no keyboard trigger and no setting**: the pointer resting on a symbol is
+  the only way to summon it, the delay before it appears is fixed, and there is no
+  way to turn it off short of not pausing. It cannot be **clicked, selected,
+  copied from or scrolled** — the panel passes every mouse event through to the
+  code, which is what keeps it from interfering with selection and typing — so
+  long answers are cut off after about twenty lines with an ellipsis and a wide
+  line is trimmed at the edge rather than wrapped. What the server sends is
+  *degraded* rather than rendered: fenced code becomes code and everything else
+  becomes plain text with its emphasis, headings, rules, HTML tags and link URLs
+  removed (a `<br>` leaves a space behind, and HTML entities such as `&lt;` are
+  shown as written), so a table or a block quote in a documentation comment
+  arrives as its own punctuation. There is no syntax colouring inside the popover, no links to
+  follow and no "show more".
 - The tree-sitter fallback — which is what every other language, and Swift without
   Xcode, always uses — is index-based, not a compiler: Go to Definition matches a
   *name*, so it cannot tell two same-named declarations apart (it lists both),
   knows nothing about imports, scope, generics or overload resolution, and finds
   nothing in dependencies outside the opened folder. There is no Find Usages, no
-  rename refactoring, no hover types or signature help, and completion offers
+  rename refactoring, **no hover popover** (it needs a server — the index knows
+  names, not types) or signature help, and completion offers
   identifiers only — no kind or file column in the macOS popup and no snippets.
   Member completion after a `.` is **name-based, not typed**: it offers every
   member the whole project declares, ranked so the members of a type you named

@@ -102,11 +102,12 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
         lock.unlock()
     }
 
-    /// The stock `initialize` answer: a server that does definitions, completions
-    /// with `.` as a trigger, and `completionItem/resolve`.
+    /// The stock `initialize` answer: a server that does definitions, hovers,
+    /// completions with `.` as a trigger, and `completionItem/resolve`.
     static func initializeResult(
         positionEncoding: String? = "utf-16",
         definition: Bool = true,
+        hover: Bool = true,
         completion: Bool = true,
         resolvesCompletionItems: Bool = true
     ) -> JSONValue {
@@ -116,6 +117,9 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
         }
         if definition {
             capabilities["definitionProvider"] = .bool(true)
+        }
+        if hover {
+            capabilities["hoverProvider"] = .bool(true)
         }
         if completion {
             capabilities["completionProvider"] = .object([

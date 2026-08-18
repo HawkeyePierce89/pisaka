@@ -1,0 +1,419 @@
+#if os(macOS)
+import AppKit
+import PisakaCore
+
+/// The hover popover: a borderless panel that draws a `HoverContent` beside the
+/// identifier the pointer is resting on.
+///
+/// **The pointer cannot reach it, and that is the whole design.** The panel sets
+/// `ignoresMouseEvents = true`, so every click, ⌘-click, drag-selection and
+/// context menu passes straight through to the code beneath it, and a pointer
+/// that appears to move "onto" the popover is in fact still over the text view —
+/// which simply updates or dismisses the answer. Three properties fall out of
+/// that one line and none of them has to be arranged separately:
+///
+/// - **It is chrome, not a code surface** (`ZoomSurface.swift`'s "unreachable ≡
+///   chrome" rule). Nothing here conforms to `ZoomSurfaceProviding`, because a
+///   zoom gesture aimed at where the popover *appears* to be is a gesture over
+///   the editor, which is exactly the zone the user means.
+/// - **It cannot take focus.** The panel is non-activating and refuses to become
+///   key or main, so typing never stops going where it was going.
+/// - **It cannot scroll**, which is why `HoverContent` truncates by line count
+///   instead: a scrollable popover would need the pointer inside it, and would
+///   undo all three of these at once.
+///
+/// Thin, untested view-layer glue by convention. Every decision it draws —
+/// what a segment is, which of them are code, how many lines fit, whether the
+/// answer was cut — arrives already made from `PisakaCore`; this file owns only
+/// fonts, padding and where on screen the thing goes.
+@MainActor
+final class HoverPanel {
+
+    /// The widest the popover may be, in points at the resting interface scale.
+    ///
+    /// A cap rather than a fit: a one-line generic signature can be hundreds of
+    /// characters wide, and a popover that grows to the width of the screen is
+    /// unreadable long before it is informative. Prose wraps at this width; a
+    /// code line is truncated at it, because wrapping a signature mid-type is
+    /// worse than showing its head.
+    private static let maximumWidth: CGFloat = 520
+
+    /// The inset between the panel's edge and its text.
+    private static let padding: CGFloat = 8
+
+    /// The gap between the anchored line and the popover's nearest edge, so the
+    /// panel never sits directly on the glyphs it describes.
+    private static let gap: CGFloat = 4
+
+    /// The floor the height clamp will not go below, for the degenerate screen
+    /// the arithmetic could otherwise reduce to nothing.
+    private static let minimumHeight: CGFloat = 24
+
+    /// The panel, built on first use and reused for the lifetime of the editor —
+    /// a hover is shown and dismissed constantly, and a fresh `NSPanel` per
+    /// dwell is a window-server round trip per identifier.
+    private var panel: PassThroughPanel?
+
+    /// The window the panel is currently a child of, so `dismiss()` can detach it
+    /// from the same one it was attached to even after the editor moved windows.
+    private weak var attachedParent: NSWindow?
+
+    /// Whether this object has put a popover up and not taken it down again.
+    ///
+    /// Deliberately *not* `panel.isVisible`: the panel is `hidesOnDeactivate` and
+    /// a child window, so AppKit hides it behind this object's back when the app
+    /// deactivates or the parent is miniaturized — and it puts it back on
+    /// reactivation. Inferring shown-ness from visibility would let a `dismiss()`
+    /// arriving in that window do nothing at all, leaving a live child window
+    /// AppKit later restores: a stale answer about a buffer that has since
+    /// scrolled, with the pointer nowhere near it.
+    private var isShown = false
+
+    /// Whether a popover is on screen right now.
+    var isVisible: Bool { isShown }
+
+    /// Draw `content` next to `anchor` (a rect in **screen** coordinates, which
+    /// is what `NSTextView.firstRect(forCharacterRange:actualRange:)` answers).
+    ///
+    /// `codeFontSize` is the editor's own `SettingsStore.fontSize` — the code
+    /// zone's size, passed through untouched, because a type signature drawn at
+    /// anything other than the size the code beside it is drawn at reads as a
+    /// different file. `metrics` is the *interface* zone's, and only prose uses
+    /// it: the two zones stay independent inside one popover, exactly as they do
+    /// everywhere else.
+    func show(
+        _ content: HoverContent,
+        anchoredTo anchor: NSRect,
+        in parent: NSWindow?,
+        codeFontSize: CGFloat,
+        metrics: InterfaceMetrics
+    ) {
+        let inset = CGFloat(metrics.pt(Double(Self.padding)))
+        let maximumWidth = CGFloat(metrics.pt(Double(Self.maximumWidth)))
+        // Core's cap counts *logical* lines, and prose wraps: a server that stores
+        // a doc comment as a few long unwrapped paragraphs passes the cap and
+        // still measures taller than the screen. The panel is drawn from the top
+        // of its frame down, so an unclamped one is placed with its bottom on the
+        // screen edge and its **first line — the signature — above the top of the
+        // display**, which is the opposite of the placement rule below. So the
+        // answer is cut at the end, which is the end already meant to go — but it
+        // is cut in Core, by line, not by the frame.
+        let ceiling = max(
+            Self.minimumHeight,
+            Self.visibleFrame(for: anchor).height - inset * 2 - Self.gap * 2
+        )
+        let (text, contentSize) = Self.fitted(
+            content,
+            codeFontSize: codeFontSize,
+            metrics: metrics,
+            maximumWidth: maximumWidth,
+            ceiling: ceiling
+        )
+        let panel = panel ?? makePanel()
+        self.panel = panel
+        Self.match(panel, to: parent)
+        panel.setContentSize(
+            NSSize(width: contentSize.width + inset * 2, height: contentSize.height + inset * 2)
+        )
+        panel.label.attributedStringValue = text
+        panel.label.frame = NSRect(
+            x: inset,
+            y: inset,
+            width: contentSize.width,
+            height: contentSize.height
+        )
+        panel.setFrameOrigin(Self.origin(for: panel.frame.size, anchoredTo: anchor))
+
+        // Attached to the editor's window so the popover travels with it, orders
+        // out with it and cannot outlive it. `dismiss()` detaches, and every
+        // `show` is preceded by one, so this is the attachment rather than a
+        // re-attachment; the guard is what keeps a parentless preview from
+        // pretending it has one.
+        if let parent, attachedParent !== parent {
+            attachedParent?.removeChildWindow(panel)
+            parent.addChildWindow(panel, ordered: .above)
+            attachedParent = parent
+        }
+        panel.orderFront(nil)
+        isShown = true
+    }
+
+    /// Take the popover down.
+    ///
+    /// **Idempotent**: dismissal arrives from a dozen unrelated places (a scroll,
+    /// an edit, a tab switch, teardown) and several of them routinely fire when
+    /// nothing is on screen. The `isShown` check is what makes it *free* as well
+    /// as safe — the controller dismisses on every mouse-moved event over
+    /// whitespace or punctuation, and an `orderOut` of an already-hidden window is
+    /// a window-server round trip per pixel of pointer movement. It is this
+    /// object's own flag rather than the panel's visibility for the reason given
+    /// on `isShown`: a popover AppKit has hidden is still one this object put up,
+    /// and it must still be detached and ordered out.
+    func dismiss() {
+        guard let panel, isShown else { return }
+        isShown = false
+        attachedParent?.removeChildWindow(panel)
+        attachedParent = nil
+        panel.orderOut(nil)
+    }
+
+    /// Draw the popover in the *editor's* appearance rather than the system's.
+    ///
+    /// The panel is the one plain-AppKit window in the app, and SwiftUI's
+    /// `.preferredColorScheme` — which is how the Theme preference is applied —
+    /// sets the appearance on the window it is attached to, not on `NSApp`
+    /// (`TerminalSessionsModel` records the same fact for the terminal). A child
+    /// window does not inherit it either, so with Theme = Light on a dark system
+    /// an unmatched popover draws dark-on-dark over a light editor.
+    ///
+    /// The border is repainted here rather than in `makePanel()` for the second
+    /// half of the same reason: `CGColor` is resolved once at assignment, so a
+    /// hairline set at creation survives every later appearance change as a light
+    /// line around a dark popover. `NSColor` is only dynamic while it is a
+    /// `NSColor` — the layer keeps what it was given.
+    private static func match(_ panel: PassThroughPanel, to parent: NSWindow?) {
+        let appearance = parent?.effectiveAppearance ?? NSApp.effectiveAppearance
+        guard panel.appearance?.name != appearance.name else { return }
+        panel.appearance = appearance
+        appearance.performAsCurrentDrawingAppearance {
+            panel.contentView?.layer?.borderColor = NSColor.separatorColor.cgColor
+        }
+    }
+
+    // MARK: - Building the panel
+
+    private func makePanel() -> PassThroughPanel {
+        let panel = PassThroughPanel(
+            contentRect: NSRect(x: 0, y: 0, width: Self.maximumWidth, height: 0),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: true
+        )
+        // The one line the whole design rests on: the popover is a purely visual
+        // overlay, so it is not a hit-test obstacle, not a focus target and not a
+        // zoom surface. See this type's documentation.
+        panel.ignoresMouseEvents = true
+        // The panel is owned by this object's `panel` property, so AppKit must not
+        // also own it: `NSWindow`'s default is to release itself on `close()`, and
+        // a child window torn down with its parent would be released out from
+        // under a reference ARC still holds.
+        panel.isReleasedWhenClosed = false
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.hidesOnDeactivate = true
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        // Not in the window cycle, not in the accessibility hierarchy of things
+        // that can be moved to, and not restored across launches: it is a
+        // transient annotation of the editor, not a window the user owns.
+        panel.isExcludedFromWindowsMenu = true
+        panel.isMovable = false
+        panel.animationBehavior = .none
+        panel.collectionBehavior = [.transient, .ignoresCycle]
+
+        let background = NSVisualEffectView()
+        background.material = .popover
+        background.state = .active
+        background.blendingMode = .behindWindow
+        background.wantsLayer = true
+        background.layer?.cornerRadius = 6
+        background.layer?.borderWidth = 1
+        // The border's *colour* is set by `match(_:to:)` on every show, in the
+        // appearance the popover is about to draw in.
+        background.layer?.masksToBounds = true
+        background.addSubview(panel.label)
+        panel.contentView = background
+        return panel
+    }
+
+    // MARK: - Drawing the content
+
+    /// The answer as much of it as fits in `ceiling` points, and the size to draw
+    /// it at.
+    ///
+    /// **The height is never clamped below what the text measures**, and that is
+    /// the whole reason this exists. Clamping the frame would cut wrapped prose
+    /// mid-glyph and — because the ellipsis is the *last* line of the string —
+    /// would take the truncation marker with it, leaving a popover that looks
+    /// complete while its tail is gone. The one guarantee this feature makes about
+    /// long answers is that a cut is marked, so the cut has to happen where the
+    /// marker is applied: in Core, over whole lines, through the same
+    /// `truncated(toLineCount:)` that already enforces the twenty-line cap. Each
+    /// pass estimates the line count that fits from the ratio the last measurement
+    /// gives, so it converges in a couple of iterations over at most twenty lines
+    /// — paid only on the overflow path, which is the screen-height case Core's
+    /// logical-line cap cannot see.
+    ///
+    /// The floor is one line: an answer that overflows even at a single line is a
+    /// screen too short for a popover at all (`minimumHeight`), and showing its
+    /// head clipped is still better than showing nothing.
+    private static func fitted(
+        _ content: HoverContent,
+        codeFontSize: CGFloat,
+        metrics: InterfaceMetrics,
+        maximumWidth: CGFloat,
+        ceiling: CGFloat
+    ) -> (text: NSAttributedString, size: NSSize) {
+        var candidate = content
+        while true {
+            let text = attributedString(
+                for: candidate,
+                codeFontSize: codeFontSize,
+                metrics: metrics
+            )
+            let bounding = text.boundingRect(
+                with: NSSize(width: maximumWidth, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading]
+            )
+            let width = min(maximumWidth, ceil(bounding.width))
+            let height = ceil(bounding.height)
+            if height <= ceiling {
+                return (text, NSSize(width: width, height: height))
+            }
+            let lines = candidate.lineCount
+            // Proportional rather than one-at-a-time, and capped at one line less
+            // than the last try so the loop cannot stall on an estimate that
+            // rounds back to where it started.
+            let target = min(
+                lines - 1,
+                Int((Double(lines) * Double(ceiling / height)).rounded(.down))
+            )
+            guard target >= 1 else {
+                return (text, NSSize(width: width, height: min(ceiling, height)))
+            }
+            let smaller = candidate.truncated(toLineCount: target)
+            // `truncated` answers `self` when there is nothing it may cut — the
+            // degenerate case where every line but the first is what keeps the
+            // content non-empty. Clamp then, rather than measure the same string
+            // again forever.
+            guard smaller.lineCount < lines else {
+                return (text, NSSize(width: width, height: min(ceiling, height)))
+            }
+            candidate = smaller
+        }
+    }
+
+    /// The whole popover as one attributed string: code segments monospaced at
+    /// the editor's size, prose in the interface font, and — when Core says the
+    /// answer was cut — a trailing ellipsis line.
+    ///
+    /// Per-segment paragraph styles rather than one for the string, because the
+    /// two kinds want opposite line-breaking: prose wraps (a paragraph is meant
+    /// to be read at whatever width there is) and code truncates (a wrapped
+    /// signature invents indentation the language never had).
+    private static func attributedString(
+        for content: HoverContent,
+        codeFontSize: CGFloat,
+        metrics: InterfaceMetrics
+    ) -> NSAttributedString {
+        let codeFont = NSFont.monospacedSystemFont(ofSize: codeFontSize, weight: .regular)
+        let proseFont = NSFont.systemFont(ofSize: CGFloat(metrics.font(.body)))
+
+        let codeParagraph = NSMutableParagraphStyle()
+        codeParagraph.lineBreakMode = .byTruncatingTail
+        let proseParagraph = NSMutableParagraphStyle()
+        proseParagraph.lineBreakMode = .byWordWrapping
+
+        let result = NSMutableAttributedString()
+        for (index, segment) in content.segments.enumerated() {
+            if index > 0 { result.append(NSAttributedString(string: "\n")) }
+            let isCode = segment.isCode
+            result.append(
+                NSAttributedString(
+                    string: segment.text,
+                    attributes: [
+                        .font: isCode ? codeFont : proseFont,
+                        .foregroundColor: isCode ? NSColor.labelColor : NSColor.secondaryLabelColor,
+                        .paragraphStyle: isCode ? codeParagraph : proseParagraph,
+                    ]
+                )
+            )
+        }
+        if content.isTruncated {
+            result.append(
+                NSAttributedString(
+                    string: "\n\u{2026}",
+                    attributes: [
+                        .font: proseFont,
+                        .foregroundColor: NSColor.tertiaryLabelColor,
+                        .paragraphStyle: proseParagraph,
+                    ]
+                )
+            )
+        }
+        return result
+    }
+
+    // MARK: - Placement
+
+    /// The usable area of the screen the anchor is on — the one both the height
+    /// clamp and the placement below have to agree about.
+    ///
+    /// Matched on the anchor's *origin* rather than by intersection, because the
+    /// anchor is routinely empty: a server that sent no range leaves the answer
+    /// anchored to a zero-length range (`LSPIntelligenceProvider.anchorRange`'s
+    /// last resort), and `firstRect(forCharacterRange:)` answers a zero-width
+    /// rect for it. `NSRect.intersects` is false whenever *either* rect is empty,
+    /// so intersecting would fall back to the main screen for exactly those
+    /// answers — clamping the popover's height against one display while
+    /// anchoring it on another.
+    private static func visibleFrame(for anchor: NSRect) -> NSRect {
+        let screen = NSScreen.screens.first { $0.frame.contains(anchor.origin) } ?? NSScreen.main
+        return screen?.visibleFrame ?? anchor
+    }
+
+    /// Where a panel of `size` goes for an anchor line at `anchor`, in screen
+    /// coordinates.
+    ///
+    /// Below the line by default and flipped above it when the popover would run
+    /// off the bottom of the screen — the same rule a menu follows, and the one a
+    /// user reading downward expects. The horizontal position is clamped rather
+    /// than flipped: a popover pushed left to stay on screen still points at the
+    /// right line, while one flipped to the other side of the identifier would
+    /// not.
+    private static func origin(for size: NSSize, anchoredTo anchor: NSRect) -> NSPoint {
+        let visible = visibleFrame(for: anchor)
+
+        var y = anchor.minY - gap - size.height
+        if y < visible.minY {
+            let above = anchor.maxY + gap
+            // Only flip when the flipped position is genuinely better: on a
+            // screen too short for the popover either way, hanging below the
+            // anchor at least keeps its first line — the signature — visible.
+            if above + size.height <= visible.maxY { y = above }
+        }
+        let x = min(max(anchor.minX, visible.minX), max(visible.minX, visible.maxX - size.width))
+        return NSPoint(x: x, y: max(y, visible.minY))
+    }
+}
+
+/// The popover's window: borderless, non-activating, and incapable of taking
+/// focus away from the editor.
+///
+/// `canBecomeKey`/`canBecomeMain` are overridden to `false` rather than left to
+/// the style mask: a borderless panel is *already* refused key status by AppKit
+/// today, and this states the requirement instead of depending on that. Nothing
+/// in the popover is interactive, so there is nothing key status would buy.
+@MainActor
+private final class PassThroughPanel: NSPanel {
+    /// The one thing drawn in the panel. An `NSTextField` label rather than a
+    /// text view: it draws an attributed string, measures itself, and — being
+    /// non-editable and non-selectable — carries none of a text view's input
+    /// machinery into a window that ignores mouse events anyway.
+    let label: NSTextField = {
+        let label = NSTextField(labelWithString: "")
+        label.isEditable = false
+        label.isSelectable = false
+        label.isBordered = false
+        label.drawsBackground = false
+        label.cell?.wraps = true
+        label.cell?.isScrollable = false
+        return label
+    }()
+
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
+#endif

@@ -37,9 +37,10 @@ import Foundation
 /// files it is told about. It writes nothing, takes no writer gate, and is gated
 /// by none.
 ///
-/// Not an actor and not `@MainActor`: the two request methods are `nonisolated
+/// Not an actor and not `@MainActor`: the request methods are `nonisolated
 /// async` so (SE-0338) their bodies run on the cooperative pool — the ranking,
-/// the position mapping and the target-file reads all stay off the main thread —
+/// the position mapping, the markup normalization and the target-file reads all
+/// stay off the main thread —
 /// and the only mutable state is the resolve table, which is small, touched twice
 /// per completion round and guarded by a lock rather than by an actor hop.
 public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecked Sendable {
@@ -244,6 +245,96 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             relativePath: inside?.joined(separator: "/") ?? file.lastPathComponent,
             isOutsideProjectRoot: inside == nil
         )
+    }
+
+    // MARK: - Hover
+
+    /// What the server says the thing under the pointer *is* (D25).
+    ///
+    /// `definitions(for:)` step for step — D2's guard, the language off the file
+    /// name, `prepare` so the live buffer reaches the server before the question,
+    /// `LSPPositionMap` on the way in and on the way out, and `stillHolds` before
+    /// the answer is read — with two rules of its own.
+    ///
+    /// **A server that does not advertise hover is not asked.** Every other
+    /// request in this layer would merely waste a round trip; this one runs
+    /// whenever the pointer stops moving, so an unanswerable question here is a
+    /// question asked forever. The capability is read after `prepare` because
+    /// `prepare` is what starts the server and so what produces the capability.
+    ///
+    /// **Every uncertainty is `nil`, including a server that answered.** Content
+    /// that normalizes to nothing is not a smaller answer but no answer (D25):
+    /// there is no empty popover, and the pointer resting on a keyword the server
+    /// has nothing to say about must leave the screen exactly as it was.
+    public func hover(for request: HoverRequest) async -> HoverAnswer? {
+        // D2's guard, in the same words the definition path states it in: an empty
+        // buffer is a legitimate document, but only at offset 0.
+        guard !(request.text.isEmpty && request.offset != 0) else { return nil }
+        guard let fileURL = request.fileURL,
+              let language = SyntaxLanguage(forFileName: fileURL.lastPathComponent),
+              let prepared = await workspace.prepare(
+                  url: fileURL,
+                  language: language,
+                  text: request.text
+              ),
+              await prepared.session.capabilities?.supportsHover == true
+        else { return nil }
+
+        let source = request.text as NSString
+        let position = LSPPositionMap.position(forOffset: request.offset, in: source)
+        guard let response = try? await prepared.session.hover(
+            LSPTextDocumentPositionParams(uri: prepared.uri, position: position)
+        ) else { return nil }
+        // The same staleness gate, for the same reason and one more: a popover is
+        // drawn *beside a range in the buffer*, so an answer about a document the
+        // server was talked out of underneath this one would be anchored to text
+        // that has moved.
+        guard await workspace.stillHolds(prepared) else { return nil }
+        // Interpreting the markup is the one step here that is *work* rather than
+        // waiting, and its cost is the server's to choose: the three caps bound it,
+        // but a line of two thousand `[` costs a scan per character and the budget
+        // above may already have expired. Nothing downstream is waiting for this
+        // answer once the caller's task is cancelled, so stop before paying for it
+        // instead of burning a cooperative-pool thread on a popover nobody will see.
+        guard !Task.isCancelled, let content = HoverContent(response) else { return nil }
+
+        return HoverAnswer(content: content, range: anchorRange(for: response, in: source, at: request.offset))
+    }
+
+    /// The buffer range a hover answer is about.
+    ///
+    /// The server's `range` when it sent one, mapped back to buffer coordinates;
+    /// otherwise the identifier under the offset, which is the same span the
+    /// editor resolved before it decided to ask and so keeps the popover anchored
+    /// to the word the user is pointing at. An empty range at the offset is the
+    /// last resort — a pointer is never "inside" it, so the popover is re-asked
+    /// rather than kept, which is the harmless direction to be wrong in.
+    ///
+    /// **The server's range is accepted only when it covers the offset the
+    /// question was about**, which is the same untrusted-numbers stance
+    /// `LSPPositionMap` takes on the way in. It is not a formality: this range is
+    /// both where the popover is drawn *and* the editor's re-ask suppressor
+    /// (`HoverController.anchorRange`). A range that does not contain the hovered
+    /// offset — a degenerate `{0, 0}` being the realistic shape — would anchor the
+    /// popover at the top of the file *and* fail the "still about the word under
+    /// the pointer" test on every subsequent mouse-moved event, turning pointer
+    /// jitter over one identifier into a dismiss-and-re-ask loop on the one
+    /// request path that runs whenever the pointer stops moving. An empty range
+    /// fails this test too, and falls back to the identifier, which is strictly
+    /// the better anchor.
+    private func anchorRange(
+        for response: LSPHoverResponse,
+        in source: NSString,
+        at offset: Int
+    ) -> NSRange {
+        if let range = response.range {
+            let mapped = LSPPositionMap.range(for: range, in: source)
+            if NSLocationInRange(offset, mapped) { return mapped }
+        }
+        if let identifier = IdentifierScanner.identifier(in: source, at: offset) {
+            return identifier.range
+        }
+        return NSRange(location: min(max(offset, 0), source.length), length: 0)
     }
 
     // MARK: - Completions

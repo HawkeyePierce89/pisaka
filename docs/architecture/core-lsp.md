@@ -50,6 +50,22 @@ and `LSPRustProvisioning.swift` at the end of the file list; the bytes half — 
 by-hand pin procedure — lives in `core-provisioning.md` where the rest of the
 bytes are.
 
+**What hover added, and why it is a third question rather than a third
+provider.** Resting the pointer on an identifier in the macOS editor asks
+`textDocument/hover` and draws the answer in a small popover. It is documented
+here under decisions D25–D26, with an entry for `HoverContent.swift` beside
+`CompletionEditPlan`'s, because it changes nothing about *who* answers: the same
+sessions, the same workspace, the same registry, one more method on the seam. Two
+things about it are unlike everything else in this document and are the reason it
+has decisions of its own. **It has no tree-sitter fallback** — the index knows
+names and locations, not types, so there is nothing to fall through to and no
+server means no popover (D25). And **it normalizes markup**, which no other
+answer here does: a hover reply is prose and code mixed in one string, so
+`HoverContent` is the one place LSP's markup is interpreted, and content that
+normalizes to nothing is `nil` rather than an empty popover. The view half — the
+dwell, the tracking area and the pass-through panel — is macOS-only and lives in
+`docs/architecture/app-editor.md`.
+
 **Where the platform boundary is.** All of it is in `PisakaCore` except one
 thing: the `Process` and its three pipes, which live macOS-gated in
 `Sources/Pisaka/LSPProcessTransport.swift` behind the `LSPTransport` protocol.
@@ -59,9 +75,12 @@ stay testable in a target that cannot spawn a process. `LSPSourceGatingTests`
 enforces the split statically: no `Sources/PisakaCore` file of this layer may
 mention `Process`, `AppKit`, `UIKit` or `SwiftTreeSitter`, and every app-side file
 of it must be wrapped in `#if os(macOS)`. Files are *discovered* by a per-side
-prefix list (`LSP`, plus `SourceViewer` in the app and
-`CompletionEditPlan`/`RoutingIntelligenceProvider` in Core — the layer's members
-that are named for what they decide rather than for the protocol), and the
+prefix list (`LSP`, plus `SourceViewer` and `Hover` in the app and
+`CompletionEditPlan`/`HoverContent`/`RoutingIntelligenceProvider` in Core — the
+layer's members that are named for what they decide rather than for the
+protocol; the hover popover's two app files are as `AppKit`-dependent as
+`LSPProcessTransport` and exist only because a server can answer the question,
+so a prefix sweep over `LSP` alone would leave them unpinned), and the
 discovered set is then pinned by **set equality against a named list on both
 sides**, in the `SymbolQueryTests` mould. Both halves need it, for slightly
 different reasons: a rename that empties a prefix leaves a suite that passes while
@@ -76,8 +95,9 @@ positions) → `LSPTransport` (the platform seam) → `LSPSession` (one conversa
 → `LSPServerDescription`/`LSPServerRegistry` + `LSPWorkspace` (which server, which
 root, when to give up) → `LSPIntelligenceProvider` (protocol answers as seam
 values) → `RoutingIntelligenceProvider` (LSP first, tree-sitter otherwise).
-`CompletionEditPlan` hangs off the side of the last two: it is the pure rule the
-editor applies an auto-import with.
+`CompletionEditPlan` and `HoverContent` hang off the side of the last two: the
+pure rule the editor applies an auto-import with, and the pure normalization a
+hover answer is drawn from.
 
 The decisions D1–D10 the ticket delegated are written out at the end of this
 document, together with the limits they carry.
@@ -159,6 +179,28 @@ document, together with the limits they carry.
     `null`. `LSPDefinitionTarget.jumpRange` is `selectionRange ?? range`, so the
     richer `LocationLink` answer lands on the declaration's *name* and the plainer
     `Location` still lands somewhere sensible.
+    `LSPHoverResponse` does the same normalising job for hover that
+    `LSPDefinitionResponse` does for definition, over a wider set of spellings:
+    `null`, a bare `MarkedString` (a plain string, which the spec says is
+    markdown, **or** `{language, value}`), an array mixing both, or a
+    `MarkupContent` (`{kind, value}`) — plus the optional `range` the answer
+    covers. All of them decode to an ordered `[LSPHoverElement]`, whose two cases
+    are the only distinction anything downstream acts on: `.code(language:value:)`
+    is a code block in a language the server named, `.markup(kind:value:)` is a
+    string to be read as markdown or as plain text. **Order and each element's
+    declared language survive verbatim**, because they are the whole input to
+    `HoverContent`'s normalization — a `MarkedString` object flattened into prose
+    is a type signature drawn in the interface font with its `<`/`>` read as
+    markup. Leniency is per *element* here rather than per response: a malformed
+    element of an array is dropped and the rest are kept, an object carrying
+    neither `kind` nor `language` is read as plain text (it did send a `value`,
+    and showing it unstyled beats showing nothing), a `range` that does not parse
+    is simply absent, and `LSPMarkupKind(spelling:)` degrades an unrecognised
+    `kind` to `plaintext` — a stray `*` on screen against a lost popover. A top
+    level that is neither `null` nor an object still *throws*, exactly as for
+    definition: "nothing to show" and "I could not read the answer" are different
+    facts. `isEmpty` means "no elements at all"; whether the elements that *are*
+    there amount to anything worth drawing is `HoverContent`'s question (D25).
     `LSPCompletionEdit` decodes both `TextEdit` and `InsertReplaceEdit` even though
     `insertReplaceSupport` is not advertised — a server that sends the second anyway
     would otherwise take the whole list down — and re-encodes in the plain spelling,
@@ -175,8 +217,15 @@ document, together with the limits they carry.
     with snippet syntax in its buffer. It states full text sync only, `utf-16`
     positions (the default, but said out loud because a server that supports utf-8
     will happily switch if asked), definition with `linkSupport`, completion with
-    `contextSupport` and `resolveSupport` for `additionalTextEdits`/`detail`, and
-    **no** `snippetSupport` (D5).
+    `contextSupport` and `resolveSupport` for `additionalTextEdits`/`detail`,
+    hover with `dynamicRegistration: false` and `contentFormat: ["markdown",
+    "plaintext"]`, and **no** `snippetSupport` (D5). Both hover formats are asked
+    for on purpose and in that order: markdown is the only way a server marks a
+    type signature as *code* rather than as prose, and `HoverContent` degrades the
+    rest of the markup rather than rendering it — while plaintext is listed beside
+    it so a server with no markdown renderer answers instead of declining. That is
+    the closed tree's own rule applied to a new node: what is advertised is what
+    there is code for, and there is code for exactly these two.
     `LSPInitializeParams` sends the project root **twice** — as `rootUri` and as
     the spec-deprecated `rootPath` — and the redundancy is load-bearing rather
     than belt-and-braces. Phase 2a sent only `rootUri`, which is what
@@ -210,10 +259,14 @@ document, together with the limits they carry.
     pairing must not introduce.
     `LSPServerCapabilities` models only what this phase acts on; everything else a
     server advertises is ignored rather than typed, since twenty providers we never
-    call are not information. `definitionProvider`/`completionProvider` are
-    `boolean | Options` on the wire and both spellings collapse to one question
-    (an options object *is* support). `usesUTF16Positions` is the one capability
-    that can disqualify a server outright — see D7's terminal failures.
+    call are not information. `definitionProvider`/`hoverProvider`/`completionProvider`
+    are `boolean | Options` on the wire and all three spellings collapse to one
+    question (an options object *is* support). `usesUTF16Positions` is the one
+    capability that can disqualify a server outright — see D7's terminal failures.
+    `supportsHover` is the only one of the three that is *read before asking*
+    (D25): the other requests would merely waste a round trip on a server that
+    cannot answer them, while hover fires whenever the pointer stops moving, so an
+    unanswerable question there is a question asked forever.
 
   - `LSPPositionMap.swift` — the bridge between the editor's one coordinate (a
     UTF-16 buffer offset) and LSP's `(line, character)` pair. **It deliberately does
@@ -285,7 +338,16 @@ document, together with the limits they carry.
     definition 3 s, completion 1.5 s, plus two the plan left implicit and the type
     states outright — `resolve` 1.5 s (D4's background prefetch) and `shutdown` 2 s
     (short on purpose: the process is being killed either way, and this is only the
-    difference between a clean exit and a SIGTERM). A request that outlives its
+    difference between a clean exit and a SIGTERM) — and `hover` 1.5 s, which is
+    **completion's number rather than definition's** (D25): nobody asked for a
+    hover deliberately, the pointer merely stopped moving, so an answer arriving
+    after it has moved on is not late but unwanted, and waiting a definition's
+    three seconds only keeps a request alive past its own usefulness.
+    `hover(_:)` is the exchange itself, decoded through the same
+    `decode(_:as:method:)` so a missing `result` and an explicit `null` stay one
+    answer; whether the server was worth asking at all
+    (`capabilities.supportsHover`) is the *provider's* check, not this layer's — a
+    session answers what it is asked. A request that outlives its
     budget fails **alone**: nothing else in the table is touched, because one slow
     answer is not evidence the server is broken, and the server is sent
     `$/cancelRequest` since we will not read the reply.
@@ -785,6 +847,285 @@ document, together with the limits they carry.
     **Only the primary edit is ever a row** — an accompanying `import` is inserted
     whole and never displayed — so a non-primary edit answers `newText` unchanged.
 
+  - `HoverContent.swift` — everything a hover popover draws, and the one place
+    LSP's markup is interpreted (D25). Two value types and a reader, in one file
+    for the same reason `CompletionEditPlan` is one: the *rule* and the type whose
+    invariants it establishes belong together.
+    `HoverSegment` is a run of text plus what it is — `.code(language:)` or
+    `.prose` — and that distinction is the only one a renderer acts on, which is
+    why this is not a single string: a type signature drawn in the interface font,
+    its `<`/`>` read as markup and its indentation collapsed, is not a type
+    signature, and a paragraph of documentation drawn in the code font is a wall.
+    A `nil` language means "monospaced, uncoloured", never "guess".
+    `HoverContent` is an ordered list of those plus `isTruncated`, and **it knows
+    nothing about LSP**: the view layer needs no protocol vocabulary to draw an
+    answer, and a second source of hover text would produce the same value. Its
+    initializer is failable and that is the decision: segments carrying only
+    whitespace are dropped, and content left with none is `nil` rather than a
+    `HoverContent` with no segments. **There is no empty popover** (D25), so
+    "show it if there is one" is the only rule a caller needs and an empty one
+    cannot be drawn by accident. The same initializer strips each kept segment's
+    blank first and last *lines*, which makes `HoverSegment.text`'s stated shape
+    true of every segment rather than only of the ones `HoverMarkup` built (whose
+    `codeBlock`/`proseBlock` already did it, so this is a no-op on the LSP path).
+    That is what `truncated` stands on: it keeps a *prefix* of a segment's lines,
+    so a segment whose first line were blank could be cut down to whitespace —
+    a popover drawing an ellipsis and no answer, which is the forbidden state
+    arriving by the back door. Stripped line-wise, never off the joined string,
+    for `proseBlock`'s reason: trimming the join takes the first line's
+    indentation with it and leaves every following line's in place.
+    It owns the feature's **two constants**, here rather than in the view for the
+    reason every other rule is here: `dwellDelay` (0.35 s — the difference between
+    "hovering tells you the type" and "moving the mouse across a file fires a
+    request per identifier"), `maximumLineCount` (20), `maximumLineLength`
+    (2 000 characters), `maximumLineUTF8Length` (16 000 bytes) and
+    `maximumInterpretedLineCount` (200). `truncated(toLineCount:lineLength:)` is the cap as pure, idempotent
+    arithmetic: it keeps whole segments while they fit, cuts the one that straddles
+    the line limit *keeping its kind and language* (half a code block is still
+    code), clips every kept line to the length limit on a `Character` boundary (so
+    no cut can halve a grapheme), and reports that it cut. Either limit below one
+    is read as one — a caller asking for a popover is not asking for a smaller
+    answer but for a different and forbidden one. For the same reason the cap
+    yields before the invariant does: a length limit small enough to leave nothing
+    but a first line's indentation returns the content *whole*, because an answer
+    too big for the cap is still an answer and an empty one is not. **Long content truncates; it
+    never scrolls** (D26), and the arithmetic lives here because the renderer's
+    only remaining job is to draw a marker when `isTruncated` says so.
+    **The cap has two dimensions and both are load-bearing.** A line count bounds
+    nothing a renderer can use: twenty lines can be twenty megabytes, the answer's
+    size is a language server's to choose (`LSPFraming` will carry 64 MB), and the
+    panel measures and lays that string out *synchronously on the main thread* from
+    an event that fires whenever the pointer stops moving. So the length cap is
+    what makes "at most twenty lines" also mean "at most a bounded amount of work",
+    and it is set far past anything a 520 pt panel can show precisely so that it
+    never fires on a real signature or paragraph — it is a hang guard, not a
+    display rule.
+    **The cap may not cost what the cap prevents**, and that is why the two
+    dimensions are applied in two different places. The line *count* is the display
+    rule, so `truncated(toLineCount:)` is the renderer's call. The line *length* is
+    the hang guard, so it is established by the **checking initializer** — which is
+    to say wherever a `HoverContent` is *built*, and on the LSP path that is
+    `LSPIntelligenceProvider.hover`, a `nonisolated async` method and therefore off
+    the main thread. A clip there sets `isTruncated` (content was lost; the marker
+    is how the popover says so) and happens *before* the blank edge lines go, so
+    the degenerate line — three thousand spaces and then a character — cannot clip
+    down to whitespace and survive as a segment with nothing to draw. That makes
+    `HoverSegment.text`'s stated shape include "no line longer than
+    `maximumLineLength`", and every later reader — `truncated`, `lineCount`, the
+    panel — walks text that is already bounded. Doing it the other way round is the
+    bug this replaced: a cap applied for the first time in `truncated` still has to
+    *find* the end of the megabyte line before it can drop it, on the main thread,
+    from a mouse-moved event — bounded allocation over unbounded work.
+    **The same argument reaches one level further back, and that is where the cap
+    is actually applied: to the server's string, before `HoverMarkup` interprets
+    it.** The checking initializer is off the main thread, but it sees the parse's
+    *output*, and the parse is the pass that costs the size of the answer — worse
+    than linearly. `HoverMarkup.inline(_:)` rescans to the end of the line from
+    every `[` that never finds a target, so a line of unmatched openers is
+    quadratic: 80 KB of `[a](` spent eighteen seconds to produce two thousand
+    characters that the cap downstream then threw away, on the cooperative pool,
+    with no suspension point for `RoutingIntelligenceProvider`'s 1.5 s budget to
+    cancel at — the caller gives up and the thread keeps spinning. So
+    `init?(hoverElements:)` runs `clippedLines(of:)` on each element first and
+    passes the resulting `isTruncated` down; the checking initializer's own clip
+    stays (it is the rule for every other caller) and is simply a no-op on this
+    path. **A label's nesting is bounded for the same reason and separately**: a
+    link label is degraded by calling `inline` on it *recursively*, and the depth
+    is the server's to choose, so a few hundred levels of `[x](u)` overflowed a
+    cooperative-pool stack and killed the process — 2.5 KB of input, well inside
+    every length cap. Past `maximumLabelNesting` (16, past anything a hover answer
+    writes) the `[` is written literally and the scan moves on one character,
+    which is the answer an unmatched bracket already got: unmatched markup is text.
+    **Where each `[` closes is precomputed**, in one stack pass over the line
+    (`closingBrackets(in:)`), rather than matched on demand — and that is a third
+    bound rather than a tidier spelling of the second. An on-demand match walks to
+    the end of the line whenever the bracket turns out to be *unmatched*, and an
+    unmatched bracket is the common case in exactly the prose this reader exists
+    for (`[]byte`, `map[string]int`, `data[index]`). That is quadratic per line,
+    so the line-count cap *multiplied* the residue instead of closing it: 200
+    lines of 2 000 brackets — inside every cap above — measured **eight and a half
+    seconds**, spent on a cooperative-pool thread, past the only cancellation
+    check, on a result the request budget had already thrown away. The pass makes
+    the work linear in the text, which is what makes the caps mean what they say.
+    **The length cap is itself two caps, in characters and in UTF-8 bytes, and the
+    byte one is what closes the guard.** `maximumLineLength` counts `Character`s, a
+    `Character` is an extended grapheme cluster, and a cluster has no size limit:
+    a letter followed by a million combining marks is *one* character, so a
+    character cap of any size passes that line through whole and the megabyte hang
+    arrives through the guard meant to stop it. `maximumLineUTF8Length` is
+    therefore stated in the unit the layout actually costs — eight bytes per
+    character, twice UTF-8's maximum for a single scalar, so a line can only reach
+    it by not being text. The clip walks characters and checks the byte budget
+    *before* keeping each one, which is what makes the oversized cluster a
+    truncation rather than an exception to the cap: it is dropped whole (never
+    halved — the cut stays on a `Character` boundary), and content that was nothing
+    but such a cluster is then no content at all, the no-empty-popover rule reached
+    from the other end. Ordinary text never meets any of this: a line whose whole
+    UTF-8 size fits the *character* cap can break neither cap, and that check is
+    the first thing the clip does.
+    **The third side of the guard is the line *count*, and the two length caps
+    leave it open**: they bound what a line costs, not how many arrive. Four
+    hundred thousand short lines pass both — every one is far inside either cap —
+    and still cost seconds in `HoverMarkup` before `truncated(toLineCount:)`
+    throws all but twenty away, off the main thread but on the same cooperative
+    pool completions, definitions and the index walk share, and with the whole
+    attempt's budget already expired. `maximumInterpretedLineCount` closes it in
+    the same place and the same pass as the other two, and is spent as **one
+    budget across the elements together**: the payload carries an array, so a
+    per-element bound is no bound at all. Ten times what the popover draws, so
+    the guard is never what cuts a real answer — the lines it counts are the
+    server's, before blank ones and fences fold away — and an element cut for
+    want of budget, or one never read at all, marks the answer truncated like any
+    other loss. `HoverMarkup.lines(of:limit:)` is what makes the bound cost less
+    than what it prevents: it scans the UTF-8 view for `\n`/`\r` (either byte is
+    one break, `\r\n` is one break, and the lines come back through
+    `String(decoding:as:)` because the `\n` of a `\r\n` pair is not a `Character`
+    boundary), stops when the budget runs out, and so never copies the whole
+    string — which the two `replacingOccurrences` passes it replaced did twice
+    over. A line-count guard that first materializes every line has already paid
+    what it exists to save.
+    Within that, `truncated` still reads each segment line by line (`cappedLines`)
+    rather than `segment.lines` + `prefix`, so it materializes only what it keeps
+    and walks only as far as the line budget reaches. Line ends are found on the
+    UTF-8 view (a newline is one byte no multi-byte sequence can contain, so the
+    search is a byte scan rather than grapheme breaking over text about to be
+    discarded); the clip itself stays on the `Character` view, where the
+    no-halved-grapheme promise lives. The renderer's whole cost is therefore at
+    most `maximumLineCount` × `maximumLineLength` characters, whatever the server
+    sent.
+    `HoverContent(_ response:)` / `init?(hoverElements:)` are the construction
+    from a decoded payload: each element becomes segments, in the order the server
+    wrote them, so `[{language: "swift", value: "func f()"}, "Does a thing."]`
+    stays a code segment followed by a prose one — merging them is exactly the
+    mistake the two kinds exist to prevent.
+    `HoverMarkup` is the reader, and is **not a Markdown implementation and not
+    trying to be**. Hover answers are a narrow dialect — a fenced signature, a
+    paragraph, a list, the odd link — and the invariant that matters is that
+    **what it cannot render is degraded rather than shown raw**: a `**` left
+    standing in a type signature reads as an error in the *code*, not as a
+    limitation of the popover. The two markup kinds are read differently, which is
+    the whole reason the server is asked to declare one: `markdown` is
+    interpreted, `plaintext` is **not** — its asterisks and backticks are the
+    text, and stripping them would corrupt a signature the server took care to
+    send unformatted. Both are normalized for whitespace.
+    Block structure first: a fence (three or more backticks or tildes, up to three
+    spaces of indent, the info string's first word as the language) opens a code
+    segment and the prose before it is flushed; an *unterminated* fence takes the
+    rest of the element as code, which is CommonMark's rule and also the forgiving
+    one, since a server that forgot a closing fence meant everything after it to
+    be a signature. A backtick fence whose info string contains a backtick is not
+    a fence at all but an inline code span on its own line.
+    Then per line: horizontal rules go, headings lose their `#` — a *closing* run
+    only when whitespace precedes it, CommonMark's rule and the one that keeps
+    `# Learn C#` from becoming `Learn C` — `-`/`*`/`+` bullets
+    become `•` (ordered `1.` markers are left alone — they already read as a list
+    and their numbers carry meaning a bullet would throw away), and inline markup
+    is stripped in **one left-to-right pass** rather than by a series of
+    replacements, because order is the whole of it: a code span's contents are
+    kept verbatim (`` `a*b*c` `` keeps its asterisks while `*emphasis*` loses
+    them), a link or image keeps its text/alt and loses its URL, and a backslash
+    escape yields the character it escaped. An unclosed code span leaves its
+    backticks standing rather than eating the line.
+    **A `[…]` is a link label only when a `(url)` destination actually follows
+    it**, and otherwise the brackets are written out as the text they are. This is
+    the same rule as the unclosed emphasis run below and it is load-bearing for
+    the same reason: reading every balanced bracket pair as a label answers `byte`
+    for `[]byte`, `mapstringint` for `map[string]int` and `T; N` for `[T; N]`,
+    which is how Go and Rust spell *types* in exactly the unfenced prose this
+    normalizer sees. A wrong name, not an unformatted one.
+    **Nor is an *argument list* a destination**, which is the same rule's third
+    form and the one that bites hardest. A balanced `(…)` after a balanced `[…]`
+    is CommonMark's inline link *and* is how three languages spell a call on a
+    subscript or on a type argument list, so consuming it whole answered `Int` for
+    Swift's `[Int]()`, `String` for `[String](repeating: "a", count: 3)` and
+    `func MapK comparable, V any []K` for a Go generic. The test is CommonMark's
+    own grammar rather than a new invention — a destination is one run of
+    non-whitespace characters (or an angle-bracketed one) plus an optional
+    *quoted* title, so an argument list, carrying unquoted whitespace past its
+    first word, is not one — with the single narrowing that an **empty**
+    destination is refused where the spec allows it: `[X]()` links nowhere, so
+    reading it as a link buys nothing and it is exactly how Swift spells an empty
+    array literal. What is left ambiguous is left: `a[0](b)` and
+    `Dict[str, int](x)` still read as links, because narrowing past this would
+    have to reject a destination for being *short*, which is what a real relative
+    link in a doc comment looks like.
+    **A reference target is not read either** — `[label][ref]` and the shortcut
+    `[Vec]` both keep their brackets — which is where the rule stops following
+    CommonMark rather than merely narrowing it. `a[i][j]` is a doubly-indexed
+    expression in every language a server answers for *and* is character-for-
+    character CommonMark's collapsed-reference syntax, so the two cannot both be
+    honoured, and honouring the markup answers `ai`. The trade is one-sided: a
+    reference link resolves against a `[ref]: url` definition, a hover answer is a
+    fragment with no document for one to live in, so no server can send a
+    reference that would have resolved anyway.
+    **`<`…`>` is dropped only against an allow-list of HTML element names**, and
+    the attribute list is *walked* rather than skipped to the next `>`. Both
+    halves are deliberate departures from CommonMark, in the one direction this
+    popover can afford. By the spec `<T>` and `<u8>` are perfectly valid raw HTML
+    — and they are also exactly how rust-analyzer, gopls and sourcekit-lsp spell a
+    generic in the unfenced prose beside a signature, so a spec-faithful reader
+    answers `Vec` where the server said `Vec<u8>`: wrong, not merely plain. The
+    walk is the other half: `Compare a<b and x<y>z` opens with something
+    tag-shaped, and a scan to the nearest `>` deletes the clause between them,
+    where an attribute walk rejects the `<` inside `x<y` and leaves the sentence
+    alone. Names are matched case-sensitively for the same reason the list exists
+    — markup is written lowercase and type parameters capitalised, so `<BR>`
+    surviving as text is far cheaper than `Box<B>` losing its parameter.
+    **An attribute must carry a value**, where HTML allows a bare boolean one, and
+    that is the walk's third half: `a<b and b>c` is a well-formed `<b>` element
+    with two valueless attributes, so the walk alone accepted it and deleted the
+    comparison between the angle brackets — and the single-letter names on the
+    allow-list are precisely the ones that collide with variable names. A server
+    that really writes `<details open>` loses its markup to literal text, which is
+    the cheap direction.
+    **`<br>` is the one element that leaves something behind**: a space. Its whole
+    meaning is a separator, so dropping it like the rest joins the words either
+    side (`one<br>two` → `onetwo`), which reads as a typo rather than as text with
+    its formatting removed. The popover's prose wraps at the panel width, so the
+    *line* the tag asked for cannot be honoured anyway; the gap can, and runs are
+    collapsed from both sides so `one <br> two` gains nothing.
+    **HTML entities are not decoded** — `&lt;` reaches the popover spelled that
+    way. A known limit rather than an oversight: it is the degraded-not-wrong
+    direction, and decoding would have to guess whether an `&amp;` in prose about
+    C is markup or the operator.
+    **Emphasis is paired, not merely flanked.** What a run touches decides what it
+    *may* be — non-whitespace on the right may open, on the left may close, none
+    on either side is arithmetic (`a * b`) and stays, and `_` may not do both at
+    once, which is what leaves `some_identifier_name` spelled the way the code
+    spells it, and **a `_` run of two or more may do neither** — but a run that
+    *may* open is markup only once something closes it.
+    That last clause is a second deliberate departure, made for the allow-list's
+    reason. The intra-word rule cannot reach a dunder: `__init__`'s runs *flank*
+    the word rather than sit inside it, so CommonMark reads them as strong
+    emphasis and the popover names the symbol `init` — wrong, not merely plain,
+    and pervasive in the docstring prose a Python server attaches to a hover
+    (`__init__`, `__name__`, `__all__`). Its worst shape is `See __str__ and
+    __repr__.`, where the spec renames only the first of two identical names. The
+    trade is one-sided: every server writes bold as `**bold**`, which still
+    degrades, so refusing the `__bold__` spelling costs an occasional literal pair
+    of underscores — unformatted rather than misnamed, the direction this reader
+    picks every time.
+    An opener the line never closes is written back literally, which is CommonMark's
+    reading and the difference between `w*h`, `*ptr` and `_private` reaching the
+    popover as themselves and reaching it as `wh`, `ptr` and `private`. This is why
+    the pass assembles pieces rather than one appended string: a delimiter cannot
+    be judged when it is read, so its piece is written empty and rewritten if the
+    promise of a closer is not kept.
+    Whitespace last: code blocks lose trailing whitespace per line and blank lines
+    at both ends while **every line's leading indentation stays** (it is the code);
+    prose is stripped **the same way, line-wise**, and additionally collapses runs
+    of blank lines to one, since a server that
+    separated two sentences with four newlines meant a paragraph break rather than
+    a hole in the popover. Line-wise is the load-bearing word: trimming the *joined*
+    block instead — which is what `proseBlock` used to do — takes the first line's
+    indentation away and leaves every following line's, so an indented plaintext
+    signature (the shape a server with no markdown renderer sends) arrives with its
+    head shifted left against its body. `degraded(_:)` keeps each line's indent to
+    preserve nested lists, and this is the one place that was disagreeing with it.
+    A line that degrades to nothing becomes a blank line and
+    is then collapsed away, so a lone `---` between two paragraphs leaves one
+    separating blank line rather than a gap or a stray glyph.
+
   - `LSPIntelligenceProvider.swift` — the `CodeIntelligenceProviding`
     implementation that answers from a server, and the one place the two coordinate
     systems meet. Three rules run through it.
@@ -906,6 +1247,37 @@ document, together with the limits they carry.
     items may carry one `newText` over different ranges, which makes them two
     different rows (the head a row drops is read off its own range), and the one
     that survives must not be mistaken for a duplicate of the one nobody sees.
+    `hover(for:)` is `definitions(for:)` step for step — D2's empty-buffer guard,
+    the language off the file name, `prepare` so the live buffer reaches the
+    server before the question, `LSPPositionMap` on the way in and on the way out,
+    `stillHolds(prepared)` before the answer is read — with two rules of its own
+    (D25). **A server that does not advertise hover is not asked at all**, and the
+    capability is read *after* `prepare` because `prepare` is what starts the
+    server and therefore what produces the capability. **Every uncertainty is
+    `nil`, including a server that answered**: content that normalizes to nothing
+    is not a smaller answer but no answer, and a pointer resting on a keyword the
+    server has nothing to say about must leave the screen exactly as it was. The
+    staleness gate carries one extra consequence here — a popover is drawn *beside
+    a range in the buffer*, so an answer about a document the server was talked out
+    of underneath this one would be anchored to text that has since moved.
+    `anchorRange(for:in:at:)` is what the caller measures "the pointer is still
+    over the same thing" by: the server's own `range` when it sent one (usually
+    wider than the identifier — a qualified name, an operator expression — and the
+    honest span of the answer), otherwise the identifier under the offset, which is
+    the same span the editor resolved before it decided to ask, and as a last
+    resort an empty range at the offset. That last case reads as "already left", so
+    the popover is re-asked rather than kept — the harmless direction to be wrong
+    in.
+    **A server's range is taken only when it covers the offset that was asked
+    about** — the same untrusted-numbers stance `LSPPositionMap` takes on the way
+    in, and not a formality: this one range is *both* where the popover is drawn
+    and the editor's re-ask suppressor, so a range that does not contain the
+    hovered offset (a degenerate `{0, 0}` being the realistic shape) would anchor
+    the popover at the top of the file *and* fail the "still about the word under
+    the pointer" test on every subsequent mouse-moved event — pointer jitter over
+    one identifier becoming a dismiss-and-re-ask loop, on the one request path that
+    runs whenever the pointer stops moving. An empty server range fails the same
+    test and falls back to the identifier, which is strictly the better anchor.
     `resolveEdits(for:)` is the seam's defaulted extension point, implemented here
     and a no-op everywhere else. A handle names an item from the list the popup is
     *actually showing*: handles are monotonic and never reused, and the table is
@@ -1016,6 +1388,19 @@ document, together with the limits they carry.
     `resolveEdits` takes no `canServe` gate: the item in hand *came from* a live
     list, so the language question was settled when it was published, and an item
     from the other provider resolves to `[]` there anyway.
+    **`hover(for:)` is the one method here that does not fall through** (D25), and
+    the omission is the decision rather than an oversight — which is why it is
+    stated on the method, on the type and here, since every other method in the
+    file does fall through and a reader is entitled to assume this one does too.
+    Tree-sitter knows names and locations, not types, and a plausible wrong answer
+    is worse than none: a popover saying `count` is "a property declared on line
+    40" when the pointer is over a completely different `count` is
+    indistinguishable from a correct one, and unlike a wrong ⌘-click it is not even
+    something the user asked for. So the shape is `canServe` first (a language with
+    no server costs a function call, as everywhere else), then the same
+    whole-attempt `withBudget` race the other two run — 1.5 s, beside them — and
+    `nil` for every other outcome: no server, no capability, a timeout, an answer
+    that normalized to nothing. Silently, like every fallback in this file.
 
 ### gopls (D17–D20)
 
@@ -1542,6 +1927,75 @@ push-then-delete ordering for all three — each closure taking its own contribu
 about when gopls or rust-analyzer contributes a description lives in the Core model
 and is unit-tested there.
 
+**D25 — Hover is answered by a server or by nobody.** `textDocument/hover` is the
+third question on `CodeIntelligenceProviding`, defaulted to `nil` in the protocol
+extension exactly as `resolveEdits` is — so the tree-sitter provider and both iOS
+surfaces are untouched and no existing call site changed. Four rules make it up,
+and each of them is a departure from what the other two questions do:
+
+- **No fallback, ever.** `RoutingIntelligenceProvider.hover(for:)` never consults
+  the wrapped provider. The index matches *names*; hover asks what something *is*,
+  and the only honest source of that is whatever type-checked the file. A
+  name-based guess would be indistinguishable from a correct answer while being
+  about a different declaration entirely — and this is the one feature nobody
+  invoked, so a wrong answer is an interruption as well as a lie. No server, no
+  capability, a timeout or an empty answer are therefore one outcome: no popover,
+  silently, with no beep and no alert (unlike ⌘-click, which beeps because the
+  user asked for something).
+- **Empty is not an answer.** `HoverContent` refuses to exist without segments, so
+  an optional `HoverAnswer` is the whole vocabulary — a value means "show this",
+  `nil` means "show nothing", and there is no third case a caller could get wrong.
+  A server answering `{}`, whitespace, or markup that degrades to nothing all land
+  in the same place as a server that answered nothing at all.
+- **The capability is read before asking.** Every other request would waste one
+  round trip on a server that cannot answer; this one runs whenever the pointer
+  stops moving, so the wasted round trip is per identifier the pointer crosses,
+  forever. `LSPServerCapabilities.supportsHover` gates it, read after `prepare`
+  because `prepare` is what produced the capability.
+- **Markup is normalized in exactly one place.** A hover reply is the only answer
+  in this layer that mixes code and prose in one string, and `HoverContent` is
+  where that string becomes segments. The alternative — handing markup to the view
+  — puts a Markdown reader in an untested layer and makes "what does the popover
+  show" a question with more than one answer.
+
+The budget is completion's 1.5 s rather than definition's 3 s, at both spans
+(`LSPSession.Budgets.hover` bounds the exchange, `RoutingIntelligenceProvider`'s
+bounds the whole attempt including a cold start): nobody is deliberately waiting,
+so an answer that arrives after the pointer has moved on is not late, it is
+unwanted. The answer carries the buffer range it describes — the server's own
+`range` when it sent one, the identifier under the offset otherwise — because that
+is what a caller decides "the pointer is still over the same thing" by, and it is
+therefore never absent.
+
+**D26 — The popover is unreachable chrome, and truncates rather than scrolls.**
+The macOS panel sets `ignoresMouseEvents = true`, which is one line and buys three
+properties at once: clicks, ⌘-clicks, drag-selection and the context menu pass
+straight through to the code beneath it; it can never take focus from the editor;
+and it is **chrome rather than a code surface** under `ZoomSurface.swift`'s
+"unreachable ≡ chrome" rule, so nothing in the hover files declares a zoom surface
+even though the panel draws code at the code zone's own font directly over the
+text view. A pointer that appears to move "onto" the popover is in fact still over
+the text, which simply updates or dismisses the answer, and a zoom gesture aimed
+there zooms the code — which is the zone the user means.
+Truncation follows from the same line rather than being a separate taste: a
+scrollable popover would need the pointer *inside* it, which would undo all three
+properties at once. So the cap is pure arithmetic in Core
+(`HoverContent.maximumLineCount`, `maximumLineLength`,
+`maximumLineUTF8Length` and `maximumInterpretedLineCount`, the drawn count applied
+by `truncated(toLineCount:lineLength:)`, the two lengths by the checking
+initializer and the interpreted count by `init?(hoverElements:)`) and the panel's only job is to
+draw a marker when the content was cut. Anything past a screenful is better read in
+the file ⌘-click already opens. The cap bounds **lines and their length, the latter
+in characters and in bytes**, because the panel lays the string out synchronously on
+the main thread from an automatic trigger: a count that permits a twenty-megabyte
+line bounds nothing that matters, and a character count that permits a
+twenty-megabyte *grapheme* bounds no more.
+`ZoomSourceGatingTests.testTheHoverPanelPassesEveryMouseEventThroughToTheCode`
+pins the pass-through and the no-surface half statically, over comment- and
+literal-stripped source, because deleting that line changes nothing that compiles,
+draws or is otherwise asserted — it only turns the popover into a hit-test
+obstacle standing between the pointer and the code.
+
 ## Known limits
 
 - **NEL / U+2028 / U+2029 line separators.** In a file delimited by those, the
@@ -1576,6 +2030,32 @@ and is unit-tested there.
 - **macOS only.** iOS installs no routing provider and no registry, so it is
   literally the tree-sitter index — there is no subprocess on iOS to run a server
   in.
+- **Hover has no fallback and no setting** (D25). A language with no server shows
+  no popover at all, and there is nothing to turn on: unlike completion, which has
+  a lightbulb and a preference, hover is either answered by a server or absent.
+  Nor is it offered from the keyboard — the dwell *is* the trigger — so a file
+  read without a mouse never sees it.
+- **A hover popover is a glance, not a document browser** (D26). Content past
+  `HoverContent.maximumLineCount` lines — or past `maximumLineLength` characters
+  (or `maximumLineUTF8Length` bytes) on any one of them — is cut and marked with an
+  ellipsis, code
+  lines wider than the panel are truncated rather than wrapped (a wrapped
+  signature invents indentation the language never had), the panel's height is
+  additionally capped at the screen (the line cap counts logical lines and prose
+  wraps, so it alone does not bound the drawn height), and none of it can be
+  scrolled, selected or copied, because the panel passes every mouse event
+  through. The full text is in the declaration ⌘-click opens.
+- **Markup is degraded, not rendered — but never *altered*** (D25). `HoverMarkup`
+  reads the narrow dialect hover answers are written in — fences, paragraphs,
+  lists, links — and drops what a two-font popover cannot draw: emphasis,
+  headings' `#`, rules, HTML tags, link URLs. Tables and block quotes are not
+  modelled: their `|` and `>` reach the popover as ordinary text, which is the
+  degradation this rule promises rather than a rendering bug. The bound on the
+  degradation is what the reader departs from CommonMark for: a construct is
+  dropped only when it is unambiguously markup, so `Vec<u8>` keeps its parameter,
+  `w*h` and `_private` keep their delimiters and `C#` keeps its `#`. **Losing a
+  character of a name is a wrong answer, not a plain one**, and it is the one
+  failure a popover whose whole job is naming things cannot have.
 - **No Xcode, no server.** `xcrun --find` answering nothing is an ordinary
   outcome: one restart is spent, the negative result is cached for the app run,
   and Swift files behave exactly as they did before this phase.

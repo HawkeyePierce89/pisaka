@@ -205,6 +205,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     and it falls back to a full `offsets(in:)` rebuild for anything it can't apply
     incrementally, so the cache can never drift. Foundation-only (`NSString`), so it stays in Core and is
     fuzz-tested against a full rebuild.
+    It also owns the separator set as a **predicate**: `isLineSeparator(_:)` is the
+    one answer to "is this character a line break" (LF, CR — the CRLF pair is two of
+    them — NEL, U+2028, U+2029), and `IndentEngine`/`AutoPairEngine` defer to it
+    rather than carrying copies, so nothing in the editor can split lines
+    differently. Distinct from the private `couldStartLine` used by the incremental
+    fast path, which is deliberately *over*-inclusive (VT and FF too): there a false
+    positive only forfeits a shortcut, while a caller asking what a character **is**
+    would get a wrong answer. The one view-layer caller is `HoverController`, which
+    needs "the pointer is over a real character" to mean what TextKit's layout means
+    (`app-editor.md`).
   - `SyntaxTokenKind.swift` — semantic, color-free token classification
     (`Equatable`: keyword, string, comment, number, type, function, variable,
     constant, `operator`, punctuation, property, parameter, label, plain). Its
