@@ -70,6 +70,10 @@ AppKit reads/writes stay thin in `CodeEditorView.Coordinator`.
       length truncated to `length - location` (truncate, never intersect — the same reasoning
       the reveal path already documents: a caret sitting exactly at the buffer end must stay
       there, not jump to `{0, 0}`); a `NSNotFound`/negative location collapses to `{0, 0}`.
+      (**Corrected during code review**: the anchor's range shipped as
+      `0...max(0, length - 1)` — `length` itself deliberately excluded, so the anchor always
+      names a character that exists and the view layer needs no end-of-buffer special case;
+      the selection clamp is unchanged. See Task 2's correction below and `core-editor.md`.)
 - [x] Add `public struct EditorViewportMemory` holding `[UUID: EditorViewport]` with
       `record(_:for:)`, `forget(_:)`, `prune(keeping openFileIDs: Set<UUID>)` and
       `viewport(for:clampedToLength:) -> EditorViewport?` (nil when nothing was recorded —
@@ -112,6 +116,12 @@ AppKit reads/writes stay thin in `CodeEditorView.Coordinator`.
       `extraLineFragmentRect` when it is in use or the last character's line fragment
       otherwise, and let the existing `scrollEditor(to:)` clamp remain the final guard. The
       same offset needs no special case for `setSelectedRange`: a caret at `length` is legal.
+      (**Superseded during code review**: this shipped the other way around — the Core clamp
+      stops the anchor at `length - 1`, so it always names a real character and this item's
+      three view-layer branches were deleted; one of them read a *pre-layout*
+      `extraLineFragmentRect` and scrolled to a fraction of the intended offset. Only the
+      empty buffer stays special, as an early `scrollEditor(to: 0)`. The selection half of
+      the item stands: a caret at `length` is legal and needs no case.)
 - [x] Add `func hasPendingReveal(_ request: EditorRevealState.Request?, fileID: UUID) -> Bool`
       — the same guards `applyReveal` uses (non-nil, token not yet applied, matching file),
       without consuming anything, so `updateNSView` can let an explicit reveal win.

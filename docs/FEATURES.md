@@ -482,7 +482,7 @@ user sees it.
   changes, use the header's Commit button or Cmd+K (next bullet); to commit just
   one of them, choose **Commit…** from that file's context menu, which opens the
   same dialog with only that file checked.
-- Commit (macOS): an IDEA-style modal dialog, opened with Cmd+K (Git > Commit…),
+- Commit (macOS): a modal dialog, opened with Cmd+K (Git > Commit…),
   the Commit button in the Local Changes header, or **Commit…** in a changed
   file's context menu. On the left the changed files
   with three-state checkboxes and status badges; on the right the selected file's

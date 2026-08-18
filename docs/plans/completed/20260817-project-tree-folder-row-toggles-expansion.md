@@ -221,7 +221,12 @@ header / `DirectoryNodeView` doc comments.
       gained `FileRowView`'s `.padding(.vertical, 3)` / `.padding(.horizontal, 6)`,
       which is the deliberate parity the ticket asks for, not "no row-height
       change"; `FileRowView` is no longer literally untouched (its padding and
-      hover color now read from the shared `TreeRowLayout`, same values); and
+      hover color now read from the shared `TreeRowLayout`, same values — and it
+      additionally gained a leading `TreeRowLayout.chevronGutter` inset, ~16pt at
+      scale 1, without which its own file children rendered 4pt *left* of the
+      folder containing them; the whole tree's content therefore sits one gutter
+      further right than on master, the one visible geometry change, recorded in
+      full in `app-window.md`); and
       keyboard actuation of the chevron *is* lost, accepted and documented rather
       than unchanged
 - [x] nesting indent verified by measurement, not by eye: an `NSHostingView`

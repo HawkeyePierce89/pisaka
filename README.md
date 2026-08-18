@@ -45,8 +45,8 @@ description of each — and of what it deliberately does *not* do — is in
   server is available, resting the pointer on a symbol also shows its
   type/signature in a small popover (macOS only; there is no popover without a
   server, since the index knows names, not types).
-- **Git** — Local Changes with side-by-side diffs and multi-file revert; an
-  IDEA-style commit dialog with per-line selection, amend, author editing and
+- **Git** — Local Changes with side-by-side diffs and multi-file revert; a
+  commit dialog with per-line selection, amend, author editing and
   optional push; a 3-pane merge-conflict resolver; a Git Log with a branch
   graph, filters and per-commit diffs; a branch switcher with checkout, DWIM
   remote checkout and fetch-first branch creation; and a git-blame column in the
