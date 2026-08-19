@@ -234,14 +234,14 @@ end to end, the manual fallback and the verification still owed.
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] run `swift test` — fully green, including the extended
+- [x] run `swift test` — fully green, including the extended
       `ReleaseWorkflowTests`.
-- [ ] `git diff --stat` shows exactly `.github/workflows/release.yml`,
+- [x] `git diff --stat` shows exactly `.github/workflows/release.yml`,
       `Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`, `docs/RELEASING.md`
       and `CLAUDE.md` — `project.yml` untouched.
-- [ ] `grep` the diff for secret material: only the secret **name** may appear;
+- [x] `grep` the diff for secret material: only the secret **name** may appear;
       no key bytes, no fingerprints beyond the pinned GitHub host key.
-- [ ] Read the new step top to bottom and confirm the five phases (version,
+- [x] Read the new step top to bottom and confirm the five phases (version,
       hash, clone, edit+verify, push) are each visible and each fatal.
 
 ## Post-Completion (manual, owner)
