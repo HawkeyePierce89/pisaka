@@ -110,10 +110,21 @@ jobs:
       # signed, or is signed by a key no installed copy trusts, is worse than a
       # refusal in the first 10 seconds.
       #
-      # The five signing/notarization secrets reach this step through `env:` and
-      # are only ever tested with `-z`. Nothing echoes them, and the certificate
-      # itself is not decoded here — this step's whole job is to establish that
-      # the run *can* be signed and notarized before anything expensive starts.
+      # Six secrets reach this step through `env:` and are only ever tested with
+      # `-z`. Nothing echoes them, and neither the certificate nor the deploy key
+      # is decoded here — this step's whole job is to establish that the run
+      # *can* be signed, notarized and distributed before anything expensive
+      # starts.
+      #
+      # Five of the six are signing and notarization material. The sixth,
+      # HOMEBREW_TAP_DEPLOY_KEY, gates *distribution* rather than signing: it is
+      # what the last step pushes the cask bump to the tap with. It is refused up
+      # front with the others even though it is not needed until the very end,
+      # because the alternative is the one failure shape with no cheap recovery —
+      # the release is published, the run then goes red on the bump, and the tap
+      # has to be fixed by hand while `brew install --cask pisaka` serves the
+      # previous version. Refusing in the first seconds publishes nothing at all,
+      # and recovery is adding the secret and re-pushing the tag.
       - name: Preflight
         env:
           SPARKLE_PRIVATE_EDDSA_KEY: ${{ secrets.SPARKLE_PRIVATE_EDDSA_KEY }}
@@ -122,6 +133,7 @@ jobs:
           APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
@@ -190,6 +202,17 @@ jobs:
           fi
           if [ -z "${APP_STORE_CONNECT_ISSUER_ID}" ]; then
             echo "::error::The APP_STORE_CONNECT_ISSUER_ID repository secret is empty or absent. It is the UUID shown above the key list on the same App Store Connect page — one per team, shared by every key. See docs/RELEASING.md."
+            exit 1
+          fi
+
+          # 9. The tap deploy key. Not signing material — this one is what the
+          #    last step pushes the Homebrew cask bump with, and it is refused
+          #    here rather than at the step that uses it for the reason given
+          #    above this step's `env:` block: a release published against a tap
+          #    that cannot be written to is the only failure in this workflow
+          #    whose recovery is manual.
+          if [ -z "${HOMEBREW_TAP_DEPLOY_KEY}" ]; then
+            echo "::error::The HOMEBREW_TAP_DEPLOY_KEY repository secret is empty or absent. It is the private half of a write-enabled deploy key on HawkeyePierce89/homebrew-apps, and without it the release cannot bump Casks/pisaka.rb — so it is refused here, before anything is published. Generate the pair, register the public half as a deploy key with write access and store the private half in that secret. See docs/RELEASING.md."
             exit 1
           fi
 

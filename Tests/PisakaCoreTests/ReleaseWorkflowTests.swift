@@ -88,6 +88,31 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// The name of the `if: always()` step that deletes that keychain again.
     private static let keychainCleanupStepName = "Remove the signing keychain"
 
+    /// The repository secret holding the private half of the write-enabled
+    /// deploy key on the Homebrew tap. Pinned because it is named in three
+    /// places that must agree — the preflight's `env:` mapping, the preflight's
+    /// refusal, and the bump step's own `env:` block — and a rename that reaches
+    /// only two of them produces a release that refuses every tag, or one that
+    /// publishes and then cannot push.
+    private static let tapDeployKeySecret = "HOMEBREW_TAP_DEPLOY_KEY"
+
+    /// The tap repository the cask lives in. It is the one repository this
+    /// workflow writes to that is not this one.
+    private static let tapRepositorySlug = "HawkeyePierce89/homebrew-apps"
+
+    /// The cask's path inside that repository. Two lines of it are rewritten per
+    /// release, and a wrong path is a step that edits nothing and pushes nothing
+    /// while reporting success unless the shape checks catch it.
+    private static let caskPath = "Casks/pisaka.rb"
+
+    /// The name of the step that rewrites and pushes that cask.
+    private static let caskBumpStepName = "Bump the Homebrew cask"
+
+    /// Where the deploy key is written for the seconds it is needed. Pinned
+    /// because the cleanup step removes it *by literal path*: a key written
+    /// somewhere else is one the `if: always()` step no longer deletes.
+    private static let tapDeployKeyPath = "${RUNNER_TEMP}/homebrew-tap-deploy-key"
+
     /// The name of `ci.yml`'s launch smoke test — the step that runs the Release
     /// build it just produced.
     private static let ciSmokeLaunchStepName = "Launch the built app (smoke test)"
@@ -277,6 +302,24 @@ final class ReleaseWorkflowTests: XCTestCase {
                 release, secret or no secret.
                 """)
         }
+
+        // The tap deploy key, asserted on its own rather than folded into the
+        // loop above. It is not signing material and it is not notarization
+        // material — the loop's `because:` text would be a lie about it — and it
+        // is the one secret refused here for a reason that has nothing to do
+        // with saving forty minutes: it gates the step that runs *after* the
+        // release is published, so the cost of discovering it late is a shipped
+        // release with a stale cask and a manual fix.
+        assertGuardExits(#"-z "${\#(Self.tapDeployKeySecret)}""#, in: script, step: "Preflight", because: """
+            the cask bump runs after the release is promoted out of draft, so a missing tap deploy \
+            key discovered there leaves a published release the workflow then goes red on — the \
+            one failure here whose recovery is a manual two-line bump rather than re-pushing a tag
+            """)
+        XCTAssertTrue(script.contains { $0 == "\(Self.tapDeployKeySecret): ${{ secrets.\(Self.tapDeployKeySecret) }}" }, """
+            release.yml's `Preflight` step must receive \(Self.tapDeployKeySecret) through its \
+            `env:` block. Without the mapping the guard tests an always-empty variable and refuses \
+            every release, secret or no secret.
+            """)
 
         // The guard has to read the plist the shipped key actually comes from.
         XCTAssertTrue(script.contains { $0.contains("Resources/Info.plist") }, """

@@ -90,27 +90,27 @@ end to end, the manual fallback and the verification still owed.
 - Modify: `.github/workflows/release.yml`
 - Modify: `Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
 
-- [ ] Add `HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}` to
+- [x] Add `HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}` to
       the `Preflight` step's `env:` block.
-- [ ] Add refusal 9 after the five Apple ones: `if [ -z
+- [x] Add refusal 9 after the five Apple ones: `if [ -z
       "${HOMEBREW_TAP_DEPLOY_KEY}" ]` → `::error::` naming the secret, saying it
       is the private half of a write-enabled deploy key on
       `HawkeyePierce89/homebrew-apps`, pointing at `docs/RELEASING.md` → `exit 1`.
-- [ ] Update the step's leading comment: it currently says "the five
+- [x] Update the step's leading comment: it currently says "the five
       signing/notarization secrets reach this step through `env:`" — restate it
       as six secrets, of which the tap key is the one that gates *distribution*
       rather than signing, and say why it is refused up front (a release whose
       cask cannot be bumped is a release the workflow would publish and then go
       red on, with the recovery being manual).
-- [ ] Add pinned constants to the suite: `tapDeployKeySecret`,
+- [x] Add pinned constants to the suite: `tapDeployKeySecret`,
       `tapRepositorySlug` (`HawkeyePierce89/homebrew-apps`), `caskPath`
       (`Casks/pisaka.rb`), `caskBumpStepName`, `tapDeployKeyPath`
       (`${RUNNER_TEMP}/homebrew-tap-deploy-key`).
-- [ ] Extend `testPreflightRefusesEveryUnshippableRelease` with the tap secret
+- [x] Extend `testPreflightRefusesEveryUnshippableRelease` with the tap secret
       as its **own** assertion pair (not appended to the five-secret loop,
       whose `because:` text is about signing and notarization): the `-z` guard
       reaches `exit 1`, and the `env:` mapping line is present verbatim.
-- [ ] run `swift test` — must pass before Task 2.
+- [x] run `swift test` — must pass before Task 2.
 
 ### Task 2: The cask bump step
 
