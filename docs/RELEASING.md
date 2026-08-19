@@ -1,9 +1,9 @@
 # Releasing Pisaka
 
-Everything here is repository-side plus the six repository secrets the release
-workflow reads — the Sparkle EdDSA signing key and five Apple-account ones. The
-App Store Connect *app record* and store metadata are still absent — see
-[Not here yet](#not-here-yet).
+Everything here is repository-side plus the seven repository secrets the release
+workflow reads — the Sparkle EdDSA signing key, five Apple-account ones and the
+Homebrew tap deploy key. The App Store Connect *app record* and store metadata
+are still absent — see [Not here yet](#not-here-yet).
 
 There are two paths, and they answer different questions:
 
@@ -11,7 +11,9 @@ There are two paths, and they answer different questions:
   **Developer ID signed, notarized and stapled** macOS app and publishes it as a
   GitHub Release with a signed Sparkle appcast, so a fresh download launches
   from the ordinary, confirmable "downloaded from the Internet" dialog rather
-  than being refused, and installed copies can update themselves. This is the
+  than being refused, and installed copies can update themselves. The same run
+  then bumps the Homebrew cask in `HawkeyePierce89/homebrew-apps`, so
+  `brew install --cask pisaka` serves the new version too. This is the
   distribution channel. Notarization does not remove that dialog — quarantine
   still applies to a notarized app and macOS still asks once; what it removes is
   the *unconfirmable* refusal and every terminal workaround for it. The exact
@@ -121,7 +123,10 @@ EdDSA key and publishes a GitHub Release carrying exactly two assets —
 `https://github.com/HawkeyePierce89/pisaka/releases/latest/download/appcast.xml`
 (`SUFeedURL` in `Resources/Info.plist`) and verifies every download against
 `SUPublicEDKey` in the same file, so a published release is what an installed
-copy offers as an update through Sparkle's own UI.
+copy offers as an update through Sparkle's own UI. One step then follows the
+publication: the run rewrites `Casks/pisaka.rb` in the Homebrew tap and pushes
+it, so the third way of getting the app — `brew install --cask pisaka` — points
+at the release that was just published rather than at the previous one.
 
 ### The two signatures a release carries
 
@@ -227,11 +232,12 @@ fails `codesign` with "User interaction is not allowed", which reads like a
 missing identity and is not one.
 
 The decoded `.p12` is removed in the same step, and a final `if: always()` step
-deletes the keychain, restores the list, and removes **both** private keys by
-path — the `.p12` and the notarization `.p8` — on every path: success, failure
-or cancellation. That last one is why the cleanup repeats removals the writing
-steps already do: a cancelled step is killed, so it runs neither its trailing
-`rm` nor its `trap … EXIT`, and the cleanup step is the only thing left. It runs
+deletes the keychain, restores the list, and removes **all three** private keys
+by path — the `.p12`, the notarization `.p8` and the Homebrew tap deploy key —
+on every path: success, failure or cancellation. That last one is why the
+cleanup repeats removals the writing steps already do: a cancelled step is
+killed, so it runs neither its trailing `rm` nor its `trap … EXIT`, and the
+cleanup step is the only thing left. It runs
 every one of those commands whatever the others do, and still fails the job if
 any of them failed — a green run has to mean the runner was scrubbed, not that
 nothing said otherwise.
@@ -249,6 +255,60 @@ one check covers an expired certificate, a missing private key and the wrong
 certificate *type* at once. The type is the case worth spelling out: an Apple
 Development certificate archives perfectly happily and is then rejected by the
 notary service twenty minutes later.
+
+### One-time setup: the Homebrew tap deploy key
+
+The seventh secret, and the only one that is neither Apple's nor Sparkle's. It
+is the private half of an SSH deploy key with **write access** to
+`HawkeyePierce89/homebrew-apps`, the tap holding `Casks/pisaka.rb`; the last
+step of the release uses it to push the version and checksum bump. Nothing else
+in the repository, the app or CI reads it.
+
+| Secret | What it is | Where it came from |
+| --- | --- | --- |
+| `HOMEBREW_TAP_DEPLOY_KEY` | the private half of an Ed25519 SSH deploy key with write access to `HawkeyePierce89/homebrew-apps` | `ssh-keygen -t ed25519` below; the public half is registered as a deploy key on the tap, the private half as this secret |
+
+Generate the pair outside the checkout, register the two halves in two different
+places, then delete the local copies:
+
+```sh
+ssh-keygen -t ed25519 -f ~/.ssh/pisaka-homebrew-tap -N "" -C "pisaka release workflow"
+```
+
+1. **The public half becomes a deploy key on the tap.** Copy
+   `~/.ssh/pisaka-homebrew-tap.pub` (`pbcopy < ~/.ssh/pisaka-homebrew-tap.pub`)
+   and add it at github.com/HawkeyePierce89/homebrew-apps → Settings → Deploy
+   keys → Add deploy key, with **Allow write access checked**. Without that box
+   the key clones and then fails at the push, twenty lines into a step that runs
+   after the release is already published — which is the expensive half of the
+   failure, so it is worth confirming rather than assuming.
+2. **The private half becomes the repository secret.** `pbcopy <
+   ~/.ssh/pisaka-homebrew-tap` — the **whole file**, including the
+   `-----BEGIN OPENSSH PRIVATE KEY-----` and `-----END OPENSSH PRIVATE KEY-----`
+   lines and the trailing newline; OpenSSH refuses a key whose armour or final
+   newline is missing, and the refusal it prints ("invalid format") names
+   neither. Store it at github.com/HawkeyePierce89/pisaka → Settings → Secrets
+   and variables → Actions as **`HOMEBREW_TAP_DEPLOY_KEY`**.
+3. **Delete the local copies** (`rm -f ~/.ssh/pisaka-homebrew-tap
+   ~/.ssh/pisaka-homebrew-tap.pub`). They were generated outside the repository
+   for the same reason the EdDSA export is: a `git add -A` in the window between
+   writing a private key and deleting it commits it, and pushed history is not
+   something deleting the file undoes.
+
+**Unlike the EdDSA key, losing this pair strands nothing.** No installed copy
+verifies anything against it and no published artefact is signed by it; it only
+authorizes a push to one repository. Rotation is therefore cheap and is the
+right answer to any doubt: delete the deploy key on the tap, generate a new
+pair, repeat the two registrations. Its blast radius is likewise the tap alone —
+a deploy key is scoped to the single repository it is registered on, so this one
+cannot reach `HawkeyePierce89/pisaka` or anything else in the account, which is
+why the release pushes with it rather than with a personal access token.
+
+The key material lives on the runner only as
+`$RUNNER_TEMP/homebrew-tap-deploy-key`, written by a `(umask 077; …)` subshell
+so it is never briefly world-readable,
+removed by a `trap … EXIT` in the step that wrote it and again by path in the
+final `if: always()` cleanup. The workflow names the secret and never echoes it.
 
 ### Notarization and stapling
 
@@ -367,16 +427,23 @@ The workflow then, in order:
   built or published unless it is green.
 - **`release` job** (`needs: test`, the only job with `contents: write`;
   the workflow's top level is `contents: read`) —
-  - **Preflight, before anything expensive.** Nine refusals, each with an
+  - **Preflight, before anything expensive.** Ten refusals, each with an
     actionable message: `MARKETING_VERSION` unreadable from `project.yml`; the
     tag's version (`v` stripped) ≠ `MARKETING_VERSION`; the
     `SPARKLE_PRIVATE_EDDSA_KEY` secret empty or absent; `SUPublicEDKey` still the
-    placeholder; and one per signing/notarization secret — `DEVELOPER_ID_CERT_P12`,
+    placeholder; one per signing/notarization secret — `DEVELOPER_ID_CERT_P12`,
     `DEVELOPER_ID_CERT_PASSWORD`, `APP_STORE_CONNECT_API_KEY_P8`,
-    `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`. The five are
+    `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`; and
+    `HOMEBREW_TAP_DEPLOY_KEY`. The five Apple ones are
     checked separately rather than as one "signing is not configured" test
     because they come from four different one-time procedures (see above), and
     "one of them is missing" is not an actionable message for any of them. The
+    tap key is checked here even though nothing needs it until the last step,
+    for the opposite reason: it is the only secret whose absence would be
+    discovered *after* the release is published, leaving a red run, a live
+    release and a tap that has to be bumped by hand. Refusing in the first
+    seconds publishes nothing, and the recovery is deleting and re-pushing the
+    tag like any other preflight refusal. The
     version is parsed with a **quote-agnostic** `sed`, because
     `MARKETING_VERSION: 1.1` is as valid a YAML scalar as `"1.1"` and a parser
     that only understood the quoted form would read an empty string and then
@@ -387,10 +454,11 @@ The workflow then, in order:
     a keychain under `$RUNNER_TEMP`, the `.p12` imported and immediately deleted,
     a key partition list (`-s`, so it is applied to the signing key rather than
     to every key item in the keychain), the keychain prepended to the user search
-    list — and cheap refusals ten through twelve, one per way the certificate
-    pair can be wrong: the base64 body not decoding (`DEVELOPER_ID_CERT_P12`
-    pasted raw or with characters lost), `security import` failing on it
-    (`DEVELOPER_ID_CERT_PASSWORD` belonging to some other export — the pair
+    list — and cheap refusals eleven through thirteen, one per way the
+    certificate pair can be wrong: the base64 body not decoding
+    (`DEVELOPER_ID_CERT_P12` pasted raw or with characters lost), `security
+    import` failing on it (`DEVELOPER_ID_CERT_PASSWORD` belonging to some other
+    export — the pair
     rotated by halves, the case flagged above — *or* a `.p12` truncated at a
     multiple of four bytes, since `base64 --decode` rejects invalid characters
     and not a short body, so that paste decodes cleanly into a partial file and
@@ -684,18 +752,146 @@ The workflow then, in order:
     URL for every installed copy, silently, until someone noticed. The promotion
     is deliberately the last line of the step: anything after it would run
     against an already-visible release.
-  - **Remove the signing keychain**, `if: always()` and last, so no path through
-    the job — success, any failure above, or a cancellation — leaves either
-    private key on the runner or the search list rewritten. It deliberately does
-    not `set -e`: a failure to restore the search list must not skip deleting the
+  - **Bump the Homebrew cask**, immediately after the promotion and before the
+    cleanup, in five visible phases, each of them fatal like every other step in
+    this workflow (it carries no `if:` and no `continue-on-error:`):
+
+    1. **Version and hash.** `VERSION` is the tag with its `v` stripped, and the
+       zip is `build/release-assets/Pisaka-${VERSION}.zip` — **the exact file
+       `gh release create` uploaded**, still on the runner, not a re-made
+       archive. Its absence is a refusal: `ditto` is not bit-reproducible, so a
+       hash taken from a second archive of the same app is a checksum no
+       downloaded file matches, and every `brew install --cask pisaka` would
+       then fail at the checksum rather than at anything that names this step.
+       `shasum -a 256` over that file is the `sha256` the cask gets.
+    2. **The key.** Written to `$RUNNER_TEMP/homebrew-tap-deploy-key` by a
+       `(umask 077; …)` subshell with a `trap … EXIT` installed first — the same
+       shape as the notarization key.
+    3. **The clone.** `git clone --depth 1 --branch master` over SSH into
+       `$RUNNER_TEMP`. **The host key is pinned, not trusted on first use**: the
+       step writes GitHub's published `ssh-ed25519` host key into its own
+       `known_hosts` and connects with `StrictHostKeyChecking=yes` plus
+       `IdentitiesOnly=yes`, so neither the runner's ambient known-hosts nor any
+       other key on it is in play. `BatchMode=yes` rides along for a third
+       reason: the preflight can see that the secret is non-empty and nothing
+       more, so a key generated *with* a passphrase (the `-N ""` above is what
+       avoids it) arrives intact and ssh then tries to read one — batch mode
+       makes that an immediate refusal on every runner rather than a wait whose
+       outcome depends on the tty, and the clone's own message names the
+       passphrase among its causes. `accept-new` and `StrictHostKeyChecking=no`
+       appear nowhere in the file and `ReleaseWorkflowTests` asserts their
+       absence, because either one turns a push to an impostor into a silent
+       success. **If GitHub rotates that host key this step fails loudly**, with
+       ssh's host-key-verification error. That is the intended behaviour, not a
+       bug — a rotation nobody noticed is exactly what pinning exists to
+       surface. The recovery is in two parts, and in this order, because this
+       step runs *after* the release is published: bump the cask for the release
+       that just shipped by hand (the two-line procedure under "What a failed
+       bump costs" below), then replace the pinned line in the workflow from
+       GitHub's published SSH key fingerprints page (docs.github.com, "GitHub's
+       SSH key fingerprints") so the *next* tag clones again. There is nothing
+       to re-tag: the tag and its release already exist, and re-running the
+       workflow against them would refuse at `gh release create` long before it
+       reached the clone.
+
+       The clone is one of the two phases talking to a machine this workflow
+       does not own, so it carries its own refusal rather than ending the step
+       on ssh's stderr: a deploy key registered without write access, revoked,
+       or pointed at a renamed tap all land here, and the preflight cannot see
+       any of them — it can only establish that the secret is non-empty.
+    4. **The edit, and reading it back.** The cask's own existence is checked
+       first, by name: `grep -c` on a file that is not there exits 2 having
+       printed nothing, so without that check the counts below would refuse
+       with an empty count and a message blaming the version field's
+       indentation for a cask that had simply been renamed or moved.
+
+       Then the shape. The step counts the lines matching `^  version "…"$`,
+       `^  sha256 "…"$` and the `url` — spelled out as
+       `https://github.com/HawkeyePierce89/pisaka/releases/download/v#{version}/Pisaka-#{version}.zip`
+       — in `Casks/pisaka.rb`, and refuses unless each is **exactly one**:
+       missing and duplicated both fail, because a `sed` that matches nothing
+       succeeds and would leave a green step that pushed nothing, while a
+       duplicate would have it rewrite a stanza this workflow does not release.
+       **The `url` is checked although it is never edited**, and that is the
+       point: it is the third fact `brew install` depends on, and a cask whose
+       url were spelled out literally would take the new version and the new
+       digest happily and then go on serving the *previous* zip — which fails at
+       the checksum, the worse failure, because it reads as a corrupted
+       download. Two lines rewritten correctly and a third left behind is
+       exactly the shape a bump that only checks its own edits cannot see.
+
+       **The owner and repository in that url are matched literally, not with a
+       wildcard host**, and for the same reason rather than a weaker one: a url
+       interpolating `#{version}` perfectly out of *somebody else's* releases
+       satisfies every other check in this step and then takes this release's
+       digest against bytes served from elsewhere — the identical checksum
+       failure, with the whole run green. `ReleaseWorkflowTests` pins the prefix
+       by value, so changing where releases are published fails `swift test`
+       here rather than at a user's `brew install`.
+
+       The rewrite is one `sed -E` into a temp file plus `mv` (not `sed -i`,
+       whose BSD and GNU spellings differ), and both new lines are then read
+       back with `grep -qxF` — whole-line and literal, so a prefix match cannot
+       pass off the old line as the new one. Each of those six checks exits 1
+       with a message naming the cask path and the manual recovery.
+    5. **The push.** Git identity set inside the clone (`git -C`, never
+       globally: the runner's config is shared with the rest of the job), one
+       commit named `pisaka <version>`, `git push origin master`. **An
+       already-correct cask is success, not failure**: if the edit staged no
+       change — a re-pushed tag whose zip hashes identically — the step says so
+       and exits 0 rather than dying on `git commit`'s "nothing to commit". That
+       cannot swallow a stale cask, since a different zip has a different digest
+       and therefore a real diff.
+
+       The push is the second phase talking to a machine this workflow does not
+       own, and the only failure in this file that is *always* post-publication,
+       so it too refuses with the manual recovery named rather than with git's
+       stderr. **It does not rebase and retry.** A commit landing on the tap in
+       the seconds between the clone and the push rejects it as
+       non-fast-forward, and the right answer to that is a human reading what
+       else changed — not an unattended rebase onto a cask somebody may be
+       mid-way through editing. The cost of refusing is the manual bump below;
+       the cost of the automatic rebase is a tap whose history this workflow
+       rewrote.
+
+    **What a failed bump costs, stated plainly:** it is the only failure in this
+    workflow that lands with the release **already published**. The run goes
+    red, the GitHub Release and its two assets are live and correct, Sparkle
+    updates every installed copy as usual — and `brew install --cask pisaka`
+    keeps serving the previous version until someone fixes the tap. There is
+    nothing to re-tag: the recovery is the manual two-line bump.
+
+    1. Download `Pisaka-<version>.zip` from the release page and run
+       `shasum -a 256 Pisaka-<version>.zip`.
+    2. In `HawkeyePierce89/homebrew-apps`, set `version` and `sha256` in
+       `Casks/pisaka.rb` to that version and that digest — the `url` already
+       interpolates `#{version}` on both the tag and the file name, so nothing
+       else moves. (That is the assumption the step's third shape check
+       enforces, so if the bump failed *on* that check, the url is what needs
+       fixing here too.)
+    3. Commit and push to `master`.
+
+    Existing installs are unaffected either way, including ones made through
+    Homebrew: the cask declares `auto_updates true`, so an installed copy
+    updates itself through Sparkle rather than through `brew upgrade`. What a
+    stale cask breaks is *fresh* installs, which land on the previous version
+    silently — which is why the step verifies its own edit rather than trusting
+    the substitution.
+  - **Remove the run's keys and keychain**, `if: always()` and last, so no path
+    through the job — success, any failure above, or a cancellation — leaves any
+    of the three private keys (the `.p12`, the notary `.p8` and the Homebrew tap
+    deploy key, each removed by literal path) on the runner or the search list
+    rewritten. It deliberately does not `set -e`: a failure to restore the
+    search list must not skip deleting the
     keychain. Not aborting is not the same as not reporting, though — each
     command records into a `STATUS` accumulator and the step exits non-zero if
     any of them failed, because without one the step's exit code is its trailing
     `rm -f`'s, which succeeds whether or not the keychain was deleted. That
     cannot mask an earlier failure (that step is already red and already
     annotated); it only stops a cleanup failure from being the one thing here
-    that passes silently. If it does fire, treat the certificate and the notary
-    key as still on the runner and rotate both.
+    that passes silently. If it does fire, treat all three keys as still on the
+    runner and replace all three: revoke and reissue the certificate, rotate the
+    notary key, and generate a new tap deploy key pair.
 
 `ReleaseWorkflowTests` pins all of the above statically — the tag trigger and the
 permission split (by set equality over the parsed blocks, so an added
@@ -709,10 +905,9 @@ than deleted), the throwaway keychain (created under `$RUNNER_TEMP`, the login
 keychain never named, the three certificate refusals — the base64 decode, the
 `security import` and the identity — the import before the archive, the
 unlock and the lock settings including the absence of `-l`, the partition list's
-`-s`, the decoded `.p12`
-written under a `(umask 077; …)` subshell, the `if: always()`
-deletion of the keychain *and of both private keys by path*), the re-sign pass
-(each of the four nested helpers signed; every signing invocation in that step
+`-s`, the decoded `.p12` written under a `(umask 077; …)` subshell, the
+`if: always()` deletion of the keychain *and of all three private keys by
+path*), the re-sign pass (each of the four nested helpers signed; every signing invocation in that step
 carrying `--force`, the Developer ID identity, `--options runtime` and
 `--timestamp`; `--preserve-metadata=entitlements` on `Downloader.xpc` alone; the
 inside-out order compared by index rather than by presence — helpers before the
@@ -771,6 +966,38 @@ latter compared against `ci.yml`, since drift between the two files is otherwise
 silent), the tools-before-archive ordering, and two cross-file pairs against
 `Resources/Info.plist`: the asset name and the repository, both against
 `SUFeedURL`.
+
+The cask bump is pinned by the same means.
+`testPreflightRefusesEveryUnshippableRelease` carries the tap secret as its own
+assertion pair — the `-z` guard reaching `exit 1`, and the `env:` mapping
+present verbatim — kept separate from the five Apple secrets, whose failure text
+is about signing and notarization and would be the wrong message here. `testTheCaskBumpIsSurgicalAndSelfChecking` pins the step
+itself: the version derived from `GITHUB_REF_NAME` rather than restated, the
+hash taken over the literal `build/release-assets/Pisaka-${VERSION}.zip` with
+`shasum -a 256` and `awk '{print $1}'` (the digest is the first field;
+carrying `shasum`'s trailing path into the substitution puts slashes in the
+`sed` replacement and in the cask's own `sha256` line), the full `git@` clone
+URL rather than the slug alone — an `https://` URL names the same repository,
+satisfies every slug assertion, clones a public tap *anonymously* and then
+fails at the push with the release already promoted — `master` and
+`Casks/pisaka.rb` each named, `set -euo pipefail` present and ahead of the
+first command, and nine guards proven to reach `exit 1`: the missing zip, the
+missing cask, all three shape counts, both post-edit read-backs, and the clone
+and the push themselves. `git add` and `git commit` are asserted by index
+between the read-backs and the push, because neither has a failure that shows —
+dropping the `add` sends the step down the no-change branch, which announces
+that the tap already pins this release and exits 0, and dropping the `commit`
+makes the push a silent no-op. `testTheTapCloneVerifiesTheHostItPushesTo` pins
+`StrictHostKeyChecking=yes`, `IdentitiesOnly=yes` and `BatchMode=yes` present
+and `StrictHostKeyChecking=no`/`accept-new` absent from the whole active file, and
+pins GitHub's published host key **by value**, not by shape: a truncated or
+mistyped key satisfies `contains("ssh-ed25519 ")` and then fails `git clone`
+post-publish. `testTheTapDeployKeyIsWrittenNarrowlyAndTrapped` pins the
+`(umask 077; …)` write under `${RUNNER_TEMP}`, the `trap … rm -f` on `EXIT`,
+and that the raw secret is never echoed or `cat`ed. The step's position — after the publish and
+promote, before the cleanup — is asserted by index in the ordering test that
+already owns step order, and the cleanup's three key paths in
+`testTheSigningKeychainIsRemovedOnEveryPath`.
 
 **The preflight refusals are asserted by mechanism, not by mention.** Each guard
 must exist *and* its branch must reach `exit 1`. That distinction is the whole
@@ -1019,6 +1246,37 @@ downloaded the app rather than built it.
   of that consults Apple's signature. Confirm the updated copy still launches
   afterwards: the update replaces a stapled bundle with another stapled bundle,
   and a copy that stopped launching would mean the ticket did not survive.
+- **The first cask bump.** The step cannot be exercised without a real tag —
+  there is no `workflow_dispatch`, the secret is not readable outside a run, and
+  everything `swift test` can see about it is static — so its first live run is
+  the next release, and it runs *after* that release is published. Before
+  tagging, confirm the deploy key exists on both sides
+  ([the one-time setup](#one-time-setup-the-homebrew-tap-deploy-key)); the
+  preflight refuses a missing secret but cannot see whether the registered
+  public half carries write access. Afterwards, check three things: the tap has
+  exactly one new commit named `pisaka <version>` touching only
+  `Casks/pisaka.rb`; `brew update && brew info --cask HawkeyePierce89/apps/pisaka`
+  reports the new version; and a fresh
+  `brew install --cask HawkeyePierce89/apps/pisaka` (on a machine with no copy
+  installed, or after `brew uninstall --cask pisaka`) lands that version and
+  launches it. The third is the one that actually exercises the checksum —
+  `brew info` reads the cask, `brew install` verifies the download against it,
+  and a wrong `sha256` fails only there. **`brew info --cask` does not print
+  `sha256` at all** — it shows the token, version, homepage, requirements,
+  artifacts and analytics, and nothing else — so do not go looking for the
+  checksum there and read its absence as a bump that half-landed; the cask's own
+  `sha256` is readable with
+  `brew info --json=v2 --cask HawkeyePierce89/apps/pisaka | jq -r '.casks[0].sha256'`
+  if it is wanted for its own sake, but the `brew install` above is what proves
+  it correct.
+
+  **Both commands are fully qualified on purpose**, unlike the shorthand this
+  file and `README.md` use in prose. Homebrew resolves a bare `pisaka` only out
+  of taps the machine has already added, so on the clean machine this bullet
+  asks for — the one that has never run `brew tap HawkeyePierce89/apps` — the
+  short spelling fails with "Cask 'pisaka' is unavailable" and the verification
+  reads as a bump that did not land. The qualified name taps on demand, which is
+  also what a new user following `README.md` actually types.
 - **A downloaded language server under the hardened runtime.** Accept the
   TypeScript server's consent prompt on the notarized build and confirm the
   unpacked `node` actually launches — the same check the provisioning list below

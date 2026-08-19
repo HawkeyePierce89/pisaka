@@ -402,9 +402,9 @@ setting, the macOS runpath pin `LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]`),
 `ReleaseWorkflowTests` (`.github/workflows/release.yml`'s whole shape, asserted
 *by mechanism* rather than by wording: the trigger/permissions by set equality,
 every preflight refusal's branch reaching `exit 1`, the throwaway signing
-keychain and both private keys deleted by path on every path, the Developer ID
-identity/team/hardened runtime/`--timestamp` on the archive command line while
-`project.yml` stays signing-free, the inside-out re-sign of Sparkle's nested
+keychain and all three private keys deleted by path on every path, the
+Developer ID identity/team/hardened runtime/`--timestamp` on the archive command
+line while `project.yml` stays signing-free, the inside-out re-sign of Sparkle's nested
 helpers verified on the app, the framework and every Mach-O inside it, the
 notarize→staple→`spctl` chain with both verdicts read explicitly, that no step
 can be non-fatal, the job budget against the notary timeout, step ordering,
@@ -484,16 +484,20 @@ A second workflow, `.github/workflows/release.yml`, runs **only on a `v*` tag**
 and publishes the macOS release: Developer ID Application signature, hardened
 runtime, notarized and stapled, so a fresh download launches from the ordinary
 "downloaded from the Internet" confirmation rather than being refused (the exact
-acceptance criterion is in `docs/RELEASING.md`). **No entitlements file ships**:
-the hardened runtime permits `fork`/`exec` and library validation is per-process,
-so `git`, the PTY shell and the provisioned language servers need nothing
-declared; one is added only when a concrete failure demands it — and on the
-re-sign's `--entitlements` too, or it is silently stripped. The certificate
-lives only in a per-run `$RUNNER_TEMP` keychain that is deleted on every path,
+acceptance criterion is in `docs/RELEASING.md`), then bumps the Homebrew cask in
+`HawkeyePierce89/homebrew-apps` — version and `sha256` of the exact zip it just
+uploaded — so `brew install --cask pisaka` follows the release. **No
+entitlements file ships**: the hardened runtime permits `fork`/`exec` and
+library validation is per-process, so `git`, the PTY shell and the provisioned
+language servers need nothing declared; one is added only when a concrete
+failure demands it — and on the re-sign's `--entitlements` too, or it is
+silently stripped. The certificate lives only in a per-run `$RUNNER_TEMP`
+keychain that is deleted on every path,
 alongside the notarization key. Nothing about it is reachable from PR CI, so its
 whole shape is pinned statically by `ReleaseWorkflowTests`; the workflow, its
-preflight refusals, the six repository secrets it reads (the Sparkle EdDSA key
-plus five Apple-account ones), certificate renewal and the verification still
+preflight refusals, the seven repository secrets it reads (the Sparkle EdDSA
+key, five Apple-account ones and the tap deploy key whose write access is
+scoped to `homebrew-apps` alone), certificate renewal and the verification still
 owed are documented in `docs/RELEASING.md`.
 
 ## Conventions

@@ -85,8 +85,75 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// one: several tests scope themselves to it.
     private static let certificateStepName = "Import the Developer ID certificate"
 
-    /// The name of the `if: always()` step that deletes that keychain again.
-    private static let keychainCleanupStepName = "Remove the signing keychain"
+    /// The name of the `if: always()` step that deletes that keychain again —
+    /// and, since the tap bump, all three of the run's private keys. The name
+    /// says "keys and keychain" rather than "the signing keychain" because it
+    /// removes the Homebrew deploy key too, and a name that mentioned only the
+    /// keychain would be a lie about the third key by omission.
+    private static let keychainCleanupStepName = "Remove the run's keys and keychain"
+
+    /// The repository secret holding the private half of the write-enabled
+    /// deploy key on the Homebrew tap. Pinned because it is named in three
+    /// places that must agree — the preflight's `env:` mapping, the preflight's
+    /// refusal, and the bump step's own `env:` block — and a rename that reaches
+    /// only two of them produces a release that refuses every tag, or one that
+    /// publishes and then cannot push.
+    private static let tapDeployKeySecret = "HOMEBREW_TAP_DEPLOY_KEY"
+
+    /// The tap repository the cask lives in. It is the one repository this
+    /// workflow writes to that is not this one.
+    private static let tapRepositorySlug = "HawkeyePierce89/homebrew-apps"
+
+    /// The cask's path inside that repository. Two lines of it are rewritten per
+    /// release, and a wrong path is a step that edits nothing and pushes nothing
+    /// while reporting success unless the shape checks catch it.
+    private static let caskPath = "Casks/pisaka.rb"
+
+    /// The name of the step that rewrites and pushes that cask.
+    private static let caskBumpStepName = "Bump the Homebrew cask"
+
+    /// Where the deploy key is written for the seconds it is needed. Pinned
+    /// because the cleanup step removes it *by literal path*: a key written
+    /// somewhere else is one the `if: always()` step no longer deletes.
+    private static let tapDeployKeyPath = "${RUNNER_TEMP}/homebrew-tap-deploy-key"
+
+    /// The clone URL, in full, because the transport is the load-bearing half.
+    /// `https://github.com/\(tapRepositorySlug).git` names the same repository
+    /// and satisfies every assertion that only looks for the slug — while
+    /// ignoring the deploy key entirely, since HTTPS to a public repository
+    /// clones anonymously. The step would then read the cask, edit it, verify
+    /// it, and fail at the push with no credentials, after the release is
+    /// promoted. SSH is what makes the key the thing that authenticates.
+    private static let tapCloneURL = "git@github.com:HawkeyePierce89/homebrew-apps.git"
+
+    /// The prefix of the cask's `url`, spelled out, because the guard that
+    /// reads it is the only thing standing between a published release and a
+    /// cask that serves somebody else's bytes.
+    ///
+    /// The step rewrites `version` and `sha256` and deliberately leaves `url`
+    /// alone, so it checks instead that the url derives the asset from
+    /// `version`. A pattern matching only the interpolation — `[^"]*` for the
+    /// host and the owner — is satisfied by a url pointing at *any*
+    /// repository's releases, which then takes this release's digest against
+    /// bytes served from elsewhere and fails every `brew install` at the
+    /// checksum: the exact failure the guard exists to prevent, with every
+    /// check in the run green. Pinned here by value for the same reason
+    /// `tapCloneURL` is: the assertion has to fail when the fact changes, not
+    /// when its shape does.
+    private static let caskURLPrefix = "https://github.com/HawkeyePierce89/pisaka/releases/download"
+
+    /// GitHub's published Ed25519 host key, verbatim, as the workflow pins it.
+    ///
+    /// Asserted by value rather than by shape. `contains("ssh-ed25519 ")` is
+    /// satisfied by any string that starts that way, so a truncated or
+    /// mistyped key — a paste that lost its last characters, a copy of some
+    /// other host's key — keeps every host-pinning assertion green and then
+    /// fails `git clone` at run time, with the release already published.
+    /// The comparison is against this repository's own copy of public
+    /// material, which is exactly the kind of value this suite pins as a
+    /// constant (see the Sparkle tarball digest).
+    private static let gitHubHostKey =
+        "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
 
     /// The name of `ci.yml`'s launch smoke test — the step that runs the Release
     /// build it just produced.
@@ -277,6 +344,24 @@ final class ReleaseWorkflowTests: XCTestCase {
                 release, secret or no secret.
                 """)
         }
+
+        // The tap deploy key, asserted on its own rather than folded into the
+        // loop above. It is not signing material and it is not notarization
+        // material — the loop's `because:` text would be a lie about it — and it
+        // is the one secret refused here for a reason that has nothing to do
+        // with saving forty minutes: it gates the step that runs *after* the
+        // release is published, so the cost of discovering it late is a shipped
+        // release with a stale cask and a manual fix.
+        assertGuardExits(#"-z "${\#(Self.tapDeployKeySecret)}""#, in: script, step: "Preflight", because: """
+            the cask bump runs after the release is promoted out of draft, so a missing tap deploy \
+            key discovered there leaves a published release the workflow then goes red on — the \
+            one failure here whose recovery is a manual two-line bump rather than re-pushing a tag
+            """)
+        XCTAssertTrue(script.contains { $0 == "\(Self.tapDeployKeySecret): ${{ secrets.\(Self.tapDeployKeySecret) }}" }, """
+            release.yml's `Preflight` step must receive \(Self.tapDeployKeySecret) through its \
+            `env:` block. Without the mapping the guard tests an always-empty variable and refuses \
+            every release, secret or no secret.
+            """)
 
         // The guard has to read the plist the shipped key actually comes from.
         XCTAssertTrue(script.contains { $0.contains("Resources/Info.plist") }, """
@@ -633,7 +718,8 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
     }
 
-    /// No path out of this job may leave the signing key on the runner.
+    /// No path out of this job may leave any of the run's private keys on the
+    /// runner.
     ///
     /// `if: always()` is what makes that true for the two paths nobody tests: a
     /// failure in any step above (the archive, the notarization, the publication)
@@ -641,10 +727,20 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// situations where something went wrong, which is when the runner's state is
     /// least worth trusting. Being the *last* step is the other half: a cleanup
     /// that sits before the archive deletes the keychain the archive needs.
+    ///
+    /// Three keys, not two: the Developer ID `.p12`, the notary `.p8` and — since
+    /// the cask bump — the Homebrew tap deploy key. They are not
+    /// interchangeable, and the third is the one whose loss is *not* confined to
+    /// this repository: it opens a write-enabled push into the Homebrew tap, a
+    /// repository nothing else in this workflow touches and nothing in this
+    /// repository's history would show tampering with. So the loop below is
+    /// over all three paths, asserted literally, and
+    /// adding a fourth key to the workflow without adding it here leaves a key
+    /// this suite certifies as removed and nothing removes.
     func testTheSigningKeychainIsRemovedOnEveryPath() throws {
         let script = try stepScript(named: Self.keychainCleanupStepName, because: """
             No path through this job — success, failure or cancellation — may leave the signing \
-            certificate on the runner.
+            certificate, the notary key or the tap deploy key on the runner.
             """)
 
         XCTAssertTrue(script.contains("if: always()"), """
@@ -666,12 +762,15 @@ final class ReleaseWorkflowTests: XCTestCase {
             a keychain that no longer exists.
             """)
 
-        // Both private keys, by literal path. Each is also removed by the step
-        // that wrote it, and neither of those removals survives a cancellation:
-        // a `SIGKILL`ed step runs no `trap … EXIT` and no trailing `rm`, which
-        // is the one path this `if: always()` step exists for. Asserting only
-        // the .p12 would certify the weaker guarantee as the stronger one.
-        for key in ["${RUNNER_TEMP}/developer-id.p12", "${RUNNER_TEMP}/notary-key.p8"] {
+        // All three private keys, by literal path. Each is also removed by the
+        // step that wrote it, and none of those removals survives a
+        // cancellation: a `SIGKILL`ed step runs no `trap … EXIT` and no
+        // trailing `rm`, which is the one path this `if: always()` step exists
+        // for. Asserting only the .p12 would certify the weaker guarantee as
+        // the stronger one.
+        for key in ["${RUNNER_TEMP}/developer-id.p12",
+                    "${RUNNER_TEMP}/notary-key.p8",
+                    Self.tapDeployKeyPath] {
             XCTAssertTrue(script.contains { $0.hasPrefix("rm -f") && $0.contains(key) }, """
                 release.yml's `\(Self.keychainCleanupStepName)` step must `rm -f \(key)`. The step \
                 that writes it removes it on every path it reaches the end of, but a cancelled \
@@ -2011,7 +2110,17 @@ final class ReleaseWorkflowTests: XCTestCase {
     ///    every user's first launch;
     ///  * generating the appcast before the zip signs an enclosure that is not
     ///    there, and publishing before the appcast attaches a feed that was
-    ///    never signed.
+    ///    never signed;
+    ///  * **bumping the cask before the release is promoted** publishes a tap
+    ///    pointing at a draft: the cask's `url` resolves to this tag's asset, a
+    ///    draft release is invisible to unauthenticated downloads, and one
+    ///    `gh release delete` away from never having existed — so every
+    ///    `brew install --cask pisaka` in that window 404s against a release
+    ///    that may never be published at all. The inversion is not symmetric,
+    ///    which is why the order is this way round rather than the other: bumped
+    ///    afterwards, the worst case is a published release the tap has not
+    ///    caught up with, and that installs the previous version for the seconds
+    ///    the clone and the push take.
     func testTheReleaseIsAssembledInTheOnlyOrderThatShipsAWorkingApp() throws {
         let lines = try activeLines()
 
@@ -2025,6 +2134,7 @@ final class ReleaseWorkflowTests: XCTestCase {
             "Stage the update archive",
             "Generate and sign the appcast",
             "Publish the GitHub Release",
+            Self.caskBumpStepName,
         ]
 
         var positions: [(String, Int)] = []
@@ -2190,6 +2300,423 @@ final class ReleaseWorkflowTests: XCTestCase {
             already-visible release, so a failure there leaves exactly the half-published state the \
             draft was for.
             """)
+    }
+
+    // MARK: - The Homebrew cask
+
+    /// The cask bump edits exactly two lines, checks the file's shape before it
+    /// does and reads the result back before it pushes.
+    ///
+    /// Every assertion here guards a way for this step to *succeed* while the
+    /// tap ends up wrong, which is the failure mode that matters: unlike every
+    /// other refusal in this workflow, nothing downstream notices. The release
+    /// is already published, the run is already green, and the first symptom is
+    /// a user running `brew install --cask pisaka` and getting the previous
+    /// version — or, worse, a checksum failure that reads like a corrupted
+    /// download.
+    ///
+    ///  * **hashing anything but the uploaded zip.** `ditto` is not
+    ///    bit-reproducible: a re-made archive of the identical stapled bundle
+    ///    has a different digest, so a cask hashed from one fails `brew
+    ///    install`'s checksum against the bytes GitHub actually serves. The
+    ///    literal path is pinned because it is the *same* path the publish step
+    ///    uploads, and the two drifting apart is invisible in either file alone.
+    ///  * **a version restated rather than derived.** `VERSION="${TAG#v}"` off
+    ///    `GITHUB_REF_NAME` is the same derivation the preflight checked against
+    ///    `MARKETING_VERSION`; any other spelling here is a second source of
+    ///    truth that no preflight covers.
+    ///  * **a `sed` that matches nothing.** It exits 0. Without the two shape
+    ///    counts, a renamed field or a re-indented cask produces an unchanged
+    ///    file, an empty diff, and the no-change branch reporting that the tap
+    ///    is already correct — the one path in this step that exits 0 having
+    ///    done nothing, turned from a real statement into a lie.
+    ///  * **a push before the verification.** The read-back is what turns "sed
+    ///    ran" into "the file says what it must", and a push ordered ahead of it
+    ///    publishes whatever the substitution produced.
+    func testTheCaskBumpIsSurgicalAndSelfChecking() throws {
+        let script = try stepScript(named: Self.caskBumpStepName, because: """
+            It is the step that publishes this release to the Homebrew tap. Without it a release \
+            ships and `brew install --cask pisaka` keeps installing the previous version.
+            """)
+
+        // The secret has to reach the step, or the clone authenticates as
+        // nobody — after the release is already published.
+        XCTAssertTrue(script.contains { $0 == "\(Self.tapDeployKeySecret): ${{ secrets.\(Self.tapDeployKeySecret) }}" }, """
+            release.yml's `\(Self.caskBumpStepName)` step must receive \(Self.tapDeployKeySecret) \
+            through its own `env:` block. The preflight's mapping covers the preflight only — a \
+            secret checked there and unmapped here fails at `git clone`, with the release already \
+            promoted out of draft.
+            """)
+
+        // Every refusal below is an `exit 1`, which only ends the step because
+        // `errexit` is on — but so is every *un*guarded command here, and those
+        // are the ones with nothing else to stop them. Without `pipefail` the
+        // `shasum … | awk` digest is whatever awk printed when shasum failed.
+        let shellOptions = try XCTUnwrap(script.firstIndex(of: "set -euo pipefail"), """
+            release.yml's `\(Self.caskBumpStepName)` step must open with `set -euo pipefail`. \
+            Without `errexit` a failed `sed`, `mv` or `git commit` falls through to the next line \
+            and the step ends green; without `pipefail` the digest is awk's exit status rather \
+            than shasum's; without `nounset` an unset RUNNER_TEMP writes the deploy key to /, \
+            where the cleanup step's literal path never finds it. \(script)
+            """)
+
+        // The version is derived, not restated. Both lines, in this order: the
+        // second is meaningless without the first.
+        let tag = try XCTUnwrap(script.firstIndex(of: #"TAG="${GITHUB_REF_NAME}""#), """
+            release.yml's `\(Self.caskBumpStepName)` step must take the tag from GITHUB_REF_NAME. \
+            Any other source is a second answer to "which version is this" that the preflight's \
+            tag/MARKETING_VERSION agreement check never saw. \(script)
+            """)
+        XCTAssertLessThan(shellOptions, tag, """
+            release.yml's `\(Self.caskBumpStepName)` step runs commands before setting its shell \
+            options. Everything above the `set` line is unguarded — a failure there falls through \
+            to the next line and the step goes on as if it had succeeded.
+            """)
+        XCTAssertTrue(script.contains { $0 == #"VERSION="${TAG#v}""# }, """
+            release.yml's `\(Self.caskBumpStepName)` step must derive VERSION as `${TAG#v}`, the \
+            same derivation the preflight checked against project.yml's MARKETING_VERSION. A \
+            restated version is one nothing in this workflow validates.
+            """)
+
+        // The hash is of the artefact that was uploaded, named by its literal
+        // path — the same path the publish step attaches.
+        XCTAssertTrue(script.contains { $0 == #"ZIP="build/release-assets/Pisaka-${VERSION}.zip""# }, """
+            release.yml's `\(Self.caskBumpStepName)` step must hash \
+            build/release-assets/Pisaka-${VERSION}.zip — the exact file the publish step uploaded, \
+            still on the runner. Re-making the archive here produces a different digest for \
+            identical contents (ditto is not bit-reproducible), and a cask whose sha256 does not \
+            match the served bytes fails every brew install at the checksum.
+            """)
+        let publish = try stepScript(named: "Publish the GitHub Release", because: """
+            It is the step that uploads the zip this one hashes.
+            """)
+        XCTAssertTrue(publish.contains { $0.contains(#"build/release-assets/Pisaka-${VERSION}.zip"#) }, """
+            The publish step must upload build/release-assets/Pisaka-${VERSION}.zip — the path \
+            `\(Self.caskBumpStepName)` hashes. If the two drift apart the cask advertises the \
+            checksum of a file nobody can download, and neither step alone shows it.
+            """)
+        XCTAssertTrue(script.contains {
+            $0.contains("shasum -a 256") && $0.contains(#""$ZIP""#) && $0.contains(#"awk '{print $1}'"#)
+        }, """
+            release.yml's `\(Self.caskBumpStepName)` step must compute the cask's checksum with \
+            `shasum -a 256` over $ZIP and keep the first field alone. Homebrew verifies casks by \
+            SHA-256 and by nothing else, and `shasum` prints `<digest>  <path>` — carrying the \
+            path into $SHA puts slashes in the `sed` replacement and the cask's sha256 line, \
+            which is a failure this step has no reason to discover at run time on a release that \
+            is already published.
+            """)
+
+        // The tap, the branch and the file: three facts that are each a silent
+        // no-op when wrong.
+        XCTAssertTrue(script.contains { $0.contains("git clone") && $0.contains(Self.tapCloneURL) }, """
+            release.yml's `\(Self.caskBumpStepName)` step must clone \(Self.tapCloneURL). It is \
+            the one repository other than this one that this workflow writes to, and the `git@` \
+            spelling is the load-bearing half: see the constant's doc comment for what the HTTPS \
+            URL for the same slug does instead. Anchored to the `git clone` line for the same \
+            reason the url count below is anchored to `URL_LINES=`: the refusals in this step \
+            name the tap too, so a search of the whole step would stay green on a clone rewritten \
+            to HTTPS — which succeeds anonymously against a public tap and then fails at the \
+            push, after the release has been promoted out of draft.
+            """)
+        XCTAssertTrue(script.contains { $0.contains(Self.caskPath) }, """
+            release.yml's `\(Self.caskBumpStepName)` step must name \(Self.caskPath). A wrong path \
+            edits nothing, and — but for the shape checks — pushes nothing while reporting success.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("--branch master") }, """
+            release.yml's `\(Self.caskBumpStepName)` step must clone the tap's `master` branch \
+            explicitly. Cloning the default branch is the same thing right up until the tap's \
+            default changes, at which point the bump lands on a branch `brew` does not read.
+            """)
+        XCTAssertTrue(script.contains { $0.contains("push origin master") }, """
+            release.yml's `\(Self.caskBumpStepName)` step must push to `master` on the tap. A \
+            commit made and not pushed is a green run whose tap never moved.
+            """)
+
+        // Every refusal, by mechanism. A `::warning::` on any of these is a
+        // published release with a tap nobody checks.
+        assertGuardExits(#"! -f "$ZIP""#, in: script, step: Self.caskBumpStepName, because: """
+            an absent zip means this step is about to hash something other than what shipped, and \
+            a cask whose sha256 does not match the served bytes fails every brew install
+            """)
+        assertGuardExits(#""$VERSION_LINES" != "1""#, in: script, step: Self.caskBumpStepName, because: """
+            `sed` succeeds when it matches nothing, so a renamed or re-indented cask would produce \
+            an unchanged file and an empty diff — and the no-change branch would then report that \
+            the tap already pins this release. A duplicated line is refused for the mirror reason: \
+            the substitution would rewrite both
+            """)
+        assertGuardExits(#""$SHA_LINES" != "1""#, in: script, step: Self.caskBumpStepName, because: """
+            the sha256 line is checked for the same reason and by the same argument as the version \
+            line — one occurrence, or this step does not know what it is editing
+            """)
+        assertGuardExits(#"! -f "$CASK""#, in: script, step: Self.caskBumpStepName, because: """
+            `grep -c` on a file that is not there exits 2 having printed nothing, so the shape \
+            counts below would refuse with an empty count and a message blaming the version \
+            field's indentation for a cask that was renamed, moved or never merged
+            """)
+        assertGuardExits(#""$URL_LINES" != "1""#, in: script, step: Self.caskBumpStepName, because: """
+            the url is the one line `brew install` depends on that this step does not edit: it \
+            has to derive the asset from `version`. Spelled out literally it would take the new \
+            version and the new digest and go on serving the previous zip, which fails at the \
+            checksum — the failure this step's own comments call worse than a stale cask
+            """)
+        XCTAssertTrue(script.contains {
+            // `\.` and `.` are the same character class here, and which one the
+            // pattern spells is a regex-authoring detail rather than a fact
+            // about the release. Dropping the backslashes before the comparison
+            // keeps this assertion pinned to the URL and blind to the escaping.
+            $0.contains("URL_LINES=")
+                && $0.replacingOccurrences(of: "\\", with: "").contains(Self.caskURLPrefix)
+        }, """
+            release.yml's `\(Self.caskBumpStepName)` step must count the cask's url lines with a \
+            pattern naming \(Self.caskURLPrefix) literally, not a wildcard host. The count is \
+            asserted on the `URL_LINES=` line specifically and not anywhere in the step, because \
+            the refusal message below quotes the same URL and would satisfy a looser search while \
+            the guard itself matched anything. See the constant's doc comment for what a url \
+            interpolating #{version} out of another repository's releases does to a release that \
+            is already published.
+            """)
+        assertGuardExits(#"! grep -qxF "  version"#, in: script, step: Self.caskBumpStepName, because: """
+            the substitution has to be read back off disk. "sed ran" and "the file now says the \
+            right thing" are different statements, and only the second one is what gets pushed
+            """)
+        assertGuardExits(#"! grep -qxF "  sha256"#, in: script, step: Self.caskBumpStepName, because: """
+            the checksum is the half of the cask that fails loudly for users rather than quietly, \
+            so it is read back off disk like the version
+            """)
+
+        // The two phases that talk to a machine this workflow does not own
+        // refuse like everything else here. `set -e` would end the step on
+        // git's stderr alone — and the push failure is *always* post-publish,
+        // so it is the one place a reader most needs the manual recovery named
+        // rather than a transport error to interpret.
+        assertGuardExits("! git clone", in: script, step: Self.caskBumpStepName, because: """
+            the preflight can only see that the tap secret is non-empty, never that it still \
+            opens the door: a deploy key registered without write access, revoked, or pointed at \
+            a renamed tap fails here, and the reader needs the manual bump rather than ssh's \
+            stderr
+            """)
+        assertGuardExits(#"! git -C "$TAP" push origin master"#, in: script, step: Self.caskBumpStepName, because: """
+            a read-only deploy key and a `master` that moved between the clone and the push both \
+            land here, with the release already published — the one failure in this workflow \
+            whose recovery is manual, so it names that recovery
+            """)
+
+        // Staging and committing, in order, before the push. Neither has a
+        // failure of its own that shows: dropping the `add` sends the step down
+        // the no-change branch, which announces that the tap already pins this
+        // release and exits 0 — a green run whose log says the opposite of what
+        // happened. Dropping the `commit` makes the push a no-op that also
+        // exits 0. Between them they are the only phase that moves the tap.
+        let push = try XCTUnwrap(script.firstIndex(where: { $0.contains("push origin master") }), """
+            release.yml's `\(Self.caskBumpStepName)` step no longer pushes.
+            """)
+        let add = try XCTUnwrap(script.firstIndex(where: {
+            $0.hasPrefix("git -C ") && $0.contains(" add ") && $0.contains(Self.caskPath)
+        }), """
+            release.yml's `\(Self.caskBumpStepName)` step must `git add \(Self.caskPath)` inside \
+            the clone. Without it the rewrite stays unstaged, `git diff --cached --quiet` is \
+            true, and the step exits 0 reporting that the tap already pins this version — the \
+            one green-and-wrong outcome the whole step is built to exclude. \(script)
+            """)
+        let commit = try XCTUnwrap(script.firstIndex(where: {
+            $0.hasPrefix("git -C ") && $0.contains(" commit ") && $0.contains("${VERSION}")
+        }), """
+            release.yml's `\(Self.caskBumpStepName)` step must commit the staged cask with the \
+            version in its message. Without the commit the push has nothing to send and succeeds \
+            silently. \(script)
+            """)
+        XCTAssertLessThan(add, commit, """
+            release.yml's `\(Self.caskBumpStepName)` step commits before staging the cask.
+            """)
+        XCTAssertLessThan(commit, push, """
+            release.yml's `\(Self.caskBumpStepName)` step pushes before committing.
+            """)
+        for verification in [#"! grep -qxF "  version"#, #"! grep -qxF "  sha256"#] {
+            let index = try XCTUnwrap(script.firstIndex(where: {
+                $0.hasPrefix("if ") && $0.contains(verification)
+            }), """
+                release.yml's `\(Self.caskBumpStepName)` step has no read-back testing \
+                \(verification).
+                """)
+            XCTAssertLessThan(index, push, """
+                release.yml's `\(Self.caskBumpStepName)` step pushes before verifying \
+                \(verification). A verification after the push reports on a tap that has already \
+                moved — the commit is public, `brew` already reads it, and the refusal is a \
+                description rather than a guard.
+                """)
+        }
+
+        // The rewrite is portable. `sed -i` takes a mandatory backup suffix on
+        // BSD sed and an optional one on GNU sed: the spelling that works on
+        // today's runner is the one that breaks anywhere else, and "anywhere
+        // else" includes whoever reproduces this by hand after a failed bump.
+        XCTAssertTrue(script.contains { $0.hasPrefix("sed -E") }, """
+            release.yml's `\(Self.caskBumpStepName)` step must rewrite the cask with `sed -E`.
+            """)
+        XCTAssertFalse(script.contains { $0.contains("sed -i") }, """
+            release.yml's `\(Self.caskBumpStepName)` step must not use `sed -i`. Its spelling \
+            differs between BSD and GNU sed — BSD requires the backup suffix GNU treats as \
+            optional — so an in-place edit is the one line here that is correct on exactly one \
+            platform. Write to a temp file and `mv`.
+            """)
+        XCTAssertTrue(script.contains { $0.hasPrefix("mv ") && $0.contains("$CASK") }, """
+            release.yml's `\(Self.caskBumpStepName)` step must move the rewritten file over the \
+            cask. Without the `mv` the edit lands in a temp file, the read-backs check the \
+            original, and every one of them fails on a release that is already published.
+            """)
+    }
+
+    /// The tap is cloned over SSH with a pinned host key and this run's key
+    /// alone.
+    ///
+    /// Three different mistakes, one line apart. `StrictHostKeyChecking=accept-new`
+    /// (or `no`) trusts whatever answers first, on a machine this repository
+    /// does not own, while handing it a write-enabled deploy key — the one place
+    /// in this workflow where "who is on the other end" is the whole question.
+    /// And without `IdentitiesOnly=yes`, ssh offers every key the agent and the
+    /// default paths know about before the one `-i` names: on a runner where
+    /// some earlier step or action loaded an agent, the push can authenticate as
+    /// an identity this workflow never chose, which is a silent success with the
+    /// wrong actor on the commit. `BatchMode=yes` is the third: the preflight
+    /// can see that the secret is non-empty and nothing more, so a deploy key
+    /// stored with a passphrase reaches ssh intact and ssh then tries to *read*
+    /// one — and whether that ends as an immediate refusal or a wait is a
+    /// property of the runner's tty rather than of this workflow. Batch mode
+    /// fixes it as a refusal, which is what lets the clone's own message be the
+    /// one the reader sees on a release that is already published.
+    ///
+    /// The presence half is anchored to the `GIT_SSH_COMMAND` line and not
+    /// searched step-wide, for the same reason the `-i`/`$KEY` assertion below
+    /// it is: an option deleted from the command but still named by one of this
+    /// step's `::error::` messages — and those messages do discuss the
+    /// passphrase case `BatchMode=yes` exists for — would keep a step-wide
+    /// search green while the connection that hands over a write-enabled deploy
+    /// key no longer carries it. Only the line ssh is actually configured from
+    /// can prove the option is in force.
+    ///
+    /// The absence half is asserted over the *whole* active workflow rather than
+    /// this step: a relaxed host check anywhere in this file is a relaxed host
+    /// check, and this is the only step in it that speaks SSH at all.
+    func testTheTapCloneVerifiesTheHostItPushesTo() throws {
+        let script = try stepScript(named: Self.caskBumpStepName, because: """
+            It is the only step in this workflow that connects to anything over SSH.
+            """)
+
+        for option in ["IdentitiesOnly=yes", "BatchMode=yes", "StrictHostKeyChecking=yes"] {
+            XCTAssertTrue(script.contains { $0.contains("GIT_SSH_COMMAND") && $0.contains(option) }, """
+                release.yml's `\(Self.caskBumpStepName)` step must connect with \(option), on \
+                GIT_SSH_COMMAND's own line. See this test's doc comment for what each of the \
+                three prevents.
+                """)
+        }
+        XCTAssertTrue(script.contains { $0.contains("UserKnownHostsFile") && $0.contains("$KNOWN_HOSTS") }, """
+            release.yml's `\(Self.caskBumpStepName)` step must point UserKnownHostsFile at the \
+            file it wrote GitHub's published host key into. `StrictHostKeyChecking=yes` against \
+            the runner's *default* known_hosts refuses every connection instead of verifying one.
+            """)
+        XCTAssertTrue(script.contains { $0.contains(Self.gitHubHostKey) && $0.contains("$KNOWN_HOSTS") }, """
+            release.yml's `\(Self.caskBumpStepName)` step must write GitHub's published \
+            ssh-ed25519 host key into that file, verbatim: \(Self.gitHubHostKey). It is public \
+            material — every client on the internet checks against it — and pinning it is what \
+            makes the strict check a verification rather than a refusal. Asserted by value \
+            because a truncated or mistyped key satisfies every shape check here and then fails \
+            `git clone` with the release already published. \(script)
+            """)
+        XCTAssertTrue(script.contains { $0.contains("GIT_SSH_COMMAND") && $0.contains("-i ") && $0.contains("$KEY") }, """
+            release.yml's `\(Self.caskBumpStepName)` step must hand git the deploy key through \
+            GIT_SSH_COMMAND's `-i`. Nothing else on the runner is configured to reach the tap.
+            """)
+
+        let text = try activeText()
+        for relaxation in ["StrictHostKeyChecking=no", "StrictHostKeyChecking=accept-new", "accept-new"] {
+            XCTAssertFalse(text.contains(relaxation), """
+                release.yml carries `\(relaxation)`. Trust-on-first-use is not a host check: it \
+                accepts whatever answers, and this workflow answers by handing over a \
+                write-enabled deploy key for \(Self.tapRepositorySlug).
+                """)
+        }
+    }
+
+    /// The deploy key exists on disk narrowly, briefly, and nowhere the log can
+    /// see it.
+    ///
+    /// Three separate mistakes, none of which fails a run:
+    ///
+    ///  * a `printf … > "$KEY"` followed by `chmod 600` writes the key
+    ///    world-readable first and narrows it after — on a shared runner that is
+    ///    a window, not a formality, so `(umask 077; …)` has to be what *creates*
+    ///    the file;
+    ///  * a key written outside `${RUNNER_TEMP}` (the checkout, `~/.ssh`) is one
+    ///    the `if: always()` cleanup no longer names by literal path, so it
+    ///    survives a cancelled run — which is why the path is pinned as a
+    ///    constant this test and `testTheSigningKeychainIsRemovedOnEveryPath`
+    ///    both read;
+    ///  * a `trap` installed *after* the write, or not at all, leaves the key on
+    ///    every path the step does not reach the end of — every guard in it
+    ///    exits non-zero, so those paths are the normal failure modes, not exotic
+    ///    ones.
+    ///
+    /// The last assertion is about the log rather than the disk. The runner masks
+    /// a secret it knows the value of, but masking is a substring replacement
+    /// over the log text, and an `echo` of a multi-line PEM is precisely the
+    /// shape it does not reliably cover. So the secret is dereferenced exactly
+    /// once in this step — into the file — and nothing reads that file back.
+    func testTheTapDeployKeyIsWrittenNarrowlyAndTrapped() throws {
+        let script = try stepScript(named: Self.caskBumpStepName, because: """
+            It is the only step that writes the tap deploy key to the runner's disk.
+            """)
+
+        XCTAssertTrue(Self.tapDeployKeyPath.hasPrefix("${RUNNER_TEMP}/"), """
+            The tap deploy key must live under ${RUNNER_TEMP}: it is the directory the runner \
+            discards, and the only one the `\(Self.keychainCleanupStepName)` step reaches into.
+            """)
+        XCTAssertTrue(script.contains { $0 == "KEY=\"\(Self.tapDeployKeyPath)\"" }, """
+            release.yml's `\(Self.caskBumpStepName)` step must write the deploy key to \
+            \(Self.tapDeployKeyPath). The `\(Self.keychainCleanupStepName)` step removes that \
+            path *literally* — a key written anywhere else is one no cancelled run cleans up. \
+            \(script)
+            """)
+
+        let write = try XCTUnwrap(script.firstIndex(where: {
+            $0.contains("umask 077") && $0.contains("$\(Self.tapDeployKeySecret)") && $0.contains("\"$KEY\"")
+        }), """
+            release.yml's `\(Self.caskBumpStepName)` step must create the deploy key file inside a \
+            `(umask 077; …)` subshell. A `chmod` on the following line narrows a key that was \
+            already world-readable for the length of the write. \(script)
+            """)
+        let trap = try XCTUnwrap(script.firstIndex(where: {
+            $0.hasPrefix("trap ") && $0.contains("rm -f") && $0.contains("$KEY") && $0.hasSuffix("EXIT")
+        }), """
+            release.yml's `\(Self.caskBumpStepName)` step must arm `trap 'rm -f "$KEY"' EXIT`. \
+            Every guard in this step exits non-zero, so the paths that leave the key behind \
+            without one are the ordinary failures, not the unlikely ones. \(script)
+            """)
+        XCTAssertLessThan(trap, write, """
+            release.yml's `\(Self.caskBumpStepName)` step arms its `trap` after writing the key. \
+            The removal has to be armed before the file can exist, or a signal in between leaves \
+            a private key on the runner that only the cleanup step's literal path still catches.
+            """)
+
+        // Exactly one dereference, and it is the write. Anything else — an
+        // `echo` for debugging, a second `printf` into a different file — is
+        // the key leaving the one place this step accounts for.
+        let dereferences = script.indices.filter { script[$0].contains("$\(Self.tapDeployKeySecret)") }
+        XCTAssertEqual(dereferences, [write], """
+            release.yml's `\(Self.caskBumpStepName)` step must read $\(Self.tapDeployKeySecret) \
+            exactly once, in the line that writes it into \(Self.tapDeployKeyPath). It currently \
+            reads it on \(dereferences.count) lines: \(dereferences.map { script[$0] }).
+            """)
+
+        let text = try activeText()
+        for leak in ["cat \"$KEY\"", "cat \"${KEY}\"", "cat $KEY", "cat ${KEY}",
+                     "echo \"$\(Self.tapDeployKeySecret)\"",
+                     "echo \"${\(Self.tapDeployKeySecret)}\""] {
+            XCTAssertFalse(text.contains(leak), """
+                release.yml carries `\(leak)`. That prints the deploy key's bytes into a public \
+                workflow log; the runner's secret masking is a substring replacement and does not \
+                reliably cover a multi-line PEM printed back out of a file.
+                """)
+        }
     }
 
     /// The keys Sparkle reads come from the *partial* `Resources/Info.plist`,
