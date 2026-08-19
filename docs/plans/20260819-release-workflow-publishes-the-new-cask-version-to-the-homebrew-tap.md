@@ -194,7 +194,7 @@ end to end, the manual fallback and the verification still owed.
 - Modify: `docs/RELEASING.md`
 - Modify: `CLAUDE.md`
 
-- [ ] New section "One-time setup: the Homebrew tap deploy key" with the exact
+- [x] New section "One-time setup: the Homebrew tap deploy key" with the exact
       commands: `ssh-keygen -t ed25519 -f ~/.ssh/pisaka-homebrew-tap -N "" -C
       "pisaka release workflow"`; register `~/.ssh/pisaka-homebrew-tap.pub` at
       github.com/HawkeyePierce89/homebrew-apps → Settings → Deploy keys → Add
@@ -206,31 +206,31 @@ end to end, the manual fallback and the verification still owed.
       this pair strands nothing — rotation is delete the deploy key, generate a
       new pair, repeat — and that the key's write access is scoped to the tap
       repository alone.
-- [ ] Add the secret to the existing table (or a sibling table) so the document
+- [x] Add the secret to the existing table (or a sibling table) so the document
       reads seven secrets, and update every "five"/"six" count in the prose.
-- [ ] Add the bump step to the step-by-step list: what it does in order, that
+- [x] Add the bump step to the step-by-step list: what it does in order, that
       it is fatal like every other step, and that the host key is pinned (with
       what to do if GitHub rotates it).
-- [ ] Document the failure semantics explicitly: a failed bump leaves a red run
+- [x] Document the failure semantics explicitly: a failed bump leaves a red run
       with the release **already published**; recovery is the manual two-line
       bump — `shasum -a 256 Pisaka-<version>.zip` on the downloaded asset, edit
       `version` and `sha256` in `Casks/pisaka.rb`, commit, push — and existing
       installs are unaffected either way (Sparkle updates them; the cask
       declares `auto_updates true`).
-- [ ] Update the cleanup-step bullet for the new name and the third key.
-- [ ] Extend the `ReleaseWorkflowTests` inventory paragraph with what the new
+- [x] Update the cleanup-step bullet for the new name and the third key.
+- [x] Extend the `ReleaseWorkflowTests` inventory paragraph with what the new
       assertions pin.
-- [ ] Add a "Manual verification owed" entry: the step cannot be exercised
+- [x] Add a "Manual verification owed" entry: the step cannot be exercised
       without a real tag, so its first live run is the next release — what to
       check afterwards (the tap has one new commit, `brew update && brew info
       --cask pisaka` shows the new version, a fresh `brew install --cask
       pisaka` lands it).
-- [ ] `CLAUDE.md`: change "the six repository secrets it reads (the Sparkle
+- [x] `CLAUDE.md`: change "the six repository secrets it reads (the Sparkle
       EdDSA key plus five Apple-account ones)" to seven, naming the tap deploy
       key as the seventh, and mention the cask bump in the same sentence that
       describes what `release.yml` publishes. No new per-file essay — the index
       rule stands.
-- [ ] run `swift test` (the suite reads `docs/RELEASING.md` too) — must pass.
+- [x] run `swift test` (the suite reads `docs/RELEASING.md` too) — must pass.
 
 ### Task 5: Verify acceptance criteria
 
