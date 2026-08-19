@@ -126,6 +126,22 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// promoted. SSH is what makes the key the thing that authenticates.
     private static let tapCloneURL = "git@github.com:HawkeyePierce89/homebrew-apps.git"
 
+    /// The prefix of the cask's `url`, spelled out, because the guard that
+    /// reads it is the only thing standing between a published release and a
+    /// cask that serves somebody else's bytes.
+    ///
+    /// The step rewrites `version` and `sha256` and deliberately leaves `url`
+    /// alone, so it checks instead that the url derives the asset from
+    /// `version`. A pattern matching only the interpolation — `[^"]*` for the
+    /// host and the owner — is satisfied by a url pointing at *any*
+    /// repository's releases, which then takes this release's digest against
+    /// bytes served from elsewhere and fails every `brew install` at the
+    /// checksum: the exact failure the guard exists to prevent, with every
+    /// check in the run green. Pinned here by value for the same reason
+    /// `tapCloneURL` is: the assertion has to fail when the fact changes, not
+    /// when its shape does.
+    private static let caskURLPrefix = "https://github.com/HawkeyePierce89/pisaka/releases/download"
+
     /// GitHub's published Ed25519 host key, verbatim, as the workflow pins it.
     ///
     /// Asserted by value rather than by shape. `contains("ssh-ed25519 ")` is
@@ -2438,6 +2454,22 @@ final class ReleaseWorkflowTests: XCTestCase {
             has to derive the asset from `version`. Spelled out literally it would take the new \
             version and the new digest and go on serving the previous zip, which fails at the \
             checksum — the failure this step's own comments call worse than a stale cask
+            """)
+        XCTAssertTrue(script.contains {
+            // `\.` and `.` are the same character class here, and which one the
+            // pattern spells is a regex-authoring detail rather than a fact
+            // about the release. Dropping the backslashes before the comparison
+            // keeps this assertion pinned to the URL and blind to the escaping.
+            $0.contains("URL_LINES=")
+                && $0.replacingOccurrences(of: "\\", with: "").contains(Self.caskURLPrefix)
+        }, """
+            release.yml's `\(Self.caskBumpStepName)` step must count the cask's url lines with a \
+            pattern naming \(Self.caskURLPrefix) literally, not a wildcard host. The count is \
+            asserted on the `URL_LINES=` line specifically and not anywhere in the step, because \
+            the refusal message below quotes the same URL and would satisfy a looser search while \
+            the guard itself matched anything. See the constant's doc comment for what a url \
+            interpolating #{version} out of another repository's releases does to a release that \
+            is already published.
             """)
         assertGuardExits(#"! grep -qxF "  version"#, in: script, step: Self.caskBumpStepName, because: """
             the substitution has to be read back off disk. "sed ran" and "the file now says the \

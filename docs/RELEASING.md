@@ -794,19 +794,28 @@ The workflow then, in order:
        indentation for a cask that had simply been renamed or moved.
 
        Then the shape. The step counts the lines matching `^  version "…"$`,
-       `^  sha256 "…"$` and the `url` interpolating `#{version}` into both the
-       tag segment and the asset name in `Casks/pisaka.rb`, and refuses unless
-       each is **exactly one** — missing and duplicated both fail, because a
-       `sed` that matches nothing succeeds and would leave a green step that
-       pushed nothing, while a duplicate would have it rewrite a stanza this
-       workflow does not release. **The `url` is checked although it is never
-       edited**, and that is the point: it is the third fact `brew install`
-       depends on, and a cask whose url were spelled out literally would take
-       the new version and the new digest happily and then go on serving the
-       *previous* zip — which fails at the checksum, the worse failure, because
-       it reads as a corrupted download. Two lines rewritten correctly and a
-       third left behind is exactly the shape a bump that only checks its own
-       edits cannot see.
+       `^  sha256 "…"$` and the `url` — spelled out as
+       `https://github.com/HawkeyePierce89/pisaka/releases/download/v#{version}/Pisaka-#{version}.zip`
+       — in `Casks/pisaka.rb`, and refuses unless each is **exactly one**:
+       missing and duplicated both fail, because a `sed` that matches nothing
+       succeeds and would leave a green step that pushed nothing, while a
+       duplicate would have it rewrite a stanza this workflow does not release.
+       **The `url` is checked although it is never edited**, and that is the
+       point: it is the third fact `brew install` depends on, and a cask whose
+       url were spelled out literally would take the new version and the new
+       digest happily and then go on serving the *previous* zip — which fails at
+       the checksum, the worse failure, because it reads as a corrupted
+       download. Two lines rewritten correctly and a third left behind is
+       exactly the shape a bump that only checks its own edits cannot see.
+
+       **The owner and repository in that url are matched literally, not with a
+       wildcard host**, and for the same reason rather than a weaker one: a url
+       interpolating `#{version}` perfectly out of *somebody else's* releases
+       satisfies every other check in this step and then takes this release's
+       digest against bytes served from elsewhere — the identical checksum
+       failure, with the whole run green. `ReleaseWorkflowTests` pins the prefix
+       by value, so changing where releases are published fails `swift test`
+       here rather than at a user's `brew install`.
 
        The rewrite is one `sed -E` into a temp file plus `mv` (not `sed -i`,
        whose BSD and GNU spellings differ), and both new lines are then read
@@ -1234,12 +1243,21 @@ downloaded the app rather than built it.
   preflight refuses a missing secret but cannot see whether the registered
   public half carries write access. Afterwards, check three things: the tap has
   exactly one new commit named `pisaka <version>` touching only
-  `Casks/pisaka.rb`; `brew update && brew info --cask pisaka` reports the new
-  version and the new checksum; and a fresh `brew install --cask pisaka` (on a
-  machine with no copy installed, or after `brew uninstall --cask pisaka`) lands
-  that version and launches it. The third is the one that actually exercises the
-  checksum — `brew info` reads the cask, `brew install` verifies the download
-  against it, and a wrong `sha256` fails only there.
+  `Casks/pisaka.rb`; `brew update && brew info --cask HawkeyePierce89/apps/pisaka`
+  reports the new version and the new checksum; and a fresh
+  `brew install --cask HawkeyePierce89/apps/pisaka` (on a machine with no copy
+  installed, or after `brew uninstall --cask pisaka`) lands that version and
+  launches it. The third is the one that actually exercises the checksum —
+  `brew info` reads the cask, `brew install` verifies the download against it,
+  and a wrong `sha256` fails only there.
+
+  **Both commands are fully qualified on purpose**, unlike the shorthand this
+  file and `README.md` use in prose. Homebrew resolves a bare `pisaka` only out
+  of taps the machine has already added, so on the clean machine this bullet
+  asks for — the one that has never run `brew tap HawkeyePierce89/apps` — the
+  short spelling fails with "Cask 'pisaka' is unavailable" and the verification
+  reads as a bump that did not land. The qualified name taps on demand, which is
+  also what a new user following `README.md` actually types.
 - **A downloaded language server under the hardened runtime.** Accept the
   TypeScript server's consent prompt on the notarized build and confirm the
   unpacked `node` actually launches — the same check the provisioning list below

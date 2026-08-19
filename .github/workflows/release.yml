@@ -1300,17 +1300,25 @@ jobs:
           fi
 
           # The third fact `brew install` depends on, and the one this step does
-          # *not* edit: the url has to derive the asset from `version`, in both
-          # the tag segment and the file name. A cask whose url were spelled out
-          # literally would take the new version and the new digest happily and
-          # then serve the *previous* zip — which fails at the checksum, the
-          # failure this step's own comments call worse than a stale cask
-          # because it reads as a corrupted download. Two lines rewritten
-          # correctly and a third left behind is exactly the shape a bump that
-          # only checks its own edits cannot see.
-          URL_LINES="$(grep -cE '^  url "[^"]*/v#\{version\}/Pisaka-#\{version\}\.zip"$' "$CASK" || true)"
+          # *not* edit: the url has to name *this* repository's releases and
+          # derive the asset from `version`, in both the tag segment and the file
+          # name. A cask whose url were spelled out literally would take the new
+          # version and the new digest happily and then serve the *previous* zip
+          # — which fails at the checksum, the failure this step's own comments
+          # call worse than a stale cask because it reads as a corrupted
+          # download. The owner/repo prefix is matched literally for the same
+          # reason and not a weaker one: a url interpolating `#{version}`
+          # perfectly out of somebody else's releases passes every other check
+          # here and produces that identical checksum failure, so a pattern that
+          # accepted any host would be pinning the shape of the guard rather than
+          # the fact it exists to guarantee. This is the one asset URL in this
+          # file that lives in a repository this workflow does not own, which is
+          # exactly why it is spelled out rather than trusted. Two lines
+          # rewritten correctly and a third left behind is exactly the shape a
+          # bump that only checks its own edits cannot see.
+          URL_LINES="$(grep -cE '^  url "https://github\.com/HawkeyePierce89/pisaka/releases/download/v#\{version\}/Pisaka-#\{version\}\.zip"$' "$CASK" || true)"
           if [ "$URL_LINES" != "1" ]; then
-            echo "::error::Casks/pisaka.rb has ${URL_LINES} url lines interpolating #{version} into both the tag and the asset name rather than exactly 1, so bumping version and sha256 alone would leave it pointing at the previous zip — every brew install would then fail at the checksum. The release is already published; bump the cask by hand, url included, and then fix the pattern in this step. See docs/RELEASING.md."
+            echo "::error::Casks/pisaka.rb has ${URL_LINES} url lines of the expected form https://github.com/HawkeyePierce89/pisaka/releases/download/v#{version}/Pisaka-#{version}.zip rather than exactly 1, so bumping version and sha256 alone would leave it pointing at the previous zip or at another repository's releases — every brew install would then fail at the checksum. The release is already published; bump the cask by hand, url included, and then fix the pattern in this step. See docs/RELEASING.md."
             exit 1
           fi
 
