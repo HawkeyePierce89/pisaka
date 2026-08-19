@@ -1319,8 +1319,14 @@ jobs:
           git -C "$TAP" push origin master
 
       # `if: always()` and last, so no path through this job — success, any
-      # failure above, or a cancellation — leaves either private key on the runner
-      # or the search list rewritten. The runner is thrown away afterwards, which
+      # failure above, or a cancellation — leaves any of the three private keys
+      # on the runner or the search list rewritten. Three, since the tap bump:
+      # the Developer ID `.p12`, the notary `.p8` and the Homebrew tap deploy
+      # key, each removed here *by literal path* and each also removed by the
+      # step that wrote it (the `.p12` by an `rm` after `security import`
+      # consumes it, the other two by a `trap … EXIT`). None of those three
+      # removals survives a cancellation, which is the whole reason this step
+      # repeats them. The runner is thrown away afterwards, which
       # is an argument for not caring and not a reason to rely on it: the cleanup
       # is four commands and it is the difference between "the keys are gone
       # because we removed them" and "the keys are gone because we assume the
@@ -1340,7 +1346,7 @@ jobs:
       # error from a run that failed earlier — that step's own failure is
       # already annotated and already red — it only stops a *cleanup* failure
       # from being the one thing in this job that passes silently.
-      - name: Remove the signing keychain
+      - name: Remove the run's keys and keychain
         if: always()
         run: |
           set -uo pipefail
@@ -1356,15 +1362,16 @@ jobs:
           if [ -f "$KEYCHAIN" ]; then
             security delete-keychain "$KEYCHAIN" || STATUS=1
           fi
-          # Belt and braces for both private keys. Each is removed by the step
-          # that wrote it — the .p12 by an `rm` after `security import` consumes
-          # it, the .p8 by a `trap … EXIT` — and neither removal covers a
-          # cancellation: a `SIGKILL`ed step runs no EXIT trap and no trailing
-          # line, which is precisely the path this `if: always()` step exists
-          # for. Both paths are spelled out literally because a variable would
-          # be one the cancelled step never got to set.
-          rm -f "${RUNNER_TEMP}/developer-id.p12" "${RUNNER_TEMP}/notary-key.p8" || STATUS=1
+          # Belt and braces for all three private keys. Each is removed by the
+          # step that wrote it — the .p12 by an `rm` after `security import`
+          # consumes it, the .p8 and the tap deploy key by a `trap … EXIT` —
+          # and none of those removals covers a cancellation: a `SIGKILL`ed
+          # step runs no EXIT trap and no trailing line, which is precisely the
+          # path this `if: always()` step exists for. All three paths are
+          # spelled out literally because a variable would be one the cancelled
+          # step never got to set.
+          rm -f "${RUNNER_TEMP}/developer-id.p12" "${RUNNER_TEMP}/notary-key.p8" "${RUNNER_TEMP}/homebrew-tap-deploy-key" || STATUS=1
           if [ "$STATUS" -ne 0 ]; then
-            echo "::error::Cleaning up the signing keychain failed: one of restoring the user search list, deleting the run's keychain or removing the two private keys reported an error (this step's log says which). Every other step's result stands — this failure is about the runner's leftover state, not the release. Assume the runner still holds the Developer ID certificate and the notary key: revoke and reissue the certificate, rotate the notary key, and update the repository secrets before the next tag. See docs/RELEASING.md."
+            echo "::error::Cleaning up the run's keys and keychain failed: one of restoring the user search list, deleting the run's keychain or removing the three private keys reported an error (this step's log says which). Every other step's result stands — this failure is about the runner's leftover state, not the release. Assume the runner still holds the Developer ID certificate, the notary key and the Homebrew tap deploy key: revoke and reissue the certificate, rotate the notary key, replace the tap deploy key, and update the repository secrets before the next tag. See docs/RELEASING.md."
             exit 1
           fi

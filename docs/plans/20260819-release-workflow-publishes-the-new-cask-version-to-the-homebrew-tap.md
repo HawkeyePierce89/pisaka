@@ -173,20 +173,20 @@ end to end, the manual fallback and the verification still owed.
 - Modify: `.github/workflows/release.yml`
 - Modify: `Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
 
-- [ ] Rename the final step to `Remove the run's keys and keychain` and update
+- [x] Rename the final step to `Remove the run's keys and keychain` and update
       its comment to say three private keys are now removed by literal path
       (the `.p12`, the notary `.p8` and the tap deploy key), each also removed
       by the step that wrote it, none of which survives a cancellation.
-- [ ] Add `"${RUNNER_TEMP}/homebrew-tap-deploy-key"` to that step's `rm -f`
+- [x] Add `"${RUNNER_TEMP}/homebrew-tap-deploy-key"` to that step's `rm -f`
       line, keeping the `|| STATUS=1` accumulator intact.
-- [ ] Update `keychainCleanupStepName` to the new name and add the tap key path
+- [x] Update `keychainCleanupStepName` to the new name and add the tap key path
       to the key loop in `testTheSigningKeychainIsRemovedOnEveryPath` (three
       paths), extending its doc comment accordingly.
-- [ ] Add `testTheTapDeployKeyIsWrittenNarrowlyAndTrapped()`: the bump step
+- [x] Add `testTheTapDeployKeyIsWrittenNarrowlyAndTrapped()`: the bump step
       writes the key inside a `(umask 077; …)` subshell, under `${RUNNER_TEMP}`,
       carries `trap` … `rm -f` on `EXIT`, and the raw secret is never echoed
       (no `echo "$HOMEBREW_TAP_DEPLOY_KEY"` / `cat "$KEY"`).
-- [ ] run `swift test` — must pass before Task 4.
+- [x] run `swift test` — must pass before Task 4.
 
 ### Task 4: Documentation
 

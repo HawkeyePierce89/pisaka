@@ -85,8 +85,12 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// one: several tests scope themselves to it.
     private static let certificateStepName = "Import the Developer ID certificate"
 
-    /// The name of the `if: always()` step that deletes that keychain again.
-    private static let keychainCleanupStepName = "Remove the signing keychain"
+    /// The name of the `if: always()` step that deletes that keychain again —
+    /// and, since the tap bump, all three of the run's private keys. The name
+    /// says "keys and keychain" rather than "the signing keychain" because it
+    /// removes the Homebrew deploy key too, and a name that mentioned only the
+    /// keychain would be a lie about the third key by omission.
+    private static let keychainCleanupStepName = "Remove the run's keys and keychain"
 
     /// The repository secret holding the private half of the write-enabled
     /// deploy key on the Homebrew tap. Pinned because it is named in three
@@ -676,7 +680,8 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
     }
 
-    /// No path out of this job may leave the signing key on the runner.
+    /// No path out of this job may leave any of the run's private keys on the
+    /// runner.
     ///
     /// `if: always()` is what makes that true for the two paths nobody tests: a
     /// failure in any step above (the archive, the notarization, the publication)
@@ -684,10 +689,20 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// situations where something went wrong, which is when the runner's state is
     /// least worth trusting. Being the *last* step is the other half: a cleanup
     /// that sits before the archive deletes the keychain the archive needs.
+    ///
+    /// Three keys, not two: the Developer ID `.p12`, the notary `.p8` and — since
+    /// the cask bump — the Homebrew tap deploy key. They are not
+    /// interchangeable, and the third is the one whose loss is *not* confined to
+    /// this repository: it opens a write-enabled push into the Homebrew tap, a
+    /// repository nothing else in this workflow touches and nothing in this
+    /// repository's history would show tampering with. So the loop below is
+    /// over all three paths, asserted literally, and
+    /// adding a fourth key to the workflow without adding it here leaves a key
+    /// this suite certifies as removed and nothing removes.
     func testTheSigningKeychainIsRemovedOnEveryPath() throws {
         let script = try stepScript(named: Self.keychainCleanupStepName, because: """
             No path through this job — success, failure or cancellation — may leave the signing \
-            certificate on the runner.
+            certificate, the notary key or the tap deploy key on the runner.
             """)
 
         XCTAssertTrue(script.contains("if: always()"), """
@@ -709,12 +724,15 @@ final class ReleaseWorkflowTests: XCTestCase {
             a keychain that no longer exists.
             """)
 
-        // Both private keys, by literal path. Each is also removed by the step
-        // that wrote it, and neither of those removals survives a cancellation:
-        // a `SIGKILL`ed step runs no `trap … EXIT` and no trailing `rm`, which
-        // is the one path this `if: always()` step exists for. Asserting only
-        // the .p12 would certify the weaker guarantee as the stronger one.
-        for key in ["${RUNNER_TEMP}/developer-id.p12", "${RUNNER_TEMP}/notary-key.p8"] {
+        // All three private keys, by literal path. Each is also removed by the
+        // step that wrote it, and none of those removals survives a
+        // cancellation: a `SIGKILL`ed step runs no `trap … EXIT` and no
+        // trailing `rm`, which is the one path this `if: always()` step exists
+        // for. Asserting only the .p12 would certify the weaker guarantee as
+        // the stronger one.
+        for key in ["${RUNNER_TEMP}/developer-id.p12",
+                    "${RUNNER_TEMP}/notary-key.p8",
+                    Self.tapDeployKeyPath] {
             XCTAssertTrue(script.contains { $0.hasPrefix("rm -f") && $0.contains(key) }, """
                 release.yml's `\(Self.keychainCleanupStepName)` step must `rm -f \(key)`. The step \
                 that writes it removes it on every path it reaches the end of, but a cancelled \
@@ -2460,6 +2478,86 @@ final class ReleaseWorkflowTests: XCTestCase {
                 release.yml carries `\(relaxation)`. Trust-on-first-use is not a host check: it \
                 accepts whatever answers, and this workflow answers by handing over a \
                 write-enabled deploy key for \(Self.tapRepositorySlug).
+                """)
+        }
+    }
+
+    /// The deploy key exists on disk narrowly, briefly, and nowhere the log can
+    /// see it.
+    ///
+    /// Three separate mistakes, none of which fails a run:
+    ///
+    ///  * a `printf … > "$KEY"` followed by `chmod 600` writes the key
+    ///    world-readable first and narrows it after — on a shared runner that is
+    ///    a window, not a formality, so `(umask 077; …)` has to be what *creates*
+    ///    the file;
+    ///  * a key written outside `${RUNNER_TEMP}` (the checkout, `~/.ssh`) is one
+    ///    the `if: always()` cleanup no longer names by literal path, so it
+    ///    survives a cancelled run — which is why the path is pinned as a
+    ///    constant this test and `testTheSigningKeychainIsRemovedOnEveryPath`
+    ///    both read;
+    ///  * a `trap` installed *after* the write, or not at all, leaves the key on
+    ///    every path the step does not reach the end of — every guard in it
+    ///    exits non-zero, so those paths are the normal failure modes, not exotic
+    ///    ones.
+    ///
+    /// The last assertion is about the log rather than the disk. The runner masks
+    /// a secret it knows the value of, but masking is a substring replacement
+    /// over the log text, and an `echo` of a multi-line PEM is precisely the
+    /// shape it does not reliably cover. So the secret is dereferenced exactly
+    /// once in this step — into the file — and nothing reads that file back.
+    func testTheTapDeployKeyIsWrittenNarrowlyAndTrapped() throws {
+        let script = try stepScript(named: Self.caskBumpStepName, because: """
+            It is the only step that writes the tap deploy key to the runner's disk.
+            """)
+
+        XCTAssertTrue(Self.tapDeployKeyPath.hasPrefix("${RUNNER_TEMP}/"), """
+            The tap deploy key must live under ${RUNNER_TEMP}: it is the directory the runner \
+            discards, and the only one the `\(Self.keychainCleanupStepName)` step reaches into.
+            """)
+        XCTAssertTrue(script.contains { $0 == "KEY=\"\(Self.tapDeployKeyPath)\"" }, """
+            release.yml's `\(Self.caskBumpStepName)` step must write the deploy key to \
+            \(Self.tapDeployKeyPath). The `\(Self.keychainCleanupStepName)` step removes that \
+            path *literally* — a key written anywhere else is one no cancelled run cleans up. \
+            \(script)
+            """)
+
+        let write = try XCTUnwrap(script.firstIndex(where: {
+            $0.contains("umask 077") && $0.contains("$\(Self.tapDeployKeySecret)") && $0.contains("\"$KEY\"")
+        }), """
+            release.yml's `\(Self.caskBumpStepName)` step must create the deploy key file inside a \
+            `(umask 077; …)` subshell. A `chmod` on the following line narrows a key that was \
+            already world-readable for the length of the write. \(script)
+            """)
+        let trap = try XCTUnwrap(script.firstIndex(where: {
+            $0.hasPrefix("trap ") && $0.contains("rm -f") && $0.contains("$KEY") && $0.hasSuffix("EXIT")
+        }), """
+            release.yml's `\(Self.caskBumpStepName)` step must arm `trap 'rm -f "$KEY"' EXIT`. \
+            Every guard in this step exits non-zero, so the paths that leave the key behind \
+            without one are the ordinary failures, not the unlikely ones. \(script)
+            """)
+        XCTAssertLessThan(trap, write, """
+            release.yml's `\(Self.caskBumpStepName)` step arms its `trap` after writing the key. \
+            The removal has to be armed before the file can exist, or a signal in between leaves \
+            a private key on the runner that only the cleanup step's literal path still catches.
+            """)
+
+        // Exactly one dereference, and it is the write. Anything else — an
+        // `echo` for debugging, a second `printf` into a different file — is
+        // the key leaving the one place this step accounts for.
+        let dereferences = script.indices.filter { script[$0].contains("$\(Self.tapDeployKeySecret)") }
+        XCTAssertEqual(dereferences, [write], """
+            release.yml's `\(Self.caskBumpStepName)` step must read $\(Self.tapDeployKeySecret) \
+            exactly once, in the line that writes it into \(Self.tapDeployKeyPath). It currently \
+            reads it on \(dereferences.count) lines: \(dereferences.map { script[$0] }).
+            """)
+
+        let text = try activeText()
+        for leak in ["cat \"$KEY\"", "cat $KEY", "echo \"$\(Self.tapDeployKeySecret)\""] {
+            XCTAssertFalse(text.contains(leak), """
+                release.yml carries `\(leak)`. That prints the deploy key's bytes into a public \
+                workflow log; the runner's secret masking is a substring replacement and does not \
+                reliably cover a multi-line PEM printed back out of a file.
                 """)
         }
     }
