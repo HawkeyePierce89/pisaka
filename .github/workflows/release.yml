@@ -1178,6 +1178,146 @@ jobs:
           # is this release and every installed copy reads its appcast.
           gh release edit "$TAG" --draft=false
 
+      # The last thing this workflow does, and the only thing it writes to a
+      # repository that is not this one. `HawkeyePierce89/homebrew-apps` carries
+      # `Casks/pisaka.rb`, and until its `version` and `sha256` name this
+      # release, `brew install --cask pisaka` keeps installing the previous one
+      # — silently, and for as long as nobody notices.
+      #
+      # ## Why it runs after the promotion and not before
+      #
+      # The cask's `url` interpolates `#{version}` into this tag's asset URL, so
+      # a cask bumped *ahead* of `gh release edit --draft=false` points at a
+      # release that is still a draft: invisible to unauthenticated downloads and
+      # one `gh release delete` away from never having existed. Every
+      # `brew install --cask pisaka` in that window 404s. Bumped afterwards the
+      # worst case is the mirror image and it is benign — a published release the
+      # tap has not caught up with, which installs the previous version for the
+      # few seconds the clone and push take.
+      #
+      # ## Why the hash is of the uploaded file and not of a fresh archive
+      #
+      # `build/release-assets/Pisaka-${VERSION}.zip` is the very file the publish
+      # step attached, still on disk. `ditto` is not bit-reproducible, so
+      # re-zipping the same stapled bundle here would produce a different digest
+      # for identical contents — and a cask whose `sha256` does not match the
+      # bytes GitHub serves fails every `brew install` at the checksum, which is
+      # a worse failure than a stale cask because it looks like a corrupted
+      # download.
+      #
+      # ## Why the host key is pinned rather than accepted
+      #
+      # This step authenticates *to* GitHub with a write-enabled deploy key; the
+      # pinned `known_hosts` entry is how it establishes that the host asking for
+      # that key is GitHub. `StrictHostKeyChecking=accept-new` would trust
+      # whatever answered first, which on a machine this workflow does not own is
+      # the whole question. The consequence of pinning is that a GitHub host-key
+      # rotation fails this step loudly rather than quietly trusting the new one;
+      # docs/RELEASING.md says what to replace and where the current key is
+      # published.
+      #
+      # Every phase below is fatal, in the same way every other step here is: a
+      # bump that edited nothing while reporting success would leave the tap
+      # pinning a version that is no longer what this repository's `latest`
+      # means, and nothing would say so until a user installed.
+      - name: Bump the Homebrew cask
+        env:
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          ZIP="build/release-assets/Pisaka-${VERSION}.zip"
+
+          # The published artefact or nothing. If this file is absent the step
+          # is about to hash something other than what shipped — or, worse, to
+          # push a cask whose checksum was computed from a re-made archive.
+          if [ ! -f "$ZIP" ]; then
+            echo "::error::${ZIP} is not on the runner, so there is nothing to hash: this step must checksum the exact bytes the publish step uploaded, not a re-made archive (ditto is not bit-reproducible, and a cask whose sha256 does not match the served file fails every brew install at the checksum). The release is already published; bump Casks/pisaka.rb by hand from the downloaded asset. See docs/RELEASING.md."
+            exit 1
+          fi
+          SHA="$(shasum -a 256 "$ZIP" | awk '{print $1}')"
+          echo "Pisaka ${VERSION} sha256 ${SHA}"
+
+          KEY="${RUNNER_TEMP}/homebrew-tap-deploy-key"
+          KNOWN_HOSTS="${RUNNER_TEMP}/homebrew-tap-known-hosts"
+          TAP="${RUNNER_TEMP}/homebrew-apps"
+
+          # Same shape as the notarization key: the trap is installed before the
+          # write, and `(umask 077; …)` is what creates the file — a `chmod` on
+          # the next line would narrow a key that was already world-readable for
+          # the length of the write.
+          trap 'rm -f "$KEY"' EXIT
+          (umask 077; printf '%s\n' "$HOMEBREW_TAP_DEPLOY_KEY" > "$KEY")
+
+          # GitHub's published Ed25519 host key, verbatim. Public material: it is
+          # what every client on the internet already checks against.
+          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$KNOWN_HOSTS"
+          export GIT_SSH_COMMAND="ssh -i '$KEY' -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile='$KNOWN_HOSTS'"
+
+          rm -rf "$TAP"
+          git clone --depth 1 --branch master git@github.com:HawkeyePierce89/homebrew-apps.git "$TAP"
+          CASK="$TAP/Casks/pisaka.rb"
+
+          # Shape before edit. A `sed` that matches nothing succeeds, so without
+          # these two counts a renamed field, a re-indented file or a second cask
+          # stanza would produce an unchanged file, an empty diff, and a step
+          # that reports success having pushed nothing. Duplicates fail for the
+          # mirror reason: `sed` would rewrite both, and one of them belongs to
+          # something this workflow does not release.
+          VERSION_LINES="$(grep -cE '^  version "[^"]*"$' "$CASK" || true)"
+          SHA_LINES="$(grep -cE '^  sha256 "[^"]*"$' "$CASK" || true)"
+          if [ "$VERSION_LINES" != "1" ]; then
+            echo "::error::Casks/pisaka.rb has ${VERSION_LINES} lines matching the expected two-space-indented version \"…\" form rather than exactly 1, so this step will not edit it. The release is already published; the recovery is the manual two-line bump — set version and sha256 in Casks/pisaka.rb, commit, push — and then fix the pattern in this step. See docs/RELEASING.md."
+            exit 1
+          fi
+          if [ "$SHA_LINES" != "1" ]; then
+            echo "::error::Casks/pisaka.rb has ${SHA_LINES} lines matching the expected two-space-indented sha256 \"…\" form rather than exactly 1, so this step will not edit it. The release is already published; the recovery is the manual two-line bump — set version and sha256 in Casks/pisaka.rb, commit, push — and then fix the pattern in this step. See docs/RELEASING.md."
+            exit 1
+          fi
+
+          # `sed -E` into a temp file plus `mv`, not `sed -i`: the in-place flag
+          # takes a mandatory backup suffix on BSD sed and an optional one on
+          # GNU sed, so the spelling that works on the runner today is the one
+          # that breaks the day anybody runs this anywhere else.
+          sed -E \
+            -e "s/^  version \"[^\"]*\"\$/  version \"${VERSION}\"/" \
+            -e "s/^  sha256 \"[^\"]*\"\$/  sha256 \"${SHA}\"/" \
+            "$CASK" > "${CASK}.bumped"
+          mv "${CASK}.bumped" "$CASK"
+
+          # Read the result back rather than trusting the substitution. `grep
+          # -qxF` is whole-line and literal on purpose: a prefix match would be
+          # satisfied by the old line if the new version were a prefix of it.
+          if ! grep -qxF "  version \"${VERSION}\"" "$CASK"; then
+            echo "::error::After the rewrite Casks/pisaka.rb does not carry the line: version \"${VERSION}\". The substitution did not take. The release is already published; bump the cask by hand and fix this step. See docs/RELEASING.md."
+            exit 1
+          fi
+          if ! grep -qxF "  sha256 \"${SHA}\"" "$CASK"; then
+            echo "::error::After the rewrite Casks/pisaka.rb does not carry the line: sha256 \"${SHA}\". The substitution did not take. The release is already published; bump the cask by hand and fix this step. See docs/RELEASING.md."
+            exit 1
+          fi
+          git -C "$TAP" diff -- Casks/pisaka.rb
+
+          # The identity is set inside the clone (`git -C`), never globally: the
+          # runner's git config is shared with every other step in this job.
+          git -C "$TAP" config user.name "Pisaka release workflow"
+          git -C "$TAP" config user.email "actions@github.com"
+          git -C "$TAP" add Casks/pisaka.rb
+
+          # An already-correct cask is success. A re-pushed tag whose zip hashes
+          # identically produces no staged change, and `git commit` would die on
+          # "nothing to commit" — reporting a failure about a tap that is in
+          # exactly the state this step exists to put it in. This cannot swallow
+          # a stale cask: a different zip has a different digest and therefore a
+          # real diff.
+          if git -C "$TAP" diff --cached --quiet; then
+            echo "Casks/pisaka.rb already pins version ${VERSION} and sha256 ${SHA} — nothing to push."
+            exit 0
+          fi
+          git -C "$TAP" commit -m "pisaka ${VERSION}"
+          git -C "$TAP" push origin master
+
       # `if: always()` and last, so no path through this job — success, any
       # failure above, or a cancellation — leaves either private key on the runner
       # or the search list rewritten. The runner is thrown away afterwards, which

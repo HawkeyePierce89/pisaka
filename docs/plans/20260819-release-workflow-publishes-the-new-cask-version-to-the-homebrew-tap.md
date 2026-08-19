@@ -118,42 +118,42 @@ end to end, the manual fallback and the verification still owed.
 - Modify: `.github/workflows/release.yml`
 - Modify: `Tests/PisakaCoreTests/ReleaseWorkflowTests.swift`
 
-- [ ] Insert `- name: Bump the Homebrew cask` between `Publish the GitHub
+- [x] Insert `- name: Bump the Homebrew cask` between `Publish the GitHub
       Release` and the cleanup step, with `env:` carrying only
       `HOMEBREW_TAP_DEPLOY_KEY` and `run: |` under `set -euo pipefail`, reading
       top to bottom as: version derivation → hash → key → clone → edit →
       verify → push.
-- [ ] Version and hash: `TAG="${GITHUB_REF_NAME}"`, `VERSION="${TAG#v}"`,
+- [x] Version and hash: `TAG="${GITHUB_REF_NAME}"`, `VERSION="${TAG#v}"`,
       `ZIP="build/release-assets/Pisaka-${VERSION}.zip"`; refuse with `exit 1`
       if that file is absent (it is the exact artefact just uploaded, so its
       absence means the step is hashing something other than what shipped);
       `SHA="$(shasum -a 256 "$ZIP" | awk '{print $1}')"`.
-- [ ] Key material: `KEY="${RUNNER_TEMP}/homebrew-tap-deploy-key"`,
+- [x] Key material: `KEY="${RUNNER_TEMP}/homebrew-tap-deploy-key"`,
       `trap 'rm -f "$KEY"' EXIT`, written with `(umask 077; printf '%s\n' … >
       "$KEY")`; a `$RUNNER_TEMP/known_hosts` carrying GitHub's published
       `ssh-ed25519` host key; `GIT_SSH_COMMAND` with `-i "$KEY"`,
       `IdentitiesOnly=yes`, `StrictHostKeyChecking=yes` and
       `UserKnownHostsFile` pointing at that file.
-- [ ] Clone `git@github.com:HawkeyePierce89/homebrew-apps.git` `--depth 1
+- [x] Clone `git@github.com:HawkeyePierce89/homebrew-apps.git` `--depth 1
       --branch master` into a `$RUNNER_TEMP` directory.
-- [ ] Shape check before editing, each branch reaching `exit 1` with a message
+- [x] Shape check before editing, each branch reaching `exit 1` with a message
       that names the cask path and says the recovery is a manual two-line bump:
       the count of lines matching `^  version "[^"]*"$` must be exactly 1, and
       likewise for `^  sha256 "[^"]*"$`. Missing *and* duplicated both fail.
-- [ ] Rewrite both lines with one `sed -E` into a temp file followed by `mv`
+- [x] Rewrite both lines with one `sed -E` into a temp file followed by `mv`
       (not `sed -i`, whose BSD/GNU spelling differs), then verify with
       `grep -qxF` for the exact new `  version "…"` and `  sha256 "…"` lines —
       each failure `exit 1`.
-- [ ] Commit and push: git identity set locally in the clone, `git add` the
+- [x] Commit and push: git identity set locally in the clone, `git add` the
       cask, the no-change branch echoing that the cask already pins this
       version and hash and exiting 0, otherwise one commit (`pisaka <version>`)
       and `git push origin master`.
-- [ ] Append `Bump the Homebrew cask` to the `sequence` in
+- [x] Append `Bump the Homebrew cask` to the `sequence` in
       `testTheReleaseIsAssembledInTheOnlyOrderThatShipsAWorkingApp`, so the
       "after publish/promote" ordering is asserted by index in the test that
       already owns ordering; extend that test's doc comment with what an
       inversion would ship (a cask pointing at a release still discardable).
-- [ ] Add `testTheCaskBumpIsSurgicalAndSelfChecking()`: over
+- [x] Add `testTheCaskBumpIsSurgicalAndSelfChecking()`: over
       `stepScript(named: caskBumpStepName)` — the `env:` mapping for the
       secret; `VERSION="${TAG#v}"` derived from `GITHUB_REF_NAME` rather than
       restated; `shasum -a 256` run against the literal
@@ -161,11 +161,11 @@ end to end, the manual fallback and the verification still owed.
       the cask path each named; `assertGuardExits` on the missing-zip guard,
       both shape-count guards and both post-edit verification guards; a
       `git … push` present *after* the verification guards by index.
-- [ ] Add `testTheTapCloneVerifiesTheHostItPushesTo()`: `IdentitiesOnly=yes`
+- [x] Add `testTheTapCloneVerifiesTheHostItPushesTo()`: `IdentitiesOnly=yes`
       and `StrictHostKeyChecking=yes` present in the step, and
       `StrictHostKeyChecking=no` / `accept-new` absent from the whole active
       workflow text.
-- [ ] run `swift test` — must pass before Task 3.
+- [x] run `swift test` — must pass before Task 3.
 
 ### Task 3: The deploy key never outlives the run
 
