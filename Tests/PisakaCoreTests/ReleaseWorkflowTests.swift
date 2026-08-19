@@ -2408,11 +2408,15 @@ final class ReleaseWorkflowTests: XCTestCase {
 
         // The tap, the branch and the file: three facts that are each a silent
         // no-op when wrong.
-        XCTAssertTrue(script.contains { $0.contains(Self.tapCloneURL) }, """
+        XCTAssertTrue(script.contains { $0.contains("git clone") && $0.contains(Self.tapCloneURL) }, """
             release.yml's `\(Self.caskBumpStepName)` step must clone \(Self.tapCloneURL). It is \
             the one repository other than this one that this workflow writes to, and the `git@` \
             spelling is the load-bearing half: see the constant's doc comment for what the HTTPS \
-            URL for the same slug does instead.
+            URL for the same slug does instead. Anchored to the `git clone` line for the same \
+            reason the url count below is anchored to `URL_LINES=`: the refusals in this step \
+            name the tap too, so a search of the whole step would stay green on a clone rewritten \
+            to HTTPS — which succeeds anonymously against a public tap and then fails at the \
+            push, after the release has been promoted out of draft.
             """)
         XCTAssertTrue(script.contains { $0.contains(Self.caskPath) }, """
             release.yml's `\(Self.caskBumpStepName)` step must name \(Self.caskPath). A wrong path \
@@ -2565,7 +2569,7 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// The tap is cloned over SSH with a pinned host key and this run's key
     /// alone.
     ///
-    /// Two different mistakes, one line apart. `StrictHostKeyChecking=accept-new`
+    /// Three different mistakes, one line apart. `StrictHostKeyChecking=accept-new`
     /// (or `no`) trusts whatever answers first, on a machine this repository
     /// does not own, while handing it a write-enabled deploy key — the one place
     /// in this workflow where "who is on the other end" is the whole question.
@@ -2573,7 +2577,13 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// default paths know about before the one `-i` names: on a runner where
     /// some earlier step or action loaded an agent, the push can authenticate as
     /// an identity this workflow never chose, which is a silent success with the
-    /// wrong actor on the commit.
+    /// wrong actor on the commit. `BatchMode=yes` is the third: the preflight
+    /// can see that the secret is non-empty and nothing more, so a deploy key
+    /// stored with a passphrase reaches ssh intact and ssh then tries to *read*
+    /// one — and whether that ends as an immediate refusal or a wait is a
+    /// property of the runner's tty rather than of this workflow. Batch mode
+    /// fixes it as a refusal, which is what lets the clone's own message be the
+    /// one the reader sees on a release that is already published.
     ///
     /// The absence half is asserted over the *whole* active workflow rather than
     /// this step: a relaxed host check anywhere in this file is a relaxed host
@@ -2583,10 +2593,10 @@ final class ReleaseWorkflowTests: XCTestCase {
             It is the only step in this workflow that connects to anything over SSH.
             """)
 
-        for option in ["IdentitiesOnly=yes", "StrictHostKeyChecking=yes"] {
+        for option in ["IdentitiesOnly=yes", "BatchMode=yes", "StrictHostKeyChecking=yes"] {
             XCTAssertTrue(script.contains { $0.contains(option) }, """
                 release.yml's `\(Self.caskBumpStepName)` step must connect with \(option). See \
-                this test's doc comment for what each of the two prevents.
+                this test's doc comment for what each of the three prevents.
                 """)
         }
         XCTAssertTrue(script.contains { $0.contains("UserKnownHostsFile") && $0.contains("$KNOWN_HOSTS") }, """

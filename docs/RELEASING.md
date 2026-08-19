@@ -772,7 +772,13 @@ The workflow then, in order:
        step writes GitHub's published `ssh-ed25519` host key into its own
        `known_hosts` and connects with `StrictHostKeyChecking=yes` plus
        `IdentitiesOnly=yes`, so neither the runner's ambient known-hosts nor any
-       other key on it is in play. `accept-new` and `StrictHostKeyChecking=no`
+       other key on it is in play. `BatchMode=yes` rides along for a third
+       reason: the preflight can see that the secret is non-empty and nothing
+       more, so a key generated *with* a passphrase (the `-N ""` above is what
+       avoids it) arrives intact and ssh then tries to read one â€” batch mode
+       makes that an immediate refusal on every runner rather than a wait whose
+       outcome depends on the tty, and the clone's own message names the
+       passphrase among its causes. `accept-new` and `StrictHostKeyChecking=no`
        appear nowhere in the file and `ReleaseWorkflowTests` asserts their
        absence, because either one turns a push to an impostor into a silent
        success. **If GitHub rotates that host key this step fails loudly**, with
@@ -976,8 +982,8 @@ between the read-backs and the push, because neither has a failure that shows â€
 dropping the `add` sends the step down the no-change branch, which announces
 that the tap already pins this release and exits 0, and dropping the `commit`
 makes the push a silent no-op. `testTheTapCloneVerifiesTheHostItPushesTo` pins
-`StrictHostKeyChecking=yes` and `IdentitiesOnly=yes` present and
-`StrictHostKeyChecking=no`/`accept-new` absent from the whole active file, and
+`StrictHostKeyChecking=yes`, `IdentitiesOnly=yes` and `BatchMode=yes` present
+and `StrictHostKeyChecking=no`/`accept-new` absent from the whole active file, and
 pins GitHub's published host key **by value**, not by shape: a truncated or
 mistyped key satisfies `contains("ssh-ed25519 ")` and then fails `git clone`
 post-publish. `testTheTapDeployKeyIsWrittenNarrowlyAndTrapped` pins the
