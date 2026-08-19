@@ -782,11 +782,17 @@ The workflow then, in order:
        appear nowhere in the file and `ReleaseWorkflowTests` asserts their
        absence, because either one turns a push to an impostor into a silent
        success. **If GitHub rotates that host key this step fails loudly**, with
-       ssh's host-key-verification error: the fix is to replace the pinned line
-       from GitHub's published SSH key fingerprints page (docs.github.com,
-       "GitHub's SSH key fingerprints") and re-tag. That is the intended
-       behaviour, not a bug — a rotation nobody noticed is exactly what pinning
-       exists to surface.
+       ssh's host-key-verification error. That is the intended behaviour, not a
+       bug — a rotation nobody noticed is exactly what pinning exists to
+       surface. The recovery is in two parts, and in this order, because this
+       step runs *after* the release is published: bump the cask for the release
+       that just shipped by hand (the two-line procedure under "What a failed
+       bump costs" below), then replace the pinned line in the workflow from
+       GitHub's published SSH key fingerprints page (docs.github.com, "GitHub's
+       SSH key fingerprints") so the *next* tag clones again. There is nothing
+       to re-tag: the tag and its release already exist, and re-running the
+       workflow against them would refuse at `gh release create` long before it
+       reached the clone.
 
        The clone is one of the two phases talking to a machine this workflow
        does not own, so it carries its own refusal rather than ending the step
