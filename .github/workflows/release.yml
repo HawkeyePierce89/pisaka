@@ -96,7 +96,10 @@ jobs:
     # a manual undo.
     timeout-minutes: 90
     # Scoped to this job alone: creating a release and uploading its assets is
-    # the only write this workflow performs.
+    # the only write this token performs. The Homebrew cask bump is the one other
+    # write in this workflow and is deliberately *not* covered here — it goes to
+    # another repository, over SSH, with a deploy key whose write access is
+    # scoped to that tap alone, so no widening of GITHUB_TOKEN can reach it.
     permissions:
       contents: write
     steps:
@@ -1255,9 +1258,29 @@ jobs:
           printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$KNOWN_HOSTS"
           export GIT_SSH_COMMAND="ssh -i '$KEY' -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile='$KNOWN_HOSTS'"
 
+          # The clone and the push below are the two phases that talk to a
+          # machine this workflow does not own, and the only two that can fail
+          # for a reason no guard here can anticipate — a deploy key registered
+          # without write access, a revoked key, a renamed tap, a `master` that
+          # moved. `set -e` alone would end the step on git's stderr and nothing
+          # else, so each carries the same actionable refusal every other phase
+          # does: the release is already published, and the reader needs the
+          # manual bump, not a transport error.
           rm -rf "$TAP"
-          git clone --depth 1 --branch master git@github.com:HawkeyePierce89/homebrew-apps.git "$TAP"
+          if ! git clone --depth 1 --branch master git@github.com:HawkeyePierce89/homebrew-apps.git "$TAP"; then
+            echo "::error::Could not clone HawkeyePierce89/homebrew-apps over SSH. Either HOMEBREW_TAP_DEPLOY_KEY is not the private half of a deploy key on that repository, the key was revoked, the tap was renamed, or its master branch is gone — the preflight can only see that the secret is non-empty, never that it still opens this door. The release is already published; bump Casks/pisaka.rb by hand. See docs/RELEASING.md."
+            exit 1
+          fi
           CASK="$TAP/Casks/pisaka.rb"
+
+          # Named before the counts below. `grep -c` on a file that is not there
+          # exits 2 having printed nothing, which `|| true` turns into an empty
+          # count and a refusal that blames the field's indentation for a cask
+          # that simply moved.
+          if [ ! -f "$CASK" ]; then
+            echo "::error::The tap has no Casks/pisaka.rb — the cask was renamed, moved, or never existed on master. The release is already published; add or fix the cask by hand with this version and sha256, then correct the path in this step. See docs/RELEASING.md."
+            exit 1
+          fi
 
           # Shape before edit. A `sed` that matches nothing succeeds, so without
           # these two counts a renamed field, a re-indented file or a second cask
@@ -1273,6 +1296,21 @@ jobs:
           fi
           if [ "$SHA_LINES" != "1" ]; then
             echo "::error::Casks/pisaka.rb has ${SHA_LINES} lines matching the expected two-space-indented sha256 \"…\" form rather than exactly 1, so this step will not edit it. The release is already published; the recovery is the manual two-line bump — set version and sha256 in Casks/pisaka.rb, commit, push — and then fix the pattern in this step. See docs/RELEASING.md."
+            exit 1
+          fi
+
+          # The third fact `brew install` depends on, and the one this step does
+          # *not* edit: the url has to derive the asset from `version`, in both
+          # the tag segment and the file name. A cask whose url were spelled out
+          # literally would take the new version and the new digest happily and
+          # then serve the *previous* zip — which fails at the checksum, the
+          # failure this step's own comments call worse than a stale cask
+          # because it reads as a corrupted download. Two lines rewritten
+          # correctly and a third left behind is exactly the shape a bump that
+          # only checks its own edits cannot see.
+          URL_LINES="$(grep -cE '^  url "[^"]*/v#\{version\}/Pisaka-#\{version\}\.zip"$' "$CASK" || true)"
+          if [ "$URL_LINES" != "1" ]; then
+            echo "::error::Casks/pisaka.rb has ${URL_LINES} url lines interpolating #{version} into both the tag and the asset name rather than exactly 1, so bumping version and sha256 alone would leave it pointing at the previous zip — every brew install would then fail at the checksum. The release is already published; bump the cask by hand, url included, and then fix the pattern in this step. See docs/RELEASING.md."
             exit 1
           fi
 
@@ -1316,7 +1354,18 @@ jobs:
             exit 0
           fi
           git -C "$TAP" commit -m "pisaka ${VERSION}"
-          git -C "$TAP" push origin master
+
+          # No rebase-and-retry on a rejected push, deliberately. A commit
+          # landing on the tap in the seconds between the clone and this line
+          # rejects it as non-fast-forward — and the right answer to that is a
+          # human reading what else changed, not a rebase this step performs
+          # unattended onto a cask somebody was mid-way through editing. The
+          # cost of the refusal is the manual bump below; the cost of the
+          # automatic rebase is a tap whose history this workflow rewrote.
+          if ! git -C "$TAP" push origin master; then
+            echo "::error::Could not push the cask bump to HawkeyePierce89/homebrew-apps. Either the deploy key is read-only (registered without \"Allow write access\"), or master moved between the clone and the push — this step does not rebase, see the comment above it. The release is already published and only the tap is stale; the recovery is the manual two-line bump. See docs/RELEASING.md."
+            exit 1
+          fi
 
       # `if: always()` and last, so no path through this job — success, any
       # failure above, or a cancellation — leaves any of the three private keys

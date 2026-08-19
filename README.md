@@ -135,6 +135,10 @@ confirmation — the one that says Apple checked it for malicious software, with
 an Open button — and nothing else. No blocked launch, no trip through System
 Settings, no terminal command. macOS 13 or later.
 
+Or with Homebrew: `brew install --cask HawkeyePierce89/apps/pisaka`. The cask is
+bumped by the release workflow itself — version and checksum of the exact zip it
+just uploaded — so it tracks GitHub Releases rather than trailing them.
+
 Updates afterwards install themselves through Sparkle, which verifies each one
 against the EdDSA key baked into the copy you are running — an integrity chain
 independent of Apple's signature.
@@ -147,12 +151,17 @@ signed with a Developer ID Application certificate and the hardened runtime,
 launches the signed app as a smoke test so a build that cannot start never
 reaches the notary queue, notarizes and staples it, signs the update with
 Sparkle's EdDSA key and attaches
-the app zip plus `appcast.xml` to a new GitHub Release. It refuses up front if
-the tag and `MARKETING_VERSION` disagree, or if any signing or notarization
-secret is missing, so bump and commit the version *before* tagging. The build
-number comes from `github.run_number` and is never committed. The whole path —
-the six repository secrets, the throwaway signing keychain, certificate renewal
-and what is still account-side — is documented in
+the app zip plus `appcast.xml` to a new GitHub Release. It then bumps `version`
+and `sha256` in the Homebrew cask (`HawkeyePierce89/homebrew-apps`,
+`Casks/pisaka.rb`) to the zip it just uploaded, so `brew install --cask pisaka`
+follows the release; that step runs after the release leaves draft and is fatal
+like every other, so a failure there leaves the release live and only the tap
+stale, with a manual two-line recovery. It refuses up front if
+the tag and `MARKETING_VERSION` disagree, or if any signing, notarization or
+distribution secret is missing, so bump and commit the version *before* tagging.
+The build number comes from `github.run_number` and is never committed. The
+whole path — the seven repository secrets, the throwaway signing keychain,
+certificate renewal and what is still account-side — is documented in
 [`docs/RELEASING.md`](docs/RELEASING.md).
 
 ## Continuous Integration
@@ -170,9 +179,11 @@ only kind that can see a dynamic-link failure. There is no iOS equivalent, for
 want of a simulator.
 
 The release workflow above is the one place that *does* use secrets (the Sparkle
-private signing key, the Developer ID certificate and its password, and the
-three App Store Connect API key values notarization needs) and the one place
-that signs; it runs only on a `v*` tag, never on a pull request.
+private signing key, the Developer ID certificate and its password, the three
+App Store Connect API key values notarization needs, and — the one that is not
+signing material — an SSH deploy key whose write access is scoped to the
+Homebrew tap alone) and the one place that signs; it runs only on a `v*` tag,
+never on a pull request.
 
 ## Keyboard Shortcuts (macOS)
 

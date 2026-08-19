@@ -402,10 +402,9 @@ setting, the macOS runpath pin `LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]`),
 `ReleaseWorkflowTests` (`.github/workflows/release.yml`'s whole shape, asserted
 *by mechanism* rather than by wording: the trigger/permissions by set equality,
 every preflight refusal's branch reaching `exit 1`, the throwaway signing
-keychain and all three private keys deleted by path on every path, the Developer
-ID identity/team/hardened runtime/`--timestamp` on the archive command line
-while
-`project.yml` stays signing-free, the inside-out re-sign of Sparkle's nested
+keychain and all three private keys deleted by path on every path, the
+Developer ID identity/team/hardened runtime/`--timestamp` on the archive command
+line while `project.yml` stays signing-free, the inside-out re-sign of Sparkle's nested
 helpers verified on the app, the framework and every Mach-O inside it, the
 notarize→staple→`spctl` chain with both verdicts read explicitly, that no step
 can be non-fatal, the job budget against the notary timeout, step ordering,
@@ -492,8 +491,8 @@ entitlements file ships**: the hardened runtime permits `fork`/`exec` and
 library validation is per-process, so `git`, the PTY shell and the provisioned
 language servers need nothing declared; one is added only when a concrete
 failure demands it — and on the re-sign's `--entitlements` too, or it is
-silently stripped. The certificate
-lives only in a per-run `$RUNNER_TEMP` keychain that is deleted on every path,
+silently stripped. The certificate lives only in a per-run `$RUNNER_TEMP`
+keychain that is deleted on every path,
 alongside the notarization key. Nothing about it is reachable from PR CI, so its
 whole shape is pinned statically by `ReleaseWorkflowTests`; the workflow, its
 preflight refusals, the seven repository secrets it reads (the Sparkle EdDSA

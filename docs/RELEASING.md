@@ -457,8 +457,8 @@ The workflow then, in order:
     list — and cheap refusals eleven through thirteen, one per way the
     certificate pair can be wrong: the base64 body not decoding
     (`DEVELOPER_ID_CERT_P12` pasted raw or with characters lost), `security
-    import` failing on it
-    (`DEVELOPER_ID_CERT_PASSWORD` belonging to some other export — the pair
+    import` failing on it (`DEVELOPER_ID_CERT_PASSWORD` belonging to some other
+    export — the pair
     rotated by halves, the case flagged above — *or* a `.p12` truncated at a
     multiple of four bytes, since `base64 --decode` rejects invalid characters
     and not a short body, so that paste decodes cleanly into a partial file and
@@ -781,17 +781,38 @@ The workflow then, in order:
        "GitHub's SSH key fingerprints") and re-tag. That is the intended
        behaviour, not a bug — a rotation nobody noticed is exactly what pinning
        exists to surface.
-    4. **The edit, and reading it back.** Before touching anything the step
-       counts the lines matching `^  version "…"$` and `^  sha256 "…"$` in
-       `Casks/pisaka.rb` and refuses unless each is **exactly one** — missing
-       and duplicated both fail, because a `sed` that matches nothing succeeds
-       and would leave a green step that pushed nothing, while a duplicate would
-       have it rewrite a stanza this workflow does not release. The rewrite is
-       one `sed -E` into a temp file plus `mv` (not `sed -i`, whose BSD and GNU
-       spellings differ), and both new lines are then read back with `grep -qxF`
-       — whole-line and literal, so a prefix match cannot pass off the old line
-       as the new one. Each of those four checks exits 1 with a message naming
-       the cask path and the manual recovery.
+
+       The clone is one of the two phases talking to a machine this workflow
+       does not own, so it carries its own refusal rather than ending the step
+       on ssh's stderr: a deploy key registered without write access, revoked,
+       or pointed at a renamed tap all land here, and the preflight cannot see
+       any of them — it can only establish that the secret is non-empty.
+    4. **The edit, and reading it back.** The cask's own existence is checked
+       first, by name: `grep -c` on a file that is not there exits 2 having
+       printed nothing, so without that check the counts below would refuse
+       with an empty count and a message blaming the version field's
+       indentation for a cask that had simply been renamed or moved.
+
+       Then the shape. The step counts the lines matching `^  version "…"$`,
+       `^  sha256 "…"$` and the `url` interpolating `#{version}` into both the
+       tag segment and the asset name in `Casks/pisaka.rb`, and refuses unless
+       each is **exactly one** — missing and duplicated both fail, because a
+       `sed` that matches nothing succeeds and would leave a green step that
+       pushed nothing, while a duplicate would have it rewrite a stanza this
+       workflow does not release. **The `url` is checked although it is never
+       edited**, and that is the point: it is the third fact `brew install`
+       depends on, and a cask whose url were spelled out literally would take
+       the new version and the new digest happily and then go on serving the
+       *previous* zip — which fails at the checksum, the worse failure, because
+       it reads as a corrupted download. Two lines rewritten correctly and a
+       third left behind is exactly the shape a bump that only checks its own
+       edits cannot see.
+
+       The rewrite is one `sed -E` into a temp file plus `mv` (not `sed -i`,
+       whose BSD and GNU spellings differ), and both new lines are then read
+       back with `grep -qxF` — whole-line and literal, so a prefix match cannot
+       pass off the old line as the new one. Each of those six checks exits 1
+       with a message naming the cask path and the manual recovery.
     5. **The push.** Git identity set inside the clone (`git -C`, never
        globally: the runner's config is shared with the rest of the job), one
        commit named `pisaka <version>`, `git push origin master`. **An
@@ -800,6 +821,17 @@ The workflow then, in order:
        and exits 0 rather than dying on `git commit`'s "nothing to commit". That
        cannot swallow a stale cask, since a different zip has a different digest
        and therefore a real diff.
+
+       The push is the second phase talking to a machine this workflow does not
+       own, and the only failure in this file that is *always* post-publication,
+       so it too refuses with the manual recovery named rather than with git's
+       stderr. **It does not rebase and retry.** A commit landing on the tap in
+       the seconds between the clone and the push rejects it as
+       non-fast-forward, and the right answer to that is a human reading what
+       else changed — not an unattended rebase onto a cask somebody may be
+       mid-way through editing. The cost of refusing is the manual bump below;
+       the cost of the automatic rebase is a tap whose history this workflow
+       rewrote.
 
     **What a failed bump costs, stated plainly:** it is the only failure in this
     workflow that lands with the release **already published**. The run goes
@@ -813,7 +845,9 @@ The workflow then, in order:
     2. In `HawkeyePierce89/homebrew-apps`, set `version` and `sha256` in
        `Casks/pisaka.rb` to that version and that digest — the `url` already
        interpolates `#{version}` on both the tag and the file name, so nothing
-       else moves.
+       else moves. (That is the assumption the step's third shape check
+       enforces, so if the bump failed *on* that check, the url is what needs
+       fixing here too.)
     3. Commit and push to `master`.
 
     Existing installs are unaffected either way, including ones made through
@@ -826,8 +860,8 @@ The workflow then, in order:
     through the job — success, any failure above, or a cancellation — leaves any
     of the three private keys (the `.p12`, the notary `.p8` and the Homebrew tap
     deploy key, each removed by literal path) on the runner or the search list
-    rewritten. It deliberately does
-    not `set -e`: a failure to restore the search list must not skip deleting the
+    rewritten. It deliberately does not `set -e`: a failure to restore the
+    search list must not skip deleting the
     keychain. Not aborting is not the same as not reporting, though — each
     command records into a `STATUS` accumulator and the step exits non-zero if
     any of them failed, because without one the step's exit code is its trailing
@@ -850,11 +884,9 @@ than deleted), the throwaway keychain (created under `$RUNNER_TEMP`, the login
 keychain never named, the three certificate refusals — the base64 decode, the
 `security import` and the identity — the import before the archive, the
 unlock and the lock settings including the absence of `-l`, the partition list's
-`-s`, the decoded `.p12`
-written under a `(umask 077; …)` subshell, the `if: always()`
-deletion of the keychain *and of all three private keys by path*), the re-sign
-pass
-(each of the four nested helpers signed; every signing invocation in that step
+`-s`, the decoded `.p12` written under a `(umask 077; …)` subshell, the
+`if: always()` deletion of the keychain *and of all three private keys by
+path*), the re-sign pass (each of the four nested helpers signed; every signing invocation in that step
 carrying `--force`, the Developer ID identity, `--options runtime` and
 `--timestamp`; `--preserve-metadata=entitlements` on `Downloader.xpc` alone; the
 inside-out order compared by index rather than by presence — helpers before the
@@ -917,21 +949,31 @@ silent), the tools-before-archive ordering, and two cross-file pairs against
 The cask bump is pinned by the same means.
 `testPreflightRefusesEveryUnshippableRelease` carries the tap secret as its own
 assertion pair — the `-z` guard reaching `exit 1`, and the `env:` mapping
-present verbatim — kept separate from the five
-Apple secrets, whose failure text is about signing and notarization and would be
-the wrong message here. `testTheCaskBumpIsSurgicalAndSelfChecking` pins the step
+present verbatim — kept separate from the five Apple secrets, whose failure text
+is about signing and notarization and would be the wrong message here. `testTheCaskBumpIsSurgicalAndSelfChecking` pins the step
 itself: the version derived from `GITHUB_REF_NAME` rather than restated, the
 hash taken over the literal `build/release-assets/Pisaka-${VERSION}.zip` with
-`shasum -a 256`, the tap slug, `master` and `Casks/pisaka.rb` each named, and
-five guards proven to reach `exit 1` — the missing zip, both shape counts and
-both post-edit read-backs — with the `git … push` asserted to come *after* the
-verification by index, so a push that no longer waits on the checks fails the
-suite. `testTheTapCloneVerifiesTheHostItPushesTo` pins
+`shasum -a 256` and `awk '{print $1}'` (the digest is the first field;
+carrying `shasum`'s trailing path into the substitution puts slashes in the
+`sed` replacement and in the cask's own `sha256` line), the full `git@` clone
+URL rather than the slug alone — an `https://` URL names the same repository,
+satisfies every slug assertion, clones a public tap *anonymously* and then
+fails at the push with the release already promoted — `master` and
+`Casks/pisaka.rb` each named, `set -euo pipefail` present and ahead of the
+first command, and nine guards proven to reach `exit 1`: the missing zip, the
+missing cask, all three shape counts, both post-edit read-backs, and the clone
+and the push themselves. `git add` and `git commit` are asserted by index
+between the read-backs and the push, because neither has a failure that shows —
+dropping the `add` sends the step down the no-change branch, which announces
+that the tap already pins this release and exits 0, and dropping the `commit`
+makes the push a silent no-op. `testTheTapCloneVerifiesTheHostItPushesTo` pins
 `StrictHostKeyChecking=yes` and `IdentitiesOnly=yes` present and
 `StrictHostKeyChecking=no`/`accept-new` absent from the whole active file, and
-`testTheTapDeployKeyIsWrittenNarrowlyAndTrapped` pins the `(umask 077; …)`
-write under `${RUNNER_TEMP}`, the `trap … rm -f` on `EXIT`, and that the raw
-secret is never echoed or `cat`ed. The step's position — after the publish and
+pins GitHub's published host key **by value**, not by shape: a truncated or
+mistyped key satisfies `contains("ssh-ed25519 ")` and then fails `git clone`
+post-publish. `testTheTapDeployKeyIsWrittenNarrowlyAndTrapped` pins the
+`(umask 077; …)` write under `${RUNNER_TEMP}`, the `trap … rm -f` on `EXIT`,
+and that the raw secret is never echoed or `cat`ed. The step's position — after the publish and
 promote, before the cleanup — is asserted by index in the ordering test that
 already owns step order, and the cleanup's three key paths in
 `testTheSigningKeychainIsRemovedOnEveryPath`.
