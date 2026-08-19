@@ -1256,12 +1256,19 @@ downloaded the app rather than built it.
   public half carries write access. Afterwards, check three things: the tap has
   exactly one new commit named `pisaka <version>` touching only
   `Casks/pisaka.rb`; `brew update && brew info --cask HawkeyePierce89/apps/pisaka`
-  reports the new version and the new checksum; and a fresh
+  reports the new version; and a fresh
   `brew install --cask HawkeyePierce89/apps/pisaka` (on a machine with no copy
   installed, or after `brew uninstall --cask pisaka`) lands that version and
   launches it. The third is the one that actually exercises the checksum —
   `brew info` reads the cask, `brew install` verifies the download against it,
-  and a wrong `sha256` fails only there.
+  and a wrong `sha256` fails only there. **`brew info --cask` does not print
+  `sha256` at all** — it shows the token, version, homepage, requirements,
+  artifacts and analytics, and nothing else — so do not go looking for the
+  checksum there and read its absence as a bump that half-landed; the cask's own
+  `sha256` is readable with
+  `brew info --json=v2 --cask HawkeyePierce89/apps/pisaka | jq -r '.casks[0].sha256'`
+  if it is wanted for its own sake, but the `brew install` above is what proves
+  it correct.
 
   **Both commands are fully qualified on purpose**, unlike the shorthand this
   file and `README.md` use in prose. Homebrew resolves a bare `pisaka` only out

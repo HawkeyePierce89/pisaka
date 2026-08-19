@@ -2585,6 +2585,15 @@ final class ReleaseWorkflowTests: XCTestCase {
     /// fixes it as a refusal, which is what lets the clone's own message be the
     /// one the reader sees on a release that is already published.
     ///
+    /// The presence half is anchored to the `GIT_SSH_COMMAND` line and not
+    /// searched step-wide, for the same reason the `-i`/`$KEY` assertion below
+    /// it is: an option deleted from the command but still named by one of this
+    /// step's `::error::` messages — and those messages do discuss the
+    /// passphrase case `BatchMode=yes` exists for — would keep a step-wide
+    /// search green while the connection that hands over a write-enabled deploy
+    /// key no longer carries it. Only the line ssh is actually configured from
+    /// can prove the option is in force.
+    ///
     /// The absence half is asserted over the *whole* active workflow rather than
     /// this step: a relaxed host check anywhere in this file is a relaxed host
     /// check, and this is the only step in it that speaks SSH at all.
@@ -2594,9 +2603,10 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
 
         for option in ["IdentitiesOnly=yes", "BatchMode=yes", "StrictHostKeyChecking=yes"] {
-            XCTAssertTrue(script.contains { $0.contains(option) }, """
-                release.yml's `\(Self.caskBumpStepName)` step must connect with \(option). See \
-                this test's doc comment for what each of the three prevents.
+            XCTAssertTrue(script.contains { $0.contains("GIT_SSH_COMMAND") && $0.contains(option) }, """
+                release.yml's `\(Self.caskBumpStepName)` step must connect with \(option), on \
+                GIT_SSH_COMMAND's own line. See this test's doc comment for what each of the \
+                three prevents.
                 """)
         }
         XCTAssertTrue(script.contains { $0.contains("UserKnownHostsFile") && $0.contains("$KNOWN_HOSTS") }, """
