@@ -1158,7 +1158,7 @@ document, together with the limits they carry.
     decides what is seen and `image` falls below an alphabetical 30. The one
     matcher every other candidate source uses — `FuzzyMatch.matches(_:query:)` over
     `filterText ?? label`, the spec's own filtering key, never the inserted text
-    (a YAML property inserts `image:\n  `) — now partitions the list ahead of the
+    (a YAML object property inserts `services:\n  `) — now partitions the list ahead of the
     sort. It is neither a filter nor a ranking: nothing the server sent is dropped
     for failing it (its own matching may legitimately be looser — the recorded
     transcript answers `Gree` with `VM_MEMORY_MALLOC_LARGE_REUSED`), and inside
@@ -1179,6 +1179,25 @@ document, together with the limits they carry.
     literal text under either format — and with it every completion the server was
     downloaded for. No answer is still better than a guessed one; a
     placeholder-free snippet is not a guess.
+    **Multi-line inserted text is re-indented to the caret's line.** A server
+    that answers with more than one line spells the lines after the first relative
+    to the *item*, not to the buffer, and expects the client to add the current
+    indentation back — LSP's `insertTextMode.adjustIndentation`.
+    `yaml-language-server` is the case in hand and it is not a corner one: an
+    object-valued schema property inserts `deploy:\n  `, the same eleven
+    characters at every nesting depth, so writing it verbatim four columns in
+    leaves the caret at column 2 and what the user types next becomes a sibling of
+    the grandparent key — in a document that still parses.
+    `indentingContinuationLines(of:forInsertionAt:in:lineStarts:)` prefixes the
+    insertion line's own leading whitespace (measured *up to* the insertion point,
+    per the spec's wording) to every following non-empty line, leaves the first
+    line and each line's own relative indent alone, and returns single-line text
+    identical — the test that comes first, because this runs per item per
+    keystroke. It is applied before the drop rules and the dedup, so the row, the
+    dedup key and the primary edit are one string; `resolveEdits(for:)` applies
+    the same rule, since an item whose edits arrive late inserts the same text.
+    Splitting on `\n` alone is complete: a `\r\n` splits into `…\r` plus the next
+    line, and the prefix lands after the `\n` either way.
     **One line-start table per list.** Every item sourcekit-lsp sends carries a
     `textEdit`, so mapping a list with the one-shot `LSPPositionMap.range(for:in:)`
     would re-scan the whole buffer once per item — thirty full scans of a large file

@@ -434,9 +434,9 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         // that has room for them. Not a ranking key, because within each half D6
         // stands untouched — `sortText` still decides, and the server's own array
         // order still breaks a tie. The key is `filterText ?? label`, the spec's
-        // own filtering key, never the inserted text: a YAML property inserts
-        // `image:\n  `, and asking whether *that* answers `ima` asks something
-        // else. An empty prefix puts every item in the same half, which is the
+        // own filtering key, never the inserted text: a YAML object property
+        // inserts `services:\n  `, and asking whether *that* answers `ser` asks
+        // something else. An empty prefix puts every item in the same half, which is the
         // bare-dot member case and the deliberate "show me everything".
         let matched = items.map { item in
             typed.isEmpty || FuzzyMatch.matches(item.filterText ?? item.label, query: typed)
@@ -478,14 +478,26 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             // text; inserting it is not a guess. Absent means plain text, per the
             // spec.
             guard item.insertTextFormat ?? 1 == 1 || !item.carriesSnippetSyntax else { continue }
-            let inserted = item.insertedText
+            let primary = primaryRange(
+                for: item,
+                typedWord: typedWord,
+                in: text,
+                lineStarts: lineStarts
+            )
+            let inserted = Self.indentingContinuationLines(
+                of: item.insertedText,
+                forInsertionAt: primary.location,
+                in: text,
+                lineStarts: lineStarts
+            )
             // Completing `foo` to `foo` inserts nothing and hides a real
             // candidate behind it — the same rule the tree-sitter path applies,
             // stated here too because the two lists are never merged.
             guard !inserted.isEmpty, inserted != typed else { continue }
 
             let itemEdits = edits(
-                for: item,
+                insertedText: inserted,
+                primaryRange: primary,
                 additionalTextEdits: item.additionalTextEdits,
                 typedWord: typedWord,
                 in: text,
@@ -576,16 +588,21 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     /// `lineStarts` is `text`'s table, built by the caller: `publish` maps every
     /// item in a list against the same buffer, and rebuilding it per range is the
     /// one avoidable cost on a path that runs per keystroke.
+    ///
+    /// `insertedText` and `primaryRange` are passed in rather than read off the
+    /// item, because both callers must have decided them *before* asking for the
+    /// edits: the range is what the indentation rule below measures against, and
+    /// the text it produces is the text the popup publishes, the dedup key and
+    /// the primary edit alike — the three must be the same string or the row and
+    /// the buffer disagree.
     private func edits(
-        for item: LSPCompletionItem,
+        insertedText: String,
+        primaryRange: NSRange,
         additionalTextEdits: [LSPTextEdit]?,
         typedWord: NSRange,
         in text: NSString,
         lineStarts: [Int]
     ) -> [CompletionEdit] {
-        let primaryRange = item.textEdit
-            .map { LSPPositionMap.range(for: $0.range, in: text, lineStarts: lineStarts) }
-            ?? typedWord
         let additional = (additionalTextEdits ?? []).map {
             CompletionEdit(
                 range: LSPPositionMap.range(for: $0.range, in: text, lineStarts: lineStarts),
@@ -595,8 +612,84 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         }
         guard !additional.isEmpty || primaryRange != typedWord else { return [] }
         return [
-            CompletionEdit(range: primaryRange, newText: item.insertedText, role: .primary)
+            CompletionEdit(range: primaryRange, newText: insertedText, role: .primary)
         ] + additional
+    }
+
+    /// The range the item's own text replaces: the server's if it named one,
+    /// otherwise the word the user typed.
+    private func primaryRange(
+        for item: LSPCompletionItem,
+        typedWord: NSRange,
+        in text: NSString,
+        lineStarts: [Int]
+    ) -> NSRange {
+        item.textEdit
+            .map { LSPPositionMap.range(for: $0.range, in: text, lineStarts: lineStarts) }
+            ?? typedWord
+    }
+
+    /// LSP's `insertTextMode.adjustIndentation`, applied to inserted text that
+    /// spans more than one line.
+    ///
+    /// A server that answers with a multi-line insertion spells the lines after
+    /// the first **relative to the item**, not to the buffer, and expects the
+    /// client to add the current line's indentation back. `yaml-language-server`
+    /// is the case in hand and it is not a corner one: an object-valued schema
+    /// property inserts `deploy:\n  ` — the same eleven characters at every
+    /// nesting depth, verified against the pinned server — so writing it verbatim
+    /// four columns in leaves the caret at column 2, under the *grandparent*.
+    /// What the user then types is a sibling of the wrong key, in a document that
+    /// still parses. This is the one path in the layer whose result is written to
+    /// the file, so an insertion that is silently wrong is worse than the popup
+    /// the branch added.
+    ///
+    /// The rule is the spec's own words — "the editor adjusts leading whitespace
+    /// of new lines so that they match the indentation up to the cursor of the
+    /// line for which the item is accepted" — and it is not a guess about the
+    /// text: the first line is untouched, every following one keeps whatever
+    /// relative indentation the server gave it, and only the current line's own
+    /// leading whitespace is prefixed. A line the server left empty stays empty,
+    /// because indenting it would add trailing whitespace nobody asked for.
+    ///
+    /// Single-line text — every item every other server sends, and every scalar
+    /// YAML property — returns identical, which is why the newline test comes
+    /// first: this runs per item per keystroke.
+    ///
+    /// Splitting on `\n` alone is deliberate and complete. Inserted text is a
+    /// string a server composed, and the separators it can contain are LSP's; a
+    /// `\r\n` in it splits into `…\r` and the next line, and prefixing after the
+    /// `\n` puts the indentation exactly where it belongs either way.
+    static func indentingContinuationLines(
+        of inserted: String,
+        forInsertionAt location: Int,
+        in text: NSString,
+        lineStarts: [Int]
+    ) -> String {
+        guard inserted.contains("\n") else { return inserted }
+        let position = LSPPositionMap.position(
+            forOffset: location,
+            lineStarts: lineStarts,
+            length: text.length
+        )
+        let lineStart = lineStarts[position.line]
+        // "Up to the cursor": whitespace past the insertion point is not this
+        // line's indentation — a caret inside the leading run indents to where it
+        // stands, not to where the run happens to end.
+        var end = lineStart
+        let limit = min(lineStart + position.character, text.length)
+        while end < limit {
+            let unit = text.character(at: end)
+            guard unit == 0x0020 || unit == 0x0009 else { break }
+            end += 1
+        }
+        guard end > lineStart else { return inserted }
+        let indent = text.substring(with: NSRange(location: lineStart, length: end - lineStart))
+        return inserted
+            .components(separatedBy: "\n")
+            .enumerated()
+            .map { $0.offset == 0 || $0.element.isEmpty ? $0.element : indent + $0.element }
+            .joined(separator: "\n")
     }
 
     // MARK: - Resolve
@@ -626,12 +719,25 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         // the layer whose result is *written to the file* rather than dropped. So
         // the resolved item contributes exactly the half it is allowed to.
         let text = pending.text as NSString
-        return edits(
+        let lineStarts = LSPPositionMap.lineStarts(in: text)
+        let primary = primaryRange(
             for: pending.item,
+            typedWord: pending.typedWord,
+            in: text,
+            lineStarts: lineStarts
+        )
+        return edits(
+            insertedText: Self.indentingContinuationLines(
+                of: pending.item.insertedText,
+                forInsertionAt: primary.location,
+                in: text,
+                lineStarts: lineStarts
+            ),
+            primaryRange: primary,
             additionalTextEdits: resolved.additionalTextEdits ?? pending.item.additionalTextEdits,
             typedWord: pending.typedWord,
             in: text,
-            lineStarts: LSPPositionMap.lineStarts(in: text)
+            lineStarts: lineStarts
         )
     }
 
