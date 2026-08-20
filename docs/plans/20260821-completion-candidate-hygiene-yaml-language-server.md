@@ -169,32 +169,32 @@ no server-specific code anywhere in the session.
 Intent: one component record and one server case — no new download code, no unpack
 rule, no path math, no npm, ever.
 
-- [ ] Add the `yaml-language-server` component: version `1.24.0`, `requires: ["node"]`
+- [x] Add the `yaml-language-server` component: version `1.24.0`, `requires: ["node"]`
       (the existing runtime, not a second one), 20 `registry.npmjs.org` tarball
       artifacts — the closure listed in Context — each landing at
       `node_modules/<package>` (`node_modules/@vscode/l10n` for the scoped one), entry
       point `node_modules/yaml-language-server/out/server/src/server.js`.
-- [ ] Resolve every pin **by the recipe in `core-provisioning.md`** — digest and byte
+- [x] Resolve every pin **by the recipe in `core-provisioning.md`** — digest and byte
       count taken from the bytes that arrive, `unpackedByteCount` measured with `du`.
       Sanity check against the exploration figures: ~4.19 MB compressed total, ~19 MB
       unpacked. Run the `tar tzf | grep -iE 'licen|notice|third.?party'` step on every
       one of the 20 artifacts and list what it finds.
-- [ ] `licenseSPDX: "MIT AND ISC AND BSD-3-Clause"`; `licenseFileSubpaths` lists every
+- [x] `licenseSPDX: "MIT AND ISC AND BSD-3-Clause"`; `licenseFileSubpaths` lists every
       license and third-party notice the closure ships — including `prettier`'s
       `THIRD-PARTY-NOTICES.md` and each `vscode-*` `thirdpartynotices.txt`.
-- [ ] Add the `LSPDownloadableServer.yaml` case: `languages: [.yaml]`, component
+- [x] Add the `LSPDownloadableServer.yaml` case: `languages: [.yaml]`, component
       `yaml-language-server`, runtime `node`, `--stdio`, no tsserver path, and the
       configuration value `{"yaml": {"schemaStore": {"enable": true}, "completion":
       true, "hover": true}}` carried onto the description built by
       `serverDescription(manifest:layout:)`.
-- [ ] Manifest tests: extend the served-language and server-set equalities to include
+- [x] Manifest tests: extend the served-language and server-set equalities to include
       YAML; add the entry-point / configuration assertions in the shape the TypeScript
       and Python ones already have; grow the `known` SPDX id set with `ISC` and
       `BSD-3-Clause`; add the **stated exception** for `node_modules/@vscode/l10n`
       (publishes no license file; MIT declared in its `package.json`), named by
       destination with the reason, so it reads as a decision and a second one cannot
       appear by accident.
-- [ ] `swift test` green.
+- [x] `swift test` green.
 
 ### Task 4: The runtime schema fetch is stated where consent is given
 

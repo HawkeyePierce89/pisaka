@@ -65,7 +65,7 @@ public struct LSPProvisioningManifest: Equatable, Sendable {
     /// the pinned component and the engine that installs it, not
     /// `LSPProvisioningModel`, whose row cannot say "no Rust toolchain".
     public static let standard = LSPProvisioningManifest(
-        components: [.node, .typescriptLanguageServer, .pyright, .rustAnalyzer]
+        components: [.node, .typescriptLanguageServer, .pyright, .rustAnalyzer, .yamlLanguageServer]
     )
 }
 
@@ -450,6 +450,229 @@ extension LSPComponent {
         ],
         executableSubpath: "bin/rust-analyzer"
     )
+
+    /// `yaml-language-server`, and the whole of the runtime closure it `require`s
+    /// (D11's rule, applied to a package that needs it twenty times over).
+    ///
+    /// The other two Node components pin one or two tarballs because their
+    /// published bundles are self-contained. This one is not: `server.js` is a
+    /// thin entry point that `require`s its dependencies at run time, so every
+    /// package in the resolved closure is a pin here or the server dies on start.
+    /// Twenty tarballs, ~4.19 MB compressed, ~24.8 MB on disk — resolved once, by
+    /// hand, and flat: no version in the closure conflicts with another, so the
+    /// same `node_modules/<package>` layout the other components use resolves
+    /// correctly under Node's ordinary upward walk from `server.js`. **There is
+    /// still no npm here, and no solver** — the closure is data, resolved by the
+    /// procedure in `core-provisioning.md` and changed only by shipping a new app.
+    ///
+    /// `prettier` is in the list although Pisaka never asks this server to format
+    /// anything: `yamlFormatter.js` sits in the language service's own module
+    /// graph and `require`s `prettier/standalone` unconditionally, so leaving it
+    /// out is a server that fails to load rather than a server without formatting.
+    /// It is also, at 2.8 MB, two thirds of the download.
+    ///
+    /// **This component's schemas are not pinned, and cannot be.** The server
+    /// fetches JSON schemas from `schemastore.org` while it runs — that is what
+    /// makes a compose file complete `services` rather than whatever the buffer
+    /// happens to contain — so it is the one stated exception to "what may be
+    /// downloaded is pinned data". The exception is declared where consent is
+    /// given — the consent banner and the Settings row say so before anything is
+    /// fetched — and recorded in `core-provisioning.md` beside the invariant it
+    /// qualifies, rather than only in this comment.
+    public static let yamlLanguageServer = LSPComponent(
+        id: "yaml-language-server",
+        version: "1.24.0",
+        // Three ids, because the closure really is under three: MIT for
+        // eighteen of the twenty packages, ISC for `yaml` and BSD-3-Clause for
+        // `fast-uri`, each a separate project's own license file shipped inside
+        // this tree. Same rule as pyright's `MIT AND Apache-2.0` — the heading
+        // has to name every license the texts below it are under.
+        licenseSPDX: "MIT AND ISC AND BSD-3-Clause",
+        // Every license and third-party notice the closure ships, found by the
+        // `tar tzf | grep -iE 'licen|notice|third.?party'` step in
+        // `core-provisioning.md` and listed with upstream's own spelling —
+        // `License.txt`, `LICENSE.md` and a lowercase `license` all appear, and a
+        // path this layer cannot read is dropped silently at display time.
+        //
+        // `prettier` and five of the six `vscode-*` packages ship a second notice
+        // beside their license for material incorporated into their bundles; all
+        // of them are listed. The one package with **no entry at all** is
+        // `node_modules/@vscode/l10n`, and that is a stated exception rather than
+        // an omission: 0.0.18 publishes no license file, declaring MIT in its
+        // `package.json` alone. `LSPProvisioningManifestTests` pins it by
+        // destination so a second unacknowledged package cannot appear quietly.
+        licenseFileSubpaths: [
+            "node_modules/yaml-language-server/LICENSE",
+            "node_modules/ajv/LICENSE",
+            "node_modules/ajv-draft-04/LICENSE",
+            "node_modules/ajv-i18n/LICENSE",
+            "node_modules/fast-deep-equal/LICENSE",
+            "node_modules/fast-uri/LICENSE",
+            "node_modules/json-schema-traverse/LICENSE",
+            "node_modules/jsonc-parser/LICENSE.md",
+            "node_modules/picomatch/LICENSE",
+            "node_modules/prettier/LICENSE",
+            "node_modules/prettier/THIRD-PARTY-NOTICES.md",
+            "node_modules/request-light/LICENSE.md",
+            "node_modules/require-from-string/license",
+            "node_modules/vscode-jsonrpc/License.txt",
+            "node_modules/vscode-jsonrpc/thirdpartynotices.txt",
+            "node_modules/vscode-languageserver/License.txt",
+            "node_modules/vscode-languageserver/thirdpartynotices.txt",
+            "node_modules/vscode-languageserver-protocol/License.txt",
+            "node_modules/vscode-languageserver-protocol/thirdpartynotices.txt",
+            "node_modules/vscode-languageserver-textdocument/License.txt",
+            "node_modules/vscode-languageserver-textdocument/thirdpartynotices.txt",
+            "node_modules/vscode-languageserver-types/License.txt",
+            "node_modules/vscode-languageserver-types/thirdpartynotices.txt",
+            "node_modules/vscode-uri/LICENSE.md",
+            "node_modules/yaml/LICENSE",
+        ],
+        artifacts: [
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/yaml-language-server/-/yaml-language-server-1.24.0.tgz")!,
+                sha256: "11a321032012131f2ccdf7952dc347ce05291c66931a5de2f449b2dfc81f24b2",
+                byteCount: 646_765,
+                unpackedByteCount: 7_600_000,
+                destinationSubpath: "node_modules/yaml-language-server"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/ajv/-/ajv-8.20.0.tgz")!,
+                sha256: "b2f0b3a893bbb8cc5efb6814f08b1499e19e31d5dd73683f5893382f48f6e7b3",
+                byteCount: 217_611,
+                unpackedByteCount: 2_400_000,
+                destinationSubpath: "node_modules/ajv"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/ajv-draft-04/-/ajv-draft-04-1.0.0.tgz")!,
+                sha256: "b2328acf9b3a5b1b3a098789770c2dd34ed86b5913c904c056091ec10319c2e7",
+                byteCount: 8_735,
+                unpackedByteCount: 120_000,
+                destinationSubpath: "node_modules/ajv-draft-04"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/ajv-i18n/-/ajv-i18n-4.2.0.tgz")!,
+                sha256: "b84c90f14594a447bf59badc6a9b01e75049400186adec9c85b52e1709867239",
+                byteCount: 25_980,
+                unpackedByteCount: 530_000,
+                destinationSubpath: "node_modules/ajv-i18n"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/@vscode/l10n/-/l10n-0.0.18.tgz")!,
+                sha256: "f1c2dc897488595f6bb42121869f525c6c6a5f7c8dca550754199c3251ed7c5c",
+                byteCount: 4_548,
+                unpackedByteCount: 33_000,
+                destinationSubpath: "node_modules/@vscode/l10n"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/fast-deep-equal/-/fast-deep-equal-3.1.3.tgz")!,
+                sha256: "b019a0980f27638dc3f85836b0e478f188e00d7a6e5852c0819fa86f56e47b8f",
+                byteCount: 3_656,
+                unpackedByteCount: 45_000,
+                destinationSubpath: "node_modules/fast-deep-equal"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/fast-uri/-/fast-uri-3.1.5.tgz")!,
+                sha256: "82a71e7e3716dc8c392cac0762bce80614cf539ef22000415e26eaf5c453ce2f",
+                byteCount: 32_112,
+                unpackedByteCount: 260_000,
+                destinationSubpath: "node_modules/fast-uri"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/json-schema-traverse/-/json-schema-traverse-1.0.0.tgz")!,
+                sha256: "023222622df29fc274bde5d3590e47aa1d4a8e3c1d6e2aba029948ed79799b21",
+                byteCount: 6_074,
+                unpackedByteCount: 57_000,
+                destinationSubpath: "node_modules/json-schema-traverse"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/jsonc-parser/-/jsonc-parser-3.3.1.tgz")!,
+                sha256: "4a0315b8671e7463bae7af7c142cdf19e9aa7ba39eb36dc2df383b8648e3cbc9",
+                byteCount: 27_354,
+                unpackedByteCount: 260_000,
+                destinationSubpath: "node_modules/jsonc-parser"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/picomatch/-/picomatch-4.0.5.tgz")!,
+                sha256: "e89c478225a42b3793bb4a39fd576de142c9829c26a5bd71782249e48b112f51",
+                byteCount: 24_079,
+                unpackedByteCount: 120_000,
+                destinationSubpath: "node_modules/picomatch"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/prettier/-/prettier-3.9.6.tgz")!,
+                sha256: "997da95cf2ae81053cafc79ef122a6e8dc12e3f2c619d57eb1f2e19525fb212f",
+                byteCount: 2_800_155,
+                unpackedByteCount: 10_100_000,
+                destinationSubpath: "node_modules/prettier"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/request-light/-/request-light-0.5.8.tgz")!,
+                sha256: "4b6d4b48fa05056435b300a4a5f904bacbe0e6ddfa28bb44b729eb64f24375b9",
+                byteCount: 10_534,
+                unpackedByteCount: 49_000,
+                destinationSubpath: "node_modules/request-light"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/require-from-string/-/require-from-string-2.0.2.tgz")!,
+                sha256: "cb694a4965908f7775a0c757f00cf4e624d193cd71d77988fbcca0f597b88d82",
+                byteCount: 1_816,
+                unpackedByteCount: 16_000,
+                destinationSubpath: "node_modules/require-from-string"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/vscode-jsonrpc/-/vscode-jsonrpc-8.2.0.tgz")!,
+                sha256: "3da44531c398f1545074cb728e359a822f35b9f8ac7171c847f42f0728b9c7cb",
+                byteCount: 35_427,
+                unpackedByteCount: 340_000,
+                destinationSubpath: "node_modules/vscode-jsonrpc"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/vscode-languageserver/-/vscode-languageserver-9.0.1.tgz")!,
+                sha256: "6cd7f463ae7872e588a4dd5ed5149475fe32e53517509a81e715eb0540602412",
+                byteCount: 32_720,
+                unpackedByteCount: 370_000,
+                destinationSubpath: "node_modules/vscode-languageserver"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/vscode-languageserver-protocol/-/vscode-languageserver-protocol-3.17.5.tgz")!,
+                sha256: "7473eb2d2163f3f8bea09644f9d803789a195e596b65d3946c4157e583e3ccc8",
+                byteCount: 59_008,
+                unpackedByteCount: 512_000,
+                destinationSubpath: "node_modules/vscode-languageserver-protocol"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/vscode-languageserver-textdocument/-/vscode-languageserver-textdocument-1.0.13.tgz")!,
+                sha256: "46c8c250fa7667a9503cffb506512b99557784dfefbd8e318944856ca11ffbb9",
+                byteCount: 8_425,
+                unpackedByteCount: 70_000,
+                destinationSubpath: "node_modules/vscode-languageserver-textdocument"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/vscode-languageserver-types/-/vscode-languageserver-types-3.17.5.tgz")!,
+                sha256: "d673f9e7f8bbe51351be51c58f32d4dcfa97a670ebb86bc633368394c609cac0",
+                byteCount: 71_382,
+                unpackedByteCount: 400_000,
+                destinationSubpath: "node_modules/vscode-languageserver-types"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/vscode-uri/-/vscode-uri-3.1.0.tgz")!,
+                sha256: "c6ec752d7a4858237389b23fb4d5ac05c2f1f606071cd212a9b54730e43cfc54",
+                byteCount: 59_768,
+                unpackedByteCount: 246_000,
+                destinationSubpath: "node_modules/vscode-uri"
+            ),
+            LSPArtifact(
+                url: URL(string: "https://registry.npmjs.org/yaml/-/yaml-2.8.3.tgz")!,
+                sha256: "9539805d7447def2bed5c5b4acacc283362c5e80abc5d93472b2f35f0cbf85ad",
+                byteCount: 111_837,
+                unpackedByteCount: 1_300_000,
+                destinationSubpath: "node_modules/yaml"
+            ),
+        ],
+        requires: ["node"],
+        executableSubpath: "node_modules/yaml-language-server/out/server/src/server.js"
+    )
 }
 
 // MARK: - Servers
@@ -465,6 +688,7 @@ extension LSPComponent {
 public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Identifiable {
     case typescript
     case python
+    case yaml
 
     public var id: String { rawValue }
 
@@ -479,6 +703,7 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
         switch self {
         case .typescript: return "TypeScript / JavaScript"
         case .python: return "Python"
+        case .yaml: return "YAML"
         }
     }
 
@@ -488,6 +713,7 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
         switch self {
         case .typescript: return [.typescript, .javascript]
         case .python: return [.python]
+        case .yaml: return [.yaml]
         }
     }
 
@@ -495,6 +721,7 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
         switch self {
         case .typescript: return "typescript-language-server"
         case .python: return "pyright"
+        case .yaml: return "yaml-language-server"
         }
     }
 
@@ -503,12 +730,12 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
     /// change is this property answering `nil` and not a rewrite of the engine.
     public var runtimeComponentID: String {
         switch self {
-        case .typescript, .python: return "node"
+        case .typescript, .python, .yaml: return "node"
         }
     }
 
-    /// Arguments after the entry point. Both servers speak LSP over stdio only
-    /// when told to; the default for both is a socket.
+    /// Arguments after the entry point. Every server here speaks LSP over stdio
+    /// only when told to; the default for all of them is a socket.
     public var arguments: [String] { ["--stdio"] }
 
     /// D11: the `typescript` copy this server should drive *when the project has
@@ -528,7 +755,41 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
     public var tsserverSubpath: String? {
         switch self {
         case .typescript: return "node_modules/typescript/lib/tsserver.js"
-        case .python: return nil
+        case .python, .yaml: return nil
+        }
+    }
+
+    /// The settings this server takes on its **configuration** channels, keyed by
+    /// the section it asks for — `LSPServerDescription.configuration`, carried
+    /// onto the description below and delivered by `LSPSession`.
+    ///
+    /// `nil` for every server but the YAML one, which is the statement that their
+    /// handshakes are byte-for-byte what they were.
+    ///
+    /// The YAML server pulls `workspace/configuration` for `yaml`, `http`,
+    /// `[yaml]`, `editor` and `files` on `initialized`, **unconditionally** —
+    /// whatever the client advertised — and its `onDidChangeConfiguration` handler
+    /// ignores the pushed payload and re-pulls. That is a fact about the pinned
+    /// 1.24.0 bundle rather than a hope about the protocol, which is what pinning
+    /// is for. So the value below is what the answer to that pull is built from,
+    /// and only the `yaml` section is named: the other four are answered `null`,
+    /// exactly as they would be with no configuration at all.
+    ///
+    /// `schemaStore.enable` is stated rather than left to upstream's default —
+    /// which happens to be `true`, so schemas would load by luck. It is the
+    /// setting that makes a `docker-compose.yml` complete `services` at all, and a
+    /// default that flips in a later pin would take completion with it silently.
+    public var configuration: JSONValue? {
+        switch self {
+        case .typescript, .python: return nil
+        case .yaml:
+            return .object([
+                "yaml": .object([
+                    "schemaStore": .object(["enable": .bool(true)]),
+                    "completion": .bool(true),
+                    "hover": .bool(true),
+                ])
+            ])
         }
     }
 
@@ -570,7 +831,8 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
             languages: languages,
             launch: .executable(path: node.path),
             arguments: [entry.path] + arguments,
-            initializationOptions: options
+            initializationOptions: options,
+            configuration: configuration
         )
     }
 }

@@ -27,12 +27,14 @@ final class LSPProvisioningModelTests: XCTestCase {
         static let typescript = URL(string: "https://example.invalid/typescript.tgz")!
         static let pyright = URL(string: "https://example.invalid/pyright.tgz")!
         static let fsevents = URL(string: "https://example.invalid/fsevents.tgz")!
+        static let yamlServer = URL(string: "https://example.invalid/yaml-language-server.tgz")!
 
         static let nodeBytes = 52_234_372
         static let tsServerBytes = 501_633
         static let typescriptBytes = 4_377_468
         static let pyrightBytes = 4_139_958
         static let fseventsBytes = 22_808
+        static let yamlServerBytes = 646_765
 
         static func artifact(
             _ url: URL,
@@ -96,14 +98,35 @@ final class LSPProvisioningModelTests: XCTestCase {
             executableSubpath: "node_modules/pyright/dist/pyright-langserver.js"
         )
 
+        /// The real component pins its whole twenty-package runtime closure; the
+        /// stand-in pins one artifact, because nothing this suite asserts is about
+        /// how many tarballs a component has — the install engine's own tests own
+        /// that, and a twentyfold fixture would only make every byte count here
+        /// harder to read.
+        static let yamlLanguageServer = LSPComponent(
+            id: "yaml-language-server",
+            version: "1.24.0",
+            licenseSPDX: "MIT AND ISC AND BSD-3-Clause",
+            licenseFileSubpaths: ["node_modules/yaml-language-server/LICENSE"],
+            artifacts: [
+                artifact(
+                    yamlServer,
+                    byteCount: yamlServerBytes,
+                    destinationSubpath: "node_modules/yaml-language-server"
+                ),
+            ],
+            requires: ["node"],
+            executableSubpath: "node_modules/yaml-language-server/out/server/src/server.js"
+        )
+
         static let manifest = LSPProvisioningManifest(
-            components: [node, typescriptLanguageServer, pyrightComponent]
+            components: [node, typescriptLanguageServer, pyrightComponent, yamlLanguageServer]
         )
 
         /// Every artifact of the real manifest is represented, so an install that
         /// stops early is visible as a missing request rather than as a shorter
         /// list nobody counted.
-        static let allURLs = [nodeARM, nodeIntel, tsServer, typescript, pyright, fsevents]
+        static let allURLs = [nodeARM, nodeIntel, tsServer, typescript, pyright, fsevents, yamlServer]
     }
 
     // MARK: - The harness
@@ -243,7 +266,10 @@ final class LSPProvisioningModelTests: XCTestCase {
 
     func testALanguageWithNoDownloadableServerNeverPrompts() {
         let harness = makeHarness()
-        for language in [SyntaxLanguage.swift, .json, .yaml, .gitignore] {
+        // `.yaml` is deliberately not on this list any more: it is served by the
+        // fourth downloadable server. `.go` and `.rust` are not here either —
+        // their servers exist, but through their own models rather than this one.
+        for language in [SyntaxLanguage.swift, .json, .gitignore, .markdown] {
             XCTAssertNil(harness.model.consentPrompt(forOpening: language), "\(language)")
         }
     }
@@ -1212,16 +1238,22 @@ final class LSPProvisioningModelTests: XCTestCase {
         // The row's identity is the *server's* (the key consent is stored under),
         // not its component's — the two spellings exist and the persisted one is
         // this.
-        XCTAssertEqual(harness.model.rows.map(\.id), ["typescript", "python"])
+        XCTAssertEqual(harness.model.rows.map(\.id), ["typescript", "python", "yaml"])
         XCTAssertEqual(
             harness.model.rows.map(\.server.serverComponentID),
-            ["typescript-language-server", "pyright"]
+            ["typescript-language-server", "pyright", "yaml-language-server"]
         )
-        XCTAssertEqual(harness.model.rows.map(\.displayName), ["TypeScript / JavaScript", "Python"])
-        XCTAssertEqual(harness.model.rows.map(\.languages), [[.typescript, .javascript], [.python]])
-        XCTAssertEqual(harness.model.rows.map(\.state), [.absent, .absent])
-        XCTAssertEqual(harness.model.rows.map(\.isInstalled), [false, false])
-        XCTAssertEqual(harness.model.rows.map(\.canInstall), [true, true])
-        XCTAssertEqual(harness.model.rows.map(\.canRemove), [false, false])
+        XCTAssertEqual(
+            harness.model.rows.map(\.displayName),
+            ["TypeScript / JavaScript", "Python", "YAML"]
+        )
+        XCTAssertEqual(
+            harness.model.rows.map(\.languages),
+            [[.typescript, .javascript], [.python], [.yaml]]
+        )
+        XCTAssertEqual(harness.model.rows.map(\.state), [.absent, .absent, .absent])
+        XCTAssertEqual(harness.model.rows.map(\.isInstalled), [false, false, false])
+        XCTAssertEqual(harness.model.rows.map(\.canInstall), [true, true, true])
+        XCTAssertEqual(harness.model.rows.map(\.canRemove), [false, false, false])
     }
 }
