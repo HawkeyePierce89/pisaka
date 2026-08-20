@@ -14,9 +14,10 @@ description of each — and of what it deliberately does *not* do — is in
 ## Features (macOS)
 
 - **Projects** — open a folder as a project (Cmd+Shift+O) and browse it as a
-  tree: create (with relative paths, `a/b/c.ts` in one step), rename, delete;
-  external changes (Finder, a console `git checkout`, the embedded terminal)
-  show up on their own via FSEvents.
+  tree: create (with relative paths, `a/b/c.ts` in one step), rename, delete,
+  and move by dragging a row onto a folder (or onto the project root); external
+  changes (Finder, a console `git checkout`, the embedded terminal) show up on
+  their own via FSEvents.
 - **Editor** — NSTextView-based, monospaced, with a line-number gutter,
   auto-indent, auto-closing brackets/quotes, matched-pair and rainbow bracket
   highlighting, Cmd+D duplicate line/selection, a minimap, and per-tab position
@@ -232,9 +233,11 @@ The headline items; the complete list, with the reasoning per item, is in
   no hover at all.
 - The commit dialog has no staging-area interop (a manual `git add` is unstaged
   afterwards); finishing a merge/rebase/cherry-pick stays a console job.
-- One editor window; no split views, tab reordering, or drag-and-drop in the
-  tree. External file changes refresh the macOS project tree only — open tabs
-  and the git panels refresh on demand.
+- One editor window; no split views and no tab reordering. The project tree's
+  drag and drop moves one entry at a time within the tree — nothing is dragged
+  between the tree and Finder, and a drop never copies. External file changes
+  refresh the macOS project tree only — open tabs and the git panels refresh on
+  demand.
 - Automatic updates have no settings of ours (Sparkle's own consent prompt and
   update alert are the whole UI), and the single EdDSA signing key is
   unrecoverable if lost.

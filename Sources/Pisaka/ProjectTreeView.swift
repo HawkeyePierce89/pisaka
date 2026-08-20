@@ -1,5 +1,6 @@
 #if os(macOS)
 import SwiftUI
+import UniformTypeIdentifiers
 import PisakaCore
 
 /// The project file tree on the left side of the window.
@@ -48,6 +49,18 @@ struct ProjectTreeView: View {
     /// session. Shown in the file-row context menu only for test file types
     /// (`TestCommand.isTestFile`).
     var onRunTest: (URL) -> Void = { _ in }
+    /// Move the file or folder at the first url into the folder at the second —
+    /// the one thing dragging a row does. Wired to `PisakaApp.moveItem(at:into:)`,
+    /// which decides (through `MoveDropRule`) and performs the move; this view
+    /// only reports the gesture.
+    var onMove: (URL, URL) -> Void = { _, _ in }
+
+    /// The state a drag in flight carries, shared by every row: the source row
+    /// and the memoized decision for the folder the pointer is over. Held here,
+    /// at the tree's root, because a drag crosses rows — and as a `@StateObject`
+    /// with nothing published, so it survives re-renders without causing any (see
+    /// `TreeDragSession`).
+    @StateObject private var dragSession = TreeDragSession()
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
@@ -118,6 +131,8 @@ struct ProjectTreeView: View {
                     onDelete: onDelete,
                     onRun: onRun,
                     onRunTest: onRunTest,
+                    onMove: onMove,
+                    dragSession: dragSession,
                     isRoot: true,
                     startsExpanded: true
                 )
@@ -154,8 +169,13 @@ private struct DirectoryNodeView: View {
     let onDelete: (URL) -> Void
     let onRun: (URL) -> Void
     let onRunTest: (URL) -> Void
+    let onMove: (URL, URL) -> Void
+    /// The tree-wide drag state, handed down the recursion so every row reads and
+    /// writes the same one.
+    let dragSession: TreeDragSession
     /// The project root row offers only create actions (New File / New Folder);
-    /// nested directories also offer Rename / Delete.
+    /// nested directories also offer Rename / Delete. It is also the one folder
+    /// row that is a drop *target* without being a drag *source*.
     let isRoot: Bool
 
     @State private var isExpanded: Bool
@@ -179,6 +199,8 @@ private struct DirectoryNodeView: View {
         onDelete: @escaping (URL) -> Void,
         onRun: @escaping (URL) -> Void,
         onRunTest: @escaping (URL) -> Void,
+        onMove: @escaping (URL, URL) -> Void,
+        dragSession: TreeDragSession,
         isRoot: Bool = false,
         startsExpanded: Bool = false
     ) {
@@ -192,6 +214,8 @@ private struct DirectoryNodeView: View {
         self.onDelete = onDelete
         self.onRun = onRun
         self.onRunTest = onRunTest
+        self.onMove = onMove
+        self.dragSession = dragSession
         self.isRoot = isRoot
         _isExpanded = State(initialValue: startsExpanded)
     }
@@ -210,7 +234,9 @@ private struct DirectoryNodeView: View {
                         onRename: onRename,
                         onDelete: onDelete,
                         onRun: onRun,
-                        onRunTest: onRunTest
+                        onRunTest: onRunTest,
+                        onMove: onMove,
+                        dragSession: dragSession
                     )
                     .padding(.leading, metrics.scaled(12))
                 } else {
@@ -220,7 +246,8 @@ private struct DirectoryNodeView: View {
                         onRename: { onRename(entry.url) },
                         onDelete: { onDelete(entry.url) },
                         onRun: { onRun(entry.url) },
-                        onRunTest: { onRunTest(entry.url) }
+                        onRunTest: { onRunTest(entry.url) },
+                        dragSession: dragSession
                     )
                     .padding(.leading, metrics.scaled(12))
                 }
@@ -256,7 +283,12 @@ private struct DirectoryNodeView: View {
         // hover highlight and the tap target, so they must be inside the
         // right-click target too.
         .disclosureGroupStyle(
-            FolderDisclosureStyle {
+            FolderDisclosureStyle(
+                url: url,
+                isRoot: isRoot,
+                dragSession: dragSession,
+                onMove: onMove
+            ) {
                 Button("New File…") { onNewFile(url) }
                 Button("New Folder…") { onNewFolder(url) }
                 if !isRoot {
@@ -357,12 +389,28 @@ private struct DirectoryNodeView: View {
 /// label it would have excluded the chevron column and the row's own horizontal
 /// padding while the highlight covered them.
 private struct FolderDisclosureStyle<Menu: View>: DisclosureGroupStyle {
+    /// The folder this row draws: its drag payload and, as a drop target, the
+    /// destination a dropped entry moves into.
+    let url: URL
+    /// The project root row, which drops accept but drags never start from.
+    let isRoot: Bool
+    /// The tree-wide drag state (see `TreeDragSession`).
+    let dragSession: TreeDragSession
+    /// Reports an accepted drop; the same callback every row kind receives.
+    let onMove: (URL, URL) -> Void
     /// The row's right-click menu items, built by `DirectoryNodeView`.
     @ViewBuilder var menu: () -> Menu
 
     func makeBody(configuration: Configuration) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            FolderDisclosureRow(configuration: configuration, menu: menu)
+            FolderDisclosureRow(
+                configuration: configuration,
+                url: url,
+                isRoot: isRoot,
+                dragSession: dragSession,
+                onMove: onMove,
+                menu: menu
+            )
             if configuration.isExpanded {
                 configuration.content
             }
@@ -377,9 +425,20 @@ private struct FolderDisclosureStyle<Menu: View>: DisclosureGroupStyle {
 /// whole expanded subtree.
 private struct FolderDisclosureRow<Menu: View>: View {
     let configuration: DisclosureGroupStyleConfiguration
+    /// The folder this row draws — dragged from, and dropped onto.
+    let url: URL
+    /// The project root row: a drop target, never a drag source. Moving the open
+    /// folder itself is not an operation this tree has.
+    let isRoot: Bool
+    let dragSession: TreeDragSession
+    let onMove: (URL, URL) -> Void
     @ViewBuilder var menu: () -> Menu
 
     @State private var isHovering = false
+    /// Whether a drag currently hovering this row would be accepted. Row-local
+    /// `@State`, like `isHovering`: the drag session publishes nothing, so this
+    /// is the only thing a drag invalidates — one row, not the subtree under it.
+    @State private var isDropTarget = false
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
@@ -408,14 +467,34 @@ private struct FolderDisclosureRow<Menu: View>: View {
         .padding(.horizontal, metrics.scaled(TreeRowLayout.horizontalPadding))
         .padding(.vertical, metrics.scaled(TreeRowLayout.verticalPadding))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isHovering ? TreeRowLayout.hoverHighlight : Color.clear)
+        // The drop highlight replaces the hover one rather than layering over it
+        // (the pointer is inside the row, so both are on), and is drawn at the
+        // same site from the same enum, which is what keeps the two treatments
+        // from drifting apart.
+        .background(rowBackground)
         .contentShape(Rectangle())
+        // Every non-root row is a drag source. Placed before the tap/hover/menu
+        // block, which is untouched: a drag and a click are distinct gestures, so
+        // clicking a folder still toggles it and right-clicking still opens the
+        // same menu over the same rectangle.
+        .projectTreeDragSource(isEnabled: !isRoot, url: url, session: dragSession)
         // Plain assignment, deliberately not `withAnimation`: animating the
         // insertion of a deep nested subtree is a regression this change does
         // not need.
         .onTapGesture { configuration.isExpanded.toggle() }
         .onHover { isHovering = $0 }
         .contextMenu { menu() }
+        // Every folder row is a drop target, the root included: that is how an
+        // entry is moved back to the top of the project.
+        .onDrop(
+            of: [ProjectTreeDrag.contentType],
+            delegate: TreeDropDelegate(
+                folder: url,
+                session: dragSession,
+                onMove: onMove,
+                isDropTarget: $isDropTarget
+            )
+        )
         // Drawing the chevron ourselves removes the one control in this tree
         // that assistive technology could actuate — a `DisclosureGroup`'s own
         // triangle is a button with an expanded/collapsed value, and an
@@ -435,6 +514,13 @@ private struct FolderDisclosureRow<Menu: View>: View {
         .accessibilityValue(configuration.isExpanded ? "expanded" : "collapsed")
         .accessibilityAction { configuration.isExpanded.toggle() }
     }
+
+    /// The row's background: the drop highlight while a droppable drag is over
+    /// it, otherwise the ordinary hover treatment.
+    private var rowBackground: Color {
+        if isDropTarget { return TreeRowLayout.dropHighlight }
+        return isHovering ? TreeRowLayout.hoverHighlight : Color.clear
+    }
 }
 
 /// The unscaled geometry a tree row is drawn with. The first three values are
@@ -449,6 +535,12 @@ private enum TreeRowLayout {
     static let verticalPadding: Double = 3
     /// The row's hover highlight.
     static let hoverHighlight = Color.accentColor.opacity(0.15)
+    /// The highlight a folder row draws while a drag that *would be accepted*
+    /// hovers it. Deliberately stronger than `hoverHighlight`, which is on at the
+    /// same time (the pointer is inside the row): the two must be told apart at a
+    /// glance, since the difference between them is the whole answer to "will
+    /// this drop land here?".
+    static let dropHighlight = Color.accentColor.opacity(0.4)
     /// The folder row's fixed chevron column width.
     static let chevronWidth: Double = 12
     /// The folder row's gap between the chevron column and the label.
@@ -484,6 +576,10 @@ private struct FileRowView: View {
     let onDelete: () -> Void
     let onRun: () -> Void
     let onRunTest: () -> Void
+    /// The tree-wide drag state (see `TreeDragSession`). A file row is a drag
+    /// *source* only — a file is never a drop destination, so it installs no drop
+    /// delegate and never highlights as one.
+    let dragSession: TreeDragSession
 
     @State private var isHovering = false
 
@@ -513,6 +609,9 @@ private struct FileRowView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(isHovering ? TreeRowLayout.hoverHighlight : Color.clear)
         .contentShape(Rectangle())
+        // As on a folder row: added ahead of the untouched tap/hover/menu block,
+        // through the same one drag-source helper.
+        .projectTreeDragSource(url: entry.url, session: dragSession)
         .onTapGesture(perform: onOpen)
         .onHover { isHovering = $0 }
         .contextMenu {
@@ -537,6 +636,193 @@ private struct FileRowView: View {
             Button("Rename…") { onRename() }
             Button("Delete") { onDelete() }
         }
+    }
+}
+
+/// The private drag payload the project tree publishes and accepts.
+///
+/// A type identifier of the app's own, deliberately **not** `public.file-url`:
+/// registering the file url would offer every tree row to Finder as a file drag
+/// and let a Finder file be dropped onto a folder row — a different feature,
+/// with its own copy-vs-move, security-scope and cross-volume questions. Under
+/// this identifier the payload means nothing outside this tree, so a drag that
+/// leaves the window does nothing and a drag that arrives from elsewhere is
+/// refused by `validateDrop` before any rule runs.
+///
+/// The registered item is the source's path, and nothing reads it back: the
+/// authoritative source url is the one `TreeDragSession` recorded when the drag
+/// started, which only this tree's own drag source sets. The payload exists so
+/// the drag is legible to AppKit at all — an item provider registering no type
+/// never begins a drag.
+private enum ProjectTreeDrag {
+    static let contentType = UTType(exportedAs: "ws.karmanov.pisaka.project-tree-row")
+
+    static func itemProvider(for url: URL) -> NSItemProvider {
+        NSItemProvider(item: url.path as NSString, typeIdentifier: contentType.identifier)
+    }
+}
+
+private extension View {
+    /// Makes this row the source of a project-tree drag for `url` — or leaves it
+    /// exactly as it is, which is how the project root row opts out.
+    ///
+    /// The opt-out is a `@ViewBuilder` branch rather than an `.onDrag` returning
+    /// an empty item provider: a provider with nothing registered still begins a
+    /// drag AppKit renders and no target can ever accept. `isEnabled` is fixed
+    /// for a row's lifetime, so the branch costs no identity churn.
+    @ViewBuilder
+    func projectTreeDragSource(
+        isEnabled: Bool = true,
+        url: URL,
+        session: TreeDragSession
+    ) -> some View {
+        if isEnabled {
+            onDrag {
+                // The one place a drag's source is recorded.
+                session.begin(dragging: url)
+                return ProjectTreeDrag.itemProvider(for: url)
+            }
+        } else {
+            self
+        }
+    }
+}
+
+/// What one drag through the project tree carries: the row it started from, and
+/// the decision most recently computed for a (source, target folder) pair.
+///
+/// An `ObservableObject` with **no** `@Published` property, on purpose. Starting
+/// a drag, crossing rows and finishing one must invalidate nothing: everything a
+/// drag draws is a row's own `isDropTarget` `@State`, so publishing here would
+/// re-render the whole tree — including the subtree being dragged over — for
+/// state no row reads.
+///
+/// The memo is what makes the *full*, disk-touching `MoveDropRule` decision
+/// affordable as the hover answer. `validateDrop`, `dropUpdated` and
+/// `dropEntered` all ask, repeatedly, while the pointer sits in one row, and
+/// each fresh answer lists two directories. Keyed on the pair, the listing
+/// happens once per row entered instead of once per mouse-moved event.
+///
+/// The answer computed here is advisory: it lights the row up and refuses an
+/// impossible drop early. `PisakaApp.moveItem(at:into:)` runs `MoveDropRule`
+/// again, behind the writer gate and through the app's own file service, at the
+/// moment the move would happen — that is the authoritative decision, and the
+/// one that reports a refusal to the user.
+private final class TreeDragSession: ObservableObject {
+    /// The row the drag in flight started from, `nil` when no drag is in flight.
+    private(set) var source: URL?
+
+    private var memoKey: String?
+    private var memoValue: MoveDropDecision?
+
+    /// Reads the two directory listings the full decision needs. A plain
+    /// `FileService`, as `PisakaApp` holds: listing a folder for a name
+    /// collision is the same read `model.children(of:)` already performs.
+    private let fileService: FileServicing = FileService()
+
+    func begin(dragging url: URL) {
+        source = url
+        memoKey = nil
+        memoValue = nil
+    }
+
+    /// Ends the drag. Called when a drop is performed; a drag abandoned outside
+    /// any target leaves `source` set, which is harmless — nothing consults it
+    /// until the next `validateDrop`, and the next drag overwrites it.
+    func end() {
+        source = nil
+        memoKey = nil
+        memoValue = nil
+    }
+
+    /// `MoveDropRule`'s full decision for this pair, computed at most once per
+    /// pair per drag.
+    func decision(dropping source: URL, into folder: URL) -> MoveDropDecision {
+        // NUL-joined: it cannot occur in a path, so no two distinct pairs can
+        // collide on one key.
+        let key = "\(source.path)\u{0}\(folder.path)"
+        if key == memoKey, let cached = memoValue { return cached }
+        let decision = MoveDropRule.decision(source: source, into: folder, fileService: fileService)
+        memoKey = key
+        memoValue = decision
+        return decision
+    }
+}
+
+/// The drop target every *folder* row installs — nested folders and the project
+/// root alike, which is why it takes the destination as a plain url and knows
+/// nothing about rows.
+///
+/// A drag is accepted only when all three hold: the payload carries the tree's
+/// own private type identifier, the shared session names a source row, and
+/// `MoveDropRule`'s full decision for that pair is `.move`. So a drop back into
+/// the current parent, onto the dragged row itself, into its own subtree, onto a
+/// colliding name or onto a vanished endpoint is refused — the row does not
+/// light up, the pointer shows the refusal cursor, and releasing there does
+/// nothing.
+///
+/// **That refusal is silent, by construction**: SwiftUI documents
+/// `dropEntered`, `dropUpdated` and `performDrop` as running only for a drop
+/// `validateDrop` accepted, so a refusal decided here never reaches
+/// `PisakaApp.moveItem(at:into:)` and never raises an alert. The alert path is
+/// for what this answer *cannot* have caught — the writer gate, and a
+/// destination that gained the name (or a source that vanished) between the
+/// hover and the release, which `moveItem` re-asks about behind that gate.
+private struct TreeDropDelegate: DropDelegate {
+    let folder: URL
+    let session: TreeDragSession
+    let onMove: (URL, URL) -> Void
+    @Binding var isDropTarget: Bool
+
+    func validateDrop(info: DropInfo) -> Bool {
+        guard info.hasItemsConforming(to: [ProjectTreeDrag.contentType]),
+              let source = session.source else { return false }
+        guard case .move = session.decision(dropping: source, into: folder) else { return false }
+        return true
+    }
+
+    func dropEntered(info: DropInfo) {
+        // Asked, not assumed. SwiftUI only reports entry for a *validated* drop,
+        // so this should always be true — but the highlight's honesty is the
+        // whole point of the rule, and tying it to the answer rather than to
+        // that documented ordering costs nothing (the session memoized it for
+        // `validateDrop` a moment ago) and cannot light a row up for a drop that
+        // would be refused.
+        isDropTarget = validateDrop(info: info)
+    }
+
+    func dropExited(info: DropInfo) {
+        isDropTarget = false
+    }
+
+    /// Puts the move cursor over a folder that would accept the entry, so the
+    /// pointer and the highlight always say the same thing. `.forbidden` is the
+    /// same hedge `dropEntered` makes: this too runs only for a validated drop,
+    /// so it is the answer for a row SwiftUI should never have routed here.
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: validateDrop(info: info) ? .move : .forbidden)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        // Reached only after `validateDrop` accepted, so the decision is not
+        // re-derived here; `moveItem` makes it again anyway, authoritatively.
+        isDropTarget = false
+        guard let source = session.source else { return false }
+        // The session is closed *before* the callback: `onMove` may put a modal
+        // alert up, and a session still naming a source behind that alert would
+        // answer a later `validateDrop` for a drag that ended long ago.
+        session.end()
+        // And the callback itself is deferred out of this callout for the same
+        // reason: `moveItem` can run a modal alert (the writer gate's notice, a
+        // refusal the re-check caught, a failed disk move), and a modal loop
+        // spun from inside AppKit's `performDragOperation:` blocks the drag
+        // session — and the source app with it — behind a dialog the user must
+        // dismiss before the drag can even finish. The drop itself is over: this
+        // returns `true` now, and the move runs on the next turn of the loop.
+        let move = onMove
+        let destination = folder
+        DispatchQueue.main.async { move(source, destination) }
+        return true
     }
 }
 

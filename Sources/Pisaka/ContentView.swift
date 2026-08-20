@@ -161,6 +161,11 @@ struct ContentView: View {
     var onNewFile: (URL) -> Void = { _ in }
     var onNewFolder: (URL) -> Void = { _ in }
     var onRename: (URL) -> Void = { _ in }
+    /// Invoked when a project-tree drag drops the entry at the first URL onto the
+    /// folder at the second, wired to `PisakaApp.moveItem(at:into:)`. The view
+    /// layer decides nothing about the move: every validity and destination
+    /// question is `MoveDropRule`'s.
+    var onMove: (URL, URL) -> Void = { _, _ in }
     var onDelete: (URL) -> Void = { _ in }
     /// Invoked when a project-tree file row requests a run (the "Run" context-menu
     /// item), wired to `PisakaApp.runFile(url:)`. Default no-op so previews/tests
@@ -485,7 +490,8 @@ struct ContentView: View {
                 onRename: onRename,
                 onDelete: onDelete,
                 onRun: onRun,
-                onRunTest: onRunTest
+                onRunTest: onRunTest,
+                onMove: onMove
             )
             // Every pane's minimum, ideal and maximum width is scaled: at the top
             // of the range the tree's rows are half again as tall and their names

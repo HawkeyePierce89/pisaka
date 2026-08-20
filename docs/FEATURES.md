@@ -68,6 +68,25 @@ user sees it.
   button in the tree header is the manual counterpart — the watcher is the
   automatic path, the button is for when you want it right now (or on a network
   volume, where the watcher may not fire).
+- **Move an entry by dragging it** (macOS). Every row except the project root can
+  be dragged, and every *folder* row is a drop target — the project root row
+  included, which is how something is moved back to the top level. A file row is
+  never a target. The folder highlights, more strongly than the ordinary hover
+  highlight, only when the drop would actually be accepted, and the pointer shows
+  the matching move or refusal cursor, so the answer is visible before you let
+  go. A move never renames: the entry keeps its name and lands directly in the
+  folder. Dropping it back onto the folder it already lives in does nothing (that
+  is how a drag is cancelled), and dropping it onto itself, into its own subtree,
+  or onto a name the destination already holds is simply refused — the row does
+  not light up and nothing happens on release. If the folder or the entry changes
+  underneath the drag (a Finder delete, a branch checkout, a name that appeared
+  in the meantime), the drop reports it in the same alert as any other tree file
+  operation. The move carries everything with it: open tabs follow (a moved
+  folder carries all its nested tabs, keeping their contents, unsaved changes,
+  undo and caret/scroll position) and the tree and the symbol index refresh in
+  place. On a case-insensitive volume a name differing only in case is caught by
+  the disk rather than by the highlight, so it surfaces as an "already exists"
+  failure on release instead of as a refused drop.
 - Vertical tab list with active-tab highlight, an unsaved-changes dot, and a
   per-tab close button.
 - NSTextView-based editor: monospaced font, undo/redo, copy/paste, and a
@@ -427,8 +446,8 @@ user sees it.
 - While one of the app's own git operations is writing to the working tree — a
   revert, a merge apply, a branch checkout, a project-wide Replace All, or a
   commit — saving (Cmd+S, the close prompt's Save, and the implicit save before
-  Run and Run Test), the project-tree create/rename/delete, and switching the
-  project folder are refused with a
+  Run and Run Test), the project-tree create/rename/delete/move (a drag-and-drop
+  move included), and switching the project folder are refused with a
   "Git operation in progress" notice rather than racing git over the same files.
   Autosave pauses for the same window and resumes on its own afterwards.
 - Switching to another folder (macOS) swaps the tabs along with the tree: the
@@ -820,9 +839,14 @@ and iPhone. The feature scope landed so far:
   search bar nor the Find in Files window. There is no query history, no "replace
   in selection", and the project search reads tree `.gitignore` files only (not
   `core.excludesFile` or `.git/info/exclude`).
-- The project tree supports create, rename, and delete (via a row context menu),
-  but has no drag-and-drop. On iOS it refreshes only after its own edits, not
-  after changes made outside the app.
+- The project tree supports create, rename, and delete (via a row context menu)
+  and, on macOS, a move by drag and drop. That drag is intra-tree only — its
+  payload carries a private type identifier, so nothing can be dragged to or from
+  Finder — and it moves one entry at a time: there is no multi-select, no
+  copy-on-drag (⌥ does nothing), no rename-on-drop, and no keyboard equivalent,
+  so moving an entry needs a pointer. iOS has no tree drag and drop at all, and
+  there the tree refreshes only after its own edits, not after changes made
+  outside the app.
 - Committing is macOS-only (iOS has no commit dialog) and has no staging area of
   its own: the selection in the dialog *is* the commit, so a manual `git add` is
   overwritten and unstaged afterwards, and a formatting `pre-commit` hook's staged
@@ -949,7 +973,8 @@ and iPhone. The feature scope landed so far:
   `.gitignore` deliberately has none) completes from the buffer's words alone, and
   the data formats, Markdown and `.gitignore` have no keyword list either.
   On iOS the index does not see changes made to the files outside the app.
-- No tab reordering, drag-and-drop, or split views.
+- No tab reordering or split views, and no drag-and-drop outside the project
+  tree.
 - The path bar above the editor is macOS-only and read-only: its breadcrumb
   segments are not clickable, there is no "copy path" action or window proxy
   icon, and iOS has no equivalent bar.

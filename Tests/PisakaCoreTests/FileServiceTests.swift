@@ -626,6 +626,61 @@ final class FileServiceTests: XCTestCase {
         XCTAssertEqual(names, ["File.txt"])
     }
 
+    func testMoveCarriesADirectoryTreeIntoAnotherDirectory() throws {
+        // The drag-and-drop case (`MoveDropRule`): the last component is
+        // unchanged and the *parent* changes, which every other `move` test
+        // above leaves untested — they are all same-directory renames.
+        let service = FileService()
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = dir.appendingPathComponent("src/models")
+        try FileManager.default.createDirectory(
+            at: source.appendingPathComponent("deep"), withIntermediateDirectories: true)
+        try service.write("a", to: source.appendingPathComponent("a.txt"))
+        try service.write("b", to: source.appendingPathComponent("deep/b.txt"))
+        let lib = dir.appendingPathComponent("lib")
+        try service.createDirectory(at: lib)
+        let destination = lib.appendingPathComponent("models")
+
+        try service.move(from: source, to: destination)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertEqual(try service.read(url: destination.appendingPathComponent("a.txt")), "a")
+        XCTAssertEqual(
+            try service.read(url: destination.appendingPathComponent("deep/b.txt")), "b")
+        // The old parent survives the move of its child.
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: dir.appendingPathComponent("src").path))
+    }
+
+    func testMoveIntoAnotherDirectoryThrowsOnACaseOnlyCollision() throws {
+        // `MoveDropRule`'s exact-name check cannot see this one, and says so:
+        // this refusal is the backstop it delegates to. Skipped where the volume
+        // is case-*sensitive*, since there the two names are simply different
+        // files and the move is legitimate.
+        let service = FileService()
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = dir.appendingPathComponent("README.md")
+        try service.write("source", to: source)
+        let lib = dir.appendingPathComponent("lib")
+        try service.createDirectory(at: lib)
+        try service.write("destination", to: lib.appendingPathComponent("readme.md"))
+        try XCTSkipUnless(
+            FileManager.default.fileExists(
+                atPath: lib.appendingPathComponent("README.md").path),
+            "Case-sensitive volume: the two names are distinct files here"
+        )
+
+        XCTAssertThrowsError(
+            try service.move(from: source, to: lib.appendingPathComponent("README.md"))
+        ) { error in
+            XCTAssertEqual(error as? FileServiceError, .alreadyExists)
+        }
+        XCTAssertEqual(try service.read(url: source), "source")
+        XCTAssertEqual(try service.read(url: lib.appendingPathComponent("readme.md")), "destination")
+    }
+
     // MARK: - removeItem
 
     func testRemoveItemDeletesFile() throws {

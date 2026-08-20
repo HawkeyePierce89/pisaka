@@ -705,6 +705,7 @@ struct PisakaApp: App {
                 onNewFile: { newFile(in: $0) },
                 onNewFolder: { newFolder(in: $0) },
                 onRename: { renameItem(at: $0) },
+                onMove: { moveItem(at: $0, into: $1) },
                 onDelete: { deleteItem(at: $0) },
                 onRun: { runFile(url: $0) },
                 onRunTest: { testFile(url: $0) },
@@ -2984,6 +2985,10 @@ struct PisakaApp: App {
     /// never disagree), keeping OK disabled while the input is invalid. The
     /// `isValidFileName` + `isExcludedEntryName` guards below are kept as
     /// defense-in-depth over the same Core rule.
+    ///
+    /// Everything past the accepted name is `performMove(from:to:)` — the body a
+    /// rename shares with a drag-and-drop move, which is where the
+    /// ordering-sensitive plan/move/apply sequence and its reasoning live.
     private func renameItem(at url: URL) {
         guard !revertInFlight() else { return }
         let currentName = url.lastPathComponent
@@ -2999,21 +3004,39 @@ struct PisakaApp: App {
         guard isValidFileName(name) else { reportInvalidName(rawName, isPath: false); return }
         guard !FileService.isExcludedEntryName(name) else { reportReservedName(name); return }
         let destination = url.deletingLastPathComponent().appendingPathComponent(name)
+        performMove(from: url, to: destination)
+    }
+
+    /// Move the entry at `source` to `destination` on disk and carry everything
+    /// that names it along: the open tabs, the symbol index and the tree.
+    ///
+    /// The one body both project-tree moves share — the rename dialog
+    /// (`renameItem(at:)`, a move within one folder) and the drag-and-drop move
+    /// (`moveItem(at:into:)`, a move across folders). Each caller owns only its
+    /// own admission rules (prompt and name validation there, `MoveDropRule`
+    /// here); the *ordering* below is delicate enough that a second copy of it
+    /// would be a second thing to get wrong, and the two differ in nothing but
+    /// how `destination` was arrived at.
+    ///
+    /// Callers must have passed the writer gate (`revertInFlight()`) before
+    /// calling: this writes to the working tree.
+    private func performMove(from source: URL, to destination: URL) {
         // Capture the tab-retarget plan *before* the move, while a tab opened
-        // through a symlink to `url` still canonicalizes to it — once the move
+        // through a symlink to `source` still canonicalizes to it — once the move
         // renames the target away that symlink dangles and would no longer match.
         // Apply the plan only after the move succeeds.
-        let plan = model.planRename(from: url, to: destination)
+        let plan = model.planRename(from: source, to: destination)
         // The paths the index still has those tabs' buffers filed under, captured
         // alongside the plan and before the move for the same reason: once
         // `applyRenamePlan` retargets a tab, its old url is no longer reachable from
-        // the model. A *folder* rename retargets every tab beneath it, so this is a
-        // list rather than just `url` — which alone would strand each of those files.
+        // the model. A *folder* move retargets every tab beneath it, so this is a
+        // list rather than just `source` — which alone would strand each of those
+        // files.
         let retargetedURLs = plan.compactMap { retarget in
             model.openFiles.first { $0.id == retarget.id }?.url
         }
         do {
-            try fileService.move(from: url, to: destination)
+            try fileService.move(from: source, to: destination)
             model.applyRenamePlan(plan)
             // The tabs now name their destinations, so nothing holds a buffer for the
             // old paths any more. Without this each entry stays marked buffer-sourced
@@ -3027,6 +3050,33 @@ struct PisakaApp: App {
             notifyIndexOfProjectFileChanges()
         } catch {
             reportFileOperationFailure(error)
+        }
+    }
+
+    /// Move the entry at `url` into `folder` — the project tree's drag-and-drop
+    /// drop, landing here from `ProjectTreeView`'s drop delegate.
+    ///
+    /// Every question of *whether* the move may happen and *where* it lands is
+    /// `MoveDropRule`'s, not this function's: the tree asked the same engine for
+    /// the drag highlight, so a drop that lit up a row and a drop this accepts
+    /// are decided by one rule. What is left here is the writer gate — raised
+    /// first, before the engine's directory listings, for the same reason every
+    /// other project-tree file operation raises it — and the two ways a decision
+    /// can end.
+    ///
+    /// A refusal writes *nothing*: no plan is applied, no tree revision bumped,
+    /// nothing handed back to the index. A silent one (`unchangedLocation` — the
+    /// drop landed back on the folder the entry is already in) reports nothing
+    /// either; every other refusal goes through the same failure alert as a disk
+    /// error, which is what `MoveDropRefusal` being a `LocalizedError` buys.
+    private func moveItem(at url: URL, into folder: URL) {
+        guard !revertInFlight() else { return }
+        switch MoveDropRule.decision(source: url, into: folder, fileService: fileService) {
+        case let .move(destination):
+            performMove(from: url, to: destination)
+        case let .refuse(refusal):
+            guard !refusal.isSilent else { return }
+            reportFileOperationFailure(refusal)
         }
     }
 

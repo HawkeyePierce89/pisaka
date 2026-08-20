@@ -890,6 +890,62 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertEqual(model.openFiles.map(\.url), [URL(fileURLWithPath: "/project/a2.swift")])
     }
 
+    func testPlanRenameMovesFolderAcrossDirectoriesKeepingTabIdentityAndState() throws {
+        // The drag-and-drop case: the folder keeps its name and changes parent,
+        // which is the same `planRename` + `applyRenamePlan` pair a rename uses.
+        // What must survive the move is everything a tab *is* apart from its path:
+        // its identity (so its viewport memory, keyed by id, still finds it), its
+        // buffer and its dirty state.
+        let model = WorkspaceModel(fileService: StubFileService(readResult: "code"))
+        let folderTab = try model.open(url: URL(fileURLWithPath: "/project/src"))
+        let nested = try model.open(url: URL(fileURLWithPath: "/project/src/a.swift"))
+        let deep = try model.open(url: URL(fileURLWithPath: "/project/src/deep/b.swift"))
+        let unrelated = try model.open(url: URL(fileURLWithPath: "/project/keep.swift"))
+        model.updateText("edited", for: nested.id)
+
+        var viewports = EditorViewportMemory()
+        viewports.record(
+            EditorViewport(selection: NSRange(location: 3, length: 0), topCharacterOffset: 2),
+            for: nested.id
+        )
+
+        let from = URL(fileURLWithPath: "/project/src")
+        let to = URL(fileURLWithPath: "/project/lib/src")
+        let plan = model.planRename(from: from, to: to)
+        model.applyRenamePlan(plan)
+
+        // Every tab at or beneath the folder now names its new home; the folder
+        // itself keeps its last component, only its parent changed.
+        XCTAssertEqual(model.openFiles.first { $0.id == folderTab.id }?.url, to)
+        XCTAssertEqual(
+            model.openFiles.first { $0.id == nested.id }?.url,
+            URL(fileURLWithPath: "/project/lib/src/a.swift")
+        )
+        XCTAssertEqual(
+            model.openFiles.first { $0.id == deep.id }?.url,
+            URL(fileURLWithPath: "/project/lib/src/deep/b.swift")
+        )
+        // An unrelated tab is untouched — and no tab was opened or closed.
+        XCTAssertEqual(
+            model.openFiles.first { $0.id == unrelated.id }?.url,
+            URL(fileURLWithPath: "/project/keep.swift")
+        )
+        XCTAssertEqual(model.openFiles.map(\.id), [folderTab.id, nested.id, deep.id, unrelated.id])
+
+        // Identity, buffer and dirty state survive: only `url` changed.
+        let movedNested = try XCTUnwrap(model.openFiles.first { $0.id == nested.id })
+        XCTAssertEqual(movedNested.text, "edited")
+        XCTAssertEqual(movedNested.savedText, "code")
+        XCTAssertTrue(movedNested.isDirty)
+        XCTAssertFalse(try XCTUnwrap(model.openFiles.first { $0.id == deep.id }).isDirty)
+        // The viewport memory is keyed by that preserved identity, so the moved
+        // tab still resolves its caret and scroll anchor.
+        XCTAssertEqual(
+            viewports.viewport(for: movedNested.id, clampedToLength: movedNested.text.utf16.count),
+            EditorViewport(selection: NSRange(location: 3, length: 0), topCharacterOffset: 2)
+        )
+    }
+
     func testPlanRenameMatchesSymlinkedTabBeforeMoveButNotAfter() throws {
         // A tab opened through a symlink to the renamed target must be captured by
         // a plan taken *before* the on-disk move: once the move renames the target

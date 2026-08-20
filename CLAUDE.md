@@ -75,6 +75,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `WorkspaceModel.swift` — tabs/selection/`projectRoot`; save/close/restore; tab↔tree reconciliation; the three revision tokens.
 - `CanonicalPath.swift` — "same file?" / "inside this dir?"; the `/private` caveat.
 - `DisplayPath.swift` — breadcrumb segments.
+- `MoveDropRule.swift` — the project tree's drag-and-drop engine: may this drop land, and where?
 
 `docs/architecture/core-editor.md` — editor engines (pure, `NSString` + UTF-16 offsets):
 - `DuplicateEngine.swift` — ⌘D duplicate (JetBrains semantics).
