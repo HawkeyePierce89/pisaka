@@ -171,6 +171,22 @@ struct LSPServerSettingsView: View {
                 Text(status(of: row))
                     .font(metrics.scaledFont(.caption))
                     .foregroundStyle(.secondary)
+                // The same sentence the consent banner prints, from the same
+                // Core field, beside the state line — so the two surfaces cannot
+                // disagree about what a server does on the network and neither
+                // invents copy of its own.
+                //
+                // Deliberately *not* conditioned on the state: what a server does
+                // while it runs is true before it is installed and after it is
+                // removed, and this is the surface someone reads when they are
+                // deciding to turn a "no" around. The presence of the note is the
+                // whole condition — there is no per-server branch here either.
+                if let note = row.runtimeNetworkNote {
+                    Text(note)
+                        .font(metrics.scaledFont(.caption))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 // The entire failure surface of this feature. Present only after
                 // an attempt that failed, and replaced by the next attempt's
                 // outcome.

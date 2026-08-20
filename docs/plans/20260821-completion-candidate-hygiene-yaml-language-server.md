@@ -225,12 +225,12 @@ server, not with a view.
 
 Intent: thin glue — the views print the Core value and decide nothing.
 
-- [ ] The download consent strip shows the note under its size sentence when the
+- [x] The download consent strip shows the note under its size sentence when the
       prompt has one, in the caption style the existing secondary line uses.
-- [ ] The Settings row shows the same note for the same row, beside the state line.
-- [ ] No new state, no per-server `if` in the view: the presence of the note is the
+- [x] The Settings row shows the same note for the same row, beside the state line.
+- [x] No new state, no per-server `if` in the view: the presence of the note is the
       condition.
-- [ ] `swift test` green (these files are untested by convention; the compile gates in
+- [x] `swift test` green (these files are untested by convention; the compile gates in
       Task 7 cover them).
 
 ### Task 6: Documentation where the behaviour lives
