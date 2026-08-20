@@ -82,34 +82,34 @@ the gesture to the engine.
 - Create: `Sources/PisakaCore/MoveDropRule.swift`
 - Create: `Tests/PisakaCoreTests/MoveDropRuleTests.swift`
 
-- [ ] Add `public enum MoveDropRefusal: Error, LocalizedError, Equatable` with
+- [x] Add `public enum MoveDropRefusal: Error, LocalizedError, Equatable` with
       `unchangedLocation`, `ontoItself`, `intoOwnDescendant`,
       `nameTaken(name:folder:)`, `sourceMissing(name:)`, `targetMissing(name:)`;
       an `isSilent` flag true only for `unchangedLocation`; `errorDescription`
       texts that name the entry (and the folder for a collision) and never quote
       `FileManager`'s own wording.
-- [ ] Add `public enum MoveDropDecision: Equatable { case move(destination: URL);
+- [x] Add `public enum MoveDropDecision: Equatable { case move(destination: URL);
       case refuse(MoveDropRefusal) }`.
-- [ ] Add `MoveDropRule.structuralDecision(source:into:)`: canonical
+- [x] Add `MoveDropRule.structuralDecision(source:into:)`: canonical
       identity/ancestry through `CanonicalPath` — self → `ontoItself`, target
       inside source → `intoOwnDescendant`, target ≡ source's parent →
       `unchangedLocation`, otherwise `.move` with the spelled destination.
-- [ ] Add `MoveDropRule.decision(source:into:fileService:)`: run the structural
+- [x] Add `MoveDropRule.decision(source:into:fileService:)`: run the structural
       rules first, then list the target folder (a throw → `targetMissing`) for the
       name collision, and confirm the source still exists by listing its parent
       (absent → `sourceMissing`).
-- [ ] Document in the file's header: why identity/ancestry is canonical and not
+- [x] Document in the file's header: why identity/ancestry is canonical and not
       textual; that a symlink row pointing at the target folder is refused as
       `ontoItself` (conservative, consistent with `planRename`); and that
       `FileService.move`'s own `alreadyExists` remains the backstop for a
       case-insensitive-volume collision the exact-name check cannot see.
-- [ ] Write tests: destination shape (never renames); the parent no-op; self and
+- [x] Write tests: destination shape (never renames); the parent no-op; self and
       one- and multi-level descendant refusals; refusals through *symlinked
       spellings* of self/parent/descendant using real temp dirs; the `/private`
       spelling; collision refusal (and no false collision when the only match is
       the source itself under a different parent); missing source; missing target;
       that a file dropped into an unrelated folder yields `.move`.
-- [ ] Run `swift test` — must pass before task 2.
+- [x] Run `swift test` — must pass before task 2.
 
 ### Task 2: Share the rename choreography with move (app shell)
 
