@@ -102,19 +102,19 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `SymbolIndex.swift` — the symbol store; ranks nothing.
 - `ProjectFileWalk.swift` — the one project traversal (shared with Find in Files).
 - `SymbolIndexModel.swift` — the async index lifecycle; a reader, never a writer.
-- `IdentifierScanner.swift` — the one identifier-boundary rule.
+- `IdentifierScanner.swift` — the one identifier-boundary rule (incl. `isIdentifier(_:)`, the whole-string form).
 - `LanguageKeywords.swift` — per-language keyword lists (+ the stated no-keyword set).
 - `CodeIntelligence.swift` — the async `CodeIntelligenceProviding` seam + value types.
-- `SymbolIntelligenceProvider.swift` — index-backed provider; every ranking rule.
+- `SymbolIntelligenceProvider.swift` — index-backed provider; every ranking rule + the completion-candidate rule.
 
-`docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D26:
+`docs/architecture/core-lsp.md` — the LSP client (sourcekit-lsp, gopls, rust-analyzer), incl. decisions D1–D10 + D17–D28:
 - `LSPMessage.swift` — JSON-RPC envelopes; `null` vs. absent.
 - `LSPFraming.swift` — `Content-Length` framing; a framing error is terminal.
 - `LSPProtocolTypes.swift` — decode leniently, encode exactly; the closed capability tree.
 - `LSPPositionMap.swift` — offset ↔ `(line, character)`, LSP's separators only (D1).
 - `LSPTransport.swift` — the macOS/Core boundary; EOF reports a crash.
-- `LSPSession.swift` — one conversation: handshake, ids, budgets, cancel.
-- `LSPServerDescription.swift` — description + registry (D9).
+- `LSPSession.swift` — one conversation: handshake, ids, budgets, cancel; both configuration channels (D27).
+- `LSPServerDescription.swift` — description + registry (D9); the per-server `configuration` (D27).
 - `LSPWorkspace.swift` — one server per `(server, root)`; the D2 flush, D7 backoff, `updateRegistry(_:)` (D16).
 - `CompletionEditPlan.swift` — the pure auto-import rule.
 - `HoverContent.swift` — hover markup → renderable segments; the dwell delay and the three-dimensional cap (D25/D26).
@@ -125,12 +125,12 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LSPRustToolchain.swift` — the rust-analyzer pin, discovery report, prompt, Settings row (D21–D24).
 - `LSPRustProvisioning.swift` — the Rust seam + model; the third registry contributor (D21–D24).
 
-`docs/architecture/core-provisioning.md` — server provisioning (TS/JS + Python), incl. D11–D16 and the pinned manifest's update procedure:
+`docs/architecture/core-provisioning.md` — server provisioning (TS/JS, Python + YAML), incl. D11–D16, D28 and the pinned manifest's update procedure:
 - `SHA256.swift` — FIPS 180-4 digest in Foundation alone.
-- `LSPProvisioningManifest.swift` — the pinned components/artifacts (D11).
+- `LSPProvisioningManifest.swift` — the pinned components/artifacts (D11); the YAML closure + its `runtimeNetworkNote` (D28).
 - `LSPInstallLayout.swift` — pure path math over the install root (D12/D13).
 - `LSPInstallEngine.swift` — download → verify → unpack → one rename (D12–D14).
-- `LSPProvisioning.swift` — consent, the row/prompt values, `LSPProvisioningModel`.
+- `LSPProvisioning.swift` — consent, the row/prompt values (incl. the runtime-network note), `LSPProvisioningModel`.
 
 `docs/architecture/core-leetcode.md` — the LeetCode integration, incl. decisions L1–L26:
 - `LeetCodeTransport.swift` — the one app/Core boundary seam.
@@ -346,8 +346,18 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   discovered or built once, on consent, by the user's own `go`; rust-analyzer is
   a pinned component that is nonetheless *used* from `~/.cargo/bin` when the
   user already has one — the app's own copy wins, Remove only touches that copy,
-  and no `cargo` means no prompt at all. Details in `core-provisioning.md` /
-  `core-lsp.md`.
+  and no `cargo` means no prompt at all. `yaml-language-server` (D28) is an
+  ordinary third downloadable server — one pinned component whose whole
+  twenty-package runtime closure is pinned, one enum case, still no npm — and it
+  carries the **one stated exception** to "what may be downloaded is pinned
+  data": it fetches JSON schemas from schemastore.org *while it runs*, which is
+  said where consent is given (the banner and the Settings row both print
+  `LSPDownloadableServer.runtimeNetworkNote`, which is `nil` for every other
+  server) and not only in the docs. It is not a second install — nothing lands
+  under the install root, so Remove still de-provisions completely. A server that
+  needs a setting gets it as data on its description (D27), delivered on both the
+  push and the pull channel; no server-specific code exists in the session.
+  Details in `core-provisioning.md` / `core-lsp.md`.
 - **LeetCode is a reader with exactly one create**: never takes the writer gate,
   never gated by it. The only file it ever creates is a solution file that does
   not exist (an existing one is returned untouched), plus its two caches under
@@ -370,6 +380,15 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   interface scale reaches views only as
   `InterfaceMetrics` through `\.interfaceMetrics`, never inline and never on a
   code-font site. `ZoomSourceGatingTests` pins both sets (`core-zoom.md`).
+- **A completion candidate is one identifier-shaped token.** The symbol source of
+  both completion paths is filtered by `SymbolIntelligenceProvider
+  .isCompletionCandidate(_:)`: `.heading` is excluded by name (a Markdown heading
+  is a jump target, never a thing anyone types), and every candidate's name must
+  satisfy `IdentifierScanner.isIdentifier(_:)` — the same boundary rule that
+  decides what the caret is completing decides what may be inserted, so it is
+  asked there rather than restated. The index, the walk and `definitions(for:)`
+  are **untouched**: ⌃⌘J still lists what typing now refuses, which is the whole
+  point (`core-intelligence.md`).
 - **Open-tab resync** after an operation rewrites the worktree: buffers are
   snapshotted before the hop; a clean, unchanged tab gets `reloadFromDisk`, an
   edited one `reconcileSavedBaseline` + beep, a deleted file force-closes

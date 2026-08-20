@@ -1,4 +1,4 @@
-# PisakaCore — language-server provisioning (phase 2b: TypeScript/JavaScript and Python)
+# PisakaCore — language-server provisioning (phase 2b: TypeScript/JavaScript, Python and YAML)
 
 Design documentation for the layer that downloads, verifies, installs and
 un-installs the language servers the app did not ship with. Each entry records a
@@ -9,18 +9,36 @@ changes.
 **What this layer is.** A pinned manifest of downloadable components, an install
 engine that turns one of them into a directory of verified files, per-server
 consent, and dynamic registration into the LSP client's registry — so that
-`typescript-language-server` (TypeScript/JavaScript) and `pyright` (Python)
-become live `.executable(path:)` entries the moment they install, with no
-restart. Phase 2a's client (`docs/architecture/core-lsp.md`) is what then *talks*
-to them; this layer only decides that they exist.
+`typescript-language-server` (TypeScript/JavaScript), `pyright` (Python) and
+`yaml-language-server` (YAML) become live `.executable(path:)` entries the moment
+they install, with no restart. Phase 2a's client
+(`docs/architecture/core-lsp.md`) is what then *talks* to them; this layer only
+decides that they exist.
 
 **Nothing new is bundled and nothing new is linked.** `project.yml`,
 `Package.resolved`, `Resources/Licenses/licenses.json` and every dependency pin
 are untouched by this phase: the servers arrive over the network at the user's
 request or not at all. There is no `npm`, no lockfile and no dependency solver —
-`typescript-language-server@5.3.0` has no runtime dependencies and
-`pyright@1.1.411` has exactly one optional one, so the whole closure is the six
-artifacts the manifest names.
+`typescript-language-server@5.3.0` has no runtime dependencies,
+`pyright@1.1.411` has exactly one optional one, and `yaml-language-server@1.24.0`
+has a twenty-package one that is *resolved by hand and pinned whole*, so the
+manifest still names every byte that may arrive.
+
+**The one stated exception to "what may be downloaded is pinned data."** The YAML
+server keeps using the network *after* its install: it resolves a document's
+schema through `schemastore.org` while it runs, which is what knows `services`
+belongs in a `docker-compose.yml` and what no pinned byte in this manifest could
+contain. That traffic is unpinned, un-checksummed and outside this layer
+entirely — the server makes it, not `LSPDownloadService`. It is therefore stated
+**where consent is given** rather than only here: `LSPDownloadableServer
+.runtimeNetworkNote` carries one sentence as data on the server case, and both
+`LSPConsentPrompt` and `LSPServerRow` print it, so a user agreeing to the
+download is told about the traffic that follows it. It is *not* a second install:
+nothing lands under the install root, so Remove and a deleted `LanguageServers`
+directory still de-provision completely (D12), and the note is independent of
+`state`, `consent` and every button — what a server does while it runs is true
+before it is installed and after it is removed. No other server has one; every
+other case's note is `nil`, pinned by test.
 
 **Where the platform boundary is.** Everything decision-shaped is in
 `PisakaCore`, Foundation-only and unit-tested: the manifest, the digest, the path
@@ -142,7 +160,9 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     the server's entry `.mjs`/`.js` plus `--stdio` as arguments, D11's
     `tsserver.fallbackPath` as `initializationOptions` for the TypeScript one
     (`fallbackPath` rather than `path` so a project's own `node_modules/typescript`
-    still wins — see D11). Pure path
+    still wins — see D11), and `LSPDownloadableServer.configuration` — the YAML
+    server's settings object, `nil` for the other two — onto the description's
+    D27 field. Pure path
     math that checks nothing on disk, so it is testable without a file system;
     `nil` for a manifest that does not describe the server, which keeps malformed
     data a *missing* server (tree-sitter, silently) rather than a trap.
@@ -166,8 +186,16 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     `.gzip` opens on its own: the file name is spelled twice — in the format's
     payload and inside `executableSubpath` — and nothing at runtime compares them,
     so a mismatch would install cleanly and `ENOENT` on every start.
-    `LSPDownloadableServer`'s own set equality is asserted **unchanged** in the
-    same suite, which is D21 stated as a test.
+    `LSPDownloadableServer`'s own set equality is asserted **by equality** in the
+    same suite — it stayed *unchanged* through rust-analyzer, which is D21 stated
+    as a test, and grew exactly one case for YAML (D28), which is what a set
+    equality is for. The one artifact whose tree ships no license file at all is a
+    stated exception pinned here **by destination** rather than left as a silence
+    (`node_modules/@vscode/l10n`, above), so a second unacknowledged package
+    fails the suite. The other new exception is pinned next door, in
+    `LSPProvisioningModelTests`, because it is a property of the rows rather than
+    of the pins: exactly one server carries a `runtimeNetworkNote`, and every
+    other row's and prompt's is asserted `nil`.
 
   - `LSPInstallLayout.swift` — where every provisioned file goes (D12/D13), as
     pure path math over a base `URL`. **No file system access, on purpose**:
@@ -381,7 +409,11 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     and nothing else, and a runtime failure aborting the server install.
 
   - `LSPProvisioning.swift` — consent as a value (`LSPServerConsent`), the two
-    view-facing values (`LSPConsentPrompt`, `LSPServerRow`), and
+    view-facing values (`LSPConsentPrompt`, `LSPServerRow` — both of which carry
+    `runtimeNetworkNote`, the prompt reading the row's, so the banner and
+    Preferences cannot disagree and neither writes its own copy; it is
+    independent of `state`, `consent` and every button, because what a server does
+    while it runs is true before it is installed and after it is removed), and
     `LSPProvisioningModel`: the one thing that knows which servers exist, what
     state each is in, and what the registry should therefore look like now.
     **Why a model and not two views doing arithmetic.** The banner and the
@@ -671,6 +703,14 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     where accepting demonstrably changes nothing.
     `size(_:)` formats through `ByteCountFormatter`, so "52.2 MB" here means what
     it means in the Finder.
+    **It prints `LSPConsentPrompt.runtimeNetworkNote` under the size sentence**,
+    verbatim and in the same caption style, when the prompt carries one. The
+    presence of the note is the whole condition — no server is named in this view
+    and there is no per-server branch — so a server that starts using the network
+    after its download says so by carrying a sentence in Core, not by anyone
+    editing a view. It belongs *here* rather than only in Preferences because
+    consent is asked once and never again: a user told about a download has to be
+    told about the traffic that follows it in the same breath.
     **It asks the Go question too, and never both at once.** A second branch
     renders `LSPGoplsProvisioningModel.consentPrompt(forOpening:)` in the same
     strip, with the same two actions and the same absence of a dismiss, and the
@@ -725,6 +765,13 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     puts "Install" back on a row whose message is about a removal, because the
     action there is a fresh download rather than a second attempt at what the
     message describes.
+    A row also prints `LSPServerRow.runtimeNetworkNote` beside its state line
+    when it has one — the same sentence the consent banner prints, from the same
+    Core field, **deliberately not conditioned on the state**: what a server does
+    while it runs is true before it is installed and after it is removed, and this
+    is the surface someone reads when they are deciding to turn a "no" around. The
+    presence of the note is the whole condition here too; there is no per-server
+    branch in this view either.
     A thin view in the `GeneralSettingsView` mould — every rule (which actions
     apply, what the state is, what it costs) is a property of `LSPServerRow` and
     is unit-tested in Core.
@@ -952,11 +999,80 @@ release assets.
 | `typescript-language-server` | 5.3.0 | Apache-2.0 | `typescript-language-server-5.3.0.tgz` `398cacc17fff2108652e7b4050e3182008d17063246b3fea7dcf5fae2ce1560e` · 501 633<br>`typescript-5.9.3.tgz` `10e108c9cf7d5f2879053dff18515fb405abf2ccef63eaaf017d9c571687a1d3` · 4 377 468 |
 | `pyright` | 1.1.411 | MIT | `pyright-1.1.411.tgz` `bd5c488fc20fa237a944279bf32cae2f986cf10d5d5d9e8705819859daeb2f4a` · 4 139 958<br>`fsevents-2.3.3.tgz` `c77e7a5d5ff31dd7acea7c44d4a0455e0528cdacbd24a8cb6c82b66d239b587e` · 22 808 |
 | `rust-analyzer` | 2026-08-03 | Apache-2.0 OR MIT | `rust-analyzer-aarch64-apple-darwin.gz` `bba6cd8209643cd781f3ee5474fa232d3ee1b77a57f2e77982806e3c80a65207` · 13 873 448<br>`rust-analyzer-x86_64-apple-darwin.gz` `8966f9429085c243817b9d13afa76e98920668c07a9b432901daaf047397c6cb` · 14 576 027 |
+| `yaml-language-server` | 1.24.0 | MIT AND ISC AND BSD-3-Clause | 20 `registry.npmjs.org` tarballs, 4 187 986 bytes in all — the closure, listed in full below |
 
 `fsevents` is macOS-only, optional and prebuilt; it costs 22 KB and avoids the
-resolution warning its absence produces. There is nothing else transitive —
-which is why this whole layer needs no `npm`, no lockfile and no dependency
-solver.
+resolution warning its absence produces. Nothing else in the first three rows is
+transitive — which is why this layer needs no `npm`, no lockfile and no
+dependency solver even for the fourth Node component, whose closure is
+twenty-deep and *resolved by hand*.
+
+### The `yaml-language-server` closure, and why it is pinned whole
+
+The other two Node components pin one or two tarballs because their published
+bundles are self-contained. `yaml-language-server` is not: `server.js` is a thin
+entry point that `require`s its dependencies at run time, so **every package in
+the resolved closure is a pin here or the server dies on start**. Twenty
+tarballs, 4 187 986 bytes compressed and ~24.8 MB on disk, each landing flat at
+`node_modules/<package>` (`node_modules/@vscode/l10n` for the scoped one). No two
+versions in the closure conflict, which is exactly what makes the flat layout the
+other components already use correct here — Node's ordinary upward walk from
+`server.js` finds each one. The entry point is
+`node_modules/yaml-language-server/out/server/src/server.js`, run by the shared
+`node` runtime with `--stdio`.
+
+`prettier` is on the list although Pisaka never asks this server to format
+anything: `yamlFormatter.js` sits in the language service's own module graph and
+`require`s `prettier/standalone` unconditionally, so leaving it out is a server
+that fails to load rather than a server without formatting. At 2.8 MB it is two
+thirds of the download.
+
+| artifact | sha256 | download bytes |
+|---|---|---|
+| `yaml-language-server-1.24.0.tgz` | `11a321032012131f2ccdf7952dc347ce05291c66931a5de2f449b2dfc81f24b2` | 646 765 |
+| `ajv-8.20.0.tgz` | `b2f0b3a893bbb8cc5efb6814f08b1499e19e31d5dd73683f5893382f48f6e7b3` | 217 611 |
+| `ajv-draft-04-1.0.0.tgz` | `b2328acf9b3a5b1b3a098789770c2dd34ed86b5913c904c056091ec10319c2e7` | 8 735 |
+| `ajv-i18n-4.2.0.tgz` | `b84c90f14594a447bf59badc6a9b01e75049400186adec9c85b52e1709867239` | 25 980 |
+| `l10n-0.0.18.tgz` | `f1c2dc897488595f6bb42121869f525c6c6a5f7c8dca550754199c3251ed7c5c` | 4 548 |
+| `fast-deep-equal-3.1.3.tgz` | `b019a0980f27638dc3f85836b0e478f188e00d7a6e5852c0819fa86f56e47b8f` | 3 656 |
+| `fast-uri-3.1.5.tgz` | `82a71e7e3716dc8c392cac0762bce80614cf539ef22000415e26eaf5c453ce2f` | 32 112 |
+| `json-schema-traverse-1.0.0.tgz` | `023222622df29fc274bde5d3590e47aa1d4a8e3c1d6e2aba029948ed79799b21` | 6 074 |
+| `jsonc-parser-3.3.1.tgz` | `4a0315b8671e7463bae7af7c142cdf19e9aa7ba39eb36dc2df383b8648e3cbc9` | 27 354 |
+| `picomatch-4.0.5.tgz` | `e89c478225a42b3793bb4a39fd576de142c9829c26a5bd71782249e48b112f51` | 24 079 |
+| `prettier-3.9.6.tgz` | `997da95cf2ae81053cafc79ef122a6e8dc12e3f2c619d57eb1f2e19525fb212f` | 2 800 155 |
+| `request-light-0.5.8.tgz` | `4b6d4b48fa05056435b300a4a5f904bacbe0e6ddfa28bb44b729eb64f24375b9` | 10 534 |
+| `require-from-string-2.0.2.tgz` | `cb694a4965908f7775a0c757f00cf4e624d193cd71d77988fbcca0f597b88d82` | 1 816 |
+| `vscode-jsonrpc-8.2.0.tgz` | `3da44531c398f1545074cb728e359a822f35b9f8ac7171c847f42f0728b9c7cb` | 35 427 |
+| `vscode-languageserver-9.0.1.tgz` | `6cd7f463ae7872e588a4dd5ed5149475fe32e53517509a81e715eb0540602412` | 32 720 |
+| `vscode-languageserver-protocol-3.17.5.tgz` | `7473eb2d2163f3f8bea09644f9d803789a195e596b65d3946c4157e583e3ccc8` | 59 008 |
+| `vscode-languageserver-textdocument-1.0.13.tgz` | `46c8c250fa7667a9503cffb506512b99557784dfefbd8e318944856ca11ffbb9` | 8 425 |
+| `vscode-languageserver-types-3.17.5.tgz` | `d673f9e7f8bbe51351be51c58f32d4dcfa97a670ebb86bc633368394c609cac0` | 71 382 |
+| `vscode-uri-3.1.0.tgz` | `c6ec752d7a4858237389b23fb4d5ac05c2f1f606071cd212a9b54730e43cfc54` | 59 768 |
+| `yaml-2.8.3.tgz` | `9539805d7447def2bed5c5b4acacc283362c5e80abc5d93472b2f35f0cbf85ad` | 111 837 |
+
+**Three SPDX ids, because the closure really is under three**: MIT for eighteen
+packages, ISC for `yaml`, BSD-3-Clause for `fast-uri` — each a separate project's
+own license file shipped inside this tree, which is the same rule that makes
+pyright's expression `MIT AND Apache-2.0`. `licenseFileSubpaths` lists 25 paths
+in upstream's own spelling (`LICENSE`, `LICENSE.md`, `License.txt` and a
+lowercase `license` all appear), including `prettier`'s `THIRD-PARTY-NOTICES.md`
+and each of the five `vscode-*` packages' `thirdpartynotices.txt`.
+
+**`node_modules/@vscode/l10n` is a stated license-file exception.** `@vscode/l10n`
+0.0.18 publishes no license file at all — MIT is declared in its `package.json`
+and nowhere else — so it is the one package in the closure with no entry in
+`licenseFileSubpaths`. That breaks the "nothing lands unacknowledged" rule
+`testEveryComponentDeclaresALicenseItActuallyShips` enforces, so it is written
+down as a decision instead of a silence: `LSPProvisioningManifestTests` names the
+destination and the reason, and a *second* package with no notice would fail the
+suite rather than slip in beside it.
+
+It carries **the layer's only `LSPServerDescription.configuration`** —
+`{"yaml": {"schemaStore": {"enable": true}, "completion": true, "hover": true}}`,
+delivered by D27's two channels. The setting is stated rather than left to
+upstream's default (which happens to be `true` today) so that schemas load by
+decision rather than by luck, and a pin bump that changed the default would fail
+loudly instead of quietly.
 
 `rust-analyzer` is the odd row, in four ways that are each a decision rather than
 an accident:

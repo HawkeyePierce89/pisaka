@@ -528,11 +528,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     one object rather than a separately-constructed provider that would capture a
     stale index value.
   - `IdentifierScanner.swift` — the editor's single definition of *"what is an
-    identifier"*, shared by the four questions code intelligence asks of raw
+    identifier"*, shared by the five questions code intelligence asks of raw
     text: which word was ⌘-clicked (`identifier(in:at:)`), which partial word is
     being typed (`completionPrefixRange(in:at:)`), whether the caret sits after a
-    member-access dot (`memberContext(in:at:)`), and which words this buffer
-    contains (`words(in:limit:)`). Pure and Foundation-only over an `NSString` and
+    member-access dot (`memberContext(in:at:)`), which words this buffer
+    contains (`words(in:limit:)`) — and the one question about text the editor is
+    *about to write* rather than text it is reading, may this name be inserted as
+    a word at all (`isIdentifier(_:)`). Pure and Foundation-only over an `NSString` and
     UTF-16 offsets like every other editor engine (`DuplicateEngine`,
     `BracketMatchEngine`, `AutoPairEngine`), so a range it returns can be handed
     straight to the text view — and to `EditorRevealState`. **One boundary rule**
@@ -612,6 +614,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the cap is reached: a minified bundle or a generated data file is one buffer
     with hundreds of thousands of tokens, and an uncapped harvest would allocate
     that set on every debounce tick.
+    `isIdentifier(_:)` is the **whole-string form of the same boundary rule** —
+    non-empty, first scalar a valid start, every scalar after it a valid
+    continuation — and it lives here for exactly that reason: "may this text be
+    *inserted* as a word" is "would the scanner find this text, whole, as one
+    word", and a second spelling of it elsewhere could drift away from the one the
+    caret is measured with. Equivalent by construction to `words(in:limit:)`
+    reporting exactly `[text]`, which is how the tests pin it. Its one caller is
+    `SymbolIntelligenceProvider`'s completion-candidate rule below; nothing about
+    scanning changed to add it.
   - `LanguageKeywords.swift` — completion's **third candidate source**: the
     reserved vocabulary of the language being typed in. Static per-language lists
     rather than anything derived from the parse tree, because a keyword is spelled
@@ -878,7 +889,35 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     completion path below *does* read: a keyword has no declaration site, so a
     `guard` under the caret must beep rather than open a picker, and the two
     features sharing this type is exactly why that is pinned by a test instead of
-    left to convention. **Completions** merge three sources — the index's matches,
+    left to convention.
+    **The completion-candidate rule** stands between the index and the ranking,
+    and it is the one place the two features stop wanting the same thing.
+    `isCompletionCandidate(_:)` filters the **symbol source** of both completion
+    paths — ordinary and member — on two conditions. First, the kind is not one of
+    `kindsExcludedFromCompletion`, which is `[.heading]` and is stated by name
+    rather than derived: a Markdown heading is a first-class jump target (⌃⌘J
+    listing a document's sections is exactly what the query captures it for) and
+    never a thing anyone types — offering one is how a fresh `docker-compose.yml`
+    answered `ser` with a heading lifted out of an unrelated `.md` file. Second,
+    the general rule: the name is a single identifier-shaped token, asked of
+    `IdentifierScanner.isIdentifier(_:)` rather than restated here, so **the rule
+    that decides what the caret is completing is literally the rule that decides
+    what may be inserted**. A name the scanner could never have produced as one
+    token (`Getting started`, `run(_:)`, `.btn-primary`, `9foo`) would be dropped
+    into the middle of a line as text no language accepts, and could never be
+    re-found by the prefix that offered it. Every other kind stays a candidate,
+    including the ones the non-code languages contribute (`.key`, `.anchor`,
+    `.selector`, `.stage`): a top-level YAML key *is* the word the author is
+    typing. The other two sources are not re-filtered because they cannot fail it
+    by construction — `LanguageKeywords` are hand-written words, and harvested
+    words come out of `words(in:limit:)`, which yields only what the predicate
+    accepts. **This filters the completion source and nothing else**: `SymbolIndex`,
+    `ProjectFileWalk`, `SymbolIndexModel` and the queries keep storing exactly what
+    they stored before, and `definitions(for:)` keeps returning it — ⌃⌘J still
+    lists headings and multi-word keys, and jumping to one still lands on it. That
+    asymmetry *is* the rule, which is why it is applied at the two ranking call
+    sites and not at the index.
+    **Completions** merge three sources — the index's matches,
     the language's keywords and the buffer's harvested words — and rank by
     (1) **match quality**, `FuzzyMatch.Quality`, which is itself ordered
     case-sensitive prefix, then case-insensitive prefix, then fuzzy, and within

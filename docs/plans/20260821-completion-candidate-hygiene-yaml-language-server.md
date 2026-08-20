@@ -239,18 +239,18 @@ Intent: thin glue — the views print the Core value and decide nothing.
 - Modify: `CLAUDE.md`, `docs/architecture/core-intelligence.md`,
   `docs/architecture/core-provisioning.md`, `docs/architecture/core-lsp.md`
 
-- [ ] `core-intelligence.md`: the completion-candidate rule beside the ranking rules —
+- [x] `core-intelligence.md`: the completion-candidate rule beside the ranking rules —
       excluded kinds, the identifier-shape rule, and the explicit statement that the
       index stores and navigates the same entries as before.
-- [ ] `core-provisioning.md`: the new row in the pinned-manifest table; the closure and
+- [x] `core-provisioning.md`: the new row in the pinned-manifest table; the closure and
       why it is pinned whole (including `prettier`); the `@vscode/l10n` license-file
       exception; and **the schemastore exception recorded where the invariant is
       stated**, not in a code comment.
-- [ ] `core-lsp.md`: the new decision covering the configuration transport (the
+- [x] `core-lsp.md`: the new decision covering the configuration transport (the
       description field, both delivery channels, why `workspace.configuration` stays
       `false`, and that the pinned version's unconditional pull is the mechanism), plus
       the YAML server as the next registry contributor.
-- [ ] `CLAUDE.md`: index lines for the changed files, the provisioned-servers invariant
+- [x] `CLAUDE.md`: index lines for the changed files, the provisioned-servers invariant
       gaining its one stated exception, and the completion-candidate rule in the
       cross-cutting list. No per-file essays.
 

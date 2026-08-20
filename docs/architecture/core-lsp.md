@@ -369,9 +369,12 @@ document, together with the limits they carry.
     the request we are waiting on: `client/registerCapability` and
     `client/unregisterCapability` get `null` (dynamic registration is declined in
     the capabilities, so a server should not ask; acknowledging is cheaper than an
-    error it might treat as fatal), `workspace/configuration` gets one `null` per
-    requested item (Pisaka has no per-server settings surface, so "no setting" is
-    exactly true), and anything else gets `MethodNotFound`. Notifications are
+    error it might treat as fatal), `workspace/configuration` gets one value per
+    requested item — this server's own section where its description names it, and
+    `null`, "no setting", where it does not (D27) — and anything else gets
+    `MethodNotFound`. For the five servers whose description carries no
+    configuration that is one `null` per item, byte-for-byte the answer this file
+    gave before D27 existed. Notifications are
     ignored — diagnostics, logs and progress are all noise here, and ignoring an
     unknown one is what the spec asks for anyway.
     **A framing error is terminal, a bad *payload* is not.** `ingest` distinguishes
@@ -408,6 +411,13 @@ document, together with the limits they carry.
     several; `initializationOptions` is an opaque `JSONValue` passed through
     verbatim, since it is *that server's* configuration and Core has no business
     having an opinion about its shape.
+    `configuration` is the second opaque value and is opaque for the same reason,
+    but the two are not interchangeable (D27): `initializationOptions` travels once,
+    inside `initialize`, while `configuration` is a settings object **keyed by the
+    section a server asks for** (`{"yaml": {…}}`) and answers the two channels a
+    server may take settings on afterwards. `nil` for every server but the YAML
+    one, and `nil` is a statement rather than a default — it is what makes the
+    handshake of the other five byte-identical to what it was.
     `environment` is an **overlay and never a replacement** — the app merges it on
     top of the process environment rather than assigning it, so everything a server
     resolves out of `PATH`/`HOME`/`DEVELOPER_DIR` keeps working. It is empty for
@@ -1764,9 +1774,10 @@ the stored `symbol` property is gone, so every *accessor* site was a mechanical
 edit.
 
 **D9 — The registry.** `LSPServerDescription` is
-`{ id, languages, launch, arguments, initializationOptions, environment }`, where
-`environment` is an overlay merged over the app's own (empty for all but gopls —
-D17) and `launch` is
+`{ id, languages, launch, arguments, initializationOptions, configuration,
+environment }`, where `configuration` is the per-server settings object D27
+delivers (`nil` for all but the YAML server), `environment` is an overlay merged
+over the app's own (empty for all but gopls — D17) and `launch` is
 `.toolchainTool(name:)` (resolved by the app through `xcrun --find`, honouring
 `DEVELOPER_DIR`, cached per app run) or `.executable(path:)`. `LSPServerRegistry`
 maps language → description. Adding a server is one registry entry.
@@ -1995,6 +2006,77 @@ pins the pass-through and the no-surface half statically, over comment- and
 literal-stripped source, because deleting that line changes nothing that compiles,
 draws or is otherwise asserted — it only turns the popover into a hit-test
 obstacle standing between the pointer and the code.
+
+**D27 — A server's settings are data on its description, delivered on both
+channels.** Some servers need to be *told* something before they are useful, and
+D9's promise is that such a server costs a data change and no client code. So
+`LSPServerDescription` gains one opaque `configuration: JSONValue?` — a settings
+object keyed by the configuration *section* the server asks for, `{"yaml": {…}}`
+— which `LSPWorkspace` passes at `start` beside `initializationOptions`, and
+`LSPSession` delivers. **There is no server-specific code anywhere in the
+session**; the value is pinned data on the description, exactly like
+`initializationOptions`, and Core has no opinion about its shape.
+
+It is delivered **twice, on both channels a server may take settings on**, because
+which one a given server reads is that server's decision and not ours: a
+`workspace/didChangeConfiguration` notification carrying `{settings: …}` sent once
+right after `initialized` (and never again — nothing in Pisaka changes a server's
+settings while it runs), and every `workspace/configuration` pull answered
+**section by section** out of the same value for as long as the session lives. A
+requested item with no `section`, a section this server's configuration does not
+name, and any request at all to a server without a configuration all answer
+`null`: absent rather than empty, which is what a server reads as "use your
+default". Section names are matched exactly against the top level of the object —
+`"[yaml]"` is a section name like any other, not a nested path — so the spelling
+the server asks for is the spelling the description must use.
+
+**The pull is the channel that actually matters, and the pin is what makes that a
+fact.** Read out of the pinned `yaml-language-server` 1.24.0 bundle rather than
+guessed: on `initialized` it calls `settingsHandler.pullConfiguration()`
+**unconditionally**, sending `workspace/configuration` for `yaml`, `http`,
+`[yaml]`, `editor` and `files` regardless of what the client advertised — and its
+`onDidChangeConfiguration` handler ignores the pushed payload and re-pulls. So the
+answer to the pull is where the setting lands. The notification is sent anyway,
+for servers that read the payload instead; it costs one message.
+
+**The client capability `workspace.configuration` stays `false`.** Flipping it to
+`true` would rewrite the handshake for all five existing servers for no gain: a
+server that pulls does so either way (this one demonstrably does), and the
+capability tree is closed on purpose (D9's neighbour rule — advertise only what is
+implemented). Answering a request we did not invite is the same courtesy the file
+already extends to `client/registerCapability`: a server blocked on an answer
+stalls the request we are waiting on.
+
+**Nothing changes for a server without one, by construction rather than by
+promise.** With `configuration == nil` the notification is not sent and every
+pulled item is still answered `null` — the two facts the tests pin beside the
+positive ones, over `ScriptedLSPTransport`.
+
+**D28 — YAML is the third `LSPDownloadableServer` case, not a fourth
+contributor.** Where Go (D17) and Rust (D21) each needed a registry contributor of
+their own because their honest state sets are not 2b's, `yaml-language-server` is
+exactly a 2b server: a pinned component, downloaded on consent, run by the shared
+`node` runtime, with `LSPProvisioningModel`'s existing states describing it
+completely. So it is one `LSPComponent`, one enum case (`languages: [.yaml]`,
+runtime `node`, `--stdio`, no tsserver path) and one configuration value —
+**no new download code, no unpack rule, no path math, and still no npm**. Its
+twenty-tarball closure and the `@vscode/l10n` license exception are in
+`core-provisioning.md`.
+
+Two things distinguish it from the other two 2b servers, both stated rather than
+incidental. Its schemas are **not pinned and cannot be** — it fetches them from
+`schemastore.org` while it runs, which is what completes a compose file against
+its real schema — so it carries the layer's one `runtimeNetworkNote`, printed by
+the consent banner and the Settings row before anything is downloaded
+(`core-provisioning.md`). And it is the one server with a `configuration`, D27's
+only user today: `{"yaml": {"schemaStore": {"enable": true}, "completion": true,
+"hover": true}}`, stated rather than left to an upstream default that happens to
+agree.
+
+For YAML this replaces nothing — the tree-sitter path knows a document's *keys*,
+never its schema, so `ser` in a fresh `docker-compose.yml` could only ever be
+answered from luck. Un-consented, removed, or failed, YAML falls back to that path
+exactly as every other language does (D7), silently and per request.
 
 ## Known limits
 
