@@ -141,27 +141,27 @@ the gesture to the engine.
 - Modify: `Sources/Pisaka/ProjectTreeView.swift`
 - Modify: `Sources/Pisaka/ContentView.swift`
 
-- [ ] Add `var onMove: (URL, URL) -> Void = { _, _ in }` to `ProjectTreeView` and
+- [x] Add `var onMove: (URL, URL) -> Void = { _, _ in }` to `ProjectTreeView` and
       `ContentView`, threaded to `DirectoryNodeView`/`FileRowView` like the other
       row callbacks.
-- [ ] Add a private reference-type drag session held by `ProjectTreeView`
+- [x] Add a private reference-type drag session held by `ProjectTreeView`
       (`@StateObject`, deliberately no `@Published` so starting a drag re-renders
       nothing), storing the dragged source URL and the memoized decision for the
       current (source, target) pair; threaded down the recursive node the same way.
-- [ ] Add `.onDrag` to `FileRowView` and to `FolderDisclosureRow` (skipped for the
+- [x] Add `.onDrag` to `FileRowView` and to `FolderDisclosureRow` (skipped for the
       root row): set the session's source, return an `NSItemProvider` under the
       private type identifier. Keep the existing `.onTapGesture`, `.onHover` and
       `.contextMenu` on both row kinds untouched and in the same order.
-- [ ] Add a private `DropDelegate` used by folder rows *and* the root row:
+- [x] Add a private `DropDelegate` used by folder rows *and* the root row:
       `validateDrop` requires the private identifier, a session source and a
       `.move` decision (full decision, memoized); `dropEntered`/`dropExited` drive a
       per-row `isDropTarget` `@State`; `performDrop` calls `onMove(source, folder)`
       and clears the session.
-- [ ] Draw the drop highlight from a new `TreeRowLayout.dropHighlight` constant
+- [x] Draw the drop highlight from a new `TreeRowLayout.dropHighlight` constant
       (stronger than the hover highlight), applied where the hover background is,
       so the two treatments cannot drift apart; nothing new names `interfaceScale`
       and no zoom surface is declared.
-- [ ] Run `swift test` (unchanged, must stay green) and build the macOS app
+- [x] Run `swift test` (unchanged, must stay green) and build the macOS app
       (`xcodegen generate` + `xcodebuild … -destination 'platform=macOS' build`).
 
 ### Task 4: Verify acceptance criteria

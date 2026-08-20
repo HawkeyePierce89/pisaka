@@ -490,7 +490,8 @@ struct ContentView: View {
                 onRename: onRename,
                 onDelete: onDelete,
                 onRun: onRun,
-                onRunTest: onRunTest
+                onRunTest: onRunTest,
+                onMove: onMove
             )
             // Every pane's minimum, ideal and maximum width is scaled: at the top
             // of the range the tree's rows are half again as tall and their names
