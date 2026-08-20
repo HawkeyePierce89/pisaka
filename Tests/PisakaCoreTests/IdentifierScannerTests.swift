@@ -300,6 +300,52 @@ final class IdentifierScannerTests: XCTestCase {
         XCTAssertEqual(IdentifierScanner.words(in: source, limit: 2), ["same", "other"])
     }
 
+    // MARK: - isIdentifier(_:)
+
+    /// The whole-string form answers the same question the scanning entry points
+    /// ask scalar by scalar, which is the point of it existing: what the caret is
+    /// completing and what may be inserted are decided by one rule.
+    func testIsIdentifierAcceptsWhatTheScannerWouldFindAsOneWholeWord() {
+        XCTAssertTrue(IdentifierScanner.isIdentifier("services"))
+        XCTAssertTrue(IdentifierScanner.isIdentifier("_private"))
+        XCTAssertTrue(IdentifierScanner.isIdentifier("Worker2"))
+        XCTAssertTrue(IdentifierScanner.isIdentifier("имя"))
+        XCTAssertTrue(IdentifierScanner.isIdentifier("n\u{00FA}mero"))
+        XCTAssertTrue(IdentifierScanner.isIdentifier("\u{5909}\u{6570}"))
+    }
+
+    /// Everything the run-scanning rule would split, trim or drop entirely.
+    func testIsIdentifierRejectsAnythingTheBoundaryRuleWouldNotYieldWhole() {
+        XCTAssertFalse(IdentifierScanner.isIdentifier(""))
+        XCTAssertFalse(IdentifierScanner.isIdentifier("two words"))
+        XCTAssertFalse(IdentifierScanner.isIdentifier("run(_:)"))
+        XCTAssertFalse(IdentifierScanner.isIdentifier("foo.bar"))
+        XCTAssertFalse(IdentifierScanner.isIdentifier("kebab-case"))
+        XCTAssertFalse(IdentifierScanner.isIdentifier("9foo"))
+        XCTAssertFalse(IdentifierScanner.isIdentifier("123"))
+        XCTAssertFalse(IdentifierScanner.isIdentifier("trailing "))
+        XCTAssertFalse(IdentifierScanner.isIdentifier(" leading"))
+        XCTAssertFalse(IdentifierScanner.isIdentifier("$FOO"))
+    }
+
+    /// Stated as an equivalence rather than by example: for any string, the
+    /// whole-string rule agrees with "the scanner finds exactly this word, whole"
+    /// — so the two can never drift apart as the classification changes.
+    func testIsIdentifierAgreesWithTheScanningEntryPoints() {
+        let samples = [
+            "services", "_private", "Worker2", "\u{0438}\u{043C}\u{044F}", "", "two words", "run(_:)",
+            "foo.bar", "kebab-case", "9foo", "123", "trailing ", " leading", "$FOO", "a",
+        ]
+        for sample in samples {
+            let scanned = IdentifierScanner.words(in: sample as NSString, limit: 2)
+            XCTAssertEqual(
+                IdentifierScanner.isIdentifier(sample),
+                scanned == [sample],
+                "whole-string rule disagrees with the scanner for \(sample.debugDescription)"
+            )
+        }
+    }
+
     // MARK: - The shared classification
 
     func testClassificationExcludesDigitsFromStartsButNotFromContinuations() {

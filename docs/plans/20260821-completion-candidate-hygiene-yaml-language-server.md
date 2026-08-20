@@ -109,23 +109,23 @@ Intent: a name that cannot be typed as a word cannot be inserted as one, whateve
 kind captured it — and a markdown heading is never a completion candidate even when
 it happens to be one word.
 
-- [ ] Extend `IdentifierScanner` with the whole-string form of its one boundary rule
+- [x] Extend `IdentifierScanner` with the whole-string form of its one boundary rule
       (non-empty, first scalar an identifier start, every scalar a continuation), so
       the rule is not restated anywhere: the same rule that decides what the caret is
       completing decides what may be inserted.
-- [ ] In `SymbolIntelligenceProvider`, filter the **symbol source** of both completion
+- [x] In `SymbolIntelligenceProvider`, filter the **symbol source** of both completion
       paths (ordinary and member) through one documented predicate: excluded kinds
       (`.heading`, stated by name with the reason) and the identifier-shape rule.
       Keywords and harvested buffer words are already identifier-shaped by construction
       and are not re-filtered.
-- [ ] Leave `definitions(for:)` and everything the index stores untouched — state that
+- [x] Leave `definitions(for:)` and everything the index stores untouched — state that
       in the doc comment, since the whole point is that navigation keeps the entries
       completion now refuses.
-- [ ] Tests: a heading is excluded from completion; a multi-word / parenthesised name
+- [x] Tests: a heading is excluded from completion; a multi-word / parenthesised name
       of any kind is excluded; a single-word `.key`, `.anchor`, `.function` survives;
       a heading is still returned by `definitions(for:)`; member completions with a
       well-shaped member are unaffected.
-- [ ] `swift test` green.
+- [x] `swift test` green.
 
 ### Task 2: Per-server configuration as data on the description
 

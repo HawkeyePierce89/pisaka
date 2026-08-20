@@ -1,11 +1,13 @@
 import Foundation
 
 /// The editor's single definition of *"what is an identifier"*, shared by the
-/// four questions code intelligence asks about raw text: which word did the
+/// five questions code intelligence asks about raw text: which word did the
 /// user ⌘-click (`identifier(in:at:)`), which partial word are they typing
 /// (`completionPrefixRange(in:at:)`), which words does this buffer contain
-/// (`words(in:limit:)`), and is the caret sitting after a member-access dot
-/// (`memberContext(in:at:)`).
+/// (`words(in:limit:)`), is the caret sitting after a member-access dot
+/// (`memberContext(in:at:)`) — and, the one question that is about text the
+/// editor is *about to write* rather than text it is reading, may this name be
+/// inserted as a word at all (`isIdentifier(_:)`).
 ///
 /// Pure and Foundation-only, operating on an `NSString` and UTF-16 offsets like
 /// every other editor engine (`DuplicateEngine`, `BracketMatchEngine`,
@@ -82,6 +84,30 @@ public enum IdentifierScanner {
     public static func isIdentifierContinuation(_ scalar: UnicodeScalar) -> Bool {
         if scalar.isASCII { return isASCIILetterOrUnderscore(scalar) || (scalar >= "0" && scalar <= "9") }
         return alphanumerics.contains(scalar)
+    }
+
+    /// Whether `text` is, from end to end, **one identifier**: non-empty, its
+    /// first scalar a valid start, every scalar after it a valid continuation.
+    ///
+    /// The whole-string form of the same boundary rule the scanning entry points
+    /// apply, and it lives here for exactly that reason: the question "may this
+    /// text be *inserted* as a word" is the question "would the scanner find this
+    /// text, whole, as one word", and a second spelling of it somewhere else
+    /// could drift. `SymbolIntelligenceProvider` asks it of every completion
+    /// candidate, so a name the editor could never have produced as a token
+    /// (`Getting started`, `run(_:)`, `.btn-primary`, `9foo`) is never offered
+    /// for insertion — while the index keeps storing it and go-to-definition
+    /// keeps resolving it.
+    ///
+    /// Equivalent, by construction, to `words(in:limit:)` reporting exactly
+    /// `[text]` — which is how the tests pin it.
+    public static func isIdentifier(_ text: String) -> Bool {
+        var scalars = text.unicodeScalars.makeIterator()
+        guard let first = scalars.next(), isIdentifierStart(first) else { return false }
+        while let scalar = scalars.next() {
+            guard isIdentifierContinuation(scalar) else { return false }
+        }
+        return true
     }
 
     /// The ASCII half of both rules, which is what source code is made of.
