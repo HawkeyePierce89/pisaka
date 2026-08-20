@@ -166,16 +166,16 @@ the gesture to the engine.
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] `swift test` fully green, including the gating suites
+- [x] `swift test` fully green, including the gating suites
       (`ZoomSourceGatingTests`, `LSPSourceGatingTests`, `SparkleSourceGatingTests`).
-- [ ] macOS **Release** build green:
+- [x] macOS **Release** build green:
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -configuration Release
       -destination 'platform=macOS' build`.
-- [ ] iOS build green:
+- [x] iOS build green:
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
       -destination 'generic/platform=iOS' build` — confirming nothing leaked into
       shared/Core code that breaks iOS.
-- [ ] Re-read `renameItem` and `moveItem` to confirm a single `performMove` body
+- [x] Re-read `renameItem` and `moveItem` to confirm a single `performMove` body
       and that the refusal path writes nothing (no `bumpTreeRevision`, no plan
       applied).
 
