@@ -80,13 +80,15 @@ final class LSPSessionTests: XCTestCase {
     @discardableResult
     private func start(
         _ transport: ScriptedLSPTransport,
-        budgets: LSPSession.Budgets = LSPSessionTests.quick
+        budgets: LSPSession.Budgets = LSPSessionTests.quick,
+        configuration: JSONValue? = nil
     ) async throws -> LSPSession {
         let session = LSPSession(transport: transport, budgets: budgets)
         try await session.start(
             processID: 4242,
             rootURI: "file:///tmp/Project",
-            rootPath: "/tmp/Project"
+            rootPath: "/tmp/Project",
+            configuration: configuration
         )
         return session
     }
@@ -673,6 +675,103 @@ final class LSPSessionTests: XCTestCase {
         // One value per requested item, each of them "no setting" — a shorter
         // array is a protocol violation a server may treat as fatal.
         XCTAssertEqual(response.result, .array([.null, .null]))
+        // And the handshake is byte-for-byte the one every server saw before
+        // configuration existed: a session started without one pushes nothing.
+        XCTAssertEqual(transport.sentMethods, [LSPMethod.initialize, LSPMethod.initialized])
+        let isRunning = await session.isRunning
+        XCTAssertTrue(isRunning)
+    }
+
+    // MARK: - Per-server configuration
+
+    /// Shaped like the YAML server's, including a section whose name is not an
+    /// identifier: a section is matched by its exact spelling, nothing else.
+    private let scriptedConfiguration: JSONValue = .object([
+        "yaml": .object([
+            "schemaStore": .object(["enable": .bool(true)]),
+            "completion": .bool(true)
+        ]),
+        "[yaml]": .object(["editor.tabSize": .int(2)])
+    ])
+
+    func testAConfiguredSessionPushesItsSettingsRightAfterInitialized() async throws {
+        let transport = makeTransport()
+        let session = try await start(transport, configuration: scriptedConfiguration)
+
+        // After `initialized` and not before it: the spec forbids anything else
+        // in between.
+        XCTAssertEqual(
+            transport.sentMethods,
+            [LSPMethod.initialize, LSPMethod.initialized, LSPMethod.didChangeConfiguration]
+        )
+        let pushed = try XCTUnwrap(
+            transport.notifications(for: LSPMethod.didChangeConfiguration).first
+        )
+        XCTAssertEqual(pushed.params?["settings"], scriptedConfiguration)
+        let isRunning = await session.isRunning
+        XCTAssertTrue(isRunning)
+    }
+
+    func testWorkspaceConfigurationIsAnsweredSectionBySectionFromTheConfiguration()
+        async throws {
+        let transport = makeTransport()
+        let session = try await start(transport, configuration: scriptedConfiguration)
+
+        transport.emit(.request(LSPRequestMessage(
+            id: .number(9),
+            method: LSPMethod.workspaceConfiguration,
+            params: .object([
+                "items": .array([
+                    .object(["section": .string("yaml")]),
+                    .object(["section": .string("http")]),
+                    .object(["section": .string("[yaml]")]),
+                    .object([:])
+                ])
+            ])
+        )))
+
+        await waitFor("the configuration pull to be answered") {
+            !transport.sentResponses.isEmpty
+        }
+        let response = try XCTUnwrap(transport.sentResponses.first)
+        XCTAssertEqual(response.id, .number(9))
+        // In order, one per item: the named sections verbatim, `null` for the
+        // section this server's configuration does not mention and for the item
+        // that names no section at all.
+        XCTAssertEqual(response.result, .array([
+            try XCTUnwrap(scriptedConfiguration["yaml"]),
+            .null,
+            try XCTUnwrap(scriptedConfiguration["[yaml]"]),
+            .null
+        ]))
+        let isRunning = await session.isRunning
+        XCTAssertTrue(isRunning)
+    }
+
+    func testTheConfigurationAnswersEveryPullForTheLifeOfTheSession() async throws {
+        let transport = makeTransport()
+        // The pinned yaml-language-server pulls on `initialized` and re-pulls
+        // whenever it is told settings changed, so answering once is not enough.
+        let session = try await start(transport, configuration: scriptedConfiguration)
+
+        for id in 1...2 {
+            transport.emit(.request(LSPRequestMessage(
+                id: .number(id),
+                method: LSPMethod.workspaceConfiguration,
+                params: .object(["items": .array([.object(["section": .string("yaml")])])])
+            )))
+            await waitFor("pull \(id) to be answered") {
+                transport.sentResponses.count >= id
+            }
+        }
+
+        XCTAssertEqual(transport.sentResponses.count, 2)
+        for response in transport.sentResponses {
+            XCTAssertEqual(
+                response.result,
+                .array([try XCTUnwrap(scriptedConfiguration["yaml"])])
+            )
+        }
         let isRunning = await session.isRunning
         XCTAssertTrue(isRunning)
     }

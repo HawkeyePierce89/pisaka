@@ -138,27 +138,27 @@ it happens to be one word.
 Intent: a server that needs a setting gets it as pinned data on its description, with
 no server-specific code anywhere in the session.
 
-- [ ] Add one opaque `JSONValue?` configuration field to `LSPServerDescription`
+- [x] Add one opaque `JSONValue?` configuration field to `LSPServerDescription`
       (settings object keyed by section, e.g. `{"yaml": {...}}`), documented like
       `initializationOptions`: it is *that server's* configuration and Core has no
       opinion about its shape.
-- [ ] `LSPSession` takes it at `start(…)` and delivers it on both channels a server may
+- [x] `LSPSession` takes it at `start(…)` and delivers it on both channels a server may
       use: a `workspace/didChangeConfiguration` notification carrying `{settings: …}`
       after `initialized`, and — the channel that actually matters here —
       `workspace/configuration` answered **per requested section** out of the same
       value, falling back to `null` for a section it does not name.
-- [ ] Behaviour for every existing server is unchanged by construction: with no
+- [x] Behaviour for every existing server is unchanged by construction: with no
       configuration the notification is not sent and the pull still answers `null` per
       item. Say so in the doc comment; the client capability stays
       `workspace.configuration: false` for the reason established above.
-- [ ] `LSPWorkspace` passes `description.configuration` at `start`, beside
+- [x] `LSPWorkspace` passes `description.configuration` at `start`, beside
       `initializationOptions`.
-- [ ] Tests over `ScriptedLSPTransport`: a description with configuration produces the
+- [x] Tests over `ScriptedLSPTransport`: a description with configuration produces the
       notification after `initialized`; a `workspace/configuration` request is answered
       section-by-section with the configured object and `null` for unknown sections;
       a description without configuration sends no notification and answers all-`null`
       exactly as today.
-- [ ] `swift test` green.
+- [x] `swift test` green.
 
 ### Task 3: Pin `yaml-language-server` in the manifest
 

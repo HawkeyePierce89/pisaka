@@ -42,6 +42,11 @@ public enum LSPMethod {
     public static let exit = "exit"
     public static let cancelRequest = "$/cancelRequest"
 
+    /// Settings, pushed. The client sends it once after `initialized` for a
+    /// server whose description carries a configuration, and never again —
+    /// nothing in Pisaka changes a server's settings while it runs.
+    public static let didChangeConfiguration = "workspace/didChangeConfiguration"
+
     public static let didOpen = "textDocument/didOpen"
     public static let didChange = "textDocument/didChange"
     public static let didClose = "textDocument/didClose"
