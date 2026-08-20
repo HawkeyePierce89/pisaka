@@ -2,11 +2,13 @@ import Foundation
 
 /// Why a drag-and-drop move in the project tree cannot happen.
 ///
-/// A `LocalizedError` on purpose: a refused drop reports through the *same*
-/// failure path as every other project-tree file operation
+/// A `LocalizedError` on purpose: a refusal that *does* reach the drop reports
+/// through the *same* failure path as every other project-tree file operation
 /// (`reportFileOperationFailure(_:)` → `NSAlert(error:)`), so the tree needs no
 /// alert code of its own and the wording lives beside the rule that produced it
 /// — the same arrangement `FileServiceError` and `EntryPathIssue` already use.
+/// Which refusals reach it is a short list; see "How a refusal reaches the user"
+/// on `MoveDropRule`.
 ///
 /// The texts name the entry (and, for a collision, the folder) and are written
 /// here rather than borrowed from `FileManager`: its own messages describe a
@@ -37,7 +39,13 @@ public enum MoveDropRefusal: Error, LocalizedError, Equatable {
     /// True for `unchangedLocation` alone: dropping an entry back into the
     /// folder it is already in is how a user cancels a drag they thought better
     /// of, and an alert for it would be noise. Every other case is something the
-    /// user asked for and did not get, so it is reported.
+    /// user asked for and did not get, so it is reported *if it gets that far* —
+    /// the hover answer refuses most of them before a drop can be performed at
+    /// all, which is why this flag guards a path a structural refusal cannot
+    /// normally reach. It is kept as the rule's own statement of intent: any
+    /// caller that reaches `moveItem` by another route (or a SwiftUI that ever
+    /// routes an unvalidated drop there) must not turn a cancelled drag into an
+    /// alert.
     public var isSilent: Bool { self == .unchangedLocation }
 
     public var errorDescription: String? {
@@ -69,21 +77,40 @@ public enum MoveDropDecision: Equatable {
 /// The one place that decides whether a project-tree drag may land on a folder,
 /// and where the dragged entry would end up.
 ///
-/// Two entry points, one vocabulary:
+/// Two halves, one vocabulary:
 ///
 /// - `structuralDecision(source:into:)` is **disk-free** — pure path arithmetic
-///   over `CanonicalPath`. It answers the question the drag *hover* asks, which
-///   a row may be asked repeatedly while the pointer moves.
+///   over `CanonicalPath`: identity, ancestry and the drop-onto-current-parent
+///   no-op, the three answers no directory listing can change.
 /// - `decision(source:into:fileService:)` runs those same rules first and then
 ///   adds the two facts only the disk knows (does the destination already hold
-///   that name, is the dragged entry still there). It answers the question the
-///   *drop* asks.
+///   that name, is the dragged entry still there).
 ///
-/// Both return the same `MoveDropDecision`, so the highlight the user sees while
-/// hovering and the move that runs on release come from one destination rule
-/// rather than two that can disagree. The view memoizes the full decision per
-/// `(source, target)` pair, which is why the expensive half may list
-/// directories: it runs once per row entered, not once per mouse-moved event.
+/// **The full decision is the one the view asks — for the hover as well as for
+/// the drop.** A highlight drawn from the structural half alone would light a
+/// row up for a collision it cannot see, and the drop would then refuse what the
+/// row had just promised; so the view asks this one and memoizes it per
+/// `(source, target)` pair instead, which is what makes the expensive half
+/// affordable — it runs once per row *entered*, not once per mouse-moved event.
+/// `structuralDecision` is therefore the separately-tested first half rather
+/// than a second call site, and both returning the same `MoveDropDecision` is
+/// what keeps the highlight and the move on one destination rule.
+///
+/// ## How a refusal reaches the user — mostly, it does not
+///
+/// SwiftUI runs `performDrop` only for a drop `validateDrop` accepted, and
+/// `validateDrop` is this engine. So the ordinary refusals — a collision, a
+/// self-drop, a descendant, the same-parent no-op — never reach
+/// `PisakaApp.moveItem(at:into:)` at all: the row stays unlit, the pointer shows
+/// the refusal cursor, and releasing does nothing. That *is* the feedback, and
+/// it is the right one for a gesture whose whole answer is visible while it is
+/// being made.
+///
+/// The alert path exists for what the hover answer cannot have caught.
+/// `moveItem` re-asks behind the writer gate, at the moment the move would
+/// happen, so a destination that gained the name — or a source that vanished —
+/// between the hover and the release is *reported* rather than silently
+/// dropped. `isSilent` marks the one refusal that must stay quiet even there.
 ///
 /// ## Why identity and ancestry are canonical, not textual
 ///

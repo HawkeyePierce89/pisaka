@@ -53,8 +53,19 @@ final class MoveDropRuleTests: XCTestCase {
         // `/private`-spelled destination, not the resolved one.
         let dir = try makeTempDirectory()
         let source = dir.appendingPathComponent("src/a.swift")
-        let privateFolder = URL(fileURLWithPath: "/private" + dir.path)
-            .appendingPathComponent("lib")
+        let folder = dir.appendingPathComponent("lib")
+        // Created on disk on purpose: `resolvingSymlinksInPath()` drops a
+        // `/private` prefix only when the result still names an existing file,
+        // so against a path that does not exist the spelled and canonical forms
+        // are identical and this test would pass for an implementation that
+        // returned either.
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let privateFolder = URL(fileURLWithPath: "/private" + folder.path)
+        try XCTSkipUnless(
+            FileManager.default.fileExists(atPath: privateFolder.path)
+                && CanonicalPath.canonical(privateFolder).path != privateFolder.path,
+            "The temporary directory is not reachable under a distinct /private spelling"
+        )
 
         XCTAssertEqual(
             MoveDropRule.structuralDecision(source: source, into: privateFolder),
@@ -86,9 +97,28 @@ final class MoveDropRuleTests: XCTestCase {
         for refusal in reported {
             XCTAssertFalse(refusal.isSilent, "\(refusal)")
             // Every reported refusal has to carry text: it reaches the user
-            // through `NSAlert(error:)`, whose fallback wording is useless.
-            XCTAssertNotNil(refusal.errorDescription, "\(refusal)")
+            // through `NSAlert(error:)`, whose fallback wording is useless. Not
+            // just non-nil — non-*empty*, since an empty string is exactly as
+            // useless and just as non-nil.
+            let text = refusal.errorDescription ?? ""
+            XCTAssertFalse(text.isEmpty, "\(refusal)")
         }
+        // The silent one still carries text, for the caller that reaches
+        // `moveItem` by some other route than a validated drop.
+        XCTAssertFalse((MoveDropRefusal.unchangedLocation.errorDescription ?? "").isEmpty)
+    }
+
+    func testTheNamingRefusalsQuoteWhatTheyCarry() {
+        // The contract the texts exist for: a refusal names the entry (and, for
+        // a collision, the folder), so the alert says *which* file it is about.
+        XCTAssertEqual(
+            MoveDropRefusal.sourceMissing(name: "a.swift").errorDescription,
+            "\"a.swift\" no longer exists."
+        )
+        XCTAssertEqual(
+            MoveDropRefusal.targetMissing(name: "lib").errorDescription,
+            "The folder \"lib\" is no longer available."
+        )
     }
 
     func testCollisionMessageNamesBothTheEntryAndTheFolder() {
@@ -341,7 +371,15 @@ final class MoveDropRuleTests: XCTestCase {
     func testTheStructuralRulesRunBeforeAnyListing() {
         // A refusal the paths alone can reach must not depend on the disk — the
         // hover half answers the same way with no file service at all.
+        //
+        // Proved by making *every* listing throw: an implementation that listed
+        // first would answer `targetMissing` here instead, so this is the
+        // ordering assertion and not just an agreement one. (Asserting the
+        // structural answer against a readable tree would pass either way, since
+        // a listing of a directory the stub has never heard of comes back empty
+        // rather than throwing.)
         let tree = makeTree(["src/a.swift": ""])
+        tree.unreadableDirectories = ["", "src", "src/nested"]
 
         XCTAssertEqual(
             MoveDropRule.decision(

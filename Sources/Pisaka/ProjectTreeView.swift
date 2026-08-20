@@ -757,8 +757,17 @@ private final class TreeDragSession: ObservableObject {
 /// own private type identifier, the shared session names a source row, and
 /// `MoveDropRule`'s full decision for that pair is `.move`. So a drop back into
 /// the current parent, onto the dragged row itself, into its own subtree, onto a
-/// colliding name or onto a vanished endpoint is refused — and, because
-/// `dropEntered` asks that same question, none of them lights the row up either.
+/// colliding name or onto a vanished endpoint is refused — the row does not
+/// light up, the pointer shows the refusal cursor, and releasing there does
+/// nothing.
+///
+/// **That refusal is silent, by construction**: SwiftUI documents
+/// `dropEntered`, `dropUpdated` and `performDrop` as running only for a drop
+/// `validateDrop` accepted, so a refusal decided here never reaches
+/// `PisakaApp.moveItem(at:into:)` and never raises an alert. The alert path is
+/// for what this answer *cannot* have caught — the writer gate, and a
+/// destination that gained the name (or a source that vanished) between the
+/// hover and the release, which `moveItem` re-asks about behind that gate.
 private struct TreeDropDelegate: DropDelegate {
     let folder: URL
     let session: TreeDragSession
@@ -773,9 +782,12 @@ private struct TreeDropDelegate: DropDelegate {
     }
 
     func dropEntered(info: DropInfo) {
-        // Asked, not assumed: SwiftUI reports entry into the row regardless of
-        // what `validateDrop` answered, and a row that lights up for a drop it
-        // will refuse is worse than one that never lights up.
+        // Asked, not assumed. SwiftUI only reports entry for a *validated* drop,
+        // so this should always be true — but the highlight's honesty is the
+        // whole point of the rule, and tying it to the answer rather than to
+        // that documented ordering costs nothing (the session memoized it for
+        // `validateDrop` a moment ago) and cannot light a row up for a drop that
+        // would be refused.
         isDropTarget = validateDrop(info: info)
     }
 
@@ -783,9 +795,10 @@ private struct TreeDropDelegate: DropDelegate {
         isDropTarget = false
     }
 
-    /// Puts the move cursor over a folder that would accept the entry and the
-    /// refusal cursor over one that would not, so the pointer and the highlight
-    /// always say the same thing.
+    /// Puts the move cursor over a folder that would accept the entry, so the
+    /// pointer and the highlight always say the same thing. `.forbidden` is the
+    /// same hedge `dropEntered` makes: this too runs only for a validated drop,
+    /// so it is the answer for a row SwiftUI should never have routed here.
     func dropUpdated(info: DropInfo) -> DropProposal? {
         DropProposal(operation: validateDrop(info: info) ? .move : .forbidden)
     }
@@ -799,7 +812,16 @@ private struct TreeDropDelegate: DropDelegate {
         // alert up, and a session still naming a source behind that alert would
         // answer a later `validateDrop` for a drag that ended long ago.
         session.end()
-        onMove(source, folder)
+        // And the callback itself is deferred out of this callout for the same
+        // reason: `moveItem` can run a modal alert (the writer gate's notice, a
+        // refusal the re-check caught, a failed disk move), and a modal loop
+        // spun from inside AppKit's `performDragOperation:` blocks the drag
+        // session — and the source app with it — behind a dialog the user must
+        // dismiss before the drag can even finish. The drop itself is over: this
+        // returns `true` now, and the move runs on the next turn of the loop.
+        let move = onMove
+        let destination = folder
+        DispatchQueue.main.async { move(source, destination) }
         return true
     }
 }

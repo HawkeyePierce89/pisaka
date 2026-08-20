@@ -491,14 +491,25 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     The shared `TreeDropDelegate` (taking the destination as a plain url, so it
     knows nothing about rows) accepts only when all three hold: the payload
     carries the private identifier, the session names a source, and the decision
-    is `.move`. `dropEntered` sets `isDropTarget` from that same answer rather
-    than assuming entry means acceptance (SwiftUI reports entry regardless, and a
-    row lighting up for a drop it will refuse is worse than one that never lights
-    up), `dropUpdated` returns `.move`/`.forbidden` so the cursor and the
-    highlight always say the same thing, and `performDrop` clears the session
-    *before* calling `onMove` — the callback may raise a modal alert, and a
-    session still naming a source behind it would answer a later `validateDrop`
-    for a drag that ended long ago. The highlight is a new
+    is `.move`. **A refusal decided there is therefore silent by construction**:
+    SwiftUI documents `dropEntered`, `dropUpdated` and `performDrop` as running
+    only for a drop `validateDrop` accepted, so a collision, a self-drop, a
+    descendant or the same-parent no-op shows an unlit row and the refusal cursor
+    and does nothing on release — it never reaches `moveItem` and never raises an
+    alert. That leaves the alert for what the hover answer could not have caught
+    (the writer gate; a destination that gained the name, or a source that
+    vanished, between hover and release), which is what `moveItem`'s re-ask
+    behind the gate is for — see `MoveDropRule`'s "How a refusal reaches the
+    user" in `core-workspace.md`. `dropEntered` still sets `isDropTarget` from
+    the answer rather than to a bare `true`, and `dropUpdated` still has a
+    `.forbidden` branch: both are free (the session memoized the answer) and both
+    keep the highlight tied to the rule rather than to that documented ordering.
+    `performDrop` clears the session *before* calling `onMove`, and dispatches
+    the callback **out of the drop callout** (`DispatchQueue.main.async`): a
+    session still naming a source behind a modal alert would answer a later
+    `validateDrop` for a drag that ended long ago, and a modal loop spun from
+    inside AppKit's `performDragOperation:` blocks the drag session — and the
+    source app with it — behind a dialog. The highlight is a new
     `TreeRowLayout.dropHighlight` (`accentColor.opacity(0.4)`), applied at the
     *same* site and from the same enum as `hoverHighlight` and deliberately
     stronger than it: the pointer is inside the row, so both conditions are true

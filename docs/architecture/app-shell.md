@@ -526,7 +526,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `LocalizedError` buys, and why the tree needs no alert code of its own. The
     tree asked that same engine for the drag highlight, so the drop that lit a row
     up and the drop this accepts are decided by one rule; this call, behind the
-    gate and through the app's own file service, is the authoritative one. The two *create*
+    gate and through the app's own file service, is the authoritative one — and
+    it is the *only* one that can report, since a refusal the highlight already
+    caught never gets a drop performed at all (`core-workspace.md`, "How a
+    refusal reaches the user"). What reaches this alert is therefore the narrow
+    set the hover could not have known: the writer gate's own notice, a
+    destination that gained the name or a source that vanished mid-drag, and a
+    `fileService.move` that threw. The two *create*
     call sites accept a VS Code-style relative path of any depth
     (`centrifugo/config.json`): `parseRelativeEntryPath` does all the validation
     (whole-input and per-component trimming, so no padded name reaches disk; the

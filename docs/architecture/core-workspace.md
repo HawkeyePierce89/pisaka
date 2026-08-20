@@ -597,14 +597,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `public enum MoveDropDecision { case move(destination: URL); case
     refuse(MoveDropRefusal) }`. **Two entry points, one vocabulary.**
     `structuralDecision(source:into:)` is **disk-free** — pure path arithmetic
-    over `CanonicalPath` — and answers the question the *drag hover* asks, which
-    a row may be asked repeatedly as the pointer moves;
+    over `CanonicalPath`, the three answers no listing can change;
     `decision(source:into:fileService:)` runs those same rules first and then
-    adds the two facts only the disk knows. Because both return the same
-    decision, the highlight the user sees while hovering and the move that runs
-    on release come from **one** destination rule rather than two that can
-    disagree — and `PisakaApp.moveItem(at:into:)` re-asks the full one behind the
-    writer gate, so the view's answer is advisory and the app's is authoritative.
+    adds the two facts only the disk knows. **The full one is what the view asks,
+    for the hover as well as for the drop**: a highlight drawn from the
+    structural half alone would light a row up for a collision it cannot see and
+    the drop would then refuse what the row had just promised, so the view asks
+    this one and *memoizes* it per (source, target) pair instead —
+    `structuralDecision` is the separately-tested first half, not a second call
+    site. Because both return the same decision, the highlight the user sees
+    while hovering and the move that runs on release come from **one** destination
+    rule rather than two that can disagree — and `PisakaApp.moveItem(at:into:)`
+    re-asks the full one behind the writer gate, so the view's answer is advisory
+    and the app's is authoritative.
     The structural rules, in order: source ≡ target → `ontoItself`; target
     strictly under source (`relativeComponents(of:under:)`) → `intoOwnDescendant`;
     target ≡ the source's *spelled* parent → `unchangedLocation`; otherwise
@@ -648,9 +653,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `FileServiceError.alreadyExists`; that stays the backstop. This check exists to
     suppress the drop *highlight* early and to phrase the refusal in the tree's own
     words, not to be the only guard.
+    **How a refusal reaches the user — mostly, it does not.** SwiftUI runs
+    `performDrop` only for a drop `validateDrop` accepted, and `validateDrop`
+    *is* this engine, so the ordinary refusals (collision, self, descendant, the
+    same-parent no-op) never reach `moveItem`: the row stays unlit, the pointer
+    shows the refusal cursor, releasing does nothing, and that is the feedback —
+    the right one for a gesture whose whole answer is visible while it is being
+    made. The alert path is for what the hover answer *cannot* have caught, which
+    is why `moveItem` re-asks behind the writer gate at the moment the move would
+    happen: a destination that gained the name, or a source that vanished,
+    between the hover and the release is reported rather than silently dropped.
     `public enum MoveDropRefusal: Error, LocalizedError, Equatable` carries the six
-    reasons above and is a `LocalizedError` **on purpose**: a refused drop then
-    reports through the *same* path as every other project-tree file operation
+    reasons above and is a `LocalizedError` **on purpose**: a refusal that does get
+    that far then reports through the *same* path as every other project-tree file operation
     (`reportFileOperationFailure(_:)` → `NSAlert(error:)` + a warning beep), so the
     tree needs no alert code of its own and the wording lives beside the rule that
     produced it — the arrangement `FileServiceError` and `EntryPathIssue` already
@@ -660,7 +675,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     was touched. `isSilent` is true for `unchangedLocation` **alone**: dropping an
     entry back into the folder it already lives in is how a user cancels a drag
     they thought better of, and an alert for it would be noise; every other
-    refusal is something the user asked for and did not get, so it is reported.
+    refusal is something the user asked for and did not get, so it is reported
+    *if it gets that far*. That flag consequently guards a path a structural
+    refusal cannot normally reach, and is kept as the rule's own statement of
+    intent rather than as a live branch.
     Tested (`MoveDropRuleTests`) through both entry points against `StubFileTree`
     for the disk facts and *real temp dirs plus `symlink(2)`* for the canonical
     cases — the destination shape (never a rename), the parent no-op, self and
