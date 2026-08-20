@@ -817,6 +817,73 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(items.map(\.text), ["Greeter", "dsGreeting", "kCFStringTransformLatinGreek"])
     }
 
+    /// The shape `yaml-language-server` really answers with: no `sortText` at all,
+    /// so D6 ranks on `label`, and **every** property of the schema at the caret
+    /// regardless of what is typed. Ranked on `label` alone and cut at the cap,
+    /// the one key that answers `ima` is below the cut — which is the whole reason
+    /// the matcher is consulted here at all.
+    func testAnItemAnsweringTheTypedPrefixReachesTheCapBeforeOneThatDoesNot() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array(
+                ["annotations", "attach", "blkio_config", "build", "image"]
+                    .map(schemaPropertyItemJSON(label:))
+            )
+        ])))
+        let provider = makeProvider(completionLimit: 3)
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "ima", offset: identifierCaret)
+        )
+
+        // `image` first — not because the match is a ranking key, but because the
+        // half of the list that answers `ima` is the half the cap reaches first.
+        // The two rows left over are D6's order among the ones that do not.
+        XCTAssertEqual(items.map(\.text), ["image:\n  ", "annotations:\n  ", "attach:\n  "])
+    }
+
+    /// The other half of the same rule: not matching is not a reason to be
+    /// dropped. A server's own matching may be looser than this one's boundary
+    /// rule — the recorded sourcekit-lsp transcript answers `Gree` with
+    /// `VM_MEMORY_MALLOC_LARGE_REUSED` — and a list with room for those items
+    /// still shows them, in D6's order, after the ones that answer.
+    func testItemsThatMatchNothingAreOrderedLastRatherThanDropped() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array(
+                ["annotations", "attach", "blkio_config", "build", "image"]
+                    .map(schemaPropertyItemJSON(label:))
+            )
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "ima", offset: identifierCaret)
+        )
+
+        XCTAssertEqual(items.count, 5)
+        XCTAssertEqual(
+            items.map(\.text),
+            ["image:\n  ", "annotations:\n  ", "attach:\n  ", "blkio_config:\n  ", "build:\n  "]
+        )
+    }
+
+    /// An empty prefix puts every item in the same half, so D6's order is the
+    /// whole order — the bare-dot member case, and the deliberate "show me
+    /// everything".
+    func testAnEmptyPrefixLeavesTheServersOrderAloneEntirely() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array(
+                ["image", "annotations", "attach"].map(schemaPropertyItemJSON(label:))
+            )
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "", offset: identifierCaret)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["annotations:\n  ", "attach:\n  ", "image:\n  "])
+    }
+
     /// Authored rather than recorded: this server produced no two items with the
     /// same `sortText`, and "preserve the server's order on a tie" is exactly the
     /// rule a non-stable sort would break.
@@ -1420,6 +1487,19 @@ final class LSPIntelligenceProviderTests: XCTestCase {
 
     /// One completion item as the wire spells it — the authored counterpart to
     /// the recorded fixtures, for the three shapes this server never produced.
+    /// One `yaml-language-server` property completion, as that server really
+    /// spells it: no `sortText`, no `filterText`, `insertTextFormat: 2` on text
+    /// that carries no snippet syntax, and a value the schema wants indented
+    /// under the key.
+    private func schemaPropertyItemJSON(label: String) -> JSONValue {
+        .object([
+            "label": .string(label),
+            "insertText": .string("\(label):\n  "),
+            "insertTextFormat": .int(2),
+            "kind": .int(LSPCompletionItemKind.property.rawValue)
+        ])
+    }
+
     private func completionItemJSON(
         label: String,
         sortText: String,

@@ -31,7 +31,10 @@ import Foundation
 /// current-file bonus, no fuzzy quality — those exist in
 /// `SymbolIntelligenceProvider` because a bucket of names has no ranking of its
 /// own, while a server has spent real work on this order and second-guessing it
-/// with a string rule would only make it worse.
+/// with a string rule would only make it worse. The one thing that does sit above
+/// `sortText` is not a ranking either: whether an item answers what was typed at
+/// all, because a server is not obliged to have asked that question (see
+/// `publish`) and the cap must not spend itself on the items that do not.
 ///
 /// **A reader, never a writer** (D10). It reads buffers, asks questions and reads
 /// files it is told about. It writes nothing, takes no writer gate, and is gated
@@ -409,11 +412,41 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         serverResolves: Bool,
         listToken: Int
     ) -> [CompletionItem] {
+        // **Matching is the client's job, and a server is not required to have
+        // done it.** sourcekit-lsp, tsserver and pyright answer a prefix with the
+        // items that answer *that* prefix, which is why this could go unasked for
+        // four phases. `yaml-language-server` does not: it answers with the
+        // caret's entire schema property set regardless of what is typed — 93
+        // items inside a compose service, the same 93 for an empty prefix — and
+        // leaves the choosing to whoever asked. Ordered by `label` (it sends no
+        // `sortText`) and cut at the cap, that popup is an alphabetical slice of
+        // the schema: typing `ima` offers `annotations … hostname` and `image`,
+        // the one key that answers it, is below the cut and never seen.
+        //
+        // So the one matcher every other candidate source goes through is asked
+        // here too — and it decides *one* thing: which half of the list the cap
+        // may reach first. It is deliberately neither a filter nor a ranking key.
+        // Not a filter, because a server's own matching may legitimately be
+        // looser than this one's boundary rule and dropping what it chose to send
+        // would be this client overruling it: the recorded sourcekit-lsp
+        // transcript answers `Gree` with `VM_MEMORY_MALLOC_LARGE_REUSED`, seven
+        // of its ten items match nothing here, and they still belong in a list
+        // that has room for them. Not a ranking key, because within each half D6
+        // stands untouched — `sortText` still decides, and the server's own array
+        // order still breaks a tie. The key is `filterText ?? label`, the spec's
+        // own filtering key, never the inserted text: a YAML property inserts
+        // `image:\n  `, and asking whether *that* answers `ima` asks something
+        // else. An empty prefix puts every item in the same half, which is the
+        // bare-dot member case and the deliberate "show me everything".
+        let matched = items.map { item in
+            typed.isEmpty || FuzzyMatch.matches(item.filterText ?? item.label, query: typed)
+        }
         // `sorted(by:)` is not documented as stable, and the server's array order
         // is meaningful on a tie (it is the order it decided to send them in), so
         // the index is carried as the last key rather than trusted.
         let ordered = items.enumerated().sorted { lhs, rhs in
-            lhs.element.rankingKey == rhs.element.rankingKey
+            if matched[lhs.offset] != matched[rhs.offset] { return matched[lhs.offset] }
+            return lhs.element.rankingKey == rhs.element.rankingKey
                 ? lhs.offset < rhs.offset
                 : lhs.element.rankingKey < rhs.element.rankingKey
         }

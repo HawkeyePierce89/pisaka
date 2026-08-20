@@ -1150,6 +1150,20 @@ document, together with the limits they carry.
     the item identical to what was typed, collapse
     duplicates by inserted text (first wins), cap at
     `SymbolIntelligenceProvider.defaultCompletionLimit`.
+    **The prefix match decides one thing: which half the cap reaches first.**
+    sourcekit-lsp, tsserver and pyright answer a prefix with the items that answer
+    it, so this loop asked nothing for four phases; `yaml-language-server` answers
+    the caret's entire schema property set regardless of the prefix (93 items in a
+    compose service, identical to the empty-prefix answer), so the cap alone
+    decides what is seen and `image` falls below an alphabetical 30. The one
+    matcher every other candidate source uses — `FuzzyMatch.matches(_:query:)` over
+    `filterText ?? label`, the spec's own filtering key, never the inserted text
+    (a YAML property inserts `image:\n  `) — now partitions the list ahead of the
+    sort. It is neither a filter nor a ranking: nothing the server sent is dropped
+    for failing it (its own matching may legitimately be looser — the recorded
+    transcript answers `Gree` with `VM_MEMORY_MALLOC_LARGE_REUSED`), and inside
+    each half `sortText` and the server's array order still decide. An empty prefix
+    (the bare-dot member case) puts everything in one half.
     **The snippet drop is enforcement, not tidiness.** D5 advertises
     `snippetSupport: false`, but a client capability is a *request*: a server that
     ignores it answers with `insertTextFormat: 2` and a `newText` full of
@@ -1769,6 +1783,17 @@ the typed token, dedup by inserted text, cap
 at `SymbolIntelligenceProvider.defaultCompletionLimit`). No name heuristics on
 top. The recorded transcript is what pins this rather than a constructed example:
 sourcekit-lsp put `Greeter` *last* in the array with the *lowest* `sortText`.
+**One key sits above `sortText`, and it is not a ranking** (added with the YAML
+server): the spec makes matching the client's job and `yaml-language-server`
+leaves it entirely — it answers the caret's whole schema property set, the same 93
+items for `ima` as for an empty prefix — so ranked on `label` and cut at the cap
+the popup is an alphabetical slice of the schema with `image` below the cut.
+`FuzzyMatch.matches(_:query:)` over `filterText ?? label` therefore partitions the
+list into "answers what was typed" and "does not", and the cap reaches the first
+half first. Deliberately **not a filter**: a server's matching may be looser than
+this one's boundary rule (the recorded transcript answers `Gree` with
+`VM_MEMORY_MALLOC_LARGE_REUSED`) and nothing it sent is discarded. Within each
+half D6 is untouched, and an empty prefix is one half.
 
 **D7 — Budgets.** Per request: completion 1.5 s, definition 3 s (the 150 ms
 completion debounce has already elapsed, and a jump is a deliberate act worth
