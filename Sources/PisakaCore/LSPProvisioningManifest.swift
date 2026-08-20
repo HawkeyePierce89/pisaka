@@ -793,6 +793,38 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
         }
     }
 
+    /// The one sentence about traffic this layer does **not** pin, or `nil` for a
+    /// server whose network use ends when its download does.
+    ///
+    /// Data on the server rather than copy in a view, for the same reason
+    /// `displayName` is: the download banner and the Settings row say the same
+    /// thing about the same server because there is one thing to say, written
+    /// once. A view that composed its own sentence would be a second place for
+    /// this fact to be wrong, and the fact is a promise about the user's network.
+    ///
+    /// **The stated exception to "what may be downloaded is pinned data."** The
+    /// YAML server resolves a document's schema through schemastore.org while it
+    /// runs — that is what knows `services` belongs in a `docker-compose.yml`,
+    /// and no pinned byte in this manifest could contain it — so consenting to
+    /// this server consents to that traffic too. It is therefore said where
+    /// consent is given, not only in the docs: `LSPConsentPrompt` and
+    /// `LSPServerRow` both carry it (`LSPProvisioning.swift`).
+    ///
+    /// It is *not* a second install: nothing lands under the install root, so
+    /// Remove and a deleted `LanguageServers` directory still de-provision
+    /// completely (D12).
+    public var runtimeNetworkNote: String? {
+        switch self {
+        case .typescript, .python: return nil
+        case .yaml:
+            return """
+                This server also fetches JSON schemas from schemastore.org while it runs, \
+                which is what completes a docker-compose.yml against its real schema. \
+                That traffic is not part of the pinned download.
+                """
+        }
+    }
+
     /// The registry entry this server becomes once installed — the whole reason
     /// the manifest exists.
     ///

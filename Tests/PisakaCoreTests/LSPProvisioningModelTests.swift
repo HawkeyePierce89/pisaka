@@ -183,6 +183,10 @@ final class LSPProvisioningModelTests: XCTestCase {
             unpacker.stub(Fixture.typescript, tree: ["lib/tsserver.js": "tsserver"])
             unpacker.stub(Fixture.pyright, tree: ["dist/pyright-langserver.js": "pyright", "LICENSE.txt": "MIT"])
             unpacker.stub(Fixture.fsevents, tree: ["fsevents.node": "native"])
+            unpacker.stub(
+                Fixture.yamlServer,
+                tree: ["out/server/src/server.js": "yaml-language-server", "LICENSE": "MIT"]
+            )
 
             observe()
         }
@@ -1255,5 +1259,95 @@ final class LSPProvisioningModelTests: XCTestCase {
         XCTAssertEqual(harness.model.rows.map(\.isInstalled), [false, false, false])
         XCTAssertEqual(harness.model.rows.map(\.canInstall), [true, true, true])
         XCTAssertEqual(harness.model.rows.map(\.canRemove), [false, false, false])
+    }
+
+    // MARK: - The runtime-network note
+
+    /// The one thing this layer downloads that keeps using the network after the
+    /// download, said on both values the views read — and on no other server.
+    func testOnlyTheYAMLRowAndPromptCarryTheRuntimeSchemaNote() {
+        let harness = makeHarness()
+
+        let note = LSPDownloadableServer.yaml.runtimeNetworkNote
+        XCTAssertNotNil(note)
+        XCTAssertTrue(note?.contains("schemastore.org") == true, "the note does not name where the traffic goes")
+        XCTAssertTrue(note?.contains("not part of the pinned download") == true, "the note does not say it is unpinned")
+
+        XCTAssertEqual(harness.model.rows.map(\.runtimeNetworkNote), [nil, nil, note])
+
+        // The banner and the Settings row print one sentence, not two spellings
+        // of it: the prompt reads the row's.
+        XCTAssertEqual(harness.model.consentPrompt(forOpening: .yaml)?.runtimeNetworkNote, note)
+        XCTAssertNil(harness.model.consentPrompt(forOpening: .typescript)?.runtimeNetworkNote)
+        XCTAssertNil(harness.model.consentPrompt(forOpening: .javascript)?.runtimeNetworkNote)
+        XCTAssertNil(harness.model.consentPrompt(forOpening: .python)?.runtimeNetworkNote)
+
+        // Asking the question fetched nothing, as it never does.
+        XCTAssertEqual(harness.downloader.requestedURLs, [])
+    }
+
+    /// What a server does while it runs is true before it is installed and after
+    /// it is removed, so nothing about the note moves with the row's state.
+    func testTheNoteIsTheSameInEveryStateTheRowCanBeIn() async {
+        let harness = makeHarness()
+        let note = LSPDownloadableServer.yaml.runtimeNetworkNote
+
+        XCTAssertEqual(harness.model.row(for: .yaml)?.runtimeNetworkNote, note)
+
+        await harness.model.accept(.yaml)
+        XCTAssertEqual(harness.state(of: .yaml), .installed(version: "1.24.0"))
+        XCTAssertEqual(harness.model.row(for: .yaml)?.runtimeNetworkNote, note)
+
+        await harness.model.remove(.yaml)
+        XCTAssertEqual(harness.state(of: .yaml), .absent)
+        XCTAssertEqual(harness.model.row(for: .yaml)?.runtimeNetworkNote, note)
+
+        // A failed install is a sentence in the row; it is not this sentence.
+        harness.downloader.fail(Fixture.yamlServer)
+        await harness.model.install(.yaml)
+        XCTAssertNotNil(harness.model.row(for: .yaml)?.failureMessage)
+        XCTAssertEqual(harness.model.row(for: .yaml)?.runtimeNetworkNote, note)
+
+        harness.rebuild()
+        await harness.model.refresh()
+        XCTAssertEqual(harness.model.row(for: .yaml)?.runtimeNetworkNote, note)
+    }
+
+    /// The note is copy, and copy changes nothing: consent, install, registry and
+    /// removal for the YAML row are the same rules the other two rows follow.
+    func testTheNoteChangesNothingAboutConsentInstallOrRemoval() async {
+        let harness = makeHarness()
+        XCTAssertEqual(harness.model.row(for: .yaml)?.consent, .unasked)
+
+        await harness.model.accept(.yaml)
+        XCTAssertEqual(harness.model.row(for: .yaml)?.consent, .accepted)
+        XCTAssertEqual(harness.downloader.requestedURLs, [Fixture.nodeARM, Fixture.yamlServer])
+        XCTAssertEqual(harness.model.row(for: .yaml)?.pendingDownloadByteCount, 0)
+        XCTAssertNil(harness.model.consentPrompt(forOpening: .yaml), "consent was asked a second time")
+
+        let registry = harness.model.registry
+        XCTAssertTrue(registry.servesLanguage(.yaml))
+        XCTAssertEqual(registry.description(for: .swift), .sourcekitLSP)
+        XCTAssertEqual(
+            registry.description(for: .yaml)?.launch,
+            .executable(path: "/Pisaka-tests/LanguageServers/node/24.19.0/bin/node")
+        )
+        XCTAssertEqual(
+            registry.description(for: .yaml)?.arguments,
+            [
+                "/Pisaka-tests/LanguageServers/yaml-language-server/1.24.0"
+                    + "/node_modules/yaml-language-server/out/server/src/server.js",
+                "--stdio",
+            ]
+        )
+        // The note lives on the row, never on the description: it is something to
+        // print, not something to send.
+        XCTAssertEqual(registry.description(for: .yaml)?.configuration, LSPDownloadableServer.yaml.configuration)
+
+        await harness.model.remove(.yaml)
+        XCTAssertEqual(harness.model.registry, .standard)
+        XCTAssertEqual(harness.model.row(for: .yaml)?.consent, .declined)
+        XCTAssertFalse(harness.tree.hasDirectory("LanguageServers/yaml-language-server"))
+        XCTAssertFalse(harness.tree.hasDirectory("LanguageServers/node"))
     }
 }

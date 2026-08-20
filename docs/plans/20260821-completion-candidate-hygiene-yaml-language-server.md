@@ -207,15 +207,15 @@ rule, no path math, no npm, ever.
 Intent: the one honest sentence about traffic that is not pinned travels with the
 server, not with a view.
 
-- [ ] Put the note on `LSPDownloadableServer` as data (`nil` for every existing case):
+- [x] Put the note on `LSPDownloadableServer` as data (`nil` for every existing case):
       the YAML server fetches JSON schemas from schemastore.org at runtime, which is
       what makes compose-file completion work.
-- [ ] Surface it on both values the views read — `LSPConsentPrompt` and `LSPServerRow`
+- [x] Surface it on both values the views read — `LSPConsentPrompt` and `LSPServerRow`
       — so the banner and the Settings row cannot disagree, and neither invents copy.
-- [ ] Tests: the YAML prompt and row carry the note, every other server's is `nil`,
+- [x] Tests: the YAML prompt and row carry the note, every other server's is `nil`,
       and consent/install/remove behaviour is otherwise identical to the existing rows
       (including that nothing about the note changes when the server is installed).
-- [ ] `swift test` green.
+- [x] `swift test` green.
 
 ### Task 5: The two macOS surfaces print it
 
