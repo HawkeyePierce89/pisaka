@@ -920,7 +920,8 @@ and iPhone. The feature scope landed so far:
   when it is downloaded: if you edit the files under `LanguageServers/` yourself,
   the app runs what you put there. The YAML server has one limit of its own: its
   schemas are not part of that pinned download, so offline — or on a network that
-  blocks `schemastore.org` and the hosts it points at — it keeps running but
+  blocks `schemastore.org` and the hosts it points at, or one that intercepts TLS,
+  since those fetches check certificates like the download does — it keeps running but
   quietly falls back to what the buffer contains, which looks like a server that
   has stopped knowing things rather than like a failed download.
 - The Go server (`gopls`) is macOS-only and covers the same Go to Definition,

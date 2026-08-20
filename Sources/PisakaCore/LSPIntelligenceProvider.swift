@@ -484,8 +484,8 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
                 in: text,
                 lineStarts: lineStarts
             )
-            let inserted = Self.indentingContinuationLines(
-                of: item.insertedText,
+            let inserted = Self.insertedText(
+                of: item,
                 forInsertionAt: primary.location,
                 in: text,
                 lineStarts: lineStarts
@@ -629,6 +629,30 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             ?? typedWord
     }
 
+    /// What the item puts in the buffer, indentation included — the one place
+    /// either call site asks for it.
+    ///
+    /// `insertTextMode: 1` is `asIs`, a server stating that its continuation lines
+    /// are already spelled against the buffer; adjusting those would indent them a
+    /// second time. Everything else — including the common absent case, which is
+    /// what every pinned server sends — goes through the rule below, because this
+    /// client's whole handling of multi-line text *is* that rule and a server that
+    /// says nothing gets the behaviour the YAML one needs.
+    static func insertedText(
+        of item: LSPCompletionItem,
+        forInsertionAt location: Int,
+        in text: NSString,
+        lineStarts: [Int]
+    ) -> String {
+        guard item.insertTextMode != 1 else { return item.insertedText }
+        return indentingContinuationLines(
+            of: item.insertedText,
+            forInsertionAt: location,
+            in: text,
+            lineStarts: lineStarts
+        )
+    }
+
     /// LSP's `insertTextMode.adjustIndentation`, applied to inserted text that
     /// spans more than one line.
     ///
@@ -660,13 +684,22 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     /// string a server composed, and the separators it can contain are LSP's; a
     /// `\r\n` in it splits into `…\r` and the next line, and prefixing after the
     /// `\n` puts the indentation exactly where it belongs either way.
+    ///
+    /// The test that gets there is over **scalars**, not `Character`s, and that is
+    /// the whole reason it is spelled this way: `\r\n` is a single grapheme, so
+    /// `inserted.contains("\n")` — a `Character` comparison — is `false` for text
+    /// whose line breaks are CRLF, while the splitter below bridges to `NSString`
+    /// and splits it happily. A grapheme test would therefore hand back exactly the
+    /// unindented multi-line insertion this function exists to prevent, on the one
+    /// path in the layer whose result is written to the file. The guard and the
+    /// split must agree on what a newline is.
     static func indentingContinuationLines(
         of inserted: String,
         forInsertionAt location: Int,
         in text: NSString,
         lineStarts: [Int]
     ) -> String {
-        guard inserted.contains("\n") else { return inserted }
+        guard inserted.unicodeScalars.contains("\n") else { return inserted }
         let position = LSPPositionMap.position(
             forOffset: location,
             lineStarts: lineStarts,
@@ -727,8 +760,8 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             lineStarts: lineStarts
         )
         return edits(
-            insertedText: Self.indentingContinuationLines(
-                of: pending.item.insertedText,
+            insertedText: Self.insertedText(
+                of: pending.item,
                 forInsertionAt: primary.location,
                 in: text,
                 lineStarts: lineStarts

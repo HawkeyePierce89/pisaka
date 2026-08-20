@@ -807,9 +807,21 @@ final class LSPProvisioningManifestTests: XCTestCase {
                     "schemaStore": .object(["enable": .bool(true)]),
                     "completion": .bool(true),
                     "hover": .bool(true),
-                ])
+                ]),
+                "http": .object(["proxyStrictSSL": .bool(true)]),
             ]),
-            "the section key must be `yaml` — it is what the server pulls, and an unnamed section is answered null"
+            "the section keys must be what the server pulls — an unnamed section is answered null"
+        )
+        XCTAssertEqual(
+            description.configuration?["http"]?["proxyStrictSSL"],
+            .bool(true),
+            """
+            Asserted on its own because it is a security setting, not a preference: the pinned \
+            bundle reads `config.http?.proxyStrictSSL ?? false` and hands it to `request-light`, \
+            whose `strictSSL` starts `true` and is only ever lowered by that call. Leaving the \
+            `http` section null therefore turns TLS certificate validation *off* for every \
+            unpinned schema fetch D28 discloses.
+            """
         )
         XCTAssertNil(LSPDownloadableServer.yaml.tsserverSubpath, "there is no TypeScript in this server's story")
     }

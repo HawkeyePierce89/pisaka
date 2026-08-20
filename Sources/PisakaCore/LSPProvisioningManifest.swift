@@ -772,13 +772,28 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
     /// ignores the pushed payload and re-pulls. That is a fact about the pinned
     /// 1.24.0 bundle rather than a hope about the protocol, which is what pinning
     /// is for. So the value below is what the answer to that pull is built from,
-    /// and only the `yaml` section is named: the other four are answered `null`,
-    /// exactly as they would be with no configuration at all.
+    /// and two of the five sections are named: `[yaml]`, `editor` and `files` are
+    /// answered `null`, exactly as they would be with no configuration at all.
     ///
     /// `schemaStore.enable` is stated rather than left to upstream's default —
     /// which happens to be `true`, so schemas would load by luck. It is the
     /// setting that makes a `docker-compose.yml` complete `services` at all, and a
     /// default that flips in a later pin would take completion with it silently.
+    ///
+    /// **`http.proxyStrictSSL` is not optional and not a preference.** The pinned
+    /// bundle folds the answer into
+    /// `configure(config.http?.proxy ?? '', config.http?.proxyStrictSSL ?? false)`
+    /// and hands it to `request-light`, whose module-level `strictSSL` starts
+    /// `true` and is *only ever lowered* by that call — so a `null` `http` section
+    /// reads as "the user asked for `false`" and every schema fetch afterwards goes
+    /// out with `rejectUnauthorized: false`. That is the one part of D28's traffic
+    /// nothing else protects: the catalog, each schema the catalog names and
+    /// whatever URL a file names for itself are unpinned by nature, so a
+    /// certificate nobody checks means anyone on the path chooses what the user's
+    /// YAML completes and validates against. `null` is safe for the other three
+    /// sections and is *not* safe for this one, which is why it is named. `proxy`
+    /// stays unstated on purpose: `request-light` falls back to `HTTPS_PROXY` /
+    /// `HTTP_PROXY` when it is empty, and a proxy is the user's environment to set.
     public var configuration: JSONValue? {
         switch self {
         case .typescript, .python: return nil
@@ -788,7 +803,8 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
                     "schemaStore": .object(["enable": .bool(true)]),
                     "completion": .bool(true),
                     "hover": .bool(true),
-                ])
+                ]),
+                "http": .object(["proxyStrictSSL": .bool(true)]),
             ])
         }
     }

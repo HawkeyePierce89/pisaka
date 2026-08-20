@@ -774,6 +774,24 @@ final class LSPProtocolTypesTests: XCTestCase {
         XCTAssertFalse(response.items[0].needsResolve)
     }
 
+    /// `insertTextMode` is decoded because the multi-line rule reads it, and
+    /// absent stays absent through the resolve round trip: an item this client
+    /// sends back must not acquire a mode the server never stated.
+    func testInsertTextModeDecodesAndAnAbsentOneIsNotEncodedBack() throws {
+        let response = try JSONDecoder().decode(
+            LSPCompletionResponse.self,
+            from: Data(#"[{"label":"asIs","insertTextMode":1},{"label":"silent"}]"#.utf8)
+        )
+        XCTAssertEqual(response.items[0].insertTextMode, 1)
+        XCTAssertNil(response.items[1].insertTextMode)
+
+        let encoded = try JSONEncoder().encode(response.items[1])
+        XCTAssertFalse(
+            String(decoding: encoded, as: UTF8.self).contains("insertTextMode"),
+            "an absent field must not round-trip as `null` — the resolve params are the item verbatim"
+        )
+    }
+
     func testAnUnknownItemKindDecodesInsteadOfDroppingTheItem() throws {
         // Open sets: a kind from a newer specification must not cost the user a
         // whole completion list.

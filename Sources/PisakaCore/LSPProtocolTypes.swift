@@ -618,6 +618,17 @@ public struct LSPCompletionItem: Equatable, Hashable, Sendable, Codable {
     /// format *and* carries snippet syntax (`carriesSnippetSyntax`), rather than
     /// letting its `${1:…}` placeholders reach the buffer.
     public var insertTextFormat: Int?
+    /// The spec's `InsertTextMode`: `1` is `asIs`, `2` is `adjustIndentation`.
+    ///
+    /// Decoded because the one thing this client does with multi-line insertions
+    /// is adjust their indentation, and `1` is a server saying outright that its
+    /// continuation lines are already spelled against the buffer — adjusting them
+    /// then indents twice. Absent is the common case and keeps the behaviour
+    /// `LSPIntelligenceProvider.indentingContinuationLines` documents: this client
+    /// advertises no `insertTextMode` default, so a `CompletionList.itemDefaults`
+    /// carrying one is not read either — no pinned server sends it, and inventing
+    /// a default here would be a guess about text that is written to the file.
+    public var insertTextMode: Int?
     public var deprecated: Bool?
     public var data: JSONValue?
 
@@ -631,6 +642,7 @@ public struct LSPCompletionItem: Equatable, Hashable, Sendable, Codable {
         textEdit: LSPCompletionEdit? = nil,
         additionalTextEdits: [LSPTextEdit]? = nil,
         insertTextFormat: Int? = nil,
+        insertTextMode: Int? = nil,
         deprecated: Bool? = nil,
         data: JSONValue? = nil
     ) {
@@ -643,6 +655,7 @@ public struct LSPCompletionItem: Equatable, Hashable, Sendable, Codable {
         self.textEdit = textEdit
         self.additionalTextEdits = additionalTextEdits
         self.insertTextFormat = insertTextFormat
+        self.insertTextMode = insertTextMode
         self.deprecated = deprecated
         self.data = data
     }

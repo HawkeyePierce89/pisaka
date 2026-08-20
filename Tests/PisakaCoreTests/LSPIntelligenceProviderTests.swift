@@ -959,6 +959,78 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(items.map(\.text), ["deploy:\n    "])
     }
 
+    /// CRLF is one `Character` and is not `"\n"`, so a grapheme test for the
+    /// newline answers `false` for exactly the text the splitter goes on to split
+    /// — the guard and the split have to agree on what a newline is, or a
+    /// CRLF-spelled multi-line insertion is written to the file unindented.
+    func testMultiLineInsertedTextIsIndentedWhenItsLineBreaksAreCRLF() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                .object([
+                    "label": .string("deploy"),
+                    "insertText": .string("deploy:\r\n  "),
+                    "insertTextFormat": .int(2),
+                    "kind": .int(LSPCompletionItemKind.property.rawValue)
+                ])
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "dep", offset: nestedCaret, text: nestedYAML)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["deploy:\r\n      "])
+    }
+
+    /// `insertTextMode: 1` is `asIs` — the server stating that its continuation
+    /// lines are already spelled against the buffer. Indenting those would indent
+    /// them twice, so the item is taken at its word and inserted verbatim.
+    func testAnItemThatAsksForAsIsInsertionIsNotIndented() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                .object([
+                    "label": .string("deploy"),
+                    "insertText": .string("deploy:\n      "),
+                    "insertTextFormat": .int(2),
+                    "insertTextMode": .int(1),
+                    "kind": .int(LSPCompletionItemKind.property.rawValue)
+                ])
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "dep", offset: nestedCaret, text: nestedYAML)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["deploy:\n      "])
+    }
+
+    /// The other value, and the absent case the pinned servers all send, both go
+    /// through the rule: `2` *is* `adjustIndentation`, and nothing is assumed from
+    /// silence beyond what this client already does.
+    func testAnItemThatAsksForAdjustedIndentationIsIndentedLikeOneThatSaysNothing() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                .object([
+                    "label": .string("deploy"),
+                    "insertText": .string("deploy:\n  "),
+                    "insertTextFormat": .int(2),
+                    "insertTextMode": .int(2),
+                    "kind": .int(LSPCompletionItemKind.property.rawValue)
+                ])
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "dep", offset: nestedCaret, text: nestedYAML)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["deploy:\n      "])
+    }
+
     /// The edit the editor applies carries the adjusted text too — the row, the
     /// dedup key and the buffer must be one string. An `additionalTextEdits`
     /// entry makes `edits(…)` non-empty, which is the path that writes the file

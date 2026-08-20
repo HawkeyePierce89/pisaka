@@ -1080,11 +1080,25 @@ suite rather than slip in beside it.
 
 The YAML component carries **the layer's only
 `LSPServerDescription.configuration`** —
-`{"yaml": {"schemaStore": {"enable": true}, "completion": true, "hover": true}}`,
-delivered by D27's two channels. The setting is stated rather than left to
-upstream's default (which happens to be `true` today) so that schemas load by
-decision rather than by luck, and a pin bump that changed the default would fail
-loudly instead of quietly.
+`{"yaml": {"schemaStore": {"enable": true}, "completion": true, "hover": true},
+"http": {"proxyStrictSSL": true}}`, delivered by D27's two channels. The `yaml`
+settings are stated rather than left to upstream's default (which happens to be
+`true` today) so that schemas load by decision rather than by luck, and a pin bump
+that changed the default would fail loudly instead of quietly.
+
+`http.proxyStrictSSL` is there for a different reason and is not a preference.
+The pinned bundle reads `config.http?.proxyStrictSSL ?? false` and hands the
+result to `request-light`, whose `strictSSL` starts `true` and is only ever
+*lowered* by that call — so leaving the `http` section unanswered (`null`, the
+answer every unnamed section gets) turns TLS certificate validation **off** for
+every one of the runtime fetches the note below discloses: the schemastore
+catalog, each schema the catalog names, and whatever URL a file names for itself.
+None of that traffic is pinned, so nothing else stands between it and whoever is
+on the path; a substituted schema is what the user's YAML then completes and
+validates against. `proxy` stays unstated on purpose — empty means `request-light`
+keeps honouring `HTTPS_PROXY`/`HTTP_PROXY`, which is the user's environment to
+set. A pin bump must re-read that line in `settingsHandlers.js`: the whole
+argument rests on it.
 
 `rust-analyzer` is the odd row, in four ways that are each a decision rather than
 an accident:

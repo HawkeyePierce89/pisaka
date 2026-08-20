@@ -1197,7 +1197,21 @@ document, together with the limits they carry.
     dedup key and the primary edit are one string; `resolveEdits(for:)` applies
     the same rule, since an item whose edits arrive late inserts the same text.
     Splitting on `\n` alone is complete: a `\r\n` splits into `…\r` plus the next
-    line, and the prefix lands after the `\n` either way.
+    line, and the prefix lands after the `\n` either way — **but the test that
+    gets there is over scalars, not `Character`s**, because `\r\n` is a single
+    grapheme that is not `"\n"`: a `contains("\n")` grapheme test answers `false`
+    for exactly the CRLF text the splitter goes on to split, handing back the
+    unindented insertion the rule exists to prevent. The guard and the split must
+    agree on what a newline is.
+    Both call sites ask through `insertedText(of:forInsertionAt:in:lineStarts:)`,
+    which is where the one exception lives: an item carrying
+    **`insertTextMode: 1` (`asIs`)** is inserted verbatim, that value being a
+    server stating outright that its continuation lines are already spelled
+    against the buffer — adjusting those would indent them twice. `2` and the
+    absent case (what every pinned server sends) both go through the rule. The
+    client advertises no `insertTextMode` default and does not read a
+    `CompletionList.itemDefaults` one: nothing shipped sends it, and a default
+    invented here would be a guess about text written to the file.
     **One line-start table per list.** Every item sourcekit-lsp sends carries a
     `textEdit`, so mapping a list with the one-shot `LSPPositionMap.range(for:in:)`
     would re-scan the whole buffer once per item — thirty full scans of a large file
@@ -2095,7 +2109,28 @@ guessed: on `initialized` it calls `settingsHandler.pullConfiguration()`
 `[yaml]`, `editor` and `files` regardless of what the client advertised — and its
 `onDidChangeConfiguration` handler ignores the pushed payload and re-pulls. So the
 answer to the pull is where the setting lands. The notification is sent anyway,
-for servers that read the payload instead; it costs one message.
+for servers that read the payload instead — and its cost is stated honestly rather
+than assumed: for a server that re-pulls, it is not "one message" but a **second
+full pull**, and for this one that means the schemastore catalog is fetched twice
+at session start (measured against the pinned bundle: two `catalog.json` requests
+with the push, one without). That is the price of not deciding for a future server
+which channel it reads; it is one extra request per session, on a session that
+already fetches over the network by design (D28).
+
+**A section the description does not name is answered `null`, and `null` is not
+always "use your default".** It is for `[yaml]`, `editor` and `files`, which is why
+those three stay unnamed. It is *not* for `http`: the pinned bundle folds the
+answer into `configure(config.http?.proxy ?? '', config.http?.proxyStrictSSL ??
+false)` and hands it to `request-light`, whose module-level `strictSSL` starts
+`true` and is only ever lowered by that call — so an unanswered `http` section
+reads as "the user asked for `false`" and every schema fetch afterwards goes out
+with `rejectUnauthorized: false`. Nothing else protects that traffic: D28's
+catalog, schemas and `$schema`-named URLs are unpinned by nature, so a certificate
+nobody checks means whoever is on the path chooses what the user's YAML completes
+and validates against. The description therefore names `http` with
+`proxyStrictSSL: true` (and leaves `proxy` unstated, so `request-light` keeps
+honouring `HTTPS_PROXY`/`HTTP_PROXY`), and
+`LSPProvisioningManifestTests` asserts that one key on its own.
 
 **The client capability `workspace.configuration` stays `false`.** Flipping it to
 `true` would rewrite the handshake for all five existing servers for no gain: a
@@ -2129,8 +2164,10 @@ header or a top-level `$schema:` key) while it runs, which is what completes a c
 carries the layer's one `runtimeNetworkNote`, printed by the consent banner and
 the Settings row before anything is downloaded (`core-provisioning.md`). And it is the one server with a `configuration`, D27's
 only user today: `{"yaml": {"schemaStore": {"enable": true}, "completion": true,
-"hover": true}}`, stated rather than left to an upstream default that happens to
-agree.
+"hover": true}, "http": {"proxyStrictSSL": true}}` — the `yaml` half stated rather
+than left to an upstream default that happens to agree, the `http` half because an
+unanswered section turns TLS certificate validation *off* for all of the traffic
+above (D27).
 
 For YAML this replaces nothing — the tree-sitter path knows a document's *keys*,
 never its schema, so `ser` in a fresh `docker-compose.yml` could only ever be
