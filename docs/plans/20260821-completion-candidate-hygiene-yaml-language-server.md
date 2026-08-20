@@ -256,11 +256,11 @@ Intent: thin glue — the views print the Core value and decide nothing.
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] `swift test` — full suite green.
-- [ ] `xcodegen generate`, then macOS **Release** build green.
-- [ ] iOS build green (`generic/platform=iOS` or the simulator destination) — every
+- [x] `swift test` — full suite green.
+- [x] `xcodegen generate`, then macOS **Release** build green.
+- [x] iOS build green (`generic/platform=iOS` or the simulator destination) — every
       provisioning surface stays macOS-gated and Core stays Foundation-only.
-- [ ] Confirm no npm invocation, no unpinned download and no secret anywhere in the
+- [x] Confirm no npm invocation, no unpinned download and no secret anywhere in the
       diff; the only unpinned runtime traffic is the schema fetch, stated in the
       consent surface and the docs.
 
