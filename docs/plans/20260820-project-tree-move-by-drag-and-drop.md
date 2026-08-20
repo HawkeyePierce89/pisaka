@@ -117,23 +117,23 @@ the gesture to the engine.
 - Modify: `Sources/Pisaka/PisakaApp.swift`
 - Modify: `Tests/PisakaCoreTests/WorkspaceModelTests.swift`
 
-- [ ] Extract from `renameItem(at:)` a private `performMove(from:to:)` carrying
+- [x] Extract from `renameItem(at:)` a private `performMove(from:to:)` carrying
       the whole ordering-sensitive sequence unchanged: `planRename` *before* the
       move, the `retargetedURLs` capture beside it, `fileService.move`,
       `applyRenamePlan`, `forgetIndexedBuffer` per retargeted URL,
       `bumpTreeRevision()`, `notifyIndexOfProjectFileChanges()`, and
       `reportFileOperationFailure(_:)` on throw. Move the ordering comments onto it.
-- [ ] Rewrite `renameItem(at:)` to keep only its prompt/validation and then call
+- [x] Rewrite `renameItem(at:)` to keep only its prompt/validation and then call
       `performMove(from:to:)` — no second copy of the sequence.
-- [ ] Add `moveItem(at:into:)`: `revertInFlight()` gate first, then
+- [x] Add `moveItem(at:into:)`: `revertInFlight()` gate first, then
       `MoveDropRule.decision(source:into:fileService:)`; `.move` →
       `performMove`; `.refuse` → nothing at all when silent, otherwise
       `reportFileOperationFailure(refusal)`.
-- [ ] Wire `onMove: { moveItem(at: $0, into: $1) }` into the `ContentView(` call.
-- [ ] Add `WorkspaceModelTests` coverage that `planRename`/`applyRenamePlan`
+- [x] Wire `onMove: { moveItem(at: $0, into: $1) }` into the `ContentView(` call.
+- [x] Add `WorkspaceModelTests` coverage that `planRename`/`applyRenamePlan`
       handle a *cross-directory* folder move (nested tabs retargeted, tab identity,
       dirty state and viewport preserved; an unrelated tab untouched).
-- [ ] Run `swift test` — must pass before task 3.
+- [x] Run `swift test` — must pass before task 3.
 
 ### Task 3: Drag and drop in the tree view
 
