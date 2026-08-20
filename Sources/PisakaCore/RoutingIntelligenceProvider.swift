@@ -46,8 +46,8 @@ public protocol LSPIntelligenceSource: CodeIntelligenceProviding, Sendable {
 /// language server also never learns it lost one.
 ///
 /// **A language with no server costs nothing.** `canServe` is asked first, so for
-/// Markdown, YAML, a scratch buffer or a machine with no toolchain the request
-/// never enters the LSP stack at all — it is handed straight to the wrapped
+/// Markdown, a Dockerfile, a scratch buffer or a machine with no toolchain the
+/// request never enters the LSP stack at all — it is handed straight to the wrapped
 /// provider, and the output is *the wrapped provider's output*, byte for byte.
 /// `RoutingIntelligenceProviderTests` pins that by equality on both request kinds
 /// rather than by inspection, because "phase 2a changed nothing for the other

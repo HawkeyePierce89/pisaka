@@ -359,7 +359,8 @@ user sees it.
   accept: a YAML file's meaning lives in a JSON schema no bundled byte could
   contain, so the server fetches a catalog from `schemastore.org`, then the schema
   itself from whichever host that catalog names — or from the URL the file names
-  for itself in a `# yaml-language-server: $schema=` header comment. That is what
+  for itself, either in a `# yaml-language-server: $schema=` header comment or in
+  a plain top-level `$schema:` key. That is what
   completes `services` in a `docker-compose.yml` against the real compose schema
   rather than against words already in the buffer. None of that traffic is pinned
   or checksummed the way the download is; nothing lands on disk for it, so Remove

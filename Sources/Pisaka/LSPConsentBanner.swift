@@ -70,9 +70,9 @@ struct LSPConsentBanner: View {
 
     var body: some View {
         // An empty `VStack` renders nothing and contributes no height, so the
-        // common case — every language that is not TypeScript, JavaScript or
-        // Python, and every one of those whose question has been answered —
-        // costs the editor no layout at all. It also keeps the `.task` below
+        // common case — every language no downloadable server serves, and every
+        // one of those it does serve whose question has been answered — costs the
+        // editor no layout at all. It also keeps the `.task` below
         // attached to a view that exists in *both* cases, which the two branches
         // of an `if` at `ContentView` level would not.
         //

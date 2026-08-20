@@ -1286,8 +1286,10 @@ final class LSPProvisioningModelTests: XCTestCase {
         XCTAssertNotNil(note)
         // Every destination, not just the first one: schemastore.org supplies the
         // *catalog*, each schema then comes from the host that catalog names, and
-        // a file's own `$schema=` header can name a host of its choosing. A note
-        // that stopped at the first would understate what one-time consent buys.
+        // a file can name a host of its choosing *two* ways — a `$schema=` header
+        // and a top-level `$schema:` key, which the pinned bundle tries in that
+        // order. A note that stopped at the first of either would understate what
+        // one-time consent buys.
         XCTAssertTrue(note?.contains("schemastore.org") == true, "the note does not name the catalog host")
         XCTAssertTrue(
             note?.contains("the host that catalog names") == true,
@@ -1296,6 +1298,10 @@ final class LSPProvisioningModelTests: XCTestCase {
         XCTAssertTrue(
             note?.contains("$schema=") == true,
             "the note does not say an opened file can name the host itself"
+        )
+        XCTAssertTrue(
+            note?.contains("$schema:") == true,
+            "the note names only the header comment, not the in-document $schema: key"
         )
         XCTAssertTrue(note?.contains("part of the pinned download") == true, "the note does not say it is unpinned")
 

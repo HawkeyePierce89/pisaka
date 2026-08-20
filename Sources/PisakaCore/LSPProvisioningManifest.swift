@@ -199,7 +199,7 @@ public struct LSPArtifact: Equatable, Sendable {
 /// A versioned directory of verified artifacts (D12).
 ///
 /// The unit of installation, of removal, and of sharing: `node` is one component
-/// that two servers require, so accepting Python after TypeScript downloads
+/// that all three servers require, so accepting Python after TypeScript downloads
 /// 4 MB and not 56. "Installed" is the existence of the version directory and
 /// nothing else — there is no database, no receipt file and no state to get out
 /// of sync with the disk.
@@ -814,12 +814,16 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
     /// Only the *catalog* comes from that one host; each schema then comes from
     /// whichever host its catalog entry names (most of the catalog's entries point
     /// at `raw.githubusercontent.com`, and the compose schema is one of them). And
-    /// a YAML file may name its own schema URL in a header comment
-    /// (`# yaml-language-server: $schema=…`, `modelineUtil.js` in the pinned
-    /// bundle), so *opening a file from an untrusted repository* is enough to
-    /// direct one of these requests at a host that file chose. A user who
-    /// consented on the strength of one domain name would have been told something
-    /// narrower than the truth, and consent here is asked once and never again.
+    /// a YAML file may name its own schema URL **two** ways, so the sentence names
+    /// both: the header comment (`# yaml-language-server: $schema=…`,
+    /// `modelineUtil.js` in the pinned bundle) and a plain top-level `$schema:`
+    /// key in the document body (`dollarUtils.js`) — `getSchemaIdsForResource`
+    /// tries the modeline first and falls through to the key, so naming only the
+    /// comment would leave the commoner-looking spelling unstated. Either way
+    /// *opening a file from an untrusted repository* is enough to direct one of
+    /// these requests at a host that file chose. A user who consented on the
+    /// strength of one domain name would have been told something narrower than
+    /// the truth, and consent here is asked once and never again.
     ///
     /// It is *not* a second install: nothing lands under the install root, so
     /// Remove and a deleted `LanguageServers` directory still de-provision
@@ -831,9 +835,10 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
             return """
                 This server also fetches JSON schemas while it runs: a catalog from \
                 schemastore.org, then each schema from the host that catalog names — or \
-                the one a file's own "# yaml-language-server: $schema=" line names. That \
-                is what completes a docker-compose.yml against its real schema, and none \
-                of it is part of the pinned download.
+                the one a file names for itself, in a \
+                "# yaml-language-server: $schema=" line or a top-level "$schema:" key. \
+                That is what completes a docker-compose.yml against its real schema, and \
+                none of it is part of the pinned download.
                 """
         }
     }

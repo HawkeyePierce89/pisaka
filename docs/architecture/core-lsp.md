@@ -1351,7 +1351,7 @@ document, together with the limits they carry.
     nothing, and the next request asks the server again; the only state that
     outlives one question is D7's restart budget, which lives where the failures are
     counted. **A language with no server costs nothing**: `canServe` is asked first,
-    so the output for Markdown, YAML, a scratch buffer or a machine with no
+    so the output for Markdown, a Dockerfile, a scratch buffer or a machine with no
     toolchain is *the wrapped provider's output*, byte for byte —
     `RoutingIntelligenceProviderTests` pins that by equality on both request kinds
     rather than by inspection, because "phase 2a changed nothing for the other
@@ -2080,8 +2080,8 @@ twenty-tarball closure and the `@vscode/l10n` license exception are in
 Two things distinguish it from the other two 2b servers, both stated rather than
 incidental. Its schemas are **not pinned and cannot be** — it fetches a catalog
 from `schemastore.org` and then each schema from the host that catalog names (or
-from the URL a file's own `# yaml-language-server: $schema=` header names) while
-it runs, which is what completes a compose file against its real schema — so it
+from the URL a file names for itself, in a `# yaml-language-server: $schema=`
+header or a top-level `$schema:` key) while it runs, which is what completes a compose file against its real schema — so it
 carries the layer's one `runtimeNetworkNote`, printed by the consent banner and
 the Settings row before anything is downloaded (`core-provisioning.md`). And it is the one server with a `configuration`, D27's
 only user today: `{"yaml": {"schemaStore": {"enable": true}, "completion": true,

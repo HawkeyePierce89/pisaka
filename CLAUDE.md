@@ -352,7 +352,8 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   carries the **one stated exception** to "what may be downloaded is pinned
   data": it fetches JSON schemas *while it runs* — the catalog from
   schemastore.org, each schema from the host that catalog names, and whatever URL
-  a file's own `$schema=` header names — which is said where consent is given (the
+  a file names for itself (a `$schema=` header *or* a top-level `$schema:` key)
+  — which is said where consent is given (the
   banner and the Settings row both print
   `LSPDownloadableServer.runtimeNetworkNote`, which is `nil` for every other
   server) and not only in the docs. It is not a second install — nothing lands

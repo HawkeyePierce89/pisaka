@@ -757,7 +757,10 @@ public struct LSPClientInfo: Equatable, Hashable, Sendable, Codable {
 ///   answers instead of declining;
 /// * completion with `contextSupport` (the `.` trigger) and `resolveSupport` for
 ///   `additionalTextEdits` and `detail` — D4's auto-import arrives that way;
-/// * **no** `snippetSupport` (D5), so `newText` is always literal text.
+/// * **no** `snippetSupport` (D5), so `newText` *should* always be literal text —
+///   and a server that sends `insertTextFormat: 2` anyway is taken at its word
+///   only when the text carries no snippet syntax (`carriesSnippetSyntax`), which
+///   is what makes the YAML server contribute anything at all.
 public struct LSPClientCapabilities: Equatable, Hashable, Sendable, Encodable {
     public init() {}
 

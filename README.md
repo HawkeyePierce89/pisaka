@@ -107,8 +107,8 @@ Files app). No terminal, no language servers, no commit dialog — details in
   the server downloads, LeetCode — happens only when you use it. One thing keeps
   going after its download: the YAML language server, once installed, looks a
   document's JSON schema up while you edit — a catalog from `schemastore.org`,
-  then the schema from whatever host that catalog (or the file's own
-  `# yaml-language-server: $schema=` line) names. It is the one unpinned request
+  then the schema from whatever host that catalog — or the file itself, in a
+  `# yaml-language-server: $schema=` line or a top-level `$schema:` key — names. It is the one unpinned request
   Pisaka's own code does not make, and it is stated in the consent prompt.
 
 ## Build & Run

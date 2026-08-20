@@ -30,11 +30,13 @@ schema while it runs, which is what knows `services` belongs in a
 `docker-compose.yml` and what no pinned byte in this manifest could contain.
 `schemastore.org` supplies only the *catalog*; each schema comes from the host its
 catalog entry names — most of them `raw.githubusercontent.com`, the compose schema
-among them — and a YAML file may override both by naming its own URL in a
-`# yaml-language-server: $schema=` header comment, so opening a file from an
-untrusted repository is enough to aim one of these requests. The note says all
-three, because consent is asked once and a narrower sentence would be a narrower
-truth. That traffic is unpinned, un-checksummed and outside this layer
+among them — and a YAML file may override both by naming its own URL, in a
+`# yaml-language-server: $schema=` header comment *or* in a plain top-level
+`$schema:` key (`getSchemaIdsForResource` tries `modelineUtil.js` first and falls
+through to `dollarUtils.js`), so opening a file from an untrusted repository is
+enough to aim one of these requests. The note says all three, and both spellings
+of the third, because consent is asked once and a narrower sentence would be a
+narrower truth. That traffic is unpinned, un-checksummed and outside this layer
 entirely — the server makes it, not `LSPDownloadService`. It is therefore stated
 **where consent is given** rather than only here: `LSPDownloadableServer
 .runtimeNetworkNote` carries one sentence as data on the server case, and both
