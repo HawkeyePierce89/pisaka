@@ -350,8 +350,10 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   ordinary third downloadable server — one pinned component whose whole
   twenty-package runtime closure is pinned, one enum case, still no npm — and it
   carries the **one stated exception** to "what may be downloaded is pinned
-  data": it fetches JSON schemas from schemastore.org *while it runs*, which is
-  said where consent is given (the banner and the Settings row both print
+  data": it fetches JSON schemas *while it runs* — the catalog from
+  schemastore.org, each schema from the host that catalog names, and whatever URL
+  a file's own `$schema=` header names — which is said where consent is given (the
+  banner and the Settings row both print
   `LSPDownloadableServer.runtimeNetworkNote`, which is `nil` for every other
   server) and not only in the docs. It is not a second install — nothing lands
   under the install root, so Remove still de-provisions completely. A server that
@@ -565,7 +567,11 @@ owed are documented in `docs/RELEASING.md`.
   `testTextsCarryTheirBundledSubDependencyNotices`). Provisioned language
   servers are the exception: their notices are read at display time out of the
   installed tree, nothing in `swift test` can see them, and a manifest pin bump
-  must re-verify the license subpaths by hand. Rationale and procedures in
+  must re-verify the license subpaths by hand — including the third outcome the
+  two above do not cover: an artifact that publishes *no* notice at all is
+  recorded as a named exception by destination in `LSPProvisioningManifestTests`
+  (`@vscode/l10n` is the only one), never as a silent omission, so a second one
+  fails the suite. Rationale and procedures in
   `docs/architecture/core-services.md` + `core-provisioning.md`.
 - **Adding a language also ships its symbols query** —
   `Resources/Queries/<raw value>/symbols.scm` under the shared capture

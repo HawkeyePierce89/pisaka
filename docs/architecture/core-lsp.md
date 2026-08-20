@@ -1146,8 +1146,8 @@ document, together with the limits they carry.
     **The server's ranking is the ranking** (D6): items ordered by `sortText ??
     label` with the server's own array order preserved on ties (the enumerated index
     is carried as the last sort key rather than trusting `sorted(by:)` to be
-    stable), then only hygiene — drop the item that claims snippet format, drop the
-    item identical to what was typed, collapse
+    stable), then only hygiene — drop the item that would expand as a snippet, drop
+    the item identical to what was typed, collapse
     duplicates by inserted text (first wins), cap at
     `SymbolIntelligenceProvider.defaultCompletionLimit`.
     **The snippet drop is enforcement, not tidiness.** D5 advertises
@@ -1155,9 +1155,16 @@ document, together with the limits they carry.
     ignores it answers with `insertTextFormat: 2` and a `newText` full of
     `${1:…}` placeholders, and a completion item is the one thing in this layer
     whose result is written to the user's file rather than merely displayed. So the
-    field is read, not just decoded: absent means plain text (the spec's default)
-    and is kept, anything other than `1` is dropped, by the same rule as everything
-    else here — no answer is better than a guessed one.
+    field is read, not just decoded — but it is read *with* the text it labels,
+    because the flag alone is not a fact either way: an item is dropped when it
+    claims snippet format **and** `LSPCompletionItem.carriesSnippetSyntax` (a `$`
+    or a `\\`, the whole grammar's two entry points). Absent means plain text (the
+    spec's default) and is kept. `yaml-language-server` is why the second half
+    exists: it marks every property completion `Snippet` and never reads
+    `snippetSupport`, so a flag-only test would throw away `services:\n  ` —
+    literal text under either format — and with it every completion the server was
+    downloaded for. No answer is still better than a guessed one; a
+    placeholder-free snippet is not a guess.
     **One line-start table per list.** Every item sourcekit-lsp sends carries a
     `textEdit`, so mapping a list with the one-shot `LSPPositionMap.range(for:in:)`
     would re-scan the whole buffer once per item — thirty full scans of a large file
@@ -1741,17 +1748,24 @@ later. *Known limit:* if an item is committed before its resolve lands, the
 insertion happens first and the import edit is applied when it arrives, as a
 second undo step — and only while the buffer is otherwise unchanged.
 
-**D5 — No snippet support is advertised**, so `newText` is always plain text and
-nothing has to strip `${1:placeholder}` syntax. Advertising it is not the same as
-being obeyed, though, so the guarantee is *checked* as well as asked for:
-`publish` drops any item whose `insertTextFormat` is present and not `1`, rather
-than writing placeholder syntax into the buffer on the word of a server that
-ignored the capability.
+**D5 — No snippet support is advertised**, so `newText` should always be plain
+text and nothing has to strip `${1:placeholder}` syntax. Advertising it is not the
+same as being obeyed, though, so the guarantee is *checked* as well as asked for
+— and checked against the text, not the label on it: `publish` drops an item whose
+`insertTextFormat` is present and not `1` **and** whose inserted text contains a
+`$` or a `\\`, the only two scalars the snippet grammar gives meaning to. A server
+that mislabels literal text (`yaml-language-server` marks every property
+completion `Snippet` unconditionally) still completes; a server that would write
+placeholder syntax into the buffer still does not. *Known limit:* such an item's
+row shows the text it inserts, so a YAML property reads `services:\n  ` in the
+popup rather than `services` — `displayText` may differ from `text` only by
+dropping a head that re-writes characters already in the buffer, and this head is
+not one.
 
 **D6 — Ranking for LSP-answered requests trusts the server**: items sorted by
 `sortText ?? label`, preserving server array order on ties, then the existing
-hygiene (drop the snippet-format item, drop the item identical to the typed
-token, dedup by inserted text, cap
+hygiene (drop the item that would expand as a snippet, drop the item identical to
+the typed token, dedup by inserted text, cap
 at `SymbolIntelligenceProvider.defaultCompletionLimit`). No name heuristics on
 top. The recorded transcript is what pins this rather than a constructed example:
 sourcekit-lsp put `Greeter` *last* in the array with the *lowest* `sortText`.
@@ -2064,11 +2078,12 @@ twenty-tarball closure and the `@vscode/l10n` license exception are in
 `core-provisioning.md`.
 
 Two things distinguish it from the other two 2b servers, both stated rather than
-incidental. Its schemas are **not pinned and cannot be** — it fetches them from
-`schemastore.org` while it runs, which is what completes a compose file against
-its real schema — so it carries the layer's one `runtimeNetworkNote`, printed by
-the consent banner and the Settings row before anything is downloaded
-(`core-provisioning.md`). And it is the one server with a `configuration`, D27's
+incidental. Its schemas are **not pinned and cannot be** — it fetches a catalog
+from `schemastore.org` and then each schema from the host that catalog names (or
+from the URL a file's own `# yaml-language-server: $schema=` header names) while
+it runs, which is what completes a compose file against its real schema — so it
+carries the layer's one `runtimeNetworkNote`, printed by the consent banner and
+the Settings row before anything is downloaded (`core-provisioning.md`). And it is the one server with a `configuration`, D27's
 only user today: `{"yaml": {"schemaStore": {"enable": true}, "completion": true,
 "hover": true}}`, stated rather than left to an upstream default that happens to
 agree.

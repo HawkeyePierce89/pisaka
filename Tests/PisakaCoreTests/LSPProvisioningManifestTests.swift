@@ -719,35 +719,45 @@ final class LSPProvisioningManifestTests: XCTestCase {
             "the entry point is the server module, not the package's `bin` shim"
         )
 
-        let expected: [(String, String, Int)] = [
-            ("yaml-language-server", "yaml-language-server-1.24.0.tgz", 646_765),
-            ("ajv", "ajv-8.20.0.tgz", 217_611),
-            ("ajv-draft-04", "ajv-draft-04-1.0.0.tgz", 8_735),
-            ("ajv-i18n", "ajv-i18n-4.2.0.tgz", 25_980),
-            ("@vscode/l10n", "l10n-0.0.18.tgz", 4_548),
-            ("fast-deep-equal", "fast-deep-equal-3.1.3.tgz", 3_656),
-            ("fast-uri", "fast-uri-3.1.5.tgz", 32_112),
-            ("json-schema-traverse", "json-schema-traverse-1.0.0.tgz", 6_074),
-            ("jsonc-parser", "jsonc-parser-3.3.1.tgz", 27_354),
-            ("picomatch", "picomatch-4.0.5.tgz", 24_079),
-            ("prettier", "prettier-3.9.6.tgz", 2_800_155),
-            ("request-light", "request-light-0.5.8.tgz", 10_534),
-            ("require-from-string", "require-from-string-2.0.2.tgz", 1_816),
-            ("vscode-jsonrpc", "vscode-jsonrpc-8.2.0.tgz", 35_427),
-            ("vscode-languageserver", "vscode-languageserver-9.0.1.tgz", 32_720),
-            ("vscode-languageserver-protocol", "vscode-languageserver-protocol-3.17.5.tgz", 59_008),
-            ("vscode-languageserver-textdocument", "vscode-languageserver-textdocument-1.0.13.tgz", 8_425),
-            ("vscode-languageserver-types", "vscode-languageserver-types-3.17.5.tgz", 71_382),
-            ("vscode-uri", "vscode-uri-3.1.0.tgz", 59_768),
-            ("yaml", "yaml-2.8.3.tgz", 111_837),
+        let expected: [(String, String, Int, String)] = [
+            ("yaml-language-server", "yaml-language-server-1.24.0.tgz", 646_765, "11a321032012131f2ccdf7952dc347ce05291c66931a5de2f449b2dfc81f24b2"),
+            ("ajv", "ajv-8.20.0.tgz", 217_611, "b2f0b3a893bbb8cc5efb6814f08b1499e19e31d5dd73683f5893382f48f6e7b3"),
+            ("ajv-draft-04", "ajv-draft-04-1.0.0.tgz", 8_735, "b2328acf9b3a5b1b3a098789770c2dd34ed86b5913c904c056091ec10319c2e7"),
+            ("ajv-i18n", "ajv-i18n-4.2.0.tgz", 25_980, "b84c90f14594a447bf59badc6a9b01e75049400186adec9c85b52e1709867239"),
+            ("@vscode/l10n", "l10n-0.0.18.tgz", 4_548, "f1c2dc897488595f6bb42121869f525c6c6a5f7c8dca550754199c3251ed7c5c"),
+            ("fast-deep-equal", "fast-deep-equal-3.1.3.tgz", 3_656, "b019a0980f27638dc3f85836b0e478f188e00d7a6e5852c0819fa86f56e47b8f"),
+            ("fast-uri", "fast-uri-3.1.5.tgz", 32_112, "82a71e7e3716dc8c392cac0762bce80614cf539ef22000415e26eaf5c453ce2f"),
+            ("json-schema-traverse", "json-schema-traverse-1.0.0.tgz", 6_074, "023222622df29fc274bde5d3590e47aa1d4a8e3c1d6e2aba029948ed79799b21"),
+            ("jsonc-parser", "jsonc-parser-3.3.1.tgz", 27_354, "4a0315b8671e7463bae7af7c142cdf19e9aa7ba39eb36dc2df383b8648e3cbc9"),
+            ("picomatch", "picomatch-4.0.5.tgz", 24_079, "e89c478225a42b3793bb4a39fd576de142c9829c26a5bd71782249e48b112f51"),
+            ("prettier", "prettier-3.9.6.tgz", 2_800_155, "997da95cf2ae81053cafc79ef122a6e8dc12e3f2c619d57eb1f2e19525fb212f"),
+            ("request-light", "request-light-0.5.8.tgz", 10_534, "4b6d4b48fa05056435b300a4a5f904bacbe0e6ddfa28bb44b729eb64f24375b9"),
+            ("require-from-string", "require-from-string-2.0.2.tgz", 1_816, "cb694a4965908f7775a0c757f00cf4e624d193cd71d77988fbcca0f597b88d82"),
+            ("vscode-jsonrpc", "vscode-jsonrpc-8.2.0.tgz", 35_427, "3da44531c398f1545074cb728e359a822f35b9f8ac7171c847f42f0728b9c7cb"),
+            ("vscode-languageserver", "vscode-languageserver-9.0.1.tgz", 32_720, "6cd7f463ae7872e588a4dd5ed5149475fe32e53517509a81e715eb0540602412"),
+            ("vscode-languageserver-protocol", "vscode-languageserver-protocol-3.17.5.tgz", 59_008, "7473eb2d2163f3f8bea09644f9d803789a195e596b65d3946c4157e583e3ccc8"),
+            ("vscode-languageserver-textdocument", "vscode-languageserver-textdocument-1.0.13.tgz", 8_425, "46c8c250fa7667a9503cffb506512b99557784dfefbd8e318944856ca11ffbb9"),
+            ("vscode-languageserver-types", "vscode-languageserver-types-3.17.5.tgz", 71_382, "d673f9e7f8bbe51351be51c58f32d4dcfa97a670ebb86bc633368394c609cac0"),
+            ("vscode-uri", "vscode-uri-3.1.0.tgz", 59_768, "c6ec752d7a4858237389b23fb4d5ac05c2f1f606071cd212a9b54730e43cfc54"),
+            ("yaml", "yaml-2.8.3.tgz", 111_837, "9539805d7447def2bed5c5b4acacc283362c5e80abc5d93472b2f35f0cbf85ad"),
         ]
 
         XCTAssertEqual(component.artifacts.count, expected.count, "the closure gained or lost a package")
-        for (index, (package, fileName, byteCount)) in expected.enumerated() {
+        for (index, (package, fileName, byteCount, sha256)) in expected.enumerated() {
             guard index < component.artifacts.count else { break }
             let artifact = component.artifacts[index]
             XCTAssertEqual(artifact.url.lastPathComponent, fileName, "\(package) is pinned at another version")
             XCTAssertEqual(artifact.byteCount, byteCount, "\(package)'s download size is not what was measured")
+            // The digest by value, the way `rust-analyzer`'s is. Every other
+            // assertion in this suite checks a digest's *shape*, which a
+            // hand-transcribed hex string passes while naming the wrong bytes —
+            // and a wrong digest is not a wrong file, it is an install that fails
+            // verification for everyone, forever, with nothing in the repository
+            // able to say why. Twenty of them were transcribed at once.
+            XCTAssertEqual(
+                artifact.sha256, sha256,
+                "\(package)'s digest is not the one measured from the bytes that arrived"
+            )
             XCTAssertEqual(
                 artifact.destinationSubpath, "node_modules/\(package)",
                 "\(package) must land flat, where Node's upward walk from server.js looks"

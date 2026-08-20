@@ -430,11 +430,21 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
             let item = entry.element
             // D5 advertises `snippetSupport: false`, but that is a request, not an
             // enforcement — and this is the one path in the layer whose result is
-            // *written to the file*. An item that claims snippet format anyway
-            // carries `${1:…}` placeholders that would go into the buffer
-            // verbatim, so it is dropped, for this file's first rule: no answer is
-            // better than a guessed one. Absent means plain text, per the spec.
-            guard item.insertTextFormat ?? 1 == 1 else { continue }
+            // *written to the file*. So the flag is not trusted on its own in
+            // either direction: what is dropped is an item that claims snippet
+            // format *and* whose text could expand, because that is the one that
+            // would put `${1:…}` into the buffer verbatim. This file's first rule,
+            // unchanged: no answer is better than a guessed one.
+            //
+            // The other half is not pedantry. `yaml-language-server` marks
+            // **every** property completion `Snippet` and never looks at
+            // `snippetSupport` — the string does not occur in its shipped source —
+            // so a flag-only test discards `services:\n  ` along with the rest and
+            // the server that was downloaded to know a compose schema contributes
+            // no completion at all. A placeholder-free snippet *is* its own literal
+            // text; inserting it is not a guess. Absent means plain text, per the
+            // spec.
+            guard item.insertTextFormat ?? 1 == 1 || !item.carriesSnippetSyntax else { continue }
             let inserted = item.insertedText
             // Completing `foo` to `foo` inserts nothing and hides a real
             // candidate behind it — the same rule the tree-sitter path applies,

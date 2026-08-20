@@ -268,6 +268,20 @@ final class LSPProvisioningModelTests: XCTestCase {
         XCTAssertEqual(harness.downloader.requestedURLs, [])
     }
 
+    /// The YAML prompt's own arithmetic, which is the number a user is asked to
+    /// agree to: its twenty-tarball closure *plus* the runtime it does not have
+    /// yet — the same "what is still missing" rule the other two follow, asserted
+    /// here because a closure this size makes a wrong figure easy to believe.
+    func testTheYAMLPromptOffersItsClosurePlusTheRuntimeItStillNeeds() {
+        let harness = makeHarness()
+
+        let prompt = harness.model.consentPrompt(forOpening: .yaml)
+        XCTAssertEqual(prompt?.server, .yaml)
+        XCTAssertEqual(prompt?.displayName, LSPDownloadableServer.yaml.displayName)
+        XCTAssertEqual(prompt?.downloadByteCount, Fixture.nodeBytes + Fixture.yamlServerBytes)
+        XCTAssertEqual(harness.downloader.requestedURLs, [])
+    }
+
     func testALanguageWithNoDownloadableServerNeverPrompts() {
         let harness = makeHarness()
         // `.yaml` is deliberately not on this list any more: it is served by the
@@ -1270,8 +1284,20 @@ final class LSPProvisioningModelTests: XCTestCase {
 
         let note = LSPDownloadableServer.yaml.runtimeNetworkNote
         XCTAssertNotNil(note)
-        XCTAssertTrue(note?.contains("schemastore.org") == true, "the note does not name where the traffic goes")
-        XCTAssertTrue(note?.contains("not part of the pinned download") == true, "the note does not say it is unpinned")
+        // Every destination, not just the first one: schemastore.org supplies the
+        // *catalog*, each schema then comes from the host that catalog names, and
+        // a file's own `$schema=` header can name a host of its choosing. A note
+        // that stopped at the first would understate what one-time consent buys.
+        XCTAssertTrue(note?.contains("schemastore.org") == true, "the note does not name the catalog host")
+        XCTAssertTrue(
+            note?.contains("the host that catalog names") == true,
+            "the note does not say the schemas themselves come from third-party hosts"
+        )
+        XCTAssertTrue(
+            note?.contains("$schema=") == true,
+            "the note does not say an opened file can name the host itself"
+        )
+        XCTAssertTrue(note?.contains("part of the pinned download") == true, "the note does not say it is unpinned")
 
         XCTAssertEqual(harness.model.rows.map(\.runtimeNetworkNote), [nil, nil, note])
 
@@ -1340,8 +1366,9 @@ final class LSPProvisioningModelTests: XCTestCase {
                 "--stdio",
             ]
         )
-        // The note lives on the row, never on the description: it is something to
-        // print, not something to send.
+        // The configuration is what is *sent* — the note is not on the description
+        // at all, because it is something to print. The two travel separately and
+        // this asserts both halves.
         XCTAssertEqual(registry.description(for: .yaml)?.configuration, LSPDownloadableServer.yaml.configuration)
 
         await harness.model.remove(.yaml)

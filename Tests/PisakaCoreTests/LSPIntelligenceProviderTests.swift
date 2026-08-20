@@ -865,7 +865,12 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         transport.script(LSPMethod.completion, .reply(.object([
             "items": .array([
                 completionItemJSON(label: "Greeter", sortText: "100", insertTextFormat: nil),
-                completionItemJSON(label: "Greeting", sortText: "200", insertTextFormat: 2),
+                completionItemJSON(
+                    label: "Greeting",
+                    sortText: "200",
+                    insertText: "Greeting(${1:name})",
+                    insertTextFormat: 2
+                ),
                 completionItemJSON(label: "GreeterBox", sortText: "300", insertTextFormat: 1)
             ])
         ])))
@@ -876,6 +881,52 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         )
 
         XCTAssertEqual(items.map(\.text), ["Greeter", "GreeterBox"])
+    }
+
+    /// The other half of the same rule, and the one that decides whether the
+    /// provisioned YAML server contributes anything at all: it marks **every**
+    /// property completion `Snippet` and never reads `snippetSupport`, so the
+    /// flag on its own is not a fact. An item that claims snippet format but
+    /// whose text contains neither of the grammar's two entry points (`$`, `\\`)
+    /// is the same string under both formats — dropping it would throw away a
+    /// completion for nothing.
+    func testASnippetFormatItemWithNoSnippetSyntaxIsKeptAsLiteralText() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                completionItemJSON(
+                    label: "greeters",
+                    sortText: "100",
+                    insertText: "greeters:\n  ",
+                    insertTextFormat: 2
+                ),
+                completionItemJSON(
+                    label: "greeting",
+                    sortText: "200",
+                    insertText: "greeting: $1",
+                    insertTextFormat: 2
+                ),
+                completionItemJSON(
+                    label: "greetingEscaped",
+                    sortText: "300",
+                    insertText: "greetingEscaped: \\}",
+                    insertTextFormat: 2
+                )
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "gree", offset: identifierCaret)
+        )
+
+        // Only the placeholder-free one survives, and it arrives verbatim — the
+        // colon, newline and indent are what the server meant to insert, and what
+        // makes this a schema completion rather than a word. It carries no edits,
+        // so AppKit inserts `text` over the typed prefix itself, exactly as it
+        // does for a tree-sitter item.
+        XCTAssertEqual(items.map(\.text), ["greeters:\n  "])
+        XCTAssertEqual(items.first?.displayText, "greeters:\n  ")
+        XCTAssertEqual(items.first?.edits, [])
     }
 
     // MARK: - Completion: edits
@@ -1373,6 +1424,7 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         label: String,
         sortText: String,
         detail: String? = nil,
+        insertText: String? = nil,
         insertTextFormat: Int? = 1,
         textEdit: (startLine: Int, startCharacter: Int, endLine: Int, endCharacter: Int)? = nil,
         textEditNewText: String? = nil
@@ -1380,7 +1432,7 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         var object: [String: JSONValue] = [
             "label": .string(label),
             "sortText": .string(sortText),
-            "insertText": .string(label),
+            "insertText": .string(insertText ?? label),
             "filterText": .string(label),
             "kind": .int(LSPCompletionItemKind.struct.rawValue)
         ]

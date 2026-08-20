@@ -241,7 +241,12 @@ user sees it.
   Cmd+Option+click keep their usual meaning.
 - Autocompletion: as you type an identifier (from the second character), a popup
   offers the project's declarations, the keywords of the language you are typing
-  in, and the words already in the buffer. Matching is **fuzzy/camelCase**, not
+  in, and the words already in the buffer. Only the declarations you could
+  actually type are offered: a Markdown heading is never one (it is a place to
+  jump to, not a word you write), and neither is any indexed name that is not a
+  single word — `Getting started`, `run(_:)`, a hyphenated CSS class like
+  `btn-primary`, a multi-word YAML key. Go to Definition and Go to Symbol still
+  find every one of them. Matching is **fuzzy/camelCase**, not
   just literal: `arrBuf`, `aBu` and `buf` all reach `ArrayBuffer`, as long as the
   first character you type starts a word in the name — its first letter, a
   camelCase hump, the character after a `_`/`-`, or either side of a
@@ -294,7 +299,8 @@ user sees it.
   locals inside a function);
   Markdown headings, CSS selectors, top-level
   YAML/JSON keys, Dockerfile build stages, `.env` variables and HTML `id`s are
-  indexed too. A file type with no query still completes from the words in the
+  indexed too — as navigation targets in full, and as completions only where the
+  name is a single word (above). A file type with no query still completes from the words in the
   buffer.
 - Semantic code intelligence for **Swift** (macOS): when Xcode is installed, Swift
   files are answered by `sourcekit-lsp` — found through `xcrun` in the active
@@ -314,16 +320,17 @@ user sees it.
   build, while the server is still starting, and if it crashes or hangs — the
   question is simply answered from the index instead, with no alert, no banner and
   no stall. Quitting the app stops every server it started.
-- Semantic code intelligence for **TypeScript / JavaScript and Python** (macOS),
-  if you want it. These servers are not bundled — the app offers to download them,
+- Semantic code intelligence for **TypeScript / JavaScript, Python and YAML**
+  (macOS), if you want it. These servers are not bundled — the app offers to download them,
   once, the first time you open a file of that kind: a strip above the editor names
   the server and its size, with **Download** and **No Thanks** and nothing else.
   Nothing is fetched until you press Download, and nothing is fetched again if you
   don't.
-  What arrives is `typescript-language-server` (with the `typescript` it drives)
-  or `pyright`, plus one shared Node runtime the two of them use. The first
-  acceptance is about **57 MB** (Node is most of it); the second server, whichever
-  it is, costs about **4 MB** because the runtime is already there. The size the
+  What arrives is `typescript-language-server` (with the `typescript` it drives),
+  `pyright`, or `yaml-language-server` (with the twenty small packages it loads at
+  run time), plus one shared Node runtime all three of them use. The first
+  acceptance is about **57 MB** (Node is most of it); each further server costs
+  about **4–5 MB** because the runtime is already there. The size the
   prompt shows is always what is still missing, not the total. Every file is
   checked against a checksum built into the app before it is unpacked, comes from
   `nodejs.org` or `registry.npmjs.org`, and is installed under
@@ -338,7 +345,7 @@ user sees it.
   language falls straight back to the built-in index. **Removing also answers
   "no"** — the banner will not offer that language again, and reinstalling is a
   button on that same screen. Disk comes back the same way it was spent: removing
-  one of two servers frees only its own few MB, because the ~52 MB Node runtime
+  one of three servers frees only its own few MB, because the ~52 MB Node runtime
   they share goes away with the *last* one. Declining is remembered
   across launches and is turned around from that same screen. To de-provision
   everything by hand, quit the app and delete the `LanguageServers` folder above.
@@ -347,6 +354,16 @@ user sees it.
   not touch it and no Remove button is offered for it.
   Acknowledgements (Preferences) grows a *Language Servers* section listing what is
   installed and its verbatim licenses, and loses it again when you remove them.
+  **The YAML server is the one that keeps using the network after it is
+  installed**, and the download prompt and its Settings row both say so before you
+  accept: a YAML file's meaning lives in a JSON schema no bundled byte could
+  contain, so the server fetches a catalog from `schemastore.org`, then the schema
+  itself from whichever host that catalog names — or from the URL the file names
+  for itself in a `# yaml-language-server: $schema=` header comment. That is what
+  completes `services` in a `docker-compose.yml` against the real compose schema
+  rather than against words already in the buffer. None of that traffic is pinned
+  or checksummed the way the download is; nothing lands on disk for it, so Remove
+  still takes the server away completely.
 - Semantic code intelligence for **Go** (macOS), through `gopls` — the same Go to
   Definition and completion Swift gets above, including real members after a `.`
   and an auto-import inserted with the symbol as a single undo step. How it is
@@ -880,13 +897,14 @@ and iPhone. The feature scope landed so far:
   differently; jumps and edits still land exactly right, since only the numbering
   differs and no server line number is ever shown. On iOS there is no language
   server at all (iOS has no subprocesses), so the next item applies there in full.
-- The downloadable TypeScript/JavaScript and Python servers are macOS-only and
-  cover the same Go to Definition, completion and hover types — no diagnostics,
+- The downloadable TypeScript/JavaScript, Python and YAML servers are macOS-only
+  and cover the same Go to Definition, completion and hover types — no diagnostics,
   no rename, no status indicator and no log, and nothing about them is
   configurable: no per-project server, no extra options or arguments, and no
   version picker (the versions are pinned in the app and change only when you
-  update it — and when an update does move a pin, the next TypeScript or Python
-  file you open re-downloads the server at the new version without asking again,
+  update it — and when an update does move a pin, the next TypeScript, Python or
+  YAML file you open re-downloads the server at the new version without asking
+  again,
   replacing the old copy, because you already agreed to install it). Offline,
   behind a proxy that intercepts TLS, or on a network that blocks `nodejs.org` /
   `registry.npmjs.org`, the download simply fails: the Settings row says "not
@@ -899,7 +917,11 @@ and iPhone. The feature scope landed so far:
   find still answers, but only from its own bundled type stubs — it will not know
   about the packages in your virtualenv. And what is installed is verified once,
   when it is downloaded: if you edit the files under `LanguageServers/` yourself,
-  the app runs what you put there.
+  the app runs what you put there. The YAML server has one limit of its own: its
+  schemas are not part of that pinned download, so offline — or on a network that
+  blocks `schemastore.org` and the hosts it points at — it keeps running but
+  quietly falls back to what the buffer contains, which looks like a server that
+  has stopped knowing things rather than like a failed download.
 - The Go server (`gopls`) is macOS-only and covers the same Go to Definition,
   completion and hover types, with the same absence of diagnostics, rename, status
   indicator and log. It needs a Go toolchain — there is no offer without one, and

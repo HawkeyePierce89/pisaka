@@ -847,7 +847,11 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
             "notes.md": [symbol("Getting started", kind: .heading, in: "notes.md")],
             "a.swift": [symbol("run(_:)", kind: .method, in: "a.swift", at: 10)],
             "b.yml": [symbol("service ports", kind: .key, in: "b.yml")],
-            "c.css": [symbol(".btn-primary", kind: .selector, in: "c.css")]
+            // The spelling `Resources/Queries/css/symbols.scm` really captures —
+            // the class *name*, with no leading `.` — because this is the entry
+            // the rule actually costs the user, and a fixture that wrote `.btn-`
+            // would be testing a symbol the index cannot contain.
+            "c.css": [symbol("btn-primary", kind: .selector, in: "c.css")]
         ])
         for prefix in ["Get", "run", "service", "btn"] {
             XCTAssertTrue(
@@ -907,6 +911,37 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
             in: store
         )
         XCTAssertEqual(items.map(\.text), ["start"])
+    }
+
+    /// The excluded set by equality, not by example. Its own doc comment promises
+    /// that `.selector`, `.stage`, `.key` and `.anchor` stay candidates — a
+    /// promise no other test can see, because a wider set silently offers *fewer*
+    /// completions and nothing fails.
+    func testTheExcludedKindSetIsExactlyHeading() {
+        XCTAssertEqual(SymbolIntelligenceProvider.kindsExcludedFromCompletion, [.heading])
+    }
+
+    /// What the member path does when the rule removes its *last* candidate: the
+    /// existing empty-`ranked` branch opens, and buffer words answer a member
+    /// request. That is the pre-existing degradation, not a new one — but it is
+    /// newly reachable, so it is pinned rather than discovered.
+    func testAMemberListEmptiedByTheRuleFallsBackToBufferWords() {
+        let store = index([
+            "a.swift": [symbol("stop it", kind: .method, in: "a.swift", container: "Worker")]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest(
+                "st",
+                receiver: "Worker",
+                from: "a.swift",
+                text: "let stride = 1\nWorker.st"
+            ),
+            in: store
+        )
+        // The one indexed member is refused, so the answer comes from the buffer
+        // — an unrelated word, and still better than inserting `stop it`.
+        XCTAssertEqual(items.map(\.text), ["stride"])
+        XCTAssertEqual(items.map(\.kind), [nil])
     }
 
     // MARK: - Completions: dedup, caps, degradation

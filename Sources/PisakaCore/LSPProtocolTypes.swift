@@ -614,8 +614,9 @@ public struct LSPCompletionItem: Equatable, Hashable, Sendable, Codable {
     /// Present and `1` for plain text; absent means the same, per the spec. Never
     /// a snippet (D5) — but `snippetSupport: false` is a request, not an
     /// enforcement, so this is decoded *and read*:
-    /// `LSPIntelligenceProvider.publish` drops an item that claims otherwise
-    /// rather than letting its `${1:…}` placeholders reach the buffer.
+    /// `LSPIntelligenceProvider.publish` drops an item that claims snippet
+    /// format *and* carries snippet syntax (`carriesSnippetSyntax`), rather than
+    /// letting its `${1:…}` placeholders reach the buffer.
     public var insertTextFormat: Int?
     public var deprecated: Bool?
     public var data: JSONValue?
@@ -650,6 +651,24 @@ public struct LSPCompletionItem: Equatable, Hashable, Sendable, Codable {
     /// `textEdit.newText`, else `insertText`, else `label`.
     public var insertedText: String {
         textEdit?.newText ?? insertText ?? label
+    }
+
+    /// Whether `insertedText` contains anything the snippet grammar would read
+    /// as more than literal characters.
+    ///
+    /// The whole grammar's syntax is reachable from two scalars: `$` introduces
+    /// every tab stop, placeholder, choice and variable (`$1`, `${1:x}`,
+    /// `${1|a,b|}`, `$TM_FILENAME`), and `\` is its only escape (`\$`, `\}`,
+    /// `\\`). Text containing neither is the same string under both formats, so
+    /// asking this question needs no snippet parser — and the direction of the
+    /// error matters more than its precision: a `$` that was only ever a dollar
+    /// sign answers `true` and costs one candidate, while nothing that could
+    /// expand answers `false`.
+    ///
+    /// Read by `LSPIntelligenceProvider.publish`, because a server may mark an
+    /// item `Snippet` regardless of `snippetSupport: false` (D5).
+    public var carriesSnippetSyntax: Bool {
+        insertedText.contains("$") || insertedText.contains("\\")
     }
 
     /// The key ranking sorts on (D6).

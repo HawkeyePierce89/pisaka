@@ -209,9 +209,26 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
     /// asked *there*, not restated here, so the rule that decides what the caret
     /// is completing is literally the rule that decides what may be inserted — a
     /// name the scanner could never have produced (`Getting started`, `run(_:)`,
-    /// `.btn-primary`) would be inserted into the middle of a line as text no
+    /// `btn-primary`) would be inserted into the middle of a line as text no
     /// language accepts, and could never be re-found by the prefix that offered
     /// it.
+    ///
+    /// The hyphenated case is the one with a real cost, and it is deliberate: a
+    /// CSS class is indexed under the name the query captures (`btn-primary`, no
+    /// leading `.`), so hyphenated class names stop being offered. They cannot be
+    /// offered *correctly* — the caret in `.btn-pri` is completing `pri`, the
+    /// scanner having ended the token at the hyphen, so inserting `btn-primary`
+    /// over it writes `.btn-btn-primary`. Refusing is the only answer that is
+    /// right in every position rather than only the first one.
+    ///
+    /// **The refusal happens after the index's own pre-cap**, not inside it: an
+    /// excluded entry occupies a slot in `symbols(matching:limit:)` and is then
+    /// discarded, so a prefix matched by more excluded names than the cap holds
+    /// can return a shorter list than it would have. `candidateLimit(for:)` is
+    /// eight times the popup's own limit, so this needs hundreds of matching
+    /// headings before it is reachable — and pushing the predicate into
+    /// `SymbolIndex` would make the store hold an opinion about completion, which
+    /// is the one thing it does not do.
     ///
     /// **This filters the completion source and nothing else.** `definitions(…)`,
     /// `SymbolIndex` and the walk that feeds it are deliberately untouched: the
@@ -336,7 +353,7 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
         let symbols = index.symbols(matching: query, limit: candidateLimit(for: limit))
             + (request.fileURL.map { index.symbols(inFile: $0) } ?? [])
         var ranked: [Ranked] = symbols.compactMap { symbol in
-            guard Self.isCompletionCandidate(symbol) else { return nil }
+            guard isCompletionCandidate(symbol) else { return nil }
             guard let quality = FuzzyMatch.quality(of: symbol.name, matching: query) else { return nil }
             return Ranked(
                 item: CompletionItem(

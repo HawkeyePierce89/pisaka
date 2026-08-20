@@ -472,7 +472,7 @@ extension LSPComponent {
     /// It is also, at 2.8 MB, two thirds of the download.
     ///
     /// **This component's schemas are not pinned, and cannot be.** The server
-    /// fetches JSON schemas from `schemastore.org` while it runs — that is what
+    /// fetches JSON schemas over the network while it runs — that is what
     /// makes a compose file complete `services` rather than whatever the buffer
     /// happens to contain — so it is the one stated exception to "what may be
     /// downloaded is pinned data". The exception is declared where consent is
@@ -803,12 +803,23 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
     /// this fact to be wrong, and the fact is a promise about the user's network.
     ///
     /// **The stated exception to "what may be downloaded is pinned data."** The
-    /// YAML server resolves a document's schema through schemastore.org while it
-    /// runs — that is what knows `services` belongs in a `docker-compose.yml`,
-    /// and no pinned byte in this manifest could contain it — so consenting to
-    /// this server consents to that traffic too. It is therefore said where
-    /// consent is given, not only in the docs: `LSPConsentPrompt` and
-    /// `LSPServerRow` both carry it (`LSPProvisioning.swift`).
+    /// YAML server resolves a document's schema over the network while it runs —
+    /// that is what knows `services` belongs in a `docker-compose.yml`, and no
+    /// pinned byte in this manifest could contain it — so consenting to this
+    /// server consents to that traffic too. It is therefore said where consent is
+    /// given, not only in the docs: `LSPConsentPrompt` and `LSPServerRow` both
+    /// carry it (`LSPProvisioning.swift`).
+    ///
+    /// **The sentence names more than schemastore.org, because the traffic does.**
+    /// Only the *catalog* comes from that one host; each schema then comes from
+    /// whichever host its catalog entry names (most of the catalog's entries point
+    /// at `raw.githubusercontent.com`, and the compose schema is one of them). And
+    /// a YAML file may name its own schema URL in a header comment
+    /// (`# yaml-language-server: $schema=…`, `modelineUtil.js` in the pinned
+    /// bundle), so *opening a file from an untrusted repository* is enough to
+    /// direct one of these requests at a host that file chose. A user who
+    /// consented on the strength of one domain name would have been told something
+    /// narrower than the truth, and consent here is asked once and never again.
     ///
     /// It is *not* a second install: nothing lands under the install root, so
     /// Remove and a deleted `LanguageServers` directory still de-provision
@@ -818,9 +829,11 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
         case .typescript, .python: return nil
         case .yaml:
             return """
-                This server also fetches JSON schemas from schemastore.org while it runs, \
-                which is what completes a docker-compose.yml against its real schema. \
-                That traffic is not part of the pinned download.
+                This server also fetches JSON schemas while it runs: a catalog from \
+                schemastore.org, then each schema from the host that catalog names — or \
+                the one a file's own "# yaml-language-server: $schema=" line names. That \
+                is what completes a docker-compose.yml against its real schema, and none \
+                of it is part of the pinned download.
                 """
         }
     }

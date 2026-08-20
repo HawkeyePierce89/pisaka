@@ -26,9 +26,15 @@ manifest still names every byte that may arrive.
 
 **The one stated exception to "what may be downloaded is pinned data."** The YAML
 server keeps using the network *after* its install: it resolves a document's
-schema through `schemastore.org` while it runs, which is what knows `services`
-belongs in a `docker-compose.yml` and what no pinned byte in this manifest could
-contain. That traffic is unpinned, un-checksummed and outside this layer
+schema while it runs, which is what knows `services` belongs in a
+`docker-compose.yml` and what no pinned byte in this manifest could contain.
+`schemastore.org` supplies only the *catalog*; each schema comes from the host its
+catalog entry names — most of them `raw.githubusercontent.com`, the compose schema
+among them — and a YAML file may override both by naming its own URL in a
+`# yaml-language-server: $schema=` header comment, so opening a file from an
+untrusted repository is enough to aim one of these requests. The note says all
+three, because consent is asked once and a narrower sentence would be a narrower
+truth. That traffic is unpinned, un-checksummed and outside this layer
 entirely — the server makes it, not `LSPDownloadService`. It is therefore stated
 **where consent is given** rather than only here: `LSPDownloadableServer
 .runtimeNetworkNote` carries one sentence as data on the server case, and both
@@ -409,11 +415,14 @@ below. All of it, with decisions D21–D24, is in `core-lsp.md`.
     and nothing else, and a runtime failure aborting the server install.
 
   - `LSPProvisioning.swift` — consent as a value (`LSPServerConsent`), the two
-    view-facing values (`LSPConsentPrompt`, `LSPServerRow` — both of which carry
-    `runtimeNetworkNote`, the prompt reading the row's, so the banner and
-    Preferences cannot disagree and neither writes its own copy; it is
-    independent of `state`, `consent` and every button, because what a server does
-    while it runs is true before it is installed and after it is removed), and
+    view-facing values (`LSPConsentPrompt`, `LSPServerRow` — both of which expose
+    `runtimeNetworkNote` as a *computed* read of their own `server`, so the banner
+    and Preferences cannot disagree and neither writes its own copy. Computed
+    rather than stored on purpose: a stored copy would need every construction
+    site to pass it, and one that forgot would silently drop a disclosure — the
+    single failure the value exists to prevent. It is independent of `state`,
+    `consent` and every button, because what a server does while it runs is true
+    before it is installed and after it is removed), and
     `LSPProvisioningModel`: the one thing that knows which servers exist, what
     state each is in, and what the registry should therefore look like now.
     **Why a model and not two views doing arithmetic.** The banner and the
@@ -1067,7 +1076,8 @@ down as a decision instead of a silence: `LSPProvisioningManifestTests` names th
 destination and the reason, and a *second* package with no notice would fail the
 suite rather than slip in beside it.
 
-It carries **the layer's only `LSPServerDescription.configuration`** —
+The YAML component carries **the layer's only
+`LSPServerDescription.configuration`** —
 `{"yaml": {"schemaStore": {"enable": true}, "completion": true, "hover": true}}`,
 delivered by D27's two channels. The setting is stated rather than left to
 upstream's default (which happens to be `true` today) so that schemas load by
@@ -1207,7 +1217,7 @@ The first of those is more than a path check, and it is the step most likely to
 be skipped. **A package's own LICENSE is not automatically the whole
 obligation** — the repository's rule for the bundled texts in
 `Resources/Licenses/` (libgit2's LGPL `deps/xdiff`, tree-sitter's ICU-licensed
-`lib/src/unicode`) applies here for the same reason. Two of these components
+`lib/src/unicode`) applies here for the same reason. Three of these components
 already carry a second notice found exactly this way:
 
 ```sh
@@ -1215,11 +1225,22 @@ tar tzf "$P-$V.tgz" | grep -iE 'licen|copying|notice|third.?party'
 ```
 
 `typescript` ships `ThirdPartyNoticeText.txt` beside its Apache-2.0
-`LICENSE.txt`, and `pyright` ships the Apache-2.0 typeshed stub library under
-`dist/typeshed-fallback/LICENSE` inside its own MIT tree. Both are listed in
-`licenseFileSubpaths` and appended below a separator by `LSPInstalledLicenses`.
-Run that `grep` on every artifact of a bumped pin; a notice that appears and is
-not listed ships unacknowledged, and nothing in `swift test` can see it. There is
+`LICENSE.txt`; `pyright` ships the Apache-2.0 typeshed stub library under
+`dist/typeshed-fallback/LICENSE` inside its own MIT tree; and the YAML closure
+contributes six more from one component — `prettier`'s `THIRD-PARTY-NOTICES.md`
+and a `thirdpartynotices.txt` in each of the five `vscode-*` packages. All are
+listed in `licenseFileSubpaths` and appended below a separator by
+`LSPInstalledLicenses`. Run that `grep` on **every artifact** of a bumped pin —
+twenty of them for the YAML component, which is exactly the scale at which the
+step gets skipped; a notice that appears and is not listed ships unacknowledged,
+and nothing in `swift test` can see it.
+
+**An artifact that ships no notice at all is not a pass either.** `@vscode/l10n`
+0.0.18 is the closure's one such package (MIT declared only in its
+`package.json`), and it is recorded as a named exception by destination in
+`LSPProvisioningManifestTests` with the reason. Do the same for any new one
+rather than leaving the omission silent — that is what makes a *second* silent
+one fail the suite instead of joining it. There is
 nothing to run it against for `rust-analyzer` — a `.gz` has one member and it is
 the binary — which is why that component's `licenseFileSubpaths` is empty and why
 `LSPProvisioningManifestTests` pins the emptiness by id rather than letting it
