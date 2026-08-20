@@ -181,17 +181,17 @@ the gesture to the engine.
 
 ### Task 5: Update documentation
 
-- [ ] `CLAUDE.md`: one index line for `MoveDropRule.swift` under the
+- [x] `CLAUDE.md`: one index line for `MoveDropRule.swift` under the
       `core-workspace.md` group.
-- [ ] `docs/architecture/core-workspace.md`: full entry for `MoveDropRule` — the
+- [x] `docs/architecture/core-workspace.md`: full entry for `MoveDropRule` — the
       two entry points, every refusal, why matching is canonical, the symlink and
       case-insensitive-collision notes.
-- [ ] `docs/architecture/app-window.md`: extend the `ProjectTreeView` entry with
+- [x] `docs/architecture/app-window.md`: extend the `ProjectTreeView` entry with
       the drag/drop contract — who is draggable, who is a target, the private
       payload identifier, the memoized validation, the drop highlight beside the
       hover one, and the explicit statement that the row toggle, its accessibility
       re-declaration, the hover highlight and the context menus are unchanged.
-- [ ] `docs/architecture/app-shell.md`: record that rename and move now share
+- [x] `docs/architecture/app-shell.md`: record that rename and move now share
       `performMove(from:to:)` (plan before, apply after) and that `moveItem`
       consults `MoveDropRule` behind the writer gate, reporting non-silent
       refusals through the existing failure alert.

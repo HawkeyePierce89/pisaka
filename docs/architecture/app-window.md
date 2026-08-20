@@ -456,6 +456,61 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     a branch checkout), the FSEvents `ProjectWatcher` on macOS, and this button (the
     manual fallback for whatever the watcher misses — an FSEvents buffer overflow, a
     network volume, or simply not wanting to wait out the 1 s latency).
+    **Drag and drop moves.** Every row *except the project root* is a drag
+    source, and every *folder* row — the root included, which is how an entry is
+    moved back to the top of the project — is a drop target (a *file* row is a
+    drag source only: it installs no drop delegate and can never highlight as
+    one); dropping an entry on
+    a folder calls a seventh callback, `onMove(source, folder)`, threaded
+    `PisakaApp → ContentView → ProjectTreeView` exactly like the other six and
+    wired to `PisakaApp.moveItem(at:into:)`. The view decides nothing: whether a
+    drop may land and where it lands are `MoveDropRule`'s answers
+    (`core-workspace.md`), and the app re-asks the same engine behind the writer
+    gate when the drop is performed. The payload is an `NSItemProvider` registered
+    under the tree's **own private type identifier**
+    (`ws.karmanov.pisaka.project-tree-row`, in a private `ProjectTreeDrag` enum),
+    deliberately *not* `public.file-url`: registering the file url would offer
+    every row to Finder as a file drag and let a Finder file be dropped onto a
+    folder row — a different feature, with its own copy-vs-move, security-scope
+    and cross-volume questions. Under this identifier the payload means nothing
+    outside the tree, so a drag leaving the window does nothing and a foreign drag
+    is refused by `validateDrop` before any rule runs. Nothing reads the payload
+    back: the authoritative source url is the one a private, tree-wide
+    `TreeDragSession` recorded when the drag started, which only this tree's own
+    drag source sets. The item exists so the drag is legible to AppKit at all — a
+    provider registering no type never begins a drag, which is also why the root
+    row opts out through a `@ViewBuilder` branch (`projectTreeDragSource(isEnabled:
+    url:session:)`) rather than by returning an empty provider. `TreeDragSession`
+    is an `ObservableObject` with **no `@Published` property, on purpose**:
+    starting a drag, crossing rows and finishing one must invalidate nothing,
+    since everything a drag draws is a row's own `isDropTarget` `@State`. It also
+    **memoizes** the full, disk-touching `MoveDropRule` decision keyed on the
+    (source, target) pair — `validateDrop`, `dropUpdated` and `dropEntered` all
+    ask repeatedly while the pointer sits in one row, and each fresh answer lists
+    two directories, so the memo turns that into one listing per row *entered*.
+    The shared `TreeDropDelegate` (taking the destination as a plain url, so it
+    knows nothing about rows) accepts only when all three hold: the payload
+    carries the private identifier, the session names a source, and the decision
+    is `.move`. `dropEntered` sets `isDropTarget` from that same answer rather
+    than assuming entry means acceptance (SwiftUI reports entry regardless, and a
+    row lighting up for a drop it will refuse is worse than one that never lights
+    up), `dropUpdated` returns `.move`/`.forbidden` so the cursor and the
+    highlight always say the same thing, and `performDrop` clears the session
+    *before* calling `onMove` — the callback may raise a modal alert, and a
+    session still naming a source behind it would answer a later `validateDrop`
+    for a drag that ended long ago. The highlight is a new
+    `TreeRowLayout.dropHighlight` (`accentColor.opacity(0.4)`), applied at the
+    *same* site and from the same enum as `hoverHighlight` and deliberately
+    stronger than it: the pointer is inside the row, so both conditions are true
+    at once, and the difference between the two is the whole answer to "will this
+    drop land here?" — drawing them from one place is what stops them drifting
+    apart. Everything else on both row kinds is **unchanged and in the same
+    order**: the row's single `.onTapGesture` still toggles a folder (a drag and a
+    click are distinct gestures), the hover highlight, the full-row `.contextMenu`s
+    and the row's accessibility re-declaration (combined element, `.isButton`, the
+    expansion value, the toggle action) are exactly as above. Nothing here names
+    `interfaceScale` and no zoom surface is declared, so `ZoomSourceGatingTests`'
+    set equalities are untouched.
   - `TabListView.swift` / `TabRowView.swift` — the open-tabs list, with an
     `orientation: TabOrientation` parameter (default `.vertical`): vertical is the
     scrolling `LazyVStack` column; horizontal is a horizontal `ScrollView`/

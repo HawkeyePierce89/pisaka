@@ -591,3 +591,80 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     relative — not absolute — `DisplayPath`; a sibling path the model rejects
     falls through to the absolute branch), so matcher drift fails the suite. Clickable segments, copying the path, the window proxy icon,
     and an iOS bar are deliberately **out of scope** (follow-ups).
+  - `MoveDropRule.swift` — the one engine behind the project tree's
+    drag-and-drop move: *may this drop land, and where?* `public enum
+    MoveDropRule`, Foundation-only, two static functions returning one
+    `public enum MoveDropDecision { case move(destination: URL); case
+    refuse(MoveDropRefusal) }`. **Two entry points, one vocabulary.**
+    `structuralDecision(source:into:)` is **disk-free** — pure path arithmetic
+    over `CanonicalPath` — and answers the question the *drag hover* asks, which
+    a row may be asked repeatedly as the pointer moves;
+    `decision(source:into:fileService:)` runs those same rules first and then
+    adds the two facts only the disk knows. Because both return the same
+    decision, the highlight the user sees while hovering and the move that runs
+    on release come from **one** destination rule rather than two that can
+    disagree — and `PisakaApp.moveItem(at:into:)` re-asks the full one behind the
+    writer gate, so the view's answer is advisory and the app's is authoritative.
+    The structural rules, in order: source ≡ target → `ontoItself`; target
+    strictly under source (`relativeComponents(of:under:)`) → `intoOwnDescendant`;
+    target ≡ the source's *spelled* parent → `unchangedLocation`; otherwise
+    `.move(destination:)`. The disk half then lists the destination folder (an
+    unlistable folder → `targetMissing(name:)`) and refuses an exact
+    last-component match as `nameTaken(name:folder:)`, then confirms the source
+    still appears in its own parent's listing (absent or unlistable →
+    `sourceMissing(name:)`) — the drag may have started before a Finder delete or
+    a branch checkout. Those two listings are exactly why this is the *drop*
+    question and the memoized one, never the per-mouse-move one (the view keys the
+    memo on the (source, target) pair, so it costs one listing per row entered).
+    **The destination is `<the folder as the user spelled it>/<the source's last
+    component>`** — a move never renames, and spelled paths are stored while
+    canonical paths are compared, per the project's path rule.
+    **Why identity and ancestry are canonical, not textual:** a tree row and the
+    url a caller computed can spell one file differently (`/tmp` vs
+    `/private/tmp`, a trailing slash, a symlinked project root), and a textual
+    comparison would let a drag "onto itself" through whenever the two spellings
+    differ — after which `FileService.move` either fails obscurely or succeeds at
+    something the user did not ask for. Both questions therefore go through
+    `CanonicalPath`, matching how `WorkspaceModel.planRename(from:to:)` matches
+    tabs: the two **must** agree, since that plan is what carries open tabs across
+    the very move this engine authorized. The comparisons are on `.path`, not on
+    `URL` values, for the trailing-slash reason every other canonical comparison
+    in the project keys on `.path` too. The `unchangedLocation` probe deliberately
+    canonicalizes the source's *spelled* parent: a symlink row lives in the
+    directory holding the link, so dropping it beside its referent is a genuine
+    move, not a no-op.
+    **Symlinks are otherwise refused conservatively:** `canonical(_:)` resolves
+    them, so a row that *is* a symlink pointing at the destination folder
+    canonicalizes onto it and is refused as `ontoItself`, and a symlinked folder
+    dropped under its referent reads as `intoOwnDescendant` — even though moving
+    the link entry itself would be well defined. That is deliberate and consistent
+    with `planRename`, which resolves the same way: a rare, ambiguous drag is
+    refused with a clear message rather than carried out under a reading the user
+    may not share.
+    **The collision check is not the last word:** it compares the exact last
+    component against the destination's listing and so cannot see the collision a
+    *case-insensitive* volume produces (`README.md` dropped beside an existing
+    `readme.md`). `FileService.move` refuses to clobber and raises
+    `FileServiceError.alreadyExists`; that stays the backstop. This check exists to
+    suppress the drop *highlight* early and to phrase the refusal in the tree's own
+    words, not to be the only guard.
+    `public enum MoveDropRefusal: Error, LocalizedError, Equatable` carries the six
+    reasons above and is a `LocalizedError` **on purpose**: a refused drop then
+    reports through the *same* path as every other project-tree file operation
+    (`reportFileOperationFailure(_:)` → `NSAlert(error:)` + a warning beep), so the
+    tree needs no alert code of its own and the wording lives beside the rule that
+    produced it — the arrangement `FileServiceError` and `EntryPathIssue` already
+    use. The texts name the entry (and, for a collision, the folder) and are
+    written here rather than borrowed from `FileManager`, whose messages describe a
+    *failed system call* while every case here is a decision made before the disk
+    was touched. `isSilent` is true for `unchangedLocation` **alone**: dropping an
+    entry back into the folder it already lives in is how a user cancels a drag
+    they thought better of, and an alert for it would be noise; every other
+    refusal is something the user asked for and did not get, so it is reported.
+    Tested (`MoveDropRuleTests`) through both entry points against `StubFileTree`
+    for the disk facts and *real temp dirs plus `symlink(2)`* for the canonical
+    cases — the destination shape (never a rename), the parent no-op, self and
+    one- and multi-level descendant refusals, each of those through a symlinked
+    spelling, the `/private` spelling, a collision and the absence of a false
+    collision when the only same-named entry is the source itself under another
+    parent, a missing source, a missing target, and the ordinary accept.

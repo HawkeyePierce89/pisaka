@@ -206,12 +206,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     routes through it too**, and must: a buffer-sourced entry is exempt from *both*
     halves of a refresh (it is neither re-extracted nor removed), so one that is
     never handed back pins a file into the index for the rest of the session.
-    Those paths are `renameItem` (the tabs are retargeted to the destination, so the
+    Those paths are `performMove(from:to:)` — the body a rename and a drag-and-drop
+    move share (below) — where the tabs are retargeted to the destination, so the
     old path would otherwise answer lookups under a name that no longer exists,
-    beside a second entry under the new one — and because a *folder* rename retargets
+    beside a second entry under the new one; and because a *folder* move retargets
     every tab beneath it, the old URLs are collected from the whole `planRename`
-    plan, before the move and for the same dangling-symlink reason the plan is;
-    forgetting only the renamed item's own URL would strand every file inside it),
+    plan, before the move and for the same dangling-symlink reason the plan is
+    (forgetting only the moved item's own URL would strand every file inside it),
     `deleteItem` (whose affected URLs are
     captured alongside the tab ids, before the removal, for the same
     dangling-symlink reason the ids are) and the three post-git resyncs — the revert
@@ -488,8 +489,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     it → bump `treeRevision`), New Folder (same, `createDirectory` on the final
     component, no tab opened), Rename
     (`promptName` pre-filled with the current name, a no-op when unchanged →
-    validate → capture `model.planRename(from:to:)` *before* the move →
-    `fileService.move(from:to:)` → `model.applyRenamePlan(_:)` → bump), and Delete
+    validate → `performMove(from:to:)`, the shared body below: capture
+    `model.planRename(from:to:)` *before* the move → `fileService.move(from:to:)`
+    → `model.applyRenamePlan(_:)` → bump), and Delete
     (`confirmDelete` → capture `model.tabIDs(under:)` *before* the removal →
     `fileService.removeItem(at:)` → `model.closeFiles(ids:)` → bump). The tab
     reconciliation is captured before the disk mutation (not after) so a tab
@@ -497,7 +499,34 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     canonicalizing to the target, once the move/removal lands — is still matched.
     All four operations first bail (beep + an explanatory alert via
     `revertInFlight()`) when `localChanges.isReverting`: a revert's off-main `git`
-    mutations would otherwise race these synchronous disk writes. The two *create*
+    mutations would otherwise race these synchronous disk writes.
+    **Rename and the tree's drag-and-drop move share one body**,
+    `performMove(from:to:)`, and a fifth callback — `onMove(source, folder)`,
+    threaded through `ContentView` like the other four — brings the drop here as
+    `moveItem(at:into:)`. The two differ in nothing but how the destination was
+    arrived at (a prompt and single-name validation there, `MoveDropRule` here),
+    while the sequence they share is ordering-sensitive enough that a second copy
+    would be a second thing to get wrong: `model.planRename(from:to:)` and the
+    `retargetedURLs` capture *before* the move (a tab opened through a symlink to
+    the source still canonicalizes to it only until the move renames the target
+    away, and once `applyRenamePlan` retargets a tab its old url is no longer
+    reachable from the model), then `fileService.move` → `applyRenamePlan` →
+    `forgetIndexedBuffer` per retargeted url → `bumpTreeRevision()` →
+    `notifyIndexOfProjectFileChanges()`, with any throw going to
+    `reportFileOperationFailure(_:)`. `performMove` assumes the writer gate has
+    already been passed; both callers raise it themselves. `moveItem(at:into:)`
+    therefore holds only `revertInFlight()` — raised *first*, ahead of the
+    engine's directory listings, like every other project-tree file operation —
+    and then `MoveDropRule.decision(source:into:fileService:)`: `.move` runs
+    `performMove`, `.refuse` writes **nothing at all** (no plan applied, no tree
+    revision bumped, nothing handed back to the index) and either says nothing
+    (the silent `unchangedLocation`, i.e. a drop back onto the folder the entry
+    already lives in) or reports through the same `reportFileOperationFailure`
+    alert as a disk error — which is what `MoveDropRefusal` being a
+    `LocalizedError` buys, and why the tree needs no alert code of its own. The
+    tree asked that same engine for the drag highlight, so the drop that lit a row
+    up and the drop this accepts are decided by one rule; this call, behind the
+    gate and through the app's own file service, is the authoritative one. The two *create*
     call sites accept a VS Code-style relative path of any depth
     (`centrifugo/config.json`): `parseRelativeEntryPath` does all the validation
     (whole-input and per-component trimming, so no padded name reaches disk; the
@@ -577,7 +606,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     that no longer exists, a delete would leave its declarations jumpable, and a
     project-wide Replace All would keep serving the identifiers it just replaced —
     until some unrelated *child* process happened to touch the tree. It is called
-    beside `bumpTreeRevision()` in `renameItem`, `deleteItem`, `saveAs(id:)`,
+    beside `bumpTreeRevision()` in `performMove` (so a rename and a
+    drag-and-drop move both get it from one place), `deleteItem`, `saveAs(id:)`,
     `revertChanges` and `replaceAllInProject` — and in `applyMerge`, which has no
     tree bump to sit beside (the merge rewrites a file's *contents*, not the tree's
     membership) yet needs it for the same reason — and deliberately **not** in the
