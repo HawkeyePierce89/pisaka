@@ -983,6 +983,53 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(items.map(\.text), ["deploy:\r\n      "])
     }
 
+    /// A line the server left empty stays empty: indenting it would write trailing
+    /// whitespace into a blank line nobody asked to touch.
+    func testABlankContinuationLineIsLeftEmptyRatherThanIndented() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                .object([
+                    "label": .string("deploy"),
+                    "insertText": .string("deploy:\n\n  "),
+                    "insertTextFormat": .int(2),
+                    "kind": .int(LSPCompletionItemKind.property.rawValue)
+                ])
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "dep", offset: nestedCaret, text: nestedYAML)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["deploy:\n\n      "])
+    }
+
+    /// The same rule under CRLF, where it is not the same test: splitting on `\n`
+    /// leaves each line's terminating `\r` on the *previous* component, so a blank
+    /// line arrives as `"\r"` and an `isEmpty` test would indent it — putting two
+    /// spaces of trailing whitespace into the file on the one path in this layer
+    /// that writes to it.
+    func testABlankCRLFContinuationLineIsLeftEmptyRatherThanIndented() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                .object([
+                    "label": .string("deploy"),
+                    "insertText": .string("deploy:\r\n\r\n  "),
+                    "insertTextFormat": .int(2),
+                    "kind": .int(LSPCompletionItemKind.property.rawValue)
+                ])
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "dep", offset: nestedCaret, text: nestedYAML)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["deploy:\r\n\r\n      "])
+    }
+
     /// `insertTextMode: 1` is `asIs` — the server stating that its continuation
     /// lines are already spelled against the buffer. Indenting those would indent
     /// them twice, so the item is taken at its word and inserted verbatim.

@@ -683,7 +683,10 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
     /// Splitting on `\n` alone is deliberate and complete. Inserted text is a
     /// string a server composed, and the separators it can contain are LSP's; a
     /// `\r\n` in it splits into `…\r` and the next line, and prefixing after the
-    /// `\n` puts the indentation exactly where it belongs either way.
+    /// `\n` puts the indentation exactly where it belongs either way. The one
+    /// thing that split changes is what "empty" looks like: a blank CRLF line
+    /// arrives as `"\r"`, which is why the emptiness test is `isBlank(_:)` rather
+    /// than `isEmpty`.
     ///
     /// The test that gets there is over **scalars**, not `Character`s, and that is
     /// the whole reason it is spelled this way: `\r\n` is a single grapheme, so
@@ -721,8 +724,20 @@ public final class LSPIntelligenceProvider: CodeIntelligenceProviding, @unchecke
         return inserted
             .components(separatedBy: "\n")
             .enumerated()
-            .map { $0.offset == 0 || $0.element.isEmpty ? $0.element : indent + $0.element }
+            .map { $0.offset == 0 || isBlank($0.element) ? $0.element : indent + $0.element }
             .joined(separator: "\n")
+    }
+
+    /// "The server left this line empty", asked of a component of the split above.
+    ///
+    /// Splitting CRLF text on `\n` leaves each line's own terminating `\r` at the
+    /// end of the *previous* component, so a line the server left empty arrives
+    /// here as `"\r"` rather than `""`. A plain `isEmpty` test therefore holds only
+    /// for LF text and would prefix the indentation to a blank CRLF line — writing
+    /// trailing whitespace nobody asked for into the file, on the one path in the
+    /// layer whose result is written there at all.
+    private static func isBlank(_ line: String) -> Bool {
+        line.isEmpty || line == "\r"
     }
 
     // MARK: - Resolve

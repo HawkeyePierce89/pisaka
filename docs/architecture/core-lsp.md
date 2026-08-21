@@ -1202,7 +1202,11 @@ document, together with the limits they carry.
     grapheme that is not `"\n"`: a `contains("\n")` grapheme test answers `false`
     for exactly the CRLF text the splitter goes on to split, handing back the
     unindented insertion the rule exists to prevent. The guard and the split must
-    agree on what a newline is.
+    agree on what a newline is. That split also decides what *empty* looks like:
+    each line's terminating `\r` lands at the end of the previous component, so a
+    blank CRLF line arrives as `"\r"` and an `isEmpty` test would indent it —
+    writing trailing whitespace into a line the server left empty. The
+    "stays empty" rule is `isBlank(_:)` (`""` or `"\r"`) for that reason.
     Both call sites ask through `insertedText(of:forInsertionAt:in:lineStarts:)`,
     which is where the one exception lives: an item carrying
     **`insertTextMode: 1` (`asIs`)** is inserted verbatim, that value being a
