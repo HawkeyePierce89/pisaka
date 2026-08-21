@@ -121,7 +121,8 @@ final class VendoredGrammarQueryTests: XCTestCase {
             "field",
             "punctuation.bracket",
             "variable",
-            "type"
+            "type",
+            "function"
         ])
 
         var resolvable = emitted

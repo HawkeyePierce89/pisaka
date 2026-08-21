@@ -443,3 +443,10 @@
   ","
   "."
 ] @punctuation.delimiter
+
+;; Added by Review Fixes
+(column_definition name: (identifier) @field)
+(column_definition name: (literal) @field)
+(list (column (identifier) @field))
+(list (column (literal) @field))
+(create_function (object_reference name: (identifier) @function))
