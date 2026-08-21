@@ -44,12 +44,13 @@ Copied **verbatim** from the git tag:
 - `src/scanner.c`
 - `grammar.js`
 - `bindings/swift/TreeSitterSql/sql.h` (the npm tarball does not include Swift bindings)
-- `queries/highlights.scm` and `queries/indents.scm`
+- `queries/indents.scm`
 - `LICENSE`
 
-Written **in this repository**, not upstream:
+Written **in this repository** (or modified from upstream):
 
 - `Package.swift` — drops the test target and dependencies to avoid the SwiftPM error.
+- `queries/highlights.scm` — modified from upstream to add missing captures for columns and functions (`;; Added by Review Fixes` at the bottom of the file).
 - This file.
 
 ## Update procedure
@@ -57,7 +58,7 @@ Written **in this repository**, not upstream:
 1. Check out the new git tag and fetch the matching npm tarball.
 2. Record the tag, SHA, and date.
 3. Re-copy the generated `src/` files from the npm tarball.
-4. Re-copy the other files (`queries/`, `grammar.js`, `LICENSE`, Swift headers) from the git tag.
+4. Re-copy the other files (`queries/indents.scm`, `grammar.js`, `LICENSE`, Swift headers) from the git tag. For `queries/highlights.scm`, re-copy it but re-apply the local fixes marked `;; Added by Review Fixes`.
 5. **Keep** (do not overwrite): `Package.swift` and this file.
 6. Check if upstream fixed the two defects: if the manifest no longer has the hard
    dependency error, and if the generated parser is available, prefer dropping this

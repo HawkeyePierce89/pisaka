@@ -128,8 +128,8 @@ final class VendoredGrammarQueryTests: XCTestCase {
         var resolvable = emitted
         resolvable.remove("spell")
         assertResolvesWithoutFallingBackToPlain(resolvable)
-        
-        // `spell` staying `.plain` is the intended outcome on the `@none` precedent — 
+
+        // `spell` staying `.plain` is the intended outcome on the `@none` precedent —
         // it rides along with `@comment` on the same node, so nothing renders uncolored because of it.
     }
 

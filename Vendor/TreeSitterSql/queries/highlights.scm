@@ -449,4 +449,4 @@
 (column_definition name: (literal) @field)
 (list (column (identifier) @field))
 (list (column (literal) @field))
-(create_function (object_reference name: (identifier) @function))
+(create_function (keyword_function) . (object_reference name: (identifier) @function))
