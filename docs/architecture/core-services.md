@@ -600,7 +600,8 @@ run in `swift test` rather than needing an Xcode build.
     Confirm the file you scanned is non-trivial (`nm -u` on it should list
     hundreds of symbols) before believing an empty match.
 
-    **Last re-run: 2026-08-15**, after linking Sparkle — a newly linked
+    **Last re-run: 2026-08-21**, after vendoring TreeSitterSql — confirmed `nm -u` against `parser.c` and `scanner.c` references no required-reason API.
+    **Previous re-run: 2026-08-15**, after linking Sparkle — a newly linked
     dependency, which this file's own convention says obliges a re-run. Sparkle
     is the case the recipe above structurally **cannot** see, and that is the
     lesson worth keeping: it is not compiled into the app binary at all but

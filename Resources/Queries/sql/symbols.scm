@@ -18,18 +18,12 @@
 ;   `CREATE ROLE` are deliberately not indexed (they are not names anyone jumps
 ;   to, or the object_reference is the table which would create duplicates).
 
-(create_table (keyword_table) . (object_reference name: (identifier) @definition.type))
-(create_table (keyword_exists) . (object_reference name: (identifier) @definition.type))
-(create_view (keyword_view) . (object_reference name: (identifier) @definition.type))
-(create_view (keyword_exists) . (object_reference name: (identifier) @definition.type))
-(create_materialized_view (keyword_view) . (object_reference name: (identifier) @definition.type))
-(create_materialized_view (keyword_exists) . (object_reference name: (identifier) @definition.type))
-(create_type (keyword_type) . (object_reference name: (identifier) @definition.type))
+(create_table (object_reference name: (identifier) @definition.type))
+(create_view (object_reference name: (identifier) @definition.type))
+(create_materialized_view (object_reference name: (identifier) @definition.type))
+(create_type (object_reference name: (identifier) @definition.type))
 (create_function (keyword_function) . (object_reference name: (identifier) @definition.function))
 
 (create_table
-  (keyword_table) . (object_reference name: (identifier) @container)
-  (column_definitions (column_definition name: (identifier) @definition.property)))
-(create_table
-  (keyword_exists) . (object_reference name: (identifier) @container)
+  (object_reference name: (identifier) @container)
   (column_definitions (column_definition name: (identifier) @definition.property)))
