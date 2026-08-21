@@ -2190,7 +2190,7 @@ struct PisakaApp: App {
             PlatformFeedback.warning()
             return
         }
-        editor.completeAtCaret()
+        editor.complete(nil)
     }
 
     /// Run a project-wide Replace All under the same disk-writer coordination as

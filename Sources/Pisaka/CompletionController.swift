@@ -191,9 +191,9 @@ final class CompletionController {
     func setEnabled(_ enabled: Bool) {
         guard enabled != isEnabled else { return }
         isEnabled = enabled
-        guard !enabled else { return }
-        reset()
-    }
+        if !enabled {
+            dismiss()
+        }
     }
 
     /// The candidates the delegate serves, and the prefix they answer.
@@ -785,11 +785,6 @@ func commit(_ mode: CommitMode) {
         followUpTask?.cancel()
         followUpTask = nil
     }
-        resolveTasks.removeAll()
-        resolved.removeAll()
-        followUpTask?.cancel()
-        followUpTask = nil
-        }
 }
 
 #endif

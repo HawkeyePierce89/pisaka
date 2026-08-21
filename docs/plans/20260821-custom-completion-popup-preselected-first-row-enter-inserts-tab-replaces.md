@@ -284,13 +284,13 @@ resign, and `teardown()`.
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] `swift test` fully green
-- [ ] `xcodegen generate` and `xcodebuild -project Pisaka.xcodeproj -scheme
+- [x] `swift test` fully green
+- [x] `xcodegen generate` and `xcodebuild -project Pisaka.xcodeproj -scheme
       Pisaka -destination 'platform=macOS' -configuration Release build`
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'generic/platform=iOS' build` (iOS untouched — no file under
       `Sources/Pisaka/iOS/` is modified by this plan)
-- [ ] confirm by inspection that no `Sources/Pisaka/iOS/` file and no Core
+- [x] confirm by inspection that no `Sources/Pisaka/iOS/` file and no Core
       ranking/filtering code was changed
 
 ### Task 7: Update documentation
