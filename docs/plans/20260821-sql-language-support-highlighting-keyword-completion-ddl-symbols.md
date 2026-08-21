@@ -269,28 +269,28 @@ Run against the v0.3.11 tree with `tree-sitter-cli@0.25.10`:
 - Modify: `Tests/PisakaCoreTests/VendoredGrammarQueryTests.swift`,
   `SyntaxTokenKindTests.swift`
 
-- [ ] add four `nameMap` entries with their reasons: `"conditional": .keyword`,
+- [x] add four `nameMap` entries with their reasons: `"conditional": .keyword`,
       `"storageclass": .keyword`, `"field": .property`, and
       `"type.qualifier": .keyword` (the last overrides the `type` prefix on
       purpose — `NOWAIT`/`MAXVALUE` are modifiers, not types; note that no other
       pinned grammar emits it)
-- [ ] leave `attribute` mapped to `.property` and record why in the same place:
+- [x] leave `attribute` mapped to `.property` and record why in the same place:
       remapping it would recolor HTML attributes and Rust `#[derive(…)]`
-- [ ] add `testSqlQueryUsesOnlyNodeNamesTheGrammarDeclares` to
+- [x] add `testSqlQueryUsesOnlyNodeNamesTheGrammarDeclares` to
       `VendoredGrammarQueryTests` via the existing
       `assertHighlightQueryNodesAreDeclared(vendoredPackage:)` helper
-- [ ] add `testSqlQueryEmitsExactlyTheExpectedCaptureNames`: the 21 emitted
+- [x] add `testSqlQueryEmitsExactlyTheExpectedCaptureNames`: the 21 emitted
       names asserted by set equality, with
       `assertResolvesWithoutFallingBackToPlain` applied to the set **minus
       `spell`**, and a comment stating that `spell` staying `.plain` is the
       intended outcome on the `@none` precedent — it rides along with `@comment`
       on the same node, so nothing renders uncolored because of it
-- [ ] pin `SyntaxTokenKind(captureName: "spell") == .plain` in
+- [x] pin `SyntaxTokenKind(captureName: "spell") == .plain` in
       `SyntaxTokenKindTests`, beside the existing `none` pin, so a future
       "map everything" change cannot quietly give it a color
-- [ ] extend `SyntaxTokenKindTests` with the four new mappings, including that
+- [x] extend `SyntaxTokenKindTests` with the four new mappings, including that
       `type.qualifier` resolves to `.keyword` rather than to `.type` by prefix
-- [ ] run `swift test` — must pass before task 4
+- [x] run `swift test` — must pass before task 4
 
 ### Task 4: App-layer grammar registration and platform builds
 

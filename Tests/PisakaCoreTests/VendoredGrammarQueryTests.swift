@@ -91,6 +91,47 @@ final class VendoredGrammarQueryTests: XCTestCase {
         XCTAssertEqual(kinds.count, 3)
     }
 
+    // MARK: - SQL (query vendored verbatim from upstream)
+
+    func testSqlQueryUsesOnlyNodeNamesTheGrammarDeclares() throws {
+        try assertHighlightQueryNodesAreDeclared(vendoredPackage: "TreeSitterSql")
+    }
+
+    func testSqlQueryEmitsExactlyTheExpectedCaptureNames() throws {
+        let emitted = try captureNames(vendoredPackage: "TreeSitterSql")
+
+        XCTAssertEqual(emitted, [
+            "punctuation.delimiter",
+            "function.call",
+            "spell",
+            "parameter",
+            "comment",
+            "keyword.operator",
+            "operator",
+            "type.builtin",
+            "number",
+            "boolean",
+            "storageclass",
+            "attribute",
+            "string",
+            "float",
+            "conditional",
+            "type.qualifier",
+            "keyword",
+            "field",
+            "punctuation.bracket",
+            "variable",
+            "type"
+        ])
+
+        var resolvable = emitted
+        resolvable.remove("spell")
+        assertResolvesWithoutFallingBackToPlain(resolvable)
+        
+        // `spell` staying `.plain` is the intended outcome on the `@none` precedent — 
+        // it rides along with `@comment` on the same node, so nothing renders uncolored because of it.
+    }
+
     // MARK: - The named/anonymous split itself
 
     /// The node check is only as good as the `named` flag it reads: merging the
