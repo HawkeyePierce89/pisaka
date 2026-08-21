@@ -297,20 +297,20 @@ Run against the v0.3.11 tree with `tree-sitter-cli@0.25.10`:
 **Files:**
 - Modify: `Sources/Pisaka/SyntaxLanguageConfiguration.swift`
 
-- [ ] `import TreeSitterSql` beside the other grammar imports, with a comment
+- [x] `import TreeSitterSql` beside the other grammar imports, with a comment
       noting it is the third vendored one and pointing at its `VENDORED.md`
-- [ ] add `case .sql: return try LanguageConfiguration(tree_sitter_sql(), name: "Sql")`
+- [x] add `case .sql: return try LanguageConfiguration(tree_sitter_sql(), name: "Sql")`
       to `makeConfiguration(for:)` — the switch is exhaustive, so the enum case
       from task 2 already forces this; comment that `name:` is `"Sql"` and not
       `"SQL"` because the resource bundle is `TreeSitterSql_TreeSitterSql`
-- [ ] `xcodegen generate`
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release build`
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build`
+- [x] `xcodegen generate`
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' -configuration Release build`
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build`
       (the grammar must link on both destinations, like the existing ones)
-- [ ] confirm `Package.resolved` is unchanged by the path dependency; if
+- [x] confirm `Package.resolved` is unchanged by the path dependency; if
       `xcodebuild -resolvePackageDependencies` rewrites it, regenerate rather
       than hand-edit and re-run `DependencyPinTests`
-- [ ] run `swift test`
+- [x] run `swift test`
 
 ### Task 5: Update architecture documentation
 

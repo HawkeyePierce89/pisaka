@@ -26,6 +26,9 @@ import TreeSitterDotenv
 // packaged exactly like the remote grammars, so its resource bundle follows the
 // same `TreeSitter<Name>_TreeSitter<Name>` convention.
 import TreeSitterGitignore
+// Vendored locally (`Vendor/TreeSitterSql`) — upstream ships no generated parser
+// and its manifest is a hard SwiftPM error; see that package's `VENDORED.md`.
+import TreeSitterSql
 
 /// Maps a semantic `SyntaxLanguage` (PisakaCore) to a concrete tree-sitter
 /// `LanguageConfiguration` (grammar parser + bundled highlight queries).
@@ -106,6 +109,10 @@ enum SyntaxLanguageConfiguration {
             return try LanguageConfiguration(tree_sitter_dotenv(), name: "Dotenv")
         case .gitignore:
             return try LanguageConfiguration(tree_sitter_gitignore(), name: "Gitignore")
+        case .sql:
+            // The SPM resource bundle is TreeSitterSql_TreeSitterSql, which
+            // LanguageConfiguration derives from name: "Sql".
+            return try LanguageConfiguration(tree_sitter_sql(), name: "Sql")
         }
     }
 
