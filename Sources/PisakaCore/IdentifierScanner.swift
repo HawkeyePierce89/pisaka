@@ -185,6 +185,26 @@ public enum IdentifierScanner {
         return trimmedIdentifier(in: text, range: run)?.range ?? empty
     }
 
+    /// The whole identifier the caret at `offset` sits in — `completionPrefixRange`'s
+    /// answer, extended forward over identifier-continuation scalars.
+    ///
+    /// This is Tab's commit range, whereas Enter's is the prefix range. The two
+    /// are equal when there is no suffix. The forward walk never crosses a `.`
+    /// (it stops at any non-continuation scalar), so a member completion replaces
+    /// only the member. Offsets are clamped and scalar-aligned exactly as the
+    /// rest of the file does.
+    public static func completionReplaceRange(in text: NSString, at offset: Int) -> NSRange {
+        let prefixRange = completionPrefixRange(in: text, at: offset)
+        let clamped = scalarStart(in: text, at: min(max(offset, 0), text.length))
+
+        var end = clamped
+        while let scalar = scalar(in: text, startingAt: end), isIdentifierContinuation(scalar.value) {
+            end = NSMaxRange(scalar.range)
+        }
+
+        return NSRange(location: prefixRange.location, length: end - prefixRange.location)
+    }
+
     /// Whether the caret at `offset` sits in a member position — after a `.`
     /// that hangs off an identifier or a closing bracket — and, if so, what the
     /// completion should replace and which receiver it hangs off.

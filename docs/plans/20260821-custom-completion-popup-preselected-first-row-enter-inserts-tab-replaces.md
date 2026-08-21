@@ -151,12 +151,12 @@ that the two are equal when there is no suffix, and that it never crosses a `.`
 replaces only the member. Offsets are clamped and scalar-aligned exactly as the
 rest of the file does.
 
-- [ ] implement `completionReplaceRange(in:at:)` with its doc comment
-- [ ] tests: no suffix (equals the prefix range); `CREATE|_typo`; caret at the
+- [x] implement `completionReplaceRange(in:at:)` with its doc comment
+- [x] tests: no suffix (equals the prefix range); `CREATE|_typo`; caret at the
       start of a word; empty prefix with a suffix (`worker.|foo`); member
       position; a trimmed head (`9foo|bar`); a caret past a `.`; out-of-range and
       mid-surrogate offsets; end of buffer
-- [ ] run `swift test` — must pass before Task 2
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: The popup's Core decisions — selection and rows
 
