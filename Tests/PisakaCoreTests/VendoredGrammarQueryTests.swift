@@ -103,7 +103,6 @@ final class VendoredGrammarQueryTests: XCTestCase {
         XCTAssertEqual(emitted, [
             "punctuation.delimiter",
             "function.call",
-            "spell",
             "parameter",
             "comment",
             "keyword.operator",
@@ -125,12 +124,7 @@ final class VendoredGrammarQueryTests: XCTestCase {
             "function"
         ])
 
-        var resolvable = emitted
-        resolvable.remove("spell")
-        assertResolvesWithoutFallingBackToPlain(resolvable)
-
-        // `spell` staying `.plain` is the intended outcome on the `@none` precedent —
-        // it rides along with `@comment` on the same node, so nothing renders uncolored because of it.
+        assertResolvesWithoutFallingBackToPlain(emitted)
     }
 
     // MARK: - The named/anonymous split itself

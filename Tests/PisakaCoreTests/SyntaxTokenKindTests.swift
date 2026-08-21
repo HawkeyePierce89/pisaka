@@ -205,14 +205,6 @@ final class SyntaxTokenKindTests: XCTestCase {
         XCTAssertEqual(SyntaxTokenKind(captureName: "none"), .plain)
     }
 
-    func testSpellCaptureStaysPlain() {
-        // The tree-sitter-sql grammar emits `spell` in addition to `@comment`
-        // on the same node (`(comment) @comment @spell`). Resolving to `.plain`
-        // is the intended outcome, following the `@none` precedent, so it does
-        // not break the existing comment highlighting and a future "map everything"
-        // change cannot quietly give it a color.
-        XCTAssertEqual(SyntaxTokenKind(captureName: "spell"), .plain)
-    }
 
     func testBooleanAndConstructorResolve() {
         XCTAssertEqual(SyntaxTokenKind(captureName: "boolean"), .constant)
@@ -238,6 +230,7 @@ final class SyntaxTokenKindTests: XCTestCase {
     // MARK: - Unknown capture names
 
     func testUnknownCaptureNameMapsToPlain() {
+        XCTAssertEqual(SyntaxTokenKind(captureName: "spell"), .plain)
         XCTAssertEqual(SyntaxTokenKind(captureName: ""), .plain)
         XCTAssertEqual(SyntaxTokenKind(captureName: "nonsense"), .plain)
     }
