@@ -334,12 +334,12 @@ Run against the v0.3.11 tree with `tree-sitter-cli@0.25.10`:
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] `swift test` fully green, with `DependencyPinTests`,
+- [x] `swift test` fully green, with `DependencyPinTests`,
       `VendoredGrammarQueryTests`, `SyntaxTokenKindTests`,
       `LanguageKeywordsTests`, `SymbolQueryTests` and `LicenseCoverageTests`
       all picking up SQL
-- [ ] `xcodegen generate` && macOS Release build && iOS `generic/platform=iOS` build
-- [ ] confirm no LSP registry, provisioning, manifest or `PrivacyInfo.xcprivacy`
+- [x] `xcodegen generate` && macOS Release build && iOS `generic/platform=iOS` build
+- [x] confirm no LSP registry, provisioning, manifest or `PrivacyInfo.xcprivacy`
       change was made
 
 ## Post-Completion (manual — load-bearing, cannot be automated)
