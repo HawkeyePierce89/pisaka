@@ -181,14 +181,14 @@ Three pure value types plus one builder:
 State in the doc comment that this file ranks nothing and filters nothing: it
 receives the provider's order and renders it.
 
-- [ ] implement the types and the builder with their doc comments
-- [ ] tests: initial selection, clamping at both ends, empty list, `select(_:)`
+- [x] implement the types and the builder with their doc comments
+- [x] tests: initial selection, clamping at both ends, empty list, `select(_:)`
       bounds, a re-listed narrower set selecting row 0; badges for every
       `SymbolKind` (asserted over `SymbolKind.allCases` so a new kind fails
       here); keyword vs. word with a language, with `nil`, and for a language in
       `languagesWithoutKeywords`; row order and `displayText` preserved
-- [ ] add the CLAUDE.md index line
-- [ ] run `swift test` — must pass before Task 3
+- [x] add the CLAUDE.md index line
+- [x] run `swift test` — must pass before Task 3
 
 ### Task 3: The panel
 

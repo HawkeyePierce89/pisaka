@@ -103,6 +103,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `ProjectFileWalk.swift` — the one project traversal (shared with Find in Files).
 - `SymbolIndexModel.swift` — the async index lifecycle; a reader, never a writer.
 - `IdentifierScanner.swift` — the one identifier-boundary rule (incl. `isIdentifier(_:)`, the whole-string form).
+- `CompletionPopup.swift` — selection state machine and row values.
 - `LanguageKeywords.swift` — per-language keyword lists (+ the stated no-keyword set).
 - `CodeIntelligence.swift` — the async `CodeIntelligenceProviding` seam + value types.
 - `SymbolIntelligenceProvider.swift` — index-backed provider; every ranking rule + the completion-candidate rule.
