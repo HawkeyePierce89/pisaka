@@ -54,10 +54,15 @@ final class CompletionPanel {
 
         panel.setFrameOrigin(Self.origin(for: panel.frame.size, anchoredTo: anchor))
 
-        if let parent, attachedParent !== parent {
-            attachedParent?.removeChildWindow(panel)
-            parent.addChildWindow(panel, ordered: .above)
-            attachedParent = parent
+        if let parent {
+            if attachedParent !== parent {
+                attachedParent?.removeChildWindow(panel)
+                parent.addChildWindow(panel, ordered: .above)
+                attachedParent = parent
+            }
+        } else if let oldParent = attachedParent {
+            oldParent.removeChildWindow(panel)
+            attachedParent = nil
         }
         panel.orderFront(nil)
         isShown = true

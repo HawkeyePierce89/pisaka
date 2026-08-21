@@ -2,26 +2,20 @@
 import AppKit
 import PisakaCore
 
-/// Feeds AppKit's built-in completion popup from the asynchronous code
-/// intelligence seam.
+/// Feeds the custom `CompletionPanel` from the asynchronous code intelligence seam.
 ///
-/// **The whole problem this class exists to solve** is a mismatch of shapes.
-/// `NSTextViewDelegate.textView(_:completions:forPartialWordRange:indexOfSelectedItem:)`
-/// is *synchronous* — AppKit asks for the list while it is already putting the
-/// popup on screen — while `CodeIntelligenceProviding` is *asynchronous*, because
-/// a phase-2 LSP provider has to await a socket. So the work is inverted: this
-/// controller computes candidates ahead of time behind a debounce, stores them
-/// together with the prefix they were computed for, and only then asks the text
-/// view to `complete(nil)`. The delegate call that follows is served from that
-/// snapshot and touches nothing asynchronous. Nothing about the seam is
-/// compromised — the provider is still awaited, just one turn earlier than AppKit
-/// would like.
+/// **The whole problem this class exists to solve** is bridging the gap between
+/// fast typing and asynchronous language servers. `CodeIntelligenceProviding` is
+/// *asynchronous* because a phase-2 LSP provider has to await a socket, while
+/// keystrokes happen synchronously on the main thread. This controller computes
+/// candidates ahead of time behind a debounce, stores them together with the
+/// prefix they were computed for, and shows a custom `CompletionPanel` when ready.
 ///
 /// Everything the popup shows is decided in `PisakaCore`:
-/// `IdentifierScanner.completionPrefixRange(in:at:)` says what is being typed and
-/// `SymbolIntelligenceProvider` ranks and caps the answers. This class only
-/// decides *when* to ask and *whether the answer is still current*, so — like the
-/// rest of `Sources/Pisaka` — it is thin, untested view-layer glue.
+/// `IdentifierScanner` says what is being typed and `SymbolIntelligenceProvider`
+/// ranks and caps the answers. `CompletionPopup` manages selection state and rows.
+/// This class only decides *when* to ask, *whether the answer is still current*,
+/// and drives the panel UI.
 ///
 /// **Debounce and generation token** follow the `BracketHighlightController`
 /// idiom: a cancellable `Task.sleep` coalesces a burst of keystrokes into one
@@ -31,18 +25,20 @@ import PisakaCore
 /// 400 ms: this asks a question of a snapshot already in memory, so the cost is
 /// a prefix scan and a sort, not a re-parse.
 ///
-/// **The list is strings; the answers are items.** AppKit's popup shows strings
-/// and hands one back when a row is committed, but an LSP answer is more than
-/// its text — it may carry the `import` line that makes the symbol resolve (D4).
-/// The snapshot therefore keeps whole `CompletionItem`s keyed by that string, so
-/// `insert(_:forPartialWordRange:isFinal:in:)` can find the item behind it and
-/// apply its edits itself. Everything about *which* edits and in what order is
-/// `CompletionEditPlan`'s; this class only supplies the live buffer, the undo
-/// group and the text view.
+/// **Two commit modes.** A commit can either `.insert` (Enter) which replaces only
+/// the typed prefix, or `.replace` (Tab) which consumes the trailing suffix of the
+/// identifier as well. `IdentifierScanner` provides both ranges.
 ///
-/// That string is the item's **display** spelling (`CompletionItem.displayText`),
-/// not the text it inserts, and it is the key in all three tables — the
-/// snapshot, the prefetched `resolved` edits and `resolveTasks` — because AppKit
+/// **Staleness guards and dismissal.** The controller maintains a strict dismissal
+/// set to tear down the popup if the context changes: losing first responder,
+/// clicking outside, scrolling, moving the caret out of the word, or typing a
+/// space. Before applying any completion, it re-verifies that the text in the
+/// buffer exactly matches the text that was on screen when the popup was shown.
+///
+/// **Display strings as keys.** The snapshot keeps whole `CompletionItem`s keyed
+/// by `CompletionItem.displayText`. This string is the key in all three tables —
+/// the snapshot, the prefetched `resolved` edits, and `resolveTasks`. The display
+/// spelling differs from the insert text (e.g. `greet` vs `.greet` for members).
 /// hands a committed row back *by string* and there has to be one key that all
 /// of them answer to. The two spellings differ only for a member item whose
 /// server rewrote the typed dot: tsserver answers `greeter.` with a `textEdit`
@@ -345,7 +341,7 @@ final class CompletionController {
         let prefixRange = member?.prefixRange
             ?? IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
         if member == nil {
-            guard prefixRange.length >= (explicit ? 1 : Self.minimumPrefixLength) else {
+            guard prefixRange.length >= (explicit ? 0 : Self.minimumPrefixLength) else {
                 snapshot = nil
                 dismiss()
                 return
@@ -634,7 +630,7 @@ final class CompletionController {
         noteProgrammaticEdit(false)
 
         if item.resolveHandle != nil, resolved[word] == nil {
-            scheduleFollowUp(for: item, replacing: typedWord, in: textView)
+            scheduleFollowUp(for: item, replacing: targetRange, in: textView)
         }
         return true
     }
@@ -722,8 +718,8 @@ final class CompletionController {
         } else {
             return
         }
+        let before = textView.string
         followUpTask = Task { [weak self, weak textView] in
-            guard let before = textView?.string else { return }
             let edits = await task.value
             guard !Task.isCancelled,
                   let self,
