@@ -44,7 +44,7 @@ final class LSPSourceGatingTests: XCTestCase {
         "HoverController.swift",
         "HoverPanel.swift",
         "SourceViewerContent.swift",
-        "SourceViewerWindowController.swift",
+        "SourceViewerWindowController.swift"
     ]
 
     /// File-name prefixes that mark a file as belonging to this layer. `LSP` is
@@ -75,7 +75,7 @@ final class LSPSourceGatingTests: XCTestCase {
         "CompletionEditPlan",
         "HoverContent",
         "RoutingIntelligenceProvider",
-        "SHA256",
+        "SHA256"
     ]
 
     /// The Core-side files, named for the same reason the app-side ones are: the
@@ -104,7 +104,7 @@ final class LSPSourceGatingTests: XCTestCase {
         "LSPTransport.swift",
         "LSPWorkspace.swift",
         "RoutingIntelligenceProvider.swift",
-        "SHA256.swift",
+        "SHA256.swift"
     ]
 
     /// Identifiers that must not appear in Core's LSP files. `Process` is matched

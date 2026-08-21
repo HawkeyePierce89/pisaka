@@ -42,7 +42,7 @@ struct CodeEditorView: NSViewRepresentable {
     /// Drives the gutter's git-blame column: it is what `BlameController` blames,
     /// and a `nil` disables the "Annotate with Git Blame" menu item (there is no
     /// file to blame). Defaults to `nil` so a default-constructed view compiles.
-    var fileURL: URL? = nil
+    var fileURL: URL?
 
     /// The selected file's disk-revision token (`WorkspaceModel.diskRevision(for:)`).
     /// Its contract is "the on-disk content this buffer corresponds to changed",

@@ -279,7 +279,7 @@ final class DisplayPathTests: XCTestCase {
             fixture.realFile,
             fixture.link.appendingPathComponent("src/a.swift"),
             fixture.real.appendingPathComponent("src/./a.swift"),
-            fixture.real.appendingPathComponent("src/sub/../a.swift"),
+            fixture.real.appendingPathComponent("src/sub/../a.swift")
         ]
         let roots = [fixture.real, fixture.link]
 

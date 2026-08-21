@@ -239,8 +239,8 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
         let codeFont = NSFont.monospacedSystemFont(ofSize: codeFontSize, weight: .regular)
 
         for (index, row) in rows.enumerated() {
-            let originY = CGFloat(i) * rh
-            let rect = NSRect(x: 0, y: y, width: bounds.width, height: rHeight)
+            let originY = CGFloat(index) * rHeight
+            let rect = NSRect(x: 0, y: originY, width: bounds.width, height: rHeight)
             guard dirtyRect.intersects(rect) else { continue }
 
             if index == selection {
@@ -248,7 +248,7 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
                 rect.fill()
             }
 
-            let badgeRect = NSRect(x: 8, y: y + (rHeight - 14) / 2, width: 14, height: 14)
+            let badgeRect = NSRect(x: 8, y: originY + (rHeight - 14) / 2, width: 14, height: 14)
             if let image = NSImage(systemSymbolName: row.badge.symbolName, accessibilityDescription: nil) {
                 let nsColor = color(for: row.badge.color)
                 let symbolConfig = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
@@ -257,12 +257,12 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
                 configuredImage.draw(in: badgeRect)
             }
 
-            let color = (i == selection) ? NSColor.selectedControlTextColor : NSColor.labelColor
+            let color = (index == selection) ? NSColor.selectedControlTextColor : NSColor.labelColor
             let attr = NSAttributedString(string: row.displayText, attributes: [
                 .font: codeFont,
                 .foregroundColor: color
             ])
-            attr.draw(at: NSPoint(x: 28, y: y + (rHeight - attr.size().height) / 2))
+            attr.draw(at: NSPoint(x: 28, y: originY + (rHeight - attr.size().height) / 2))
         }
     }
 

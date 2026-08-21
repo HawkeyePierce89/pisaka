@@ -92,7 +92,7 @@ final class MoveDropRuleTests: XCTestCase {
             .intoOwnDescendant,
             .nameTaken(name: "a.swift", folder: "lib"),
             .sourceMissing(name: "a.swift"),
-            .targetMissing(name: "lib"),
+            .targetMissing(name: "lib")
         ]
         for refusal in reported {
             XCTAssertFalse(refusal.isSilent, "\(refusal)")

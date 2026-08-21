@@ -41,7 +41,6 @@ struct LeetCodeOpenProblemSheet: View {
     /// that put it up.
     var onCancel: () -> Void
 
-
     /// What the user typed. Parsed on every keystroke — the parse is pure string
     /// work over a short string — so the Open button's enablement and the hint
     /// line are always describing the current text.

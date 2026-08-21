@@ -32,7 +32,7 @@ public enum TestCommand {
     /// The lowercased extensions that resolve to the JavaScript/TypeScript
     /// runner catalog (vitest/jest/mocha).
     private static let jsExtensions: Set<String> = [
-        "js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts",
+        "js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts"
     ]
 
     /// Whether `fileName` is a test file for its language, per each ecosystem's

@@ -53,7 +53,7 @@ public enum IndentEngine {
     static let openers: Set<Character> = ["{", "(", "["]
     /// Closing → matching opening bracket.
     static let closingToOpening: [Character: Character] = [
-        "}": "{", ")": "(", "]": "[",
+        "}": "{", ")": "(", "]": "["
     ]
 
     /// Detect the file's indentation unit: a single tab when the file indents

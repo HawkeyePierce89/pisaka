@@ -191,7 +191,7 @@ final class CompletionController {
         guard enabled != isEnabled else { return }
         isEnabled = enabled
         if !enabled {
-            dismiss()
+            reset()
         }
     }
 
@@ -614,7 +614,9 @@ final class CompletionController {
                 location: prefixRange.location + prefixRange.length,
                 length: targetRange.length - prefixRange.length
             )
-            edits.append(CompletionEdit(newText: "", range: suffixRange))
+            if !edits.contains(where: { $0.role == .primary && NSMaxRange($0.range) >= NSMaxRange(targetRange) }) {
+                edits.append(CompletionEdit(range: suffixRange, newText: "", role: .additional))
+            }
         }
 
         if let plan = plan(for: edits, over: snapshot.prefix, replacing: typedWord, in: nsText) {

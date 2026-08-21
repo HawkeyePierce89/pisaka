@@ -29,7 +29,7 @@ final class KeychainCredentialStore: CredentialStore, @unchecked Sendable {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: host,
+            kSecAttrAccount as String: host
         ]
     }
 
@@ -80,7 +80,7 @@ final class KeychainCredentialStore: CredentialStore, @unchecked Sendable {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecReturnAttributes as String: true,
-            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecMatchLimit as String: kSecMatchLimitAll
         ]
         var items: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &items) == errSecSuccess,

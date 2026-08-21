@@ -59,11 +59,11 @@ public enum BracketMatchEngine {
     /// a quote is its own closer, so "which one closes this one" has no answer
     /// without a lexer.
     static let openerToCloser: [Character: Character] = [
-        "(": ")", "[": "]", "{": "}",
+        "(": ")", "[": "]", "{": "}"
     ]
     /// Closing bracket → its matching opener.
     static let closerToOpener: [Character: Character] = [
-        ")": "(", "]": "[", "}": "{",
+        ")": "(", "]": "[", "}": "{"
     ]
 
     /// The bracket pair to highlight for `selectedRange`, or `nil` when there is

@@ -24,7 +24,7 @@ final class SyntaxLanguageTests: XCTestCase {
             "css": .css,
             "yml": .yaml,
             "yaml": .yaml,
-            "dockerfile": .dockerfile,
+            "dockerfile": .dockerfile
         ]
 
         for (ext, language) in expected {
@@ -174,7 +174,6 @@ final class SyntaxLanguageTests: XCTestCase {
         XCTAssertEqual(SyntaxLanguage(forFileName: ".rsignore"), .gitignore)
     }
 
-
     // MARK: - SQL
 
     func testSqlNamesResolve() {
@@ -257,7 +256,7 @@ final class SyntaxLanguageTests: XCTestCase {
             "app.ts", "app.tsx", "data.json", "README.md", "README.markdown",
             "main.py", "main.go", "main.rs", "index.html", "index.htm", "style.css",
             "config.yml", "config.yaml",
-            "Dockerfile", ".env", ".gitignore", "schema.sql",
+            "Dockerfile", ".env", ".gitignore", "schema.sql"
         ]
         let reachable = Set(knownFileNames.compactMap(SyntaxLanguage.init(forFileName:)))
         XCTAssertEqual(reachable, Set(SyntaxLanguage.allCases),

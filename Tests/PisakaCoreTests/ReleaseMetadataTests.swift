@@ -214,7 +214,7 @@ final class ReleaseMetadataTests: XCTestCase {
     private static let expectedAccessedAPIs: Set<Pair> = [
         Pair(category: "NSPrivacyAccessedAPICategoryUserDefaults", reason: "CA92.1"),
         Pair(category: "NSPrivacyAccessedAPICategoryFileTimestamp", reason: "3B52.1"),
-        Pair(category: "NSPrivacyAccessedAPICategorySystemBootTime", reason: "35F9.1"),
+        Pair(category: "NSPrivacyAccessedAPICategorySystemBootTime", reason: "35F9.1")
     ]
 
     private static let accessedAPIMismatchMessage = """

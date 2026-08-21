@@ -48,7 +48,7 @@ final class MinimapModelTests: XCTestCase {
             model.runs,
             [[
                 MinimapTokenRun(column: 0, length: 2, kind: .plain),
-                MinimapTokenRun(column: 3, length: 2, kind: .plain),
+                MinimapTokenRun(column: 3, length: 2, kind: .plain)
             ]]
         )
     }
@@ -64,7 +64,7 @@ final class MinimapModelTests: XCTestCase {
             model.runs,
             [[
                 MinimapTokenRun(column: 0, length: 1, kind: .keyword),
-                MinimapTokenRun(column: 1, length: 1, kind: .plain),
+                MinimapTokenRun(column: 1, length: 1, kind: .plain)
             ]]
         )
     }
@@ -79,7 +79,7 @@ final class MinimapModelTests: XCTestCase {
             [
                 MinimapTokenRun(column: 0, length: 1, kind: .plain), // x
                 MinimapTokenRun(column: 2, length: 1, kind: .plain), // =
-                MinimapTokenRun(column: 4, length: 1, kind: .plain), // 1
+                MinimapTokenRun(column: 4, length: 1, kind: .plain) // 1
             ]
         )
         XCTAssertEqual(model.runs[1], [MinimapTokenRun(column: 2, length: 1, kind: .plain)]) // y at col 2
@@ -95,7 +95,7 @@ final class MinimapModelTests: XCTestCase {
             model.runs,
             [[
                 MinimapTokenRun(column: 0, length: 1, kind: .keyword),
-                MinimapTokenRun(column: 1, length: 2, kind: .plain),
+                MinimapTokenRun(column: 1, length: 2, kind: .plain)
             ]]
         )
     }

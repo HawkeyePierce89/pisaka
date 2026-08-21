@@ -48,7 +48,7 @@ final class PartialCommitBuilderTests: XCTestCase {
             ("a\nb\n", "a\nb\nc\nd\n"),
             ("a\nb\nc\n", "a\n"),
             ("", "new\nfile\n"),
-            ("gone\naway\n", ""),
+            ("gone\naway\n", "")
         ]
         for sample in samples {
             XCTAssertEqual(
@@ -87,7 +87,7 @@ final class PartialCommitBuilderTests: XCTestCase {
             ("a\r\nb\r\nc\r\n", "a\r\nX\r\nc\r\n"),
             ("a\nb", "a\nX"),
             ("", "x\ny\n"),
-            ("x\ny\n", ""),
+            ("x\ny\n", "")
         ]
         for sample in samples {
             XCTAssertEqual(
@@ -449,7 +449,7 @@ final class PartialCommitBuilderTests: XCTestCase {
     func testRowsNamingMissingLinesContributeNothing() {
         let rows = [
             DiffRow(kind: .unchanged, left: DiffLine(number: 1, text: "a"), right: DiffLine(number: 1, text: "a")),
-            DiffRow(kind: .modified, left: DiffLine(number: 9, text: "?"), right: DiffLine(number: 9, text: "?")),
+            DiffRow(kind: .modified, left: DiffLine(number: 9, text: "?"), right: DiffLine(number: 9, text: "?"))
         ]
         XCTAssertEqual(
             PartialCommitBuilder.assemble(head: "a\n", worktree: "a\n", rows: rows, selectedUnits: [1]),

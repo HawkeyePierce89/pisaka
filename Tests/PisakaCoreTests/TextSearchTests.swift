@@ -426,7 +426,7 @@ final class TextSearchTests: XCTestCase {
     func testRegexCaretMatchesAtLineStartsForEverySeparator() throws {
         for (name, separator) in [
             ("CR", "\r"), ("CRLF", "\r\n"), ("NEL", "\u{0085}"),
-            ("LS", "\u{2028}"), ("PS", "\u{2029}"),
+            ("LS", "\u{2028}"), ("PS", "\u{2029}")
         ] {
             let text = "ab\(separator)cd" as NSString
             let query = SearchQuery(pattern: #"^\w"#, isRegex: true)
@@ -512,7 +512,7 @@ final class TextSearchTests: XCTestCase {
         let overlapping = [
             SearchMatch(range: NSRange(location: 0, length: 3), lineNumber: 1),
             SearchMatch(range: NSRange(location: 2, length: 3), lineNumber: 1),
-            SearchMatch(range: NSRange(location: 5, length: 2), lineNumber: 1),
+            SearchMatch(range: NSRange(location: 5, length: 2), lineNumber: 1)
         ]
         let edits = TextSearchEngine.replacePlan(
             matches: overlapping,
@@ -524,7 +524,7 @@ final class TextSearchTests: XCTestCase {
             edits,
             [
                 ReplaceEdit(range: NSRange(location: 5, length: 2), replacement: "X"),
-                ReplaceEdit(range: NSRange(location: 0, length: 3), replacement: "X"),
+                ReplaceEdit(range: NSRange(location: 0, length: 3), replacement: "X")
             ]
         )
     }
@@ -534,7 +534,7 @@ final class TextSearchTests: XCTestCase {
         let edits = TextSearchEngine.replacePlan(
             matches: [
                 SearchMatch(range: NSRange(location: 0, length: 1), lineNumber: 1),
-                SearchMatch(range: NSRange(location: 2, length: 9), lineNumber: 1),
+                SearchMatch(range: NSRange(location: 2, length: 9), lineNumber: 1)
             ],
             in: text,
             query: SearchQuery(pattern: "a"),
@@ -594,7 +594,7 @@ final class TextSearchTests: XCTestCase {
         [
             SearchMatch(range: NSRange(location: 4, length: 3), lineNumber: 1),
             SearchMatch(range: NSRange(location: 10, length: 3), lineNumber: 2),
-            SearchMatch(range: NSRange(location: 20, length: 3), lineNumber: 3),
+            SearchMatch(range: NSRange(location: 20, length: 3), lineNumber: 3)
         ]
     }
 
@@ -641,7 +641,7 @@ final class TextSearchTests: XCTestCase {
     func testNearestIndexForwardTakesANonEmptyMatchStartingAtTheCaret() {
         let matches = [
             SearchMatch(range: NSRange(location: 5, length: 3), lineNumber: 1),
-            SearchMatch(range: NSRange(location: 10, length: 3), lineNumber: 2),
+            SearchMatch(range: NSRange(location: 10, length: 3), lineNumber: 2)
         ]
         XCTAssertEqual(TextSearchEngine.index(nearestTo: 5, in: matches, forward: true), 0)
     }

@@ -176,7 +176,7 @@ final class IdentifierScannerTests: XCTestCase {
             NSRange(location: 4, length: 3)
         )
     }
-    
+
     func testCompletionReplaceRangeWithTrimmedHeadPreservesTheTrimmedStart() {
         let source = text("9foobar")
         // caret at 9foo|bar (offset 4)
@@ -319,7 +319,7 @@ final class IdentifierScannerTests: XCTestCase {
     func testMemberContextIsNilWhenTheMemberPrefixDoesNotStartAtTheDot() {
         let sources = [
             "pair.0", "point.12", "ubuntu20.04", "items[0].7",  // trims to nothing
-            "ubuntu20.04lts", "v1.0beta", "x.0rc",               // trims partway in
+            "ubuntu20.04lts", "v1.0beta", "x.0rc"               // trims partway in
         ]
         for source in sources {
             XCTAssertNil(
@@ -424,7 +424,7 @@ final class IdentifierScannerTests: XCTestCase {
     func testIsIdentifierAgreesWithTheScanningEntryPoints() {
         let samples = [
             "services", "_private", "Worker2", "\u{0438}\u{043C}\u{044F}", "", "two words", "run(_:)",
-            "foo.bar", "kebab-case", "9foo", "123", "trailing ", " leading", "$FOO", "a",
+            "foo.bar", "kebab-case", "9foo", "123", "trailing ", " leading", "$FOO", "a"
         ]
         for sample in samples {
             let scanned = IdentifierScanner.words(in: sample as NSString, limit: 2)

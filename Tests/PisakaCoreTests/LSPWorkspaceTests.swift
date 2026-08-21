@@ -350,7 +350,7 @@ final class LSPWorkspaceTests: XCTestCase {
             ("view.ts", .typescript, "typescript"),
             ("view.jsx", .javascript, "javascriptreact"),
             ("view.js", .javascript, "javascript"),
-            ("view.mjs", .javascript, "javascript"),
+            ("view.mjs", .javascript, "javascript")
         ]
         let fake = LSPServerDescription(
             id: "fake-tsls",

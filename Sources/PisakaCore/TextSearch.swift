@@ -231,7 +231,7 @@ public enum TextSearchEngine {
         guard let regex else { return template }
         guard range.location >= 0, range.length >= 0, NSMaxRange(range) <= length else { return template }
         let options: NSRegularExpression.MatchingOptions = [
-            .anchored, .withTransparentBounds, .withoutAnchoringBounds,
+            .anchored, .withTransparentBounds, .withoutAnchoringBounds
         ]
         guard let result = regex.firstMatch(in: string, options: options, range: range),
               result.range == range

@@ -78,7 +78,7 @@ final class MergeModelTests: XCTestCase {
         git.blobs = [
             "1:a.swift": "base\n",
             "2:a.swift": "ours\n",
-            "3:a.swift": "theirs\n",
+            "3:a.swift": "theirs\n"
         ]
         let model = makeModel(git: git)
 
@@ -98,7 +98,7 @@ final class MergeModelTests: XCTestCase {
         let git = StubGit()
         git.blobs = [
             "2:a.swift": "ours line\n",
-            "3:a.swift": "theirs line\n",
+            "3:a.swift": "theirs line\n"
         ]
         let model = makeModel(git: git)
 
@@ -148,7 +148,7 @@ final class MergeModelTests: XCTestCase {
         git.blobs = [
             "1:a.swift": "base\n",
             "2:a.swift": "ours\n",
-            "3:a.swift": "theirs\n",
+            "3:a.swift": "theirs\n"
         ]
         let model = makeModel(git: git)
         await model.load(file: conflicted, root: root)
@@ -178,7 +178,7 @@ final class MergeModelTests: XCTestCase {
         git.blobs = [
             "1:a.swift": "base\n",
             "2:a.swift": "ours\n",
-            "3:a.swift": "theirs\n",
+            "3:a.swift": "theirs\n"
         ]
         let files = StubFiles()
         let model = makeModel(git: git, files: files)
@@ -198,7 +198,7 @@ final class MergeModelTests: XCTestCase {
         git.blobs = [
             "1:a.swift": "base\n",
             "2:a.swift": "ours\n",
-            "3:a.swift": "theirs\n",
+            "3:a.swift": "theirs\n"
         ]
         let files = StubFiles()
         let model = makeModel(git: git, files: files)
@@ -244,7 +244,7 @@ final class MergeModelTests: XCTestCase {
         // zero conflicts and `resolvedText` is observable. `ours` ends in "\n".
         let git = StubGit()
         git.blobs = [
-            "1:a.swift": "a\n", "2:a.swift": "a\n", "3:a.swift": "a\n",
+            "1:a.swift": "a\n", "2:a.swift": "a\n", "3:a.swift": "a\n"
         ]
         let model = makeModel(git: git)
         await model.load(file: conflicted, root: root)
@@ -256,7 +256,7 @@ final class MergeModelTests: XCTestCase {
     func testNoTrailingNewlineWhenOursLacksOne() async {
         let git = StubGit()
         git.blobs = [
-            "1:a.swift": "a", "2:a.swift": "a", "3:a.swift": "a",
+            "1:a.swift": "a", "2:a.swift": "a", "3:a.swift": "a"
         ]
         let model = makeModel(git: git)
         await model.load(file: conflicted, root: root)
@@ -270,7 +270,7 @@ final class MergeModelTests: XCTestCase {
         // auto-merges to a single stable region.
         let git = StubGit()
         git.blobs = [
-            "2:a.swift": "", "3:a.swift": "b\n",
+            "2:a.swift": "", "3:a.swift": "b\n"
         ]
         let model = makeModel(git: git)
         await model.load(file: conflicted, root: root)
@@ -286,7 +286,7 @@ final class MergeModelTests: XCTestCase {
         let git = StubGit()
         git.blobs = [
             "1:a.swift": "a\nb\nc\n",
-            "3:a.swift": "a\nB\nc\n",
+            "3:a.swift": "a\nB\nc\n"
         ]
         let files = StubFiles()
         let model = makeModel(git: git, files: files)
@@ -308,7 +308,7 @@ final class MergeModelTests: XCTestCase {
         let git = StubGit()
         git.blobs = [
             "1:a.swift": "a\nb\nc\n",
-            "3:a.swift": "a\nB\nc\n",
+            "3:a.swift": "a\nB\nc\n"
         ]
         let files = StubFiles()
         let model = makeModel(git: git, files: files)
@@ -332,7 +332,7 @@ final class MergeModelTests: XCTestCase {
         let git = StubGit()
         git.blobs = [
             "1:a.swift": "a\nb\nc\n",
-            "3:a.swift": "a\nB\nc\n",
+            "3:a.swift": "a\nB\nc\n"
         ]
         let files = StubFiles()
         let model = makeModel(git: git, files: files)
@@ -356,7 +356,7 @@ final class MergeModelTests: XCTestCase {
         let git = StubGit()
         git.blobs = [
             "1:a.swift": "a\nb\nc\n",
-            "3:a.swift": "", // present but empty
+            "3:a.swift": "" // present but empty
         ]
         let files = StubFiles()
         let model = makeModel(git: git, files: files)
@@ -379,7 +379,7 @@ final class MergeModelTests: XCTestCase {
         let git = StubGit()
         git.blobs = [
             "1:a.swift": "a\nb\nc\n",
-            "2:a.swift": "a\nB\nc\n", // ours modified; theirs (`:3`) absent
+            "2:a.swift": "a\nB\nc\n" // ours modified; theirs (`:3`) absent
         ]
         let files = StubFiles()
         let model = makeModel(git: git, files: files)
@@ -402,7 +402,7 @@ final class MergeModelTests: XCTestCase {
         git.blobs = [
             "1:a.swift": "a\n",
             "2:a.swift": "ours\n",
-            "3:a.swift": "theirs\n",
+            "3:a.swift": "theirs\n"
         ]
         let files = StubFiles()
         let model = makeModel(git: git, files: files)

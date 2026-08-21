@@ -32,7 +32,7 @@ struct CodeEditorView_iOS: UIViewRepresentable {
     /// the symbol index reads it — it keys files by URL, so an untitled buffer has
     /// nothing to be filed under and is skipped. Defaults to `nil` so a
     /// default-constructed view compiles.
-    var fileURL: URL? = nil
+    var fileURL: URL?
 
     /// The editor contents. Edits are written back through this binding.
     @Binding var text: String
@@ -83,7 +83,7 @@ struct CodeEditorView_iOS: UIViewRepresentable {
     /// (by token) when it names the file this editor is showing. Passed as a value
     /// rather than by observing the route, so a candidate-list change cannot make
     /// the editor rebuild.
-    var reveal: DefinitionRoute_iOS.Reveal? = nil
+    var reveal: DefinitionRoute_iOS.Reveal?
 
     func makeCoordinator() -> CodeEditorCoordinator_iOS {
         CodeEditorCoordinator_iOS(text: $text)

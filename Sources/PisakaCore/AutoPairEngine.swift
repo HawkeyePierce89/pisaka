@@ -29,11 +29,11 @@ public enum AutoPairAction: Equatable {
 public enum AutoPairEngine {
     /// Opening bracket → its matching closer.
     static let openerToCloser: [Character: String] = [
-        "(": ")", "[": "]", "{": "}",
+        "(": ")", "[": "]", "{": "}"
     ]
     /// Closing bracket → its matching opener.
     static let closerToOpener: [Character: Character] = [
-        ")": "(", "]": "[", "}": "{",
+        ")": "(", "]": "[", "}": "{"
     ]
     /// Quote characters that close themselves.
     static let quotes: Set<Character> = ["\"", "'", "`"]

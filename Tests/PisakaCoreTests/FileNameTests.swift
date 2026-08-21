@@ -170,7 +170,7 @@ final class FileNameTests: XCTestCase {
             .separatorInName,
             .lineBreak,
             .nulCharacter,
-            .reservedComponent(".git"),
+            .reservedComponent(".git")
         ]
         for issue in all {
             XCTAssertFalse(issue.message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -367,7 +367,7 @@ final class FileNameTests: XCTestCase {
             // NUL
             "foo\0bar", "a\0b",
             // line break
-            "a\nb", "a\rb", "a\u{2028}b",
+            "a\nb", "a\rb", "a\u{2028}b"
         ]
         for input in inputs {
             let issue = validateSingleEntryName(input)
@@ -413,7 +413,7 @@ final class FileNameTests: XCTestCase {
             // NUL
             "a/b\0c", "a\0b",
             // line break inside a component
-            "a\nb", "a/b\rc", "a\u{2028}b",
+            "a\nb", "a/b\rc", "a\u{2028}b"
         ]
         for input in inputs {
             let parsed = parseRelativeEntryPath(input)

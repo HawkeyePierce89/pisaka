@@ -333,7 +333,7 @@ final class LSPProvisioningManifestTests: XCTestCase {
         )
         let cyclic = LSPProvisioningManifest(components: [
             LSPComponent(id: "a", version: "1", licenseSPDX: "MIT", licenseFileSubpaths: [], artifacts: [artifact], requires: ["b"]),
-            LSPComponent(id: "b", version: "1", licenseSPDX: "MIT", licenseFileSubpaths: [], artifacts: [artifact], requires: ["a"]),
+            LSPComponent(id: "b", version: "1", licenseSPDX: "MIT", licenseFileSubpaths: [], artifacts: [artifact], requires: ["a"])
         ])
         XCTAssertEqual(cyclic.installationOrder(for: "a").map(\.id), ["b", "a"])
     }
@@ -500,7 +500,7 @@ final class LSPProvisioningManifestTests: XCTestCase {
                 "8966f9429085c243817b9d13afa76e98920668c07a9b432901daaf047397c6cb",
                 14_576_027,
                 39_382_228
-            ),
+            )
         ]
 
         for architecture in LSPHostArchitecture.allCases {
@@ -618,7 +618,7 @@ final class LSPProvisioningManifestTests: XCTestCase {
         XCTAssertEqual(description.launch, .executable(path: "\(base)/node/24.19.0/bin/node"))
         XCTAssertEqual(description.arguments, [
             "\(base)/typescript-language-server/5.3.0/node_modules/typescript-language-server/lib/cli.mjs",
-            "--stdio",
+            "--stdio"
         ])
         XCTAssertEqual(
             description.initializationOptions,
@@ -646,7 +646,7 @@ final class LSPProvisioningManifestTests: XCTestCase {
         XCTAssertEqual(description.launch, .executable(path: "\(base)/node/24.19.0/bin/node"))
         XCTAssertEqual(description.arguments, [
             "\(base)/pyright/1.1.411/node_modules/pyright/dist/pyright-langserver.js",
-            "--stdio",
+            "--stdio"
         ])
         XCTAssertNil(description.initializationOptions)
         XCTAssertNil(
@@ -739,7 +739,7 @@ final class LSPProvisioningManifestTests: XCTestCase {
             ("vscode-languageserver-textdocument", "vscode-languageserver-textdocument-1.0.13.tgz", 8_425, "46c8c250fa7667a9503cffb506512b99557784dfefbd8e318944856ca11ffbb9"),
             ("vscode-languageserver-types", "vscode-languageserver-types-3.17.5.tgz", 71_382, "d673f9e7f8bbe51351be51c58f32d4dcfa97a670ebb86bc633368394c609cac0"),
             ("vscode-uri", "vscode-uri-3.1.0.tgz", 59_768, "c6ec752d7a4858237389b23fb4d5ac05c2f1f606071cd212a9b54730e43cfc54"),
-            ("yaml", "yaml-2.8.3.tgz", 111_837, "9539805d7447def2bed5c5b4acacc283362c5e80abc5d93472b2f35f0cbf85ad"),
+            ("yaml", "yaml-2.8.3.tgz", 111_837, "9539805d7447def2bed5c5b4acacc283362c5e80abc5d93472b2f35f0cbf85ad")
         ]
 
         XCTAssertEqual(component.artifacts.count, expected.count, "the closure gained or lost a package")
@@ -794,7 +794,7 @@ final class LSPProvisioningManifestTests: XCTestCase {
         XCTAssertEqual(description.launch, .executable(path: "\(base)/node/24.19.0/bin/node"))
         XCTAssertEqual(description.arguments, [
             "\(base)/yaml-language-server/1.24.0/node_modules/yaml-language-server/out/server/src/server.js",
-            "--stdio",
+            "--stdio"
         ])
         XCTAssertNil(
             description.initializationOptions,
@@ -806,9 +806,9 @@ final class LSPProvisioningManifestTests: XCTestCase {
                 "yaml": .object([
                     "schemaStore": .object(["enable": .bool(true)]),
                     "completion": .bool(true),
-                    "hover": .bool(true),
+                    "hover": .bool(true)
                 ]),
-                "http": .object(["proxyStrictSSL": .bool(true)]),
+                "http": .object(["proxyStrictSSL": .bool(true)])
             ]),
             "the section keys must be what the server pulls — an unnamed section is answered null"
         )
@@ -855,7 +855,7 @@ final class LSPProvisioningManifestTests: XCTestCase {
             "node_modules/vscode-languageserver-types/thirdpartynotices.txt",
             "node_modules/jsonc-parser/LICENSE.md",                        // .md
             "node_modules/require-from-string/license",                    // lowercase
-            "node_modules/vscode-uri/LICENSE.md",
+            "node_modules/vscode-uri/LICENSE.md"
         ] {
             XCTAssertTrue(component.licenseFileSubpaths.contains(subpath), "“\(subpath)” is no longer acknowledged")
         }

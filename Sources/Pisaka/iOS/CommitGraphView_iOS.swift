@@ -129,7 +129,7 @@ final class CommitGraphRowUIView: UIView {
     /// stays color-free) — the iOS mirror of the macOS graph palette.
     private static let palette: [UIColor] = [
         .systemBlue, .systemGreen, .systemOrange, .systemPurple,
-        .systemRed, .systemTeal, .systemPink, .systemYellow,
+        .systemRed, .systemTeal, .systemPink, .systemYellow
     ]
 }
 #endif

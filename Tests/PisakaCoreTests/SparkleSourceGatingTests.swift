@@ -219,11 +219,9 @@ final class SparkleSourceGatingTests: XCTestCase {
             if entry.hasPrefix("#if ") {
                 stack.append(DebugCondition(condition: String(entry.dropFirst(4))))
             } else if entry.hasPrefix("#elseif ") {
-                if stack.isEmpty { unbalanced = true }
-                else { stack[stack.count - 1] = DebugCondition(condition: String(entry.dropFirst(8))) }
+                if stack.isEmpty { unbalanced = true } else { stack[stack.count - 1] = DebugCondition(condition: String(entry.dropFirst(8))) }
             } else if entry == "#else" {
-                if stack.isEmpty { unbalanced = true }
-                else { stack[stack.count - 1] = stack[stack.count - 1].negated }
+                if stack.isEmpty { unbalanced = true } else { stack[stack.count - 1] = stack[stack.count - 1].negated }
             } else if entry == "#endif" {
                 if stack.isEmpty { unbalanced = true } else { stack.removeLast() }
             }

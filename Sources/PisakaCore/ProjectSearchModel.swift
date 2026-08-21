@@ -161,7 +161,6 @@ public final class ProjectSearchModel: ObservableObject {
     /// is still visible in its row.
     nonisolated static let previewLead = 40
 
-
     /// The hits of the last (or currently running) search, grouped by file in
     /// traversal order. Published per chunk while a search runs.
     @Published public private(set) var results: [FileSearchResult] = []

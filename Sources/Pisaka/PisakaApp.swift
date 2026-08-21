@@ -558,7 +558,7 @@ struct PisakaApp: App {
     /// Which bottom dock panel is shown (`nil` = none), VS Code-style. Owned here
     /// so the always-visible bottom bar (in `ContentView`) and the View-menu
     /// commands share one source of truth; toggled via `togglePanel(_:)`.
-    @State private var bottomPanel: BottomPanel? = nil
+    @State private var bottomPanel: BottomPanel?
 
     /// Whether the commit dialog sheet is up. Raised by `openCommitDialog()` after
     /// the load has been kicked off, lowered by a successful commit, Cancel or Esc.

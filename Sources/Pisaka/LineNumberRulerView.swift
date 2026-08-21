@@ -440,7 +440,7 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
 
         let attributes: [NSAttributedString.Key: Any] = [
             .font: rulerFont,
-            .foregroundColor: NSColor.secondaryLabelColor,
+            .foregroundColor: NSColor.secondaryLabelColor
         ]
 
         let content = textView.string as NSString

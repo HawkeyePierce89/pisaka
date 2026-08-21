@@ -218,7 +218,7 @@ final class LineStartIndexTests: XCTestCase {
     func testIsLineSeparatorAgreesWithLineSplitting() {
         let candidates: [unichar] = [
             0x0A, 0x0D, 0x85, 0x2028, 0x2029,   // the separators
-            0x09, 0x0B, 0x0C, 0x20, 0x41, 0x7A, // tab, VT, FF, space, letters
+            0x09, 0x0B, 0x0C, 0x20, 0x41, 0x7A // tab, VT, FF, space, letters
         ]
         for ch in candidates {
             let text = "a\(Character(UnicodeScalar(ch)!))b" as NSString

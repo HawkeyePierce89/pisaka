@@ -298,7 +298,7 @@ private struct ChangedFileRow_iOS: View {
     let onRevert: () -> Void
     /// Non-nil for a conflicted file: adds a "Resolve…" context action opening the
     /// 3-pane merge editor.
-    var onResolve: (() -> Void)? = nil
+    var onResolve: (() -> Void)?
 
     var body: some View {
         let icon = FileIcon(for: DirectoryEntry(url: url, isDirectory: false))

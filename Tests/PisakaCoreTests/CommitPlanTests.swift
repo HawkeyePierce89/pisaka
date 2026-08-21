@@ -167,7 +167,7 @@ final class CommitPlanTests: XCTestCase {
                     // The mode git already records lives at the *old* path — the new
                     // one does not exist in HEAD at all.
                     modeSource: .head(path: "old/name.swift")
-                ),
+                )
             ]
         )
     }
@@ -551,7 +551,7 @@ final class CommitPlanTests: XCTestCase {
             .statusChanged(path: "p"),
             .renameChanged(path: "p"),
             .contentKindChanged(path: "p"),
-            .diffChanged(path: "p"),
+            .diffChanged(path: "p")
         ]
         let reasons = pathReasons + [.headMoved]
         let messages = reasons.map(\.message)

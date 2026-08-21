@@ -328,7 +328,7 @@ final class ReleaseWorkflowTests: XCTestCase {
             "DEVELOPER_ID_CERT_PASSWORD",
             "APP_STORE_CONNECT_API_KEY_P8",
             "APP_STORE_CONNECT_KEY_ID",
-            "APP_STORE_CONNECT_ISSUER_ID",
+            "APP_STORE_CONNECT_ISSUER_ID"
         ] {
             assertGuardExits(#"-z "${\#(secret)}""#, in: script, step: "Preflight", because: """
                 without \(secret) the release cannot be signed or notarized at all, and the whole \
@@ -1021,7 +1021,7 @@ final class ReleaseWorkflowTests: XCTestCase {
         "Versions/B/XPCServices/Downloader.xpc",
         "Versions/B/XPCServices/Installer.xpc",
         "Versions/B/Autoupdate",
-        "Versions/B/Updater.app",
+        "Versions/B/Updater.app"
     ]
 
     /// Whether `line` invokes `codesign` to *apply* a signature, as opposed to
@@ -2134,7 +2134,7 @@ final class ReleaseWorkflowTests: XCTestCase {
             "Stage the update archive",
             "Generate and sign the appcast",
             "Publish the GitHub Release",
-            Self.caskBumpStepName,
+            Self.caskBumpStepName
         ]
 
         var positions: [(String, Int)] = []
@@ -3570,14 +3570,14 @@ final class ReleaseWorkflowTests: XCTestCase {
         ".github/workflows/release.yml",
         "README.md",
         "docs/FEATURES.md",
-        "docs/RELEASING.md",
+        "docs/RELEASING.md"
     ]
 
     /// The literal instructions an ad-hoc-signed download needed. Matched as
     /// strings because that is what a user copies out of a document.
     private static let gatekeeperWorkarounds = [
         "xattr -dr com.apple.quarantine",
-        "Open Anyway",
+        "Open Anyway"
     ]
 
     /// The acceptance criterion of the signing work, pinned so a revert cannot
