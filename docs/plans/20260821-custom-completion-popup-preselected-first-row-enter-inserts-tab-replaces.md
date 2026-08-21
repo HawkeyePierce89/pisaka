@@ -276,11 +276,11 @@ the caret-left-the-word test in `textViewDidChangeSelection`, the scroll and
 font-change dismissals beside the hover ones, `textDidEndEditing`, window
 resign, and `teardown()`.
 
-- [ ] add the key hook, the Esc precedence and the `complete(_:)` override
-- [ ] wire the coordinator: show/dismiss forwarding, font inputs, the full
+- [x] add the key hook, the Esc precedence and the `complete(_:)` override
+- [x] wire the coordinator: show/dismiss forwarding, font inputs, the full
       dismissal set, teardown
-- [ ] remove the retired overrides and coordinator methods
-- [ ] run `swift test` — must pass before Task 6
+- [x] remove the retired overrides and coordinator methods
+- [x] run `swift test` — must pass before Task 6
 
 ### Task 6: Verify acceptance criteria
 

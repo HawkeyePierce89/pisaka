@@ -200,19 +200,14 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onRequestCompletions = { [weak coordinator = context.coordinator] in
             coordinator?.requestCompletions()
         }
-        // AppKit's completion insertion brackets itself with the coordinator's
-        // programmatic-edit flag, so the auto-pair/dedent interceptor does not
-        // treat the inserted word as typed text. Weakly captured for the same
-        // reason; a deallocated coordinator just leaves the flag alone, which is
-        // correct because there is then no interceptor to guard.
-        textView.onCompletionInsertion = { [weak coordinator = context.coordinator] isApplying in
-            coordinator?.noteCompletionInsertion(isApplying)
+        // Intercept completion-popup keys. Return and Tab commit; arrows navigate.
+        textView.onCompletionKey = { [weak coordinator = context.coordinator] event in
+            coordinator?.handleCompletionKey(event) ?? false
         }
-        // A committed row whose item carries its own edits (an auto-import) is
-        // applied by the completion controller instead of AppKit. Weakly
-        // captured for the same retain-cycle reason; a deallocated coordinator
-        // answers `false`, which is the stock insertion — the same graceful
-        // degradation as losing the flag above.
+        textView.onCancelCompletion = { [weak coordinator = context.coordinator] in
+            coordinator?.cancelCompletion() ?? false
+        }
+
         // The pointer resting over an identifier asks the intelligence seam what
         // it is (D25). Weakly captured for the same retain-cycle reason as the
         // closures above; a deallocated coordinator simply shows no popover.
@@ -221,14 +216,6 @@ struct CodeEditorView: NSViewRepresentable {
         }
         textView.onPointerExited = { [weak coordinator = context.coordinator] in
             coordinator?.pointerExitedEditor()
-        }
-        textView.onInsertCompletion = { [weak coordinator = context.coordinator] word, range, isFinal, tv in
-            coordinator?.insertCompletion(
-                word,
-                forPartialWordRange: range,
-                isFinal: isFinal,
-                in: tv
-            ) ?? false
         }
 
         // `CodeScrollView`, not `NSScrollView`: the text view below is
@@ -414,6 +401,7 @@ struct CodeEditorView: NSViewRepresentable {
             // ⌘-scroll path is consumed by `ZoomController`'s event monitor, so the
             // clip view never posts the bounds change that would otherwise catch it.
             context.coordinator.dismissHover()
+            context.coordinator.cancelCompletion()
         }
 
         // Re-apply the completion preference. Unconditional because the controller
@@ -427,6 +415,10 @@ struct CodeEditorView: NSViewRepresentable {
         // the controller only stores them, and they are read when the *next*
         // answer is drawn.
         context.coordinator.syncHover(
+            codeFontSize: CGFloat(fontSize),
+            metrics: interfaceMetrics
+        )
+        context.coordinator.syncCompletion(
             codeFontSize: CGFloat(fontSize),
             metrics: interfaceMetrics
         )
@@ -826,6 +818,18 @@ struct CodeEditorView: NSViewRepresentable {
             completion.noteProgrammaticEdit = { [weak self] isApplying in
                 self?.isApplyingProgrammaticEdit = isApplying
             }
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowDidResignKey(_:)),
+                name: NSWindow.didResignKeyNotification,
+                object: nil
+            )
+        }
+
+        @objc private func windowDidResignKey(_ notification: Notification) {
+            if let window = notification.object as? NSWindow, window === textView?.window {
+                completion.dismiss()
+            }
         }
 
         /// Forward the completion on/off preference to the controller
@@ -837,6 +841,10 @@ struct CodeEditorView: NSViewRepresentable {
         /// popup. Nothing in the symbol index or the LSP layer is touched.
         func setCompletionEnabled(_ enabled: Bool) {
             completion.setEnabled(enabled)
+        }
+
+        func syncCompletion(codeFontSize: CGFloat, metrics: InterfaceMetrics) {
+            completion.syncAppearance(codeFontSize: codeFontSize, metrics: metrics)
         }
 
         /// Recompute the popup's candidates for what is being typed.
@@ -879,70 +887,42 @@ struct CodeEditorView: NSViewRepresentable {
         /// declarations actually in view are missing or demoted. The iOS editor
         /// clears its strip on the same condition.
         func clearCompletions() {
+            completion.dismiss()
             completion.reset()
         }
 
-        /// AppKit is asking what to put in the popup it is already opening.
-        ///
-        /// Synchronous by its contract and correct anyway, because the awaiting
-        /// happened during the debounce — see `CompletionController`. `words` (the
-        /// spell checker's guesses) is deliberately ignored: this is a code
-        /// editor, and offering dictionary words beside project symbols would bury
-        /// the latter.
-        ///
-        /// `indexOfSelectedItem` is forced to `-1` (nothing preselected), which is
-        /// **mandatory, not cosmetic**. AppKit's stock value is `0`, and a selected
-        /// row is not merely highlighted: `complete(_:)` immediately calls
-        /// `insertCompletion(…, isFinal: false)` for it, so opening the popup
-        /// *writes that candidate into the buffer* before the user has chosen
-        /// anything. With the as-you-type trigger that means every 150 ms pause
-        /// inside a ≥2-character identifier rewrites the word being typed —
-        /// `textDidChange` pushes it into `WorkspaceModel` (marking the tab dirty
-        /// and making it eligible for an idle autosave to write to the file) and
-        /// each preview registers its own undo step. `-1` opens the same popup with
-        /// no row selected and no insertion; arrow keys or the mouse pick a row,
-        /// Return inserts it, exactly as the feature is documented.
-        func textView(
-            _ textView: NSTextView,
-            completions words: [String],
-            forPartialWordRange charRange: NSRange,
-            indexOfSelectedItem index: UnsafeMutablePointer<Int>?
-        ) -> [String] {
-            index?.pointee = -1
-            return completion.completions(forPartialWordRange: charRange, in: textView)
+        func handleCompletionKey(_ event: NSEvent) -> Bool {
+            guard completion.isVisible,
+                  let textView = self.textView,
+                  textView.isEditable,
+                  !textView.hasMarkedText(),
+                  event.modifierFlags.intersection([.command, .shift, .option, .control]).isEmpty
+            else { return false }
+
+            switch event.keyCode {
+            case 36, 76: // Return/Enter
+                completion.commit(.insert)
+                return true
+            case 48: // Tab
+                completion.commit(.replace)
+                return true
+            case 126: // Up
+                completion.moveSelection(.up)
+                return true
+            case 125: // Down
+                completion.moveSelection(.down)
+                return true
+            default:
+                return false
+            }
         }
 
-        /// Raise/lower `isApplyingProgrammaticEdit` around AppKit's completion
-        /// insertion (`EditorTextView.insertCompletion(…)`).
-        ///
-        /// Mandatory, not defensive: the insertion goes through the same text-view
-        /// edit path typing does, so a completion ending in `(` — or a one-
-        /// character one — would otherwise fall into `AutoPairEngine` and get a
-        /// closing bracket it never asked for, and a completion whose replaced
-        /// range starts a line could trip the dedent rewrite.
-        func noteCompletionInsertion(_ isApplying: Bool) {
-            isApplyingProgrammaticEdit = isApplying
-        }
-
-        /// A row was committed (or previewed): let the completion controller
-        /// apply the item's own edits, and say whether it did.
-        ///
-        /// `false` — the answer for every tree-sitter item and most LSP ones —
-        /// leaves AppKit's stock insertion to do the job it already does
-        /// correctly. `true` is the auto-import case, where the item's edits
-        /// have to be applied as written and in one undo group.
-        func insertCompletion(
-            _ word: String,
-            forPartialWordRange charRange: NSRange,
-            isFinal: Bool,
-            in textView: NSTextView
-        ) -> Bool {
-            completion.insert(
-                word,
-                forPartialWordRange: charRange,
-                isFinal: isFinal,
-                in: textView
-            )
+        func cancelCompletion() -> Bool {
+            if completion.isVisible {
+                completion.dismiss()
+                return true
+            }
+            return false
         }
 
         // MARK: - Hover
@@ -1186,10 +1166,17 @@ struct CodeEditorView: NSViewRepresentable {
             // arrow key can all move the caret out from under a popover that is
             // still on screen.
             hover.dismiss()
+            if completion.isVisible {
+                updateCompletions(explicit: false)
+            }
             // The find bar's "current" match follows the caret (see
             // `EditorSearchController.selectionChanged()`), so it must move with
             // it — otherwise Replace edits a different match than the one shown.
             searchController.selectionChanged()
+        }
+
+        func textDidEndEditing(_ notification: Notification) {
+            completion.dismiss()
         }
 
         // MARK: - Blame column
@@ -1630,6 +1617,7 @@ struct CodeEditorView: NSViewRepresentable {
             // point: two observers of the same notification would eventually
             // disagree about what a scroll is.
             hover.dismiss()
+            completion.dismiss()
             refreshGeometry()
             bracketHighlight.refreshVisible()
             searchController.refreshVisibleHighlight()
@@ -1648,6 +1636,7 @@ struct CodeEditorView: NSViewRepresentable {
             // the keyboard, the bottom panel toggled, the sidebar dragged — so
             // the next mouse-moved event cannot be relied on to clean it up.
             hover.dismiss()
+            completion.dismiss()
             refreshGeometry()
             bracketHighlight.refreshVisible()
             searchController.refreshVisibleHighlight()
@@ -2103,17 +2092,13 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// `requestCompletions()`; `nil` until then.
     var onRequestCompletions: (() -> Void)?
 
-    /// Brackets an AppKit completion insertion with the coordinator's
-    /// `isApplyingProgrammaticEdit` flag: called with `true` before the insertion
-    /// and `false` after. Set by `CodeEditorView.makeNSView`; `nil` until then.
-    var onCompletionInsertion: ((Bool) -> Void)?
+    /// Intercepts keys for the completion popup (Return, Tab, Up, Down) before
+    /// they reach the editor. Set by `CodeEditorView.makeNSView`.
+    var onCompletionKey: ((NSEvent) -> Bool)?
 
-    /// Applies a committed completion item's own edits, answering whether it
-    /// performed the whole insertion. Set by `CodeEditorView.makeNSView` to the
-    /// coordinator's `insertCompletion(_:forPartialWordRange:isFinal:in:)`;
-    /// `nil` until then, and `false` from it for everything that is just a word
-    /// replacing the typed prefix.
-    var onInsertCompletion: ((String, NSRange, Bool, NSTextView) -> Bool)?
+    /// Closes an open completion popup on Esc, returning whether it did. Set by
+    /// `CodeEditorView.makeNSView`.
+    var onCancelCompletion: (() -> Bool)?
 
     /// Reports where the pointer is over the text, in this view's coordinates, so
     /// the hover controller can resolve the character under it. Set by
@@ -2174,63 +2159,8 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// synchronously, and the delegate can only serve an already-computed
     /// snapshot, so the request is handed to the coordinator's completion
     /// controller, which opens the popup itself the moment the provider answers.
-    func completeAtCaret() {
+    override func complete(_ sender: Any?) {
         onRequestCompletions?()
-    }
-
-    /// The partial word a completion replaces, per `IdentifierScanner` — the one
-    /// rule that also decides what a ⌘-click resolves and which words the buffer
-    /// harvester offers, so the popup can never complete something the provider
-    /// was not asked about.
-    ///
-    /// Overriding this is what makes `foo.bar|` complete `bar`: AppKit's stock
-    /// implementation walks back over a broader "word" class, and reporting the
-    /// whole dotted expression is the classic reason a completion popup offers
-    /// nothing. A non-empty selection is left to `super` — the user is about to
-    /// replace it, not extend it.
-    override var rangeForUserCompletion: NSRange {
-        let selection = selectedRange()
-        guard selection.length == 0 else { return super.rangeForUserCompletion }
-        return IdentifierScanner.completionPrefixRange(
-            in: string as NSString,
-            at: selection.location
-        )
-    }
-
-    /// Insert a chosen completion, with the coordinator's programmatic-edit flag
-    /// raised for the duration.
-    ///
-    /// `super` does the whole job for an ordinary item — the replacement, the
-    /// caret, and the *single* undo step it registers on the active per-file undo
-    /// manager — so nothing about the documented undo discipline changes for the
-    /// tree-sitter path. The flag keeps `AutoPairEngine`/`IndentEngine` from
-    /// treating the inserted word as typed text (a completion ending in an opener
-    /// would otherwise be auto-closed), and is lowered unconditionally, so an
-    /// exception out of `super` cannot leave the interceptors disabled for the
-    /// rest of the session.
-    ///
-    /// The one addition is `onInsertCompletion`: an LSP item may carry edits of
-    /// its own — the `import` line that makes the symbol resolve, or a
-    /// replacement range the server chose rather than the one the client typed
-    /// (D4) — and those have to be applied *as written*, which `super` cannot do
-    /// because it only knows the word. It answers `false` for everything else,
-    /// including every preview of a highlighted row, so the stock path stays the
-    /// path.
-    override func insertCompletion(
-        _ word: String,
-        forPartialWordRange charRange: NSRange,
-        movement: Int,
-        isFinal: Bool
-    ) {
-        onCompletionInsertion?(true)
-        defer { onCompletionInsertion?(false) }
-        if onInsertCompletion?(word, charRange, isFinal, self) == true { return }
-        super.insertCompletion(
-            word,
-            forPartialWordRange: charRange,
-            movement: movement,
-            isFinal: isFinal
-        )
     }
 
     /// Go to Definition from the caret — the Find menu's ⌃⌘J entry point, which
@@ -2308,6 +2238,7 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// The handler answers `false` whenever the bar is closed, so nothing else
     /// Esc normally does in a text view is swallowed.
     override func cancelOperation(_ sender: Any?) {
+        if onCancelCompletion?() == true { return }
         if onCancelSearch?() == true { return }
         super.cancelOperation(sender)
     }
@@ -2322,7 +2253,7 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// binds — every other one carries ⌘, which no terminal wants — and it is a
     /// keystroke the embedded terminal genuinely needs (NUL; readline's and Emacs'
     /// `set-mark`). As a menu equivalent it therefore swallowed ⌃Space out of a
-    /// *focused terminal* and beeped instead, `completeAtCaret()`'s first-responder
+    /// *focused terminal* and beeped instead, `complete(_:)`'s first-responder
     /// cast having failed — and did so only once a tab was open, since a disabled
     /// item does not claim its equivalent. Scoping the binding to this view keeps
     /// the terminal whole; the menu item, AppKit's stock ⌥⎋ and F5 all still reach
@@ -2332,12 +2263,16 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// `rangeForUserCompletion` would measure a partial word across uncommitted
     /// marked text, and accepting a row would replace the composition.
     override func keyDown(with event: NSEvent) {
+        if let onCompletionKey = onCompletionKey, onCompletionKey(event) {
+            return
+        }
+
         if event.charactersIgnoringModifiers == " ",
            event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.control],
            isEditable,
            !hasMarkedText(),
            onRequestCompletions != nil {
-            completeAtCaret()
+            complete(nil)
             return
         }
         super.keyDown(with: event)

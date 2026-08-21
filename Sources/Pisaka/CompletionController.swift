@@ -310,11 +310,13 @@ final class CompletionController {
         // from a clean list rather than a stale one.
         guard isEnabled else {
             snapshot = nil
+            dismiss()
             return
         }
 
         guard let textView, let provider else {
             snapshot = nil
+            dismiss()
             return
         }
         // No popup mid-composition. Marked text is uncommitted input the input
@@ -322,6 +324,7 @@ final class CompletionController {
         // composition is about to replace — the same reasoning as the ⌘D guard.
         guard !textView.hasMarkedText() else {
             snapshot = nil
+            dismiss()
             return
         }
         let caret = textView.selectedRange()
@@ -329,6 +332,7 @@ final class CompletionController {
         // replace it, not extend it.
         guard caret.length == 0 else {
             snapshot = nil
+            dismiss()
             return
         }
 
@@ -348,6 +352,7 @@ final class CompletionController {
         if member == nil {
             guard prefixRange.length >= (explicit ? 1 : Self.minimumPrefixLength) else {
                 snapshot = nil
+                dismiss()
                 return
             }
         }
