@@ -251,10 +251,10 @@ because nothing is written to the buffer any more). Rewrite the class's doc
 comment and every comment that describes the AppKit shapes that no longer exist
 — the "list is strings" and preview paragraphs in particular.
 
-- [ ] rewire `apply(…)` to show the panel; keep every existing staleness guard
-- [ ] add the selection/commit/dismiss API and the commit implementation
-- [ ] retire the delegate-shaped machinery and rewrite the documentation
-- [ ] run `swift test` — must pass before Task 5
+- [x] rewire `apply(…)` to show the panel; keep every existing staleness guard
+- [x] add the selection/commit/dismiss API and the commit implementation
+- [x] retire the delegate-shaped machinery and rewrite the documentation
+- [x] run `swift test` — must pass before Task 5
 
 ### Task 5: Keys, wiring and the dismissal set
 
