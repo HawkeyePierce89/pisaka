@@ -226,7 +226,7 @@ final class SymbolQueryTests: XCTestCase {
 
         // Every language with a query is either pinned here or read from its
         // vendored grammar above, so a new language cannot arrive unpinned.
-        XCTAssertEqual(Set(Self.pinnedNodeNames.keys).union([.dotenv]),
+        XCTAssertEqual(Set(Self.pinnedNodeNames.keys).union([.dotenv, .sql]),
                        Set(try indexableLanguages()))
     }
 

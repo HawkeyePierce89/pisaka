@@ -42,6 +42,7 @@ public enum LanguageKeywords {
         case .dockerfile: return dockerfile
         case .go: return go
         case .rust: return rust
+        case .sql: return sql
         case .json, .markdown, .html, .css, .yaml, .dotenv, .gitignore: return []
         }
     }
@@ -277,4 +278,58 @@ public enum LanguageKeywords {
         "u128", "u16", "u32", "u64", "u8", "union", "unsafe", "use", "usize",
         "where", "while",
     ]
+
+    /// SQL: drawn from the grammar's 356 `keyword_*` node types, filtered by "no source
+    /// file can ever declare it". In: statement/DDL/DML/clause vocabulary, built-in type
+    /// names, the literals (TRUE/FALSE/NULL), constraint/permission vocabulary. Out:
+    /// storage-format and engine dialect tokens. Spelled uppercase as SQL is written;
+    /// `FuzzyMatch`'s case-insensitive prefix tier keeps lowercase typing working.
+    private static let sql: [String] = [
+        "ACTION", "ADD", "ADMIN", "AFTER", "ALL", "ALTER", "ALWAYS", "ANALYZE", "AND",
+        "ANY", "ARRAY", "AS", "ASC", "ATOMIC", "ATTRIBUTE", "AUTHORIZATION",
+        "AUTO_INCREMENT", "BEFORE", "BEGIN", "BETWEEN", "BIGINT", "BIGSERIAL",
+        "BINARY", "BIT", "BOOLEAN", "BRIN", "BTREE", "BY", "BYTEA", "CACHE", "CACHED",
+        "CASCADE", "CASCADED", "CASE", "CAST", "CHANGE", "CHAR", "CHARACTER",
+        "CHARACTERISTICS", "CHECK", "COLLATE", "COLUMN", "COLUMNS", "COMMENT",
+        "COMMIT", "COMMITTED", "COMPRESSION", "CONCURRENTLY", "CONFLICT", "CONNECTION",
+        "CONSTRAINT", "CONSTRAINTS", "COPY", "CREATE", "CROSS", "CSV", "CURRENT",
+        "CURRENT_TIMESTAMP", "CYCLE", "DATA", "DATABASE", "DATE", "DATETIME",
+        "DATETIMEOFFSET", "DECIMAL", "DECLARE", "DEFAULT", "DEFERRABLE", "DEFERRED",
+        "DELETE", "DELIMITED", "DELIMITER", "DESC", "DISTINCT", "DO", "DOUBLE", "DROP",
+        "DUPLICATE", "EACH", "ELSE", "ENCODING", "ENCRYPTED", "END", "ENUM", "ESCAPE",
+        "ESCAPED", "EXCEPT", "EXCLUDE", "EXECUTE", "EXISTS", "EXPLAIN", "EXTENDED",
+        "EXTENSION", "EXTERNAL", "FALSE", "FIELDS", "FILTER", "FIRST", "FLOAT",
+        "FOLLOWING", "FOLLOWS", "FOR", "FORCE", "FORCE_NOT_NULL", "FORCE_NULL",
+        "FORCE_QUOTE", "FOREIGN", "FORMAT", "FREEZE", "FROM", "FULL", "FUNCTION",
+        "GENERATED", "GEOGRAPHY", "GEOMETRY", "GIN", "GIST", "GROUP", "GROUPS", "HASH",
+        "HAVING", "HEADER", "IF", "IGNORE", "IMAGE", "IMMEDIATE", "IN", "INCREMENT",
+        "INCREMENTAL", "INDEX", "INET", "INITIALLY", "INNER", "INOUT", "INPUT",
+        "INSERT", "INSTEAD", "INT", "INTERSECT", "INTERVAL", "INTO", "IS", "ISOLATION",
+        "JOIN", "JSON", "JSONB", "KEY", "LANGUAGE", "LAST", "LATERAL", "LEFT", "LEVEL",
+        "LIKE", "LIMIT", "LINES", "LOCAL", "LOCATION", "LOGGED", "MAIN", "MATCH",
+        "MATCHED", "MATERIALIZED", "MAXVALUE", "MEDIUMINT", "MERGE", "MINVALUE",
+        "MODIFY", "MONEY", "NAME", "NAMES", "NATURAL", "NCHAR", "NEW", "NO", "NONE",
+        "NOT", "NOTHING", "NOWAIT", "NULL", "NULLS", "NUMERIC", "NVARCHAR",
+        "OBJECT_ID", "OF", "OFF", "OFFSET", "OID", "OIDS", "OLD", "ON", "ONLY",
+        "OPTIMIZE", "OPTION", "OR", "ORDER", "ORDINALITY", "OTHERS", "OUT", "OUTER",
+        "OVER", "OVERWRITE", "OWNED", "OWNER", "PARTITION", "PARTITIONED", "PASSWORD",
+        "PLAIN", "PRECEDES", "PRECEDING", "PRECISION", "PRIMARY", "PROCEDURE",
+        "PROGRAM", "QUOTE", "RANGE", "READ", "REAL", "RECURSIVE", "REFERENCES",
+        "REFERENCING", "REGCLASS", "REGNAMESPACE", "REGPROC", "REGTYPE", "RENAME",
+        "REPEATABLE", "REPLACE", "REPLICATION", "RESET", "RESTART", "RESTRICT",
+        "RETURN", "RETURNING", "RETURNS", "REWRITE", "RIGHT", "ROLE", "ROLLBACK",
+        "ROW", "SCHEMA", "SECURITY", "SELECT", "SEPARATOR", "SEQUENCE", "SERIAL",
+        "SERIALIZABLE", "SESSION", "SET", "SETOF", "SHOW", "SIMILAR", "SMALLDATETIME",
+        "SMALLINT", "SMALLMONEY", "SMALLSERIAL", "SNAPSHOT", "SOME", "SORT", "SPGIST",
+        "START", "STATEMENT", "STATISTICS", "STDIN", "STORAGE", "STORED", "STRING",
+        "TABLE", "TABLES", "TABLESPACE", "TEMP", "TEMPORARY", "TERMINATED", "TEXT",
+        "THEN", "TIES", "TIME", "TIMESTAMP", "TIMESTAMPTZ", "TINYINT", "TO",
+        "TRANSACTION", "TRIGGER", "TRUE", "TRUNCATE", "TYPE", "UNBOUNDED", "UNCACHED",
+        "UNCOMMITTED", "UNION", "UNIQUE", "UNLOAD", "UNLOGGED", "UNSIGNED", "UNTIL",
+        "UPDATE", "USE", "USER", "USING", "UUID", "VACUUM", "VALID", "VALUE", "VALUES",
+        "VARBINARY", "VARCHAR", "VARIADIC", "VARYING", "VERBOSE", "VERSION", "VIEW",
+        "VIRTUAL", "WAIT", "WHEN", "WHERE", "WINDOW", "WITH", "WITHOUT", "WRITE",
+        "XML", "ZONE",
+    ]
+
 }

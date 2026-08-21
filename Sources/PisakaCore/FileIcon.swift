@@ -86,6 +86,7 @@ public struct FileIcon: Equatable {
         "yaml": FileIcon(symbolName: "list.bullet.indent", color: .purple),
         "toml": FileIcon(symbolName: "list.bullet.indent", color: .gray),
         "xml": FileIcon(symbolName: "chevron.left.forwardslash.chevron.right", color: .green),
+        "sql": FileIcon(symbolName: "cylinder.split.1x2", color: .blue),
 
         // Docs / text
         "md": FileIcon(symbolName: "text.alignleft", color: .blue),

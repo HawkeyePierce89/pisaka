@@ -27,7 +27,7 @@ final class LanguageKeywordsTests: XCTestCase {
 
     func testTheDocumentedLanguagesAreTheOnesWithLists() {
         let withKeywords = Set(SyntaxLanguage.allCases.filter { !LanguageKeywords.keywords(for: $0).isEmpty })
-        XCTAssertEqual(withKeywords, [.swift, .javascript, .typescript, .python, .dockerfile, .go, .rust])
+        XCTAssertEqual(withKeywords, [.swift, .javascript, .typescript, .python, .dockerfile, .go, .rust, .sql])
     }
 
     // MARK: - Shape

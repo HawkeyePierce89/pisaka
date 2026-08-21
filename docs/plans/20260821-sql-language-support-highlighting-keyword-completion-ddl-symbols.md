@@ -233,18 +233,18 @@ Run against the v0.3.11 tree with `tree-sitter-cli@0.25.10`:
 - Modify: `Tests/PisakaCoreTests/{SyntaxLanguageTests,FileIconTests,
   LanguageKeywordsTests,SymbolQueryTests}.swift`
 
-- [ ] add `case sql` to `SyntaxLanguage` and `"sql": .sql` to `extensionMap`
+- [x] add `case sql` to `SyntaxLanguage` and `"sql": .sql` to `extensionMap`
       (extension phase only — SQL has no extensionless or prefix form)
-- [ ] add `"sql": FileIcon(symbolName: "cylinder.split.1x2", color: .blue)` to
+- [x] add `"sql": FileIcon(symbolName: "cylinder.split.1x2", color: .blue)` to
       `FileIcon.extensionMap`, in the Data/config group
-- [ ] add the curated uppercase `sql` list to `LanguageKeywords` and route
+- [x] add the curated uppercase `sql` list to `LanguageKeywords` and route
       `case .sql` to it; keep it sorted and duplicate-free (both asserted); the
       doc comment states the sourcing rule (drawn from the grammar's 356
       `keyword_*` node types, filtered by "no source file can ever declare it"),
       what is deliberately excluded (storage-format/engine dialect tokens) and
       why the list is uppercase while `FuzzyMatch`'s case-insensitive prefix tier
       keeps lowercase typing working
-- [ ] write `Resources/Queries/sql/symbols.scm` with the six verified patterns,
+- [x] write `Resources/Queries/sql/symbols.scm` with the six verified patterns,
       under the shared capture convention; the header comment records the kind
       mapping (table/view/materialized view/custom type → `type`, function →
       `function`, column → `property` with the table as `@container`), why
@@ -252,15 +252,15 @@ Run against the v0.3.11 tree with `tree-sitter-cli@0.25.10`:
       (the `_if_not_exists` inlining), that `object_reference name:` captures the
       bare identifier so `public.users` indexes as `users`, and which `CREATE`
       forms are deliberately not indexed and why
-- [ ] extend `SyntaxLanguageTests` with `.sql` resolution from `foo.sql`,
+- [x] extend `SyntaxLanguageTests` with `.sql` resolution from `foo.sql`,
       `FOO.SQL`, and `path/to/schema.sql`
-- [ ] extend `FileIconTests` with the `.sql` icon
-- [ ] confirm `LanguageKeywordsTests` (set equality against `allCases`, sorted,
+- [x] extend `FileIconTests` with the `.sql` icon
+- [x] confirm `LanguageKeywordsTests` (set equality against `allCases`, sorted,
       duplicate-free, keywords-are-never-definitions) and `SymbolQueryTests`
       (query directory set equality, node/field/capture names, `SymbolKind`
       resolution) pass with no exception entry — SQL is indexable, so it must
       **not** appear in `SymbolIndexModel.unindexableLanguages`
-- [ ] run `swift test` — must pass before task 3
+- [x] run `swift test` — must pass before task 3
 
 ### Task 3: Highlighting — capture mapping and the vendored-query gate
 
