@@ -295,18 +295,18 @@ resign, and `teardown()`.
 
 ### Task 7: Update documentation
 
-- [ ] `docs/architecture/app-editor.md` — rewrite the `CompletionController`
+- [x] `docs/architecture/app-editor.md` — rewrite the `CompletionController`
       entry (panel, selection, the two commit ranges, the dismissal set, the
       staleness guards) and add the `CompletionPanel.swift` entry
-- [ ] `docs/architecture/core-intelligence.md` — the `CompletionPopup.swift`
+- [x] `docs/architecture/core-intelligence.md` — the `CompletionPopup.swift`
       entry and the `completionReplaceRange` half of the `IdentifierScanner`
       entry
-- [ ] `docs/architecture/core-zoom.md` — the completion panel as a declared
+- [x] `docs/architecture/core-zoom.md` — the completion panel as a declared
       `.code` surface, and why it is not the hover popover's exemption
-- [ ] `CLAUDE.md` — the index line for the new Core file, the app index lines
+- [x] `CLAUDE.md` — the index line for the new Core file, the app index lines
       for `CompletionPanel.swift`, and the completion-candidate invariant's
       wording where it names the native popup
-- [ ] `docs/FEATURES.md` + `README.md` — the popup's new behavior (preselected
+- [x] `docs/FEATURES.md` + `README.md` — the popup's new behavior (preselected
       first row, Enter inserts, Tab replaces the whole identifier, arrows, Esc,
       click, kind badges)
 
