@@ -70,9 +70,9 @@ struct LSPConsentBanner: View {
 
     var body: some View {
         // An empty `VStack` renders nothing and contributes no height, so the
-        // common case — every language that is not TypeScript, JavaScript or
-        // Python, and every one of those whose question has been answered —
-        // costs the editor no layout at all. It also keeps the `.task` below
+        // common case — every language no downloadable server serves, and every
+        // one of those it does serve whose question has been answered — costs the
+        // editor no layout at all. It also keeps the `.task` below
         // attached to a view that exists in *both* cases, which the two branches
         // of an `if` at `ContentView` level would not.
         //
@@ -182,6 +182,25 @@ struct LSPConsentBanner: View {
                 .font(metrics.scaledFont(.caption))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+                // What this server does on the network *after* the download,
+                // when the answer is not "nothing" — printed verbatim from
+                // `LSPConsentPrompt.runtimeNetworkNote` in the same caption
+                // style as the size sentence above it, because it is the same
+                // kind of fact and belongs to the same question.
+                //
+                // **The presence of the note is the whole condition**: no server
+                // is named here and there is no per-server branch, so a server
+                // that starts talking to the network says so by carrying a note
+                // in Core rather than by anyone editing this view. Consent is
+                // asked once and never again, which is why the sentence has to
+                // be *here* rather than only in Preferences or the docs.
+                if let note = prompt.runtimeNetworkNote {
+                    Text(note)
+                        .font(metrics.scaledFont(.caption))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Spacer(minLength: metrics.scaled(8))

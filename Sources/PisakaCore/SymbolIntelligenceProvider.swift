@@ -139,6 +139,13 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
     /// beep rather than open a picker; the two features sharing this type is
     /// exactly why that is pinned by a test instead of left to convention.
     ///
+    /// **Nothing here is filtered by the completion-candidate rule.** A heading,
+    /// a multi-word key, a selector spelled `.btn-primary` — everything the index
+    /// stores stays a jump target, precisely because
+    /// `isCompletionCandidate(_:)` refuses it for *insertion*. Navigation and
+    /// typing want different things out of the same index, and this method is the
+    /// side that wants all of it.
+    ///
     /// An empty identifier yields nothing: it is what
     /// `IdentifierScanner.identifier(in:at:)` reports for a click on whitespace,
     /// and "no name" must beep rather than open an empty menu. More than `limit`
@@ -177,6 +184,65 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
             }
             return lhs.candidate.name < rhs.candidate.name
         }.prefix(limit).map(\.candidate)
+    }
+
+    // MARK: - The completion-candidate rule (pure)
+
+    /// The kinds an *index entry exists for navigation only*.
+    ///
+    /// `.heading` is the whole set, and it is stated by name rather than derived:
+    /// a Markdown heading is a first-class jump target — ⌃⌘J listing the sections
+    /// of a document is exactly what the query captures it for — and never a
+    /// thing anyone types. Offering one is how a fresh `docker-compose.yml`
+    /// answered `ser` with a heading lifted out of an unrelated `.md` file.
+    ///
+    /// Every other kind stays a candidate, including the ones the non-code
+    /// languages contribute (`.key`, `.anchor`, `.selector`, `.stage`): a
+    /// top-level YAML key *is* the word the author is typing.
+    static let kindsExcludedFromCompletion: Set<SymbolKind> = [.heading]
+
+    /// Whether `symbol` may be **offered for insertion**.
+    ///
+    /// Two conditions, and the second is the general one: the kind is not one of
+    /// the navigation-only kinds above, and the name is a single identifier-shaped
+    /// token by `IdentifierScanner`'s own boundary rule. The shape question is
+    /// asked *there*, not restated here, so the rule that decides what the caret
+    /// is completing is literally the rule that decides what may be inserted — a
+    /// name the scanner could never have produced (`Getting started`, `run(_:)`,
+    /// `btn-primary`) would be inserted into the middle of a line as text no
+    /// language accepts, and could never be re-found by the prefix that offered
+    /// it.
+    ///
+    /// The hyphenated case is the one with a real cost, and it is deliberate: a
+    /// CSS class is indexed under the name the query captures (`btn-primary`, no
+    /// leading `.`), so hyphenated class names stop being offered. They cannot be
+    /// offered *correctly* — the caret in `.btn-pri` is completing `pri`, the
+    /// scanner having ended the token at the hyphen, so inserting `btn-primary`
+    /// over it writes `.btn-btn-primary`. Refusing is the only answer that is
+    /// right in every position rather than only the first one.
+    ///
+    /// **The refusal happens after the index's own pre-cap**, not inside it: an
+    /// excluded entry occupies a slot in `symbols(matching:limit:)` and is then
+    /// discarded, so a prefix matched by more excluded names than the cap holds
+    /// can return a shorter list than it would have. `candidateLimit(for:)` is
+    /// eight times the popup's own limit, so this needs hundreds of matching
+    /// headings before it is reachable — and pushing the predicate into
+    /// `SymbolIndex` would make the store hold an opinion about completion, which
+    /// is the one thing it does not do.
+    ///
+    /// **This filters the completion source and nothing else.** `definitions(…)`,
+    /// `SymbolIndex` and the walk that feeds it are deliberately untouched: the
+    /// index keeps storing every entry, ⌃⌘J keeps listing headings and multi-word
+    /// keys, and go-to-definition keeps landing on them. Navigation wants the
+    /// entries typing refuses — that asymmetry *is* the rule.
+    ///
+    /// The other two completion sources are not re-filtered because they cannot
+    /// fail it by construction: `LanguageKeywords` are hand-written words, and
+    /// harvested buffer words come out of `IdentifierScanner.words(in:limit:)`,
+    /// which yields only what this predicate would accept.
+    static func isCompletionCandidate(_ symbol: Symbol) -> Bool {
+        !kindsExcludedFromCompletion.contains(symbol.kind)
+            && IdentifierScanner.isIdentifier(symbol.name)
     }
 
     // MARK: - Completions (pure)
@@ -287,6 +353,7 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
         let symbols = index.symbols(matching: query, limit: candidateLimit(for: limit))
             + (request.fileURL.map { index.symbols(inFile: $0) } ?? [])
         var ranked: [Ranked] = symbols.compactMap { symbol in
+            guard isCompletionCandidate(symbol) else { return nil }
             guard let quality = FuzzyMatch.quality(of: symbol.name, matching: query) else { return nil }
             return Ranked(
                 item: CompletionItem(
@@ -403,6 +470,7 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
         candidates += request.fileURL.map { index.members(inFile: $0) } ?? []
 
         var ranked: [Ranked] = candidates.compactMap { symbol in
+            guard isCompletionCandidate(symbol) else { return nil }
             guard let quality = memberQuality(of: symbol.name, matching: query) else { return nil }
             return Ranked(
                 item: CompletionItem(

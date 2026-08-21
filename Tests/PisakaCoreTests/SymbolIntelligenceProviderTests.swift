@@ -824,6 +824,126 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(items.first?.text, "workerOnly")
     }
 
+    // MARK: - Completions: candidate hygiene
+
+    /// The bug this rule exists for: a Markdown heading is a fine jump target
+    /// and a terrible insertion, so it is excluded from completion by kind, even
+    /// when it happens to be a single well-shaped word.
+    func testHeadingsAreNeverOfferedAsCompletions() {
+        let store = index([
+            "notes.md": [symbol("services", kind: .heading, in: "notes.md")]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: completionRequest("ser", from: "compose.yml"),
+            in: store
+        )
+        XCTAssertTrue(items.isEmpty)
+    }
+
+    /// The kind-independent half: whatever captured it, a name that cannot be
+    /// typed as one word cannot be inserted as one.
+    func testNamesThatAreNotOneIdentifierAreNeverOfferedAsCompletions() {
+        let store = index([
+            "notes.md": [symbol("Getting started", kind: .heading, in: "notes.md")],
+            "a.swift": [symbol("run(_:)", kind: .method, in: "a.swift", at: 10)],
+            "b.yml": [symbol("service ports", kind: .key, in: "b.yml")],
+            // The spelling `Resources/Queries/css/symbols.scm` really captures —
+            // the class *name*, with no leading `.` — because this is the entry
+            // the rule actually costs the user, and a fixture that wrote `.btn-`
+            // would be testing a symbol the index cannot contain.
+            "c.css": [symbol("btn-primary", kind: .selector, in: "c.css")]
+        ])
+        for prefix in ["Get", "run", "service", "btn"] {
+            XCTAssertTrue(
+                SymbolIntelligenceProvider.completions(
+                    for: completionRequest(prefix, from: "d.swift"),
+                    in: store
+                ).isEmpty,
+                "an ill-shaped name answered \(prefix)"
+            )
+        }
+    }
+
+    /// The rule is a filter on shape and one named kind, not on the kinds the
+    /// non-code languages contribute: a single-word key, anchor or function is
+    /// exactly what the YAML author wants offered.
+    func testSingleWordNamesOfEveryOtherKindStillComplete() {
+        let store = index([
+            "a.yml": [
+                symbol("services", kind: .key, in: "a.yml"),
+                symbol("secrets", kind: .anchor, in: "a.yml", at: 40)
+            ],
+            "b.swift": [symbol("serialize", kind: .function, in: "b.swift")]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: completionRequest("se", from: "c.yml"),
+            in: store
+        )
+        XCTAssertEqual(Set(items.map(\.text)), ["services", "secrets", "serialize"])
+    }
+
+    /// The whole point of filtering the *completion* source rather than the
+    /// index: navigation keeps every entry completion now refuses.
+    func testDefinitionsStillResolveWhatCompletionRefuses() {
+        let store = index([
+            "notes.md": [symbol("services", kind: .heading, in: "notes.md", line: 3)]
+        ])
+        let candidates = SymbolIntelligenceProvider.definitions(
+            for: definitionRequest("services"),
+            in: store,
+            projectRoot: root
+        )
+        XCTAssertEqual(candidates.map(\.name), ["services"])
+        XCTAssertEqual(candidates.first?.line, 3)
+    }
+
+    /// The same one predicate guards the member path, and leaves a well-shaped
+    /// member entirely alone.
+    func testMemberCompletionsApplyTheSameCandidateRule() {
+        let store = index([
+            "a.swift": [
+                symbol("start", kind: .method, in: "a.swift", container: "Worker"),
+                symbol("stop it", kind: .method, in: "a.swift", at: 20, container: "Worker")
+            ]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest(receiver: "Worker", from: "a.swift"),
+            in: store
+        )
+        XCTAssertEqual(items.map(\.text), ["start"])
+    }
+
+    /// The excluded set by equality, not by example. Its own doc comment promises
+    /// that `.selector`, `.stage`, `.key` and `.anchor` stay candidates — a
+    /// promise no other test can see, because a wider set silently offers *fewer*
+    /// completions and nothing fails.
+    func testTheExcludedKindSetIsExactlyHeading() {
+        XCTAssertEqual(SymbolIntelligenceProvider.kindsExcludedFromCompletion, [.heading])
+    }
+
+    /// What the member path does when the rule removes its *last* candidate: the
+    /// existing empty-`ranked` branch opens, and buffer words answer a member
+    /// request. That is the pre-existing degradation, not a new one — but it is
+    /// newly reachable, so it is pinned rather than discovered.
+    func testAMemberListEmptiedByTheRuleFallsBackToBufferWords() {
+        let store = index([
+            "a.swift": [symbol("stop it", kind: .method, in: "a.swift", container: "Worker")]
+        ])
+        let items = SymbolIntelligenceProvider.completions(
+            for: memberRequest(
+                "st",
+                receiver: "Worker",
+                from: "a.swift",
+                text: "let stride = 1\nWorker.st"
+            ),
+            in: store
+        )
+        // The one indexed member is refused, so the answer comes from the buffer
+        // — an unrelated word, and still better than inserting `stop it`.
+        XCTAssertEqual(items.map(\.text), ["stride"])
+        XCTAssertEqual(items.map(\.kind), [nil])
+    }
+
     // MARK: - Completions: dedup, caps, degradation
 
     func testDuplicateNamesCollapseToTheirBestRankedEntry() {

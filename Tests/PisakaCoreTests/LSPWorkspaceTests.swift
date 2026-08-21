@@ -299,6 +299,42 @@ final class LSPWorkspaceTests: XCTestCase {
         XCTAssertEqual(workspace.liveServerCount, 2)
     }
 
+    func testADescriptionsConfigurationReachesTheServerItWasWrittenFor() async throws {
+        // The other half of the same claim: a server that needs a *setting* gets
+        // it as data on its description too, with nothing here knowing what the
+        // setting means.
+        let settings: JSONValue = .object(["fake": .object(["schemaStore": .bool(true)])])
+        let fake = LSPServerDescription(
+            id: "fake-yamlls",
+            languages: [.yaml],
+            launch: .executable(path: "/usr/local/bin/fake-yamlls"),
+            arguments: ["--stdio"],
+            configuration: settings
+        )
+        let harness = ServerHarness()
+        let workspace = makeWorkspace(
+            harness: harness,
+            registry: LSPServerRegistry([.sourcekitLSP, fake])
+        )
+
+        _ = await workspace.prepare(
+            url: root.appendingPathComponent("compose.yml"),
+            language: .yaml,
+            text: "services:\n"
+        )
+
+        let pushed = try XCTUnwrap(
+            harness.latest.notifications(for: LSPMethod.didChangeConfiguration).first
+        )
+        XCTAssertEqual(pushed.params?["settings"], settings)
+
+        // sourcekit-lsp carries none, so its handshake gained nothing.
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        XCTAssertTrue(
+            harness.latest.notifications(for: LSPMethod.didChangeConfiguration).isEmpty
+        )
+    }
+
     /// `.tsx` and `.jsx` share a `SyntaxLanguage` case with their plain
     /// counterparts, and must not share a `languageId`.
     ///

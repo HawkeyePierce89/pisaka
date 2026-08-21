@@ -42,6 +42,11 @@ public enum LSPMethod {
     public static let exit = "exit"
     public static let cancelRequest = "$/cancelRequest"
 
+    /// Settings, pushed. The client sends it once after `initialized` for a
+    /// server whose description carries a configuration, and never again —
+    /// nothing in Pisaka changes a server's settings while it runs.
+    public static let didChangeConfiguration = "workspace/didChangeConfiguration"
+
     public static let didOpen = "textDocument/didOpen"
     public static let didChange = "textDocument/didChange"
     public static let didClose = "textDocument/didClose"
@@ -609,9 +614,21 @@ public struct LSPCompletionItem: Equatable, Hashable, Sendable, Codable {
     /// Present and `1` for plain text; absent means the same, per the spec. Never
     /// a snippet (D5) — but `snippetSupport: false` is a request, not an
     /// enforcement, so this is decoded *and read*:
-    /// `LSPIntelligenceProvider.publish` drops an item that claims otherwise
-    /// rather than letting its `${1:…}` placeholders reach the buffer.
+    /// `LSPIntelligenceProvider.publish` drops an item that claims snippet
+    /// format *and* carries snippet syntax (`carriesSnippetSyntax`), rather than
+    /// letting its `${1:…}` placeholders reach the buffer.
     public var insertTextFormat: Int?
+    /// The spec's `InsertTextMode`: `1` is `asIs`, `2` is `adjustIndentation`.
+    ///
+    /// Decoded because the one thing this client does with multi-line insertions
+    /// is adjust their indentation, and `1` is a server saying outright that its
+    /// continuation lines are already spelled against the buffer — adjusting them
+    /// then indents twice. Absent is the common case and keeps the behaviour
+    /// `LSPIntelligenceProvider.indentingContinuationLines` documents: this client
+    /// advertises no `insertTextMode` default, so a `CompletionList.itemDefaults`
+    /// carrying one is not read either — no pinned server sends it, and inventing
+    /// a default here would be a guess about text that is written to the file.
+    public var insertTextMode: Int?
     public var deprecated: Bool?
     public var data: JSONValue?
 
@@ -625,6 +642,7 @@ public struct LSPCompletionItem: Equatable, Hashable, Sendable, Codable {
         textEdit: LSPCompletionEdit? = nil,
         additionalTextEdits: [LSPTextEdit]? = nil,
         insertTextFormat: Int? = nil,
+        insertTextMode: Int? = nil,
         deprecated: Bool? = nil,
         data: JSONValue? = nil
     ) {
@@ -637,6 +655,7 @@ public struct LSPCompletionItem: Equatable, Hashable, Sendable, Codable {
         self.textEdit = textEdit
         self.additionalTextEdits = additionalTextEdits
         self.insertTextFormat = insertTextFormat
+        self.insertTextMode = insertTextMode
         self.deprecated = deprecated
         self.data = data
     }
@@ -645,6 +664,24 @@ public struct LSPCompletionItem: Equatable, Hashable, Sendable, Codable {
     /// `textEdit.newText`, else `insertText`, else `label`.
     public var insertedText: String {
         textEdit?.newText ?? insertText ?? label
+    }
+
+    /// Whether `insertedText` contains anything the snippet grammar would read
+    /// as more than literal characters.
+    ///
+    /// The whole grammar's syntax is reachable from two scalars: `$` introduces
+    /// every tab stop, placeholder, choice and variable (`$1`, `${1:x}`,
+    /// `${1|a,b|}`, `$TM_FILENAME`), and `\` is its only escape (`\$`, `\}`,
+    /// `\\`). Text containing neither is the same string under both formats, so
+    /// asking this question needs no snippet parser — and the direction of the
+    /// error matters more than its precision: a `$` that was only ever a dollar
+    /// sign answers `true` and costs one candidate, while nothing that could
+    /// expand answers `false`.
+    ///
+    /// Read by `LSPIntelligenceProvider.publish`, because a server may mark an
+    /// item `Snippet` regardless of `snippetSupport: false` (D5).
+    public var carriesSnippetSyntax: Bool {
+        insertedText.contains("$") || insertedText.contains("\\")
     }
 
     /// The key ranking sorts on (D6).
@@ -733,7 +770,10 @@ public struct LSPClientInfo: Equatable, Hashable, Sendable, Codable {
 ///   answers instead of declining;
 /// * completion with `contextSupport` (the `.` trigger) and `resolveSupport` for
 ///   `additionalTextEdits` and `detail` — D4's auto-import arrives that way;
-/// * **no** `snippetSupport` (D5), so `newText` is always literal text.
+/// * **no** `snippetSupport` (D5), so `newText` *should* always be literal text —
+///   and a server that sends `insertTextFormat: 2` anyway is taken at its word
+///   only when the text carries no snippet syntax (`carriesSnippetSyntax`), which
+///   is what makes the YAML server contribute anything at all.
 public struct LSPClientCapabilities: Equatable, Hashable, Sendable, Encodable {
     public init() {}
 

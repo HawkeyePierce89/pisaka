@@ -27,12 +27,14 @@ final class LSPProvisioningModelTests: XCTestCase {
         static let typescript = URL(string: "https://example.invalid/typescript.tgz")!
         static let pyright = URL(string: "https://example.invalid/pyright.tgz")!
         static let fsevents = URL(string: "https://example.invalid/fsevents.tgz")!
+        static let yamlServer = URL(string: "https://example.invalid/yaml-language-server.tgz")!
 
         static let nodeBytes = 52_234_372
         static let tsServerBytes = 501_633
         static let typescriptBytes = 4_377_468
         static let pyrightBytes = 4_139_958
         static let fseventsBytes = 22_808
+        static let yamlServerBytes = 646_765
 
         static func artifact(
             _ url: URL,
@@ -96,14 +98,35 @@ final class LSPProvisioningModelTests: XCTestCase {
             executableSubpath: "node_modules/pyright/dist/pyright-langserver.js"
         )
 
+        /// The real component pins its whole twenty-package runtime closure; the
+        /// stand-in pins one artifact, because nothing this suite asserts is about
+        /// how many tarballs a component has — the install engine's own tests own
+        /// that, and a twentyfold fixture would only make every byte count here
+        /// harder to read.
+        static let yamlLanguageServer = LSPComponent(
+            id: "yaml-language-server",
+            version: "1.24.0",
+            licenseSPDX: "MIT AND ISC AND BSD-3-Clause",
+            licenseFileSubpaths: ["node_modules/yaml-language-server/LICENSE"],
+            artifacts: [
+                artifact(
+                    yamlServer,
+                    byteCount: yamlServerBytes,
+                    destinationSubpath: "node_modules/yaml-language-server"
+                ),
+            ],
+            requires: ["node"],
+            executableSubpath: "node_modules/yaml-language-server/out/server/src/server.js"
+        )
+
         static let manifest = LSPProvisioningManifest(
-            components: [node, typescriptLanguageServer, pyrightComponent]
+            components: [node, typescriptLanguageServer, pyrightComponent, yamlLanguageServer]
         )
 
         /// Every artifact of the real manifest is represented, so an install that
         /// stops early is visible as a missing request rather than as a shorter
         /// list nobody counted.
-        static let allURLs = [nodeARM, nodeIntel, tsServer, typescript, pyright, fsevents]
+        static let allURLs = [nodeARM, nodeIntel, tsServer, typescript, pyright, fsevents, yamlServer]
     }
 
     // MARK: - The harness
@@ -160,6 +183,10 @@ final class LSPProvisioningModelTests: XCTestCase {
             unpacker.stub(Fixture.typescript, tree: ["lib/tsserver.js": "tsserver"])
             unpacker.stub(Fixture.pyright, tree: ["dist/pyright-langserver.js": "pyright", "LICENSE.txt": "MIT"])
             unpacker.stub(Fixture.fsevents, tree: ["fsevents.node": "native"])
+            unpacker.stub(
+                Fixture.yamlServer,
+                tree: ["out/server/src/server.js": "yaml-language-server", "LICENSE": "MIT"]
+            )
 
             observe()
         }
@@ -241,9 +268,26 @@ final class LSPProvisioningModelTests: XCTestCase {
         XCTAssertEqual(harness.downloader.requestedURLs, [])
     }
 
+    /// The YAML prompt's own arithmetic, which is the number a user is asked to
+    /// agree to: its twenty-tarball closure *plus* the runtime it does not have
+    /// yet — the same "what is still missing" rule the other two follow, asserted
+    /// here because a closure this size makes a wrong figure easy to believe.
+    func testTheYAMLPromptOffersItsClosurePlusTheRuntimeItStillNeeds() {
+        let harness = makeHarness()
+
+        let prompt = harness.model.consentPrompt(forOpening: .yaml)
+        XCTAssertEqual(prompt?.server, .yaml)
+        XCTAssertEqual(prompt?.displayName, LSPDownloadableServer.yaml.displayName)
+        XCTAssertEqual(prompt?.downloadByteCount, Fixture.nodeBytes + Fixture.yamlServerBytes)
+        XCTAssertEqual(harness.downloader.requestedURLs, [])
+    }
+
     func testALanguageWithNoDownloadableServerNeverPrompts() {
         let harness = makeHarness()
-        for language in [SyntaxLanguage.swift, .json, .yaml, .gitignore] {
+        // `.yaml` is deliberately not on this list any more: it is served by the
+        // fourth downloadable server. `.go` and `.rust` are not here either —
+        // their servers exist, but through their own models rather than this one.
+        for language in [SyntaxLanguage.swift, .json, .gitignore, .markdown] {
             XCTAssertNil(harness.model.consentPrompt(forOpening: language), "\(language)")
         }
     }
@@ -1212,16 +1256,131 @@ final class LSPProvisioningModelTests: XCTestCase {
         // The row's identity is the *server's* (the key consent is stored under),
         // not its component's — the two spellings exist and the persisted one is
         // this.
-        XCTAssertEqual(harness.model.rows.map(\.id), ["typescript", "python"])
+        XCTAssertEqual(harness.model.rows.map(\.id), ["typescript", "python", "yaml"])
         XCTAssertEqual(
             harness.model.rows.map(\.server.serverComponentID),
-            ["typescript-language-server", "pyright"]
+            ["typescript-language-server", "pyright", "yaml-language-server"]
         )
-        XCTAssertEqual(harness.model.rows.map(\.displayName), ["TypeScript / JavaScript", "Python"])
-        XCTAssertEqual(harness.model.rows.map(\.languages), [[.typescript, .javascript], [.python]])
-        XCTAssertEqual(harness.model.rows.map(\.state), [.absent, .absent])
-        XCTAssertEqual(harness.model.rows.map(\.isInstalled), [false, false])
-        XCTAssertEqual(harness.model.rows.map(\.canInstall), [true, true])
-        XCTAssertEqual(harness.model.rows.map(\.canRemove), [false, false])
+        XCTAssertEqual(
+            harness.model.rows.map(\.displayName),
+            ["TypeScript / JavaScript", "Python", "YAML"]
+        )
+        XCTAssertEqual(
+            harness.model.rows.map(\.languages),
+            [[.typescript, .javascript], [.python], [.yaml]]
+        )
+        XCTAssertEqual(harness.model.rows.map(\.state), [.absent, .absent, .absent])
+        XCTAssertEqual(harness.model.rows.map(\.isInstalled), [false, false, false])
+        XCTAssertEqual(harness.model.rows.map(\.canInstall), [true, true, true])
+        XCTAssertEqual(harness.model.rows.map(\.canRemove), [false, false, false])
+    }
+
+    // MARK: - The runtime-network note
+
+    /// The one thing this layer downloads that keeps using the network after the
+    /// download, said on both values the views read — and on no other server.
+    func testOnlyTheYAMLRowAndPromptCarryTheRuntimeSchemaNote() {
+        let harness = makeHarness()
+
+        let note = LSPDownloadableServer.yaml.runtimeNetworkNote
+        XCTAssertNotNil(note)
+        // Every destination, not just the first one: schemastore.org supplies the
+        // *catalog*, each schema then comes from the host that catalog names, and
+        // a file can name a host of its choosing *two* ways — a `$schema=` header
+        // and a top-level `$schema:` key, which the pinned bundle tries in that
+        // order. A note that stopped at the first of either would understate what
+        // one-time consent buys.
+        XCTAssertTrue(note?.contains("schemastore.org") == true, "the note does not name the catalog host")
+        XCTAssertTrue(
+            note?.contains("the host that catalog names") == true,
+            "the note does not say the schemas themselves come from third-party hosts"
+        )
+        XCTAssertTrue(
+            note?.contains("$schema=") == true,
+            "the note does not say an opened file can name the host itself"
+        )
+        XCTAssertTrue(
+            note?.contains("$schema:") == true,
+            "the note names only the header comment, not the in-document $schema: key"
+        )
+        XCTAssertTrue(note?.contains("part of the pinned download") == true, "the note does not say it is unpinned")
+
+        XCTAssertEqual(harness.model.rows.map(\.runtimeNetworkNote), [nil, nil, note])
+
+        // The banner and the Settings row print one sentence, not two spellings
+        // of it: the prompt reads the row's.
+        XCTAssertEqual(harness.model.consentPrompt(forOpening: .yaml)?.runtimeNetworkNote, note)
+        XCTAssertNil(harness.model.consentPrompt(forOpening: .typescript)?.runtimeNetworkNote)
+        XCTAssertNil(harness.model.consentPrompt(forOpening: .javascript)?.runtimeNetworkNote)
+        XCTAssertNil(harness.model.consentPrompt(forOpening: .python)?.runtimeNetworkNote)
+
+        // Asking the question fetched nothing, as it never does.
+        XCTAssertEqual(harness.downloader.requestedURLs, [])
+    }
+
+    /// What a server does while it runs is true before it is installed and after
+    /// it is removed, so nothing about the note moves with the row's state.
+    func testTheNoteIsTheSameInEveryStateTheRowCanBeIn() async {
+        let harness = makeHarness()
+        let note = LSPDownloadableServer.yaml.runtimeNetworkNote
+
+        XCTAssertEqual(harness.model.row(for: .yaml)?.runtimeNetworkNote, note)
+
+        await harness.model.accept(.yaml)
+        XCTAssertEqual(harness.state(of: .yaml), .installed(version: "1.24.0"))
+        XCTAssertEqual(harness.model.row(for: .yaml)?.runtimeNetworkNote, note)
+
+        await harness.model.remove(.yaml)
+        XCTAssertEqual(harness.state(of: .yaml), .absent)
+        XCTAssertEqual(harness.model.row(for: .yaml)?.runtimeNetworkNote, note)
+
+        // A failed install is a sentence in the row; it is not this sentence.
+        harness.downloader.fail(Fixture.yamlServer)
+        await harness.model.install(.yaml)
+        XCTAssertNotNil(harness.model.row(for: .yaml)?.failureMessage)
+        XCTAssertEqual(harness.model.row(for: .yaml)?.runtimeNetworkNote, note)
+
+        harness.rebuild()
+        await harness.model.refresh()
+        XCTAssertEqual(harness.model.row(for: .yaml)?.runtimeNetworkNote, note)
+    }
+
+    /// The note is copy, and copy changes nothing: consent, install, registry and
+    /// removal for the YAML row are the same rules the other two rows follow.
+    func testTheNoteChangesNothingAboutConsentInstallOrRemoval() async {
+        let harness = makeHarness()
+        XCTAssertEqual(harness.model.row(for: .yaml)?.consent, .unasked)
+
+        await harness.model.accept(.yaml)
+        XCTAssertEqual(harness.model.row(for: .yaml)?.consent, .accepted)
+        XCTAssertEqual(harness.downloader.requestedURLs, [Fixture.nodeARM, Fixture.yamlServer])
+        XCTAssertEqual(harness.model.row(for: .yaml)?.pendingDownloadByteCount, 0)
+        XCTAssertNil(harness.model.consentPrompt(forOpening: .yaml), "consent was asked a second time")
+
+        let registry = harness.model.registry
+        XCTAssertTrue(registry.servesLanguage(.yaml))
+        XCTAssertEqual(registry.description(for: .swift), .sourcekitLSP)
+        XCTAssertEqual(
+            registry.description(for: .yaml)?.launch,
+            .executable(path: "/Pisaka-tests/LanguageServers/node/24.19.0/bin/node")
+        )
+        XCTAssertEqual(
+            registry.description(for: .yaml)?.arguments,
+            [
+                "/Pisaka-tests/LanguageServers/yaml-language-server/1.24.0"
+                    + "/node_modules/yaml-language-server/out/server/src/server.js",
+                "--stdio",
+            ]
+        )
+        // The configuration is what is *sent* — the note is not on the description
+        // at all, because it is something to print. The two travel separately and
+        // this asserts both halves.
+        XCTAssertEqual(registry.description(for: .yaml)?.configuration, LSPDownloadableServer.yaml.configuration)
+
+        await harness.model.remove(.yaml)
+        XCTAssertEqual(harness.model.registry, .standard)
+        XCTAssertEqual(harness.model.row(for: .yaml)?.consent, .declined)
+        XCTAssertFalse(harness.tree.hasDirectory("LanguageServers/yaml-language-server"))
+        XCTAssertFalse(harness.tree.hasDirectory("LanguageServers/node"))
     }
 }

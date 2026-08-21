@@ -193,17 +193,33 @@ final class LSPIntelligenceProviderTests: XCTestCase {
     private func completionRequest(
         prefix: String,
         offset: Int?,
-        member: IdentifierScanner.MemberContext? = nil
+        member: IdentifierScanner.MemberContext? = nil,
+        text: String? = nil
     ) -> CompletionRequest {
         CompletionRequest(
             prefix: prefix,
             fileURL: mainFile,
-            text: typingSource,
+            text: text ?? typingSource,
             language: .swift,
             member: member,
             offset: offset
         )
     }
+
+    /// A compose file mid-keystroke, `dep` typed four columns in — the shape the
+    /// indentation rule exists for. The language stays `.swift` because nothing
+    /// in this layer branches on it; what matters is the caret's column.
+    private let nestedYAML = """
+        services:
+          web:
+            image: nginx
+            dep
+        """
+
+    /// Caret at the end of `dep`, column 7 of the last line.
+    private var nestedCaret: Int { (nestedYAML as NSString).range(of: "dep", options: .backwards).location + 3 }
+    /// Caret at column 0 of the same buffer.
+    private var topLevelCaret: Int { 0 }
 
     // MARK: - Definitions
 
@@ -817,6 +833,288 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(items.map(\.text), ["Greeter", "dsGreeting", "kCFStringTransformLatinGreek"])
     }
 
+    /// The shape `yaml-language-server` really answers with: no `sortText` at all,
+    /// so D6 ranks on `label`, and **every** property of the schema at the caret
+    /// regardless of what is typed. Ranked on `label` alone and cut at the cap,
+    /// the one key that answers `ima` is below the cut — which is the whole reason
+    /// the matcher is consulted here at all.
+    func testAnItemAnsweringTheTypedPrefixReachesTheCapBeforeOneThatDoesNot() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array(
+                ["annotations", "attach", "blkio_config", "build", "image"]
+                    .map(schemaPropertyItemJSON(label:))
+            )
+        ])))
+        let provider = makeProvider(completionLimit: 3)
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "ima", offset: identifierCaret)
+        )
+
+        // `image` first — not because the match is a ranking key, but because the
+        // half of the list that answers `ima` is the half the cap reaches first.
+        // The two rows left over are D6's order among the ones that do not.
+        XCTAssertEqual(items.map(\.text), ["image:\n  ", "annotations:\n  ", "attach:\n  "])
+    }
+
+    /// The other half of the same rule: not matching is not a reason to be
+    /// dropped. A server's own matching may be looser than this one's boundary
+    /// rule — the recorded sourcekit-lsp transcript answers `Gree` with
+    /// `VM_MEMORY_MALLOC_LARGE_REUSED` — and a list with room for those items
+    /// still shows them, in D6's order, after the ones that answer.
+    func testItemsThatMatchNothingAreOrderedLastRatherThanDropped() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array(
+                ["annotations", "attach", "blkio_config", "build", "image"]
+                    .map(schemaPropertyItemJSON(label:))
+            )
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "ima", offset: identifierCaret)
+        )
+
+        XCTAssertEqual(items.count, 5)
+        XCTAssertEqual(
+            items.map(\.text),
+            ["image:\n  ", "annotations:\n  ", "attach:\n  ", "blkio_config:\n  ", "build:\n  "]
+        )
+    }
+
+    /// An empty prefix puts every item in the same half, so D6's order is the
+    /// whole order — the bare-dot member case, and the deliberate "show me
+    /// everything".
+    func testAnEmptyPrefixLeavesTheServersOrderAloneEntirely() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array(
+                ["image", "annotations", "attach"].map(schemaPropertyItemJSON(label:))
+            )
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "", offset: identifierCaret)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["annotations:\n  ", "attach:\n  ", "image:\n  "])
+    }
+
+    // MARK: - Multi-line insertion
+
+    /// `yaml-language-server` spells the lines after the first **relative to the
+    /// item** — an object-valued property is `deploy:\n  ` at every nesting depth,
+    /// verified against the pinned server — so inserting it verbatim four columns
+    /// in would leave the caret at column 2, under the grandparent key. LSP's
+    /// `insertTextMode.adjustIndentation` is applied here instead.
+    func testMultiLineInsertedTextIsIndentedToTheLineItLandsOn() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([schemaPropertyItemJSON(label: "deploy")])
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "dep", offset: nestedCaret, text: nestedYAML)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["deploy:\n      "])
+    }
+
+    /// The rule is the caret's line, not the item's: the same item at column 0
+    /// inserts exactly what the server sent. Single-line text is the same string
+    /// under either branch, which is the case every other server produces.
+    func testInsertedTextAtColumnZeroAndSingleLineTextAreUntouched() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                schemaPropertyItemJSON(label: "deploy"),
+                completionItemJSON(label: "image", sortText: "zz", insertText: "image: ")
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "", offset: topLevelCaret, text: nestedYAML)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["deploy:\n  ", "image: "])
+    }
+
+    /// The indentation the spec names is the line's **up to the cursor**, so a
+    /// caret standing inside the leading run indents to where it stands rather
+    /// than to where the run happens to end.
+    func testIndentationIsMeasuredUpToTheInsertionPointRatherThanPastIt() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([schemaPropertyItemJSON(label: "deploy")])
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(
+                prefix: "",
+                offset: nestedCaret - 5,
+                text: nestedYAML
+            )
+        )
+
+        XCTAssertEqual(items.map(\.text), ["deploy:\n    "])
+    }
+
+    /// CRLF is one `Character` and is not `"\n"`, so a grapheme test for the
+    /// newline answers `false` for exactly the text the splitter goes on to split
+    /// — the guard and the split have to agree on what a newline is, or a
+    /// CRLF-spelled multi-line insertion is written to the file unindented.
+    func testMultiLineInsertedTextIsIndentedWhenItsLineBreaksAreCRLF() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                .object([
+                    "label": .string("deploy"),
+                    "insertText": .string("deploy:\r\n  "),
+                    "insertTextFormat": .int(2),
+                    "kind": .int(LSPCompletionItemKind.property.rawValue)
+                ])
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "dep", offset: nestedCaret, text: nestedYAML)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["deploy:\r\n      "])
+    }
+
+    /// A line the server left empty stays empty: indenting it would write trailing
+    /// whitespace into a blank line nobody asked to touch.
+    func testABlankContinuationLineIsLeftEmptyRatherThanIndented() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                .object([
+                    "label": .string("deploy"),
+                    "insertText": .string("deploy:\n\n  "),
+                    "insertTextFormat": .int(2),
+                    "kind": .int(LSPCompletionItemKind.property.rawValue)
+                ])
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "dep", offset: nestedCaret, text: nestedYAML)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["deploy:\n\n      "])
+    }
+
+    /// The same rule under CRLF, where it is not the same test: splitting on `\n`
+    /// leaves each line's terminating `\r` on the *previous* component, so a blank
+    /// line arrives as `"\r"` and an `isEmpty` test would indent it — putting two
+    /// spaces of trailing whitespace into the file on the one path in this layer
+    /// that writes to it.
+    func testABlankCRLFContinuationLineIsLeftEmptyRatherThanIndented() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                .object([
+                    "label": .string("deploy"),
+                    "insertText": .string("deploy:\r\n\r\n  "),
+                    "insertTextFormat": .int(2),
+                    "kind": .int(LSPCompletionItemKind.property.rawValue)
+                ])
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "dep", offset: nestedCaret, text: nestedYAML)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["deploy:\r\n\r\n      "])
+    }
+
+    /// `insertTextMode: 1` is `asIs` — the server stating that its continuation
+    /// lines are already spelled against the buffer. Indenting those would indent
+    /// them twice, so the item is taken at its word and inserted verbatim.
+    func testAnItemThatAsksForAsIsInsertionIsNotIndented() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                .object([
+                    "label": .string("deploy"),
+                    "insertText": .string("deploy:\n      "),
+                    "insertTextFormat": .int(2),
+                    "insertTextMode": .int(1),
+                    "kind": .int(LSPCompletionItemKind.property.rawValue)
+                ])
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "dep", offset: nestedCaret, text: nestedYAML)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["deploy:\n      "])
+    }
+
+    /// The other value, and the absent case the pinned servers all send, both go
+    /// through the rule: `2` *is* `adjustIndentation`, and nothing is assumed from
+    /// silence beyond what this client already does.
+    func testAnItemThatAsksForAdjustedIndentationIsIndentedLikeOneThatSaysNothing() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                .object([
+                    "label": .string("deploy"),
+                    "insertText": .string("deploy:\n  "),
+                    "insertTextFormat": .int(2),
+                    "insertTextMode": .int(2),
+                    "kind": .int(LSPCompletionItemKind.property.rawValue)
+                ])
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "dep", offset: nestedCaret, text: nestedYAML)
+        )
+
+        XCTAssertEqual(items.map(\.text), ["deploy:\n      "])
+    }
+
+    /// The edit the editor applies carries the adjusted text too — the row, the
+    /// dedup key and the buffer must be one string. An `additionalTextEdits`
+    /// entry makes `edits(…)` non-empty, which is the path that writes the file
+    /// itself rather than leaving the insertion to AppKit.
+    func testTheEmittedEditCarriesTheIndentedTextRatherThanTheRawOne() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                .object([
+                    "label": .string("deploy"),
+                    "insertTextFormat": .int(2),
+                    "kind": .int(LSPCompletionItemKind.property.rawValue),
+                    "insertText": .string("deploy:\n  "),
+                    "additionalTextEdits": .array([
+                        .object([
+                            "newText": .string("# generated\n"),
+                            "range": .object([
+                                "start": .object(["line": .int(0), "character": .int(0)]),
+                                "end": .object(["line": .int(0), "character": .int(0)])
+                            ])
+                        ])
+                    ])
+                ])
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "dep", offset: nestedCaret, text: nestedYAML)
+        )
+
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(
+            items.first?.edits.first { $0.role == .primary }?.newText,
+            "deploy:\n      "
+        )
+    }
+
     /// Authored rather than recorded: this server produced no two items with the
     /// same `sortText`, and "preserve the server's order on a tie" is exactly the
     /// rule a non-stable sort would break.
@@ -865,7 +1163,12 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         transport.script(LSPMethod.completion, .reply(.object([
             "items": .array([
                 completionItemJSON(label: "Greeter", sortText: "100", insertTextFormat: nil),
-                completionItemJSON(label: "Greeting", sortText: "200", insertTextFormat: 2),
+                completionItemJSON(
+                    label: "Greeting",
+                    sortText: "200",
+                    insertText: "Greeting(${1:name})",
+                    insertTextFormat: 2
+                ),
                 completionItemJSON(label: "GreeterBox", sortText: "300", insertTextFormat: 1)
             ])
         ])))
@@ -876,6 +1179,52 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         )
 
         XCTAssertEqual(items.map(\.text), ["Greeter", "GreeterBox"])
+    }
+
+    /// The other half of the same rule, and the one that decides whether the
+    /// provisioned YAML server contributes anything at all: it marks **every**
+    /// property completion `Snippet` and never reads `snippetSupport`, so the
+    /// flag on its own is not a fact. An item that claims snippet format but
+    /// whose text contains neither of the grammar's two entry points (`$`, `\\`)
+    /// is the same string under both formats — dropping it would throw away a
+    /// completion for nothing.
+    func testASnippetFormatItemWithNoSnippetSyntaxIsKeptAsLiteralText() async {
+        transport.script(LSPMethod.completion, .reply(.object([
+            "items": .array([
+                completionItemJSON(
+                    label: "greeters",
+                    sortText: "100",
+                    insertText: "greeters:\n  ",
+                    insertTextFormat: 2
+                ),
+                completionItemJSON(
+                    label: "greeting",
+                    sortText: "200",
+                    insertText: "greeting: $1",
+                    insertTextFormat: 2
+                ),
+                completionItemJSON(
+                    label: "greetingEscaped",
+                    sortText: "300",
+                    insertText: "greetingEscaped: \\}",
+                    insertTextFormat: 2
+                )
+            ])
+        ])))
+        let provider = makeProvider()
+
+        let items = await provider.completions(
+            for: completionRequest(prefix: "gree", offset: identifierCaret)
+        )
+
+        // Only the placeholder-free one survives, and it arrives verbatim — the
+        // colon, newline and indent are what the server meant to insert, and what
+        // makes this a schema completion rather than a word. It carries no edits,
+        // so AppKit inserts `text` over the typed prefix itself, exactly as it
+        // does for a tree-sitter item.
+        XCTAssertEqual(items.map(\.text), ["greeters:\n  "])
+        XCTAssertEqual(items.first?.displayText, "greeters:\n  ")
+        XCTAssertEqual(items.first?.edits, [])
     }
 
     // MARK: - Completion: edits
@@ -1367,12 +1716,26 @@ final class LSPIntelligenceProviderTests: XCTestCase {
 
     // MARK: - Inline item construction
 
+    /// One `yaml-language-server` property completion, as that server really
+    /// spells it: no `sortText`, no `filterText`, `insertTextFormat: 2` on text
+    /// that carries no snippet syntax, and a value the schema wants indented
+    /// under the key.
+    private func schemaPropertyItemJSON(label: String) -> JSONValue {
+        .object([
+            "label": .string(label),
+            "insertText": .string("\(label):\n  "),
+            "insertTextFormat": .int(2),
+            "kind": .int(LSPCompletionItemKind.property.rawValue)
+        ])
+    }
+
     /// One completion item as the wire spells it — the authored counterpart to
     /// the recorded fixtures, for the three shapes this server never produced.
     private func completionItemJSON(
         label: String,
         sortText: String,
         detail: String? = nil,
+        insertText: String? = nil,
         insertTextFormat: Int? = 1,
         textEdit: (startLine: Int, startCharacter: Int, endLine: Int, endCharacter: Int)? = nil,
         textEditNewText: String? = nil
@@ -1380,7 +1743,7 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         var object: [String: JSONValue] = [
             "label": .string(label),
             "sortText": .string(sortText),
-            "insertText": .string(label),
+            "insertText": .string(insertText ?? label),
             "filterText": .string(label),
             "kind": .int(LSPCompletionItemKind.struct.rawValue)
         ]

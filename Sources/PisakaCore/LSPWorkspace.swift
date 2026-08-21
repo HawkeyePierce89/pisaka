@@ -911,7 +911,8 @@ public final class LSPWorkspace {
                 processID: processID,
                 rootURI: LSPWorkspace.rootURI(for: root),
                 rootPath: LSPWorkspace.rootPath(for: root),
-                initializationOptions: description.initializationOptions
+                initializationOptions: description.initializationOptions,
+                configuration: description.configuration
             )
             guard token == epoch else {
                 // The folder changed (or everything was shut down) while this

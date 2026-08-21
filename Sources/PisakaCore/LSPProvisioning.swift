@@ -33,8 +33,26 @@ public struct LSPConsentPrompt: Equatable, Sendable {
     public let server: LSPDownloadableServer
     public let displayName: String
     public let downloadByteCount: Int
+    /// What this server does on the network *after* the download, or `nil` when
+    /// the answer is "nothing" — so the banner prints a sentence it did not write.
+    ///
+    /// Consent is asked once and never again, so anything the user is agreeing to
+    /// has to be on this value: an unpinned schema fetch mentioned only in the
+    /// docs would be consented to by someone who was told about a download.
+    ///
+    /// **Computed, not stored**, unlike `displayName` beside it. A stored copy
+    /// would need a construction site to pass it, and a construction site that
+    /// forgot would produce a prompt that silently omits a disclosure — the one
+    /// failure this value exists to prevent, and one no test of *this* type could
+    /// see. Asking `server` makes "the banner and the Settings row cannot
+    /// disagree" hold by construction rather than by convention.
+    public var runtimeNetworkNote: String? { server.runtimeNetworkNote }
 
-    public init(server: LSPDownloadableServer, displayName: String, downloadByteCount: Int) {
+    public init(
+        server: LSPDownloadableServer,
+        displayName: String,
+        downloadByteCount: Int
+    ) {
         self.server = server
         self.displayName = displayName
         self.downloadByteCount = downloadByteCount
@@ -89,6 +107,15 @@ public struct LSPServerRow: Equatable, Identifiable, Sendable {
     /// The row has to say so, because a Remove button that stays live through
     /// that window is a second removal racing the first one's shutdown.
     public let isRemoving: Bool
+    /// The same sentence `LSPConsentPrompt` carries, for the row that offers the
+    /// same server — read from the same place, `server`, so the banner and
+    /// Preferences cannot disagree about what a server does on the network.
+    ///
+    /// Independent of `state`, `consent` and every button: what the server does
+    /// while it runs is true before it is installed and after it is removed, so
+    /// this row says it in every state it can be in — which is also why it is
+    /// computed rather than passed in (see `LSPConsentPrompt`'s).
+    public var runtimeNetworkNote: String? { server.runtimeNetworkNote }
 
     public var id: String { server.id }
 

@@ -656,6 +656,51 @@ final class LSPProtocolTypesTests: XCTestCase {
         }
     }
 
+    /// The rule `publish` reads a snippet-format item with, pinned directly
+    /// because it is a one-line predicate standing between a server's mislabelled
+    /// text and the user's file. `$` and `\\` are the snippet grammar's only two
+    /// entry points, so text without them is the same string under both formats;
+    /// the error, where there is one, is toward refusing.
+    func testSnippetSyntaxIsDetectedFromTheGrammarsTwoEntryPointsAlone() {
+        func item(_ inserted: String) -> LSPCompletionItem {
+            LSPCompletionItem(label: "x", insertText: inserted)
+        }
+
+        // Expands: tab stops, placeholders, choices, variables — and the escape,
+        // which is the half a `$`-only test would miss.
+        XCTAssertTrue(item("greeting: $1").carriesSnippetSyntax)
+        XCTAssertTrue(item("greeting: $0").carriesSnippetSyntax)
+        XCTAssertTrue(item("greeting: ${1:name}").carriesSnippetSyntax)
+        XCTAssertTrue(item("greeting: ${1|a,b|}").carriesSnippetSyntax)
+        XCTAssertTrue(item("$TM_FILENAME").carriesSnippetSyntax)
+        XCTAssertTrue(item("literal \\} brace").carriesSnippetSyntax)
+        // A dollar that is only a dollar still answers `true`: one candidate is
+        // the price of never guessing at an expansion.
+        XCTAssertTrue(item("PATH=$HOME").carriesSnippetSyntax)
+
+        // Literal under either format — including the shape yaml-language-server
+        // mislabels, which is the whole reason the flag is not read alone.
+        XCTAssertFalse(item("services:\n  ").carriesSnippetSyntax)
+        XCTAssertFalse(item("services").carriesSnippetSyntax)
+        XCTAssertFalse(item("").carriesSnippetSyntax)
+        XCTAssertFalse(item("- (array item)").carriesSnippetSyntax)
+
+        // It asks the text that will be *inserted*, by the spec's precedence, not
+        // the label: a clean label over a placeholder edit must not pass.
+        let mislabelled = LSPCompletionItem(
+            label: "greeting",
+            insertText: "greeting",
+            textEdit: LSPCompletionEdit(
+                range: LSPRange(
+                    start: LSPPosition(line: 0, character: 0),
+                    end: LSPPosition(line: 0, character: 8)
+                ),
+                newText: "greeting: ${1:name}"
+            )
+        )
+        XCTAssertTrue(mislabelled.carriesSnippetSyntax)
+    }
+
     func testATextEditRangeCanBeWiderThanASingleCaretPosition() throws {
         // The identifier fixture's edits replace the four characters already
         // typed, so the client's own prefix range is not what gets replaced —
@@ -727,6 +772,24 @@ final class LSPProtocolTypesTests: XCTestCase {
         XCTAssertEqual(response.items[0].insertedText, "bare")
         XCTAssertEqual(response.items[0].rankingKey, "bare")
         XCTAssertFalse(response.items[0].needsResolve)
+    }
+
+    /// `insertTextMode` is decoded because the multi-line rule reads it, and
+    /// absent stays absent through the resolve round trip: an item this client
+    /// sends back must not acquire a mode the server never stated.
+    func testInsertTextModeDecodesAndAnAbsentOneIsNotEncodedBack() throws {
+        let response = try JSONDecoder().decode(
+            LSPCompletionResponse.self,
+            from: Data(#"[{"label":"asIs","insertTextMode":1},{"label":"silent"}]"#.utf8)
+        )
+        XCTAssertEqual(response.items[0].insertTextMode, 1)
+        XCTAssertNil(response.items[1].insertTextMode)
+
+        let encoded = try JSONEncoder().encode(response.items[1])
+        XCTAssertFalse(
+            String(decoding: encoded, as: UTF8.self).contains("insertTextMode"),
+            "an absent field must not round-trip as `null` — the resolve params are the item verbatim"
+        )
     }
 
     func testAnUnknownItemKindDecodesInsteadOfDroppingTheItem() throws {

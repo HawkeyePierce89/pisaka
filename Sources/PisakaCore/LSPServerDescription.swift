@@ -48,6 +48,23 @@ public struct LSPServerDescription: Equatable, Hashable, Sendable, Identifiable 
     /// having an opinion about its shape.
     public let initializationOptions: JSONValue?
 
+    /// The server's own settings, keyed by the configuration *section* it asks
+    /// for — `{"yaml": {…}}` for a server that pulls the `yaml` section.
+    ///
+    /// Opaque for the same reason as `initializationOptions`: it is *that
+    /// server's* configuration, and Core has no opinion about its shape. The two
+    /// are not interchangeable, though — `initializationOptions` travels once,
+    /// inside `initialize`, while this value answers the two channels a server
+    /// may take settings on afterwards (`LSPSession.start`, which sends
+    /// `workspace/didChangeConfiguration` and answers `workspace/configuration`
+    /// out of it, section by section).
+    ///
+    /// `nil` for every server that needs none, which is all of them but the YAML
+    /// one — and `nil` is not merely a default here but the statement that the
+    /// handshake is byte-for-byte what it was: no notification is sent and every
+    /// pulled section is still answered `null`.
+    public let configuration: JSONValue?
+
     /// Environment variables laid **over** the app's own for this server's
     /// process, empty for almost every server.
     ///
@@ -73,6 +90,7 @@ public struct LSPServerDescription: Equatable, Hashable, Sendable, Identifiable 
         launch: Launch,
         arguments: [String] = [],
         initializationOptions: JSONValue? = nil,
+        configuration: JSONValue? = nil,
         environment: [String: String] = [:]
     ) {
         self.id = id
@@ -80,6 +98,7 @@ public struct LSPServerDescription: Equatable, Hashable, Sendable, Identifiable 
         self.launch = launch
         self.arguments = arguments
         self.initializationOptions = initializationOptions
+        self.configuration = configuration
         self.environment = environment
     }
 

@@ -36,10 +36,11 @@ description of each — and of what it deliberately does *not* do — is in
   member completion). A status-bar lightbulb (and a Preferences checkbox) turns
   completion off entirely.
 - **Language servers**, all optional and macOS-only: Swift via Xcode's
-  `sourcekit-lsp` (found through `xcrun`, nothing bundled); TypeScript/JavaScript
-  and Python via servers the app *offers to download once* (checksum-pinned,
+  `sourcekit-lsp` (found through `xcrun`, nothing bundled); TypeScript/JavaScript,
+  Python and YAML via servers the app *offers to download once* (checksum-pinned,
   installed under `~/Library/Application Support/Pisaka/`, removable in
-  Preferences); Go via `gopls` (yours if you have it, otherwise built once with
+  Preferences — the YAML one goes on fetching JSON schemas while it runs, which
+  the download prompt says before you accept); Go via `gopls` (yours if you have it, otherwise built once with
   your own `go`); Rust via `rust-analyzer` (yours if you have it, otherwise the
   official binary downloaded once — a `cargo` is required either way). Every
   language falls back to the built-in index silently — no alerts, ever. Where a
@@ -97,12 +98,18 @@ Files app). No terminal, no language servers, no commit dialog — details in
 - macOS: the `git` CLI on your `PATH` for the git features (iOS uses libgit2
   in-process). Optional, each unlocking its language's semantic intelligence:
   Xcode (Swift), a Go toolchain (`gopls`), a Rust toolchain (`rust-analyzer`),
-  and a one-time download you explicitly accept (TypeScript/JavaScript, Python).
+  and a one-time download you explicitly accept (TypeScript/JavaScript, Python,
+  YAML).
 - Optional: a LeetCode account for the LeetCode integration.
 - Network: a release build's only self-initiated request is Sparkle's update
   check against `github.com` (consent asked once, nothing about you or your
   projects is sent). Everything else that touches the network — git remotes,
-  the server downloads, LeetCode — happens only when you use it.
+  the server downloads, LeetCode — happens only when you use it. One thing keeps
+  going after its download: the YAML language server, once installed, looks a
+  document's JSON schema up while you edit — a catalog from `schemastore.org`,
+  then the schema from whatever host that catalog — or the file itself, in a
+  `# yaml-language-server: $schema=` line or a top-level `$schema:` key — names. It is the one unpinned request
+  Pisaka's own code does not make, and it is stated in the consent prompt.
 
 ## Build & Run
 
@@ -226,7 +233,9 @@ The headline items; the complete list, with the reasoning per item, is in
   restore, every language server, and automatic updates. iOS covers the editor,
   the index-based intelligence, the libgit2-backed git essentials, and LeetCode.
 - Language servers answer Go to Definition, completion and hover types only — no
-  diagnostics, rename or Find Usages — and their versions are pinned in the app.
+  diagnostics, rename or Find Usages — and their versions are pinned in the app
+  (the YAML server's *schemas* are not: those arrive from the network as you
+  edit).
   The hover popover is macOS-only, cannot be scrolled or selected (long answers
   are cut), and has no keyboard trigger. The index fallback matches *names*: no
   scope, type inference, reach into dependencies outside the opened folder — and

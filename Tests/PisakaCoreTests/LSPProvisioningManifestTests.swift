@@ -354,7 +354,7 @@ final class LSPProvisioningManifestTests: XCTestCase {
     /// `Resources/Licenses/`, and the reason `LicenseCoverageTests` says the
     /// package-granular comparison is a floor rather than the whole check.
     func testEveryComponentDeclaresALicenseItActuallyShips() {
-        let known: Set<String> = ["MIT", "Apache-2.0"]
+        let known: Set<String> = ["MIT", "Apache-2.0", "ISC", "BSD-3-Clause"]
 
         // The one component whose installed tree contains no license text at all,
         // pinned by id so a second one cannot appear by accident. A bare `.gz`
@@ -362,6 +362,20 @@ final class LSPProvisioningManifestTests: XCTestCase {
         // for `LSPInstalledLicenses` to read; every other component here must
         // ship its notices from inside its own tree.
         let shipsNoLicenseText: Set<String> = ["rust-analyzer"]
+
+        // The one *artifact* inside a component that ships no license text of its
+        // own — `@vscode/l10n` 0.0.18 publishes none, declaring MIT in its
+        // `package.json` alone — so the "nothing lands unacknowledged" rule below
+        // cannot be satisfied for it by any path that exists in the tarball.
+        //
+        // Pinned by destination, as a decision: the alternative is dropping the
+        // package from `licenseFileSubpaths` silently, which is indistinguishable
+        // from the mistyped subpath this suite exists to catch, and which would
+        // let a *second* unacknowledged package in behind it. The obligation is
+        // met by the declared id in the component's SPDX expression; if upstream
+        // ever ships a file, it belongs in `licenseFileSubpaths` and off this
+        // list, and the assertion below is what says so.
+        let landsWithoutALicenseText: Set<String> = ["node_modules/@vscode/l10n"]
 
         for component in manifest.components {
             // `licenseSPDX` is an *expression*, so the operands are validated
@@ -396,6 +410,16 @@ final class LSPProvisioningManifestTests: XCTestCase {
             // Nothing lands unacknowledged…
             for architecture in LSPHostArchitecture.allCases {
                 for artifact in component.artifacts(for: architecture) {
+                    guard !landsWithoutALicenseText.contains(artifact.destinationSubpath) else {
+                        XCTAssertFalse(
+                            component.licenseFileSubpaths.contains { isUnder($0, artifact.destinationSubpath) },
+                            """
+                            \(component.id): “\(artifact.destinationSubpath)” now acknowledges a license text — \
+                            take it off the exception list rather than leaving both statements standing
+                            """
+                        )
+                        continue
+                    }
                     XCTAssertTrue(
                         component.licenseFileSubpaths.contains { isUnder($0, artifact.destinationSubpath) },
                         "\(component.id): nothing acknowledges what lands at “\(artifact.destinationSubpath)”"
@@ -536,7 +560,7 @@ final class LSPProvisioningManifestTests: XCTestCase {
     /// express. So the downloadable-server enum stays exactly what it was, and this
     /// is the assertion that adding a component did not quietly widen it.
     func testTheDownloadableServerSetIsUnchangedByTheRustComponent() {
-        XCTAssertEqual(Set(LSPDownloadableServer.allCases.map(\.rawValue)), ["typescript", "python"])
+        XCTAssertEqual(Set(LSPDownloadableServer.allCases.map(\.rawValue)), ["typescript", "python", "yaml"])
         XCTAssertFalse(
             LSPDownloadableServer.allCases.map(\.serverComponentID).contains("rust-analyzer"),
             "rust-analyzer is not a 2b server; its lifecycle lives in the Rust model"
@@ -577,7 +601,10 @@ final class LSPProvisioningManifestTests: XCTestCase {
             XCTAssertTrue(seen.isDisjoint(with: server.languages), "\(server.rawValue) overlaps another server")
             seen.formUnion(server.languages)
         }
-        XCTAssertEqual(seen, [.typescript, .javascript, .python], "the served language set changed")
+        XCTAssertEqual(
+            seen, [.typescript, .javascript, .python, .yaml],
+            "the served language set changed"
+        )
     }
 
     // MARK: - The registry entries
@@ -604,6 +631,10 @@ final class LSPProvisioningManifestTests: XCTestCase {
             node_modules/typescript, which the server prefers and which D11 says still wins.
             """
         )
+        XCTAssertNil(
+            description.configuration,
+            "the TypeScript server takes no settings from this layer; its handshake is what it was"
+        )
     }
 
     func testThePythonEntryRunsNodeOnPyrightAndConfiguresNothing() throws {
@@ -618,6 +649,10 @@ final class LSPProvisioningManifestTests: XCTestCase {
             "--stdio",
         ])
         XCTAssertNil(description.initializationOptions)
+        XCTAssertNil(
+            description.configuration,
+            "pyright takes no settings from this layer; its handshake is what it was"
+        )
     }
 
     /// Every entry point and executable a description names has to be inside the
@@ -648,6 +683,199 @@ final class LSPProvisioningManifestTests: XCTestCase {
         let node = try XCTUnwrap(manifest.component("node"))
         XCTAssertEqual(node.executableSubpath, "bin/node")
         XCTAssertEqual(node.artifacts.map(\.destinationSubpath), ["", ""], "node unpacks into its version directory")
+    }
+
+    // MARK: - yaml-language-server
+
+    /// The first component whose **whole runtime closure** is pinned, and the
+    /// reason that is not a slippery slope: `server.js` `require`s its
+    /// dependencies at run time rather than shipping a bundle, so a package
+    /// missing from this list is a server that dies on start — the same failure a
+    /// wrong `executableSubpath` produces, and the same reason it is pinned data.
+    ///
+    /// The closure is asserted by value: twenty packages, each at the version and
+    /// the compressed size resolved by the procedure in `core-provisioning.md`,
+    /// each landing flat at `node_modules/<package>`. Flat is load-bearing —
+    /// nothing here resolves versions, so a closure with a conflict could not be
+    /// laid out this way at all, and the fact that it has none is what makes
+    /// Node's ordinary upward walk from `server.js` find every one of them.
+    ///
+    /// Nothing but this test can see a dropped member: the manifest still
+    /// compiles, every remaining digest still verifies, the install still
+    /// succeeds, and the server exits on its first `require`.
+    func testTheYAMLComponentPinsItsWholeRuntimeClosure() throws {
+        let component = try XCTUnwrap(manifest.component("yaml-language-server"))
+
+        XCTAssertEqual(component.version, "1.24.0")
+        XCTAssertEqual(component.requires, ["node"], "it is a Node program and pins no second runtime")
+        XCTAssertEqual(
+            manifest.installationOrder(for: "yaml-language-server").map(\.id),
+            ["node", "yaml-language-server"],
+            "the runtime installs first (D13)"
+        )
+        XCTAssertEqual(
+            component.executableSubpath,
+            "node_modules/yaml-language-server/out/server/src/server.js",
+            "the entry point is the server module, not the package's `bin` shim"
+        )
+
+        let expected: [(String, String, Int, String)] = [
+            ("yaml-language-server", "yaml-language-server-1.24.0.tgz", 646_765, "11a321032012131f2ccdf7952dc347ce05291c66931a5de2f449b2dfc81f24b2"),
+            ("ajv", "ajv-8.20.0.tgz", 217_611, "b2f0b3a893bbb8cc5efb6814f08b1499e19e31d5dd73683f5893382f48f6e7b3"),
+            ("ajv-draft-04", "ajv-draft-04-1.0.0.tgz", 8_735, "b2328acf9b3a5b1b3a098789770c2dd34ed86b5913c904c056091ec10319c2e7"),
+            ("ajv-i18n", "ajv-i18n-4.2.0.tgz", 25_980, "b84c90f14594a447bf59badc6a9b01e75049400186adec9c85b52e1709867239"),
+            ("@vscode/l10n", "l10n-0.0.18.tgz", 4_548, "f1c2dc897488595f6bb42121869f525c6c6a5f7c8dca550754199c3251ed7c5c"),
+            ("fast-deep-equal", "fast-deep-equal-3.1.3.tgz", 3_656, "b019a0980f27638dc3f85836b0e478f188e00d7a6e5852c0819fa86f56e47b8f"),
+            ("fast-uri", "fast-uri-3.1.5.tgz", 32_112, "82a71e7e3716dc8c392cac0762bce80614cf539ef22000415e26eaf5c453ce2f"),
+            ("json-schema-traverse", "json-schema-traverse-1.0.0.tgz", 6_074, "023222622df29fc274bde5d3590e47aa1d4a8e3c1d6e2aba029948ed79799b21"),
+            ("jsonc-parser", "jsonc-parser-3.3.1.tgz", 27_354, "4a0315b8671e7463bae7af7c142cdf19e9aa7ba39eb36dc2df383b8648e3cbc9"),
+            ("picomatch", "picomatch-4.0.5.tgz", 24_079, "e89c478225a42b3793bb4a39fd576de142c9829c26a5bd71782249e48b112f51"),
+            ("prettier", "prettier-3.9.6.tgz", 2_800_155, "997da95cf2ae81053cafc79ef122a6e8dc12e3f2c619d57eb1f2e19525fb212f"),
+            ("request-light", "request-light-0.5.8.tgz", 10_534, "4b6d4b48fa05056435b300a4a5f904bacbe0e6ddfa28bb44b729eb64f24375b9"),
+            ("require-from-string", "require-from-string-2.0.2.tgz", 1_816, "cb694a4965908f7775a0c757f00cf4e624d193cd71d77988fbcca0f597b88d82"),
+            ("vscode-jsonrpc", "vscode-jsonrpc-8.2.0.tgz", 35_427, "3da44531c398f1545074cb728e359a822f35b9f8ac7171c847f42f0728b9c7cb"),
+            ("vscode-languageserver", "vscode-languageserver-9.0.1.tgz", 32_720, "6cd7f463ae7872e588a4dd5ed5149475fe32e53517509a81e715eb0540602412"),
+            ("vscode-languageserver-protocol", "vscode-languageserver-protocol-3.17.5.tgz", 59_008, "7473eb2d2163f3f8bea09644f9d803789a195e596b65d3946c4157e583e3ccc8"),
+            ("vscode-languageserver-textdocument", "vscode-languageserver-textdocument-1.0.13.tgz", 8_425, "46c8c250fa7667a9503cffb506512b99557784dfefbd8e318944856ca11ffbb9"),
+            ("vscode-languageserver-types", "vscode-languageserver-types-3.17.5.tgz", 71_382, "d673f9e7f8bbe51351be51c58f32d4dcfa97a670ebb86bc633368394c609cac0"),
+            ("vscode-uri", "vscode-uri-3.1.0.tgz", 59_768, "c6ec752d7a4858237389b23fb4d5ac05c2f1f606071cd212a9b54730e43cfc54"),
+            ("yaml", "yaml-2.8.3.tgz", 111_837, "9539805d7447def2bed5c5b4acacc283362c5e80abc5d93472b2f35f0cbf85ad"),
+        ]
+
+        XCTAssertEqual(component.artifacts.count, expected.count, "the closure gained or lost a package")
+        for (index, (package, fileName, byteCount, sha256)) in expected.enumerated() {
+            guard index < component.artifacts.count else { break }
+            let artifact = component.artifacts[index]
+            XCTAssertEqual(artifact.url.lastPathComponent, fileName, "\(package) is pinned at another version")
+            XCTAssertEqual(artifact.byteCount, byteCount, "\(package)'s download size is not what was measured")
+            // The digest by value, the way `rust-analyzer`'s is. Every other
+            // assertion in this suite checks a digest's *shape*, which a
+            // hand-transcribed hex string passes while naming the wrong bytes —
+            // and a wrong digest is not a wrong file, it is an install that fails
+            // verification for everyone, forever, with nothing in the repository
+            // able to say why. Twenty of them were transcribed at once.
+            XCTAssertEqual(
+                artifact.sha256, sha256,
+                "\(package)'s digest is not the one measured from the bytes that arrived"
+            )
+            XCTAssertEqual(
+                artifact.destinationSubpath, "node_modules/\(package)",
+                "\(package) must land flat, where Node's upward walk from server.js looks"
+            )
+            XCTAssertEqual(artifact.format, .tarGzip)
+            XCTAssertEqual(artifact.stripComponents, 1, "an npm tarball wraps its contents in `package/`")
+            XCTAssertNil(artifact.architecture, "an npm tarball is architecture-independent")
+        }
+
+        // The figure the consent prompt puts in front of someone, per
+        // architecture — identical on both, since nothing here is native.
+        for architecture in LSPHostArchitecture.allCases {
+            XCTAssertEqual(component.downloadByteCount(for: architecture), 4_187_986)
+        }
+    }
+
+    /// The registry entry, in the shape the other two have — plus the one field
+    /// no other server uses.
+    ///
+    /// `configuration` is the whole of why this server works at all. The pinned
+    /// 1.24.0 bundle pulls `workspace/configuration` on `initialized`
+    /// unconditionally, for `yaml`, `http`, `[yaml]`, `editor` and `files`; this
+    /// value is what the `yaml` section is answered with, and `schemaStore.enable`
+    /// is what makes a compose file complete from schemastore rather than from
+    /// whatever the buffer happens to contain. Stated rather than left to
+    /// upstream's default — which is `true` today, so the behaviour would work by
+    /// luck and break silently on a pin bump.
+    func testTheYAMLEntryRunsNodeOnTheServerAndCarriesItsSchemaStoreSetting() throws {
+        let description = try XCTUnwrap(LSPDownloadableServer.yaml.serverDescription(manifest: manifest, layout: layout))
+        let base = "/tmp/pisaka-servers"
+
+        XCTAssertEqual(description.id, "yaml-language-server")
+        XCTAssertEqual(description.languages, [.yaml])
+        XCTAssertEqual(description.launch, .executable(path: "\(base)/node/24.19.0/bin/node"))
+        XCTAssertEqual(description.arguments, [
+            "\(base)/yaml-language-server/1.24.0/node_modules/yaml-language-server/out/server/src/server.js",
+            "--stdio",
+        ])
+        XCTAssertNil(
+            description.initializationOptions,
+            "this server takes its settings on the configuration channels, not in `initialize`"
+        )
+        XCTAssertEqual(
+            description.configuration,
+            .object([
+                "yaml": .object([
+                    "schemaStore": .object(["enable": .bool(true)]),
+                    "completion": .bool(true),
+                    "hover": .bool(true),
+                ]),
+                "http": .object(["proxyStrictSSL": .bool(true)]),
+            ]),
+            "the section keys must be what the server pulls — an unnamed section is answered null"
+        )
+        XCTAssertEqual(
+            description.configuration?["http"]?["proxyStrictSSL"],
+            .bool(true),
+            """
+            Asserted on its own because it is a security setting, not a preference: the pinned \
+            bundle reads `config.http?.proxyStrictSSL ?? false` and hands it to `request-light`, \
+            whose `strictSSL` starts `true` and is only ever lowered by that call. Leaving the \
+            `http` section null therefore turns TLS certificate validation *off* for every \
+            unpinned schema fetch D28 discloses.
+            """
+        )
+        XCTAssertNil(LSPDownloadableServer.yaml.tsserverSubpath, "there is no TypeScript in this server's story")
+    }
+
+    /// Three SPDX ids, pinned by hand for the reason pyright's two are: the
+    /// heading `LSPInstalledLicenses` prints sits over the very texts below it, and
+    /// a single "MIT" compiles, passes every other assertion here and captions
+    /// `yaml`'s ISC and `fast-uri`'s BSD-3-Clause with the wrong license.
+    ///
+    /// The second half is the `@vscode/l10n` exception, asserted as a decision
+    /// rather than left as an absence: the package publishes no license file at
+    /// 0.0.18, so there is nothing inside the installed tree for the
+    /// Acknowledgements surface to read, and the only honest record of that is a
+    /// statement. The moment upstream ships one, both this and the exception in
+    /// `testEveryComponentDeclaresALicenseItActuallyShips` fail.
+    func testTheYAMLComponentNamesEveryLicenseItsClosureIsUnder() throws {
+        let component = try XCTUnwrap(manifest.component("yaml-language-server"))
+        XCTAssertEqual(component.licenseSPDX, "MIT AND ISC AND BSD-3-Clause")
+
+        // Every notice found by the `tar tzf | grep` step, in upstream's own
+        // spelling — three different casings appear across the closure and a path
+        // this layer cannot read is dropped silently at display time.
+        for subpath in [
+            "node_modules/yaml/LICENSE",                                   // ISC
+            "node_modules/fast-uri/LICENSE",                               // BSD-3-Clause
+            "node_modules/prettier/THIRD-PARTY-NOTICES.md",                // a second notice
+            "node_modules/vscode-jsonrpc/thirdpartynotices.txt",           // …and five more like it
+            "node_modules/vscode-languageserver/thirdpartynotices.txt",
+            "node_modules/vscode-languageserver-protocol/thirdpartynotices.txt",
+            "node_modules/vscode-languageserver-textdocument/thirdpartynotices.txt",
+            "node_modules/vscode-languageserver-types/thirdpartynotices.txt",
+            "node_modules/jsonc-parser/LICENSE.md",                        // .md
+            "node_modules/require-from-string/license",                    // lowercase
+            "node_modules/vscode-uri/LICENSE.md",
+        ] {
+            XCTAssertTrue(component.licenseFileSubpaths.contains(subpath), "“\(subpath)” is no longer acknowledged")
+        }
+
+        // One acknowledged text per package the component installs, except the
+        // one that ships none.
+        let packagesWithNoNotice = Set(
+            component.artifacts
+                .map(\.destinationSubpath)
+                .filter { destination in
+                    !component.licenseFileSubpaths.contains { $0.hasPrefix(destination + "/") }
+                }
+        )
+        XCTAssertEqual(
+            packagesWithNoNotice, ["node_modules/@vscode/l10n"],
+            """
+            @vscode/l10n 0.0.18 publishes no license file and is the stated exception; \
+            anything else here ships one and it must be listed
+            """
+        )
     }
 
     /// A manifest that does not describe a server answers `nil` rather than

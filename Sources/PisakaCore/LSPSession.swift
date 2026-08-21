@@ -130,6 +130,11 @@ public actor LSPSession {
     /// What the server said it can do, once the handshake landed.
     public private(set) var capabilities: LSPServerCapabilities?
 
+    /// This server's settings keyed by section, exactly as its description
+    /// carried them (`LSPServerDescription.configuration`). Taken at `start` and
+    /// never changed afterwards: it is pinned data, not a settings surface.
+    private var configuration: JSONValue?
+
     public init(transport: LSPTransport, budgets: Budgets = .standard) {
         self.transport = transport
         self.budgets = budgets
@@ -157,16 +162,33 @@ public actor LSPSession {
     /// Any failure here terminates the session *and the process*: a server that
     /// never finished initialising is not going to start, and leaving it running
     /// is exactly the orphan the post-completion check greps for.
+    ///
+    /// `configuration` — the description's, verbatim — is delivered on both
+    /// channels a server may take settings on, because which one it reads is the
+    /// server's decision and not ours: a `workspace/didChangeConfiguration`
+    /// notification carrying `{settings: …}` right after `initialized`, and every
+    /// `workspace/configuration` pull answered section by section out of the same
+    /// value for as long as the session lives. No server-specific code exists
+    /// anywhere here; the value is data on the description.
+    ///
+    /// With no configuration nothing changes for the five servers that ship
+    /// without one: the notification is not sent, and a pull is still answered
+    /// `null` per item. The client capability `workspace.configuration` stays
+    /// `false` for the same reason — a server that pulls does so regardless, and
+    /// advertising `true` would rewrite the handshake for all of them for no
+    /// gain.
     @discardableResult
     public func start(
         processID: Int?,
         rootURI: String?,
         rootPath: String? = nil,
         clientInfo: LSPClientInfo? = LSPClientInfo(name: "Pisaka", version: PisakaCore.version),
-        initializationOptions: JSONValue? = nil
+        initializationOptions: JSONValue? = nil,
+        configuration: JSONValue? = nil
     ) async throws -> LSPServerCapabilities {
         guard phase == .notStarted else { throw closureReason ?? .notRunning }
         phase = .running
+        self.configuration = configuration
 
         // Taken exactly once, before anything is written: a reply to `initialize`
         // can arrive before `send` returns on a fast server.
@@ -203,6 +225,15 @@ public actor LSPSession {
                 method: LSPMethod.initialized,
                 params: .object([:])
             )))
+            // Push, for the servers that read the payload — and only when there
+            // is something to push, so a server with no configuration sees the
+            // handshake it saw before this existed.
+            if let configuration {
+                try send(.notification(LSPNotificationMessage(
+                    method: LSPMethod.didChangeConfiguration,
+                    params: .object(["settings": configuration])
+                )))
+            }
             return initialized.capabilities
         } catch {
             close(reason: (error as? LSPSessionError) ?? .handshakeRejected("\(error)"))
@@ -493,14 +524,19 @@ public actor LSPSession {
             response = LSPResponseMessage(id: request.id, result: .null)
 
         case LSPMethod.workspaceConfiguration:
-            // `workspace.configuration` is advertised as `false`, so this too is
-            // a server going beyond what was agreed. The spec's result is one
-            // value per requested item; `null` for each says "no setting", which
-            // is exactly true — Pisaka has no per-server settings surface.
-            let items = request.params?["items"]?.arrayValue?.count ?? 0
+            // `workspace.configuration` is advertised as `false`, so this is a
+            // server going beyond what was agreed — and it is nonetheless *the*
+            // channel that carries a setting, because a server that asks anyway
+            // (yaml-language-server pulls unconditionally on `initialized`,
+            // ignoring the pushed payload) takes its settings from the answer and
+            // from nowhere else. The spec's result is one value per requested
+            // item, in order: this server's own section where the description
+            // names it, and `null` — "no setting", which stays exactly true for
+            // every server whose description carries none — where it does not.
+            let items = request.params?["items"]?.arrayValue ?? []
             response = LSPResponseMessage(
                 id: request.id,
-                result: .array(Array(repeating: .null, count: items))
+                result: .array(items.map(setting(forRequestedItem:)))
             )
 
         default:
@@ -513,6 +549,22 @@ public actor LSPSession {
             )
         }
         try? send(.response(response))
+    }
+
+    /// One item of a `workspace/configuration` request → the value to answer it
+    /// with.
+    ///
+    /// A section is matched by its exact name against the top level of the
+    /// configuration object — the spelling the server asks for is the spelling
+    /// the description must use (`"[yaml]"` is a section name like any other, not
+    /// a nested path). An item with no `section`, a section this server's
+    /// configuration does not name, and any request at all to a server without a
+    /// configuration all answer `null`: absent, not empty, which is what a server
+    /// reads as "use your default".
+    private func setting(forRequestedItem item: JSONValue) -> JSONValue {
+        guard let section = item["section"]?.stringValue,
+              let value = configuration?[section] else { return .null }
+        return value
     }
 
     /// The byte stream ended: the process exited, crashed, or was terminated.

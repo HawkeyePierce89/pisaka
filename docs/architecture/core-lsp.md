@@ -369,9 +369,12 @@ document, together with the limits they carry.
     the request we are waiting on: `client/registerCapability` and
     `client/unregisterCapability` get `null` (dynamic registration is declined in
     the capabilities, so a server should not ask; acknowledging is cheaper than an
-    error it might treat as fatal), `workspace/configuration` gets one `null` per
-    requested item (Pisaka has no per-server settings surface, so "no setting" is
-    exactly true), and anything else gets `MethodNotFound`. Notifications are
+    error it might treat as fatal), `workspace/configuration` gets one value per
+    requested item — this server's own section where its description names it, and
+    `null`, "no setting", where it does not (D27) — and anything else gets
+    `MethodNotFound`. For the five servers whose description carries no
+    configuration that is one `null` per item, byte-for-byte the answer this file
+    gave before D27 existed. Notifications are
     ignored — diagnostics, logs and progress are all noise here, and ignoring an
     unknown one is what the spec asks for anyway.
     **A framing error is terminal, a bad *payload* is not.** `ingest` distinguishes
@@ -408,6 +411,13 @@ document, together with the limits they carry.
     several; `initializationOptions` is an opaque `JSONValue` passed through
     verbatim, since it is *that server's* configuration and Core has no business
     having an opinion about its shape.
+    `configuration` is the second opaque value and is opaque for the same reason,
+    but the two are not interchangeable (D27): `initializationOptions` travels once,
+    inside `initialize`, while `configuration` is a settings object **keyed by the
+    section a server asks for** (`{"yaml": {…}}`) and answers the two channels a
+    server may take settings on afterwards. `nil` for every server but the YAML
+    one, and `nil` is a statement rather than a default — it is what makes the
+    handshake of the other five byte-identical to what it was.
     `environment` is an **overlay and never a replacement** — the app merges it on
     top of the process environment rather than assigning it, so everything a server
     resolves out of `PATH`/`HOME`/`DEVELOPER_DIR` keeps working. It is empty for
@@ -1136,18 +1146,76 @@ document, together with the limits they carry.
     **The server's ranking is the ranking** (D6): items ordered by `sortText ??
     label` with the server's own array order preserved on ties (the enumerated index
     is carried as the last sort key rather than trusting `sorted(by:)` to be
-    stable), then only hygiene — drop the item that claims snippet format, drop the
-    item identical to what was typed, collapse
+    stable), then only hygiene — drop the item that would expand as a snippet, drop
+    the item identical to what was typed, collapse
     duplicates by inserted text (first wins), cap at
     `SymbolIntelligenceProvider.defaultCompletionLimit`.
+    **The prefix match decides one thing: which half the cap reaches first.**
+    sourcekit-lsp, tsserver and pyright answer a prefix with the items that answer
+    it, so this loop asked nothing for four phases; `yaml-language-server` answers
+    the caret's entire schema property set regardless of the prefix (93 items in a
+    compose service, identical to the empty-prefix answer), so the cap alone
+    decides what is seen and `image` falls below an alphabetical 30. The one
+    matcher every other candidate source uses — `FuzzyMatch.matches(_:query:)` over
+    `filterText ?? label`, the spec's own filtering key, never the inserted text
+    (a YAML object property inserts `services:\n  `) — now partitions the list ahead of the
+    sort. It is neither a filter nor a ranking: nothing the server sent is dropped
+    for failing it (its own matching may legitimately be looser — the recorded
+    transcript answers `Gree` with `VM_MEMORY_MALLOC_LARGE_REUSED`), and inside
+    each half `sortText` and the server's array order still decide. An empty prefix
+    (the bare-dot member case) puts everything in one half.
     **The snippet drop is enforcement, not tidiness.** D5 advertises
     `snippetSupport: false`, but a client capability is a *request*: a server that
     ignores it answers with `insertTextFormat: 2` and a `newText` full of
     `${1:…}` placeholders, and a completion item is the one thing in this layer
     whose result is written to the user's file rather than merely displayed. So the
-    field is read, not just decoded: absent means plain text (the spec's default)
-    and is kept, anything other than `1` is dropped, by the same rule as everything
-    else here — no answer is better than a guessed one.
+    field is read, not just decoded — but it is read *with* the text it labels,
+    because the flag alone is not a fact either way: an item is dropped when it
+    claims snippet format **and** `LSPCompletionItem.carriesSnippetSyntax` (a `$`
+    or a `\\`, the whole grammar's two entry points). Absent means plain text (the
+    spec's default) and is kept. `yaml-language-server` is why the second half
+    exists: it marks every property completion `Snippet` and never reads
+    `snippetSupport`, so a flag-only test would throw away `services:\n  ` —
+    literal text under either format — and with it every completion the server was
+    downloaded for. No answer is still better than a guessed one; a
+    placeholder-free snippet is not a guess.
+    **Multi-line inserted text is re-indented to the caret's line.** A server
+    that answers with more than one line spells the lines after the first relative
+    to the *item*, not to the buffer, and expects the client to add the current
+    indentation back — LSP's `insertTextMode.adjustIndentation`.
+    `yaml-language-server` is the case in hand and it is not a corner one: an
+    object-valued schema property inserts `deploy:\n  `, the same eleven
+    characters at every nesting depth, so writing it verbatim four columns in
+    leaves the caret at column 2 and what the user types next becomes a sibling of
+    the grandparent key — in a document that still parses.
+    `indentingContinuationLines(of:forInsertionAt:in:lineStarts:)` prefixes the
+    insertion line's own leading whitespace (measured *up to* the insertion point,
+    per the spec's wording) to every following non-empty line, leaves the first
+    line and each line's own relative indent alone, and returns single-line text
+    identical — the test that comes first, because this runs per item per
+    keystroke. It is applied before the drop rules and the dedup, so the row, the
+    dedup key and the primary edit are one string; `resolveEdits(for:)` applies
+    the same rule, since an item whose edits arrive late inserts the same text.
+    Splitting on `\n` alone is complete: a `\r\n` splits into `…\r` plus the next
+    line, and the prefix lands after the `\n` either way — **but the test that
+    gets there is over scalars, not `Character`s**, because `\r\n` is a single
+    grapheme that is not `"\n"`: a `contains("\n")` grapheme test answers `false`
+    for exactly the CRLF text the splitter goes on to split, handing back the
+    unindented insertion the rule exists to prevent. The guard and the split must
+    agree on what a newline is. That split also decides what *empty* looks like:
+    each line's terminating `\r` lands at the end of the previous component, so a
+    blank CRLF line arrives as `"\r"` and an `isEmpty` test would indent it —
+    writing trailing whitespace into a line the server left empty. The
+    "stays empty" rule is `isBlank(_:)` (`""` or `"\r"`) for that reason.
+    Both call sites ask through `insertedText(of:forInsertionAt:in:lineStarts:)`,
+    which is where the one exception lives: an item carrying
+    **`insertTextMode: 1` (`asIs`)** is inserted verbatim, that value being a
+    server stating outright that its continuation lines are already spelled
+    against the buffer — adjusting those would indent them twice. `2` and the
+    absent case (what every pinned server sends) both go through the rule. The
+    client advertises no `insertTextMode` default and does not read a
+    `CompletionList.itemDefaults` one: nothing shipped sends it, and a default
+    invented here would be a guess about text written to the file.
     **One line-start table per list.** Every item sourcekit-lsp sends carries a
     `textEdit`, so mapping a list with the one-shot `LSPPositionMap.range(for:in:)`
     would re-scan the whole buffer once per item — thirty full scans of a large file
@@ -1334,7 +1402,7 @@ document, together with the limits they carry.
     nothing, and the next request asks the server again; the only state that
     outlives one question is D7's restart budget, which lives where the failures are
     counted. **A language with no server costs nothing**: `canServe` is asked first,
-    so the output for Markdown, YAML, a scratch buffer or a machine with no
+    so the output for Markdown, a Dockerfile, a scratch buffer or a machine with no
     toolchain is *the wrapped provider's output*, byte for byte —
     `RoutingIntelligenceProviderTests` pins that by equality on both request kinds
     rather than by inspection, because "phase 2a changed nothing for the other
@@ -1731,20 +1799,38 @@ later. *Known limit:* if an item is committed before its resolve lands, the
 insertion happens first and the import edit is applied when it arrives, as a
 second undo step — and only while the buffer is otherwise unchanged.
 
-**D5 — No snippet support is advertised**, so `newText` is always plain text and
-nothing has to strip `${1:placeholder}` syntax. Advertising it is not the same as
-being obeyed, though, so the guarantee is *checked* as well as asked for:
-`publish` drops any item whose `insertTextFormat` is present and not `1`, rather
-than writing placeholder syntax into the buffer on the word of a server that
-ignored the capability.
+**D5 — No snippet support is advertised**, so `newText` should always be plain
+text and nothing has to strip `${1:placeholder}` syntax. Advertising it is not the
+same as being obeyed, though, so the guarantee is *checked* as well as asked for
+— and checked against the text, not the label on it: `publish` drops an item whose
+`insertTextFormat` is present and not `1` **and** whose inserted text contains a
+`$` or a `\\`, the only two scalars the snippet grammar gives meaning to. A server
+that mislabels literal text (`yaml-language-server` marks every property
+completion `Snippet` unconditionally) still completes; a server that would write
+placeholder syntax into the buffer still does not. *Known limit:* such an item's
+row shows the text it inserts, so a YAML property reads `services:\n  ` in the
+popup rather than `services` — `displayText` may differ from `text` only by
+dropping a head that re-writes characters already in the buffer, and this head is
+not one.
 
 **D6 — Ranking for LSP-answered requests trusts the server**: items sorted by
 `sortText ?? label`, preserving server array order on ties, then the existing
-hygiene (drop the snippet-format item, drop the item identical to the typed
-token, dedup by inserted text, cap
+hygiene (drop the item that would expand as a snippet, drop the item identical to
+the typed token, dedup by inserted text, cap
 at `SymbolIntelligenceProvider.defaultCompletionLimit`). No name heuristics on
 top. The recorded transcript is what pins this rather than a constructed example:
 sourcekit-lsp put `Greeter` *last* in the array with the *lowest* `sortText`.
+**One key sits above `sortText`, and it is not a ranking** (added with the YAML
+server): the spec makes matching the client's job and `yaml-language-server`
+leaves it entirely — it answers the caret's whole schema property set, the same 93
+items for `ima` as for an empty prefix — so ranked on `label` and cut at the cap
+the popup is an alphabetical slice of the schema with `image` below the cut.
+`FuzzyMatch.matches(_:query:)` over `filterText ?? label` therefore partitions the
+list into "answers what was typed" and "does not", and the cap reaches the first
+half first. Deliberately **not a filter**: a server's matching may be looser than
+this one's boundary rule (the recorded transcript answers `Gree` with
+`VM_MEMORY_MALLOC_LARGE_REUSED`) and nothing it sent is discarded. Within each
+half D6 is untouched, and an empty prefix is one half.
 
 **D7 — Budgets.** Per request: completion 1.5 s, definition 3 s (the 150 ms
 completion debounce has already elapsed, and a jump is a deliberate act worth
@@ -1764,9 +1850,10 @@ the stored `symbol` property is gone, so every *accessor* site was a mechanical
 edit.
 
 **D9 — The registry.** `LSPServerDescription` is
-`{ id, languages, launch, arguments, initializationOptions, environment }`, where
-`environment` is an overlay merged over the app's own (empty for all but gopls —
-D17) and `launch` is
+`{ id, languages, launch, arguments, initializationOptions, configuration,
+environment }`, where `configuration` is the per-server settings object D27
+delivers (`nil` for all but the YAML server), `environment` is an overlay merged
+over the app's own (empty for all but gopls — D17) and `launch` is
 `.toolchainTool(name:)` (resolved by the app through `xcrun --find`, honouring
 `DEVELOPER_DIR`, cached per app run) or `.executable(path:)`. `LSPServerRegistry`
 maps language → description. Adding a server is one registry entry.
@@ -1995,6 +2082,101 @@ pins the pass-through and the no-surface half statically, over comment- and
 literal-stripped source, because deleting that line changes nothing that compiles,
 draws or is otherwise asserted — it only turns the popover into a hit-test
 obstacle standing between the pointer and the code.
+
+**D27 — A server's settings are data on its description, delivered on both
+channels.** Some servers need to be *told* something before they are useful, and
+D9's promise is that such a server costs a data change and no client code. So
+`LSPServerDescription` gains one opaque `configuration: JSONValue?` — a settings
+object keyed by the configuration *section* the server asks for, `{"yaml": {…}}`
+— which `LSPWorkspace` passes at `start` beside `initializationOptions`, and
+`LSPSession` delivers. **There is no server-specific code anywhere in the
+session**; the value is pinned data on the description, exactly like
+`initializationOptions`, and Core has no opinion about its shape.
+
+It is delivered **twice, on both channels a server may take settings on**, because
+which one a given server reads is that server's decision and not ours: a
+`workspace/didChangeConfiguration` notification carrying `{settings: …}` sent once
+right after `initialized` (and never again — nothing in Pisaka changes a server's
+settings while it runs), and every `workspace/configuration` pull answered
+**section by section** out of the same value for as long as the session lives. A
+requested item with no `section`, a section this server's configuration does not
+name, and any request at all to a server without a configuration all answer
+`null`: absent rather than empty, which is what a server reads as "use your
+default". Section names are matched exactly against the top level of the object —
+`"[yaml]"` is a section name like any other, not a nested path — so the spelling
+the server asks for is the spelling the description must use.
+
+**The pull is the channel that actually matters, and the pin is what makes that a
+fact.** Read out of the pinned `yaml-language-server` 1.24.0 bundle rather than
+guessed: on `initialized` it calls `settingsHandler.pullConfiguration()`
+**unconditionally**, sending `workspace/configuration` for `yaml`, `http`,
+`[yaml]`, `editor` and `files` regardless of what the client advertised — and its
+`onDidChangeConfiguration` handler ignores the pushed payload and re-pulls. So the
+answer to the pull is where the setting lands. The notification is sent anyway,
+for servers that read the payload instead — and its cost is stated honestly rather
+than assumed: for a server that re-pulls, it is not "one message" but a **second
+full pull**, and for this one that means the schemastore catalog is fetched twice
+at session start (measured against the pinned bundle: two `catalog.json` requests
+with the push, one without). That is the price of not deciding for a future server
+which channel it reads; it is one extra request per session, on a session that
+already fetches over the network by design (D28).
+
+**A section the description does not name is answered `null`, and `null` is not
+always "use your default".** It is for `[yaml]`, `editor` and `files`, which is why
+those three stay unnamed. It is *not* for `http`: the pinned bundle folds the
+answer into `configure(config.http?.proxy ?? '', config.http?.proxyStrictSSL ??
+false)` and hands it to `request-light`, whose module-level `strictSSL` starts
+`true` and is only ever lowered by that call — so an unanswered `http` section
+reads as "the user asked for `false`" and every schema fetch afterwards goes out
+with `rejectUnauthorized: false`. Nothing else protects that traffic: D28's
+catalog, schemas and `$schema`-named URLs are unpinned by nature, so a certificate
+nobody checks means whoever is on the path chooses what the user's YAML completes
+and validates against. The description therefore names `http` with
+`proxyStrictSSL: true` (and leaves `proxy` unstated, so `request-light` keeps
+honouring `HTTPS_PROXY`/`HTTP_PROXY`), and
+`LSPProvisioningManifestTests` asserts that one key on its own.
+
+**The client capability `workspace.configuration` stays `false`.** Flipping it to
+`true` would rewrite the handshake for all five existing servers for no gain: a
+server that pulls does so either way (this one demonstrably does), and the
+capability tree is closed on purpose (D9's neighbour rule — advertise only what is
+implemented). Answering a request we did not invite is the same courtesy the file
+already extends to `client/registerCapability`: a server blocked on an answer
+stalls the request we are waiting on.
+
+**Nothing changes for a server without one, by construction rather than by
+promise.** With `configuration == nil` the notification is not sent and every
+pulled item is still answered `null` — the two facts the tests pin beside the
+positive ones, over `ScriptedLSPTransport`.
+
+**D28 — YAML is the third `LSPDownloadableServer` case, not a fourth
+contributor.** Where Go (D17) and Rust (D21) each needed a registry contributor of
+their own because their honest state sets are not 2b's, `yaml-language-server` is
+exactly a 2b server: a pinned component, downloaded on consent, run by the shared
+`node` runtime, with `LSPProvisioningModel`'s existing states describing it
+completely. So it is one `LSPComponent`, one enum case (`languages: [.yaml]`,
+runtime `node`, `--stdio`, no tsserver path) and one configuration value —
+**no new download code, no unpack rule, no path math, and still no npm**. Its
+twenty-tarball closure and the `@vscode/l10n` license exception are in
+`core-provisioning.md`.
+
+Two things distinguish it from the other two 2b servers, both stated rather than
+incidental. Its schemas are **not pinned and cannot be** — it fetches a catalog
+from `schemastore.org` and then each schema from the host that catalog names (or
+from the URL a file names for itself, in a `# yaml-language-server: $schema=`
+header or a top-level `$schema:` key) while it runs, which is what completes a compose file against its real schema — so it
+carries the layer's one `runtimeNetworkNote`, printed by the consent banner and
+the Settings row before anything is downloaded (`core-provisioning.md`). And it is the one server with a `configuration`, D27's
+only user today: `{"yaml": {"schemaStore": {"enable": true}, "completion": true,
+"hover": true}, "http": {"proxyStrictSSL": true}}` — the `yaml` half stated rather
+than left to an upstream default that happens to agree, the `http` half because an
+unanswered section turns TLS certificate validation *off* for all of the traffic
+above (D27).
+
+For YAML this replaces nothing — the tree-sitter path knows a document's *keys*,
+never its schema, so `ser` in a fresh `docker-compose.yml` could only ever be
+answered from luck. Un-consented, removed, or failed, YAML falls back to that path
+exactly as every other language does (D7), silently and per request.
 
 ## Known limits
 
