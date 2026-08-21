@@ -194,6 +194,8 @@ final class ZoomSourceGatingTests: XCTestCase {
         "LeetCodeDescriptionView.swift",
         "CommitUnifiedDiffView.swift",
         "CommitDialogView.swift",
+        // Interactive popups.
+        "CompletionPanel.swift",
     ]
 
     func testTheZoomSurfacesAreExactlyTheDocumentedSet() throws {
@@ -214,6 +216,7 @@ final class ZoomSourceGatingTests: XCTestCase {
         "DiffView.swift",
         "MergeView.swift",
         "SourceViewerContent.swift",
+        "CompletionPanel.swift",
     ]
 
     func testTheCodePanesScrollInsideTheCodeScrollView() throws {
@@ -298,6 +301,22 @@ final class ZoomSourceGatingTests: XCTestCase {
                 "\(file) plants a zoom surface marker the pointer can never reach"
             )
         }
+
+        // CompletionPanel *does* declare a surface because it accepts mouse events.
+        // It must not claim the hover panel's exemption while remaining non-activating.
+        let completionUrl = try XCTUnwrap(
+            try Self.swiftSources().first { $0.lastPathComponent == "CompletionPanel.swift" },
+            "CompletionPanel.swift is missing"
+        )
+        let completionCode = LSPSourceGatingTests.strippingCommentsAndStringLiterals(try Self.read(completionUrl))
+        XCTAssertFalse(
+            completionCode.contains("ignoresMouseEvents = true"),
+            "CompletionPanel must not set ignoresMouseEvents to true; it accepts clicks."
+        )
+        XCTAssertTrue(
+            completionCode.contains("override var canBecomeKey: Bool { false }"),
+            "CompletionPanel must refuse key status."
+        )
     }
 
     // MARK: - The Preferences stepper shares the zoom grid

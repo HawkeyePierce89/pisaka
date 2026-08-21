@@ -215,14 +215,14 @@ helper is a deliberate non-goal of this ticket). A single click on a row calls
 the commit callback; `acceptsFirstMouse` is true so the first click into a
 non-key panel counts.
 
-- [ ] implement the panel: window configuration, row rendering, selection
+- [x] implement the panel: window configuration, row rendering, selection
       drawing/scrolling, placement, click-to-commit callback
-- [ ] declare the `.code` zoom surface on the content view
-- [ ] add `CompletionPanel.swift` to `zoomSurfaceDeclarers` in
+- [x] declare the `.code` zoom surface on the content view
+- [x] add `CompletionPanel.swift` to `zoomSurfaceDeclarers` in
       `ZoomSourceGatingTests` and extend that suite's assertion that the panel
       does **not** claim the hover popover's chrome exemption (it must not
       contain `ignoresMouseEvents = true`) while still refusing key status
-- [ ] run `swift test` — must pass before Task 4
+- [x] run `swift test` — must pass before Task 4
 
 ### Task 4: The controller drives the panel and owns the commit
 
