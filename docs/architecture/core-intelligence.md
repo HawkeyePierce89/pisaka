@@ -675,7 +675,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     Python's list opens with `False`/`None`/`True`. Pinned by set equality against
     the three families, with the count at 56 so a duplicate fails and with
     `abstract`/`virtual`/`yield`/`Option`/`Some`/`Vec`/`macro_rules` asserted
-    absent, so each line above is a test rather than a comment. TypeScript is *composed*
+    absent, so each line above is a test rather than a comment. SQL's list is
+    drawn from the grammar's 356 `keyword_*` node types, filtered by the same rule
+    ("no source file can ever declare it"). Included: statement/DDL/DML/clause
+    vocabulary, built-in type names, literals, and constraint/permission vocabulary.
+    Excluded: storage-format and engine dialect tokens (`PARQUET`, `NOSCAN`,
+    `DELAYED`, etc.) and rare function-attribute knobs. Spelled uppercase as SQL
+    is written (`FuzzyMatch`'s case-insensitive prefix tier still matches lowercase
+    typing). TypeScript is *composed*
     from JavaScript plus a type-level list and re-sorted, so there is one list to
     maintain instead of two that drift and the composition cannot break the sorted
     invariant. **A keyword is never a definition**: `SymbolIntelligenceProvider`'s
@@ -1320,3 +1327,26 @@ The remaining manual step is the one the recipe requires of every grammar update
 open a `.rs` file in a DEBUG build and confirm its declarations answer ⌃⌘J — the
 harness proves the query compiles and captures, not that `SymbolQueryCatalog`
 found and loaded it.
+
+### `Resources/Queries/sql/symbols.scm` — the kind mapping and the anchors
+
+SQL's query (grammar `Vendor/TreeSitterSql`) follows the shared convention and makes
+three decisions:
+
+**Symbol kind mapping:** `CREATE TABLE`, `CREATE VIEW`, `CREATE MATERIALIZED VIEW`,
+and `CREATE TYPE` resolve to `.type` (they are the named entities a query refers to).
+`CREATE FUNCTION` resolves to `.function`. `column_definition` resolves to `.property`
+with its table as `@container`, following the Go struct-field precedent.
+
+**`create_function` requires a specific anchor, while others must remain unanchored.**
+`create_function` has a second direct `object_reference` child (the return type),
+so an unanchored pattern would incorrectly index the return type as a function.
+Anchoring `.` after `(keyword_function)` is exact and survives `CREATE OR REPLACE`.
+`create_table` and `create_view` cannot use this anchor because `IF NOT EXISTS` is an
+inlined node rather than a wrapper; they rely on the table/view name being the only
+direct `object_reference` child.
+
+**Not indexed, deliberately:** `CREATE INDEX`, `CREATE SEQUENCE`, `CREATE TRIGGER`,
+`CREATE SCHEMA`, and `CREATE ROLE` are deliberately left unindexed, as they are not
+primary navigation targets, and indexing `create_index`'s table reference would create
+a duplicate table symbol at the wrong site.

@@ -318,19 +318,19 @@ Run against the v0.3.11 tree with `tree-sitter-cli@0.25.10`:
 - Modify: `docs/architecture/core-editor.md`,
   `docs/architecture/core-intelligence.md`, `CLAUDE.md`
 
-- [ ] `core-editor.md`: extend the `SyntaxLanguage.swift` and `FileIcon.swift`
+- [x] `core-editor.md`: extend the `SyntaxLanguage.swift` and `FileIcon.swift`
       entries with SQL; add the `SyntaxTokenKind.swift` reasoning for the four
       new capture mappings, the `spell`/`none` exception and the deliberate
       non-change to `attribute`
-- [ ] `core-intelligence.md`: extend the `LanguageKeywords.swift` entry with the
+- [x] `core-intelligence.md`: extend the `LanguageKeywords.swift` entry with the
       SQL list's sourcing and exclusion rules, and the symbols-query section
       with SQL's kind mapping, the `create_function` anchor, and the `CREATE`
       forms deliberately left unindexed
-- [ ] `CLAUDE.md`: update the vendoring convention paragraph — it currently says
+- [x] `CLAUDE.md`: update the vendoring convention paragraph — it currently says
       "Two tree-sitter grammars are vendored under `Vendor/`"; make it three and
       state SQL's reason in one clause (upstream ships no generated parser and
       its manifest is a hard SwiftPM error), without growing into an essay
-- [ ] run `swift test`
+- [x] run `swift test`
 
 ### Task 6: Verify acceptance criteria
 
