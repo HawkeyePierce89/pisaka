@@ -594,8 +594,8 @@ owed are documented in `docs/RELEASING.md`.
   `docs/architecture/core-services.md` (which carries the `nm -u` symbol check
   that catches the dependency half). `ReleaseMetadataTests` asserts the
   category/reason set by *set equality*.
-- Two tree-sitter grammars are **vendored** under `Vendor/` as local path
-  dependencies (the directory content is the pin), for two different reasons,
+- Three tree-sitter grammars are **vendored** under `Vendor/` as local path
+  dependencies (the directory content is the pin), for three different reasons,
   each recorded in full in its package's `VENDORED.md`: `TreeSitterGitignore`
   because upstream publishes no SwiftPM manifest, Swift binding header or
   highlight query — all three are authored in this repo, which is why its
@@ -604,7 +604,9 @@ owed are documented in `docs/RELEASING.md`.
   unknown node name degrades the file to plain text, a mistyped capture name
   renders it default-colored); `TreeSitterDotenv` because upstream's own
   manifest omits its external scanner from `sources:` and therefore never links
-  — the whole tree is verbatim and the one local change is that line. The
+  — the whole tree is verbatim and the one local change is that line;
+  `TreeSitterSql` because upstream ships no generated parser and its manifest is
+  a hard SwiftPM error. The
   *static* half of the query verification is automated by
   `VendoredGrammarQueryTests` (node names and anonymous literals against the
   grammar's own `node-types.json` under the matching `named` flag, the emitted

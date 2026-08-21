@@ -89,13 +89,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     icon: a `FileIcon` struct (`symbolName` + semantic `FileIconColor`) with
     `init(for: DirectoryEntry)`. Resolution order: directory → `folder`/`.accent`;
     special-cased file names (e.g. `Package.swift`, `LICENSE`, `.gitignore`,
-    `Makefile`, `Dockerfile`); lowercased extension lookup; fallback →
+    `Makefile`, `Dockerfile`); lowercased extension lookup (e.g. `sql` → `cylinder.split.1x2`/`.blue`); fallback →
     `doc`/`.gray`. `FileIconColor` is a semantic enum so the library stays free
     of any SwiftUI/AppKit dependency.
   - `SyntaxLanguage.swift` — pure, testable
     `String`/`CaseIterable`/`Equatable`/`Hashable`/`Sendable`
     enum of supported languages (swift, javascript, typescript, go, rust, json,
-    markdown, python, html, css, yaml, dockerfile, dotenv, gitignore) with
+    markdown, python, html, css, yaml, dockerfile, dotenv, gitignore, sql) with
     `init?(fileExtension:)` and `init?(forFileName:)`, backed by a lowercased
     extension→language map, mirroring `FileIcon`'s extension-map pattern. The
     last three carry no extension at all (`Dockerfile`, `.env`, `.gitignore`), so
@@ -221,11 +221,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `init(captureName:)` splits a dotted tree-sitter capture name and matches the
     longest known prefix (`keyword.control` → `.keyword`), falling back to
     `.plain`. Color stays out of Core (semantic only, like `FileIconColor`).
-    The map carries **one entry that is not a prefix family**: bare `escape` →
+    The map carries **five entries that are not a prefix family**: bare `escape` →
     `.string`. tree-sitter-go spells string escapes `@escape` rather than
     `@string.escape`, and without the entry every `\n` in a Go string resolved to
     `.plain` — a hole a highlight query cannot be blamed for and nothing in a
-    screenshot makes obvious.
+    screenshot makes obvious. The other four are for SQL: `"conditional"` → `.keyword`,
+    `"storageclass"` → `.keyword`, `"field"` → `.property`, and `"type.qualifier"`
+    → `.keyword` (overriding `.type` prefix so `NOWAIT`/`MAXVALUE` color as keywords).
+    `attribute` remains deliberately mapped to `.property` since remapping it
+    would incorrectly recolor HTML attributes and Rust `#[derive(…)]`.
+    `spell` is mapped to `.plain` following the `.none` precedent to prevent it
+    from interfering with its companion `@comment` capture.
   - `IndentEngine.swift` — pure, testable auto-indent computation for the editor
     (Foundation only, no AppKit/Neon), operating on an `NSString` + UTF-16 offsets
     and splitting lines with the same Unicode separators as the rest of the editor

@@ -197,6 +197,15 @@ final class SymbolQueryTests: XCTestCase {
         )
     }
 
+    func testSqlSymbolsQueryUsesOnlyNodeNamesTheGrammarDeclares() throws {
+        assertQueryNodesAreDeclared(
+            try parsedQuery(for: .sql),
+            declaredBy: try declaredNodeTypes(vendoredPackage: "TreeSitterSql"),
+            describedAs: "TreeSitterSql",
+            consequence: "every .sql file would index zero symbols"
+        )
+    }
+
     /// The twelve *remote* grammars' sources are not in this repository, so their
     /// `node-types.json` cannot be read and the check above cannot be made. What
     /// can be pinned is the set of node names, anonymous literals and field names
@@ -226,7 +235,7 @@ final class SymbolQueryTests: XCTestCase {
 
         // Every language with a query is either pinned here or read from its
         // vendored grammar above, so a new language cannot arrive unpinned.
-        XCTAssertEqual(Set(Self.pinnedNodeNames.keys).union([.dotenv]),
+        XCTAssertEqual(Set(Self.pinnedNodeNames.keys).union([.dotenv, .sql]),
                        Set(try indexableLanguages()))
     }
 

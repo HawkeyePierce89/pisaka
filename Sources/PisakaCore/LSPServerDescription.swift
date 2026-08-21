@@ -189,6 +189,7 @@ extension SyntaxLanguage {
         case .dockerfile: return "dockerfile"
         case .dotenv: return "dotenv"
         case .gitignore: return "ignore"
+        case .sql: return "sql"
         }
     }
 

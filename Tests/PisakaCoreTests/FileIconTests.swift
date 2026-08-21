@@ -33,6 +33,7 @@ final class FileIconTests: XCTestCase {
             // and nothing but a test keeps a file that highlights as Rust from
             // showing the generic document icon.
             "main.rs": FileIcon(symbolName: "chevron.left.forwardslash.chevron.right", color: .orange),
+            "schema.sql": FileIcon(symbolName: "cylinder.split.1x2", color: .blue),
             "run.sh": FileIcon(symbolName: "terminal", color: .green),
             "style.css": FileIcon(symbolName: "paintbrush", color: .blue),
             "logo.png": FileIcon(symbolName: "photo", color: .purple),

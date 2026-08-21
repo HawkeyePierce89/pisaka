@@ -44,6 +44,7 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
     case dockerfile
     case dotenv
     case gitignore
+    case sql
 
     /// Resolve a language from a bare file extension (no leading dot — pass the
     /// extension itself, e.g. `"swift"`, as `pathExtension` yields). Matching is
@@ -116,6 +117,7 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
         "yml": .yaml,
         "yaml": .yaml,
         "dockerfile": .dockerfile,
+        "sql": .sql,
     ]
 
     /// Lowercased whole file name → language, for the extensionless names.

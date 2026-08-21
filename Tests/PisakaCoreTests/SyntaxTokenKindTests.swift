@@ -205,6 +205,7 @@ final class SyntaxTokenKindTests: XCTestCase {
         XCTAssertEqual(SyntaxTokenKind(captureName: "none"), .plain)
     }
 
+
     func testBooleanAndConstructorResolve() {
         XCTAssertEqual(SyntaxTokenKind(captureName: "boolean"), .constant)
         XCTAssertEqual(SyntaxTokenKind(captureName: "constructor"), .type)
@@ -216,6 +217,14 @@ final class SyntaxTokenKindTests: XCTestCase {
         XCTAssertEqual(SyntaxTokenKind(captureName: "variable.parameter"), .parameter)
         // The broader `variable.*` family still resolves to `.variable`.
         XCTAssertEqual(SyntaxTokenKind(captureName: "variable.member"), .variable)
+    }
+
+    func testSqlSpecificCapturesResolve() {
+        XCTAssertEqual(SyntaxTokenKind(captureName: "conditional"), .keyword)
+        XCTAssertEqual(SyntaxTokenKind(captureName: "storageclass"), .keyword)
+        XCTAssertEqual(SyntaxTokenKind(captureName: "field"), .property)
+        // Ensure type.qualifier resolves to .keyword, overriding the `type` prefix.
+        XCTAssertEqual(SyntaxTokenKind(captureName: "type.qualifier"), .keyword)
     }
 
     // MARK: - Unknown capture names

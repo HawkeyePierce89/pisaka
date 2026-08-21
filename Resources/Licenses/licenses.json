@@ -163,6 +163,15 @@
       "file" : "TreeSitterGitignore.txt"
     },
     {
+      "id" : "TreeSitterSql",
+      "name" : "tree-sitter-sql (vendored)",
+      "origin" : "Vendor/TreeSitterSql",
+      "version" : "v0.3.11",
+      "revision" : "7b51ecda191d36b92f5a90a8d1bc3faef1c7b8b8",
+      "spdx" : "MIT",
+      "file" : "TreeSitterSql.txt"
+    },
+    {
       "id" : "SwiftTerm",
       "name" : "SwiftTerm",
       "origin" : "https://github.com/migueldeicaza/SwiftTerm",

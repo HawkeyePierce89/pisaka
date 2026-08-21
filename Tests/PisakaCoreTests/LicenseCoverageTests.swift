@@ -235,7 +235,7 @@ final class LicenseCoverageTests: XCTestCase {
 
     func testEveryVendoredEntryNamesARealLicenseSource() throws {
         let vendored = try loadManifest().notices.filter { $0.origin.hasPrefix("Vendor/") }
-        XCTAssertEqual(Set(vendored.map(\.id)), ["TreeSitterDotenv", "TreeSitterGitignore"],
+        XCTAssertEqual(Set(vendored.map(\.id)), ["TreeSitterDotenv", "TreeSitterGitignore", "TreeSitterSql"],
                        "the vendored grammars are the only path dependencies the app links")
 
         for notice in vendored {
@@ -360,6 +360,7 @@ final class LicenseCoverageTests: XCTestCase {
         "tree-sitter-yaml": "Copyright (c) 2024 tree-sitter-grammars contributors",
         "TreeSitterDotenv": "Copyright (c) 2024 Henrik Hautakoski",
         "TreeSitterGitignore": "Copyright (c) 2022 shunsambongi",
+        "TreeSitterSql": "Copyright (c) 2021 Derek Stride",
     ]
 
     /// Every shipped text actually names the dependency it is filed under.

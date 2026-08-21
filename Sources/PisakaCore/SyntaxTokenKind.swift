@@ -70,6 +70,9 @@ public enum SyntaxTokenKind: Equatable {
         // markup, emitted as `@tag`/`@attribute` (no broader prefix to fall
         // back on), so they must be mapped explicitly or they render plain.
         "tag": .type,
+        // The tree-sitter-sql grammar emits `attribute` for IMMUTABLE/STRICT/etc.
+        // Remapping it globally here would recolor HTML attributes and Rust
+        // `#[derive(…)]`, so we leave it as `.property` on purpose.
         "attribute": .property,
         // Markdown's block grammar emits its structural tokens under `@text.*`
         // (no broader `text` prefix is mapped, so these must be listed
@@ -106,5 +109,15 @@ public enum SyntaxTokenKind: Equatable {
         "property": .property,
         "parameter": .parameter,
         "label": .label,
+        // SQL keyword-shaped capture names emitted by tree-sitter-sql.
+        // `conditional` (CASE/WHEN/THEN/ELSE) and `storageclass` (TEMP/UNLOGGED).
+        "conditional": .keyword,
+        "storageclass": .keyword,
+        // SQL column names in `column_definition` are emitted as `field`.
+        "field": .property,
+        // SQL modifiers (NOWAIT/MAXVALUE) are emitted as `type.qualifier`.
+        // This overrides the `type` prefix intentionally, as they are keywords,
+        // not types. No other pinned grammar emits it.
+        "type.qualifier": .keyword,
     ]
 }

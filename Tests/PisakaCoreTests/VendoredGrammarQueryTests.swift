@@ -91,6 +91,42 @@ final class VendoredGrammarQueryTests: XCTestCase {
         XCTAssertEqual(kinds.count, 3)
     }
 
+    // MARK: - SQL (query vendored verbatim from upstream)
+
+    func testSqlQueryUsesOnlyNodeNamesTheGrammarDeclares() throws {
+        try assertHighlightQueryNodesAreDeclared(vendoredPackage: "TreeSitterSql")
+    }
+
+    func testSqlQueryEmitsExactlyTheExpectedCaptureNames() throws {
+        let emitted = try captureNames(vendoredPackage: "TreeSitterSql")
+
+        XCTAssertEqual(emitted, [
+            "punctuation.delimiter",
+            "function.call",
+            "parameter",
+            "comment",
+            "keyword.operator",
+            "operator",
+            "type.builtin",
+            "number",
+            "boolean",
+            "storageclass",
+            "attribute",
+            "string",
+            "float",
+            "conditional",
+            "type.qualifier",
+            "keyword",
+            "field",
+            "punctuation.bracket",
+            "variable",
+            "type",
+            "function"
+        ])
+
+        assertResolvesWithoutFallingBackToPlain(emitted)
+    }
+
     // MARK: - The named/anonymous split itself
 
     /// The node check is only as good as the `named` flag it reads: merging the

@@ -174,6 +174,14 @@ final class SyntaxLanguageTests: XCTestCase {
         XCTAssertEqual(SyntaxLanguage(forFileName: ".rsignore"), .gitignore)
     }
 
+
+    // MARK: - SQL
+
+    func testSqlNamesResolve() {
+        XCTAssertEqual(SyntaxLanguage(forFileName: "foo.sql"), .sql)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "FOO.SQL"), .sql)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "path/to/schema.sql"), .sql)
+    }
     // MARK: - Rule precedence
 
     func testExtensionWinsOverDotIgnoreShapeAndPrefix() {
@@ -249,7 +257,7 @@ final class SyntaxLanguageTests: XCTestCase {
             "app.ts", "app.tsx", "data.json", "README.md", "README.markdown",
             "main.py", "main.go", "main.rs", "index.html", "index.htm", "style.css",
             "config.yml", "config.yaml",
-            "Dockerfile", ".env", ".gitignore",
+            "Dockerfile", ".env", ".gitignore", "schema.sql",
         ]
         let reachable = Set(knownFileNames.compactMap(SyntaxLanguage.init(forFileName:)))
         XCTAssertEqual(reachable, Set(SyntaxLanguage.allCases),

@@ -27,7 +27,7 @@ final class LanguageKeywordsTests: XCTestCase {
 
     func testTheDocumentedLanguagesAreTheOnesWithLists() {
         let withKeywords = Set(SyntaxLanguage.allCases.filter { !LanguageKeywords.keywords(for: $0).isEmpty })
-        XCTAssertEqual(withKeywords, [.swift, .javascript, .typescript, .python, .dockerfile, .go, .rust])
+        XCTAssertEqual(withKeywords, [.swift, .javascript, .typescript, .python, .dockerfile, .go, .rust, .sql])
     }
 
     // MARK: - Shape
@@ -290,5 +290,23 @@ final class LanguageKeywordsTests: XCTestCase {
             XCTAssertFalse(keyword.contains(":"), keyword)
             XCTAssertFalse(keyword.contains("."), keyword)
         }
+    }
+
+    func testSqlListContainsStandardKeywordsAndExcludesDialects() {
+        let sql = LanguageKeywords.keywords(for: .sql)
+
+        // Fundamental SQL keywords must be present.
+        XCTAssertTrue(sql.contains("SELECT"))
+        XCTAssertTrue(sql.contains("FROM"))
+        XCTAssertTrue(sql.contains("WHERE"))
+        XCTAssertTrue(sql.contains("INSERT"))
+        XCTAssertTrue(sql.contains("UPDATE"))
+        XCTAssertTrue(sql.contains("DELETE"))
+        XCTAssertTrue(sql.contains("CREATE"))
+
+        // Storage-format and engine dialect tokens, as documented, must be absent.
+        XCTAssertFalse(sql.contains("PARQUET"))
+        XCTAssertFalse(sql.contains("NOSCAN"))
+        XCTAssertFalse(sql.contains("DELAYED"))
     }
 }
