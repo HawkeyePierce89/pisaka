@@ -175,15 +175,15 @@ Run against the v0.3.11 tree with `tree-sitter-cli@0.25.10`:
 - Create: `Resources/Licenses/TreeSitterSql.txt`
 - Modify: `project.yml`, `Resources/Licenses/licenses.json`
 
-- [ ] fetch `@derekstride/tree-sitter-sql@0.3.11` from npm and the git tag
+- [x] fetch `@derekstride/tree-sitter-sql@0.3.11` from npm and the git tag
       `v0.3.11` (`7b51ecda191d36b92f5a90a8d1bc3faef1c7b8b8`); confirm
       `grammar.js` and `queries/highlights.scm` are byte-identical between the
       two before using either
-- [ ] copy the tree verbatim into `Vendor/TreeSitterSql/`: generated `src/`
+- [x] copy the tree verbatim into `Vendor/TreeSitterSql/`: generated `src/`
       (from the tarball, since git ignores it), `queries/`, `grammar.js`,
       `LICENSE`, and `bindings/swift/TreeSitterSql/sql.h` (from the git tag —
       the tarball has no Swift binding)
-- [ ] author `Package.swift` on the `Vendor/TreeSitterDotenv` model: package and
+- [x] author `Package.swift` on the `Vendor/TreeSitterDotenv` model: package and
       target both `TreeSitterSql` (so the resource bundle is
       `TreeSitterSql_TreeSitterSql`, which `LanguageConfiguration(name: "Sql")`
       derives), `path: "."`, `sources: ["src/parser.c", "src/scanner.c"]`,
@@ -192,7 +192,7 @@ Run against the v0.3.11 tree with `tree-sitter-cli@0.25.10`:
       **no dependencies and no test target** — dropping upstream's
       `swift-tree-sitter` test dependency, whose `SwiftTreeSitter` product name
       collides with ChimeHQ's already in this graph
-- [ ] write `VENDORED.md` on the dotenv/gitignore model: upstream URL, tag,
+- [x] write `VENDORED.md` on the dotenv/gitignore model: upstream URL, tag,
       commit SHA, commit date, vendored-on date, license line; **the two
       independent reasons** this is vendored (gitignored `src/parser.c` named in
       `sources:`; the test-target dependency that is a hard SwiftPM error) with
@@ -201,26 +201,26 @@ Run against the v0.3.11 tree with `tree-sitter-cli@0.25.10`:
       the matching version and must be re-taken from there on every update; the
       by-hand update procedure incl. the manual runtime query check; and how to
       drop back to a remote pin if upstream ever fixes both defects
-- [ ] wire `project.yml`: a `TreeSitterSql: { path: Vendor/TreeSitterSql }`
+- [x] wire `project.yml`: a `TreeSitterSql: { path: Vendor/TreeSitterSql }`
       entry beside the two existing `path:` grammars, a target dependency
       `- package: TreeSitterSql / product: TreeSitterSql`, and a comment
       recording why this one is a path dependency
-- [ ] copy the verbatim `LICENSE` (MIT, © 2021 Derek Stride) to
+- [x] copy the verbatim `LICENSE` (MIT, © 2021 Derek Stride) to
       `Resources/Licenses/TreeSitterSql.txt`; check the upstream tree for
       vendored third-party code the way the tree-sitter/ICU precedent demands
       and append any notice found — note that `src/tree_sitter/*.h` are
       tree-sitter's own headers, already covered by the existing `tree-sitter`
       notice exactly as they are for dotenv/gitignore
-- [ ] add the `licenses.json` notice: id `TreeSitterSql`, origin
+- [x] add the `licenses.json` notice: id `TreeSitterSql`, origin
       `Vendor/TreeSitterSql`, `version: "v0.3.11"`, `revision` = the 40-hex SHA
       recorded in `VENDORED.md`, `spdx: "MIT"`, `file: "TreeSitterSql.txt"`
-- [ ] review the privacy manifest obligation: confirm `scanner.c` and
+- [x] review the privacy manifest obligation: confirm `scanner.c` and
       `parser.c` reference no required-reason API (`nm -u` on the built object,
       per the `docs/architecture/core-services.md` audit record); record the
       result — no `PrivacyInfo.xcprivacy` change is expected
-- [ ] verify the package builds in isolation:
+- [x] verify the package builds in isolation:
       `swift build --package-path Vendor/TreeSitterSql`
-- [ ] run `swift test` — `DependencyPinTests` (path dependency carries no pin),
+- [x] run `swift test` — `DependencyPinTests` (path dependency carries no pin),
       `LicenseCoverageTests` (vendored origin, real license source, SHA matches
       `VENDORED.md`) and `LicenseNoticeTests` must all pass
 
