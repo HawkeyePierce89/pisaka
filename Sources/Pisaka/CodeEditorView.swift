@@ -889,10 +889,10 @@ struct CodeEditorView: NSViewRepresentable {
             case 48: // Tab
                 return completion.commit(.replace)
             case 126: // Up
-                completion.moveSelection(.up)
+                completion.moveSelection(.moveUp)
                 return true
             case 125: // Down
-                completion.moveSelection(.down)
+                completion.moveSelection(.moveDown)
                 return true
             default:
                 return false

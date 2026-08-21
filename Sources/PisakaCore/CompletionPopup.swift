@@ -95,7 +95,7 @@ public enum CompletionPopup {
             let keywords = language.map { Set(LanguageKeywords.keywords(for: $0)) } ?? []
             var seen = Set<String>()
             var rows: [Row] = []
-            
+
             for item in items {
                 let text = item.displayText
                 if seen.insert(text).inserted {

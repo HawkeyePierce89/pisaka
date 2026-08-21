@@ -115,10 +115,10 @@ final class CompletionController {
 
     /// The text view being completed in. Held weakly: the view hierarchy owns it,
     /// exactly as the `Coordinator` holds it.
-    
+
     private let panel = CompletionPanel()
     private var codeFontSize: CGFloat = 13
-    
+
     var isVisible: Bool { panel.isVisible }
 
     private weak var textView: NSTextView?
@@ -212,8 +212,6 @@ final class CompletionController {
 
     private var snapshot: Snapshot?
 
-
-
     /// Edits that arrived from a background `completionItem/resolve`, keyed by
     /// the row's displayed string — the D4 prefetch's landing place. Cleared with
     /// the list they belong to.
@@ -238,8 +236,6 @@ final class CompletionController {
     /// The late auto-import D4 allows: applied when its resolve arrives after
     /// the insertion has already happened.
     private var followUpTask: Task<Void, Never>?
-
-
 
     /// Raises and lowers the coordinator's programmatic-edit flag around an
     /// insertion this controller performs *outside* AppKit's own
@@ -420,10 +416,10 @@ final class CompletionController {
             panel.dismiss()
             return
         }
-        
+
         let selection = CompletionPopupSelection(count: rows.count)
         snapshot = Snapshot(prefix: prefix, member: member, rows: rows, selection: selection)
-        
+
         let texts = rows.map { $0.displayText }
         prefetchResolves(for: rows.map { $0.item }, provider: provider, token: token)
 
@@ -431,26 +427,26 @@ final class CompletionController {
               !textView.hasMarkedText(),
               textView.window?.firstResponder === textView
         else { return }
-        
+
         let nsText = textView.string as NSString
         let caret = textView.selectedRange()
         guard caret.length == 0 else { return }
-        
+
         let range = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
         guard nsText.substring(with: range) == prefix else { return }
-        
+
         guard IdentifierScanner.memberContext(in: nsText, at: caret.location).map(\.receiver)
                 == member.map(\.receiver)
         else { return }
-        
+
         let anchor = textView.firstRect(forCharacterRange: range, actualRange: nil)
-        
+
         panel.onCommit = { [weak self] index in
             guard let self else { return }
             self.snapshot?.selection?.select(index)
             self.commit(.insert)
         }
-        
+
         panel.show(
             rows: rows,
             selection: selection,
@@ -501,7 +497,6 @@ final class CompletionController {
         return task
     }
 
-
     // MARK: - Panel Drive
 
     func syncAppearance(codeFontSize: CGFloat) {
@@ -512,19 +507,19 @@ final class CompletionController {
         guard let snapshot, isVisible else { return }
         var updated = snapshot
         switch direction {
-        case .up:
+        case .moveUp:
             updated.selection?.moveUp()
-        case .down:
+        case .moveDown:
             updated.selection?.moveDown()
         }
         self.snapshot = updated
-        
+
         guard let textView else { return }
         let nsText = textView.string as NSString
         let caret = textView.selectedRange()
         let range = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
         let anchor = textView.firstRect(forCharacterRange: range, actualRange: nil)
-        
+
         panel.show(
             rows: updated.rows,
             selection: updated.selection,
@@ -533,12 +528,12 @@ final class CompletionController {
             codeFontSize: codeFontSize
         )
     }
-    
+
     enum MoveDirection {
-        case up
-        case down
+        case moveUp
+        case moveDown
     }
-    
+
     enum CommitMode {
         case insert
         case replace
@@ -580,25 +575,25 @@ final class CompletionController {
             dismiss()
             return false
         }
-        
+
         let row = snapshot.rows[selection.selectedIndex]
         let word = row.displayText
         let item = row.item
-        
+
         let nsText = textView.string as NSString
         let caret = textView.selectedRange()
-        
+
         guard caret.length == 0 else {
             dismiss()
             return false
         }
-        
+
         let prefixRange = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
         guard nsText.substring(with: prefixRange) == snapshot.prefix else {
             dismiss()
             return false
         }
-        
+
         let targetRange: NSRange
         switch mode {
         case .insert:
@@ -606,36 +601,36 @@ final class CompletionController {
         case .replace:
             targetRange = IdentifierScanner.completionReplaceRange(in: nsText, at: caret.location)
         }
-        
+
         let typedWord = NSRange(location: targetRange.location, length: (snapshot.prefix as NSString).length)
-        
+
         dismiss()
-        
+
         var edits = resolved[word].flatMap { $0.isEmpty ? nil : $0 } ?? item.edits
-        
+
         // Append suffix deletion as an edit so it's part of the plan and undo group
-        if mode == .replace && targetRange.length > prefixRange.length {
+        if !edits.isEmpty, mode == .replace && targetRange.length > prefixRange.length {
             let suffixRange = NSRange(
                 location: prefixRange.location + prefixRange.length,
                 length: targetRange.length - prefixRange.length
             )
             edits.append(CompletionEdit(newText: "", range: suffixRange))
         }
-        
+
         if let plan = plan(for: edits, over: snapshot.prefix, replacing: typedWord, in: nsText) {
             noteProgrammaticEdit(true)
             apply(plan, in: textView)
             noteProgrammaticEdit(false)
             return true
         }
-        
+
         // Simple insertion
         noteProgrammaticEdit(true)
         undoManager.beginUndoGrouping()
         textView.insertText(word, replacementRange: targetRange)
         undoManager.endUndoGrouping()
         noteProgrammaticEdit(false)
-        
+
         if item.resolveHandle != nil, resolved[word] == nil {
             scheduleFollowUp(for: item, replacing: typedWord, in: textView)
         }

@@ -31,22 +31,27 @@ final class CompletionPanel {
 
         if panel == nil { makePanel() }
         guard let panel, let contentView = listContentView else { return }
-        
+
         Self.match(panel, to: parent)
 
         contentView.onCommit = { [weak self] index in
             self?.onCommit?(index)
         }
-        
+
         let width = min(Self.maximumWidth, contentView.measureWidth(for: rows, codeFontSize: codeFontSize))
         let visibleRows = min(rows.count, 30) // Cap visible size
         let height = contentView.rowHeight(codeFontSize: codeFontSize) * CGFloat(visibleRows)
-        
+
         let contentSize = NSSize(width: width, height: height)
         panel.setContentSize(contentSize)
-        
-        contentView.update(rows: rows, selection: selection?.selectedIndex ?? 0, codeFontSize: codeFontSize, width: width)
-        
+
+        contentView.update(
+            rows: rows,
+            selection: selection?.selectedIndex ?? 0,
+            codeFontSize: codeFontSize,
+            width: width
+        )
+
         panel.setFrameOrigin(Self.origin(for: panel.frame.size, anchoredTo: anchor))
 
         if let parent, attachedParent !== parent {
@@ -56,9 +61,11 @@ final class CompletionPanel {
         }
         panel.orderFront(nil)
         isShown = true
-        
+
         if eventMonitor == nil {
-            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            eventMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.leftMouseDown, .rightMouseDown]
+            ) { [weak self] event in
                 guard let self, let panel = self.panel else { return event }
                 if event.window !== panel {
                     self.dismiss()
@@ -74,7 +81,7 @@ final class CompletionPanel {
         attachedParent?.removeChildWindow(panel)
         attachedParent = nil
         panel.orderOut(nil)
-        
+
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
             eventMonitor = nil
@@ -117,14 +124,14 @@ final class CompletionPanel {
         background.layer?.cornerRadius = 6
         background.layer?.borderWidth = 1
         background.layer?.masksToBounds = true
-        
+
         let contentView = CompletionListContentView()
         self.listContentView = contentView
         let scrollView = CodeScrollView()
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = false
         scrollView.documentView = contentView
-        
+
         background.addSubview(scrollView)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -133,7 +140,7 @@ final class CompletionPanel {
             scrollView.leadingAnchor.constraint(equalTo: background.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: background.trailingAnchor)
         ])
-        
+
         panel.contentView = background
         self.panel = panel
     }
@@ -145,13 +152,13 @@ final class CompletionPanel {
 
     private static func origin(for size: NSSize, anchoredTo anchor: NSRect) -> NSPoint {
         let visible = visibleFrame(for: anchor)
-        var y = anchor.minY - gap - size.height
-        if y < visible.minY {
+        var originY = anchor.minY - gap - size.height
+        if originY < visible.minY {
             let above = anchor.maxY + gap
-            if above + size.height <= visible.maxY { y = above }
+            if above + size.height <= visible.maxY { originY = above }
         }
-        let x = min(max(anchor.minX, visible.minX), max(visible.minX, visible.maxX - size.width))
-        return NSPoint(x: x, y: max(y, visible.minY))
+        let originX = min(max(anchor.minX, visible.minX), max(visible.minX, visible.maxX - size.width))
+        return NSPoint(x: originX, y: max(originY, visible.minY))
     }
 }
 
@@ -164,84 +171,84 @@ private final class PassThroughPanel: NSPanel {
 @MainActor
 private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
     let zoomSurfaceKind: ZoomSurfaceKind = .code
-    
+
     private var rows: [CompletionRow] = []
     private var selection: Int = 0
     private var codeFontSize: CGFloat = 13
-    
+
     var onCommit: ((Int) -> Void)?
-    
+
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    
+
     func update(rows: [CompletionRow], selection: Int, codeFontSize: CGFloat, width: CGFloat) {
         self.rows = rows
         self.selection = selection
         self.codeFontSize = codeFontSize
-        
+
         let height = rowHeight(codeFontSize: codeFontSize) * CGFloat(rows.count)
         self.frame = NSRect(x: 0, y: 0, width: width, height: height)
-        
+
         needsDisplay = true
         scrollToSelection()
     }
-    
+
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         needsDisplay = true
     }
-    
+
     func rowHeight(codeFontSize: CGFloat) -> CGFloat {
         // monospaced font + padding
         let codeFont = NSFont.monospacedSystemFont(ofSize: codeFontSize, weight: .regular)
         return ceil(codeFont.ascender - codeFont.descender) + 6 // padding
     }
-    
+
     func measureWidth(for rows: [CompletionRow], codeFontSize: CGFloat) -> CGFloat {
         let codeFont = NSFont.monospacedSystemFont(ofSize: codeFontSize, weight: .regular)
         var maxW: CGFloat = 0
         let attributes: [NSAttributedString.Key: Any] = [.font: codeFont]
         for row in rows {
-            let s = row.displayText as NSString
-            let size = s.size(withAttributes: attributes)
+            let textString = row.displayText as NSString
+            let size = textString.size(withAttributes: attributes)
             maxW = max(maxW, size.width)
         }
         // width = badge + text + padding
         return maxW + 40 // simple extra space for badge and padding
     }
-    
+
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        let rh = rowHeight(codeFontSize: codeFontSize)
-        let index = Int(point.y / rh)
+        let rHeight = rowHeight(codeFontSize: codeFontSize)
+        let index = Int(point.y / rHeight)
         if index >= 0 && index < rows.count {
             onCommit?(index)
         }
     }
-    
+
     private func scrollToSelection() {
         guard let scrollView = enclosingScrollView else { return }
-        let rh = rowHeight(codeFontSize: codeFontSize)
-        let rect = NSRect(x: 0, y: CGFloat(selection) * rh, width: bounds.width, height: rh)
+        let rHeight = rowHeight(codeFontSize: codeFontSize)
+        let rect = NSRect(x: 0, y: CGFloat(selection) * rHeight, width: bounds.width, height: rHeight)
         scrollToVisible(rect)
     }
-    
+
     override func draw(_ dirtyRect: NSRect) {
-        let rh = rowHeight(codeFontSize: codeFontSize)
+        let rHeight = rowHeight(codeFontSize: codeFontSize)
         let codeFont = NSFont.monospacedSystemFont(ofSize: codeFontSize, weight: .regular)
-        
-        for (i, row) in rows.enumerated() {
-            let y = CGFloat(i) * rh
-            let rect = NSRect(x: 0, y: y, width: bounds.width, height: rh)
+
+        for (index, row) in rows.enumerated() {
+            let originY = CGFloat(i) * rh
+            let rect = NSRect(x: 0, y: y, width: bounds.width, height: rHeight)
             guard dirtyRect.intersects(rect) else { continue }
-            
-            if i == selection {
+
+            if index == selection {
                 NSColor.selectedContentBackgroundColor.setFill()
                 rect.fill()
             }
-            
-            let badgeRect = NSRect(x: 8, y: y + (rh - 14) / 2, width: 14, height: 14)
+
+            let badgeRect = NSRect(x: 8, y: y + (rHeight - 14) / 2, width: 14, height: 14)
             if let image = NSImage(systemSymbolName: row.badge.symbolName, accessibilityDescription: nil) {
                 let nsColor = color(for: row.badge.color)
                 let symbolConfig = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
@@ -249,16 +256,16 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
                 let configuredImage = image.withSymbolConfiguration(symbolConfig) ?? image
                 configuredImage.draw(in: badgeRect)
             }
-            
+
             let color = (i == selection) ? NSColor.selectedControlTextColor : NSColor.labelColor
             let attr = NSAttributedString(string: row.displayText, attributes: [
                 .font: codeFont,
                 .foregroundColor: color
             ])
-            attr.draw(at: NSPoint(x: 28, y: y + (rh - attr.size().height) / 2))
+            attr.draw(at: NSPoint(x: 28, y: y + (rHeight - attr.size().height) / 2))
         }
     }
-    
+
     private func color(for token: FileIconColor) -> NSColor {
         switch token {
         case .orange: return .systemOrange
