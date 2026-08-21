@@ -201,6 +201,7 @@ final class CompletionController {
     /// opens answers no typed characters at all.
     private struct Snapshot {
         let prefix: String
+        let prefixLocation: Int
         let member: IdentifierScanner.MemberContext?
         let rows: [CompletionRow]
         var selection: CompletionPopupSelection?
@@ -348,6 +349,12 @@ final class CompletionController {
             }
         }
 
+        if let snap = snapshot, prefixRange.location != snap.prefixLocation {
+            snapshot = nil
+            dismiss()
+            return
+        }
+
         let request = CompletionRequest(
             prefix: nsText.substring(with: prefixRange),
             fileURL: fileURL,
@@ -413,9 +420,6 @@ final class CompletionController {
             return
         }
 
-        let selection = CompletionPopupSelection(count: rows.count)
-        snapshot = Snapshot(prefix: prefix, member: member, rows: rows, selection: selection)
-
         let texts = rows.map { $0.displayText }
         prefetchResolves(for: rows.map { $0.item }, provider: provider, token: token)
 
@@ -434,6 +438,15 @@ final class CompletionController {
         guard IdentifierScanner.memberContext(in: nsText, at: caret.location).map(\.receiver)
                 == member.map(\.receiver)
         else { return }
+
+        let selection = CompletionPopupSelection(count: rows.count)
+        snapshot = Snapshot(
+            prefix: prefix,
+            prefixLocation: range.location,
+            member: member,
+            rows: rows,
+            selection: selection
+        )
 
         let anchor = textView.firstRect(forCharacterRange: range, actualRange: nil)
 
