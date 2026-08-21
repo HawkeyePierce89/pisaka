@@ -7,6 +7,13 @@ final class CompletionPopupTests: XCTestCase {
         XCTAssertNil(CompletionPopupSelection(count: 0))
         XCTAssertNil(CompletionPopupSelection(count: -1))
         
+        var sel1 = CompletionPopupSelection(count: 1)!
+        XCTAssertEqual(sel1.selectedIndex, 0)
+        sel1.moveUp()
+        XCTAssertEqual(sel1.selectedIndex, 0)
+        sel1.moveDown()
+        XCTAssertEqual(sel1.selectedIndex, 0)
+        
         var sel = CompletionPopupSelection(count: 3)!
         XCTAssertEqual(sel.selectedIndex, 0)
         
@@ -33,10 +40,23 @@ final class CompletionPopupTests: XCTestCase {
     }
 
     func testBadgesForEverySymbolKind() {
-        // Assert every SymbolKind has a known mapping in CompletionBadge
+        let expected: [SymbolKind: String] = [
+            .type: "t.square",
+            .function: "f.cursive",
+            .method: "f.cursive",
+            .property: "p.square",
+            .constant: "c.square",
+            .variable: "v.square",
+            .heading: "number",
+            .selector: "s.square",
+            .key: "k.square",
+            .stage: "shippingbox",
+            .anchor: "link"
+        ]
+        
         for kind in SymbolKind.allCases {
             let badge = CompletionBadge(source: .symbol(kind))
-            XCTAssertFalse(badge.symbolName.isEmpty, "Kind \(kind) needs a valid SF Symbol name")
+            XCTAssertEqual(badge.symbolName, expected[kind], "Kind \(kind) needs a valid SF Symbol name")
         }
     }
     
@@ -48,18 +68,18 @@ final class CompletionPopupTests: XCTestCase {
         
         // With language (swift has "class")
         let rowsSwift = CompletionRow.rows(for: [itemWord, itemKeyword, itemSymbol, itemSymbolKw], language: .swift)
-        XCTAssertEqual(rowsSwift[0].badge.symbolName, CompletionBadge(source: .word).symbolName)
-        XCTAssertEqual(rowsSwift[1].badge.symbolName, CompletionBadge(source: .keyword).symbolName)
-        XCTAssertEqual(rowsSwift[2].badge.symbolName, CompletionBadge(source: .symbol(.type)).symbolName)
-        XCTAssertEqual(rowsSwift[3].badge.symbolName, CompletionBadge(source: .symbol(.function)).symbolName)
+        XCTAssertEqual(rowsSwift[0].badge.symbolName, "text.word.spacing")
+        XCTAssertEqual(rowsSwift[1].badge.symbolName, "k.circle")
+        XCTAssertEqual(rowsSwift[2].badge.symbolName, "t.square")
+        XCTAssertEqual(rowsSwift[3].badge.symbolName, "f.cursive")
         
         // Without language
         let rowsNil = CompletionRow.rows(for: [itemKeyword], language: nil)
-        XCTAssertEqual(rowsNil[0].badge.symbolName, CompletionBadge(source: .word).symbolName)
+        XCTAssertEqual(rowsNil[0].badge.symbolName, "text.word.spacing")
         
         // Language without keywords
         let rowsJson = CompletionRow.rows(for: [itemKeyword], language: .json)
-        XCTAssertEqual(rowsJson[0].badge.symbolName, CompletionBadge(source: .word).symbolName)
+        XCTAssertEqual(rowsJson[0].badge.symbolName, "text.word.spacing")
     }
 
     func testRowOrderAndDisplayTextPreserved() {
@@ -73,5 +93,8 @@ final class CompletionPopupTests: XCTestCase {
         XCTAssertEqual(rows.count, 2)
         XCTAssertEqual(rows[0].displayText, "alpha_disp")
         XCTAssertEqual(rows[1].displayText, "beta_disp")
+        
+        let emptyRows = CompletionRow.rows(for: [], language: nil)
+        XCTAssertTrue(emptyRows.isEmpty)
     }
 }

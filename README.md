@@ -33,7 +33,7 @@ description of each — and of what it deliberately does *not* do — is in
 - **Code intelligence** — a project-wide symbol index built from the tree-sitter
   parse trees powers Go to Definition (Cmd+click / Ctrl+Cmd+J) and
   fuzzy/camelCase autocompletion (with language keywords and, after a `.`,
-  member completion) presented in a custom popup with kind badges, where Enter inserts and Tab replaces the whole identifier. A status-bar lightbulb (and a Preferences checkbox) turns
+  member completion) presented in a custom popup with kind badges. The first row is preselected on open; Enter inserts the selection, Tab replaces the whole identifier, Up/Down arrows navigate, Esc dismisses, and clicking a row commits it. A status-bar lightbulb (and a Preferences checkbox) turns
   completion off entirely.
 - **Language servers**, all optional and macOS-only: Swift via Xcode's
   `sourcekit-lsp` (found through `xcrun`, nothing bundled); TypeScript/JavaScript,

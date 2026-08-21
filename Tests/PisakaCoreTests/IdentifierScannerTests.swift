@@ -151,6 +151,14 @@ final class IdentifierScannerTests: XCTestCase {
         )
     }
 
+    func testCompletionReplaceRangeWithEmptyString() {
+        let source = text("")
+        XCTAssertEqual(
+            IdentifierScanner.completionReplaceRange(in: source, at: 0),
+            NSRange(location: 0, length: 0)
+        )
+    }
+
     func testCompletionReplaceRangeWithEmptyPrefixAndSuffixCoversSuffix() {
         let source = text("worker.foo")
         // caret after the dot (offset 7)

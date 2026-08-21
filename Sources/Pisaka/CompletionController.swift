@@ -118,7 +118,6 @@ final class CompletionController {
     
     private let panel = CompletionPanel()
     private var codeFontSize: CGFloat = 13
-    private var metrics: InterfaceMetrics?
     
     var isVisible: Bool { panel.isVisible }
 
@@ -452,16 +451,13 @@ final class CompletionController {
             self.commit(.insert)
         }
         
-        if let metrics {
-            panel.show(
-                rows: rows,
-                selection: selection,
-                anchoredTo: anchor,
-                in: textView.window,
-                codeFontSize: codeFontSize,
-                metrics: metrics
-            )
-        }
+        panel.show(
+            rows: rows,
+            selection: selection,
+            anchoredTo: anchor,
+            in: textView.window,
+            codeFontSize: codeFontSize
+        )
     }
 
     // MARK: - Resolving deferred items
@@ -508,9 +504,8 @@ final class CompletionController {
 
     // MARK: - Panel Drive
 
-    func syncAppearance(codeFontSize: CGFloat, metrics: InterfaceMetrics) {
+    func syncAppearance(codeFontSize: CGFloat) {
         self.codeFontSize = codeFontSize
-        self.metrics = metrics
     }
 
     func moveSelection(_ direction: MoveDirection) {
@@ -524,7 +519,7 @@ final class CompletionController {
         }
         self.snapshot = updated
         
-        guard let textView, let metrics else { return }
+        guard let textView else { return }
         let nsText = textView.string as NSString
         let caret = textView.selectedRange()
         let range = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
@@ -535,8 +530,7 @@ final class CompletionController {
             selection: updated.selection,
             anchoredTo: anchor,
             in: textView.window,
-            codeFontSize: codeFontSize,
-            metrics: metrics
+            codeFontSize: codeFontSize
         )
     }
     
@@ -576,13 +570,16 @@ final class CompletionController {
     /// Rejection is silent and safe everywhere: an unknown word, a stale buffer
     /// or an unusable edit set all fall through to `super`, which inserts the
     /// plain text and loses only the auto-import.
-func commit(_ mode: CommitMode) {
+    func commit(_ mode: CommitMode) -> Bool {
         guard let snapshot,
               let selection = snapshot.selection,
               selection.selectedIndex < snapshot.rows.count,
               let textView,
               let undoManager = textView.undoManager
-        else { return }
+        else {
+            dismiss()
+            return false
+        }
         
         let row = snapshot.rows[selection.selectedIndex]
         let word = row.displayText
@@ -591,10 +588,16 @@ func commit(_ mode: CommitMode) {
         let nsText = textView.string as NSString
         let caret = textView.selectedRange()
         
-        guard caret.length == 0 else { return }
+        guard caret.length == 0 else {
+            dismiss()
+            return false
+        }
         
         let prefixRange = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
-        guard nsText.substring(with: prefixRange) == snapshot.prefix else { return }
+        guard nsText.substring(with: prefixRange) == snapshot.prefix else {
+            dismiss()
+            return false
+        }
         
         let targetRange: NSRange
         switch mode {
@@ -605,37 +608,25 @@ func commit(_ mode: CommitMode) {
         }
         
         let typedWord = NSRange(location: targetRange.location, length: (snapshot.prefix as NSString).length)
-        let currentText = nsText.substring(with: targetRange)
         
         dismiss()
         
-        let edits = resolved[word].flatMap { $0.isEmpty ? nil : $0 } ?? item.edits
+        var edits = resolved[word].flatMap { $0.isEmpty ? nil : $0 } ?? item.edits
+        
+        // Append suffix deletion as an edit so it's part of the plan and undo group
+        if mode == .replace && targetRange.length > prefixRange.length {
+            let suffixRange = NSRange(
+                location: prefixRange.location + prefixRange.length,
+                length: targetRange.length - prefixRange.length
+            )
+            edits.append(CompletionEdit(newText: "", range: suffixRange))
+        }
         
         if let plan = plan(for: edits, over: snapshot.prefix, replacing: typedWord, in: nsText) {
             noteProgrammaticEdit(true)
-            
-            // Apply the plan first
             apply(plan, in: textView)
-            
-            // For .replace, we need to delete the suffix if it's still there
-            if mode == .replace && targetRange.length > prefixRange.length {
-                let suffixLength = targetRange.length - prefixRange.length
-                let suffixText = currentText.dropFirst(prefixRange.length)
-                
-                let postPlanNsText = textView.string as NSString
-                let caretAfterPlan = textView.selectedRange().location
-                
-                // If suffix is still exactly ahead of caret, delete it
-                if caretAfterPlan + suffixLength <= postPlanNsText.length {
-                    let textAhead = postPlanNsText.substring(with: NSRange(location: caretAfterPlan, length: suffixLength))
-                    if textAhead == String(suffixText) {
-                        textView.insertText("", replacementRange: NSRange(location: caretAfterPlan, length: suffixLength))
-                    }
-                }
-            }
-            
             noteProgrammaticEdit(false)
-            return
+            return true
         }
         
         // Simple insertion
@@ -648,6 +639,7 @@ func commit(_ mode: CommitMode) {
         if item.resolveHandle != nil, resolved[word] == nil {
             scheduleFollowUp(for: item, replacing: typedWord, in: textView)
         }
+        return true
     }
 
     /// The plan for `edits`, re-expressed over whatever now stands in the typed
@@ -765,6 +757,7 @@ func commit(_ mode: CommitMode) {
         pendingTask = nil
         generation += 1
         snapshot = nil
+        panel.dismiss()
         forgetList()
     }
 

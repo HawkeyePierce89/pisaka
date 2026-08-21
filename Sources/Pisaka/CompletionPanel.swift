@@ -9,8 +9,10 @@ final class CompletionPanel {
     private static let gap: CGFloat = 4
 
     private var panel: PassThroughPanel?
+    private var listContentView: CompletionListContentView?
     private weak var attachedParent: NSWindow?
     private var isShown = false
+    private var eventMonitor: Any?
 
     var isVisible: Bool { isShown }
     var onCommit: ((Int) -> Void)?
@@ -20,31 +22,30 @@ final class CompletionPanel {
         selection: CompletionPopupSelection?,
         anchoredTo anchor: NSRect,
         in parent: NSWindow?,
-        codeFontSize: CGFloat,
-        metrics: InterfaceMetrics
+        codeFontSize: CGFloat
     ) {
         guard !rows.isEmpty else {
             dismiss()
             return
         }
 
-        let panel = panel ?? makePanel()
-        self.panel = panel
+        if panel == nil { makePanel() }
+        guard let panel, let contentView = listContentView else { return }
+        
         Self.match(panel, to: parent)
 
-        let contentView = panel.completionContentView
         contentView.onCommit = { [weak self] index in
             self?.onCommit?(index)
         }
         
-        let width = min(Self.maximumWidth, contentView.measureWidth(for: rows, codeFontSize: codeFontSize, metrics: metrics))
+        let width = min(Self.maximumWidth, contentView.measureWidth(for: rows, codeFontSize: codeFontSize))
         let visibleRows = min(rows.count, 30) // Cap visible size
         let height = contentView.rowHeight(codeFontSize: codeFontSize) * CGFloat(visibleRows)
         
         let contentSize = NSSize(width: width, height: height)
         panel.setContentSize(contentSize)
         
-        contentView.update(rows: rows, selection: selection?.selectedIndex ?? 0, codeFontSize: codeFontSize, metrics: metrics)
+        contentView.update(rows: rows, selection: selection?.selectedIndex ?? 0, codeFontSize: codeFontSize, width: width)
         
         panel.setFrameOrigin(Self.origin(for: panel.frame.size, anchoredTo: anchor))
 
@@ -55,6 +56,16 @@ final class CompletionPanel {
         }
         panel.orderFront(nil)
         isShown = true
+        
+        if eventMonitor == nil {
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+                guard let self, let panel = self.panel else { return event }
+                if event.window !== panel {
+                    self.dismiss()
+                }
+                return event
+            }
+        }
     }
 
     func dismiss() {
@@ -63,6 +74,11 @@ final class CompletionPanel {
         attachedParent?.removeChildWindow(panel)
         attachedParent = nil
         panel.orderOut(nil)
+        
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
+        }
     }
 
     private static func match(_ panel: PassThroughPanel, to parent: NSWindow?) {
@@ -74,7 +90,7 @@ final class CompletionPanel {
         }
     }
 
-    private func makePanel() -> PassThroughPanel {
+    private func makePanel() {
         let panel = PassThroughPanel(
             contentRect: NSRect(x: 0, y: 0, width: Self.maximumWidth, height: 0),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -103,6 +119,7 @@ final class CompletionPanel {
         background.layer?.masksToBounds = true
         
         let contentView = CompletionListContentView()
+        self.listContentView = contentView
         let scrollView = CodeScrollView()
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = false
@@ -118,7 +135,7 @@ final class CompletionPanel {
         ])
         
         panel.contentView = background
-        return panel
+        self.panel = panel
     }
 
     private static func visibleFrame(for anchor: NSRect) -> NSRect {
@@ -142,12 +159,6 @@ final class CompletionPanel {
 private final class PassThroughPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
-    
-    var completionContentView: CompletionListContentView {
-        let effect = contentView as! NSVisualEffectView
-        let scroll = effect.subviews.first as! CodeScrollView
-        return scroll.documentView as! CompletionListContentView
-    }
 }
 
 @MainActor
@@ -157,7 +168,6 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
     private var rows: [CompletionRow] = []
     private var selection: Int = 0
     private var codeFontSize: CGFloat = 13
-    private var metrics: InterfaceMetrics?
     
     var onCommit: ((Int) -> Void)?
     
@@ -165,14 +175,13 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
     override var acceptsFirstResponder: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     
-    func update(rows: [CompletionRow], selection: Int, codeFontSize: CGFloat, metrics: InterfaceMetrics) {
+    func update(rows: [CompletionRow], selection: Int, codeFontSize: CGFloat, width: CGFloat) {
         self.rows = rows
         self.selection = selection
         self.codeFontSize = codeFontSize
-        self.metrics = metrics
         
         let height = rowHeight(codeFontSize: codeFontSize) * CGFloat(rows.count)
-        self.frame = NSRect(x: 0, y: 0, width: superview?.bounds.width ?? 0, height: height)
+        self.frame = NSRect(x: 0, y: 0, width: width, height: height)
         
         needsDisplay = true
         scrollToSelection()
@@ -189,7 +198,7 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
         return ceil(codeFont.ascender - codeFont.descender) + 6 // padding
     }
     
-    func measureWidth(for rows: [CompletionRow], codeFontSize: CGFloat, metrics: InterfaceMetrics) -> CGFloat {
+    func measureWidth(for rows: [CompletionRow], codeFontSize: CGFloat) -> CGFloat {
         let codeFont = NSFont.monospacedSystemFont(ofSize: codeFontSize, weight: .regular)
         var maxW: CGFloat = 0
         let attributes: [NSAttributedString.Key: Any] = [.font: codeFont]
@@ -219,7 +228,6 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
     }
     
     override func draw(_ dirtyRect: NSRect) {
-        guard metrics != nil else { return }
         let rh = rowHeight(codeFontSize: codeFontSize)
         let codeFont = NSFont.monospacedSystemFont(ofSize: codeFontSize, weight: .regular)
         

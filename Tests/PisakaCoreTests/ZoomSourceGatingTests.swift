@@ -301,7 +301,9 @@ final class ZoomSourceGatingTests: XCTestCase {
                 "\(file) plants a zoom surface marker the pointer can never reach"
             )
         }
+    }
 
+    func testTheCompletionPanelAcceptsMouseEventsButRefusesKeyStatus() throws {
         // CompletionPanel *does* declare a surface because it accepts mouse events.
         // It must not claim the hover panel's exemption while remaining non-activating.
         let completionUrl = try XCTUnwrap(

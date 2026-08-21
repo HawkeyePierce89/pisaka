@@ -342,7 +342,7 @@ struct CodeEditorView: NSViewRepresentable {
         // ...and whether it may offer anything at all. Applied here as well as in
         // `updateNSView` so an editor built while the preference is already off
         // never asks the provider even once.
-        context.coordinator.setCompletionEnabled(completionEnabled)
+        context.coordinator.completion.setEnabled(completionEnabled)
         // Bind the hover popover. Nothing is asked here either: the first request
         // is made once the pointer has rested over an identifier for
         // `HoverContent.dwellDelay`.
@@ -409,7 +409,7 @@ struct CodeEditorView: NSViewRepresentable {
         // cancels whatever was pending and dismisses a popup that is on screen,
         // which is why this runs before the buffer/blame/index reconciliation
         // below rather than after it.
-        context.coordinator.setCompletionEnabled(completionEnabled)
+        context.coordinator.completion.setEnabled(completionEnabled)
 
         // Keep the popover's two font inputs current. Cheap and unconditional:
         // the controller only stores them, and they are read when the *next*
@@ -418,9 +418,8 @@ struct CodeEditorView: NSViewRepresentable {
             codeFontSize: CGFloat(fontSize),
             metrics: interfaceMetrics
         )
-        context.coordinator.syncCompletion(
-            codeFontSize: CGFloat(fontSize),
-            metrics: interfaceMetrics
+        context.coordinator.completion.syncAppearance(
+            codeFontSize: CGFloat(fontSize)
         )
 
         let previousFileID = context.coordinator.fileID
@@ -832,21 +831,6 @@ struct CodeEditorView: NSViewRepresentable {
             }
         }
 
-        /// Forward the completion on/off preference to the controller
-        /// (`makeNSView`/`updateNSView`).
-        ///
-        /// A thin forwarder rather than a stored flag here: the controller owns
-        /// the state, ignores an unchanged value, and is the only thing that can
-        /// act on a change — cancelling in-flight work and dismissing a live
-        /// popup. Nothing in the symbol index or the LSP layer is touched.
-        func setCompletionEnabled(_ enabled: Bool) {
-            completion.setEnabled(enabled)
-        }
-
-        func syncCompletion(codeFontSize: CGFloat, metrics: InterfaceMetrics) {
-            completion.syncAppearance(codeFontSize: codeFontSize, metrics: metrics)
-        }
-
         /// Recompute the popup's candidates for what is being typed.
         ///
         /// The provider is re-read from the index controller on every call rather
@@ -901,11 +885,9 @@ struct CodeEditorView: NSViewRepresentable {
 
             switch event.keyCode {
             case 36, 76: // Return/Enter
-                completion.commit(.insert)
-                return true
+                return completion.commit(.insert)
             case 48: // Tab
-                completion.commit(.replace)
-                return true
+                return completion.commit(.replace)
             case 126: // Up
                 completion.moveSelection(.up)
                 return true
