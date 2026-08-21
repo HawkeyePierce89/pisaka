@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 #if os(macOS)
 import AppKit
 import PisakaCore
@@ -58,6 +59,7 @@ import PisakaCore
 /// no member position on either side. Neither a caret moved to open space (where
 /// the partial word is also empty) nor one moved to a different `other.` can
 /// inherit a member list, and an ordinary list cannot be served after a dot.
+// swiftlint:disable:next type_body_length
 @MainActor
 final class CompletionController {
 
@@ -251,6 +253,7 @@ final class CompletionController {
     /// text goes *into* the request rather than being read later, so the words the
     /// provider harvests are the ones on screen when the user paused, not the ones
     /// present when the task happened to resume.
+    // swiftlint:disable:next function_body_length
     func update(
         provider: CodeIntelligenceProviding?,
         fileURL: URL?,
@@ -378,6 +381,7 @@ final class CompletionController {
     /// word test everywhere there is no partial word at all: in open space, after
     /// a `(`, at the start of a line, and after every other dot in the buffer),
     /// but `worker.na`'s member-only list is just as wrong over an unrelated `na`.
+    // swiftlint:disable:next function_parameter_count
     private func apply(
         prefix: String,
         member: IdentifierScanner.MemberContext?,
@@ -522,6 +526,10 @@ final class CompletionController {
     }
 
     func dismiss() {
+        pendingTask?.cancel()
+        pendingTask = nil
+        generation += 1
+        snapshot = nil
         panel.dismiss()
         forgetList()
     }
@@ -588,12 +596,12 @@ final class CompletionController {
 
         let isResolved = resolved[word] != nil
         let prefetchedEdits = resolved[word].flatMap { $0.isEmpty ? nil : $0 } ?? item.edits
-        let prefetchTask = resolveTasks[word]
+        let prefetchTask = resolveTasks.removeValue(forKey: word)
         let provider = resolveSource
 
         dismiss()
 
-        var expectedSuffix: String? = nil
+        var expectedSuffix: String?
         if mode == .replace && targetRange.length > prefixRange.length {
             let suffixRange = NSRange(
                 location: prefixRange.location + prefixRange.length,
@@ -760,12 +768,7 @@ final class CompletionController {
     }
 
     func reset() {
-        pendingTask?.cancel()
-        pendingTask = nil
-        generation += 1
-        snapshot = nil
-        panel.dismiss()
-        forgetList()
+        dismiss()
     }
 
     /// Forget everything that belongs to the currently-offered list: its
