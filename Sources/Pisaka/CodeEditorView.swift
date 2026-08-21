@@ -1119,6 +1119,7 @@ struct CodeEditorView: NSViewRepresentable {
             // `textDidChange`, for the same reason the brackets use it — it
             // covers programmatic edits (auto-pair, dedent, ⌘D, a buffer swap) as
             // well as typing.
+            completion.noteEdit()
             hover.dismiss()
             bracketHighlight.noteEdit(
                 in: textStorage.editedRange,

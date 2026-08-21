@@ -14,6 +14,12 @@ final class CompletionPanel {
     private var isShown = false
     private var eventMonitor: Any?
 
+    deinit {
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+
     var isVisible: Bool { isShown }
     var onCommit: ((Int) -> Void)?
 

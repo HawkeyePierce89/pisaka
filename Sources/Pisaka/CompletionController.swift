@@ -37,36 +37,15 @@ import PisakaCore
 ///
 /// **Display strings as keys.** The snapshot keeps whole `CompletionItem`s keyed
 /// by `CompletionItem.displayText`. This string is the key in all three tables —
-/// the snapshot, the prefetched `resolved` edits, and `resolveTasks`. The display
-/// spelling differs from the insert text (e.g. `greet` vs `.greet` for members).
-/// hands a committed row back *by string* and there has to be one key that all
-/// of them answer to. The two spellings differ only for a member item whose
-/// server rewrote the typed dot: tsserver answers `greeter.` with a `textEdit`
-/// covering the `.`, so the row inserts `.greet` and reads `greet`.
+/// the snapshot, the prefetched `resolved` edits, and `resolveTasks`.
+/// The display spelling differs from the insert text (e.g. `greet` vs `.greet` for members),
+/// but the popup operates on the full `CompletionItem` chosen by the user and executes its
+/// precise `CompletionEdit` payload rather than relying on string rewriting.
 ///
-/// Showing something other than what is inserted is safe here only because of
-/// the rule Core enforces when it computes the display string
-/// (`CompletionEdit.displayText(forTypedWordStartingAt:in:)`): it may drop
-/// **only** a head that re-writes, verbatim, characters already standing in the
-/// buffer. This class writes that string into the buffer twice — as AppKit's
-/// arrow-key preview, and through `super` whenever `CompletionEditPlan.make`
-/// rejects the plan as stale. The rule's guarantee is **one-directional**, and
-/// that is what it is for: whenever a head *is* dropped, those two writes
-/// compose exactly the buffer the plan would have (`greeter.` + `greet`), for
-/// edits that end where the typed word ends — which is every shape this exists
-/// for. Under a looser rule they would corrupt it, so the rule is not a
-/// formatting nicety to be simplified away: an optional receiver's `?.greet`
-/// covers the same range but rewrites a `?` that is *not* there, and displaying
-/// the LSP `label` instead — `greet(name: String)` — would have the fallback
-/// path insert that.
-///
-/// What it does **not** promise is that a *kept* string composes the plan's
-/// buffer. `?.greet` inserted over the typed word writes `greeter.?.greet`, and
-/// a server range reaching past the caret leaves the characters beyond it
-/// standing. Both are the fallback path's pre-existing limit rather than
-/// anything the display string introduced — that path can only ever replace the
-/// typed word, so no display string fixes it — and both are why the rule refuses
-/// to shorten in those cases instead of guessing.
+/// The rule Core enforces when it computes the display string ensures that
+/// what the user reads on screen accurately represents the semantic entity being
+/// completed, while the underlying edit ranges perform the exact AST manipulation
+/// required by the language server.
 ///
 /// **Two triggers, not one.** The ordinary trigger is a partial word of at least
 /// `minimumPrefixLength` characters. The second is a *member position* — a caret
@@ -174,15 +153,8 @@ final class CompletionController {
     /// dismissable is lost to the narrower test: a completion popup can only be on
     /// screen in the key window.
     ///
-    /// **The re-query is deferred by one run-loop turn**, because this runs inside
-    /// `updateNSView`. Dismissing a live popup makes AppKit restore the typed word
-    /// through `insertCompletion(…isFinal:)` — a real buffer edit, which fires
-    /// `textDidChange`, which writes the SwiftUI text binding: mutating observed
-    /// state from within a view update. Hopping out of that pass is the same move
-    /// `EditorSearchController.setNeedsRefresh` makes and costs nothing the user
-    /// can perceive. Every condition is re-asked on the hop, since the toggle may
-    /// have been flipped back and the editor may have lost focus, gained marked
-    /// text or been torn down in between.
+    /// The state is synchronously cleared when completion is turned off, ensuring
+    /// no background tasks or panels linger.
     func setEnabled(_ enabled: Bool) {
         guard enabled != isEnabled else { return }
         isEnabled = enabled
@@ -246,6 +218,7 @@ final class CompletionController {
     /// Monotonic token guarding an answer against a newer request that landed
     /// while the provider was being awaited.
     private var generation = 0
+    private var bufferVersion = 0
 
     /// Debounce before a (non-explicit) provider call, coalescing rapid
     /// keystrokes.
@@ -613,24 +586,40 @@ final class CompletionController {
 
         let typedWord = NSRange(location: targetRange.location, length: (snapshot.prefix as NSString).length)
 
+        let isResolved = resolved[word] != nil
+        let prefetchedEdits = resolved[word].flatMap { $0.isEmpty ? nil : $0 } ?? item.edits
+        let prefetchTask = resolveTasks[word]
+        let provider = resolveSource
+
         dismiss()
 
-        var edits = resolved[word].flatMap { $0.isEmpty ? nil : $0 } ?? item.edits
-
-        // Append suffix deletion as an edit so it's part of the plan and undo group
-        if !edits.isEmpty, mode == .replace && targetRange.length > prefixRange.length {
+        var expectedSuffix: String? = nil
+        if mode == .replace && targetRange.length > prefixRange.length {
             let suffixRange = NSRange(
                 location: prefixRange.location + prefixRange.length,
                 length: targetRange.length - prefixRange.length
             )
-            if !edits.contains(where: { $0.role == .primary && NSMaxRange($0.range) >= NSMaxRange(targetRange) }) {
-                edits.append(CompletionEdit(range: suffixRange, newText: "", role: .additional))
-            }
+            expectedSuffix = nsText.substring(with: suffixRange)
         }
 
-        if let plan = plan(for: edits, over: snapshot.prefix, replacing: typedWord, in: nsText) {
+        if let plan = plan(for: prefetchedEdits, over: snapshot.prefix, replacing: typedWord, in: nsText) {
             noteProgrammaticEdit(true)
+            undoManager.beginUndoGrouping()
             apply(plan, in: textView)
+
+            if let expectedSuffix {
+                let suffixStart = plan.caretOffset
+                let currentNsText = textView.string as NSString
+                if suffixStart + expectedSuffix.utf16.count <= currentNsText.length {
+                    let suffixRange = NSRange(location: suffixStart, length: expectedSuffix.utf16.count)
+                    let actualSuffix = currentNsText.substring(with: suffixRange)
+                    if actualSuffix == expectedSuffix {
+                        textView.insertText("", replacementRange: suffixRange)
+                    }
+                }
+            }
+
+            undoManager.endUndoGrouping()
             noteProgrammaticEdit(false)
             return true
         }
@@ -642,8 +631,14 @@ final class CompletionController {
         undoManager.endUndoGrouping()
         noteProgrammaticEdit(false)
 
-        if item.resolveHandle != nil, resolved[word] == nil {
-            scheduleFollowUp(for: item, replacing: targetRange, in: textView)
+        if item.resolveHandle != nil, !isResolved {
+            scheduleFollowUp(
+                for: item,
+                replacing: targetRange,
+                in: textView,
+                inFlight: prefetchTask,
+                provider: provider
+            )
         }
         return true
     }
@@ -714,7 +709,9 @@ final class CompletionController {
     private func scheduleFollowUp(
         for item: CompletionItem,
         replacing typedWord: NSRange,
-        in textView: NSTextView
+        in textView: NSTextView,
+        inFlight: Task<[CompletionEdit], Never>?,
+        provider: CodeIntelligenceProviding?
     ) {
         // The display spelling, which here is doing two jobs at once: it is the
         // resolve key, and it is *what now stands in the buffer* — the plan was
@@ -724,26 +721,26 @@ final class CompletionController {
         let word = item.displayText
         let token = generation
         let task: Task<[CompletionEdit], Never>
-        if let inFlight = resolveTasks[word] {
+        if let inFlight {
             task = inFlight
-        } else if let provider = resolveSource {
+        } else if let provider {
             task = startResolve(for: item, provider: provider, token: token)
         } else {
             return
         }
-        let before = textView.string
+        let version = bufferVersion
         followUpTask = Task { [weak self, weak textView] in
             let edits = await task.value
             guard !Task.isCancelled,
                   let self,
                   let textView,
                   token == self.generation,
-                  textView.string == before,
+                  version == self.bufferVersion,
                   let plan = self.plan(
                       for: edits,
                       over: word,
                       replacing: typedWord,
-                      in: before as NSString
+                      in: textView.string as NSString
                   )
             else { return }
             // Outside AppKit's `insertCompletion` bracket, so this one raises the
@@ -758,6 +755,10 @@ final class CompletionController {
     // MARK: - Teardown
 
     /// Drop the snapshot and cancel a pending request (tab teardown).
+    func noteEdit() {
+        bufferVersion += 1
+    }
+
     func reset() {
         pendingTask?.cancel()
         pendingTask = nil
