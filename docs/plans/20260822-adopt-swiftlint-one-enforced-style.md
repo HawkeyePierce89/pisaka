@@ -389,23 +389,32 @@ to 2200 and `type_body_length` to 2150, which switches those rules off for
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] `swiftlint --strict` from the repository root: zero violations, zero
+- [x] `swiftlint --strict` from the repository root: zero violations, zero
       warnings, zero `superfluous_disable_command`.
-- [ ] `swift test` fully green.
-- [ ] `xcodegen generate`, then
+      (Verified: 0.65.0, exit 0, "Found 0 violations, 0 serious in 362 files".)
+- [x] `swift test` fully green. (3173 tests, 0 failures.)
+- [x] `xcodegen generate`, then
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -configuration
       Release -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO
       CODE_SIGNING_REQUIRED=NO build` — green, proving the conformance pass
-      changed no behavior in the shipping configuration.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+      changed no behavior in the shipping configuration. (BUILD SUCCEEDED.)
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
       -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO
-      CODE_SIGNING_REQUIRED=NO build` — green.
-- [ ] Re-run the hook checks end to end in a temporary worktree: a staged
+      CODE_SIGNING_REQUIRED=NO build` — green. (BUILD SUCCEEDED.)
+- [x] Re-run the hook checks end to end in a temporary worktree: a staged
       violating file is refused; a missing `swiftlint` is refused with the
-      actionable message; a clean commit passes.
-- [ ] Confirm `git diff --stat` for the whole branch shows only formatting, the
+      actionable message; a clean commit passes. (Detached worktree at HEAD,
+      `git -c core.hooksPath=.githooks commit`: over-long identifier refused
+      with the violation plus the `.swiftlint.yml`-is-the-authority line;
+      empty-PATH run refused with the pinned release URL and the
+      `core.hooksPath` one-liner; clean file committed.)
+- [x] Confirm `git diff --stat` for the whole branch shows only formatting, the
       handful of named mechanical rewrites, and the new config/hook/CI/test/doc
-      files — no API change, no refactor, no reverted branch.
+      files — no API change, no refactor, no reverted branch. (128 files:
+      5 added — `.swiftlint.yml`, `Tests/.swiftlint.yml`, `.githooks/pre-commit`,
+      `LintConfigurationTests.swift`, this plan — 123 modified, every one under
+      `Sources/`, `Tests/`, or the named workflow/doc files; zero deletions or
+      renames.)
 
 ## Post-Completion
 
