@@ -11,11 +11,16 @@ One time per clone:
 
 ```sh
 # The pinned release is the reliable route — brew's formula can be a different
-# version, and only the pinned one passes the gate:
-curl -fsSL --retry 3 -o swiftlint.zip \
+# version, and only the pinned one passes the gate. Unpack in a scratch
+# directory and take the binary alone: the archive also carries a `LICENSE`, so
+# unzipping it inside a clone would prompt to replace this repository's own —
+# and answering yes would overwrite Pisaka's license with SwiftLint's.
+tmp=$(mktemp -d)
+curl -fsSL --retry 3 -o "$tmp/swiftlint.zip" \
   https://github.com/realm/SwiftLint/releases/download/0.65.0/portable_swiftlint.zip
-unzip -o swiftlint.zip && rm swiftlint.zip
-install -m 755 swiftlint /usr/local/bin/   # or any directory on your PATH
+unzip -q "$tmp/swiftlint.zip" swiftlint -d "$tmp"
+install -m 755 "$tmp/swiftlint" /usr/local/bin/   # or any directory on your PATH
+rm -rf "$tmp"
 
 brew install swiftlint    # alternative; whatever it serves, the check below decides
 swiftlint version         # MUST print 0.65.0 — any other binary is refused

@@ -249,7 +249,13 @@ jobs:
         run: |
           curl -fsSL --retry 3 -o swiftlint.zip https://github.com/realm/SwiftLint/releases/download/0.65.0/portable_swiftlint.zip
           echo "d6cb0aa7a2f5f1ef306fc9e37bcb54dc9a26facc8f7784ac0c3dd3eccf5c6ba6  swiftlint.zip" | shasum -a 256 -c -
-          unzip -q swiftlint.zip
+          # Only the binary is extracted, by name. The archive also carries a
+          # `LICENSE`, and this runs in the checkout, which has its own — a bare
+          # `unzip` prompts to replace it, reads EOF on a runner, answers "None"
+          # and exits 1, so the job died before linting anything. Extracting the
+          # whole archive with `-o` would be worse than the failure: it would
+          # overwrite this repository's LICENSE with SwiftLint's.
+          unzip -q -o swiftlint.zip swiftlint
           chmod +x swiftlint
       - name: Record the SwiftLint version doing the judging
         run: ./swiftlint --version
