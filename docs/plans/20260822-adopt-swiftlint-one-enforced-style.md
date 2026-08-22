@@ -332,7 +332,7 @@ to 2200 and `type_body_length` to 2150, which switches those rules off for
 - Modify: `.github/workflows/ci.yml`
 - Modify: `Tests/PisakaCoreTests/LintConfigurationTests.swift`
 
-- [ ] Add a `lint` job to `ci.yml`, `runs-on: macos-15`, a short
+- [x] Add a `lint` job to `ci.yml`, `runs-on: macos-15`, a short
       `timeout-minutes`, with no `needs:` — it is independent of the build
       graph and should give the fastest possible feedback. Steps: checkout (the
       same pinned SHA the other jobs use), then install SwiftLint the way this
@@ -344,15 +344,15 @@ to 2200 and `type_body_length` to 2150, which switches those rules off for
       `./swiftlint lint --strict` from the repository root (no `--config`, so
       the nested test config applies) and print `--version` first so a run's
       log records which binary judged it.
-- [ ] Add a comment on the job explaining why CI is the real gate: hooks are
+- [x] Add a comment on the job explaining why CI is the real gate: hooks are
       not cloned and are bypassable with `--no-verify`.
-- [ ] Confirm the existing `ci.yml` assertions in `ReleaseWorkflowTests` still
+- [x] Confirm the existing `ci.yml` assertions in `ReleaseWorkflowTests` still
       pass unchanged — the job-budget floor reads the macOS *build* job's
       `timeout-minutes`, and the shared smoke-launch body is matched by step
       name, so a new job with distinct step names must not disturb either. If
       any of them turns out to read the file more broadly, extend it rather
       than loosening it.
-- [ ] Extend `LintConfigurationTests` with the CI half, matched on
+- [x] Extend `LintConfigurationTests` with the CI half, matched on
       comment-stripped YAML lines: `ci.yml` declares a lint job; the job
       downloads SwiftLint from a URL whose version component **equals**
       `.swiftlint.yml`'s `swiftlint_version` (the cross-file pair — this is the
@@ -360,7 +360,7 @@ to 2200 and `type_body_length` to 2150, which switches those rules off for
       download is verified with `shasum -a 256 -c -`; the lint invocation
       passes `--strict` and passes no `--config`; and the step cannot be
       non-fatal (no `continue-on-error`, no `|| true`).
-- [ ] Run `swift test` — must pass before Task 6.
+- [x] Run `swift test` — must pass before Task 6.
 
 ### Task 6: Documentation
 

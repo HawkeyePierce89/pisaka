@@ -37,7 +37,15 @@ import XCTest
 ///    committed (`--strict`, `--force-exclude`, over a materialised index),
 ///    never rewrites staged content (`--fix` is absent) and never softens
 ///    (`|| true`-style escapes are absent), and every refusal branch reaches
-///    `exit 1`.
+///    `exit 1`;
+///  * the CI lint job is the half that actually refuses a pull request — hooks
+///    are not cloned and are bypassable — so it must download exactly the
+///    pinned release (its URL's version component **equals**
+///    `.swiftlint.yml`'s `swiftlint_version`: the cross-file pair that makes
+///    hook, configuration and CI incapable of disagreeing), verify the
+///    archive's digest before running it, lint with no config override (root
+///    discovery is what merges the nested test config) and carry no escape
+///    hatch.
 final class LintConfigurationTests: XCTestCase {
     func testBothConfigurationFilesExist() throws {
         for relativePath in [Self.rootConfigPath, Self.childConfigPath] {
@@ -48,12 +56,7 @@ final class LintConfigurationTests: XCTestCase {
     }
 
     func testRootDeclaresAThreeComponentSwiftLintVersion() throws {
-        let prefix = "swiftlint_version:"
-        let line = try XCTUnwrap(
-            try activeRootLines().first { $0.hasPrefix(prefix) },
-            ".swiftlint.yml must declare swiftlint_version: — the pin the hook and CI enforce"
-        )
-        let version = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+        let version = try pinnedSwiftLintVersion()
         let components = version.split(separator: ".")
         XCTAssertEqual(components.count, 3,
                        "swiftlint_version must be a three-component version, got \(version)")
@@ -280,11 +283,113 @@ final class LintConfigurationTests: XCTestCase {
             "a commit touching no Swift files needs no lint, and the empty-input case must stay explicit")
     }
 
+    // MARK: - The CI lint job
+
+    /// CI is the half of the enforcement a bypassed hook cannot skip — hooks
+    /// are not cloned and `--no-verify` exists — so its job's shape is
+    /// load-bearing and pinned here by the same mechanism-over-wording rules
+    /// as the hook above. These assertions run over the job's comment-stripped
+    /// lines only, never the whole file, so a second, weaker job elsewhere
+    /// could not satisfy them by existing.
+    func testCIDeclaresALintJobIndependentOfTheBuildGraph() throws {
+        let block = try ciLintJobBlock()
+        XCTAssertEqual(block.filter { $0 == "runs-on: macos-15" }.count, 1,
+                       "the lint job must name its runner like every other job in ci.yml")
+        let budgetLine = try XCTUnwrap(
+            block.first { $0.hasPrefix("timeout-minutes:") },
+            """
+            the lint job must declare its own timeout-minutes: — without one it runs under \
+            GitHub's six-hour default, and a hung lint holds a runner for the afternoon
+            """)
+        let budget = try XCTUnwrap(Int(budgetLine.dropFirst("timeout-minutes:".count)
+            .trimmingCharacters(in: .whitespaces)), "could not read a number out of “\(budgetLine)”")
+        XCTAssertLessThanOrEqual(budget, 15, """
+            the lint job budgets \(budget) minutes for a check that takes under two — style is \
+            supposed to be the fastest feedback any job gives, not a queue behind it
+            """)
+        XCTAssertFalse(block.contains { $0.hasPrefix("needs:") }, """
+            the lint job must not wait on the build graph: style feedback that arrives only after \
+            a Release build is feedback nobody read
+            """)
+    }
+
+    /// The cross-file pin pair. The URL's version component must equal
+    /// `.swiftlint.yml`'s `swiftlint_version` — this is what makes hook,
+    /// configuration and CI incapable of disagreeing about which binary judges
+    /// style. A bump that updates one side fails here until both move.
+    func testCILintsWithExactlyThePinnedSwiftLintRelease() throws {
+        let block = try ciLintJobBlock()
+        let pin = try pinnedSwiftLintVersion()
+        let expectedURL = "https://github.com/realm/SwiftLint/releases/download/\(pin)/portable_swiftlint.zip"
+        let downloadLines = block.filter { $0.contains(expectedURL) }
+        XCTAssertEqual(downloadLines.count, 1, """
+            ci.yml's lint job must download exactly the pinned release asset (\(expectedURL)) — \
+            found \(downloadLines.count) matching lines. The pin lives in .swiftlint.yml; update \
+            it there first, then bring the workflow to it.
+            """)
+
+        let verifyLines = block.filter { $0.contains("shasum -a 256 -c -") }
+        XCTAssertEqual(verifyLines.count, 1,
+                       "the downloaded archive must be digest-verified before anything runs it")
+        XCTAssertTrue(verifyLines.allSatisfy { $0.contains("swiftlint.zip") },
+                      "the digest check must verify the archive itself, verbatim")
+
+        let regex = try NSRegularExpression(pattern: #""([0-9a-f]{64})\s+swiftlint\.zip""#)
+        let digestPresent = verifyLines.contains { line in
+            let range = NSRange(line.startIndex..., in: line)
+            return regex.firstMatch(in: line, options: [], range: range) != nil
+        }
+        XCTAssertTrue(digestPresent, """
+            the shasum invocation must carry a complete 64-hex SHA-256 beside swiftlint.zip — a \
+            truncated paste would fail at run time on every PR instead of failing here
+            """)
+    }
+
+    /// Strict, over the whole tree, with no config override and no escape
+    /// hatch. Root discovery (no explicit config path) is exactly what makes
+    /// SwiftLint merge the nested `Tests/.swiftlint.yml`; passing one would
+    /// silently drop the test tree from every CI judgment.
+    func testCILintIsStrictWithoutAConfigOverrideAndCannotBeSoftened() throws {
+        let block = try ciLintJobBlock()
+
+        let lintLines = block.filter { $0.contains("./swiftlint lint") }
+        XCTAssertEqual(lintLines.count, 1, "exactly one lint invocation may judge the pull request")
+        XCTAssertTrue(lintLines.allSatisfy { $0.contains("--strict") },
+                      "the CI lint must pass --strict so warnings refuse too")
+
+        XCTAssertFalse(block.contains { $0.contains("--config") }, """
+            the lint job must pass no config override: running from the repository root lets \
+            SwiftLint discover .swiftlint.yml and merge Tests/.swiftlint.yml, and an override \
+            would silently narrow what CI judges
+            """)
+
+        for forbidden in ["continue-on-error:", "|| true", "|| :"] {
+            XCTAssertFalse(block.contains { $0.contains(forbidden) }, """
+                the lint job must not soften with “\(forbidden)” — a violation that reaches CI has \
+                already been committed once; swallowing the report makes the gate decorative
+                """)
+        }
+    }
+
+    /// The version print must precede the lint invocation, so a run's log
+    /// records which binary judged it — an argument about a stale runner image
+    /// needs that line to settle anything.
+    func testCIPrintsTheJudgingVersionBeforeLinting() throws {
+        let block = try ciLintJobBlock()
+        let versionIndex = try XCTUnwrap(block.firstIndex { $0.contains("./swiftlint --version") },
+                                         "the lint job must print ./swiftlint --version")
+        let lintIndex = try XCTUnwrap(block.firstIndex { $0.contains("./swiftlint lint") },
+                                      "the lint job must invoke ./swiftlint lint")
+        XCTAssertLessThan(versionIndex, lintIndex,
+                          "print --version before linting so the log records which binary judged it")
+    }
+
     // MARK: - Data
 
     private static let rootConfigPath = ".swiftlint.yml"
     private static let childConfigPath = "Tests/.swiftlint.yml"
     private static let hookPath = ".githooks/pre-commit"
+    private static let ciWorkflowPath = ".github/workflows/ci.yml"
 
     /// The test-tree exemptions, as `Tests/.swiftlint.yml` documents them.
     private static let documentedChildExemptions: Set<String> = [
@@ -323,6 +428,17 @@ final class LintConfigurationTests: XCTestCase {
 
     private func activeRootLines() throws -> [String] {
         activeYAMLLines(of: try rootText())
+    }
+
+    /// The three-component version `.swiftlint.yml` pins — the one source of
+    /// truth the hook, the CI job and these assertions all measure against.
+    private func pinnedSwiftLintVersion() throws -> String {
+        let prefix = "swiftlint_version:"
+        let line = try XCTUnwrap(
+            try activeRootLines().first { $0.hasPrefix(prefix) },
+            ".swiftlint.yml must declare swiftlint_version: — the pin the hook and CI enforce"
+        )
+        return line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
     }
 
     private func read(_ relativePath: String) throws -> String {
@@ -375,5 +491,32 @@ final class LintConfigurationTests: XCTestCase {
 
     private func activeHookText() throws -> String {
         try activeHookLines().joined(separator: "\n")
+    }
+
+    // MARK: - The CI workflow
+
+    private func ciText() throws -> String {
+        try read(Self.ciWorkflowPath)
+    }
+
+    /// The `lint` job's active lines, extracted the way `topLevelBlock` would
+    /// if jobs sat at zero indent: everything under the two-space `<name>:`
+    /// header until the next job header or a zero-indent key, comments and
+    /// blanks dropped. Scoped to the one job so an assertion about it cannot
+    /// be satisfied by some other job's line.
+    private func ciLintJobBlock() throws -> [String] {
+        let raw = try ciText().components(separatedBy: .newlines)
+        let start = try XCTUnwrap(
+            raw.firstIndex(where: { $0.hasPrefix("  ") && !$0.hasPrefix("   ") && $0.dropFirst(2) == "lint:" }),
+            "ci.yml has no lint job — CI is the half of the enforcement a bypassed hook cannot skip")
+        var block: [String] = []
+        for line in raw[(start + 1)...] {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
+            if !line.hasPrefix(" ") && !line.hasPrefix("\t") { break }
+            if line.hasPrefix("  "), !line.hasPrefix("   ") { break }
+            block.append(trimmed)
+        }
+        return block
     }
 }
