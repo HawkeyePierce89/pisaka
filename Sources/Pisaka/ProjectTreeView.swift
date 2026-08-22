@@ -14,6 +14,15 @@ import PisakaCore
 /// and bumps `model.treeRevision` so the affected directory re-reads its cached
 /// children.
 ///
+/// Creating and renaming happen **inline, not in a dialog**: choosing New File,
+/// New Folder or Rename opens a draft on the row itself
+/// (`TreeEditDraft` + `TreeNameFieldView`, `ProjectTreeDraftField.swift`), which
+/// validates live and commits on Enter. That is why the three callbacks are
+/// `(URL, String)` and not `(URL)`: they carry the text the field already
+/// accepted — the target directory or entry, plus the name — where the retired
+/// prompts collected it themselves. Delete, Run and Run Test have nothing to
+/// type and stay parameterless.
+///
 /// `model.treeRevision` — the one re-read trigger `DirectoryNodeView` observes —
 /// now has three sources: the app's own operations (the callbacks above, plus
 /// Save As and a branch checkout), the FSEvents `ProjectWatcher` (external

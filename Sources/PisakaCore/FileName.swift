@@ -207,10 +207,27 @@ public func parseRelativeEntryPath(_ path: String) -> [String]? {
     return components
 }
 
-/// Determines the default selected range (in UTF-16 code units) when renaming an entry.
+/// The range (in UTF-16 code units, which is what a field editor speaks) an
+/// inline naming draft preselects when it opens.
 ///
-/// The caller invokes collision only for single-component input (a multi-component
-/// create lands its final component in a folder the tree has not listed).
+/// What is preselected is the name **minus its extension**, under the same split
+/// `URL.deletingPathExtension` makes: the last `.` is the split point, so
+/// `Report.final.txt` preselects `Report.final` and one keystroke replaces the
+/// stem while `.txt` survives. Renaming a file almost always means rewording the
+/// stem, and typing over a preselected extension is how a file silently loses
+/// it.
+///
+/// Four inputs have no extension to hold back and so preselect the **whole**
+/// string — retyping everything is then the one keystroke, as it should be:
+/// a directory (`isDirectory`, whose dots are part of the name — `.github`,
+/// `v1.2`), a dotfile with no second dot (`.env`: the leading dot is not an
+/// extension marker, hence the `location > 0` test), a name with no dot at all
+/// (`Makefile`), and one whose only dot is trailing (`archive.`: nothing follows
+/// it, hence `location < length - 1`). The empty string is the degenerate case
+/// of the last three and returns an empty range at 0.
+///
+/// The result is always anchored at 0 — a preselection that did not start at the
+/// beginning would leave the caret mid-name after the first keystroke.
 public func initialRenameSelection(in name: String, isDirectory: Bool) -> NSRange {
     let nsName = name as NSString
     let length = nsName.length

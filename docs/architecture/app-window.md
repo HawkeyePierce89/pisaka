@@ -414,8 +414,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     immediately, while nested nodes default to `false` and load lazily on first
     expansion. The root's `.id(root)` resets node state when switching projects,
     so each newly opened folder also starts expanded. Rows render type-specific
-    icons via `FileIcon(for:)` (a private `FileIconColor → SwiftUI Color` helper
-    maps the semantic token to a concrete color). Directory-read errors are
+    icons via `FileIcon(for:)` (a file-scope `color(for:)` helper maps the
+    semantic `FileIconColor` token to a concrete SwiftUI `Color`; internal
+    rather than `private` because the draft field's icon column must resolve
+    an icon exactly as the row it replaces does, and the tidier-looking
+    alternative — a `FileIconColor -> Color` extension in Core — is barred by
+    Core being Foundation-only). Directory-read errors are
     swallowed (`PlatformFeedback.warning()`, and `children` left *unset* rather
     than cached as an empty list, so collapsing and re-expanding retries a
     transient failure), never crashing the view — *except*
@@ -423,28 +427,52 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     runs for every expanded node, so an external `rm -rf build` (which now reaches
     the tree on its own through `ProjectWatcher`) would otherwise beep once per
     expanded descendant before the parent's re-read drops them.
-    Rows carry `.contextMenu`s for the writable tree, backing the inline naming flow. A directory row offers New File / New Folder (no ellipsis) and (non-root only) Rename / Delete; the root row offers only the two create actions; a file row offers Rename / Delete, plus a "Run" item (play icon → `onRun(url)`) shown only when `RunCommand.canRun(url.lastPathComponent)` and a "Run Test" item (`checkmark.diamond` icon → `onRunTest(url)`) shown only when `TestCommand.isTestFile(fileName:)` (directories get neither item). The create and rename actions no longer prompt via dialog: they guard against `mayBeginFileOperation` at command time (so the "Git operation in progress" alert fires exactly when the menu is chosen), then set an inline `@State private var draft: TreeEditDraft?`. A drafted folder row expands if collapsed and renders the draft as its literal first child, scrolled into view; a drafted file or folder row swaps its label for the draft field. While a row is drafted, its tap (expand/open), drag source, drop delegate, context menu, and button trait are suppressed so VoiceOver reaches the field and gestures do not compete with typing. The draft survives `treeRevision` bumps, tearing down only on project switch, parent folder collapse, or target missing. The `onNewFile(URL, String)` / `onNewFolder(URL, String)` / `onRename(URL, String)` callbacks take the final accepted text and run under the same writer gate as defense-in-depth, while `onDelete` / `onRun` / `onRunTest` remain parameterless callbacks.
-  - `ProjectTreeDraftField.swift` — the AppKit-backed `NSTextField` for inline naming. Driven by a deterministic focus-loss rule: in-window end-editing cancels the draft silently; window resign-key does not (the editor stays installed); and a deterministic teardown flag (set by the view subclass in `viewWillMove(toWindow:)` when `newWindow == nil` and by `dismantleNSView`) separates a genuine teardown from a click-away without relying on responder-chain reads. The layer split gives this view no business logic: it collects the typed text, draws red text and a wrapped reason line on invalid input, and delegates all rules (validation, preselection, live collision check) to `FileName`.
-    `treeRevision`. `DirectoryNodeView` also observes
-    `.onChange(of: model.treeRevision)`: when currently expanded it re-reads
+    Rows carry `.contextMenu`s for the writable tree, backing the inline
+    naming flow. A directory row offers New File / New Folder (no ellipsis)
+    and (non-root only) Rename / Delete; the root row offers only the two
+    create actions; a file row offers Rename / Delete, plus a "Run" item
+    (play icon → `onRun(url)`) shown only when
+    `RunCommand.canRun(url.lastPathComponent)` and a "Run Test" item
+    (`checkmark.diamond` icon → `onRunTest(url)`) shown only when
+    `TestCommand.isTestFile(fileName:)` (directories get neither item). The
+    create and rename actions no longer prompt via dialog: they guard
+    against `mayBeginFileOperation` at command time (so the "Git operation
+    in progress" alert fires exactly when the menu is chosen), then set an
+    inline `@State private var draft: TreeEditDraft?`. A drafted folder row
+    expands if collapsed and renders the draft as its literal first child,
+    scrolled into view; a drafted file or folder row swaps its label for the
+    draft field. While a row is drafted, its tap (expand/open), drag source,
+    drop delegate, context menu, and button trait are suppressed so
+    VoiceOver reaches the field and gestures do not compete with typing. The
+    draft survives `treeRevision` bumps, tearing down only on project
+    switch, parent folder collapse, or target missing. The `onNewFile(URL,
+    String)` / `onNewFolder(URL, String)` / `onRename(URL, String)`
+    callbacks take the final accepted text and run under the same writer
+    gate as defense-in-depth, while `onDelete` / `onRun` / `onRunTest`
+    remain parameterless callbacks. The callbacks only *request* the
+    operation: `PisakaApp` validates once more, performs the disk I/O and
+    bumps `treeRevision`. `DirectoryNodeView` also observes `.onChange(of:
+    model.treeRevision)`: when currently expanded it re-reads
     `children(of:)` so a created / renamed / deleted entry appears without
     reopening the folder; a collapsed node instead drops its cached children
-    (`children = nil`) so its next expansion re-reads from disk — without this an
-    already-loaded node targeted while collapsed would keep showing a stale
-    listing (the lazy first-load only fires when `children == nil`). The
-    `.id(root)` identity, `startsExpanded`, and lazy first-load are unchanged.
-    With a folder open the rows sit under a small header (a `Divider` between them,
-    modeled on the `LocalChangesView` header) holding one Refresh button
-    (`arrow.clockwise`, `.borderless`, `.help("Refresh project tree")`) whose action
-    is `model.bumpTreeRevision()` — called *directly*, not through a callback
-    threaded from `PisakaApp`, since this view already observes the model and the
-    bump needs no disk I/O. The header is absent from the `projectRoot == nil`
-    placeholder so its whole pane stays the open-folder click target. So
-    `treeRevision` — the single re-read trigger `DirectoryNodeView` observes — now
-    has three sources: the app's own operations (the context-menu callbacks, Save As,
-    a branch checkout), the FSEvents `ProjectWatcher` on macOS, and this button (the
-    manual fallback for whatever the watcher misses — an FSEvents buffer overflow, a
-    network volume, or simply not wanting to wait out the 1 s latency).
+    (`children = nil`) so its next expansion re-reads from disk — without
+    this an already-loaded node targeted while collapsed would keep showing
+    a stale listing (the lazy first-load only fires when `children == nil`).
+    The `.id(root)` identity, `startsExpanded`, and lazy first-load are
+    unchanged. With a folder open the rows sit under a small header (a
+    `Divider` between them, modeled on the `LocalChangesView` header)
+    holding one Refresh button (`arrow.clockwise`, `.borderless`,
+    `.help("Refresh project tree")`) whose action is
+    `model.bumpTreeRevision()` — called *directly*, not through a callback
+    threaded from `PisakaApp`, since this view already observes the model
+    and the bump needs no disk I/O. The header is absent from the
+    `projectRoot == nil` placeholder so its whole pane stays the open-folder
+    click target. So `treeRevision` — the single re-read trigger
+    `DirectoryNodeView` observes — now has three sources: the app's own
+    operations (the context-menu callbacks, Save As, a branch checkout), the
+    FSEvents `ProjectWatcher` on macOS, and this button (the manual fallback
+    for whatever the watcher misses — an FSEvents buffer overflow, a network
+    volume, or simply not wanting to wait out the 1 s latency).
     **Drag and drop moves.** Every row *except the project root* is a drag
     source, and every *folder* row — the root included, which is how an entry is
     moved back to the top of the project — is a drop target (a *file* row is a
@@ -511,6 +539,105 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     expansion value, the toggle action) are exactly as above. Nothing here names
     `interfaceScale` and no zoom surface is declared, so `ZoomSourceGatingTests`'
     set equalities are untouched.
+  - `ProjectTreeDraftField.swift` — the AppKit-backed `NSTextField` behind
+    the tree's inline naming, in five types: `TreeEditDraft` (what is being
+    named), `TreeNameFieldView` (the row-shaped draft: icon column, field,
+    red reason line), `TreeDraftDismissRegion` (the invisible mouse-down
+    observer), `ProjectTreeDraftFieldRepresentable` (+ its `Coordinator`)
+    and `CustomTextField`. The layer split gives this view no business
+    logic: it collects the typed text, draws red text and a wrapped reason
+    line on invalid input, and delegates every rule — validation,
+    preselection, live collision check, and what a click means — to
+    `FileName` and `TreeDraftDismissRule` (`core-workspace.md`). Validation
+    composes in one fixed order: blank (not an error — no reason line, but
+    Enter refuses), then the grammar validator for the draft's kind, then
+    the sibling collision check for single-component input only.
+    **Focus loss is decided by two paths that never disagree.** A
+    project-tree row is a plain SwiftUI view that never takes first
+    responder, so clicking one moves focus nowhere and
+    `controlTextDidEndEditing` never fires — which is why the draft carries
+    a **local `.leftMouseDown`/`.rightMouseDown` `NSEvent` monitor**, alive
+    for exactly as long as the draft is (installed in the region view's
+    `viewDidMoveToWindow`, removed when the window goes away and again from
+    `dismantleNSView`, both halves idempotent — and one draft at a time is
+    already the tree's invariant). It follows `ZoomController`'s monitor
+    discipline (token stored, `[weak self]`, `MainActor.assumeIsolated` for
+    the same recorded reason), differing only in being installed per draft
+    rather than per app run. Each event is handed to `TreeDraftDismissRule`
+    as three AppKit facts — is this the draft's own window, where did it
+    land in the region's coordinates, how big is the region — and nothing
+    else: another window's click is that window's business, a click inside
+    the draft is an ordinary edit (caret placement, drag-selection),
+    anything else in the draft's own window cancels.
+    Two things follow, and both are deliberate. **The dismissing click is
+    never swallowed**: the monitor always returns the event unchanged, so
+    cancelling and the click's ordinary effect both happen — the folder
+    toggles, the file opens, the right-clicked row gets its own menu — which
+    is what Finder does with an inline rename and what a
+    swallow-the-first-click rule would cost the user a second click for. The
+    cancellation is a SwiftUI state change that invalidates layout for the
+    *next* display pass, so the click AppKit dispatches immediately after
+    still hit-tests the geometry the user was looking at; the row that
+    shifts up when the draft disappears is not the row that gets the click.
+    And **the region tested against is a real view, not a computed
+    rectangle**: the draft is a `VStack` of which only the field is an
+    `NSView`, so the region is an invisible `NSViewRepresentable` attached
+    as the draft's outermost `.background`, *after* the padding — SwiftUI
+    sizes a background to its primary view, so its `bounds` **is** the
+    draft's rectangle, and "clicking the icon or the reason line does not
+    cancel" holds by construction rather than by a measured inset. It draws
+    nothing, hit-tests to `nil` and claims only the size proposed to it, so
+    it can neither intercept a click nor move the layout. Because the
+    monitor is *local*, ⌘Tab away and back preserves the draft: another
+    app's clicks are never seen, and window resign-key is not a
+    cancellation.
+    `controlTextDidEndEditing` remains the second path — the fallback for
+    what genuinely moves first responder (Tab away, a control that takes
+    focus) — with its three-way test unchanged: `isFinishing` (Enter or Esc
+    already ended this draft), the teardown flag (set by the view subclass
+    in `viewWillMove(toWindow:)` when `newWindow == nil` and by
+    `dismantleNSView`), and `window == nil`. It cannot instead *read* the
+    responder chain: the notification is posted from within
+    `resignFirstResponder`, before the window installs the incoming
+    responder, so `window.firstResponder` is still the field editor being
+    dismissed. The two paths are idempotent with each other because both end
+    at `draft = nil`.
+    **Focus is taken, not handed over.** `CustomTextField` acquires first
+    responder in `viewDidMoveToWindow` — the symmetric hook to the
+    `viewWillMove(toWindow:)` it already overrides, and the first moment
+    AppKit guarantees a window, firing for the whole subtree when an
+    ancestor joins one. That covers the late-attachment path (expanding a
+    collapsed folder and drafting in it is a single command) which the
+    retired "ask on the next runloop turn, give up if there is no window"
+    block silently lost, opening the draft deaf. Acquisition is one-shot
+    (guarded by that flag plus the teardown flag, so a draft replaced by a
+    second command cannot steal focus back), the initial selection from
+    `initialRenameSelection(in:isDirectory:)` is computed once in
+    `makeNSView` and applied to the field editor exactly once — then
+    cleared, so a re-attachment can never re-select over what the user has
+    since typed — and the one case no window hook can foresee,
+    `makeFirstResponder` refusing, retries a single bounded time on the next
+    runloop turn, re-checking window and teardown. One attempt, never a
+    poll.
+    **The field wraps and the row grows to fit it.** A deep relative path is
+    the whole reason relative-path create exists, so the field is configured
+    exactly as the retired `FilePanels.promptName` dialog was
+    (`usesSingleLineMode = false`, wrapping non-scrolling cell, no line cap,
+    `.byWordWrapping`) and `sizeThatFits` returns the height the cell needs
+    at the width the tree pane proposes, clamped to at least one line and at
+    most the same six-line ceiling the dialog used (past that the input is
+    pathological and a taller row pushes the tree around more than it
+    helps); an unspecified or infinite proposed width carries nothing to
+    wrap against and falls back to the field's current width. Enter is still
+    never a line break — the coordinator swallows every newline selector and
+    commits instead. The arithmetic is deliberately *not* shared with
+    `FilePanels.promptFieldHeight(of:)`, which measures against a fixed 400
+    pt accessory width and feeds an `NSLayoutConstraint` it mutates; only
+    the six-line clamp is a shared number, and it is stated in both places.
+    The reason line's inset is likewise construction rather than arithmetic:
+    it is led by the *same* `iconColumn` view drawn hidden and collapsed to
+    zero height, so it matches the field's lead exactly and stays zero for a
+    rename draft, which has no icon column at all.
   - `TabListView.swift` / `TabRowView.swift` — the open-tabs list, with an
     `orientation: TabOrientation` parameter (default `.vertical`): vertical is the
     scrolling `LazyVStack` column; horizontal is a horizontal `ScrollView`/

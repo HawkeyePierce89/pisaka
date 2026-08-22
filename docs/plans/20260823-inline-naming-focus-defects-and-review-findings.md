@@ -239,7 +239,7 @@ readable in full), and the row grows to fit.
   `Sources/Pisaka/ProjectTreeView.swift`, `Sources/Pisaka/PisakaApp.swift`,
   `Sources/PisakaCore/FileName.swift`, `docs/architecture/app-window.md`
 
-- [ ] document `ProjectTreeDraftField.swift` end to end — the file and its five
+- [x] document `ProjectTreeDraftField.swift` end to end — the file and its five
       types: the layer split (no business logic here; every rule comes from
       `FileName`), the validation composition order (blank → validator →
       single-component collision), the three-way end-editing test and **why a
@@ -248,34 +248,34 @@ readable in full), and the row grows to fit.
       mouse-down monitor with its lifetime and the two decisions A and B above,
       the focus-acquisition rule (window hook, one-shot selection, the single
       bounded retry), and the wrapping/height rule
-- [ ] rewrite `newFile(in:name:)`, `newFolder(in:name:)` and
+- [x] rewrite `newFile(in:name:)`, `newFolder(in:name:)` and
       `renameItem(at:newName:)` doc comments in `PisakaApp.swift` for the inline
       flow: no prompt, no OK button — the view validates live and refuses commit
       with a beep, and the parse/name guards here are post-commit
       defense-in-depth behind that live validation over the same one Core rule
-- [ ] rewrite `ProjectTreeView.swift`'s header comment: file operations are
+- [x] rewrite `ProjectTreeView.swift`'s header comment: file operations are
       inline drafts, not dialogs, and the callbacks are `(URL, String)` carrying
       the accepted text
-- [ ] write the real contract for `initialRenameSelection` in `FileName.swift`
+- [x] write the real contract for `initialRenameSelection` in `FileName.swift`
       (the copy-pasted collision sentence is simply wrong): what is preselected
       is the name minus its extension under `URL.deletingPathExtension`
       semantics — the whole string for a directory, for a dotfile with no second
       dot, for a name with no dot and for one whose dot is trailing; the last dot
       is the split point otherwise
-- [ ] repair `docs/architecture/app-window.md`: restore the `ProjectTreeView`
+- [x] repair `docs/architecture/app-window.md`: restore the `ProjectTreeView`
       entry's lost closing sentence about the callbacks only requesting the
       operation while `PisakaApp` does the disk I/O and bumps `treeRevision`,
       re-join the orphaned `DirectoryNodeView` fragment to it, move the
       `ProjectTreeDraftField.swift` bullet after the completed entry, and re-wrap
       both new mega-paragraphs to the file's ~76 column prose style
-- [ ] extend that same doc with the focus rule this ticket introduces (a local
+- [x] extend that same doc with the focus rule this ticket introduces (a local
       mouse-down monitor alive only while a draft is; same window only; outside
       the draft's own region cancels silently and the click still lands;
       `controlTextDidEndEditing` remains the fallback with its teardown flag; app
       deactivation preserves the draft because a local monitor sees no other
       app's events), the wrapping/height rule, and fix the stale "a private
       `FileIconColor` → SwiftUI `Color` helper" wording
-- [ ] run `swift test` and `swiftlint --strict` — must be clean
+- [x] run `swift test` and `swiftlint --strict` — must be clean
 
 ### Task 7: Verify acceptance criteria
 

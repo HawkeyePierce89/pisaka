@@ -3,11 +3,57 @@ import SwiftUI
 import AppKit
 import PisakaCore
 
+// The project tree's inline naming draft — the whole of it, in five types:
+//
+//   `TreeEditDraft`                    what is being named, and where
+//   `TreeNameFieldView`                the row-shaped SwiftUI draft
+//   `TreeDraftDismissRegion`           the invisible mouse-down observer
+//   `ProjectTreeDraftFieldRepresentable` the `NSTextField` and its coordinator
+//   `CustomTextField`                  the field that takes its own focus
+//
+// **The layer split.** Not one rule lives here. Whether the typed text names a
+// creatable entry is `FileName`'s answer (`validateRelativeEntryPath`,
+// `validateSingleEntryName`, `liveCollisionIssue`), what a rename preselects is
+// `initialRenameSelection`, what a mouse-down means to an open draft is
+// `TreeDraftDismissRule`, and what the accepted name *does* to disk is
+// `PisakaApp`'s (`newFile(in:name:)` and its two siblings, behind the writer
+// gate). This file collects keystrokes, draws the refusal, and reports two
+// events — committed with this text, or cancelled. That is the same division the
+// retired `FilePanels` prompts kept; only the surface moved into the row.
+
+/// What an open draft is naming: a new entry inside `parent` (a file or a
+/// folder), or the existing `entry` being renamed.
+///
+/// The two cases differ in more than a label, which is why they are one enum
+/// read in several places rather than a pair of flags: a create validates the
+/// *relative-path* grammar and starts empty, a rename validates the
+/// *single-name* grammar and starts pre-filled with a preselected stem; a create
+/// draws the icon column its future row will have, a rename draws none because
+/// it sits inside the row that already draws one; and a create's collision check
+/// excludes nothing while a rename's excludes the entry's own current name.
+/// `Equatable` because the tree stores it in `@State` and swaps rows on change.
 enum TreeEditDraft: Equatable {
     case create(parent: URL, isFolder: Bool)
     case rename(entry: DirectoryEntry)
 }
 
+/// The draft as the tree draws it: an icon column, the text field, and — only
+/// when the input is refused — a red reason line beneath them.
+///
+/// **Validation is composed in one order, in `Coordinator.computeIssue(for:)`,
+/// and that order is the contract**: blank first (an empty draft is *not* an
+/// error — the user has typed nothing yet, so it shows no reason line and simply
+/// refuses to commit), then the grammar validator for the draft's kind, then —
+/// only for single-component input, and only if the grammar passed — the live
+/// collision check against the siblings the tree already listed. Multi-component
+/// input skips collision on purpose: `a/b/c.txt` lands its final component in a
+/// folder the tree has not read, so the only honest answer is the one disk gives
+/// at commit time (`.alreadyExists`).
+///
+/// The reason line is `EntryPathIssue.message` verbatim, and the field's text
+/// turns red in the same pass, so the refusal is visible without reading.
+/// Nothing about it blocks typing: an invalid draft stays open and editable, and
+/// only Enter refuses (with a beep).
 struct TreeNameFieldView: View {
     let draft: TreeEditDraft
     let siblings: [String]
@@ -223,6 +269,13 @@ struct TreeDraftDismissRegion: NSViewRepresentable {
     }
 }
 
+/// The draft's `NSTextField`, wrapped for SwiftUI.
+///
+/// AppKit rather than SwiftUI's `TextField` for three things SwiftUI cannot
+/// express here: a field editor whose selection can be set exactly once on
+/// appearance, `doCommandBy` (which is how Enter commits and Esc cancels without
+/// either ever reaching the row behind), and a delegate that can tell a
+/// click-away from a teardown.
 struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
     @Binding var text: String
     @Binding var issue: EntryPathIssue?
@@ -415,6 +468,13 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
         }
     }
 
+    /// The field's delegate: live validation, Enter/Esc, and the end-editing
+    /// fallback.
+    ///
+    /// `isFinishing` is set by whichever of Enter and Esc ran, because both end
+    /// the draft themselves and the field then resigns first responder — without
+    /// the flag, `controlTextDidEndEditing` would fire *after* a successful
+    /// commit and cancel the draft a second time.
     class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: ProjectTreeDraftFieldRepresentable
         var isFinishing = false
@@ -493,6 +553,28 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
             return false
         }
 
+        /// The fallback path for a focus loss the mouse-down monitor does not
+        /// see: something that genuinely moves first responder — Tab away, a
+        /// control that takes focus, a programmatic `makeFirstResponder`.
+        ///
+        /// Three tests, in order, and each rules out one thing that is not a
+        /// click-away: `isFinishing` (Enter or Esc already ended this draft);
+        /// `isTearingDown` (the field is being removed — the row was replaced, a
+        /// second draft opened, the project switched — and SwiftUI must not be
+        /// told to cancel a draft that no longer exists); `window == nil` (the
+        /// same case seen from the other side, for a removal that skipped the
+        /// flag). Anything left is a real focus loss and cancels silently.
+        ///
+        /// **Why the responder chain cannot be read here.** The obvious test —
+        /// "is the new first responder inside my draft?" — is unanswerable at
+        /// this moment: the notification is posted from within
+        /// `resignFirstResponder`, *before* the window installs the incoming
+        /// responder, so `window.firstResponder` is still the field editor being
+        /// dismissed. Hence the flags, which are set by hooks that fire in a
+        /// defined order, rather than a read of state that has not happened yet.
+        ///
+        /// Idempotent with the monitor's path: both end at `draft = nil`, so a
+        /// click that goes through both cancels once.
         func controlTextDidEndEditing(_ obj: Notification) {
             if isFinishing { return }
             guard let field = obj.object as? CustomTextField else { return }
