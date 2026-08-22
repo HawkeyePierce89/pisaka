@@ -68,12 +68,8 @@ struct TreeNameFieldView: View {
 
     private var reasonGutter: Double {
         switch draft {
-        case .create(_, let isFolder):
-            if isFolder {
-                return TreeRowLayout.chevronGutter(metrics) + metrics.scaled(4) + metrics.scaled(16) // icon is approx 16
-            } else {
-                return TreeRowLayout.chevronGutter(metrics) + metrics.scaled(4) + metrics.scaled(16)
-            }
+        case .create:
+            return TreeRowLayout.chevronGutter(metrics) + metrics.scaled(4) + metrics.scaled(16) // icon is approx 16
         case .rename:
             return 0
         }

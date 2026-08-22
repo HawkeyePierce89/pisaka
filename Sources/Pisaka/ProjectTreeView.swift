@@ -382,6 +382,11 @@ private struct DirectoryNodeView: View {
                 loadChildren()
             }
         }
+        .onChange(of: draft) { newDraft in
+            if case .create(let parent, _) = newDraft, parent == url {
+                isExpanded = true
+            }
+        }
         // A node seeded as expanded (the root) starts `isExpanded == true`, so
         // `onChange` never fires for it — load its children on first appearance.
         .onAppear {
@@ -427,7 +432,7 @@ private struct DirectoryNodeView: View {
                let currentChildren = children,
                !currentChildren.contains(where: { $0.url == draftedEntry.url }) {
                 // To safely determine if this node is the parent, we can check if the drafted entry's URL is a direct child
-                if draftedEntry.url.deletingLastPathComponent() == url {
+                if draftedEntry.url.deletingLastPathComponent().standardizedFileURL.path == url.standardizedFileURL.path {
                     draft = nil
                 }
             }
@@ -436,7 +441,8 @@ private struct DirectoryNodeView: View {
                 PlatformFeedback.warning()
             } else if case .create(let parent, _) = draft, parent == url {
                 draft = nil
-            } else if case .rename(let draftedEntry) = draft, draftedEntry.url.deletingLastPathComponent() == url {
+            } else if case .rename(let draftedEntry) = draft,
+                      draftedEntry.url.deletingLastPathComponent().standardizedFileURL.path == url.standardizedFileURL.path {
                 draft = nil
             }
             children = nil
