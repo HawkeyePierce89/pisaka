@@ -914,6 +914,7 @@ struct CodeEditorView: NSViewRepresentable {
             }
         }
 
+        @discardableResult
         func cancelCompletion() -> Bool {
             if completion.isVisible {
                 completion.dismiss()

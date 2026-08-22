@@ -502,15 +502,29 @@ final class CompletionController {
     /// Commit the selected row, in Enter's (`.insert`) or Tab's (`.replace`)
     /// mode, answering whether the key that triggered it was consumed.
     ///
-    /// `false` — a stale snapshot, an unusable buffer or a non-empty selection —
-    /// dismisses and hands the keystroke back to the editor, which then does what
-    /// it always does (a newline for Return, an indent for Tab). `true` means the
-    /// row is in the buffer.
+    /// `false` — no usable snapshot, an unusable buffer, a non-empty selection
+    /// or a word that has moved — dismisses and hands the keystroke back to the
+    /// editor, which then does what it always does (a newline for Return, an
+    /// indent for Tab). `true` means the row is in the buffer.
     ///
     /// The live buffer and caret are re-read rather than trusted from the
     /// snapshot, and the commit range is derived per mode from `IdentifierScanner`
-    /// — `completionPrefixRange` for Enter, `completionReplaceRange` for Tab. For
-    /// an item with edits (an LSP auto-import) the existing
+    /// — `completionPrefixRange` for Enter, `completionReplaceRange` for Tab.
+    ///
+    /// **The staleness rule is the same word *start*, not the same word *text*.**
+    /// `update` keeps the previous list serving the panel while a fresh answer
+    /// debounces, so a keystroke that extends or shrinks the word under an open
+    /// popup is ordinary — refusing to commit during that window would hand a
+    /// Return pressed mid-word straight through as a newline. What genuinely
+    /// invalidates the list is a caret that moved away, and every such move
+    /// fails `update`'s own location gate and takes the popup down before any
+    /// key can be claimed; matching that gate here makes "still visible" ≡
+    /// "committable". Every range is derived from the live buffer, so the row
+    /// lands over whatever is actually typed now, and an LSP item whose edits
+    /// were computed for a different spelling of the word is re-expressed or
+    /// refused by `CompletionEditPlan` exactly as decision 8 states.
+    ///
+    /// For an item with edits (an LSP auto-import) the existing
     /// `plan(for:over:replacing:in:) + apply(_:in:)` path runs unchanged over the
     /// typed word; for everything else one `insertText(_:replacementRange:)`
     /// replaces the commit range with the row's own display string. Both land in
@@ -537,7 +551,12 @@ final class CompletionController {
         let caret = textView.selectedRange()
         guard caret.length == 0 else { dismiss(); return false }
         let prefixRange = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
-        guard nsText.substring(with: prefixRange) == snapshot.prefix else { dismiss(); return false }
+        // Same word *start*, not same word text — see the staleness paragraph
+        // above: `update`'s keep-open gate is the rule commit answers to, so the
+        // word may have grown or shrunk under the popup since the list was
+        // computed and the commit still lands over its live extent.
+        guard prefixRange.location == snapshot.prefixLocation else { dismiss(); return false }
+        let livePrefix = nsText.substring(with: prefixRange)
 
         // The chosen row's resolve task is removed before dismissal so it alone
         // survives `forgetList()` — D4's late auto-import must stay in flight.
@@ -551,14 +570,14 @@ final class CompletionController {
             nsText: nsText,
             caretLocation: caret.location,
             prefixRange: prefixRange,
-            typedPrefixLength: (snapshot.prefix as NSString).length
+            typedPrefixLength: (livePrefix as NSString).length
         )
 
         // Hide the panel first so the insertion's own textDidChange cannot
         // re-open anything over the committed word.
         dismiss()
 
-        if let plan = plan(for: edits, over: snapshot.prefix, replacing: target.typedWord, in: nsText) {
+        if let plan = plan(for: edits, over: livePrefix, replacing: target.typedWord, in: nsText) {
             noteProgrammaticEdit(true)
             undoManager.beginUndoGrouping()
             apply(plan, in: textView)

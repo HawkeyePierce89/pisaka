@@ -239,7 +239,6 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
     }
 
     private func scrollToSelection() {
-        guard let scrollView = enclosingScrollView else { return }
         let rHeight = rowHeight(codeFontSize: codeFontSize)
         let rect = NSRect(x: 0, y: CGFloat(selection) * rHeight, width: bounds.width, height: rHeight)
         scrollToVisible(rect)
