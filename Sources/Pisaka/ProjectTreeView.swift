@@ -40,7 +40,7 @@ struct ProjectTreeView: View {
     /// Create a new folder inside the given directory.
     var onNewFolder: (URL, String) -> Void = { _, _ in }
     /// Rename the file or folder at the given url.
-    var onRename: (URL) -> Void = { _ in }
+    var onRename: (URL, String) -> Void = { _, _ in }
     /// Delete the file or folder at the given url.
     var onDelete: (URL) -> Void = { _ in }
     /// Run the file at the given url in a new embedded-terminal session. Shown
@@ -182,7 +182,7 @@ private struct DirectoryNodeView: View {
     let onOpenFile: (URL) -> Void
     let onNewFile: (URL, String) -> Void
     let onNewFolder: (URL, String) -> Void
-    let onRename: (URL) -> Void
+    let onRename: (URL, String) -> Void
     let onDelete: (URL) -> Void
     let onRun: (URL) -> Void
     let onRunTest: (URL) -> Void
@@ -196,6 +196,7 @@ private struct DirectoryNodeView: View {
     /// nested directories also offer Rename / Delete. It is also the one folder
     /// row that is a drop *target* without being a drag *source*.
     let isRoot: Bool
+    let siblings: [String]
 
     @State private var isExpanded: Bool
     @State private var children: [DirectoryEntry]?
@@ -214,7 +215,7 @@ private struct DirectoryNodeView: View {
         onOpenFile: @escaping (URL) -> Void,
         onNewFile: @escaping (URL, String) -> Void,
         onNewFolder: @escaping (URL, String) -> Void,
-        onRename: @escaping (URL) -> Void,
+        onRename: @escaping (URL, String) -> Void,
         onDelete: @escaping (URL) -> Void,
         onRun: @escaping (URL) -> Void,
         onRunTest: @escaping (URL) -> Void,
@@ -223,7 +224,8 @@ private struct DirectoryNodeView: View {
         draft: Binding<TreeEditDraft?>,
         dragSession: TreeDragSession,
         isRoot: Bool = false,
-        startsExpanded: Bool = false
+        startsExpanded: Bool = false,
+        siblings: [String] = []
     ) {
         self.model = model
         self.url = url
@@ -240,6 +242,7 @@ private struct DirectoryNodeView: View {
         self._draft = draft
         self.dragSession = dragSession
         self.isRoot = isRoot
+        self.siblings = siblings
         _isExpanded = State(initialValue: startsExpanded)
     }
 
@@ -263,6 +266,7 @@ private struct DirectoryNodeView: View {
                 .id("draft-row")
             }
 
+            let currentChildrenNames = children?.map(\.name) ?? []
             ForEach(children ?? []) { entry in
                 if entry.isDirectory {
                     DirectoryNodeView(
@@ -279,18 +283,27 @@ private struct DirectoryNodeView: View {
                         onMove: onMove,
                         mayBeginFileOperation: mayBeginFileOperation,
                         draft: $draft,
-                        dragSession: dragSession
+                        dragSession: dragSession,
+                        siblings: currentChildrenNames
                     )
                     .padding(.leading, metrics.scaled(12))
                 } else {
                     FileRowView(
                         entry: entry,
                         onOpen: { onOpenFile(entry.url) },
-                        onRename: { onRename(entry.url) },
+                        onBeginRename: {
+                            if mayBeginFileOperation() {
+                                draft = .rename(entry: entry)
+                            }
+                        },
+                        onRename: { newName in onRename(entry.url, newName) },
+                        onRenameCancel: { draft = nil },
                         onDelete: { onDelete(entry.url) },
                         onRun: { onRun(entry.url) },
                         onRunTest: { onRunTest(entry.url) },
-                        dragSession: dragSession
+                        dragSession: dragSession,
+                        draft: draft,
+                        siblings: currentChildrenNames
                     )
                     .padding(.leading, metrics.scaled(12))
                 }
@@ -309,7 +322,16 @@ private struct DirectoryNodeView: View {
                     // Directory-ness is already carried by the row's button
                     // trait and its expanded/collapsed `accessibilityValue`.
                     .accessibilityHidden(true)
-                Text(name)
+                if case .rename(let draftedEntry) = draft, draftedEntry.url == url {
+                    TreeNameFieldView(
+                        draft: draft!,
+                        siblings: siblings,
+                        onCommit: { newName in onRename(url, newName) },
+                        onCancel: { draft = nil }
+                    )
+                } else {
+                    Text(name)
+                }
             }
             .font(metrics.scaledFont(.body))
             .lineLimit(1)
@@ -330,6 +352,12 @@ private struct DirectoryNodeView: View {
                 url: url,
                 isRoot: isRoot,
                 dragSession: dragSession,
+                isDrafted: {
+                    if case .rename(let draftedEntry) = draft, draftedEntry.url == url {
+                        return true
+                    }
+                    return false
+                }(),
                 onMove: onMove
             ) {
                 Button("New File") {
@@ -340,7 +368,11 @@ private struct DirectoryNodeView: View {
                 }
                 if !isRoot {
                     Divider()
-                    Button("Rename…") { onRename(url) }
+                    Button("Rename") {
+                        if mayBeginFileOperation() {
+                            draft = .rename(entry: DirectoryEntry(url: url, isDirectory: true))
+                        }
+                    }
                     Button("Delete") { onDelete(url) }
                 }
             }
@@ -389,10 +421,22 @@ private struct DirectoryNodeView: View {
     private func loadChildren() {
         do {
             children = try model.children(of: url)
+
+            // Parent node drops the draft when a reload loses the drafted entry's url
+            if case .rename(let draftedEntry) = draft,
+               let currentChildren = children,
+               !currentChildren.contains(where: { $0.url == draftedEntry.url }) {
+                // To safely determine if this node is the parent, we can check if the drafted entry's URL is a direct child
+                if draftedEntry.url.deletingLastPathComponent() == url {
+                    draft = nil
+                }
+            }
         } catch {
             if !Self.isMissingFileError(error) {
                 PlatformFeedback.warning()
             } else if case .create(let parent, _) = draft, parent == url {
+                draft = nil
+            } else if case .rename(let draftedEntry) = draft, draftedEntry.url.deletingLastPathComponent() == url {
                 draft = nil
             }
             children = nil
@@ -445,6 +489,7 @@ private struct FolderDisclosureStyle<Menu: View>: DisclosureGroupStyle {
     let isRoot: Bool
     /// The tree-wide drag state (see `TreeDragSession`).
     let dragSession: TreeDragSession
+    let isDrafted: Bool
     /// Reports an accepted drop; the same callback every row kind receives.
     let onMove: (URL, URL) -> Void
     /// The row's right-click menu items, built by `DirectoryNodeView`.
@@ -457,6 +502,7 @@ private struct FolderDisclosureStyle<Menu: View>: DisclosureGroupStyle {
                 url: url,
                 isRoot: isRoot,
                 dragSession: dragSession,
+                isDrafted: isDrafted,
                 onMove: onMove,
                 menu: menu
             )
@@ -480,6 +526,7 @@ private struct FolderDisclosureRow<Menu: View>: View {
     /// folder itself is not an operation this tree has.
     let isRoot: Bool
     let dragSession: TreeDragSession
+    let isDrafted: Bool
     let onMove: (URL, URL) -> Void
     @ViewBuilder var menu: () -> Menu
 
@@ -526,17 +573,21 @@ private struct FolderDisclosureRow<Menu: View>: View {
         // block, which is untouched: a drag and a click are distinct gestures, so
         // clicking a folder still toggles it and right-clicking still opens the
         // same menu over the same rectangle.
-        .projectTreeDragSource(isEnabled: !isRoot, url: url, session: dragSession)
+        .projectTreeDragSource(isEnabled: !isRoot && !isDrafted, url: url, session: dragSession)
         // Plain assignment, deliberately not `withAnimation`: animating the
         // insertion of a deep nested subtree is a regression this change does
         // not need.
-        .onTapGesture { configuration.isExpanded.toggle() }
+        .onTapGesture { if !isDrafted { configuration.isExpanded.toggle() } }
         .onHover { isHovering = $0 }
-        .contextMenu { menu() }
+        .contextMenu {
+            if !isDrafted {
+                menu()
+            }
+        }
         // Every folder row is a drop target, the root included: that is how an
         // entry is moved back to the top of the project.
         .onDrop(
-            of: [ProjectTreeDrag.contentType],
+            of: isDrafted ? [] : [ProjectTreeDrag.contentType],
             delegate: TreeDropDelegate(
                 folder: url,
                 session: dragSession,
@@ -558,10 +609,10 @@ private struct FolderDisclosureRow<Menu: View>: View {
         // (a file row is an `onTapGesture` too, so no file was ever openable
         // that way), and adding focus to folder rows alone would make the tree
         // half-navigable. Restoring it belongs to a tree-wide keyboard pass.
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityValue(configuration.isExpanded ? "expanded" : "collapsed")
-        .accessibilityAction { configuration.isExpanded.toggle() }
+        .accessibilityElement(children: isDrafted ? .contain : .combine)
+        .accessibilityAddTraits(isDrafted ? [] : .isButton)
+        .accessibilityValue(isDrafted ? "" : (configuration.isExpanded ? "expanded" : "collapsed"))
+        .accessibilityAction { if !isDrafted { configuration.isExpanded.toggle() } }
     }
 
     /// The row's background: the drop highlight while a droppable drag is over
@@ -621,7 +672,9 @@ enum TreeRowLayout {
 private struct FileRowView: View {
     let entry: DirectoryEntry
     let onOpen: () -> Void
-    let onRename: () -> Void
+    let onBeginRename: () -> Void
+    let onRename: (String) -> Void
+    let onRenameCancel: () -> Void
     let onDelete: () -> Void
     let onRun: () -> Void
     let onRunTest: () -> Void
@@ -629,6 +682,8 @@ private struct FileRowView: View {
     /// *source* only — a file is never a drop destination, so it installs no drop
     /// delegate and never highlights as one.
     let dragSession: TreeDragSession
+    let draft: TreeEditDraft?
+    let siblings: [String]
 
     @State private var isHovering = false
 
@@ -640,7 +695,16 @@ private struct FileRowView: View {
         HStack(spacing: metrics.scaled(4)) {
             Image(systemName: icon.symbolName)
                 .foregroundStyle(color(for: icon.color))
-            Text(entry.name)
+            if case .rename(let draftedEntry) = draft, draftedEntry.url == entry.url {
+                TreeNameFieldView(
+                    draft: draft!,
+                    siblings: siblings,
+                    onCommit: onRename,
+                    onCancel: onRenameCancel
+                )
+            } else {
+                Text(entry.name)
+            }
         }
         .font(metrics.scaledFont(.body))
         .lineLimit(1)
@@ -660,31 +724,40 @@ private struct FileRowView: View {
         .contentShape(Rectangle())
         // As on a folder row: added ahead of the untouched tap/hover/menu block,
         // through the same one drag-source helper.
-        .projectTreeDragSource(url: entry.url, session: dragSession)
-        .onTapGesture(perform: onOpen)
+        .projectTreeDragSource(isEnabled: !isDraftedRow, url: entry.url, session: dragSession)
+        .onTapGesture { if !isDraftedRow { onOpen() } }
         .onHover { isHovering = $0 }
         .contextMenu {
-            if RunCommand.canRun(fileName: entry.name) {
-                Button {
-                    onRun()
-                } label: {
-                    Label("Run", systemImage: "play.fill")
+            if !isDraftedRow {
+                if RunCommand.canRun(fileName: entry.name) {
+                    Button {
+                        onRun()
+                    } label: {
+                        Label("Run", systemImage: "play.fill")
+                    }
                 }
-            }
-            if TestCommand.isTestFile(fileName: entry.name) {
-                Button {
-                    onRunTest()
-                } label: {
-                    Label("Run Test", systemImage: "checkmark.diamond")
+                if TestCommand.isTestFile(fileName: entry.name) {
+                    Button {
+                        onRunTest()
+                    } label: {
+                        Label("Run Tests", systemImage: "play.fill")
+                    }
                 }
+                if RunCommand.canRun(fileName: entry.name)
+                    || TestCommand.isTestFile(fileName: entry.name) {
+                    Divider()
+                }
+                Button("Rename") { onBeginRename() }
+                Button("Delete") { onDelete() }
             }
-            if RunCommand.canRun(fileName: entry.name)
-                || TestCommand.isTestFile(fileName: entry.name) {
-                Divider()
-            }
-            Button("Rename…") { onRename() }
-            Button("Delete") { onDelete() }
         }
+    }
+
+    private var isDraftedRow: Bool {
+        if case .rename(let draftedEntry) = draft, draftedEntry.url == entry.url {
+            return true
+        }
+        return false
     }
 }
 

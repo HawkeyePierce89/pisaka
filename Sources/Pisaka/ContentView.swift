@@ -161,7 +161,7 @@ struct ContentView: View {
     var mayBeginFileOperation: () -> Bool = { true }
     var onNewFile: (URL, String) -> Void = { _, _ in }
     var onNewFolder: (URL, String) -> Void = { _, _ in }
-    var onRename: (URL) -> Void = { _ in }
+    var onRename: (URL, String) -> Void = { _, _ in }
     /// Invoked when a project-tree drag drops the entry at the first URL onto the
     /// folder at the second, wired to `PisakaApp.moveItem(at:into:)`. The view
     /// layer decides nothing about the move: every validity and destination

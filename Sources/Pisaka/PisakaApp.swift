@@ -705,7 +705,7 @@ struct PisakaApp: App {
                 mayBeginFileOperation: { !revertInFlight() },
                 onNewFile: { dir, name in newFile(in: dir, name: name) },
                 onNewFolder: { dir, name in newFolder(in: dir, name: name) },
-                onRename: { renameItem(at: $0) },
+                onRename: { url, name in renameItem(at: url, newName: name) },
                 onMove: { moveItem(at: $0, into: $1) },
                 onDelete: { deleteItem(at: $0) },
                 onRun: { runFile(url: $0) },
@@ -2982,16 +2982,9 @@ struct PisakaApp: App {
     /// Everything past the accepted name is `performMove(from:to:)` — the body a
     /// rename shares with a drag-and-drop move, which is where the
     /// ordering-sensitive plan/move/apply sequence and its reasoning live.
-    private func renameItem(at url: URL) {
+    private func renameItem(at url: URL, newName rawName: String) {
         guard !revertInFlight() else { return }
         let currentName = url.lastPathComponent
-        guard let rawName = FilePanels.promptName(
-            title: "Rename",
-            defaultValue: currentName,
-            validator: { validateSingleEntryName($0)?.message }
-        ) else {
-            return
-        }
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard name != currentName else { return }
         guard isValidFileName(name) else { reportInvalidName(rawName, isPath: false); return }

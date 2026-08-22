@@ -57,8 +57,13 @@ struct TreeNameFieldView: View {
                     .padding(.leading, reasonGutter)
             }
         }
-        .padding(.horizontal, metrics.scaled(TreeRowLayout.horizontalPadding))
-        .padding(.vertical, metrics.scaled(TreeRowLayout.verticalPadding))
+        .padding(.horizontal, isCreate ? metrics.scaled(TreeRowLayout.horizontalPadding) : 0)
+        .padding(.vertical, isCreate ? metrics.scaled(TreeRowLayout.verticalPadding) : 0)
+    }
+
+    private var isCreate: Bool {
+        if case .create = draft { return true }
+        return false
     }
 
     private var reasonGutter: Double {
@@ -70,7 +75,7 @@ struct TreeNameFieldView: View {
                 return TreeRowLayout.chevronGutter(metrics) + metrics.scaled(4) + metrics.scaled(16)
             }
         case .rename:
-            return TreeRowLayout.chevronGutter(metrics) + metrics.scaled(4) + metrics.scaled(16)
+            return 0
         }
     }
 
@@ -93,22 +98,8 @@ struct TreeNameFieldView: View {
                         .foregroundStyle(color(for: icon.color))
                 }
             }
-        case .rename(let entry):
-            if entry.isDirectory {
-                HStack(spacing: metrics.scaled(TreeRowLayout.chevronSpacing)) {
-                    Color.clear.frame(width: metrics.scaled(TreeRowLayout.chevronWidth))
-                    let icon = FileIcon(symbolName: "folder", color: .accent)
-                    Image(systemName: icon.symbolName)
-                        .foregroundStyle(color(for: icon.color))
-                }
-            } else {
-                HStack(spacing: 0) {
-                    Color.clear.frame(width: TreeRowLayout.chevronGutter(metrics))
-                    let icon = FileIcon(for: entry)
-                    Image(systemName: icon.symbolName)
-                        .foregroundStyle(color(for: icon.color))
-                }
-            }
+        case .rename:
+            EmptyView()
         }
     }
 
