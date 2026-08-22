@@ -1,0 +1,93 @@
+# Pisaka's one style authority. Every relaxed or disabled rule below carries
+# its reason, so the next reader can tell a deliberate exemption from an
+# oversight. Relaxations belong HERE (or in the nested `Tests/.swiftlint.yml`
+# for the test tree) — never as scattered in-file disables.
+#
+# Run from the repository root with no `--config`: SwiftLint discovers this
+# file and merges the nested test config automatically.
+#
+# The pin. NOTE: SwiftLint only WARNS on a version mismatch (it prints
+# `warning: Currently running SwiftLint …` and does not fail), which is why the
+# pre-commit hook and CI enforce the pin themselves instead of trusting this.
+swiftlint_version: 0.65.0
+
+included:
+  - Sources
+  - Tests
+
+# The vendored tree-sitter grammars are third-party C and generated sources;
+# they carry their own conventions and are not this document's audience.
+excluded:
+  - Vendor
+  - build
+  - DerivedData
+  - SourcePackages
+
+# Every historical hit was a LENGTH complaint ("should be between N and N
+# characters long") — no casing or symbol complaints. Short algorithmic
+# bindings (`a`, `b`, `i` in LineDiff, ThreeWayMerge, SHA256) and long
+# descriptive test bindings are both deliberate, so only the bounds move.
+identifier_name:
+  min_length: 1
+  max_length: 60
+
+# `Op` is a two-letter local type; the iOS view layer names types
+# `RootView_iOS`, `PisakaApp_iOS` on purpose, which the rule reads as a
+# disallowed symbol.
+type_name:
+  min_length: 2
+  max_length: 60
+  allowed_symbols:
+    - "_"
+
+# Wrap what wraps by hand. Raw-string fixtures that cannot wrap carry an
+# inline `swiftlint:disable:next line_length` with a written reason.
+line_length:
+  warning: 140
+  error: 140
+  ignores_urls: true
+  ignores_interpolated_strings: true
+
+# Configured honestly rather than disabled: this codebase carries dense doc
+# comments by design, so comment-only lines are not counted. 1400 sits above
+# the largest application file (PisakaApp.swift, 1339 code lines) so the rule
+# still catches runaway growth.
+file_length:
+  warning: 1400
+  error: 1400
+  ignore_comment_only_lines: true
+
+# Same reasoning as file_length: PisakaApp's body is 1323 lines.
+type_body_length:
+  warning: 1400
+  error: 1400
+
+function_body_length:
+  warning: 140
+  error: 140
+
+# 22 clears the two flat scanners (HoverContent 21, QueryScanner 22) that are
+# switches over a grammar, not branching logic.
+cyclomatic_complexity:
+  warning: 22
+  error: 22
+
+# Measured maxima over Sources + Tests — honest ceilings, not disables.
+large_tuple: 4
+function_parameter_count: 8
+
+# The OPPOSITE of the tool's default, on purpose: adding an element touches
+# one line, not two. Covers collection literals only, not call-argument lists.
+trailing_comma:
+  mandatory_comma: true
+
+disabled_rules:
+  # The rule wants failable String(bytes:encoding:) in place of
+  # String(decoding:as:) everywhere, turning lossy decoding into nil — a
+  # behavior change, which this ticket forbids.
+  - optional_data_string_conversion
+  # The editor's explicit teardown() observer removal is the architecture this
+  # project chose; the rule's heuristic assumes deinit-only removal.
+  - notification_center_detachment
+  # Nearly every file opens with a file-header doc comment, deliberately.
+  - orphaned_doc_comment

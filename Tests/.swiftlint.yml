@@ -1,0 +1,18 @@
+# Test-tree relaxations ONLY. The root `.swiftlint.yml` at the repository root
+# is the authority; SwiftLint discovers and merges this child into it. Widen
+# this file and `LintConfigurationTests` fails — every exemption here must be
+# listed there first.
+#
+# Why the test tree relaxes what application code may not:
+disabled_rules:
+  # A `try!` in a test IS the assertion: failure is a reported test failure,
+  # not a crash in shipping code. `Sources/` contains none.
+  - force_try
+  # An XCTestCase is a flat list of independent test methods — length carries
+  # no complexity, and long fixtures are normal.
+  - file_length
+  - type_body_length
+  - function_body_length
+  # Fixtures and scripted stubs nest their types next to the test that uses
+  # them; one extra nesting level inside a test file harms nothing.
+  - nesting

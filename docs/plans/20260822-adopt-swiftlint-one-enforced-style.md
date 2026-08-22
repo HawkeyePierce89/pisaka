@@ -126,7 +126,7 @@ to 2200 and `type_body_length` to 2150, which switches those rules off for
 - Create: `.swiftlint.yml`, `Tests/.swiftlint.yml`
 - Create: `Tests/PisakaCoreTests/LintConfigurationTests.swift`
 
-- [ ] Write `.swiftlint.yml` at the repository root. It must read as a
+- [x] Write `.swiftlint.yml` at the repository root. It must read as a
       document — every relaxed or disabled rule carries a comment saying
       *why*, so the next reader can tell a deliberate exemption from an
       oversight. Contents:
@@ -168,20 +168,24 @@ to 2200 and `type_body_length` to 2150, which switches those rules off for
         the rule's heuristic assumes `deinit`-only removal),
         `orphaned_doc_comment` (nearly every file opens with a file-header doc
         comment, deliberately).
-- [ ] Write `Tests/.swiftlint.yml`: a header comment pointing at the root file
+- [x] Write `Tests/.swiftlint.yml`: a header comment pointing at the root file
       as the authority, then `disabled_rules` for `force_try` (a `try!` in a
       test *is* the assertion; failure is a reported test failure, and
       `Sources/` contains none), `file_length`, `type_body_length`,
       `function_body_length` (an `XCTestCase` is a flat list of independent
       test methods — length carries no complexity), and `nesting` (fixtures
       and scripted stubs nest their types next to the test that uses them).
-- [ ] Verify the residual matches the table above exactly:
+- [x] Verify the residual matches the table above exactly:
       `swiftlint lint --quiet --reporter csv` from the root, grouped by rule,
       must show 604 `trailing_comma`, 20 `line_length`, 2
       `superfluous_disable_command`, 2 `for_where`, 2 `cyclomatic_complexity`,
       1 `closure_parameter_position` and nothing else. A different profile
       means a threshold was mis-set — fix the config, not the sources.
-- [ ] Add `Tests/PisakaCoreTests/LintConfigurationTests.swift` with the
+      (Measured with threshold 22: 604/20/2/2/1 and **0** `cyclomatic_complexity`
+      — the rule fires strictly above its threshold, so 22 clears both scanners
+      exactly as the Contents spec states; verified empirically that threshold
+      21 yields exactly 1 hit, QueryScanner's 22.)
+- [x] Add `Tests/PisakaCoreTests/LintConfigurationTests.swift` with the
       configuration half of the static suite (Foundation only, read through
       `#filePath`, match on comment-stripped lines via the shared
       `YAMLLineMatching` helper): both config files exist; the root declares
@@ -191,7 +195,7 @@ to 2200 and `type_body_length` to 2150, which switches those rules off for
       file's `included:` names `Sources` and `Tests`; the child's
       `disabled_rules` set equals the documented set, by **set equality**, so a
       quietly widened test exemption fails the suite.
-- [ ] Run `swift test` — must pass before Task 2.
+- [x] Run `swift test` — must pass before Task 2.
 
 ### Task 2: Trailing-comma conformance sweep
 
