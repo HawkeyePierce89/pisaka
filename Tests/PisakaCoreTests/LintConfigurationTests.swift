@@ -500,6 +500,55 @@ final class LintConfigurationTests: XCTestCase {
             """)
     }
 
+    // MARK: - Enabling the hook
+
+    /// A committed hook that nobody activates is decoration. Git will not wire
+    /// `core.hooksPath` on clone — it cannot, without turning `git clone` into
+    /// code execution — so the activation has to ride on something people
+    /// already run. Two carriers do that here, and each is only load-bearing
+    /// while it stays wired: the `Makefile`'s targets and the build phase
+    /// `project.yml` declares. These assertions pin both, because either one
+    /// can be deleted in a hurry without any test noticing otherwise.
+    func testMakefileTargetsAllDependOnWiringTheHooks() throws {
+        let makefile = try read("Makefile")
+        XCTAssertTrue(makefile.contains("git config core.hooksPath .githooks"), """
+            Makefile no longer wires core.hooksPath, so running anything through \
+            make leaves the clone without its local lint gate
+            """)
+        // Every target that does real work must carry `hooks` as a prerequisite:
+        // the wiring is worth nothing if it lives in a target nobody invokes.
+        for target in ["setup", "test", "lint", "generate"] {
+            let declaration = makefile
+                .components(separatedBy: .newlines)
+                .first { $0.hasPrefix("\(target):") }
+            let prerequisites = try XCTUnwrap(declaration, "Makefile has no `\(target):` target")
+            XCTAssertTrue(prerequisites.contains("hooks"), """
+                Makefile's `\(target)` target does not depend on `hooks`, so invoking it \
+                leaves this clone's hooks unwired — which is the whole reason the \
+                Makefile exists beside the raw commands
+                """)
+        }
+    }
+
+    func testGeneratedProjectWiresTheHooksOnEveryBuild() throws {
+        let projectSpec = try read("project.yml")
+        XCTAssertTrue(projectSpec.contains("preBuildScripts"), """
+            project.yml declares no preBuildScripts, so building the app no longer \
+            wires this clone's hooks — the one carrier that reaches contributors who \
+            never touch make
+            """)
+        XCTAssertTrue(projectSpec.contains("git config core.hooksPath .githooks"), """
+            project.yml's build phase no longer sets core.hooksPath
+            """)
+        // Always, not "when inputs changed": the phase declares no inputs, so
+        // dependency analysis would let Xcode skip it — on exactly the incremental
+        // builds a fresh clone performs after its first one.
+        XCTAssertTrue(projectSpec.contains("basedOnDependencyAnalysis: false"), """
+            the hook-wiring build phase must opt out of dependency analysis, or Xcode \
+            skips it on incremental builds
+            """)
+    }
+
     // MARK: - Data
 
     private static let rootConfigPath = ".swiftlint.yml"

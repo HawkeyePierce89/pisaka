@@ -152,12 +152,24 @@ install -m 755 swiftlint /usr/local/bin/   # or any directory on your PATH
 
 brew install swiftlint    # alternative; whatever it serves, the check below decides
 swiftlint version         # MUST print 0.65.0 — any other binary is refused
-git config core.hooksPath .githooks
+
+make setup                # wires the hooks and confirms the linter is present
 ```
 
 From then on every commit lints exactly what is being committed (`--strict`)
 and refuses violations instead of fixing them. CI runs the same check on every
 pull request, so a bypassed or forgotten hook only defers the failure.
+
+`make setup` is a convenience, not a step you can forget your way past: git
+never enables a repository's hooks on its own (`.git/hooks` is not cloned and
+`core.hooksPath` is per-clone config — a repository that ran its own scripts on
+`git clone` would be remote code execution), so the wiring has to ride on
+something you already do. Two things carry it here: every `make` target that
+does work depends on `make hooks`, and the generated Xcode project runs a
+`Wire git hooks` build phase, so building the app wires them too. Only a
+contributor who exclusively runs `swift test` by hand ends up without the local
+gate — and CI still refuses their pull request. Wiring by hand stays available:
+`git config core.hooksPath .githooks`.
 
 ## Installing a released build
 

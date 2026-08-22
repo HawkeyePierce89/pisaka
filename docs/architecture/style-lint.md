@@ -56,8 +56,42 @@ until every site has moved together.
   already-staged content is content loss.
 - **No graceful degradation**: no `swiftlint`, wrong version, unreadable pin,
   violations — all refuse with actionable messages. Skipping is how a violation
-  gets in. Activate with `git config core.hooksPath .githooks` (one time per
-  clone; git does not clone hooks).
+  gets in.
+
+## How the hook gets enabled
+
+Git never enables a repository's hooks by itself: `.git/hooks` is not cloned
+and `core.hooksPath` is per-clone local config. That is a security stance, not
+an omission — a repository that could run its own scripts on `git clone` would
+be remote code execution. Every ecosystem that *appears* to install hooks
+automatically is riding on a step the developer had to run anyway (husky's
+`prepare` script, run by `npm install`).
+
+This project has no single such step. `Package.swift` declares **no external
+dependencies**, so `swift test` installs nothing, and SwiftPM evaluates its
+manifest in a sandbox — verified: a `Process` launched from a manifest produces
+no side effect, with or without `--disable-sandbox`. There is no `preinstall`,
+`postinstall` or `prepare` anywhere in SwiftPM, and build-tool plugins are
+sandboxed while command plugins are explicit. So the wiring rides on the two
+things people *do* run:
+
+- **`make hooks`**, a prerequisite of every working `Makefile` target
+  (`test`, `lint`, `generate`, `build`, `build-ios`), so anything run through
+  make wires the clone. `make setup` does it explicitly and additionally
+  refuses when the pinned linter is absent.
+- **The `Wire git hooks` build phase** declared in `project.yml`, so generating
+  the project and building the app — what every app contributor and every agent
+  run does — wires it too. It is idempotent, silent on success, and exits 0
+  where there is no git repository (an export or a `.git`-less CI checkout):
+  it only *enables* a gate, so failing a build there would break building for a
+  reason unrelated to the build. That is not the graceful skip the hook itself
+  refuses to make — the gate still refuses hard once wired, and CI refuses the
+  pull request regardless.
+
+What remains uncovered: a contributor who only ever runs `swift test` by hand,
+never builds the app and never uses make. They commit unlinted locally, and
+CI refuses the pull request. Wiring by hand stays available:
+`git config core.hooksPath .githooks`.
 
 ## Why CI is the real gate
 

@@ -485,6 +485,10 @@ corrupted hash table, not a flaky assertion.
 
 ## Commands
 
+A `Makefile` wraps these as `make test` / `make lint` / `make build`; its
+targets and a generated build phase both wire this clone's hooks
+(`style-lint.md`). The raw commands below stay the authority.
+
 ```sh
 swift test            # run the PisakaCore test suite (all platforms)
 
