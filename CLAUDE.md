@@ -630,6 +630,16 @@ owed are documented in `docs/RELEASING.md`.
   libgit2's SSH transport execs the system `ssh` binary and iOS has no
   subprocess, so only an HTTPS `origin` can be fetched.
 - Target platforms are macOS 13+ and iOS/iPadOS 17+.
+- **Style is enforced, not conventional**: `.swiftlint.yml` at the root is the
+  single style authority (the nested `Tests/.swiftlint.yml` carries the
+  test-tree exemptions; every relaxation lives in the config with its reason,
+  never as scattered in-file `swiftlint:disable` comments). The pinned version
+  is enforced by the `.githooks/pre-commit` hook (activate with
+  `git config core.hooksPath .githooks`) and by ci.yml's lint job;
+  `swiftlint --strict` from the repository root must be clean, and
+  `LintConfigurationTests` pins the config/hook/CI/doc shape. Running
+  `swiftlint --fix` against anything other than the committed configuration is
+  never the right move.
 - **Documentation placement**: this file must stay well under the 150k-char
   context limit (target ≈30k) — it carries only the index and the invariants
   above. Full per-file design rationale lives in `docs/architecture/*.md`.

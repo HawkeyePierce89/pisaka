@@ -45,7 +45,12 @@ import XCTest
 ///    hook, configuration and CI incapable of disagreeing), verify the
 ///    archive's digest before running it, lint with no config override (root
 ///    discovery is what merges the nested test config) and carry no escape
-///    hatch.
+///    hatch;
+///  * the contributor-facing documents stay truthful: README.md keeps the
+///    one-time setup (`git config core.hooksPath .githooks`) and names
+///    `.swiftlint.yml`, and CLAUDE.md names the style authority too — setup
+///    instructions that quietly disappear are this repository's documented
+///    failure mode.
 final class LintConfigurationTests: XCTestCase {
     func testBothConfigurationFilesExist() throws {
         for relativePath in [Self.rootConfigPath, Self.childConfigPath] {
@@ -382,6 +387,37 @@ final class LintConfigurationTests: XCTestCase {
                                       "the lint job must invoke ./swiftlint lint")
         XCTAssertLessThan(versionIndex, lintIndex,
                           "print --version before linting so the log records which binary judged it")
+    }
+
+    // MARK: - The documentation
+
+    /// The contributor-facing half of the story. A hook that is not activated
+    /// is decoration, and the activation is a one-line `git config` a fresh
+    /// clone has no other way to learn — so README.md must keep giving it,
+    /// verbatim, beside the pinned version it enforces. Both contributor documents
+    /// must also keep naming `.swiftlint.yml`: the file these instructions
+    /// exist to point at. Matched on raw text because markdown carries no
+    /// comments to strip and the asserted strings are what a reader copies.
+    func testReadmeKeepsTheHookSetupAndNamesTheAuthority() throws {
+        let readme = try read("README.md")
+        XCTAssertTrue(readme.contains("git config core.hooksPath .githooks"), """
+            README.md no longer documents the one-time hook activation \
+            (git config core.hooksPath .githooks) — without it a fresh clone \
+            commits with no local lint gate and never learns why its style \
+            diverged
+            """)
+        XCTAssertTrue(readme.contains(".swiftlint.yml"), """
+            README.md no longer names .swiftlint.yml, the style authority the \
+            setup exists to enforce
+            """)
+    }
+
+    func testClaudeMdNamesTheStyleAuthority() throws {
+        XCTAssertTrue(try read("CLAUDE.md").contains(".swiftlint.yml"), """
+            CLAUDE.md no longer names .swiftlint.yml as the single style \
+            authority — the agent-facing conventions have lost their enforcement \
+            story
+            """)
     }
 
     // MARK: - Data

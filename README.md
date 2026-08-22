@@ -133,6 +133,23 @@ swift test             # run the domain-logic test suite (PisakaCore, all platfo
 the fast, dependency-free gate for the domain logic. The macOS app runs
 non-sandboxed so the standard open/save panels work without entitlements.
 
+### Style lint (SwiftLint)
+
+Style is enforced with [SwiftLint](https://github.com/realm/SwiftLint),
+pinned at **0.65.0** in [`.swiftlint.yml`](.swiftlint.yml) — that file is the
+single style authority, and every relaxation in it carries its reason.
+One-time contributor setup:
+
+```sh
+brew install swiftlint   # or download 0.65.0's portable_swiftlint.zip from GitHub Releases
+swiftlint version        # must print 0.65.0
+git config core.hooksPath .githooks
+```
+
+From then on every commit lints exactly what is being committed (`--strict`)
+and refuses violations instead of fixing them. CI runs the same check on every
+pull request, so a bypassed or forgotten hook only defers the failure.
+
 ## Installing a released build
 
 Download the zip from [GitHub Releases](../../releases), unzip it, drag
@@ -177,7 +194,11 @@ certificate renewal and what is still account-side — is documented in
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and every
 push to `master`: first `swift test`, then — only once tests are green — an
 unsigned macOS build and an unsigned iOS build (device arch, including libgit2
-linking) in parallel. No signing, secrets, or simulator are involved. The macOS
+linking) in parallel. A fourth, independent `lint` job runs alongside them from
+the start: the pinned SwiftLint 0.65.0 (digest-verified download) over the whole
+first-party tree with `--strict` — the same check the pre-commit hook enforces
+locally, so a pull request that fails style is refused even when the hook was
+bypassed. No signing, secrets, or simulator are involved. The macOS
 build uses the Release configuration and the iOS build Debug, so both
 configurations are compiled on every PR — the auto-updater exists only in
 non-DEBUG builds and would otherwise never be compiled until a release. The

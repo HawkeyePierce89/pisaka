@@ -368,7 +368,7 @@ to 2200 and `type_body_length` to 2150, which switches those rules off for
 - Modify: `CLAUDE.md`, `README.md`
 - Modify: `Tests/PisakaCoreTests/LintConfigurationTests.swift`
 
-- [ ] `CLAUDE.md` Conventions: one short paragraph (no essay — this file is
+- [x] `CLAUDE.md` Conventions: one short paragraph (no essay — this file is
       budgeted). It states that `.swiftlint.yml` at the root is the single
       authority for style, that the pinned version is enforced by the hook and
       by CI, that `swiftlint --strict` must be clean, that relaxations live in
@@ -376,16 +376,16 @@ to 2200 and `type_body_length` to 2150, which switches those rules off for
       and — pointedly, since this ticket exists because an agent did it — that
       running `swiftlint --fix` with anything other than the committed
       configuration is never the right move.
-- [ ] `README.md`: a short section under **Build & Run** giving the one-time
+- [x] `README.md`: a short section under **Build & Run** giving the one-time
       contributor setup — `git config core.hooksPath .githooks` — the pinned
       version and how to install it, and a line saying CI runs the same check
       so a bypassed hook only defers the failure. Add one line to the
       **Continuous Integration** section naming the new lint job.
-- [ ] Extend `LintConfigurationTests`: `README.md` mentions
+- [x] Extend `LintConfigurationTests`: `README.md` mentions
       `core.hooksPath .githooks`, and both `README.md` and `CLAUDE.md` name
       `.swiftlint.yml`. Setup instructions that quietly disappear are the
       documented failure mode this repo already guards against elsewhere.
-- [ ] Run `swift test` — must pass before Task 7.
+- [x] Run `swift test` — must pass before Task 7.
 
 ### Task 7: Verify acceptance criteria
 
