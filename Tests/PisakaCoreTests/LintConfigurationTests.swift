@@ -26,7 +26,11 @@ import XCTest
 ///    linter silently judges less than the whole first-party tree;
 ///  * the child's `disabled_rules` equals its documented five-rule set **by
 ///    set equality**, so quietly widening the test-tree exemptions (adding a
-///    rule here is free, removing a line of lint coverage) fails the suite.
+///    rule here is free, removing a line of lint coverage) fails the suite;
+///  * every *in-file* exemption — a lint-disable comment anywhere under
+///    `Sources/` or `Tests/` — equals the small documented set by path, rule
+///    and count, so an exemption added silently in a source file fails here
+///    instead of passing review unnoticed.
 final class LintConfigurationTests: XCTestCase {
     func testBothConfigurationFilesExist() throws {
         for relativePath in [Self.rootConfigPath, Self.childConfigPath] {
@@ -84,6 +88,54 @@ final class LintConfigurationTests: XCTestCase {
                        """)
     }
 
+    /// Every in-file lint exemption under `Sources/` and `Tests/`, counted by
+    /// (relative path, rule), must equal this dictionary.
+    ///
+    /// The config files are the authority for relaxations; a disable command
+    /// inside a source file is an *additional*, easily-forgotten exemption that
+    /// no `.yml` diff would ever reveal — which is exactly how it slips past
+    /// review. The narrowest legal form (`:next`/`:previous`/`:this`) and any
+    /// file-wide disable are all caught here; each entry's reason lives beside
+    /// the marker it counts. A new exemption means changing BOTH the source
+    /// file and this dictionary, with the reason written down.
+    func testInFileExemptionsEqualTheDocumentedSet() throws {
+        // Assembled from parts so this file — which necessarily discusses the
+        // command to pin its uses — never matches its own needle below.
+        let marker = "// swiftlint:" + "disable"
+        var counts: [String: [String: Int]] = [:]
+
+        for tree in ["Sources", "Tests"] {
+            for url in try swiftFiles(under: tree) {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                let relativePath = tree + String(url.path.dropFirst(
+                    Self.repositoryRoot.appendingPathComponent(tree).path.count))
+                for line in text.components(separatedBy: .newlines) {
+                    guard let markerRange = line.range(of: marker) else { continue }
+                    var remainder = String(line[markerRange.upperBound...])
+                    for scope in ["next", "previous", "this"]
+                    where remainder.hasPrefix(":\(scope)") {
+                        remainder = String(remainder.dropFirst(scope.count + 1))
+                    }
+                    let rules = remainder.split(whereSeparator: { $0 == " " || $0 == "\t" })
+                        .map(String.init)
+                        .filter { !$0.isEmpty && $0.allSatisfy { $0.isLetter || $0 == "_" } }
+                    for rule in rules.isEmpty ? ["(every rule)"] : rules {
+                        counts[relativePath, default: [:]][rule, default: 0] += 1
+                    }
+                }
+            }
+        }
+
+        XCTAssertEqual(counts, Self.documentedInFileExemptions,
+                       """
+                       An in-file lint exemption appeared, moved, disappeared or changed \
+                       count. In-file disables are exemptions outside the authority of the \
+                       two configuration files; add or change one only by updating both the \
+                       source comment (with its written reason) and documentedInFileExemptions \
+                       here.
+                       """)
+    }
+
     // MARK: - Data
 
     private static let rootConfigPath = ".swiftlint.yml"
@@ -96,6 +148,17 @@ final class LintConfigurationTests: XCTestCase {
         "type_body_length",
         "function_body_length",
         "nesting",
+    ]
+
+    /// The in-file exemptions, counted by (relative path, rule). Both entries
+    /// are indivisible literals whose lines cannot wrap:
+    ///
+    ///  * `LeetCodeAPITests` — the exact GraphQL wire bodies asserted verbatim;
+    ///  * `LSPProvisioningManifestTests` — pinned-artifact rows, each one
+    ///    id/file/byte-count/SHA-256 tuple kept on a single line.
+    private static let documentedInFileExemptions: [String: [String: Int]] = [
+        "Tests/PisakaCoreTests/LeetCodeAPITests.swift": ["line_length": 2],
+        "Tests/PisakaCoreTests/LSPProvisioningManifestTests.swift": ["line_length": 7],
     ]
 
     /// The repository root, derived from this file's own compile-time path
@@ -120,5 +183,30 @@ final class LintConfigurationTests: XCTestCase {
     private func read(_ relativePath: String) throws -> String {
         let url = Self.repositoryRoot.appendingPathComponent(relativePath)
         return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// Every `.swift` file under `tree` (relative to the repository root),
+    /// sorted, descending past nothing hidden (`.build`, `.git`, …).
+    private func swiftFiles(under tree: String) throws -> [URL] {
+        var files: [URL] = []
+
+        func walk(_ directory: URL) throws {
+            let contents = try FileManager.default.contentsOfDirectory(
+                at: directory, includingPropertiesForKeys: nil, options: [])
+            for item in contents.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+                if item.lastPathComponent.hasPrefix(".") { continue }
+                var isDirectory: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: item.path, isDirectory: &isDirectory)
+                else { continue }
+                if isDirectory.boolValue {
+                    try walk(item)
+                } else if item.pathExtension == "swift" {
+                    files.append(item)
+                }
+            }
+        }
+
+        try walk(Self.repositoryRoot.appendingPathComponent(tree))
+        return files
     }
 }

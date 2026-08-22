@@ -123,6 +123,9 @@ final class LeetCodeAPITests: XCTestCase {
         XCTAssertEqual(request.url.absoluteString, "https://leetcode.com/graphql")
         XCTAssertEqual(
             request.body.flatMap { String(data: $0, encoding: .utf8) },
+            // The exact GraphQL wire body is one indivisible raw string: a
+            // break inside the literal would alter what is asserted.
+            // swiftlint:disable:next line_length
             #"{"operationName":"globalData","query":"query globalData {\n  userStatus {\n    username\n    isSignedIn\n    isPremium\n  }\n}","variables":{}}"#
         )
     }
@@ -136,6 +139,9 @@ final class LeetCodeAPITests: XCTestCase {
         XCTAssertEqual(request.url.absoluteString, "https://leetcode.com/graphql")
         XCTAssertEqual(
             request.body.flatMap { String(data: $0, encoding: .utf8) },
+            // The exact GraphQL wire body is one indivisible raw string: a
+            // break inside the literal would alter what is asserted.
+            // swiftlint:disable:next line_length
             #"{"operationName":"questionData","query":"query questionData($titleSlug: String!) {\n  question(titleSlug: $titleSlug) {\n    questionId\n    questionFrontendId\n    title\n    titleSlug\n    content\n    difficulty\n    isPaidOnly\n    exampleTestcaseList\n    codeSnippets {\n      lang\n      langSlug\n      code\n    }\n  }\n}","variables":{"titleSlug":"two-sum"}}"#
         )
     }

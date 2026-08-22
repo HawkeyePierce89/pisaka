@@ -240,37 +240,37 @@ to 2200 and `type_body_length` to 2150, which switches those rules off for
   `Tests/PisakaCoreTests/BranchSwitcherModelTests.swift`,
   `Tests/PisakaCoreTests/SparkleSourceGatingTests.swift`
 
-- [ ] `for_where` (2 sites): fold the single `if` inside the `for` into a
+- [x] `for_where` (2 sites): fold the single `if` inside the `for` into a
       `where` clause — `GitRefName.swift:42`, `FileName.swift:200`. Confirm by
       reading that the loop body has no other statement, so the rewrite is
       exact.
-- [ ] `closure_parameter_position` (1 site): move the closure parameters onto
+- [x] `closure_parameter_position` (1 site): move the closure parameters onto
       the opening-brace line in `LSPSession.swift:295`.
-- [ ] `CompletionController.swift`: delete the two `swiftlint:disable`
+- [x] `CompletionController.swift`: delete the two `swiftlint:disable`
       comments (`file_length` at the top, `type_body_length` at line 67) — the
       configured thresholds make both unnecessary, which is why they now report
       as `superfluous_disable_command` — and repair the doc-comment
       indentation the earlier default-rules sweep broke in the same file.
-- [ ] `line_length` (20 sites at the 140 limit): wrap by hand everywhere the
+- [x] `line_length` (20 sites at the 140 limit): wrap by hand everywhere the
       line is wrappable — the four view/settings lines and the long test
       assertions in `BranchSwitcherModelTests`, `SparkleSourceGatingTests`.
       Wrapping must not change what an assertion asserts.
-- [ ] For the raw-string fixtures that genuinely cannot wrap — the GraphQL
+- [x] For the raw-string fixtures that genuinely cannot wrap — the GraphQL
       query body in `LeetCodeAPITests` and the pinned-artifact tuple lines in
       `LSPProvisioningManifestTests`, where a break would alter the literal —
       add `// swiftlint:disable:next line_length` with a one-line reason naming
       why the literal is indivisible. Use the narrowest form (`:next`), never a
       file-wide disable.
-- [ ] Run `swiftlint --strict` from the repository root with no `--config`:
+- [x] Run `swiftlint --strict` from the repository root with no `--config`:
       **zero** violations, warnings included. Also confirm zero
       `superfluous_disable_command` — an exemption that stopped being needed is
       itself a violation under this configuration.
-- [ ] Extend `LintConfigurationTests` with a guard on the in-file exemptions:
+- [x] Extend `LintConfigurationTests` with a guard on the in-file exemptions:
       enumerate every `swiftlint:disable` comment under `Sources/` and
       `Tests/`, and assert the set equals the small documented set from this
       task (path + rule). A new silent exemption then fails `swift test` rather
       than passing review unnoticed.
-- [ ] Run `swift test` — must pass before Task 4.
+- [x] Run `swift test` — must pass before Task 4.
 
 ### Task 4: The pre-commit hook that refuses
 

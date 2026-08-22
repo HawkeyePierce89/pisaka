@@ -205,7 +205,10 @@ struct SettingsView_iOS: View {
         } header: {
             Text("LeetCode")
         } footer: {
-            Text("Solution files are written into this folder, and a file there is what associates an editor tab with its problem description.")
+            Text("""
+                Solution files are written into this folder, and a file there is \
+                what associates an editor tab with its problem description.
+                """)
         }
     }
 
@@ -268,7 +271,11 @@ struct SettingsView_iOS: View {
         } header: {
             Text("Git Credentials")
         } footer: {
-            Text("Stored in the Keychain and used to fetch private repositories over HTTPS on iOS. For GitHub, create a fine-grained or classic Personal Access Token.")
+            Text("""
+                Stored in the Keychain and used to fetch private repositories over \
+                HTTPS on iOS. For GitHub, create a fine-grained or classic \
+                Personal Access Token.
+                """)
         }
     }
 

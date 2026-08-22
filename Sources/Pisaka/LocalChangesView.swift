@@ -126,7 +126,12 @@ struct LocalChangesView: View {
                         }
                     case .byFolder:
                         ForEach(model.tree) { node in
-                            ChangeNodeView(model: model, node: node, onRevert: onRevert, onOpenDiff: onOpenDiff, onResolveConflict: onResolveConflict, onCommitFile: onCommitFile)
+                            ChangeNodeView(
+                                model: model, node: node,
+                                onRevert: onRevert, onOpenDiff: onOpenDiff,
+                                onResolveConflict: onResolveConflict,
+                                onCommitFile: onCommitFile
+                            )
                         }
                     }
                 }
@@ -201,7 +206,12 @@ private struct ChangeNodeView: View {
         } else {
             DisclosureGroup(isExpanded: $isExpanded) {
                 ForEach(node.children ?? []) { child in
-                    ChangeNodeView(model: model, node: child, onRevert: onRevert, onOpenDiff: onOpenDiff, onResolveConflict: onResolveConflict, onCommitFile: onCommitFile)
+                    ChangeNodeView(
+                        model: model, node: child,
+                        onRevert: onRevert, onOpenDiff: onOpenDiff,
+                        onResolveConflict: onResolveConflict,
+                        onCommitFile: onCommitFile
+                    )
                         .padding(.leading, metrics.scaled(12))
                 }
             } label: {

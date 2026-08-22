@@ -196,10 +196,9 @@ public func validateSingleEntryName(_ name: String) -> EntryPathIssue? {
 /// used to create a file with a newline in its name.
 public func parseRelativeEntryPath(_ path: String) -> [String]? {
     guard let components = relativePathComponents(path) else { return nil }
-    for component in components {
-        if componentIssue(component, isReserved: FileService.isReservedCreateName) != nil {
-            return nil
-        }
+    for component in components
+    where componentIssue(component, isReserved: FileService.isReservedCreateName) != nil {
+        return nil
     }
     return components
 }

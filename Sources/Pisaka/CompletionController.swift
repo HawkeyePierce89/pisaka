@@ -1,4 +1,3 @@
-// swiftlint:disable file_length
 #if os(macOS)
 import AppKit
 import PisakaCore
@@ -30,14 +29,14 @@ import PisakaCore
 /// the typed prefix, or `.replace` (Tab) which consumes the trailing suffix of the
 /// identifier as well. `IdentifierScanner` provides both ranges.
 ///
-    /// **Staleness guards and dismissal.** The controller maintains a strict dismissal
-    /// set to tear down the popup if the context changes: losing first responder,
-    /// clicking outside, scrolling, moving the caret out of the word, or typing a
-    /// space. A commit answers to the snapshot's word *start*, not its exact
-    /// text — `update` keeps the previous list serving while a fresh answer
-    /// debounces, so the live word may have grown or shrunk under the open panel,
-    /// and every commit range is derived from whatever stands there now (see
-    /// `commit(_:)`).
+/// **Staleness guards and dismissal.** The controller maintains a strict dismissal
+/// set to tear down the popup if the context changes: losing first responder,
+/// clicking outside, scrolling, moving the caret out of the word, or typing a
+/// space. A commit answers to the snapshot's word *start*, not its exact
+/// text — `update` keeps the previous list serving while a fresh answer
+/// debounces, so the live word may have grown or shrunk under the open panel,
+/// and every commit range is derived from whatever stands there now (see
+/// `commit(_:)`).
 ///
 /// **Display strings as keys.** The snapshot keeps whole `CompletionItem`s keyed
 /// by `CompletionItem.displayText`. This string is the key in all three tables —
@@ -63,7 +62,6 @@ import PisakaCore
 /// the partial word is also empty) nor one moved to a different `other.` can
 /// inherit a member list, and an ordinary list cannot be served after a dot.
 @MainActor
-// swiftlint:disable:next type_body_length
 final class CompletionController {
 
     /// How many characters must be typed before the popup opens by itself.
