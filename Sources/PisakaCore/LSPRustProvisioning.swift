@@ -161,8 +161,7 @@ public final class LSPRustProvisioningModel: ObservableObject {
         if
             let component,
             engine.isInstalled(component.id),
-            let executable = engine.layout.executable(of: component)
-        {
+            let executable = engine.layout.executable(of: component) {
             return .appInstalled(version: component.version, path: executable.path)
         }
         if let path = report?.discoveredRustAnalyzerPath { return .discovered(path: path) }

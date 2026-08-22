@@ -961,7 +961,7 @@ enum HoverMarkup {
         "div", "dl", "dt", "em", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i",
         "img", "ins", "kbd", "li", "ol", "p", "pre", "q", "s", "samp", "small",
         "span", "strong", "sub", "summary", "sup", "table", "tbody", "td",
-        "tfoot", "th", "thead", "tr", "tt", "u", "ul", "var",
+        "tfoot", "th", "thead", "tr", "tt", "u", "ul", "var"
     ]
 
     /// The index just past `<tag …>` or `</tag>`, or `nil` when the `<` starts
@@ -1133,8 +1133,7 @@ enum HoverMarkup {
             lines.append(String(decoding: utf8[cursor..<end], as: UTF8.self))
             var next = utf8.index(after: end)
             if utf8[end] == UInt8(ascii: "\r"), next < utf8.endIndex,
-                utf8[next] == UInt8(ascii: "\n")
-            {
+                utf8[next] == UInt8(ascii: "\n") {
                 next = utf8.index(after: next)
             }
             cursor = next

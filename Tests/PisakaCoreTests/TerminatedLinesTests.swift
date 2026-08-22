@@ -10,7 +10,7 @@ final class TerminatedLinesTests: XCTestCase {
             TerminatedLines.split("a\nb\n"),
             [
                 TerminatedLine(content: "a", terminator: "\n"),
-                TerminatedLine(content: "b", terminator: "\n"),
+                TerminatedLine(content: "b", terminator: "\n")
             ]
         )
     }
@@ -20,7 +20,7 @@ final class TerminatedLinesTests: XCTestCase {
             TerminatedLines.split("a\rb\r"),
             [
                 TerminatedLine(content: "a", terminator: "\r"),
-                TerminatedLine(content: "b", terminator: "\r"),
+                TerminatedLine(content: "b", terminator: "\r")
             ]
         )
     }
@@ -31,7 +31,7 @@ final class TerminatedLinesTests: XCTestCase {
             TerminatedLines.split("a\r\nb\r\n"),
             [
                 TerminatedLine(content: "a", terminator: "\r\n"),
-                TerminatedLine(content: "b", terminator: "\r\n"),
+                TerminatedLine(content: "b", terminator: "\r\n")
             ]
         )
     }
@@ -41,7 +41,7 @@ final class TerminatedLinesTests: XCTestCase {
             TerminatedLines.split("a\u{0085}b\u{0085}"),
             [
                 TerminatedLine(content: "a", terminator: "\u{0085}"),
-                TerminatedLine(content: "b", terminator: "\u{0085}"),
+                TerminatedLine(content: "b", terminator: "\u{0085}")
             ]
         )
     }
@@ -51,7 +51,7 @@ final class TerminatedLinesTests: XCTestCase {
             TerminatedLines.split("a\u{2028}b"),
             [
                 TerminatedLine(content: "a", terminator: "\u{2028}"),
-                TerminatedLine(content: "b", terminator: ""),
+                TerminatedLine(content: "b", terminator: "")
             ]
         )
     }
@@ -61,7 +61,7 @@ final class TerminatedLinesTests: XCTestCase {
             TerminatedLines.split("a\u{2029}b"),
             [
                 TerminatedLine(content: "a", terminator: "\u{2029}"),
-                TerminatedLine(content: "b", terminator: ""),
+                TerminatedLine(content: "b", terminator: "")
             ]
         )
     }
@@ -74,7 +74,7 @@ final class TerminatedLinesTests: XCTestCase {
                 TerminatedLine(content: "a", terminator: "\r\n"),
                 TerminatedLine(content: "b", terminator: "\n"),
                 TerminatedLine(content: "c", terminator: "\r"),
-                TerminatedLine(content: "d", terminator: ""),
+                TerminatedLine(content: "d", terminator: "")
             ]
         )
     }
@@ -89,7 +89,7 @@ final class TerminatedLinesTests: XCTestCase {
             TerminatedLines.split("a\nb"),
             [
                 TerminatedLine(content: "a", terminator: "\n"),
-                TerminatedLine(content: "b", terminator: ""),
+                TerminatedLine(content: "b", terminator: "")
             ]
         )
     }
@@ -111,7 +111,7 @@ final class TerminatedLinesTests: XCTestCase {
             [
                 TerminatedLine(content: "", terminator: "\n"),
                 TerminatedLine(content: "", terminator: "\r\n"),
-                TerminatedLine(content: "", terminator: "\r"),
+                TerminatedLine(content: "", terminator: "\r")
             ]
         )
     }
@@ -122,7 +122,7 @@ final class TerminatedLinesTests: XCTestCase {
             [
                 TerminatedLine(content: "a", terminator: "\n"),
                 TerminatedLine(content: "", terminator: "\n"),
-                TerminatedLine(content: "b", terminator: ""),
+                TerminatedLine(content: "b", terminator: "")
             ]
         )
     }
@@ -144,7 +144,7 @@ final class TerminatedLinesTests: XCTestCase {
             "a\r\nb\nc\rd\u{2028}e\u{2029}f\u{0085}g",
             "\r\n\r\n",
             "line with spaces   \n\ttabbed\n",
-            "🙂\n🙃",
+            "🙂\n🙃"
         ]
         for text in samples {
             let rebuilt = TerminatedLines.split(text).map { $0.content + $0.terminator }.joined()
@@ -179,7 +179,7 @@ final class TerminatedLinesTests: XCTestCase {
     func testSplitContentsMatchLineDiffSplitLines() {
         let alphabet = [
             "a", "b", "c", " ", "\t", "\n", "\r", "\r\n",
-            "\u{0085}", "\u{2028}", "\u{2029}", "x", "🙂",
+            "\u{0085}", "\u{2028}", "\u{2029}", "x", "🙂"
         ]
         let seeds: [UInt64] = [0x1234_5678_9abc_def0, 0xdead_beef_cafe_babe, 0x0f0f_0f0f_f0f0_f0f0]
 
@@ -218,7 +218,7 @@ final class TerminatedLinesTests: XCTestCase {
             "a\n\rb",
             "\r\r\n\n",
             "a\u{0085}\u{2028}\u{2029}b",
-            "no terminator at all",
+            "no terminator at all"
         ]
         for text in samples {
             XCTAssertEqual(

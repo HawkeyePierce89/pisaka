@@ -51,7 +51,7 @@ final class LSPInstallEngineTests: XCTestCase {
             licenseFileSubpaths: ["LICENSE"],
             artifacts: [
                 artifact(runtimeARM, byteCount: 1000, architecture: .arm64),
-                artifact(runtimeIntel, byteCount: 1100, architecture: .x64),
+                artifact(runtimeIntel, byteCount: 1100, architecture: .x64)
             ],
             executableSubpath: "bin/runtime"
         )
@@ -66,7 +66,7 @@ final class LSPInstallEngineTests: XCTestCase {
             licenseFileSubpaths: ["node_modules/server/LICENSE"],
             artifacts: [
                 artifact(serverArchive, byteCount: 200, destinationSubpath: "node_modules/server"),
-                artifact(helperArchive, byteCount: 30, destinationSubpath: "node_modules/helper"),
+                artifact(helperArchive, byteCount: 30, destinationSubpath: "node_modules/helper")
             ],
             requires: ["runtime"],
             executableSubpath: "node_modules/server/main.js"
@@ -80,7 +80,7 @@ final class LSPInstallEngineTests: XCTestCase {
             licenseFileSubpaths: ["node_modules/server/LICENSE"],
             artifacts: [
                 artifact(bumpedServerArchive, byteCount: 210, destinationSubpath: "node_modules/server"),
-                artifact(helperArchive, byteCount: 30, destinationSubpath: "node_modules/helper"),
+                artifact(helperArchive, byteCount: 30, destinationSubpath: "node_modules/helper")
             ],
             requires: ["runtime"],
             executableSubpath: "node_modules/server/main.js"
@@ -313,7 +313,7 @@ final class LSPInstallEngineTests: XCTestCase {
             [
                 "LanguageServers/server/2.0.0/node_modules/helper/index.js",
                 "LanguageServers/server/2.0.0/node_modules/server/LICENSE",
-                "LanguageServers/server/2.0.0/node_modules/server/main.js",
+                "LanguageServers/server/2.0.0/node_modules/server/main.js"
             ]
         )
 
@@ -1050,7 +1050,7 @@ final class LSPInstallEngineTests: XCTestCase {
             .downloadFailed(component: "node", reason: "The Internet connection appears to be offline."),
             .unpackFailed(component: "pyright", reason: "The archive could not be read."),
             .unsupportedArchitecture(component: "node", architecture: .arm64),
-            .fileSystemFailed(component: "node", reason: "Permission denied."),
+            .fileSystemFailed(component: "node", reason: "Permission denied.")
         ]
         for error in errors {
             let message = error.localizedDescription

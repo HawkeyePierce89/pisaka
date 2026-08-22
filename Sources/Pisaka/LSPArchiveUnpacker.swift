@@ -194,7 +194,7 @@ final class LSPArchiveUnpacker: LSPArchiveUnpacking, @unchecked Sendable {
                 "-z",
                 "-f", "-",
                 "--strip-components=\(stripComponents)",
-                "-C", destination.path,
+                "-C", destination.path
             ],
             archive: archive,
             output: .discarded

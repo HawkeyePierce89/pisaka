@@ -85,7 +85,7 @@ enum TerminalTheme {
         rgb8(7, 0, 254),
         rgb8(229, 0, 229),
         rgb8(0, 229, 229),
-        rgb8(229, 229, 229),
+        rgb8(229, 229, 229)
     ]
 
     /// The light theme's ANSI-16, darkened so every entry clears 4.4:1 against
@@ -108,7 +108,7 @@ enum TerminalTheme {
         rgb8(0x2E, 0x5F, 0xD0),
         rgb8(0xA8, 0x3B, 0xB5),
         rgb8(0x00, 0x80, 0x8F),
-        rgb8(0x1E, 0x1E, 0x1E),
+        rgb8(0x1E, 0x1E, 0x1E)
     ]
 
     /// The palette for an appearance, matched against the two base appearances

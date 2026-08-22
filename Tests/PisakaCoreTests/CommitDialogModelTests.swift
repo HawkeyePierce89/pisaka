@@ -259,12 +259,12 @@ final class CommitDialogModelTests: XCTestCase {
         git.changed = [
             ChangedFile(path: "a.txt", status: .modified),
             ChangedFile(path: "b.txt", status: .modified),
-            ChangedFile(path: "c.txt", status: .modified),
+            ChangedFile(path: "c.txt", status: .modified)
         ]
         git.headBlobs = [
             "a.txt": Data(headText.utf8),
             "b.txt": Data(headText.utf8),
-            "c.txt": Data(headText.utf8),
+            "c.txt": Data(headText.utf8)
         ]
         let files = StubFiles()
         files.contents["/repo/a.txt"] = worktreeText
@@ -301,7 +301,7 @@ final class CommitDialogModelTests: XCTestCase {
         let git = StubGit()
         git.changed = [
             ChangedFile(path: "a.txt", status: .modified),
-            ChangedFile(path: "gone.txt", status: .deleted),
+            ChangedFile(path: "gone.txt", status: .deleted)
         ]
         git.headBlobs = ["a.txt": Data(headText.utf8)]
         let files = StubFiles()
@@ -327,11 +327,11 @@ final class CommitDialogModelTests: XCTestCase {
         let git = StubGit()
         git.changed = [
             ChangedFile(path: "a.txt", status: .modified),
-            ChangedFile(path: "new.txt", status: .renamed, oldPath: "old.txt"),
+            ChangedFile(path: "new.txt", status: .renamed, oldPath: "old.txt")
         ]
         git.headBlobs = [
             "a.txt": Data(headText.utf8),
-            "old.txt": Data(headText.utf8),
+            "old.txt": Data(headText.utf8)
         ]
         let files = StubFiles()
         files.contents["/repo/a.txt"] = worktreeText
@@ -418,12 +418,12 @@ final class CommitDialogModelTests: XCTestCase {
         git.changed = [
             ChangedFile(path: "a.txt", status: .modified),
             ChangedFile(path: "b.txt", status: .modified),
-            ChangedFile(path: "c.txt", status: .modified),
+            ChangedFile(path: "c.txt", status: .modified)
         ]
         git.headBlobs = [
             "a.txt": Data(headText.utf8),
             "b.txt": Data(headText.utf8),
-            "c.txt": Data(headText.utf8),
+            "c.txt": Data(headText.utf8)
         ]
         let files = StubFiles()
         files.contents["/repo/a.txt"] = worktreeText
@@ -452,11 +452,11 @@ final class CommitDialogModelTests: XCTestCase {
         let git = StubGit()
         git.changed = [
             ChangedFile(path: "a.txt", status: .modified),
-            ChangedFile(path: "b.txt", status: .modified),
+            ChangedFile(path: "b.txt", status: .modified)
         ]
         git.headBlobs = [
             "a.txt": Data(headText.utf8),
-            "b.txt": Data(headText.utf8),
+            "b.txt": Data(headText.utf8)
         ]
         let files = StubFiles()
         files.contents["/repo/a.txt"] = worktreeText
@@ -506,13 +506,13 @@ final class CommitDialogModelTests: XCTestCase {
             ChangedFile(path: "a.txt", status: .modified),
             ChangedFile(path: "b.bin", status: .modified),
             ChangedFile(path: "gone.txt", status: .deleted),
-            ChangedFile(path: "crlf.txt", status: .modified),
+            ChangedFile(path: "crlf.txt", status: .modified)
         ]
         git.headBlobs = [
             "a.txt": Data(headText.utf8),
             "b.bin": Data([0x00, 0x01]),
             "gone.txt": Data("bye\n".utf8),
-            "crlf.txt": Data("a\r\nb\r\n".utf8),
+            "crlf.txt": Data("a\r\nb\r\n".utf8)
         ]
         let files = StubFiles()
         files.contents["/repo/a.txt"] = worktreeText
@@ -588,7 +588,7 @@ final class CommitDialogModelTests: XCTestCase {
         let git = StubGit()
         git.changed = [
             ChangedFile(path: "a.txt", status: .modified),
-            ChangedFile(path: "b.txt", status: .modified),
+            ChangedFile(path: "b.txt", status: .modified)
         ]
         git.headBlobs = ["a.txt": Data(headText.utf8), "b.txt": Data("x\n".utf8)]
         let files = StubFiles()
@@ -622,7 +622,7 @@ final class CommitDialogModelTests: XCTestCase {
         let git = StubGit()
         git.changed = [
             ChangedFile(path: "a.txt", status: .modified),
-            ChangedFile(path: "b.txt", status: .modified),
+            ChangedFile(path: "b.txt", status: .modified)
         ]
         git.headBlobs = ["a.txt": Data(headText.utf8), "b.txt": Data("x\n".utf8)]
         let files = StubFiles()
@@ -638,7 +638,7 @@ final class CommitDialogModelTests: XCTestCase {
         files.contents["/repo/b.txt"] = "something else entirely\n"
         git.changed = [
             ChangedFile(path: "a.txt", status: .modified),
-            ChangedFile(path: "b.txt", status: .added),
+            ChangedFile(path: "b.txt", status: .added)
         ]
 
         let outcome = await model.commit()
@@ -1409,7 +1409,7 @@ final class CommitDialogModelTests: XCTestCase {
         let git = StubGit()
         git.changed = [
             ChangedFile(path: "gone.txt", status: .added),
-            ChangedFile(path: "a.txt", status: .modified),
+            ChangedFile(path: "a.txt", status: .modified)
         ]
         git.headBlobs = ["a.txt": Data(headText.utf8)]
         let files = StubFiles()
@@ -1475,7 +1475,7 @@ final class CommitDialogModelTests: XCTestCase {
             ("fileReadNoSuchFile", CocoaError(.fileReadNoSuchFile), .absent),
             ("fileNoSuchFile", CocoaError(.fileNoSuchFile), .absent),
             ("fileReadNoPermission", CocoaError(.fileReadNoPermission), .binary),
-            ("posix", NSError(domain: NSPOSIXErrorDomain, code: 2), .binary),
+            ("posix", NSError(domain: NSPOSIXErrorDomain, code: 2), .binary)
         ]
         for (name, error, expected) in cases {
             let git = StubGit()
@@ -1649,7 +1649,7 @@ final class CommitDialogModelTests: XCTestCase {
         // observable at all.
         git.changedFilesAnswers = [
             [ChangedFile(path: "b.txt", status: .modified)],
-            [ChangedFile(path: "a.txt", status: .modified)],
+            [ChangedFile(path: "a.txt", status: .modified)]
         ]
         let model = makeModel(git: git, files: files)
         // The second load runs to completion *inside* the first one's
@@ -1895,7 +1895,7 @@ final class CommitDialogModelTests: XCTestCase {
         let git = StubGit()
         git.changed = [
             ChangedFile(path: "added.txt", status: .added),
-            ChangedFile(path: "new.txt", status: .untracked),
+            ChangedFile(path: "new.txt", status: .untracked)
         ]
         let files = StubFiles()
         files.contents["/repo/added.txt"] = "one\n"
@@ -1976,7 +1976,7 @@ final class CommitDialogModelTests: XCTestCase {
 
         git.changedFilesAnswers = [[
             ChangedFile(path: "a.txt", status: .modified),
-            ChangedFile(path: "c.txt", status: .conflicted),
+            ChangedFile(path: "c.txt", status: .conflicted)
         ]]
         files.contents["/repo/c.txt"] = "mine\n"
 
@@ -2015,7 +2015,7 @@ final class CommitDialogModelTests: XCTestCase {
         for mutate in [
             ("toggleUnit", { (m: CommitDialogModel) in m.toggleUnit(1, path: "a.txt") }),
             ("setAmend", { (m: CommitDialogModel) in m.setAmend(true) }),
-            ("toggleFile", { (m: CommitDialogModel) in m.toggleFile(path: "a.txt") }),
+            ("toggleFile", { (m: CommitDialogModel) in m.toggleFile(path: "a.txt") })
         ] {
             let (git, files) = makeTextRepo()
             git.commitError = GitError.commitFailed(reason: "pre-commit hook refused")

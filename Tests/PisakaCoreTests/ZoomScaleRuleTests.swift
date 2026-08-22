@@ -7,7 +7,7 @@ final class ZoomScaleRuleTests: XCTestCase {
     private let allRules: [(name: String, rule: ZoomScaleRule)] = [
         ("editorFont", .editorFont),
         ("terminalFont", .terminalFont),
-        ("interfaceScale", .interfaceScale),
+        ("interfaceScale", .interfaceScale)
     ]
 
     // MARK: - The shipped numbers

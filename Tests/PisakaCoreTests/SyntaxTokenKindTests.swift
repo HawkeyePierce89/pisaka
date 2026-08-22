@@ -18,7 +18,7 @@ final class SyntaxTokenKindTests: XCTestCase {
             "punctuation": .punctuation,
             "property": .property,
             "parameter": .parameter,
-            "label": .label,
+            "label": .label
         ]
 
         for (name, kind) in expected {
@@ -106,7 +106,7 @@ final class SyntaxTokenKindTests: XCTestCase {
             "comment": .comment,                 // `# …`
             "punctuation.special": .punctuation, // image tag/digest separators, `${…}`
             "string": .string,                   // quoted strings, JSON strings, heredoc lines
-            "constant": .constant,               // SCREAMING_CASE variables
+            "constant": .constant               // SCREAMING_CASE variables
         ]
 
         for (name, kind) in emitted {
@@ -140,7 +140,7 @@ final class SyntaxTokenKindTests: XCTestCase {
             "escape": .string,             // `\n`, `\t`, `\uXXXX` inside a string
             "number": .number,             // int/float/imaginary literals
             "operator": .operator,         // `:=`, `<-`, arithmetic, …
-            "comment": .comment,           // `//` and `/* … */`
+            "comment": .comment           // `//` and `/* … */`
         ]
 
         for (name, kind) in emitted {
@@ -184,7 +184,7 @@ final class SyntaxTokenKindTests: XCTestCase {
             "type": .type,                      // type identifiers
             "type.builtin": .type,              // i32, u8, str, bool, …
             "variable.builtin": .variable,      // `self`, `Self`
-            "variable.parameter": .parameter,   // function parameters
+            "variable.parameter": .parameter   // function parameters
         ]
 
         XCTAssertEqual(emitted.count, 21, "the pinned Rust capture vocabulary is 21 names")
@@ -204,7 +204,6 @@ final class SyntaxTokenKindTests: XCTestCase {
         // the table can't quietly give it a color.
         XCTAssertEqual(SyntaxTokenKind(captureName: "none"), .plain)
     }
-
 
     func testBooleanAndConstructorResolve() {
         XCTAssertEqual(SyntaxTokenKind(captureName: "boolean"), .constant)

@@ -202,7 +202,7 @@ final class SymbolIndexTests: XCTestCase {
             fileURL: url(file),
             symbols: [
                 symbol("Widget", kind: .type, at: 0, in: file),
-                symbol("widget", kind: .variable, at: 20, in: file),
+                symbol("widget", kind: .variable, at: 20, in: file)
             ]
         )
 
@@ -236,7 +236,7 @@ final class SymbolIndexTests: XCTestCase {
             symbols: [
                 symbol("runLoop", in: file),
                 symbol("rerun", at: 20, in: file),
-                symbol("prerun", at: 40, in: file),
+                symbol("prerun", at: 40, in: file)
             ]
         )
         // `runLoop` by prefix, `rerun` as a subsequence anchored on its own `r`;
@@ -409,14 +409,14 @@ final class SymbolIndexTests: XCTestCase {
                 symbol("timeout", kind: .constant, at: 30, in: a, container: "Worker"),
                 symbol("freeFunction", kind: .function, at: 40, in: a),
                 symbol("looseConstant", kind: .constant, at: 50, in: a),
-                symbol("emptyContainer", kind: .property, at: 60, in: a, container: ""),
+                symbol("emptyContainer", kind: .property, at: 60, in: a, container: "")
             ]
         )
         index.replace(
             fileURL: url(b),
             symbols: [
                 symbol("worker", kind: .function, at: 0, in: b),
-                symbol("retries", kind: .property, at: 10, in: b, container: "Client"),
+                symbol("retries", kind: .property, at: 10, in: b, container: "Client")
             ]
         )
         return index

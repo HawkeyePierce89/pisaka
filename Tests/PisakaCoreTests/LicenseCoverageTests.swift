@@ -114,7 +114,7 @@ final class LicenseCoverageTests: XCTestCase {
         "LGPL-2.1-or-later",
         "MIT",
         "Unicode-DFS-2016",
-        "Zlib",
+        "Zlib"
     ]
 
     /// SPDX *exception* ids (the right operand of `WITH`) this manifest uses —
@@ -360,7 +360,7 @@ final class LicenseCoverageTests: XCTestCase {
         "tree-sitter-yaml": "Copyright (c) 2024 tree-sitter-grammars contributors",
         "TreeSitterDotenv": "Copyright (c) 2024 Henrik Hautakoski",
         "TreeSitterGitignore": "Copyright (c) 2022 shunsambongi",
-        "TreeSitterSql": "Copyright (c) 2021 Derek Stride",
+        "TreeSitterSql": "Copyright (c) 2021 Derek Stride"
     ]
 
     /// Every shipped text actually names the dependency it is filed under.

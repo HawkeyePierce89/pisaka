@@ -7,7 +7,7 @@ final class MergeDocumentTests: XCTestCase {
         let regions: [MergeRegion] = [
             .stable(["a"]),
             .conflict(ConflictHunk(base: ["b"], ours: ["X"], theirs: ["Y"])),
-            .stable(["c"]),
+            .stable(["c"])
         ]
         return MergeDocument(regions: regions, trailingNewline: trailingNewline)
     }
@@ -99,7 +99,7 @@ final class MergeDocumentTests: XCTestCase {
             .conflict(ConflictHunk(base: ["b1"], ours: ["O1"], theirs: ["T1"])),
             .stable(["mid"]),
             .conflict(ConflictHunk(base: ["b2"], ours: ["O2"], theirs: ["T2"])),
-            .stable(["end"]),
+            .stable(["end"])
         ]
         var doc = MergeDocument(regions: regions)
         XCTAssertEqual(doc.conflictCount, 2)
@@ -120,7 +120,7 @@ final class MergeDocumentTests: XCTestCase {
     func testAddAddConflictBothSidesContribute() {
         // Empty base; both sides added different content.
         let doc0 = MergeDocument(regions: [
-            .conflict(ConflictHunk(base: [], ours: ["O"], theirs: ["T"])),
+            .conflict(ConflictHunk(base: [], ours: ["O"], theirs: ["T"]))
         ])
         var doc = doc0
         doc.setResolution(.bothOursFirst, at: 0)
@@ -132,7 +132,7 @@ final class MergeDocumentTests: XCTestCase {
         var doc = MergeDocument(regions: [
             .stable(["a"]),
             .conflict(ConflictHunk(base: ["b"], ours: ["B"], theirs: [])),
-            .stable(["c"]),
+            .stable(["c"])
         ])
         doc.setResolution(.theirs, at: 0) // accept the deletion
         XCTAssertEqual(doc.resolvedText, "a\nc\n")

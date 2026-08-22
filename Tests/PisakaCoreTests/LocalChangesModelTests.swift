@@ -738,7 +738,7 @@ final class LocalChangesModelTests: XCTestCase {
         XCTAssertEqual(git.revertedFiles, [a, b])
         XCTAssertEqual(urls, [
             root.appendingPathComponent("a.swift"),
-            root.appendingPathComponent("src/b.swift"),
+            root.appendingPathComponent("src/b.swift")
         ])
         XCTAssertTrue(model.changedFiles.isEmpty)
         XCTAssertTrue(model.revertSelection.isEmpty)
@@ -847,7 +847,7 @@ final class LocalChangesModelTests: XCTestCase {
 
         XCTAssertEqual(urls, [
             root.appendingPathComponent("new/name.swift"),
-            root.appendingPathComponent("old/name.swift"),
+            root.appendingPathComponent("old/name.swift")
         ])
     }
 
@@ -912,7 +912,7 @@ final class LocalChangesModelTests: XCTestCase {
         // path — accumulated across the success and the partial-failure branches.
         XCTAssertEqual(urls, [
             root.appendingPathComponent("a.swift"),
-            root.appendingPathComponent("old/name.swift"),
+            root.appendingPathComponent("old/name.swift")
         ])
         XCTAssertNotNil(model.errorMessage)
         // The cleanly reverted file is dropped from the checked set; the failing
@@ -1541,7 +1541,7 @@ final class LocalChangesModelTests: XCTestCase {
             LocalChangesModel.revertedURLs(for: file, root: root),
             [
                 root.appendingPathComponent("new/name.swift"),
-                root.appendingPathComponent("old/name.swift"),
+                root.appendingPathComponent("old/name.swift")
             ]
         )
     }

@@ -103,6 +103,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `ProjectFileWalk.swift` — the one project traversal (shared with Find in Files).
 - `SymbolIndexModel.swift` — the async index lifecycle; a reader, never a writer.
 - `IdentifierScanner.swift` — the one identifier-boundary rule (incl. `isIdentifier(_:)`, the whole-string form).
+- `CompletionPopup.swift` — selection state machine and row values.
 - `LanguageKeywords.swift` — per-language keyword lists (+ the stated no-keyword set).
 - `CodeIntelligence.swift` — the async `CodeIntelligenceProviding` seam + value types.
 - `SymbolIntelligenceProvider.swift` — index-backed provider; every ranking rule + the completion-candidate rule.
@@ -281,7 +282,8 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `CodeEditorView.swift` — the `NSTextView` wrapper; the weak-capture retain-cycle rule.
 - `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift` — find/replace bar state, execution, UI.
 - `EditorRevealState.swift` — one-shot reveal request.
-- `CompletionController.swift` — debounced candidate precompute for AppKit's synchronous delegate; applies LSP auto-import edits.
+- `CompletionPanel.swift` — custom borderless completion panel, pointer-reachable.
+- `CompletionController.swift` — debounced candidate precompute for the completion panel; applies LSP auto-import edits.
 - `HoverController.swift` — the pointer's dwell, one generation token, the whole dismissal set.
 - `HoverPanel.swift` — the pass-through popover: `ignoresMouseEvents`, two fonts, truncation marker.
 - `DefinitionPicker.swift` — the multi-candidate `NSMenu`.
@@ -384,7 +386,7 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
   `InterfaceMetrics` through `\.interfaceMetrics`, never inline and never on a
   code-font site. `ZoomSourceGatingTests` pins both sets (`core-zoom.md`).
 - **A completion candidate is one identifier-shaped token.** The symbol source of
-  both completion paths is filtered by `SymbolIntelligenceProvider
+  both completion surfaces (the custom macOS panel and the iOS strip) is filtered by `SymbolIntelligenceProvider
   .isCompletionCandidate(_:)`: `.heading` is excluded by name (a Markdown heading
   is a jump target, never a thing anyone types), and every candidate's name must
   satisfy `IdentifierScanner.isIdentifier(_:)` — the same boundary rule that

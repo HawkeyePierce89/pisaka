@@ -299,8 +299,8 @@ public struct CompletionItem: Equatable, Hashable, Sendable {
     /// coordinates — the primary replacement plus any auto-import (D4).
     ///
     /// Empty for a tree-sitter item, which is *only* `text` replacing the typed
-    /// prefix and so is inserted by AppKit's own machinery. A non-empty list is
-    /// the editor's signal to apply the item itself, through
+    /// prefix and so is inserted by the editor's simple insertion path. A
+    /// non-empty list is the editor's signal to apply the item itself, through
     /// `CompletionEditPlan`, in one undo group.
     public let edits: [CompletionEdit]
     /// An opaque token identifying an item the server deferred to
@@ -318,15 +318,15 @@ public struct CompletionItem: Equatable, Hashable, Sendable {
     /// enforces, which is what computes it: it may differ from `text` **only by
     /// dropping a head that re-writes, verbatim, characters already standing in
     /// the buffer** between the primary edit's start and the typed word's start.
-    /// The shown string is not only shown — AppKit previews it over the typed
-    /// word as the user arrows, and inserts it there itself when
-    /// `CompletionEditPlan.make` rejects the plan as stale — so whenever the
-    /// rule *drops* a head those two compose exactly the buffer the plan would
-    /// have, and under any looser rule they would corrupt it. An optional
-    /// receiver's `?.greet` therefore keeps its full spelling. The converse is
-    /// not promised: a string the rule keeps is inserted verbatim over the typed
-    /// word and need not compose the plan's buffer at all — the fallback path's
-    /// own limit, stated in full on the method that computes this.
+    /// The shown string is not only shown — the editor inserts it over the typed
+    /// word whenever `CompletionEditPlan.make` rejects the plan as stale — so
+    /// whenever the rule *drops* a head those two compose exactly the buffer the
+    /// plan would have, and under any looser rule they would corrupt it. An
+    /// optional receiver's `?.greet` therefore keeps its full spelling. The
+    /// converse is not promised: a string the rule keeps is inserted verbatim
+    /// over the typed word and need not compose the plan's buffer at all — the
+    /// fallback path's own limit, stated in full on the method that computes
+    /// this.
     ///
     /// The LSP `label` is never this string: `greet(name: String)` written into
     /// the buffer by the fallback path is not a completion, it is damage.

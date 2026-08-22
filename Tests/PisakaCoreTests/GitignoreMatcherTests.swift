@@ -455,7 +455,7 @@ final class GitignoreMatcherTests: XCTestCase {
         ("!keep.log\n*.log", "keep.log", true),
         ("logs/\n!logs/keep.log", "logs/keep.log", true),
         ("foo/*\n!foo/bar", "foo/bar", false),
-        ("**", "a/b", true),
+        ("**", "a/b", true)
     ]
 
     func testMatcherAgreesWithGitCheckIgnoreOracle() {

@@ -1345,9 +1345,4 @@ private struct JSONObjectReader {
         }
         return array
     }
-
-    init(value: [String: Any], path: String) {
-        self.value = value
-        self.path = path
-    }
 }

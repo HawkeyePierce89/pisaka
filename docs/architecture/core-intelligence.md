@@ -563,12 +563,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     caret sits just past its last character (`Worker|`), and ⌃⌘J must resolve that
     word rather than nothing, while a click, which lands *on* a character, is
     answered by the first. `completionPrefixRange(in:at:)` takes the **left side
-    only**, because completion replaces what has been typed and leaves the rest of
-    the line alone: `foo.bar|` completes `bar` and `$FOO|` completes `FOO`. That is
-    exactly what `NSTextView.rangeForUserCompletion` must report, and returning the
-    whole dotted expression there is the classic reason a popup offers nothing. It
-    returns an **empty range at the caret**, never `nil`, so callers can hand it to
-    AppKit unconditionally.
+    only**, because Enter's completion replaces what has been typed and leaves the rest of
+    the line alone: `foo.bar|` completes `bar` and `$FOO|` completes `FOO`.
+    `completionReplaceRange(in:at:)` is Tab's commit range: it takes the whole identifier the caret sits in, extending `completionPrefixRange`'s answer forward over identifier-continuation scalars. It never crosses a `.` (the forward walk stops at any non-continuation scalar), so a member completion replaces only the member. When there is no suffix, the two ranges are identical. Both return an **empty range at the caret**, never `nil`, so callers can hand them on unconditionally.
     `memberContext(in:at:)` answers the fourth question — is this caret in a
     *member position*, and if so what does the completion replace and what does
     the dot hang off — and it **extends the one boundary rule rather than
@@ -857,6 +854,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     already right; outside it, the answer stops being about anything. The content
     arrives **uncapped**, because truncation is a display fact and only the
     renderer knows the cap applies to it.
+  - `CompletionPopup.swift` — three pure value types and one builder for the editor's custom completion popup: `CompletionPopupSelection` (tracks the count and selected index, clamping at both ends, with row 0 preselected), `CompletionRowSource` (symbol, keyword, or word), `CompletionBadge` (SF Symbol name + color), and the `CompletionRow.rows(for:language:)` builder. This file only models the presentation and maps existing sources to badges; it ranks nothing and filters nothing, preserving the provider's order exactly.
   - `SymbolIntelligenceProvider.swift` — the index-backed
     `CodeIntelligenceProviding` implementation and the home of **every ranking
     rule**, all of it `static` and pure over an index value, with the instance

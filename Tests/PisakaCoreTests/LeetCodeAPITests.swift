@@ -556,7 +556,7 @@ final class LeetCodeAPITests: XCTestCase {
     func testAnImplausibleRetryAfterHeaderIsRefusedRatherThanNamed() throws {
         let implausible = [
             "inf", "-inf", "infinity", "nan", "1e400", "99999999999999999999",
-            "7200", "0", "-30", "soon", "",
+            "7200", "0", "-30", "soon", ""
         ]
         for raw in implausible {
             let throttled = try response(

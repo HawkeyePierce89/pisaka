@@ -536,7 +536,7 @@ public final class LeetCodeCatalog {
 
     /// Start the one in-flight disk read and register it for coalescing.
     private func startDiskLoad() -> Task<Void, Never> {
-        let task = Task { @MainActor [self] () async -> Void in
+        let task = Task { @MainActor [self] () async in
             defer {
                 hasConsultedDisk = true
                 diskLoadTask = nil

@@ -533,8 +533,7 @@ public final class LSPProvisioningModel: ObservableObject {
         if engine.state(of: server.serverComponentID) == .installing { return .installing }
         if
             engine.isInstalled(server),
-            let version = engine.manifest.component(server.serverComponentID)?.version
-        {
+            let version = engine.manifest.component(server.serverComponentID)?.version {
             return .installed(version: version)
         }
         return .absent

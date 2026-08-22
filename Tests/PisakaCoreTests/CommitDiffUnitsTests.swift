@@ -87,7 +87,7 @@ final class CommitDiffUnitsTests: XCTestCase {
 
     func testWholeOnlyReasonsCarryDistinctHumanText() {
         let reasons: [WholeOnlyReason] = [
-            .deleted, .binaryInHead, .binaryInWorktree, .noSelectableChanges,
+            .deleted, .binaryInHead, .binaryInWorktree, .noSelectableChanges
         ]
         let messages = reasons.map(\.message)
         XCTAssertEqual(Set(messages).count, reasons.count)
@@ -186,7 +186,7 @@ final class CommitDiffUnitsTests: XCTestCase {
             DiffRow(kind: .modified, left: DiffLine(number: 2, text: "b"), right: DiffLine(number: 2, text: "B")),
             DiffRow(kind: .removed, left: DiffLine(number: 3, text: "c"), right: nil),
             DiffRow(kind: .added, left: nil, right: DiffLine(number: 3, text: "d")),
-            DiffRow(kind: .unchanged, left: DiffLine(number: 4, text: "e"), right: DiffLine(number: 4, text: "e")),
+            DiffRow(kind: .unchanged, left: DiffLine(number: 4, text: "e"), right: DiffLine(number: 4, text: "e"))
         ]
         XCTAssertEqual(CommitDiffUnits.selectableUnits(rows: rows), [1, 2, 3])
     }
@@ -215,28 +215,28 @@ final class CommitDiffUnitsTests: XCTestCase {
         let rows = [
             DiffRow(kind: .unchanged, left: DiffLine(number: 1, text: "a"), right: DiffLine(number: 1, text: "a")),
             DiffRow(kind: .removed, left: DiffLine(number: 2, text: "b"), right: nil),
-            DiffRow(kind: .added, left: nil, right: DiffLine(number: 2, text: "c")),
+            DiffRow(kind: .added, left: nil, right: DiffLine(number: 2, text: "c"))
         ]
         XCTAssertEqual(
             CommitDiffUnits.unified(rows: rows),
             [
                 UnifiedDiffLine(kind: .context, text: "a", oldNumber: 1, newNumber: 1, unitIndex: nil),
                 UnifiedDiffLine(kind: .removed, text: "b", oldNumber: 2, newNumber: nil, unitIndex: 1),
-                UnifiedDiffLine(kind: .added, text: "c", oldNumber: nil, newNumber: 2, unitIndex: 2),
+                UnifiedDiffLine(kind: .added, text: "c", oldNumber: nil, newNumber: 2, unitIndex: 2)
             ]
         )
     }
 
     func testModifiedRowExpandsIntoAPairSharingOneUnitIndex() {
         let rows = [
-            DiffRow(kind: .modified, left: DiffLine(number: 7, text: "old"), right: DiffLine(number: 9, text: "new")),
+            DiffRow(kind: .modified, left: DiffLine(number: 7, text: "old"), right: DiffLine(number: 9, text: "new"))
         ]
         let unified = CommitDiffUnits.unified(rows: rows)
         XCTAssertEqual(
             unified,
             [
                 UnifiedDiffLine(kind: .removed, text: "old", oldNumber: 7, newNumber: nil, unitIndex: 0),
-                UnifiedDiffLine(kind: .added, text: "new", oldNumber: nil, newNumber: 9, unitIndex: 0),
+                UnifiedDiffLine(kind: .added, text: "new", oldNumber: nil, newNumber: 9, unitIndex: 0)
             ]
         )
         XCTAssertEqual(Set(unified.compactMap(\.unitIndex)).count, 1)
@@ -279,7 +279,7 @@ final class CommitDiffUnitsTests: XCTestCase {
             DiffRow(kind: .unchanged, left: nil, right: line),
             DiffRow(kind: .removed, left: nil, right: nil),
             DiffRow(kind: .added, left: nil, right: nil),
-            DiffRow(kind: .modified, left: nil, right: nil),
+            DiffRow(kind: .modified, left: nil, right: nil)
         ]
         XCTAssertEqual(CommitDiffUnits.unified(rows: malformed), [])
 
@@ -292,7 +292,7 @@ final class CommitDiffUnitsTests: XCTestCase {
 
         let mixed: [DiffRow] = [
             DiffRow(kind: .removed, left: nil, right: nil),
-            DiffRow(kind: .added, left: nil, right: line),
+            DiffRow(kind: .added, left: nil, right: line)
         ]
         let unified = CommitDiffUnits.unified(rows: mixed)
         XCTAssertEqual(unified.map(\.kind), [.added])

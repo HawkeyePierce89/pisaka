@@ -192,7 +192,7 @@ final class LeetCodeSolutionFileTests: XCTestCase {
             "0001-two sum.swift", // not a slug
             "0001.swift",         // no hyphen
             "README.md",
-            "",
+            ""
         ] {
             XCTAssertNil(LeetCodeSolutionFile.problemNumber(fromFileName: name), name)
             XCTAssertNil(LeetCodeSolutionFile.slug(fromFileName: name), name)

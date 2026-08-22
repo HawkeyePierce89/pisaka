@@ -78,7 +78,7 @@ public enum LanguageKeywords {
     ///   spelling aid; doing it properly is a structural completion of its own
     ///   and belongs to whatever phase takes on typed context.
     public static let languagesWithoutKeywords: Set<SyntaxLanguage> = [
-        .json, .markdown, .html, .css, .yaml, .dotenv, .gitignore,
+        .json, .markdown, .html, .css, .yaml, .dotenv, .gitignore
     ]
 
     // MARK: - The lists
@@ -105,7 +105,7 @@ public enum LanguageKeywords {
         "throw", "throws", "true", "try", "typealias",
         "unowned",
         "var",
-        "weak", "where", "while", "willSet",
+        "weak", "where", "while", "willSet"
     ]
 
     /// JavaScript: the reserved words, the module-syntax contextual ones
@@ -128,7 +128,7 @@ public enum LanguageKeywords {
         "undefined",
         "var", "void",
         "while", "with",
-        "yield",
+        "yield"
     ]
 
     /// TypeScript is JavaScript plus a type-level vocabulary, so it is composed
@@ -153,7 +153,7 @@ public enum LanguageKeywords {
         "readonly",
         "satisfies", "string", "symbol",
         "type",
-        "unique", "unknown",
+        "unique", "unknown"
     ]
 
     /// Python: the reserved words (`keyword.kwlist`) plus the soft keywords
@@ -176,7 +176,7 @@ public enum LanguageKeywords {
         "raise", "return",
         "try", "type",
         "while", "with",
-        "yield",
+        "yield"
     ]
 
     /// Dockerfile: the instruction set, uppercase as it is written. `MAINTAINER`
@@ -185,7 +185,7 @@ public enum LanguageKeywords {
     private static let dockerfile: [String] = [
         "ADD", "ARG", "CMD", "COPY", "ENTRYPOINT", "ENV", "EXPOSE", "FROM",
         "HEALTHCHECK", "LABEL", "MAINTAINER", "ONBUILD", "RUN", "SHELL",
-        "STOPSIGNAL", "USER", "VOLUME", "WORKDIR",
+        "STOPSIGNAL", "USER", "VOLUME", "WORKDIR"
     ]
 
     /// Go: the 25 reserved words **plus the whole universe block** — its 22
@@ -225,7 +225,7 @@ public enum LanguageKeywords {
         "select", "string", "struct", "switch",
         "true", "type",
         "uint", "uint16", "uint32", "uint64", "uint8", "uintptr",
-        "var",
+        "var"
     ]
 
     /// Rust: the **38 strict keywords** of the 2021 edition, the **17 primitive
@@ -276,7 +276,7 @@ public enum LanguageKeywords {
         "self", "static", "str", "struct", "super",
         "trait", "true", "type",
         "u128", "u16", "u32", "u64", "u8", "union", "unsafe", "use", "usize",
-        "where", "while",
+        "where", "while"
     ]
 
     /// SQL: drawn from the grammar's 356 `keyword_*` node types, filtered by "no source
@@ -329,7 +329,7 @@ public enum LanguageKeywords {
         "UPDATE", "USE", "USER", "USING", "UUID", "VACUUM", "VALID", "VALUE", "VALUES",
         "VARBINARY", "VARCHAR", "VARIADIC", "VARYING", "VERBOSE", "VERSION", "VIEW",
         "VIRTUAL", "WAIT", "WHEN", "WHERE", "WINDOW", "WITH", "WITHOUT", "WRITE",
-        "XML", "ZONE",
+        "XML", "ZONE"
     ]
 
 }

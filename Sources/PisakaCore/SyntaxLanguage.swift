@@ -117,13 +117,13 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
         "yml": .yaml,
         "yaml": .yaml,
         "dockerfile": .dockerfile,
-        "sql": .sql,
+        "sql": .sql
     ]
 
     /// Lowercased whole file name → language, for the extensionless names.
     private static let exactFileNameMap: [String: SyntaxLanguage] = [
         "dockerfile": .dockerfile,
-        ".env": .dotenv,
+        ".env": .dotenv
     ]
 
     /// Lowercased file-name prefix → language, for the variant-suffixed forms.
@@ -131,7 +131,7 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
     /// and `.environment` are not matched.
     private static let fileNamePrefixMap: [(String, SyntaxLanguage)] = [
         ("dockerfile.", .dockerfile),
-        (".env.", .dotenv),
+        (".env.", .dotenv)
     ]
 
     /// The trailing token of the dot-ignore shape rule.

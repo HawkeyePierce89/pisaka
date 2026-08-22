@@ -231,7 +231,7 @@ items, and applies the three scales to views.
     `SourceViewerTextView`), by `CodeScrollView` — the scroll view each of those
     four is the document of — by the three views that draw **beside** a text view
     rather than inside it — `LineNumberRulerView` (the editor's gutter *and* its
-    blame column), `DiffGutterView` and `MinimapView` — by SwiftTerm's
+    blame column), `DiffGutterView` and `MinimapView` — by the custom completion popup's content view (`CompletionPanel.swift`) — by SwiftTerm's
     `TerminalView` — declared as an
     extension on the dependency's own class because that is the view the pointer
     is over, with `TerminalView` rather than `LocalProcessTerminalView` since the
@@ -261,6 +261,7 @@ items, and applies the three scales to views.
     has no zone of its own to declare. `ZoomSourceGatingTests` pins both halves,
     since either one deleted alone leaves a panel that still compiles, still draws
     identically, and still passes the surface-set check above.
+    The completion panel (`CompletionPanel.swift`) explicitly does **not** claim this exemption: it accepts clicks (to commit a row) and so must declare its `.code` surface to avoid being classified as interface.
 
     **The empty-region rule is its twin, and cost `CodeScrollView`.** A
     conformance answers only for the area the view actually *covers*, and all
@@ -485,6 +486,7 @@ pass while the code it describes was deleted) and asserts:
     compiles, draws identically and stays out of the surface set — it simply
     becomes a hit-test obstacle between the pointer and the code, which is the
     whole of what makes it chrome (D26).
+    The completion panel explicitly refuses this exemption (it accepts clicks) and declares `.code`.
   - **Every code pane scrolls inside a `CodeScrollView`**, and no file outside
     the four builds one — the empty-region rule, which the check above cannot
     see: all four files stay in the surface set even while their panes' blank

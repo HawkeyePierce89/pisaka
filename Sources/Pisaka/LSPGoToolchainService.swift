@@ -54,7 +54,7 @@ final class LSPGoToolchainService: LSPGoToolchainDiscovering, LSPGoModuleInstall
     private static let wellKnownGoDirectories = [
         "/usr/local/go/bin",
         "/opt/homebrew/bin",
-        "/usr/local/bin",
+        "/usr/local/bin"
     ]
 
     /// How long the login shell gets to print its `PATH` before it is killed.

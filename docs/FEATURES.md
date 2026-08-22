@@ -239,9 +239,9 @@ user sees it.
   `Container.name — path/to/file.swift:42`, with the current file's first. A name
   nothing declares just beeps. Cmd+drag still selects text, and Cmd+Shift+click /
   Cmd+Option+click keep their usual meaning.
-- Autocompletion: as you type an identifier (from the second character), a popup
+- Autocompletion: as you type an identifier (from the second character), a custom popup
   offers the project's declarations, the keywords of the language you are typing
-  in, and the words already in the buffer. Only the declarations you could
+  in, and the words already in the buffer. The first row is preselected on open. Pressing **Enter** commits the selection by inserting the text; pressing **Tab** commits by replacing the whole identifier under the caret. You can use **Up/Down** arrows to navigate (clamped, no wrap-around), **Esc** to dismiss without inserting, or click on a row to commit it. Each row includes an icon badge indicating its kind (symbol, keyword, or word). Only the declarations you could
   actually type are offered: a Markdown heading is never one (it is a place to
   jump to, not a word you write), and neither is any indexed name that is not a
   single word — `Getting started`, `run(_:)`, a hyphenated CSS class like

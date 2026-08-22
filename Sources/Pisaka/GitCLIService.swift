@@ -986,7 +986,7 @@ struct GitCLIService: GitServicing {
         // terminal. It is inherited by the hooks and by any git they shell out to.
         let environment = [
             "GIT_INDEX_FILE": scratch.appendingPathComponent("index").path,
-            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_TERMINAL_PROMPT": "0"
         ]
 
         // Seed the throw-away index from what is already committed. An unborn HEAD
@@ -1302,7 +1302,7 @@ struct GitCLIService: GitServicing {
         "GIT_AUTHOR_EMAIL",
         "GIT_COMMITTER_NAME",
         "GIT_COMMITTER_EMAIL",
-        "EMAIL",
+        "EMAIL"
     ]
 
     /// Launch `git` with `arguments` in `directory`, capturing stdout/stderr.

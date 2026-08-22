@@ -1591,10 +1591,10 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                     "newText": "import Core\n",
                     "range": [
                         "start": ["line": 1, "character": 0],
-                        "end": ["line": 1, "character": 0],
-                    ],
+                        "end": ["line": 1, "character": 0]
+                    ]
                 ]
-            ],
+            ]
         ]
         transport.script(LSPMethod.resolveCompletionItem, .reply(lean))
         let provider = makeProvider()

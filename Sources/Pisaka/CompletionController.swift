@@ -1,27 +1,22 @@
+// swiftlint:disable file_length
 #if os(macOS)
 import AppKit
 import PisakaCore
 
-/// Feeds AppKit's built-in completion popup from the asynchronous code
-/// intelligence seam.
+/// Feeds the custom `CompletionPanel` from the asynchronous code intelligence seam.
 ///
-/// **The whole problem this class exists to solve** is a mismatch of shapes.
-/// `NSTextViewDelegate.textView(_:completions:forPartialWordRange:indexOfSelectedItem:)`
-/// is *synchronous* — AppKit asks for the list while it is already putting the
-/// popup on screen — while `CodeIntelligenceProviding` is *asynchronous*, because
-/// a phase-2 LSP provider has to await a socket. So the work is inverted: this
-/// controller computes candidates ahead of time behind a debounce, stores them
-/// together with the prefix they were computed for, and only then asks the text
-/// view to `complete(nil)`. The delegate call that follows is served from that
-/// snapshot and touches nothing asynchronous. Nothing about the seam is
-/// compromised — the provider is still awaited, just one turn earlier than AppKit
-/// would like.
+/// **The whole problem this class exists to solve** is bridging the gap between
+/// fast typing and asynchronous language servers. `CodeIntelligenceProviding` is
+/// *asynchronous* because a phase-2 LSP provider has to await a socket, while
+/// keystrokes happen synchronously on the main thread. This controller computes
+/// candidates ahead of time behind a debounce, stores them together with the
+/// prefix they were computed for, and shows a custom `CompletionPanel` when ready.
 ///
 /// Everything the popup shows is decided in `PisakaCore`:
-/// `IdentifierScanner.completionPrefixRange(in:at:)` says what is being typed and
-/// `SymbolIntelligenceProvider` ranks and caps the answers. This class only
-/// decides *when* to ask and *whether the answer is still current*, so — like the
-/// rest of `Sources/Pisaka` — it is thin, untested view-layer glue.
+/// `IdentifierScanner` says what is being typed and `SymbolIntelligenceProvider`
+/// ranks and caps the answers. `CompletionPopup` manages selection state and rows.
+/// This class only decides *when* to ask, *whether the answer is still current*,
+/// and drives the panel UI.
 ///
 /// **Debounce and generation token** follow the `BracketHighlightController`
 /// idiom: a cancellable `Task.sleep` coalesces a burst of keystrokes into one
@@ -31,46 +26,30 @@ import PisakaCore
 /// 400 ms: this asks a question of a snapshot already in memory, so the cost is
 /// a prefix scan and a sort, not a re-parse.
 ///
-/// **The list is strings; the answers are items.** AppKit's popup shows strings
-/// and hands one back when a row is committed, but an LSP answer is more than
-/// its text — it may carry the `import` line that makes the symbol resolve (D4).
-/// The snapshot therefore keeps whole `CompletionItem`s keyed by that string, so
-/// `insert(_:forPartialWordRange:isFinal:in:)` can find the item behind it and
-/// apply its edits itself. Everything about *which* edits and in what order is
-/// `CompletionEditPlan`'s; this class only supplies the live buffer, the undo
-/// group and the text view.
+/// **Two commit modes.** A commit can either `.insert` (Enter) which replaces only
+/// the typed prefix, or `.replace` (Tab) which consumes the trailing suffix of the
+/// identifier as well. `IdentifierScanner` provides both ranges.
 ///
-/// That string is the item's **display** spelling (`CompletionItem.displayText`),
-/// not the text it inserts, and it is the key in all three tables — the
-/// snapshot, the prefetched `resolved` edits and `resolveTasks` — because AppKit
-/// hands a committed row back *by string* and there has to be one key that all
-/// of them answer to. The two spellings differ only for a member item whose
-/// server rewrote the typed dot: tsserver answers `greeter.` with a `textEdit`
-/// covering the `.`, so the row inserts `.greet` and reads `greet`.
+    /// **Staleness guards and dismissal.** The controller maintains a strict dismissal
+    /// set to tear down the popup if the context changes: losing first responder,
+    /// clicking outside, scrolling, moving the caret out of the word, or typing a
+    /// space. A commit answers to the snapshot's word *start*, not its exact
+    /// text — `update` keeps the previous list serving while a fresh answer
+    /// debounces, so the live word may have grown or shrunk under the open panel,
+    /// and every commit range is derived from whatever stands there now (see
+    /// `commit(_:)`).
 ///
-/// Showing something other than what is inserted is safe here only because of
-/// the rule Core enforces when it computes the display string
-/// (`CompletionEdit.displayText(forTypedWordStartingAt:in:)`): it may drop
-/// **only** a head that re-writes, verbatim, characters already standing in the
-/// buffer. This class writes that string into the buffer twice — as AppKit's
-/// arrow-key preview, and through `super` whenever `CompletionEditPlan.make`
-/// rejects the plan as stale. The rule's guarantee is **one-directional**, and
-/// that is what it is for: whenever a head *is* dropped, those two writes
-/// compose exactly the buffer the plan would have (`greeter.` + `greet`), for
-/// edits that end where the typed word ends — which is every shape this exists
-/// for. Under a looser rule they would corrupt it, so the rule is not a
-/// formatting nicety to be simplified away: an optional receiver's `?.greet`
-/// covers the same range but rewrites a `?` that is *not* there, and displaying
-/// the LSP `label` instead — `greet(name: String)` — would have the fallback
-/// path insert that.
+/// **Display strings as keys.** The snapshot keeps whole `CompletionItem`s keyed
+/// by `CompletionItem.displayText`. This string is the key in all three tables —
+/// the snapshot, the prefetched `resolved` edits, and `resolveTasks`.
+/// The display spelling differs from the insert text (e.g. `greet` vs `.greet` for members),
+/// but the popup operates on the full `CompletionItem` chosen by the user and executes its
+/// precise `CompletionEdit` payload rather than relying on string rewriting.
 ///
-/// What it does **not** promise is that a *kept* string composes the plan's
-/// buffer. `?.greet` inserted over the typed word writes `greeter.?.greet`, and
-/// a server range reaching past the caret leaves the characters beyond it
-/// standing. Both are the fallback path's pre-existing limit rather than
-/// anything the display string introduced — that path can only ever replace the
-/// typed word, so no display string fixes it — and both are why the rule refuses
-/// to shorten in those cases instead of guessing.
+/// The rule Core enforces when it computes the display string ensures that
+/// what the user reads on screen accurately represents the semantic entity being
+/// completed, while the underlying edit ranges perform the exact AST manipulation
+/// required by the language server.
 ///
 /// **Two triggers, not one.** The ordinary trigger is a partial word of at least
 /// `minimumPrefixLength` characters. The second is a *member position* — a caret
@@ -84,6 +63,7 @@ import PisakaCore
 /// the partial word is also empty) nor one moved to a different `other.` can
 /// inherit a member list, and an ordinary list cannot be served after a dot.
 @MainActor
+// swiftlint:disable:next type_body_length
 final class CompletionController {
 
     /// How many characters must be typed before the popup opens by itself.
@@ -115,6 +95,15 @@ final class CompletionController {
 
     /// The text view being completed in. Held weakly: the view hierarchy owns it,
     /// exactly as the `Coordinator` holds it.
+
+    private let panel = CompletionPanel()
+    private var codeFontSize: CGFloat = 13
+    /// The interface zone's metrics, for the panel's chrome (badge, insets,
+    /// width cap). Arrives as a plain value next to the code size.
+    private var metrics: InterfaceMetrics = .unscaled
+
+    var isVisible: Bool { panel.isVisible }
+
     private weak var textView: NSTextView?
 
     /// Whether completion is offered at all — `SettingsStore.completionEnabled`,
@@ -122,12 +111,10 @@ final class CompletionController {
     ///
     /// The switch is **binary and total**: off silences the as-you-type popup
     /// *and* every explicit invocation (⌃Space, Find > Complete, AppKit's stock
-    /// ⌥⎋/F5), which is why it is enforced in two places rather than one — at the
-    /// entry of `update(…)`, the per-keystroke path, and again in
-    /// `completions(forPartialWordRange:in:)`, the delegate answer the stock
-    /// commands reach without passing through `update`. The narrower JetBrains
-    /// behaviour (auto-popup off, explicit invocation alive) was considered and
-    /// deliberately rejected as a complication; it is a possible follow-up.
+    /// ⌥⎋/F5), which all funnel through `update(…)` — the one door into this
+    /// controller. The narrower JetBrains behaviour (auto-popup off, explicit
+    /// invocation alive) was considered and deliberately rejected as a
+    /// complication; it is a possible follow-up.
     ///
     /// **Nothing in the intelligence stack is torn down** by turning this off: no
     /// LSP server is stopped, no session shut down, the registry is untouched and
@@ -145,124 +132,34 @@ final class CompletionController {
     /// Turning it *off* is not merely a gate raised for future keystrokes: it
     /// `reset()`s — cancelling the pending debounce/provider task, bumping the
     /// generation, dropping the snapshot and every prefetched or in-flight
-    /// resolve — and then, only if a popup is up, asks the text view to
-    /// re-query. `complete(nil)` reaches the delegate, which now answers `[]`,
-    /// and an empty answer is what closes a popup that is already on screen.
-    ///
-    /// "Is up" is `isServingPopup` — **what the delegate last actually served**,
-    /// in the editor the user is actually typing in. The snapshot is emphatically
-    /// *not* that question: it is stored by `apply(…)` before its own focus/caret
-    /// guards and is not dropped when a popup closes (Esc and an accepted row both
-    /// leave it standing until the next keystroke), so it routinely outlives — or
-    /// never had — a visible list. Asking it instead would fire `complete(nil)`
-    /// with nothing on screen, and an invocation of AppKit's completion machinery
-    /// that finds no completions *beeps*: every "type a word, dismiss the list,
-    /// switch completion off" would sound an unexplained alert. The focus half is
-    /// not decoration either — calling `complete(nil)` on an unfocused editor
-    /// would break the very rule `apply` states: only the focused editor may reach
-    /// AppKit's completion machinery, or a list floats over whatever the user
-    /// *is* typing in.
-    ///
-    /// **Focus is two questions, not one.** `NSWindow.firstResponder` is *not*
-    /// cleared when its window stops being key, so an editor in a background
-    /// window — which is every open editor when the toggle is flipped from the
-    /// Preferences window — still answers `firstResponder === textView`. The
-    /// responder test alone would therefore pass for precisely the editors it is
-    /// meant to exclude, which is why `isKeyWindow` is asked as well. Nothing
-    /// dismissable is lost to the narrower test: a completion popup can only be on
-    /// screen in the key window.
-    ///
-    /// **The re-query is deferred by one run-loop turn**, because this runs inside
-    /// `updateNSView`. Dismissing a live popup makes AppKit restore the typed word
-    /// through `insertCompletion(…isFinal:)` — a real buffer edit, which fires
-    /// `textDidChange`, which writes the SwiftUI text binding: mutating observed
-    /// state from within a view update. Hopping out of that pass is the same move
-    /// `EditorSearchController.setNeedsRefresh` makes and costs nothing the user
-    /// can perceive. Every condition is re-asked on the hop, since the toggle may
-    /// have been flipped back and the editor may have lost focus, gained marked
-    /// text or been torn down in between.
+    /// resolve, and taking a visible panel down with everything else.
     func setEnabled(_ enabled: Bool) {
         guard enabled != isEnabled else { return }
         isEnabled = enabled
-        guard !enabled else { return }
-        // Read before `reset()` drops it.
-        let hasPopup = isServingPopup
-        reset()
-        guard hasPopup else { return }
-        DispatchQueue.main.async { [weak self] in
-            // `textView` is unwrapped rather than compared through the optional
-            // chain: `nil === nil` is *true*, so an `Optional` first-responder
-            // test would pass for a controller that has no text view at all.
-            guard let self,
-                  !self.isEnabled,
-                  let textView = self.textView,
-                  let window = textView.window,
-                  window.isKeyWindow,
-                  window.firstResponder === textView,
-                  !textView.hasMarkedText()
-            else { return }
-            textView.complete(nil)
+        if !enabled {
+            reset()
         }
     }
 
-    /// The candidates the delegate serves, and the prefix they answer.
+    /// The candidates the panel is showing, and the prefix they answer.
     ///
     /// The prefix is stored *with* them because it is the only thing that makes an
-    /// asynchronously-computed list safe to hand to a synchronous delegate: by the
-    /// time AppKit asks, the user may have typed another character, and offering
-    /// completions for the previous word is worse than offering none. Since
-    /// phase 1.5 that prefix may be the empty string — the member list a bare `.`
-    /// opens answers no typed characters at all.
+    /// asynchronously-computed list safe to show: by the time the answer arrives,
+    /// the user may have typed another character, and offering completions for
+    /// the previous word is worse than offering none. Since phase 1.5 that prefix
+    /// may be the empty string — the member list a bare `.` opens answers no typed
+    /// characters at all. `prefixLocation` and `member` are the other two halves
+    /// of the same staleness question: the caret must still sit where the list
+    /// was computed, in the same member state.
     private struct Snapshot {
         let prefix: String
-        /// The member position these answer, or `nil` when they answer an ordinary
-        /// partial word. Carried — **receiver and all** — so the delegate can
-        /// apply the same still-in-*this*-member-position test
-        /// `apply(prefix:member:items:)` does. The receiver is the load-bearing
-        /// half: an empty prefix matches every dot in the buffer, so a test of
-        /// "still after *a* dot" would let a caret moved to `other.` be served
-        /// `Worker.`'s list. Only the receiver is compared, not the whole context
-        /// — its `prefixRange` is position-dependent by construction.
+        let prefixLocation: Int
         let member: IdentifierScanner.MemberContext?
-        /// The strings the popup shows, in the provider's order.
-        let texts: [String]
-        /// The same answers, whole and keyed by the string above.
-        ///
-        /// AppKit's popup is a list of *strings* and its insertion callback hands
-        /// one back, so the item behind it has to be findable by that string or
-        /// an LSP item's edits (D4's auto-import) could never be applied. The
-        /// display spelling rather than the inserted text for exactly that
-        /// reason: the popup only ever knows the row it is showing. First wins on
-        /// a duplicate: two items that *read* the same are one row, and the
-        /// higher-ranked one is the one the user is choosing.
-        ///
-        /// Note this key is deliberately **not** the provider's: it deduped by
-        /// the *inserted* text, so two items that insert differently but read
-        /// the same survive there and collapse here. This is the one place the
-        /// popup's list is narrower than the provider's answer, and it has to
-        /// be — a row the user cannot tell apart is not a choice. Everything
-        /// keyed by the same string (the resolves) is therefore fed from *this*
-        /// deduped list rather than from the provider's, so no dropped item can
-        /// file edits under a surviving row's key.
-        let items: [String: CompletionItem]
+        let rows: [CompletionRow]
+        var selection: CompletionPopupSelection?
     }
 
     private var snapshot: Snapshot?
-
-    /// Whether AppKit's completion list is believed to be on screen.
-    ///
-    /// Maintained where the truth is: `completions(forPartialWordRange:in:)` is
-    /// the answer the popup is built from, so a non-empty return opens or keeps
-    /// one and `[]` closes it. A final `insert(…)` — the accepted row *and* the
-    /// Esc restore, which AppKit routes through the same call — ends the session,
-    /// and `reset()` gives up the claim with everything else.
-    ///
-    /// Only `setEnabled(false)` reads it, and only to decide whether there is
-    /// anything to dismiss. It is deliberately not used to gate anything else:
-    /// AppKit can also close the list without telling us (a click outside, a
-    /// window resigning key), so this is an *upper* bound that is exact for the
-    /// two endings a user actually produces — never a claim the popup is absent.
-    private var isServingPopup = false
 
     /// Edits that arrived from a background `completionItem/resolve`, keyed by
     /// the row's displayed string — the D4 prefetch's landing place. Cleared with
@@ -289,20 +186,13 @@ final class CompletionController {
     /// the insertion has already happened.
     private var followUpTask: Task<Void, Never>?
 
-    /// What a *preview* insertion last wrote over the typed word.
-    ///
-    /// AppKit writes the highlighted row into the buffer as the user arrows
-    /// through the popup — `insertCompletion(…, isFinal: false)` — so by the
-    /// time the final call arrives the typed word the provider's edits are
-    /// expressed against is no longer what stands there. Every one of those
-    /// writes passes through this controller, so remembering the last one is
-    /// enough to re-express the edits (`CompletionEdit.shifted(…)`) and to state
-    /// what the buffer must still read for them to be applied at all.
-    private var preview: String?
-
     /// Raises and lowers the coordinator's programmatic-edit flag around an
-    /// insertion this controller performs *outside* AppKit's own
-    /// `insertCompletion` bracket — i.e. the late auto-import only. Set by
+    /// insertion this controller performs, so the edit notification the
+    /// inserted text fires is not mistaken for typing and cannot re-open the
+    /// popup over it. Both commit paths bracket themselves with this — the
+    /// simple `insertText` replacement and a plan carrying edits. The one
+    /// application outside a bracket is the D4 follow-up, which raises and
+    /// lowers the flag itself around its own plan. Set by
     /// `Coordinator.attachCompletion(textView:)`.
     var noteProgrammaticEdit: (Bool) -> Void = { _ in }
 
@@ -312,6 +202,19 @@ final class CompletionController {
     /// Monotonic token guarding an answer against a newer request that landed
     /// while the provider was being awaited.
     private var generation = 0
+    private var bufferVersion = 0
+
+    /// Where the world stood when the visible presentation was anchored: the
+    /// `bufferVersion` and caret location captured by every `present(…)`.
+    ///
+    /// This is how a clip-view bounds change is read as one of its two very
+    /// different causes — see `clipViewDidScroll()`, its only reader.
+    private struct PresentationBaseline {
+        let bufferVersion: Int
+        let caretLocation: Int
+    }
+
+    private var presentationBaseline: PresentationBaseline?
 
     /// Debounce before a (non-explicit) provider call, coalescing rapid
     /// keystrokes.
@@ -320,83 +223,6 @@ final class CompletionController {
     /// Bind the controller to the editor's text view.
     func attach(textView: NSTextView) {
         self.textView = textView
-    }
-
-    // MARK: - Serving AppKit
-
-    /// The list AppKit's popup shows for `charRange` — the delegate's whole body.
-    ///
-    /// Returns the stored snapshot only while the requested partial word is still
-    /// *exactly* the prefix it was computed for, and `[]` otherwise. The mismatch
-    /// case is not an error: it is the ordinary "the user typed one more
-    /// character" state, and `[]` dismisses the popup until the debounce fires
-    /// again a moment later with a list that does match.
-    ///
-    /// The range is validated against the live buffer before it is read: AppKit
-    /// hands back the range `rangeForUserCompletion` reported, and a completion
-    /// session that outlived an edit shrinking the buffer would otherwise index
-    /// out of bounds.
-    func completions(forPartialWordRange charRange: NSRange, in textView: NSTextView) -> [String] {
-        let texts = candidates(forPartialWordRange: charRange, in: textView)
-        // This answer *is* the popup: AppKit puts a list on screen for a non-empty
-        // one and takes it down for `[]`, so recording what was served here is the
-        // only honest record of whether one is up. Written in the wrapper rather
-        // than at each of the body's six exits so the two can never disagree.
-        isServingPopup = !texts.isEmpty
-        return texts
-    }
-
-    /// The delegate answer's whole body; see `completions(forPartialWordRange:in:)`.
-    private func candidates(forPartialWordRange charRange: NSRange, in textView: NSTextView) -> [String] {
-        // The second half of the on/off gate, covering the commands that never
-        // pass through `update(…)`: AppKit's stock ⌥⎋ and F5 reach this delegate
-        // answer directly. `[]` is also what dismisses a popup that was on screen
-        // when the toggle was flipped — `setEnabled` re-queries for exactly that.
-        //
-        // Stated locally rather than left to the `guard let snapshot` below, which
-        // today happens to answer `[]` too (nothing can populate a snapshot while
-        // off: `setEnabled` resets and `update` returns at its entry). That is a
-        // non-local proof about three other methods; "off answers nothing" is the
-        // rule this switch is, so it is written where the answer is given.
-        guard isEnabled else { return [] }
-        // One read: `NSTextView.string` copies the whole buffer out of the mutable
-        // text storage on every access, and this runs while AppKit is already
-        // putting the popup on screen.
-        let nsText = textView.string as NSString
-        guard let snapshot,
-              charRange.location != NSNotFound,
-              charRange.location >= 0,
-              // Checked with the bound below rather than left to it: `NSMaxRange`
-              // of a negative length is *smaller* than the location, so a negative
-              // length passes the bound and then raises inside `substring(with:)`.
-              // The insertion side (`insert(_:for:in:)`) makes the same check on
-              // the same AppKit-supplied range.
-              charRange.length >= 0,
-              NSMaxRange(charRange) <= nsText.length
-        else { return [] }
-        guard nsText.substring(with: charRange) == snapshot.prefix else {
-            return []
-        }
-        // The partial word matching is not enough on its own: a member list and an
-        // ordinary list answer the same typed characters with different candidate
-        // *sets* (a member list carries no keywords and no non-member symbols), so
-        // the caret must still be in the same member state the items were computed
-        // for — receiver and all — at **every** prefix length, not only the empty
-        // one. This path is the one that needs it most: AppKit's stock ⌥⎋/F5
-        // reaches the delegate directly, without going through `update(…)`, and a
-        // caret move does not refresh the snapshot. So without this, ⌥⎋ after
-        // `other.` would be served the members of the `Worker.` typed before it,
-        // ⌥⎋ in open space the last dot's list, and ⌥⎋ over an unrelated `na`
-        // the member-only list computed for `worker.na`.
-        //
-        // `map(\.receiver)` rather than `?.receiver`: the receiver is itself
-        // optional (a bracketed one — `f().` — names no type), and optional
-        // chaining would flatten "not a member position" into "a member position
-        // with an unnamed receiver" and let the two serve each other's lists.
-        guard IdentifierScanner.memberContext(in: nsText, at: charRange.location).map(\.receiver)
-                == snapshot.member.map(\.receiver)
-        else { return [] }
-        return snapshot.texts
     }
 
     // MARK: - Asking the provider
@@ -413,9 +239,15 @@ final class CompletionController {
     /// is whatever has been typed since the dot — legitimately nothing. Explicit
     /// invocation still works there; it only removes the debounce.
     ///
-    /// `language` feeds the keyword source and nothing else; `nil` (an
-    /// unclassifiable buffer) means no keywords rather than some default
-    /// language's — see `CompletionRequest.language`.
+    /// `caretMove` marks the bare-caret-move entry (`textViewDidChangeSelection`)
+    /// and changes what the snapshot-location gate below does with a mismatch:
+    /// a caret move may only *invalidate* (asking would pop a list under every
+    /// arrow key), while a keystroke or an explicit ask that has moved to a new
+    /// word — most importantly onto the far side of a just-typed `.`, whose old
+    /// snapshot answers the pre-dot word — legitimately starts a *new* question:
+    /// the stale list is dropped and the fresh request still goes out. A caret
+    /// move that stays inside the same word start invalidates nothing either:
+    /// the early return below it leaves the visible rows standing untouched.
     ///
     /// The request is built here, on the main actor, from the live buffer — the
     /// text goes *into* the request rather than being read later, so the words the
@@ -425,8 +257,34 @@ final class CompletionController {
         provider: CodeIntelligenceProviding?,
         fileURL: URL?,
         language: SyntaxLanguage?,
-        explicit: Bool
+        explicit: Bool,
+        caretMove: Bool
     ) {
+        // A bare caret move that stays inside the very word the list serves
+        // supersedes *nothing*: the rows stay committable and any answer still
+        // travelling behind its debounce belongs to exactly that word. The full
+        // entry below would strand the panel on its stale list until the next
+        // keystroke (the narrowed answer cancelled) and kill the standing
+        // rows' prefetched resolves — the same D4 damage `invalidatePendingRequest`
+        // exists to avoid on the hidden-panel path, which is why that path does
+        // not come through here at all. Safety of a late answer is not assumed:
+        // `apply` re-validates prefix text, member receiver and focus against
+        // the live buffer before it touches anything. Composition and a
+        // non-empty selection keep the full entry below.
+        if caretMove,
+           isEnabled,
+           let textView,
+           !textView.hasMarkedText(),
+           textView.selectedRange().length == 0,
+           let snap = snapshot {
+            let nsText = textView.string as NSString
+            let location = textView.selectedRange().location
+            let member = IdentifierScanner.memberContext(in: nsText, at: location)
+            let prefixLocation = member?.prefixRange.location
+                ?? IdentifierScanner.completionPrefixRange(in: nsText, at: location).location
+            if prefixLocation == snap.prefixLocation { return }
+        }
+
         pendingTask?.cancel()
         pendingTask = nil
         generation += 1
@@ -440,32 +298,19 @@ final class CompletionController {
         // The on/off gate at the *entry* of the per-keystroke path, so while
         // completion is off a keystroke costs nothing at all: no debounce task,
         // no provider call, no resolve prefetch — not merely a result that is
-        // computed and then discarded. Nothing is left standing for the delegate
-        // to serve either, which is what makes turning the switch back on start
-        // from a clean list rather than a stale one.
-        guard isEnabled else {
-            snapshot = nil
-            return
-        }
-
-        guard let textView, let provider else {
-            snapshot = nil
-            return
-        }
+        // computed and then discarded. Nothing stale is left standing either,
+        // which is what makes turning the switch back on start from a clean
+        // list rather than a stale one.
+        guard isEnabled else { return refuse() }
+        guard let textView, let provider else { return refuse() }
         // No popup mid-composition. Marked text is uncommitted input the input
         // method still owns; completing over it would insert into a range the
         // composition is about to replace — the same reasoning as the ⌘D guard.
-        guard !textView.hasMarkedText() else {
-            snapshot = nil
-            return
-        }
+        guard !textView.hasMarkedText() else { return refuse() }
         let caret = textView.selectedRange()
         // A non-empty selection is not a partial word: the user is about to
         // replace it, not extend it.
-        guard caret.length == 0 else {
-            snapshot = nil
-            return
-        }
+        guard caret.length == 0 else { return refuse() }
 
         // Read the buffer once and reuse it for both the prefix scan and the
         // request: each `textView.string` access copies the entire text storage,
@@ -480,12 +325,38 @@ final class CompletionController {
         let member = IdentifierScanner.memberContext(in: nsText, at: caret.location)
         let prefixRange = member?.prefixRange
             ?? IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
-        if member == nil {
-            guard prefixRange.length >= (explicit ? 1 : Self.minimumPrefixLength) else {
-                snapshot = nil
-                return
-            }
+        if member == nil,
+           prefixRange.length < (explicit ? 0 : Self.minimumPrefixLength) {
+            return refuse()
         }
+
+        // The caret must sit where the shown list was computed; anywhere else —
+        // open space, another dot, a different word entirely — invalidates it.
+        // What invalidation *means* depends on why this update runs. A bare
+        // caret move asks no question (a click or an arrow key must never pop
+        // a list), so it refuses outright. A keystroke or an explicit ask has
+        // moved to a context that deserves its own answer — the typed `.`
+        // after the very word the panel is serving, ⌃Space right after it —
+        // so the stale list is dropped, the panel comes down, and the fresh
+        // request still goes out. Neither `generation` nor `pendingTask` is
+        // touched on this path: the token captured at the top of this method
+        // is the one the fresh answer is validated against, and the pending
+        // task was already cancelled there.
+        if let snap = snapshot, prefixRange.location != snap.prefixLocation {
+            guard !caretMove else { return refuse() }
+            snapshot = nil
+            panel.dismiss()
+        }
+
+        // A caret move never asks, full stop — not even when it stays inside
+        // the very word the list serves (same word start). Arrowing left
+        // through `CRE|ATE` must not swap the visible list for the shorter
+        // prefix's answer and reset the selection to row 0, nor snap the panel
+        // shut once the prefix falls under the two-character minimum. The rows
+        // on screen keep answering the word under the caret well enough for
+        // Enter and Tab, whose commit re-derives every range from the live
+        // buffer; the next keystroke or ⌃Space asks afresh.
+        if caretMove { return }
 
         let request = CompletionRequest(
             prefix: nsText.substring(with: prefixRange),
@@ -498,6 +369,27 @@ final class CompletionController {
             // end of `prefixRange` by construction, so the two agree.
             offset: caret.location
         )
+        dispatch(request, provider: provider, explicit: explicit, token: token)
+    }
+
+    /// An early return for "this context cannot offer completions": drop any
+    /// snapshot still standing and take a visible panel down with it. Every
+    /// `update(…)` early return funnels through here so the dismissal set in
+    /// `CodeEditorView` holds no matter which gate refused the keystroke.
+    private func refuse() {
+        snapshot = nil
+        dismiss()
+    }
+
+    /// Debounce (unless `explicit`) and await the provider, then hand the answer
+    /// to `apply(…)` behind the generation-token check. Split from `update(…)`,
+    /// which owns the synchronous validation, so each stays readable.
+    private func dispatch(
+        _ request: CompletionRequest,
+        provider: CodeIntelligenceProviding,
+        explicit: Bool,
+        token: Int
+    ) {
         let interval = debounceInterval
         pendingTask = Task { [weak self] in
             if !explicit {
@@ -507,18 +399,12 @@ final class CompletionController {
             let items = await provider.completions(for: request)
             guard let self, !Task.isCancelled, token == self.generation else { return }
             self.pendingTask = nil
-            self.apply(
-                prefix: request.prefix,
-                member: member,
-                items: items,
-                provider: provider,
-                token: token
-            )
+            self.apply(request, items: items, provider: provider, token: token)
         }
     }
 
     /// Store the answer and, if it is still the answer to what is being typed,
-    /// let AppKit open the popup over it.
+    /// show the panel over it.
     ///
     /// The caret is re-read here rather than trusted from before the await: the
     /// request was built a debounce ago, and a click, an arrow key or an undo in
@@ -526,8 +412,8 @@ final class CompletionController {
     /// An empty result clears the snapshot and opens nothing — an empty popup is
     /// strictly worse than no popup.
     ///
-    /// `member` is the second half of the re-check, and it is demanded at every
-    /// prefix length rather than only at zero. The ordinary re-check is "the
+    /// The member state is the second half of the re-check, and it is demanded at
+    /// every prefix length rather than only at zero. The ordinary re-check is "the
     /// partial word under the caret is still the one these items answer", and it
     /// is not sufficient on its own: a member list and an ordinary list answer the
     /// same characters with different candidate *sets*, so the caret must also
@@ -537,56 +423,102 @@ final class CompletionController {
     /// a `(`, at the start of a line, and after every other dot in the buffer),
     /// but `worker.na`'s member-only list is just as wrong over an unrelated `na`.
     private func apply(
-        prefix: String,
-        member: IdentifierScanner.MemberContext?,
+        _ request: CompletionRequest,
         items: [CompletionItem],
         provider: CodeIntelligenceProviding,
         token: Int
     ) {
-        var byText: [String: CompletionItem] = [:]
-        var texts: [String] = []
-        for item in items where byText[item.displayText] == nil {
-            byText[item.displayText] = item
-            texts.append(item.displayText)
-        }
-        guard !texts.isEmpty else {
+        let rows = CompletionRow.rows(for: items, language: request.language)
+        guard !rows.isEmpty else {
             snapshot = nil
+            panel.dismiss()
             return
         }
-        snapshot = Snapshot(prefix: prefix, member: member, texts: texts, items: byText)
-        // D4: an item the server kept its edits back on is resolved *now*,
-        // concurrently and in the background, rather than when it is chosen —
-        // the pick is hundreds of milliseconds away, which is time enough for a
-        // round trip the user never waits on. Nothing depends on the answer
-        // arriving: an item committed first takes the follow-up path instead.
-        //
-        // The **deduped** rows, not the provider's raw list, and that is a
-        // correctness requirement rather than a saving: the resolve tables are
-        // keyed by the displayed string, so an item this snapshot dropped would
-        // file its edits under a key that now belongs to the row the user can
-        // actually see — and `insert` prefers `resolved[word]` over the item's
-        // own edits, so the visible row would commit the dropped item's
-        // replacement and its `import`. Keying off `texts` makes the collision
-        // unrepresentable: within the snapshot the display strings are unique by
-        // construction, and the provider's order is preserved.
-        prefetchResolves(for: texts.compactMap { byText[$0] }, provider: provider, token: token)
 
+        // The re-reads below are staleness guards: when one fails, this answer is
+        // history and must not even prefetch against it — the resolves would be
+        // cancelled by the next keystroke without ever serving a visible row.
+        //
+        // Focus is two questions, not one — the trap the retired native path
+        // documented verbatim: `NSWindow.firstResponder` is *not* cleared when
+        // its window stops being key, so the responder test alone passes for a
+        // background editor. And nothing else takes the panel down afterwards:
+        // `windowDidResignKey` fired while nothing was shown (the visibility
+        // gate left the D4 state alone), so an answer arriving after the user
+        // clicked another window would otherwise float over a window they are
+        // not typing in.
         guard let textView,
-              !textView.hasMarkedText(),
-              // Only the focused editor may open a popup: `complete(nil)` on a
-              // text view the user is not typing in would put a floating list over
-              // whatever they *are* typing in.
-              textView.window?.firstResponder === textView
+              let window = textView.window,
+              window.isKeyWindow,
+              window.firstResponder === textView,
+              !textView.hasMarkedText()
         else { return }
+
         let nsText = textView.string as NSString
         let caret = textView.selectedRange()
         guard caret.length == 0 else { return }
+
         let range = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
-        guard nsText.substring(with: range) == prefix else { return }
+        guard nsText.substring(with: range) == request.prefix else { return }
+
         guard IdentifierScanner.memberContext(in: nsText, at: caret.location).map(\.receiver)
-                == member.map(\.receiver)
+                == request.member.map(\.receiver)
         else { return }
-        textView.complete(nil)
+
+        prefetchResolves(for: rows.map { $0.item }, provider: provider, token: token)
+
+        let selection = CompletionPopupSelection(count: rows.count)
+        snapshot = Snapshot(
+            prefix: request.prefix,
+            prefixLocation: range.location,
+            member: request.member,
+            rows: rows,
+            selection: selection
+        )
+        present(rows: rows, selection: selection)
+    }
+
+    /// Put `rows` on the panel, anchored to the live caret's word.
+    ///
+    /// The anchor is recomputed from the text view on every call, which makes
+    /// this shared by `apply(…)` (first show) and `moveSelection(_:)` (every
+    /// arrow key): both present the current snapshot at wherever the caret now
+    /// is. The commit callback routes a click through Enter's insertion mode,
+    /// updating the stored selection first so `commit(_:)` picks the clicked row.
+    private func present(rows: [CompletionRow], selection: CompletionPopupSelection?) {
+        guard let textView else { return }
+        let nsText = textView.string as NSString
+        let caret = textView.selectedRange()
+        let range = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
+        let anchor = textView.firstRect(forCharacterRange: range, actualRange: nil)
+        presentationBaseline = PresentationBaseline(
+            bufferVersion: bufferVersion,
+            caretLocation: caret.location
+        )
+
+        panel.onCommit = { [weak self] index in
+            guard let self else { return }
+            self.snapshot?.selection?.select(index)
+            self.commit(.insert)
+        }
+
+        // The plan's dismissal set funnels an outside click through *this*
+        // controller's `dismiss()` — cancelling `pendingTask`, bumping the
+        // generation and forgetting the list — not through a panel-level hide,
+        // which would leave a superseded answer in flight, free to reopen over
+        // whatever word the click landed on.
+        panel.onOutsideClick = { [weak self] in
+            self?.dismiss()
+        }
+
+        panel.show(
+            rows: rows,
+            selection: selection,
+            anchoredTo: anchor,
+            in: textView.window,
+            codeFontSize: codeFontSize,
+            metrics: metrics
+        )
     }
 
     // MARK: - Resolving deferred items
@@ -612,7 +544,7 @@ final class CompletionController {
     }
 
     /// One background resolve, filed under the string its row shows — the same
-    /// key the snapshot uses, since that is the only one AppKit ever hands back.
+    /// key the snapshot and the panel's commit callback use.
     @discardableResult
     private func startResolve(
         for item: CompletionItem,
@@ -630,91 +562,251 @@ final class CompletionController {
         return task
     }
 
+    // MARK: - Panel Drive
+
+    func syncAppearance(codeFontSize: CGFloat, metrics: InterfaceMetrics) {
+        self.codeFontSize = codeFontSize
+        self.metrics = metrics
+    }
+
+    /// Move the popup's selection one row up or down (clamped by the Core state
+    /// machine) and re-present the same rows at the same anchor.
+    func moveSelection(_ direction: MoveDirection) {
+        guard let snapshot, isVisible else { return }
+        var updated = snapshot
+        switch direction {
+        case .moveUp:
+            updated.selection?.moveUp()
+        case .moveDown:
+            updated.selection?.moveDown()
+        }
+        self.snapshot = updated
+        present(rows: updated.rows, selection: updated.selection)
+    }
+
+    enum MoveDirection {
+        case moveUp
+        case moveDown
+    }
+
+    enum CommitMode {
+        case insert
+        case replace
+    }
+
+    /// The editor's clip view scrolled while the panel is up: take it down —
+    /// unless the scroll was this editor's own doing.
+    ///
+    /// A bounds change is two different events wearing one notification. A
+    /// genuine user scroll (wheel, trackpad, scrollbar, minimap drag) moves the
+    /// text out from under a screen-anchored panel, so the panel comes down and
+    /// its list is superseded like any other member of the dismissal set. But
+    /// the text view also scrolls *itself* to keep the insertion point visible —
+    /// every keystroke that crosses the right viewport edge of an unwrapped
+    /// line, an Enter at the bottom edge, an arrow key along a long word — and
+    /// dismissing there would close the list mid-word and cancel its debounced
+    /// narrowing request, breaking exactly what the popup exists for (and that
+    /// the frame-change handler's own comment already guards for bounds'
+    /// sibling). The two are told apart by where the world stood when this
+    /// presentation was anchored: if the buffer has been edited since
+    /// (`bufferVersion` bumps on every edit notification) or the caret has
+    /// moved, the scroll was self-driven — the same rows are simply re-presented
+    /// at the live anchor, which is also how the panel follows the caret until
+    /// the fresh answer lands. A caret move out of the word still takes the
+    /// popup down through its own entry (`textViewDidChangeSelection`) no matter
+    /// which of the two ran first.
+    func clipViewDidScroll() {
+        guard isVisible, let textView, let snapshot else { return }
+        let selfDriven: Bool
+        if let baseline = presentationBaseline {
+            selfDriven = textView.selectedRange().location != baseline.caretLocation
+                || bufferVersion != baseline.bufferVersion
+        } else {
+            // Unreachable through `present(…)`, which sets the baseline before
+            // showing; a user scroll is the safe reading if ever false.
+            selfDriven = false
+        }
+        if selfDriven {
+            present(rows: snapshot.rows, selection: snapshot.selection)
+        } else {
+            dismiss()
+        }
+    }
+
+    func dismiss() {
+        pendingTask?.cancel()
+        pendingTask = nil
+        generation += 1
+        snapshot = nil
+        presentationBaseline = nil
+        panel.dismiss()
+        forgetList()
+    }
+
     // MARK: - Inserting a chosen item
 
-    /// Apply the chosen item's own edits, answering whether the insertion was
-    /// handled here — `EditorTextView.insertCompletion`'s whole decision.
+    /// Commit the selected row, in Enter's (`.insert`) or Tab's (`.replace`)
+    /// mode, answering whether the key that triggered it was consumed.
     ///
-    /// `false` means "do what you have always done": `super` replaces
-    /// `charRange` with `word`, which is exactly right for a tree-sitter item
-    /// (it carries no edits) and for an LSP item whose only effect is to replace
-    /// the typed word with its own text. `true` is the D4 case — an `import`
-    /// travelling with the symbol, or a server-chosen range other than the one
-    /// the client typed — where the edits must be applied *as written*, in one
-    /// undo group, with the caret after the symbol rather than at the import.
+    /// `false` — no usable snapshot, an unusable buffer, a non-empty selection
+    /// or a word that has moved — dismisses and hands the keystroke back to the
+    /// editor, which then does what it always does (a newline for Return, an
+    /// indent for Tab). `true` means the row is in the buffer.
     ///
-    /// A **non-final** call is always `false`: it is AppKit previewing the
-    /// highlighted row, not a commitment, and rewriting the file's imports once
-    /// per arrow key would be indefensible. The preview is remembered instead,
-    /// because it is what the final call's edits have to be re-expressed over.
+    /// The live buffer and caret are re-read rather than trusted from the
+    /// snapshot, and the commit range is derived per mode from `IdentifierScanner`
+    /// — `completionPrefixRange` for Enter, `completionReplaceRange` for Tab.
     ///
-    /// Rejection is silent and safe everywhere: an unknown word, a stale buffer
-    /// or an unusable edit set all fall through to `super`, which inserts the
-    /// plain text and loses only the auto-import.
-    func insert(
-        _ word: String,
-        forPartialWordRange charRange: NSRange,
-        isFinal: Bool,
-        in textView: NSTextView
-    ) -> Bool {
-        // A final call ends the completion session whatever it inserts, and that
-        // includes the word Esc restores — AppKit cancels through this same
-        // method — so the list is down by the time it returns.
-        if isFinal { isServingPopup = false }
-        let nsText = textView.string as NSString
+    /// **The staleness rule is the same word *start*, not the same word *text*.**
+    /// `update` keeps the previous list serving the panel while a fresh answer
+    /// debounces, so a keystroke that extends or shrinks the word under an open
+    /// popup is ordinary — refusing to commit during that window would hand a
+    /// Return pressed mid-word straight through as a newline. What genuinely
+    /// invalidates the list is a caret that moved away, and every such move
+    /// fails `update`'s own location gate and takes the popup down before any
+    /// key can be claimed; matching that gate here makes "still visible" ≡
+    /// "committable". Every range is derived from the live buffer, so the row
+    /// lands over whatever is actually typed now, and an LSP item whose edits
+    /// were computed for a different spelling of the word is re-expressed or
+    /// refused by `CompletionEditPlan` exactly as decision 8 states.
+    ///
+    /// For an item with edits (an LSP auto-import) the existing
+    /// `plan(for:over:replacing:in:) + apply(_:in:)` path runs unchanged over the
+    /// typed word; for everything else one `insertText(_:replacementRange:)`
+    /// replaces the commit range with the row's own display string. Both land in
+    /// one undo group behind the coordinator's programmatic-edit flag, and Tab's
+    /// suffix deletion happens inside the same group *after* the plan,
+    /// re-verifying the suffix text still stands at the caret — if it does not,
+    /// Tab degrades to Enter rather than deleting something else.
+    @discardableResult
+    func commit(_ mode: CommitMode) -> Bool {
         guard let snapshot,
-              let item = snapshot.items[word],
-              charRange.location != NSNotFound,
-              charRange.location >= 0,
-              charRange.length >= 0,
-              NSMaxRange(charRange) <= nsText.length
+              let selection = snapshot.selection,
+              selection.selectedIndex < snapshot.rows.count,
+              let textView,
+              let undoManager = textView.undoManager
         else {
-            // Esc restores the typed word through this same method, and so does
-            // any insertion this controller never offered: whatever preview was
-            // in the buffer is about to be overwritten by something that is not
-            // one of our rows, so it stops being a thing to reason about.
-            preview = nil
-            return false
-        }
-        guard isFinal else {
-            preview = word
+            dismiss()
             return false
         }
 
-        // Where the typed word stood when the *request* was made — the frame all
-        // of an item's edits are expressed in. Its location is `charRange`'s:
-        // a completion session does not move the word's start, only its length,
-        // and a `charRange` that disagrees fails the staleness check below.
-        let typedWord = NSRange(
-            location: charRange.location,
-            length: (snapshot.prefix as NSString).length
+        let row = snapshot.rows[selection.selectedIndex]
+        let word = row.displayText
+
+        let nsText = textView.string as NSString
+        let caret = textView.selectedRange()
+        guard caret.length == 0 else { dismiss(); return false }
+        let prefixRange = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
+        // Same word *start*, not same word text — see the staleness paragraph
+        // above: `update`'s keep-open gate is the rule commit answers to, so the
+        // word may have grown or shrunk under the popup since the list was
+        // computed and the commit still lands over its live extent.
+        guard prefixRange.location == snapshot.prefixLocation else { dismiss(); return false }
+        let livePrefix = nsText.substring(with: prefixRange)
+
+        // The chosen row's resolve task is removed before dismissal so it alone
+        // survives `forgetList()` — D4's late auto-import must stay in flight.
+        let isResolved = resolved[word] != nil
+        let edits = resolved[word].flatMap { $0.isEmpty ? nil : $0 } ?? row.item.edits
+        let inFlightResolve = resolveTasks.removeValue(forKey: word)
+        let provider = resolveSource
+
+        let target = commitTarget(
+            for: mode,
+            nsText: nsText,
+            caretLocation: caret.location,
+            prefixRange: prefixRange,
+            typedPrefixLength: (livePrefix as NSString).length
         )
-        // An empty resolve is not an answer. `resolveEdits` returns `[]` for a
-        // timeout, a dead session and a superseded handle alike, so reading it as
-        // "this item turned out to have no edits" would throw away the ones the
-        // item was *published* with — including a server-chosen range wider than
-        // the typed prefix, which AppKit's stock insertion would then leave
-        // standing in the buffer. A resolve that genuinely adds nothing loses
-        // nothing here either: it answers the same edits the item already carried.
-        let edits = resolved[word].flatMap { $0.isEmpty ? nil : $0 } ?? item.edits
-        if let plan = plan(
-            for: edits,
-            over: preview ?? snapshot.prefix,
-            replacing: typedWord,
-            in: nsText
-        ) {
-            // The programmatic-edit flag is already up: `insertCompletion` holds
-            // it for the whole call, this one included.
+
+        // Hide the panel first so the insertion's own textDidChange cannot
+        // re-open anything over the committed word.
+        dismiss()
+
+        if let plan = plan(for: edits, over: livePrefix, replacing: target.typedWord, in: nsText) {
+            noteProgrammaticEdit(true)
+            undoManager.beginUndoGrouping()
             apply(plan, in: textView)
-            preview = nil
+            deleteExpectedSuffix(target.expectedSuffix, afterCaretAt: plan.caretOffset, in: textView)
+            undoManager.endUndoGrouping()
+            noteProgrammaticEdit(false)
             return true
         }
 
-        preview = word
-        if item.resolveHandle != nil, resolved[word] == nil {
-            scheduleFollowUp(for: item, replacing: typedWord, in: textView)
+        insertInUndoGroup(word, over: target.range, textView: textView)
+
+        if row.item.resolveHandle != nil, !isResolved {
+            scheduleFollowUp(
+                for: row.item,
+                replacing: target.range,
+                in: textView,
+                inFlight: inFlightResolve,
+                provider: provider
+            )
         }
-        return false
+        return true
+    }
+
+    /// The commit range and its company, per mode: Enter replaces only the typed
+    /// prefix; Tab's range is Enter's plus whatever identifier suffix follows the
+    /// caret, whose verbatim text is captured here so the deletion can verify it
+    /// still stands there after the insertion.
+    private struct CommitTarget {
+        let range: NSRange
+        let typedWord: NSRange
+        var expectedSuffix: String?
+    }
+
+    private func commitTarget(
+        for mode: CommitMode,
+        nsText: NSString,
+        caretLocation: Int,
+        prefixRange: NSRange,
+        typedPrefixLength: Int
+    ) -> CommitTarget {
+        let targetRange: NSRange
+        var expectedSuffix: String?
+        switch mode {
+        case .insert:
+            targetRange = prefixRange
+        case .replace:
+            targetRange = IdentifierScanner.completionReplaceRange(in: nsText, at: caretLocation)
+            if targetRange.length > prefixRange.length {
+                expectedSuffix = nsText.substring(
+                    with: NSRange(location: NSMaxRange(prefixRange), length: targetRange.length - prefixRange.length)
+                )
+            }
+        }
+        let typedWord = NSRange(location: targetRange.location, length: typedPrefixLength)
+        return CommitTarget(range: targetRange, typedWord: typedWord, expectedSuffix: expectedSuffix)
+    }
+
+    /// One `insertText(_:replacementRange:)` inside the coordinator's
+    /// programmatic-edit bracket and one undo group — the simple commit path.
+    private func insertInUndoGroup(_ text: String, over range: NSRange, textView: NSTextView) {
+        noteProgrammaticEdit(true)
+        textView.undoManager?.beginUndoGrouping()
+        textView.insertText(text, replacementRange: range)
+        textView.undoManager?.endUndoGrouping()
+        noteProgrammaticEdit(false)
+    }
+
+    /// Tab's second half: delete the identifier suffix that stood to the right of
+    /// the caret, but only if it is still exactly there once the plan has landed —
+    /// a server-chosen primary range can move or rewrite the text around the
+    /// caret, in which case deleting would corrupt the line, so nothing is done.
+    private func deleteExpectedSuffix(
+        _ expectedSuffix: String?,
+        afterCaretAt caretOffset: Int,
+        in textView: NSTextView
+    ) {
+        guard let expectedSuffix else { return }
+        let nsText = textView.string as NSString
+        let suffixStart = caretOffset
+        guard suffixStart + expectedSuffix.utf16.count <= nsText.length else { return }
+        let suffixRange = NSRange(location: suffixStart, length: expectedSuffix.utf16.count)
+        guard nsText.substring(with: suffixRange) == expectedSuffix else { return }
+        textView.insertText("", replacementRange: suffixRange)
     }
 
     /// The plan for `edits`, re-expressed over whatever now stands in the typed
@@ -772,9 +864,19 @@ final class CompletionController {
     ///
     /// The buffer must be untouched since the insertion — the condition D4
     /// states. It is read at the top of the task rather than passed in: this
-    /// runs a main-actor turn *after* `insertCompletion` returned, so by then
-    /// AppKit's own insertion is in the buffer and there is a real "before" to
-    /// compare against.
+    /// runs a main-actor turn *after* `commit(_:)` returned, so by then the
+    /// committed word is in the buffer and there is a real "before" to compare
+    /// against.
+    ///
+    /// **There is deliberately no generation-token check here.** Every UI
+    /// dismissal after a commit — a scroll, a click elsewhere, the window
+    /// losing key — bumps `generation`, and none of them supersedes this
+    /// import: the row is already in the buffer, and what guards it is
+    /// `bufferVersion` (any buffer touch, typed or programmatic, aborts),
+    /// explicit cancellation (`update`'s keystroke entry and `reset` both run
+    /// `forgetList()`, which cancels this task), and the plan re-derivation
+    /// against the live text below. A dismissal that merely hides a panel
+    /// must not silently drop the import.
     ///
     /// An item past `prefetchResolveLimit` has no resolve in flight, so this is
     /// also where one is started: it is worth a round trip now that it is the row
@@ -783,41 +885,41 @@ final class CompletionController {
     private func scheduleFollowUp(
         for item: CompletionItem,
         replacing typedWord: NSRange,
-        in textView: NSTextView
+        in textView: NSTextView,
+        inFlight: Task<[CompletionEdit], Never>?,
+        provider: CodeIntelligenceProviding?
     ) {
         // The display spelling, which here is doing two jobs at once: it is the
         // resolve key, and it is *what now stands in the buffer* — the plan was
-        // rejected, so AppKit inserted the row's own string over the typed word,
-        // and that is exactly the "typed" text `plan(for:over:replacing:in:)`
-        // has to re-express the edits against.
+        // rejected, so `commit(_:)` inserted the row's own string over the typed
+        // word, and that is exactly the "typed" text
+        // `plan(for:over:replacing:in:)` has to re-express the edits against.
         let word = item.displayText
-        let token = generation
         let task: Task<[CompletionEdit], Never>
-        if let inFlight = resolveTasks[word] {
+        if let inFlight {
             task = inFlight
-        } else if let provider = resolveSource {
-            task = startResolve(for: item, provider: provider, token: token)
+        } else if let provider {
+            task = startResolve(for: item, provider: provider, token: generation)
         } else {
             return
         }
+        let version = bufferVersion
         followUpTask = Task { [weak self, weak textView] in
-            guard let before = textView?.string else { return }
             let edits = await task.value
             guard !Task.isCancelled,
                   let self,
                   let textView,
-                  token == self.generation,
-                  textView.string == before,
+                  version == self.bufferVersion,
                   let plan = self.plan(
                       for: edits,
                       over: word,
                       replacing: typedWord,
-                      in: before as NSString
+                      in: textView.string as NSString
                   )
             else { return }
-            // Outside AppKit's `insertCompletion` bracket, so this one raises the
-            // flag itself — the inserted line is not typed text and must not be
-            // read by the auto-pair or dedent interceptors.
+            // Outside `commit(_:)`'s programmatic-edit bracket, so this one
+            // raises the flag itself — the inserted line is not typed text and
+            // must not be read by the auto-pair or dedent interceptors.
             self.noteProgrammaticEdit(true)
             self.apply(plan, in: textView)
             self.noteProgrammaticEdit(false)
@@ -826,33 +928,60 @@ final class CompletionController {
 
     // MARK: - Teardown
 
-    /// Drop the snapshot and cancel a pending request (tab teardown).
+    /// The buffer changed — typing or any programmatic edit. Bumps the version
+    /// the D4 follow-up compares against, so a late auto-import never lands on a
+    /// buffer the user has touched since the commit.
+    func noteEdit() {
+        bufferVersion += 1
+    }
+
+    /// Drop everything (snapshot, pending request, panel) — tab teardown and the
+    /// completion-off switch.
     func reset() {
+        dismiss()
+    }
+
+    /// Cancel the in-flight request without touching the panel or any list
+    /// state — the caret moved while nothing was shown.
+    ///
+    /// `textViewDidChangeSelection` forwards a caret move to `update(…)` only
+    /// when the panel is visible, so an answer still travelling behind its
+    /// debounce would otherwise survive the move. `apply`'s staleness guards
+    /// compare the prefix *text* and the member *receiver* against the live
+    /// buffer — never the location — so an identically-spelled word at the new
+    /// offset passes them, and a list computed for one position (an LSP answer
+    /// is a question about an offset) opens over another. Cancelling the task
+    /// and bumping the generation here retires that answer at both of its
+    /// checks, exactly as `update`'s entry does.
+    ///
+    /// Deliberately *not* `forgetList()`: this runs on every post-commit caret
+    /// move too, and D4's late auto-import — scheduled by the commit whose own
+    /// insertion moved the caret — must stay in flight. Nothing else needs
+    /// clearing: a hidden panel implies no snapshot (`dismiss` cleared it) and
+    /// no prefetched resolves (`forgetList` ran with it).
+    func invalidatePendingRequest() {
         pendingTask?.cancel()
         pendingTask = nil
         generation += 1
-        snapshot = nil
-        isServingPopup = false
-        forgetList()
     }
 
     /// Forget everything that belongs to the currently-offered list: its
-    /// previews, its prefetched resolves and any late auto-import still waiting
-    /// on one. The snapshot itself is deliberately *not* dropped here — `update`
-    /// keeps the old list serving the popup until the new answer arrives.
+    /// prefetched resolves and any late auto-import still waiting on one. The
+    /// snapshot itself is deliberately *not* dropped here — `update` keeps the
+    /// old list serving the panel until the new answer arrives.
     ///
-    /// The callers are exactly the two that supersede a list: a keystroke
-    /// (`update`) and a tab teardown (`reset`). A caret move is deliberately not
-    /// one of them, because it does not supersede the snapshot either — both are
-    /// re-validated where they are used instead, the list against the word under
-    /// the caret and the edits against the text they were computed over.
+    /// The callers are exactly the ones that supersede a list: a keystroke
+    /// (`update`), a dismissal (`dismiss`) and a tab teardown (`reset`). A caret
+    /// move is deliberately not one of them, because it does not supersede the
+    /// snapshot either — both are re-validated where they are used instead, the
+    /// list against the word under the caret and the edits against the text they
+    /// were computed over.
     private func forgetList() {
         for task in resolveTasks.values { task.cancel() }
         resolveTasks.removeAll()
         resolved.removeAll()
         followUpTask?.cancel()
         followUpTask = nil
-        preview = nil
     }
 }
 

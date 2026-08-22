@@ -50,7 +50,7 @@ public struct FileIcon: Equatable {
         ".gitignore": FileIcon(symbolName: "arrow.triangle.branch", color: .gray),
         ".gitattributes": FileIcon(symbolName: "arrow.triangle.branch", color: .gray),
         "makefile": FileIcon(symbolName: "hammer", color: .gray),
-        "dockerfile": FileIcon(symbolName: "shippingbox", color: .blue),
+        "dockerfile": FileIcon(symbolName: "shippingbox", color: .blue)
     ]
 
     /// Lowercased file extension → icon.
@@ -104,6 +104,6 @@ public struct FileIcon: Equatable {
         // Archives
         "zip": FileIcon(symbolName: "doc.zipper", color: .gray),
         "gz": FileIcon(symbolName: "doc.zipper", color: .gray),
-        "tar": FileIcon(symbolName: "doc.zipper", color: .gray),
+        "tar": FileIcon(symbolName: "doc.zipper", color: .gray)
     ]
 }

@@ -16,7 +16,7 @@ final class CommitChangesParserTests: XCTestCase {
         XCTAssertEqual(CommitChangesParser.parse(output), [
             ChangedFile(path: "Sources/A.swift", status: .modified),
             ChangedFile(path: "Sources/B.swift", status: .added),
-            ChangedFile(path: "Sources/C.swift", status: .deleted),
+            ChangedFile(path: "Sources/C.swift", status: .deleted)
         ])
     }
 
@@ -30,7 +30,7 @@ final class CommitChangesParserTests: XCTestCase {
     func testRenameCarriesOldPath() {
         let output = "R100\told/name.swift\tnew/name.swift"
         XCTAssertEqual(CommitChangesParser.parse(output), [
-            ChangedFile(path: "new/name.swift", status: .renamed, oldPath: "old/name.swift"),
+            ChangedFile(path: "new/name.swift", status: .renamed, oldPath: "old/name.swift")
         ])
     }
 
@@ -39,14 +39,14 @@ final class CommitChangesParserTests: XCTestCase {
         // a plain addition with no oldPath (mirroring GitStatusParser).
         let output = "C75\tsrc/orig.swift\tsrc/copy.swift"
         XCTAssertEqual(CommitChangesParser.parse(output), [
-            ChangedFile(path: "src/copy.swift", status: .added),
+            ChangedFile(path: "src/copy.swift", status: .added)
         ])
     }
 
     func testPathsWithSpacesSurvive() {
         let output = "M\tdir with spaces/file name.swift"
         XCTAssertEqual(CommitChangesParser.parse(output), [
-            ChangedFile(path: "dir with spaces/file name.swift", status: .modified),
+            ChangedFile(path: "dir with spaces/file name.swift", status: .modified)
         ])
     }
 
@@ -54,7 +54,7 @@ final class CommitChangesParserTests: XCTestCase {
         let output = "M\tA.swift\r\nA\tB.swift\r\n"
         XCTAssertEqual(CommitChangesParser.parse(output), [
             ChangedFile(path: "A.swift", status: .modified),
-            ChangedFile(path: "B.swift", status: .added),
+            ChangedFile(path: "B.swift", status: .added)
         ])
     }
 
@@ -68,7 +68,7 @@ final class CommitChangesParserTests: XCTestCase {
         A\tgood.swift
         """
         XCTAssertEqual(CommitChangesParser.parse(output), [
-            ChangedFile(path: "good.swift", status: .added),
+            ChangedFile(path: "good.swift", status: .added)
         ])
     }
 }
