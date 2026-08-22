@@ -119,7 +119,15 @@ The app is built through an XcodeGen-generated Xcode project (a single
 multiplatform target with macOS and iOS destinations); there is no SwiftPM
 executable target.
 
+**After cloning, run `make setup` once.** It wires this clone's git hooks
+(`core.hooksPath`) and refuses if the pinned SwiftLint is missing — see
+[Style lint](#style-lint-swiftlint) for what it installs and why git cannot do
+this for you. `make` also wraps everything below: `make test`, `make lint`,
+`make build`, `make build-ios`.
+
 ```sh
+make setup             # one time per clone: hooks + linter check
+
 xcodegen generate      # regenerate Pisaka.xcodeproj from project.yml
 open Pisaka.xcodeproj  # build & run from Xcode (pick the macOS or an iOS destination)
 
