@@ -230,7 +230,9 @@ final class CompletionController {
     /// arrow key), while a keystroke or an explicit ask that has moved to a new
     /// word — most importantly onto the far side of a just-typed `.`, whose old
     /// snapshot answers the pre-dot word — legitimately starts a *new* question:
-    /// the stale list is dropped and the fresh request still goes out.
+    /// the stale list is dropped and the fresh request still goes out. A caret
+    /// move that stays inside the same word start invalidates nothing either:
+    /// the early return below it leaves the visible rows standing untouched.
     ///
     /// The request is built here, on the main actor, from the live buffer — the
     /// text goes *into* the request rather than being read later, so the words the
@@ -305,6 +307,16 @@ final class CompletionController {
             snapshot = nil
             panel.dismiss()
         }
+
+        // A caret move never asks, full stop — not even when it stays inside
+        // the very word the list serves (same word start). Arrowing left
+        // through `CRE|ATE` must not swap the visible list for the shorter
+        // prefix's answer and reset the selection to row 0, nor snap the panel
+        // shut once the prefix falls under the two-character minimum. The rows
+        // on screen keep answering the word under the caret well enough for
+        // Enter and Tab, whose commit re-derives every range from the live
+        // buffer; the next keystroke or ⌃Space asks afresh.
+        if caretMove { return }
 
         let request = CompletionRequest(
             prefix: nsText.substring(with: prefixRange),
@@ -386,9 +398,20 @@ final class CompletionController {
         // The re-reads below are staleness guards: when one fails, this answer is
         // history and must not even prefetch against it — the resolves would be
         // cancelled by the next keystroke without ever serving a visible row.
+        //
+        // Focus is two questions, not one — the trap the retired native path
+        // documented verbatim: `NSWindow.firstResponder` is *not* cleared when
+        // its window stops being key, so the responder test alone passes for a
+        // background editor. And nothing else takes the panel down afterwards:
+        // `windowDidResignKey` fired while nothing was shown (the visibility
+        // gate left the D4 state alone), so an answer arriving after the user
+        // clicked another window would otherwise float over a window they are
+        // not typing in.
         guard let textView,
-              !textView.hasMarkedText(),
-              textView.window?.firstResponder === textView
+              let window = textView.window,
+              window.isKeyWindow,
+              window.firstResponder === textView,
+              !textView.hasMarkedText()
         else { return }
 
         let nsText = textView.string as NSString

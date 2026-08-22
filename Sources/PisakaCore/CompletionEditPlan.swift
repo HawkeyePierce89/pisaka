@@ -44,14 +44,14 @@ public struct CompletionEdit: Equatable, Hashable, Sendable {
     /// already been replaced by `length` UTF-16 units of other text.
     ///
     /// The edits a provider hands back are in the coordinates of the buffer the
-    /// *request* was made against, and by the time one is committed the editor
-    /// itself may have written over the typed word twice: AppKit inserts a
-    /// **preview** of the highlighted row as the user arrows through the popup
-    /// (`insertCompletion(…, isFinal: false)`), and an item whose auto-import
-    /// arrives late (D4's stated race) is applied on top of an insertion that
-    /// has already happened. Both replace exactly the typed word and nothing
-    /// else, so both are one number — the length now standing where `typedWord`
-    /// stood — and every offset past that word moves by the difference.
+    /// *request* was made against, and by the time one lands the typed word may
+    /// no longer be what it was: typing continued after the answer arrived (the
+    /// panel keeps serving the previous list while a fresh one debounces, so
+    /// the commit runs over a longer or shorter word), and an item whose
+    /// auto-import arrives late (D4's stated race) is applied on top of an
+    /// insertion that has already happened. Both cases re-express the plan
+    /// against one number — the length now standing where `typedWord` stood —
+    /// and every offset past that word moves by the difference.
     ///
     /// Only three shapes are possible, because a plan's edits never overlap and
     /// the primary one covers the typed word entirely: an edit wholly before it
@@ -67,8 +67,8 @@ public struct CompletionEdit: Equatable, Hashable, Sendable {
     /// its end and the caret are all the same number — and the primary edit, a
     /// zero-length insertion sitting on it, is geometrically indistinguishable
     /// from an edit "wholly after the word". Read as the latter it would slide
-    /// past the preview it is supposed to replace, `make` would reject the plan
-    /// for `primaryEditMissesTypedWord`, and the item's `import` would be
+    /// past the very text it is supposed to replace, `make` would reject the
+    /// plan for `primaryEditMissesTypedWord`, and the item's `import` would be
     /// silently dropped on exactly the completion kind that has no prefix.
     public func shifted(afterReplacingTypedWord typedWord: NSRange, withLength length: Int) -> CompletionEdit {
         let delta = length - typedWord.length
