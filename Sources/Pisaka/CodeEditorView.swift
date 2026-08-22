@@ -418,7 +418,10 @@ struct CodeEditorView: NSViewRepresentable {
             codeFontSize: CGFloat(fontSize),
             metrics: interfaceMetrics
         )
-        context.coordinator.syncCompletionAppearance(codeFontSize: CGFloat(fontSize))
+        context.coordinator.syncCompletionAppearance(
+            codeFontSize: CGFloat(fontSize),
+            metrics: interfaceMetrics
+        )
 
         let previousFileID = context.coordinator.fileID
         let switchedFile = previousFileID != fileID
@@ -846,11 +849,11 @@ struct CodeEditorView: NSViewRepresentable {
             completion.setEnabled(enabled)
         }
 
-        /// Forward the panel's code-font input (`updateNSView`). Cheap and
-        /// unconditional: the controller only stores it, and reads it when the
-        /// next answer is presented.
-        func syncCompletionAppearance(codeFontSize: CGFloat) {
-            completion.syncAppearance(codeFontSize: codeFontSize)
+        /// Forward the panel's two font inputs (`updateNSView`). Cheap and
+        /// unconditional: the controller only stores them, and reads them when
+        /// the next answer is presented.
+        func syncCompletionAppearance(codeFontSize: CGFloat, metrics: InterfaceMetrics) {
+            completion.syncAppearance(codeFontSize: codeFontSize, metrics: metrics)
         }
 
         /// Recompute the popup's candidates for what is being typed.

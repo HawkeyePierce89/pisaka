@@ -34,7 +34,8 @@ final class CompletionPanel {
         selection: CompletionPopupSelection?,
         anchoredTo anchor: NSRect,
         in parent: NSWindow?,
-        codeFontSize: CGFloat
+        codeFontSize: CGFloat,
+        metrics: InterfaceMetrics
     ) {
         guard !rows.isEmpty else {
             dismiss()
@@ -50,7 +51,12 @@ final class CompletionPanel {
             self?.onCommit?(index)
         }
 
-        let width = min(Self.maximumWidth, contentView.measureWidth(for: rows, codeFontSize: codeFontSize))
+        // The width cap is chrome, so it rides the interface zone exactly as the
+        // hover popover's does (`HoverPanel`). The row height and the anchor gap
+        // stay raw: one tracks the code font's cell, the other is the same
+        // class of fixed anchor offset `DiffView`'s code-side paddings are.
+        let maximumWidth = CGFloat(metrics.pt(Double(Self.maximumWidth)))
+        let width = min(maximumWidth, contentView.measureWidth(for: rows, codeFontSize: codeFontSize, metrics: metrics))
         let rowHeight = contentView.rowHeight(codeFontSize: codeFontSize)
         // The provider's 30 is a *list* cap, not a visible one: at a zoomed code
         // font thirty rows outrun the screen, so the drawn count is bounded by
@@ -67,6 +73,7 @@ final class CompletionPanel {
             rows: rows,
             selection: selection?.selectedIndex ?? 0,
             codeFontSize: codeFontSize,
+            metrics: metrics,
             width: width
         )
 
@@ -219,6 +226,7 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
     private var rows: [CompletionRow] = []
     private var selection: Int = 0
     private var codeFontSize: CGFloat = 13
+    private var metrics: InterfaceMetrics = .unscaled
 
     var onCommit: ((Int) -> Void)?
 
@@ -226,10 +234,17 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
     override var acceptsFirstResponder: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    func update(rows: [CompletionRow], selection: Int, codeFontSize: CGFloat, width: CGFloat) {
+    func update(
+        rows: [CompletionRow],
+        selection: Int,
+        codeFontSize: CGFloat,
+        metrics: InterfaceMetrics,
+        width: CGFloat
+    ) {
         self.rows = rows
         self.selection = selection
         self.codeFontSize = codeFontSize
+        self.metrics = metrics
 
         let height = rowHeight(codeFontSize: codeFontSize) * CGFloat(rows.count)
         self.frame = NSRect(x: 0, y: 0, width: width, height: height)
@@ -267,7 +282,7 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
         return head + "…"
     }
 
-    func measureWidth(for rows: [CompletionRow], codeFontSize: CGFloat) -> CGFloat {
+    func measureWidth(for rows: [CompletionRow], codeFontSize: CGFloat, metrics: InterfaceMetrics) -> CGFloat {
         let codeFont = NSFont.monospacedSystemFont(ofSize: codeFontSize, weight: .regular)
         var maxW: CGFloat = 0
         let attributes: [NSAttributedString.Key: Any] = [.font: codeFont]
@@ -276,8 +291,8 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
             let size = textString.size(withAttributes: attributes)
             maxW = max(maxW, size.width)
         }
-        // width = badge + text + padding
-        return maxW + 40 // simple extra space for badge and padding
+        // width = badge column + text + padding — interface chrome, so scaled
+        return maxW + CGFloat(metrics.pt(40))
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -309,11 +324,23 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
                 rect.fill()
             }
 
-            let badgeRect = NSRect(x: 8, y: originY + (rHeight - 14) / 2, width: 14, height: 14)
+            // The badge column is interface chrome and rides the interface
+            // zone's metrics; its vertical centering stays inside the row,
+            // whose height belongs to the code font.
+            let badgeSide = CGFloat(metrics.pt(14))
+            let badgeRect = NSRect(
+                x: CGFloat(metrics.pt(8)),
+                y: originY + (rHeight - badgeSide) / 2,
+                width: badgeSide,
+                height: badgeSide
+            )
             if let image = NSImage(systemSymbolName: row.badge.symbolName, accessibilityDescription: nil) {
                 let nsColor = color(for: row.badge.color)
-                let symbolConfig = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
-                    .applying(.init(paletteColors: [nsColor]))
+                let symbolConfig = NSImage.SymbolConfiguration(
+                    pointSize: CGFloat(metrics.pt(12)),
+                    weight: .regular
+                )
+                .applying(.init(paletteColors: [nsColor]))
                 let configuredImage = image.withSymbolConfiguration(symbolConfig) ?? image
                 configuredImage.draw(in: badgeRect)
             }
@@ -323,7 +350,7 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
                 .font: codeFont,
                 .foregroundColor: color
             ])
-            attr.draw(at: NSPoint(x: 28, y: originY + (rHeight - attr.size().height) / 2))
+            attr.draw(at: NSPoint(x: CGFloat(metrics.pt(28)), y: originY + (rHeight - attr.size().height) / 2))
         }
     }
 

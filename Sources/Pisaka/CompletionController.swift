@@ -98,6 +98,9 @@ final class CompletionController {
 
     private let panel = CompletionPanel()
     private var codeFontSize: CGFloat = 13
+    /// The interface zone's metrics, for the panel's chrome (badge, insets,
+    /// width cap). Arrives as a plain value next to the code size.
+    private var metrics: InterfaceMetrics = .unscaled
 
     var isVisible: Bool { panel.isVisible }
 
@@ -257,6 +260,31 @@ final class CompletionController {
         explicit: Bool,
         caretMove: Bool
     ) {
+        // A bare caret move that stays inside the very word the list serves
+        // supersedes *nothing*: the rows stay committable and any answer still
+        // travelling behind its debounce belongs to exactly that word. The full
+        // entry below would strand the panel on its stale list until the next
+        // keystroke (the narrowed answer cancelled) and kill the standing
+        // rows' prefetched resolves — the same D4 damage `invalidatePendingRequest`
+        // exists to avoid on the hidden-panel path, which is why that path does
+        // not come through here at all. Safety of a late answer is not assumed:
+        // `apply` re-validates prefix text, member receiver and focus against
+        // the live buffer before it touches anything. Composition and a
+        // non-empty selection keep the full entry below.
+        if caretMove,
+           isEnabled,
+           let textView,
+           !textView.hasMarkedText(),
+           textView.selectedRange().length == 0,
+           let snap = snapshot {
+            let nsText = textView.string as NSString
+            let location = textView.selectedRange().location
+            let member = IdentifierScanner.memberContext(in: nsText, at: location)
+            let prefixLocation = member?.prefixRange.location
+                ?? IdentifierScanner.completionPrefixRange(in: nsText, at: location).location
+            if prefixLocation == snap.prefixLocation { return }
+        }
+
         pendingTask?.cancel()
         pendingTask = nil
         generation += 1
@@ -488,7 +516,8 @@ final class CompletionController {
             selection: selection,
             anchoredTo: anchor,
             in: textView.window,
-            codeFontSize: codeFontSize
+            codeFontSize: codeFontSize,
+            metrics: metrics
         )
     }
 
@@ -535,8 +564,9 @@ final class CompletionController {
 
     // MARK: - Panel Drive
 
-    func syncAppearance(codeFontSize: CGFloat) {
+    func syncAppearance(codeFontSize: CGFloat, metrics: InterfaceMetrics) {
         self.codeFontSize = codeFontSize
+        self.metrics = metrics
     }
 
     /// Move the popup's selection one row up or down (clamped by the Core state
