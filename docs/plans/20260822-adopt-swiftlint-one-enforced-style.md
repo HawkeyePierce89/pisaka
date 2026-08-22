@@ -278,7 +278,7 @@ to 2200 and `type_body_length` to 2150, which switches those rules off for
 - Create: `.githooks/pre-commit` (executable)
 - Modify: `Tests/PisakaCoreTests/LintConfigurationTests.swift`
 
-- [ ] Write `.githooks/pre-commit` (`#!/bin/sh` + `set -eu`), `chmod +x`:
+- [x] Write `.githooks/pre-commit` (`#!/bin/sh` + `set -eu`), `chmod +x`:
       - Read the pin out of `.swiftlint.yml` — one source of truth. The hook
         must contain **no literal version of its own**; a hook and a CI job
         that disagree about the version produce the exact failure this ticket
@@ -305,18 +305,26 @@ to 2200 and `type_body_length` to 2150, which switches those rules off for
         staged content. State that in a comment too.
       - On violations, exit non-zero with the linter's own output plus a line
         naming `.swiftlint.yml` as the authority.
-- [ ] Verify by hand in a scratch clone or temporary worktree: staging a file
-      with a violation is refused; staging a clean file passes; a `PATH`
-      without `swiftlint` produces the actionable refusal; a faked mismatched
-      version produces the version refusal.
-- [ ] Extend `LintConfigurationTests` with the hook half: the file exists at
+- [x] Verify by hand in a scratch clone or temporary worktree (performed
+      end-to-end in a detached `git worktree` at HEAD with
+      `git -c core.hooksPath=.githooks commit`, leaving the real repo config
+      untouched): staging an over-long identifier is refused with the
+      violation and the `.swiftlint.yml`-is-the-authority line; a clean file
+      commits; an empty-PATH run produces the actionable refusal ("swiftlint
+      was not found on PATH", the pinned release URL, and the
+      `git config core.hooksPath .githooks` one-liner); a faked `0.64.1`
+      binary produces "SwiftLint 0.65.0 is pinned but 0.64.1 is installed".
+- [x] Extend `LintConfigurationTests` with the hook half: the file exists at
       `.githooks/pre-commit`; it is executable (POSIX permissions via
       `FileManager`); its comment-stripped body reads the version out of
       `.swiftlint.yml` and contains no hardcoded version literal; it passes
       `--strict`; it contains `--force-exclude`; it contains **no** `--fix` and
       **no** `|| true`-style softening, and every refusal branch reaches
-      `exit 1`.
-- [ ] Run `swift test` — must pass before Task 5.
+      `exit 1`. (Plus two mechanism pins beyond the letter: the index
+      materialisation via `git checkout-index -a --prefix=` is asserted, and
+      the suite asserts `exit 0` appears exactly once — the documented
+      no-staged-Swift-files early exit.)
+- [x] Run `swift test` — must pass before Task 5.
 
 ### Task 5: The CI lint job
 

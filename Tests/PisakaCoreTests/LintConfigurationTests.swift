@@ -30,7 +30,14 @@ import XCTest
 ///  * every *in-file* exemption — a lint-disable comment anywhere under
 ///    `Sources/` or `Tests/` — equals the small documented set by path, rule
 ///    and count, so an exemption added silently in a source file fails here
-///    instead of passing review unnoticed.
+///    instead of passing review unnoticed;
+///  * `.githooks/pre-commit` exists, is executable, and keeps the shape that
+///    makes it a gate rather than a courtesy: it reads its version pin out of
+///    `.swiftlint.yml` (never a literal of its own), lints what is being
+///    committed (`--strict`, `--force-exclude`, over a materialised index),
+///    never rewrites staged content (`--fix` is absent) and never softens
+///    (`|| true`-style escapes are absent), and every refusal branch reaches
+///    `exit 1`.
 final class LintConfigurationTests: XCTestCase {
     func testBothConfigurationFilesExist() throws {
         for relativePath in [Self.rootConfigPath, Self.childConfigPath] {
@@ -136,10 +143,148 @@ final class LintConfigurationTests: XCTestCase {
                        """)
     }
 
+    // MARK: - The pre-commit hook
+
+    /// `.githooks/pre-commit` is the local half of the enforcement; CI is the
+    /// other. Both are only as good as their shape: a hook that skips when the
+    /// tool is missing, rewrites staged content, or softens a violation into a
+    /// warning is not a gate. These assertions pin that shape by mechanism —
+    /// over comment-stripped lines, so a comment describing a refused branch
+    /// cannot stand in for one.
+    func testPreCommitHookExistsAndIsExecutable() throws {
+        let path = Self.repositoryRoot.appendingPathComponent(Self.hookPath).path
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path),
+                      "missing \(Self.hookPath) — the local half of the gate must stay committed")
+        let attributes = try FileManager.default.attributesOfItem(atPath: path)
+        let permissions = try XCTUnwrap(attributes[.posixPermissions] as? NSNumber,
+                                        "\(Self.hookPath) has no POSIX permissions")
+        XCTAssertTrue(permissions.uint16Value & 0o100 != 0,
+                      "\(Self.hookPath) must carry the owner-execute bit (git runs hooks only if executable)")
+    }
+
+    func testPreCommitHookIsBinShWithSetEu() throws {
+        XCTAssertEqual(try hookLines().first, "#!/bin/sh",
+                       "the hook must run under plain /bin/sh, not a shell the author happened to have")
+        XCTAssertTrue(try activeHookLines().contains("set -eu"),
+                      "the hook must run with set -eu so a failed command fails the commit")
+    }
+
+    /// One source of truth for the version: the hook reads `swiftlint_version`
+    /// out of `.swiftlint.yml`. A hardcoded literal here would let hook and
+    /// configuration disagree silently — SwiftLint itself only warns on a
+    /// mismatch, which is why something else must enforce the pin at all.
+    ///
+    /// Matched as *active* lines because both files quote the key in their
+    /// comments; a stripped body containing neither the key nor the file name
+    /// means the read was deleted, and any three-component numeric literal in
+    /// it means a second pin appeared.
+    func testPreCommitHookReadsItsPinFromTheRootConfiguration() throws {
+        let active = try activeHookText()
+        XCTAssertTrue(active.contains("swiftlint_version:"),
+                      "the hook must read swiftlint_version out of .swiftlint.yml rather than carrying its own pin")
+        XCTAssertTrue(active.contains(".swiftlint.yml"),
+                      "the hook must name .swiftlint.yml as the file its pin comes from")
+
+        let regex = try NSRegularExpression(pattern: "[0-9]+\\.[0-9]+\\.[0-9]+")
+        let range = NSRange(active.startIndex..., in: active)
+        let matches = regex.matches(in: active, options: [], range: range).compactMap {
+            Range($0.range, in: active).map { String(active[$0]) }
+        }
+        XCTAssertTrue(matches.isEmpty,
+                     """
+                     the hook contains a hardcoded version literal (\(matches.joined(separator: ", "))). \
+                     The pin lives in .swiftlint.yml alone; a second one drifts from it and the \
+                     gate then enforces the wrong version.
+                     """)
+    }
+
+    func testPreCommitHookRunsStrictWithForceExcludeOverTheStagedIndex() throws {
+        let active = try activeHookText()
+        XCTAssertTrue(active.contains("--strict"),
+                      "the hook must lint with --strict so warnings refuse too")
+        XCTAssertTrue(active.contains("--force-exclude"),
+                      "explicitly named paths need --force-exclude for excluded: to apply to them")
+        XCTAssertTrue(active.contains("git checkout-index -a --prefix="),
+                      """
+                      the hook must lint what is being committed by materialising the index \
+                      (git checkout-index), not the working tree — a partially staged file is \
+                      judged by the content this commit will carry
+                      """)
+    }
+
+    func testPreCommitHookNeverFixesAndNeverSoftens() throws {
+        let active = try activeHookText()
+        for forbidden in ["--fix", "|| true", "|| :"] {
+            XCTAssertFalse(active.contains(forbidden), """
+                the hook must not contain “\(forbidden)”. It refuses, or it is not a gate: \
+                rewriting staged content loses what a person wrote; swallowing a failure \
+                lets the commit through exactly when it should stop.
+                """)
+        }
+    }
+
+    /// Every refusal branch reaches `exit 1`, nesting-aware: an `if` opens at
+    /// depth 0, a standalone `fi` closes it, and the counted `exit 1` must sit
+    /// at depth 0 inside its own branch — an exit reachable only under a second
+    /// condition is not this guard refusing.
+    private func assertHookGuard(_ condition: String,
+                                 exits exitLine: String,
+                                 in lines: [String],
+                                 because reason: String,
+                                 file: StaticString = #filePath,
+                                 line: UInt = #line) {
+        guard let start = lines.firstIndex(where: { $0.hasPrefix("if ") && $0.contains(condition) }) else {
+            XCTFail("""
+                \(Self.hookPath) has no guard testing \(condition). It must, because \(reason).
+                """, file: file, line: line)
+            return
+        }
+
+        var reaches = false
+        var depth = 0
+        for entry in lines[(start + 1)...] {
+            if entry.hasPrefix("if ") { depth += 1; continue }
+            if entry == "fi" {
+                if depth == 0 { break }
+                depth -= 1
+                continue
+            }
+            if entry == exitLine, depth == 0 { reaches = true; break }
+        }
+        XCTAssertTrue(reaches, """
+            \(Self.hookPath) tests \(condition) but its branch does not reach `\(exitLine)` — so the \
+            case passes through instead of being handled: \(reason).
+            """, file: file, line: line)
+    }
+
+    func testEveryRefusalBranchReachesExitOne() throws {
+        let lines = try activeHookLines()
+        assertHookGuard("-z \"$pin\"", exits: "exit 1", in: lines, because:
+            "an unreadable pin means the gate cannot know what version to enforce, and guessing is worse than refusing")
+        assertHookGuard("command -v swiftlint", exits: "exit 1", in: lines, because:
+            "a machine without the pinned toolchain is refused, never skipped — skipping is how a violation gets in")
+        assertHookGuard("installed\" != \"$pin", exits: "exit 1", in: lines, because:
+            "a version mismatch must refuse naming both versions; SwiftLint itself only warns on one")
+        assertHookGuard("xargs -0 swiftlint lint", exits: "exit 1", in: lines, because:
+            "violations found in the staged content are the whole reason the hook exists")
+    }
+
+    /// The one permitted non-refusal guard is "no staged Swift files → exit 0"
+    /// — nothing to judge is not a bypass. Any second `exit 0` means a refusal
+    /// somewhere grew a happy path.
+    func testTheOnlyExitZeroIsTheNoStagedSwiftFilesGuard() throws {
+        let lines = try activeHookLines()
+        XCTAssertEqual(lines.filter { $0 == "exit 0" }.count, 1,
+                       "\(Self.hookPath) may reach exit 0 early only for the no-staged-Swift-files case")
+        assertHookGuard("-s \"$list\"", exits: "exit 0", in: lines, because:
+            "a commit touching no Swift files needs no lint, and the empty-input case must stay explicit")
+    }
+
     // MARK: - Data
 
     private static let rootConfigPath = ".swiftlint.yml"
     private static let childConfigPath = "Tests/.swiftlint.yml"
+    private static let hookPath = ".githooks/pre-commit"
 
     /// The test-tree exemptions, as `Tests/.swiftlint.yml` documents them.
     private static let documentedChildExemptions: Set<String> = [
@@ -208,5 +353,27 @@ final class LintConfigurationTests: XCTestCase {
 
         try walk(Self.repositoryRoot.appendingPathComponent(tree))
         return files
+    }
+
+    private func hookText() throws -> String {
+        try read(Self.hookPath)
+    }
+
+    /// The hook's lines, verbatim and in order — for assertions about the
+    /// shebang, which comment-stripping would eat.
+    private func hookLines() throws -> [String] {
+        try hookText().components(separatedBy: .newlines)
+    }
+
+    /// The hook's active lines: neither blank nor a whole-line comment,
+    /// trimmed. The hook is deliberately commented like the YAML files above
+    /// — its reasons are written beside its refusals — so every substring and
+    /// branch assertion runs over this, never the raw text.
+    private func activeHookLines() throws -> [String] {
+        activeYAMLLines(of: try hookText())
+    }
+
+    private func activeHookText() throws -> String {
+        try activeHookLines().joined(separator: "\n")
     }
 }

@@ -1,0 +1,85 @@
+#!/bin/sh
+#
+# Pisaka's pre-commit gate: what is about to be committed must be clean under
+# the repository's one style authority, `.swiftlint.yml`.
+#
+# This hook refuses; it never rewrites. There is deliberately no `--fix` here:
+# a hook silently editing already-staged content is content loss, so the gate
+# judges and, when needed, stops.
+#
+# There is deliberately NO graceful degradation either: a machine without the
+# pinned swiftlint is refused, not skipped. Skipping is how a violation gets
+# in; CI runs the same check later, but late. If you are reading this to turn
+# the refusal into a pass-through, the fix is installing the pinned release,
+# not weakening the gate.
+
+set -eu
+
+cd "$(git rev-parse --show-toplevel)"
+
+# One source of truth for the version: read the pin out of .swiftlint.yml.
+# This file contains no version literal of its own, so hook and configuration
+# cannot disagree — a disagreement is exactly the failure this gate exists to
+# prevent. (SwiftLint itself only WARNS on a version mismatch, which is why
+# something else has to enforce it.)
+pin=$(sed -n 's/^swiftlint_version:[[:space:]]*\([0-9][0-9.]*\)[[:space:]]*$/\1/p' .swiftlint.yml)
+if [ -z "$pin" ]; then
+    echo "pre-commit: could not read swiftlint_version from .swiftlint.yml" >&2
+    exit 1
+fi
+
+if ! command -v swiftlint >/dev/null 2>&1; then
+    cat >&2 <<MESSAGE
+pre-commit: swiftlint was not found on PATH.
+
+  This repository pins SwiftLint $pin. Install that exact release:
+
+      https://github.com/realm/SwiftLint/releases/download/$pin/portable_swiftlint.zip
+
+  Then wire this repository's hooks in (one time per clone):
+
+      git config core.hooksPath .githooks
+
+  The refusal is deliberate: an unlinted commit is precisely what this hook
+  exists to prevent, so it does not degrade into a skip when the tool is
+  missing.
+MESSAGE
+    exit 1
+fi
+
+installed=$(swiftlint version)
+if [ "$installed" != "$pin" ]; then
+    echo "pre-commit: refusing — SwiftLint $pin is pinned but $installed is installed." \
+        "Install $pin: https://github.com/realm/SwiftLint/releases/download/$pin/portable_swiftlint.zip" >&2
+    exit 1
+fi
+
+# The commit is judged by what it will contain: only added/copied/modified/
+# renamed staged files count, and deletions are nothing to lint.
+list=$(mktemp)
+work=$(mktemp -d)
+trap 'rm -rf "$list" "$work"' EXIT INT TERM
+git diff --cached --name-only --diff-filter=ACMR -z -- '*.swift' >"$list"
+if [ ! -s "$list" ]; then
+    exit 0
+fi
+
+# Lint WHAT IS BEING COMMITTED, not the working tree: a partially staged file
+# must be judged by the content this commit will carry, not by whatever the
+# worktree holds while it is being edited. `git checkout-index -a` materialises
+# the whole index into a scratch tree — carrying both config files along, so
+# the nested Tests/.swiftlint.yml still applies — and the linter reads the
+# staged paths out of that tree instead of out of the worktree. (--force-exclude
+# is required for excluded: to apply to explicitly named paths.)
+git checkout-index -a --prefix="$work/"
+cd "$work"
+
+# xargs -0 keeps every staged path intact (spaces, quotes, newlines); the list
+# is never empty because the no-staged-Swift-files case exited above.
+if ! xargs -0 swiftlint lint --strict --quiet --force-exclude <"$list"; then
+    echo "" >&2
+    echo "pre-commit: refused — swiftlint reported violations in the staged content." \
+        ".swiftlint.yml at the repository root is the authority; fix the violations there" \
+        "(relaxations belong in the config with a written reason, never as scattered disables)." >&2
+    exit 1
+fi
