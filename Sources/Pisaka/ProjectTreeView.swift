@@ -64,6 +64,7 @@ struct ProjectTreeView: View {
     @StateObject private var dragSession = TreeDragSession()
 
     @State private var draft: TreeEditDraft?
+    @State private var draftAppearedTrigger: Int = 0
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
@@ -137,6 +138,7 @@ struct ProjectTreeView: View {
                         onRunTest: onRunTest,
                         onMove: onMove,
                         mayBeginFileOperation: mayBeginFileOperation,
+                        onDraftAppeared: { draftAppearedTrigger += 1 },
                         draft: $draft,
                         dragSession: dragSession,
                         isRoot: true,
@@ -149,7 +151,7 @@ struct ProjectTreeView: View {
                 }
                 .padding(.vertical, metrics.scaled(4))
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .onReceive(NotificationCenter.default.publisher(for: Notification.Name("ProjectTreeDraftRowAppeared"))) { _ in
+                .onChange(of: draftAppearedTrigger) { _ in
                     withAnimation {
                         proxy.scrollTo("draft-row")
                     }
@@ -186,6 +188,7 @@ private struct DirectoryNodeView: View {
     let onRunTest: (URL) -> Void
     let onMove: (URL, URL) -> Void
     let mayBeginFileOperation: () -> Bool
+    let onDraftAppeared: () -> Void
     @Binding var draft: TreeEditDraft?
     /// The tree-wide drag state, handed down the recursion so every row reads and
     /// writes the same one.
@@ -219,6 +222,7 @@ private struct DirectoryNodeView: View {
         onRunTest: @escaping (URL) -> Void,
         onMove: @escaping (URL, URL) -> Void,
         mayBeginFileOperation: @escaping () -> Bool,
+        onDraftAppeared: @escaping () -> Void,
         draft: Binding<TreeEditDraft?>,
         dragSession: TreeDragSession,
         isRoot: Bool = false,
@@ -237,6 +241,7 @@ private struct DirectoryNodeView: View {
         self.onRunTest = onRunTest
         self.onMove = onMove
         self.mayBeginFileOperation = mayBeginFileOperation
+        self.onDraftAppeared = onDraftAppeared
         self._draft = draft
         self.dragSession = dragSession
         self.isRoot = isRoot
@@ -247,23 +252,26 @@ private struct DirectoryNodeView: View {
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
             if case .create(let parent, let isFolder) = draft, parent == url {
-                TreeNameFieldView(
-                    draft: draft!,
-                    siblings: children?.map(\.name) ?? [],
-                    onCommit: { newName in
-                        if isFolder {
-                            onNewFolder(url, newName)
-                        } else {
-                            onNewFile(url, newName)
-                        }
-                        draft = nil
-                    },
-                    onCancel: { draft = nil }
-                )
+                Group {
+                    TreeNameFieldView(
+                        draft: draft!,
+                        siblings: children?.map(\.name) ?? [],
+                        onCommit: { newName in
+                            if isFolder {
+                                onNewFolder(url, newName)
+                            } else {
+                                onNewFile(url, newName)
+                            }
+                            draft = nil
+                        },
+                        onCancel: { draft = nil }
+                    )
+                    .id("draft-\(isFolder ? "folder" : "file")")
+                }
                 .padding(.leading, metrics.scaled(12))
                 .id("draft-row")
                 .onAppear {
-                    NotificationCenter.default.post(name: Notification.Name("ProjectTreeDraftRowAppeared"), object: nil)
+                    onDraftAppeared()
                 }
             }
 
@@ -283,6 +291,7 @@ private struct DirectoryNodeView: View {
                         onRunTest: onRunTest,
                         onMove: onMove,
                         mayBeginFileOperation: mayBeginFileOperation,
+                        onDraftAppeared: onDraftAppeared,
                         draft: $draft,
                         dragSession: dragSession,
                         siblings: currentChildrenNames
@@ -385,7 +394,14 @@ private struct DirectoryNodeView: View {
             }
         )
         .onChange(of: isExpanded) { expanded in
-            if expanded && children == nil {
+            if !expanded {
+                if case .create(let parent, _) = draft, parent == url {
+                    draft = nil
+                } else if case .rename(let draftedEntry) = draft,
+                          draftedEntry.url.deletingLastPathComponent().standardizedFileURL.path == url.standardizedFileURL.path {
+                    draft = nil
+                }
+            } else if children == nil {
                 loadChildren()
             }
         }
