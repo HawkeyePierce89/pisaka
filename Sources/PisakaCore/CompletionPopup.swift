@@ -48,6 +48,24 @@ public enum CompletionPopup {
         public let symbolName: String
         public let color: FileIconColor
 
+        /// One badge per `SymbolKind`, in the `FileIcon` mould: the mapping is
+        /// data, not control flow. Totality over the closed enum is pinned by
+        /// `CompletionPopupTests.testBadgesForEverySymbolKind`, which iterates
+        /// `allCases` — a new kind without an entry fails there first.
+        private static let symbolBadges: [SymbolKind: CompletionBadge] = [
+            .type: .init(symbolName: "t.square", color: .purple),
+            .function: .init(symbolName: "f.cursive", color: .purple),
+            .method: .init(symbolName: "f.cursive", color: .purple),
+            .property: .init(symbolName: "p.square", color: .blue),
+            .constant: .init(symbolName: "c.square", color: .blue),
+            .variable: .init(symbolName: "v.square", color: .blue),
+            .heading: .init(symbolName: "number", color: .gray),
+            .selector: .init(symbolName: "s.square", color: .pink),
+            .key: .init(symbolName: "k.square", color: .yellow),
+            .stage: .init(symbolName: "shippingbox", color: .orange),
+            .anchor: .init(symbolName: "link", color: .gray)
+        ]
+
         public init(symbolName: String, color: FileIconColor) {
             self.symbolName = symbolName
             self.color = color
@@ -56,18 +74,7 @@ public enum CompletionPopup {
         public init(source: RowSource) {
             switch source {
             case .symbol(let kind):
-                switch kind {
-                case .type: self.init(symbolName: "t.square", color: .purple)
-                case .function, .method: self.init(symbolName: "f.cursive", color: .purple)
-                case .property: self.init(symbolName: "p.square", color: .blue)
-                case .constant: self.init(symbolName: "c.square", color: .blue)
-                case .variable: self.init(symbolName: "v.square", color: .blue)
-                case .heading: self.init(symbolName: "number", color: .gray)
-                case .selector: self.init(symbolName: "s.square", color: .pink)
-                case .key: self.init(symbolName: "k.square", color: .yellow)
-                case .stage: self.init(symbolName: "shippingbox", color: .orange)
-                case .anchor: self.init(symbolName: "link", color: .gray)
-                }
+                self = Self.symbolBadges[kind]!
             case .keyword:
                 self.init(symbolName: "k.circle", color: .pink)
             case .word:
@@ -115,7 +122,8 @@ public enum CompletionPopup {
     }
 }
 
-// Aliases for the requested names
+// The public spellings the editor and tests use, so callers need not reach
+// through the `CompletionPopup` namespace.
 public typealias CompletionPopupSelection = CompletionPopup.Selection
 public typealias CompletionRowSource = CompletionPopup.RowSource
 public typealias CompletionBadge = CompletionPopup.Badge

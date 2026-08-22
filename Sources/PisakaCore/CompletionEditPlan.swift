@@ -109,13 +109,11 @@ public struct CompletionEdit: Equatable, Hashable, Sendable {
     /// **The row may only drop a head that re-writes, verbatim, characters
     /// already standing in the buffer between this edit's start and the typed
     /// word's start**, and that rule is what makes the shown string safe to
-    /// insert. The shown string is not only shown: AppKit writes it over the
-    /// typed word as a preview while the user arrows
-    /// (`insertCompletion(…, isFinal: false)`), and it inserts it there itself
-    /// whenever `CompletionEditPlan.make` rejects the plan as stale. Dropping a
-    /// head that merely restates what is there composes exactly the buffer the
-    /// plan would have (`greeter.` + `greet`); dropping anything else would
-    /// silently delete or duplicate characters.
+    /// insert. The shown string is not only shown: the editor writes it over the
+    /// typed word whenever `CompletionEditPlan.make` rejects the plan as stale.
+    /// Dropping a head that merely restates what is there composes exactly the
+    /// buffer the plan would have (`greeter.` + `greet`); dropping anything else
+    /// would silently delete or duplicate characters.
     ///
     /// So an optional receiver's `"?.greet"` over the same range keeps its full
     /// spelling — the buffer holds `.`, the edit writes `?.`, and showing the

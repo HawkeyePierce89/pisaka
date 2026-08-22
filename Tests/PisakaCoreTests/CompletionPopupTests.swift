@@ -86,7 +86,9 @@ final class CompletionPopupTests: XCTestCase {
         let items = [
             CompletionItem(text: "alpha", kind: nil, isFromCurrentFile: true, displayText: "alpha_disp"),
             CompletionItem(text: "beta", kind: nil, isFromCurrentFile: true, displayText: "beta_disp"),
-            CompletionItem(text: "gamma", kind: nil, isFromCurrentFile: true, displayText: "alpha_disp") // dup displayText
+            CompletionItem(
+                text: "gamma", kind: nil, isFromCurrentFile: true, displayText: "alpha_disp"
+            ) // dup displayText
         ]
 
         let rows = CompletionRow.rows(for: items, language: nil)

@@ -342,7 +342,7 @@ struct CodeEditorView: NSViewRepresentable {
         // ...and whether it may offer anything at all. Applied here as well as in
         // `updateNSView` so an editor built while the preference is already off
         // never asks the provider even once.
-        context.coordinator.completion.setEnabled(completionEnabled)
+        context.coordinator.setCompletionEnabled(completionEnabled)
         // Bind the hover popover. Nothing is asked here either: the first request
         // is made once the pointer has rested over an identifier for
         // `HoverContent.dwellDelay`.
@@ -409,7 +409,7 @@ struct CodeEditorView: NSViewRepresentable {
         // cancels whatever was pending and dismisses a popup that is on screen,
         // which is why this runs before the buffer/blame/index reconciliation
         // below rather than after it.
-        context.coordinator.completion.setEnabled(completionEnabled)
+        context.coordinator.setCompletionEnabled(completionEnabled)
 
         // Keep the popover's two font inputs current. Cheap and unconditional:
         // the controller only stores them, and they are read when the *next*
@@ -418,9 +418,7 @@ struct CodeEditorView: NSViewRepresentable {
             codeFontSize: CGFloat(fontSize),
             metrics: interfaceMetrics
         )
-        context.coordinator.completion.syncAppearance(
-            codeFontSize: CGFloat(fontSize)
-        )
+        context.coordinator.syncCompletionAppearance(codeFontSize: CGFloat(fontSize))
 
         let previousFileID = context.coordinator.fileID
         let switchedFile = previousFileID != fileID
@@ -789,11 +787,10 @@ struct CodeEditorView: NSViewRepresentable {
             // (the caret sitting after `receiver.`) — mean an ordinary keystroke
             // outside an identifier costs one prefix scan and no task.
             //
-            // Not while a *programmatic* edit is being applied. AppKit's own
-            // completion insertion fires this notification synchronously (for each
-            // arrow-key preview as well as for the accepted word), so refreshing
-            // here would schedule a fresh request for the word just completed and
-            // re-open the popup over it a debounce later — the treadmill the iOS
+            // Not while a *programmatic* edit is being applied. The commit path
+            // brackets its own insertion with this flag, so the edit notification
+            // the committed word fires does not schedule a fresh request for it
+            // and re-open the popup a debounce later — the treadmill the iOS
             // strip avoids by clearing after an insertion. Auto-pair and the
             // indented newline take the same path and are equally not typing.
             if !isApplyingProgrammaticEdit {
@@ -806,12 +803,13 @@ struct CodeEditorView: NSViewRepresentable {
         /// Bind the completion popup's candidate source to this text view
         /// (`makeNSView`).
         ///
-        /// The controller is additionally given the programmatic-edit flag, for
-        /// the one insertion it performs outside AppKit's own
-        /// `insertCompletion` bracket: a late auto-import (D4). Captured weakly
-        /// — the coordinator owns the controller — so a torn-down editor simply
-        /// leaves the flag alone, which is right because there is then no
-        /// interceptor left to guard.
+        /// The controller is additionally given the programmatic-edit flag: both
+        /// of its insertion paths — the simple replacement and a plan carrying an
+        /// auto-import — bracket themselves with it, so the edit notification
+        /// they fire is not mistaken for typing and re-open the popup over the
+        /// word just committed. Captured weakly — the coordinator owns the
+        /// controller — so a torn-down editor simply leaves the flag alone,
+        /// which is right because there is then no interceptor left to guard.
         func attachCompletion(textView: NSTextView) {
             completion.attach(textView: textView)
             completion.noteProgrammaticEdit = { [weak self] isApplying in
@@ -829,6 +827,24 @@ struct CodeEditorView: NSViewRepresentable {
             if let window = notification.object as? NSWindow, window === textView?.window {
                 completion.dismiss()
             }
+        }
+
+        /// Forward the completion on/off preference to the controller
+        /// (`makeNSView`/`updateNSView`).
+        ///
+        /// A thin forwarder rather than a stored flag here: the controller owns
+        /// the state, ignores an unchanged value, and is the only thing that can
+        /// act on a change — cancelling in-flight work and dismissing a live
+        /// popup. Nothing in the symbol index or the LSP layer is touched.
+        func setCompletionEnabled(_ enabled: Bool) {
+            completion.setEnabled(enabled)
+        }
+
+        /// Forward the panel's code-font input (`updateNSView`). Cheap and
+        /// unconditional: the controller only stores it, and reads it when the
+        /// next answer is presented.
+        func syncCompletionAppearance(codeFontSize: CGFloat) {
+            completion.syncAppearance(codeFontSize: codeFontSize)
         }
 
         /// Recompute the popup's candidates for what is being typed.
@@ -849,14 +865,14 @@ struct CodeEditorView: NSViewRepresentable {
             )
         }
 
-        /// The Find menu's "Complete" (⌃Space): refresh the candidates *now* and
-        /// let the controller open the popup once the provider answers.
+        /// The Find menu's "Complete" (⌃Space), AppKit's stock ⌥⎋/F5 and the
+        /// `complete(_:)` override: refresh the candidates *now* and let the
+        /// controller open its panel once the provider answers.
         ///
-        /// Deliberately not a bare `complete(nil)`: the delegate can only serve a
-        /// snapshot, so opening the popup before the refresh would show whatever
-        /// the last keystroke's debounce happened to leave behind — or nothing at
-        /// all, which is what an explicit invocation on a still-debouncing prefix
-        /// would otherwise get.
+        /// Deliberately not a "show whatever is cached" path: the panel only
+        /// appears from `apply(…)`, behind the staleness guards, so an explicit
+        /// invocation on a still-debouncing prefix waits for the fresh answer
+        /// rather than flashing the previous word's list.
         func requestCompletions() {
             updateCompletions(explicit: true)
         }
@@ -864,14 +880,13 @@ struct CodeEditorView: NSViewRepresentable {
         /// Drop the candidate snapshot because the editor is now showing a
         /// different file (or a wholesale new buffer).
         ///
-        /// The snapshot is matched only against the *text* of the partial word it
-        /// was computed for, so without this a stock completion invocation
-        /// (⌥⎋, F5) on the same word in the incoming file would be served the
-        /// outgoing file's list — ranked with the wrong file as "current", so the
-        /// declarations actually in view are missing or demoted. The iOS editor
-        /// clears its strip on the same condition.
+        /// The snapshot's staleness guards match it against the *text* of the
+        /// partial word it was computed for, which a coincidentally identical
+        /// word in the incoming file would satisfy — ranked with the wrong file
+        /// as "current", so the declarations actually in view are missing or
+        /// demoted. Clearing here removes the question; the iOS editor clears its
+        /// strip on the same condition.
         func clearCompletions() {
-            completion.dismiss()
             completion.reset()
         }
 
@@ -880,7 +895,7 @@ struct CodeEditorView: NSViewRepresentable {
                   let textView = self.textView,
                   textView.isEditable,
                   !textView.hasMarkedText(),
-                  event.modifierFlags.intersection([.command, .shift, .option, .control]).isEmpty
+                  event.modifierFlags.isDisjoint(with: [.command, .shift, .option, .control])
             else { return false }
 
             switch event.keyCode {
@@ -2135,13 +2150,15 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     }
 
     /// Complete from the caret — the entry point shared by this view's own ⌃Space
-    /// (`keyDown`) and the Find menu's "Complete", which reaches this view as the
-    /// key window's first responder, exactly like ⌃⌘J.
+    /// (`keyDown`), the Find menu's "Complete" (which reaches this view as the
+    /// key window's first responder, exactly like ⌃⌘J), and AppKit's stock
+    /// ⌥⎋/F5 completion command.
     ///
-    /// The popup is *not* opened here: `complete(_:)` asks the delegate
-    /// synchronously, and the delegate can only serve an already-computed
-    /// snapshot, so the request is handed to the coordinator's completion
-    /// controller, which opens the popup itself the moment the provider answers.
+    /// The popup is *not* opened here: the request is handed to the coordinator's
+    /// completion controller, which computes candidates asynchronously and opens
+    /// its own panel behind the staleness guards the moment the provider
+    /// answers. Overriding this is what retires AppKit's native popup — no stock
+    /// invocation can ever reach it.
     override func complete(_ sender: Any?) {
         onRequestCompletions?()
     }
