@@ -270,6 +270,7 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `DiffWindowContent.swift` / `DiffWindowController.swift` — separate diff windows.
 - `SourceViewerWindowController.swift` / `SourceViewerContent.swift` — the read-only out-of-project definition window.
 - `ProjectTreeView.swift` — project tree (lazy children, `treeRevision` reloads).
+- `ProjectTreeDraftField.swift` — inline naming draft field.
 - `TabListView.swift` / `TabRowView.swift` — open-tabs list/strip.
 
 `docs/architecture/app-terminal.md` — embedded terminal (macOS):

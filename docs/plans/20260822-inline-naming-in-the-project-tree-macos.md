@@ -283,20 +283,20 @@ chosen (same alert, same moment as today), not only at commit.
   `docs/architecture/app-git-views.md`, `docs/architecture/app-shell.md`,
   `docs/architecture/core-workspace.md`, `CLAUDE.md`
 
-- [ ] app-window.md ProjectTreeView entry: the inline flow, the writer gate
+- [x] app-window.md ProjectTreeView entry: the inline flow, the writer gate
       asked at command time (and kept at commit), the focus-loss rule
       (in-window end-editing cancels; window resign-key does not; the
       deterministic teardown flag — not a responder read — separates teardown
       from click-away), revision survival, gesture suppression on drafted rows,
       scroll/expansion, menu labels, layer split; a new entry for
       `ProjectTreeDraftField.swift`
-- [ ] app-git-views.md FilePanels entry: `promptName` now serves only the two
+- [x] app-git-views.md FilePanels entry: `promptName` now serves only the two
       branch prompts (not dead code — stated)
-- [ ] app-shell.md: New File/Folder/Rename orchestration now takes accepted
+- [x] app-shell.md: New File/Folder/Rename orchestration now takes accepted
       text via callbacks; call-site list updated
-- [ ] core-workspace.md FileName entry: the two new rules and the
+- [x] core-workspace.md FileName entry: the two new rules and the
       single-component restriction on the collision check
-- [ ] CLAUDE.md: exactly one index line for `ProjectTreeDraftField.swift` under
+- [x] CLAUDE.md: exactly one index line for `ProjectTreeDraftField.swift` under
       the app-window group; nothing else grows
 
 ### Task 6: Verify acceptance criteria
