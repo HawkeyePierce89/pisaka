@@ -301,10 +301,10 @@ chosen (same alert, same moment as today), not only at commit.
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] run full test suite: `swift test` passes (including new FileNameTests
+- [x] run full test suite: `swift test` passes (including new FileNameTests
       cases)
-- [ ] run linter: `swiftlint --strict` clean from repository root
-- [ ] xcodebuild macOS build succeeds; xcodebuild iOS build succeeds
+- [x] run linter: `swiftlint --strict` clean from repository root
+- [x] xcodebuild macOS build succeeds; xcodebuild iOS build succeeds
 
 Post-completion manual checks (not automatable here): ⌘Tab away/back preserves
 the draft and its typed text; click elsewhere cancels silently; during a revert
