@@ -95,7 +95,7 @@ Files app). No terminal, no language servers, no commit dialog — details in
 - macOS 13+ and/or iOS/iPadOS 17+; Swift 6.0+ toolchain (Xcode 16+).
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) to generate the project
   (`brew install xcodegen`).
-- Contributing: [SwiftLint 0.65.0](#style-lint-swiftlint) — commits are
+- Contributing: [SwiftLint](docs/architecture/style-lint.md) — commits are
   refused without it, deliberately with no graceful degradation.
 - macOS: the `git` CLI on your `PATH` for the git features (iOS uses libgit2
   in-process). Optional, each unlocking its language's semantic intelligence:
@@ -121,8 +121,8 @@ executable target.
 
 **After cloning, run `make setup` once.** It wires this clone's git hooks
 (`core.hooksPath`) and refuses if the pinned SwiftLint is missing — see
-[Style lint](#style-lint-swiftlint) for what it installs and why git cannot do
-this for you. `make` also wraps everything below: `make test`, `make lint`,
+[`docs/architecture/style-lint.md`](docs/architecture/style-lint.md) for what it
+installs and why git cannot do this for you. `make` also wraps everything below: `make test`, `make lint`,
 `make build`, `make build-ios`.
 
 ```sh
@@ -143,41 +143,12 @@ swift test             # run the domain-logic test suite (PisakaCore, all platfo
 the fast, dependency-free gate for the domain logic. The macOS app runs
 non-sandboxed so the standard open/save panels work without entitlements.
 
-### Style lint (SwiftLint)
+### Style lint
 
-Style is enforced with [SwiftLint](https://github.com/realm/SwiftLint),
-pinned at **0.65.0** in [`.swiftlint.yml`](.swiftlint.yml) — that file is the
-single style authority, and every relaxation in it carries its reason.
-One-time contributor setup:
-
-```sh
-# The pinned release is the reliable route — brew's formula can be a different
-# version, and only 0.65.0 passes the gate:
-curl -fsSL --retry 3 -o swiftlint.zip \
-  https://github.com/realm/SwiftLint/releases/download/0.65.0/portable_swiftlint.zip
-unzip -o swiftlint.zip && rm swiftlint.zip
-install -m 755 swiftlint /usr/local/bin/   # or any directory on your PATH
-
-brew install swiftlint    # alternative; whatever it serves, the check below decides
-swiftlint version         # MUST print 0.65.0 — any other binary is refused
-
-make setup                # wires the hooks and confirms the linter is present
-```
-
-From then on every commit lints exactly what is being committed (`--strict`)
-and refuses violations instead of fixing them. CI runs the same check on every
-pull request, so a bypassed or forgotten hook only defers the failure.
-
-`make setup` is a convenience, not a step you can forget your way past: git
-never enables a repository's hooks on its own (`.git/hooks` is not cloned and
-`core.hooksPath` is per-clone config — a repository that ran its own scripts on
-`git clone` would be remote code execution), so the wiring has to ride on
-something you already do. Two things carry it here: every `make` target that
-does work depends on `make hooks`, and the generated Xcode project runs a
-`Wire git hooks` build phase, so building the app wires them too. Only a
-contributor who exclusively runs `swift test` by hand ends up without the local
-gate — and CI still refuses their pull request. Wiring by hand stays available:
-`git config core.hooksPath .githooks`.
+Style is enforced by SwiftLint at a pinned version; `.swiftlint.yml` at the
+repository root is the single authority, the pre-commit hook refuses a commit
+that violates it and CI refuses the pull request. Installation, the hook wiring
+and the full rationale: [`docs/architecture/style-lint.md`](docs/architecture/style-lint.md).
 
 ## Installing a released build
 

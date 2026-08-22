@@ -480,16 +480,43 @@ final class LintConfigurationTests: XCTestCase {
     /// comments to strip and the asserted strings are what a reader copies.
     func testReadmeKeepsTheHookSetupAndNamesTheAuthority() throws {
         let readme = try read("README.md")
-        XCTAssertTrue(readme.contains("git config core.hooksPath .githooks"), """
-            README.md no longer documents the one-time hook activation \
-            (git config core.hooksPath .githooks) — without it a fresh clone \
-            commits with no local lint gate and never learns why its style \
-            diverged
+        // README carries the *step*, not the tutorial: a fresh clone must be told
+        // to run `make setup` and where the rest lives. The raw incantation moved
+        // to style-lint.md — see the companion assertion below, which is what
+        // keeps the move from becoming a deletion.
+        XCTAssertTrue(readme.contains("make setup"), """
+            README.md no longer tells a fresh clone to run `make setup` — without it \
+            a contributor commits with no local lint gate and never learns why their \
+            style diverged
+            """)
+        XCTAssertTrue(readme.contains("docs/architecture/style-lint.md"), """
+            README.md no longer points at docs/architecture/style-lint.md, where the \
+            installation and the hook wiring are documented
             """)
         XCTAssertTrue(readme.contains(".swiftlint.yml"), """
             README.md no longer names .swiftlint.yml, the style authority the \
             setup exists to enforce
             """)
+    }
+
+    /// The instructions README delegates to have to exist at the other end.
+    /// Trimming README was a *move*; without this the same trim done again
+    /// would be a silent deletion, and a fresh clone would have no route to the
+    /// pinned linter or to the hook wiring at all.
+    func testStyleLintDocCarriesTheSetupReadmeDelegatesTo() throws {
+        let doc = try read("docs/architecture/style-lint.md")
+        for (needle, what) in [
+            ("make setup", "the blessed setup command"),
+            ("git config core.hooksPath .githooks", "the by-hand hook wiring"),
+            ("portable_swiftlint.zip", "how to install the pinned linter"),
+            ("swiftlint version", "the check that the installed binary is the pinned one"),
+        ] {
+            XCTAssertTrue(doc.contains(needle), """
+                docs/architecture/style-lint.md no longer documents \(what) (looked for \
+                “\(needle)”). README delegates its setup here, so losing it here loses it \
+                everywhere.
+                """)
+        }
     }
 
     func testClaudeMdNamesTheStyleAuthority() throws {

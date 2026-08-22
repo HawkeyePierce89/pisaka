@@ -5,6 +5,29 @@ static pin for everything here is `Tests/PisakaCoreTests/LintConfigurationTests.
 (see that suite's doc comment for the full assertion inventory); this doc
 carries the rationale and the procedures.
 
+## Contributor setup
+
+One time per clone:
+
+```sh
+# The pinned release is the reliable route — brew's formula can be a different
+# version, and only the pinned one passes the gate:
+curl -fsSL --retry 3 -o swiftlint.zip \
+  https://github.com/realm/SwiftLint/releases/download/0.65.0/portable_swiftlint.zip
+unzip -o swiftlint.zip && rm swiftlint.zip
+install -m 755 swiftlint /usr/local/bin/   # or any directory on your PATH
+
+brew install swiftlint    # alternative; whatever it serves, the check below decides
+swiftlint version         # MUST print 0.65.0 — any other binary is refused
+
+make setup                # wires the hooks and confirms the linter is present
+```
+
+`make setup` is the blessed form; wiring by hand stays available as
+`git config core.hooksPath .githooks`. From then on every commit lints exactly
+what is being committed (`--strict`) and refuses violations instead of fixing
+them.
+
 ## The authority and its two files
 
 `.swiftlint.yml` at the repository root is the single style authority: every
