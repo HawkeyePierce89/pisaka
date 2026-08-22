@@ -423,4 +423,37 @@ final class FileNameTests: XCTestCase {
                                + "parsed=\(String(describing: parsed)), issue=\(String(describing: issue))")
         }
     }
+
+    // MARK: - initialRenameSelection
+
+    func testInitialRenameSelection() {
+        XCTAssertEqual(initialRenameSelection(in: "file.swift", isDirectory: false), NSRange(location: 0, length: 4))
+        XCTAssertEqual(initialRenameSelection(in: ".gitignore", isDirectory: false), NSRange(location: 0, length: 10))
+        XCTAssertEqual(initialRenameSelection(in: "archive.tar.gz", isDirectory: false), NSRange(location: 0, length: 11))
+        XCTAssertEqual(initialRenameSelection(in: "a.b", isDirectory: false), NSRange(location: 0, length: 1))
+        XCTAssertEqual(initialRenameSelection(in: "Makefile", isDirectory: false), NSRange(location: 0, length: 8))
+        XCTAssertEqual(initialRenameSelection(in: "Sources", isDirectory: true), NSRange(location: 0, length: 7))
+        XCTAssertEqual(initialRenameSelection(in: "foo.", isDirectory: false), NSRange(location: 0, length: 4))
+        XCTAssertEqual(initialRenameSelection(in: ".env", isDirectory: true), NSRange(location: 0, length: 4))
+        XCTAssertEqual(initialRenameSelection(in: "", isDirectory: false), NSRange(location: 0, length: 0))
+    }
+
+    // MARK: - liveCollisionIssue
+
+    func testLiveCollisionIssue() {
+        let siblings = ["Makefile", "Sources", "Tests", "file.swift"]
+
+        // hit reported with .nameTaken
+        XCTAssertEqual(liveCollisionIssue(finalComponent: "Makefile", siblingNames: siblings), .nameTaken("Makefile"))
+
+        // case-differing sibling NOT reported (exact-match rule, same comparison MoveDropRule makes)
+        XCTAssertNil(liveCollisionIssue(finalComponent: "makefile", siblingNames: siblings))
+
+        // self excluded via excluding
+        XCTAssertNil(liveCollisionIssue(finalComponent: "Makefile", siblingNames: siblings, excluding: "Makefile"))
+
+        // substring near-match not reported
+        XCTAssertNil(liveCollisionIssue(finalComponent: "Make", siblingNames: siblings))
+        XCTAssertNil(liveCollisionIssue(finalComponent: "Makefile2", siblingNames: siblings))
+    }
 }

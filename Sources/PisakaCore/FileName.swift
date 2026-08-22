@@ -57,6 +57,8 @@ public enum EntryPathIssue: Equatable {
     /// A reserved service name (`.git` / `.DS_Store`), carried so the message
     /// can name the offending component as the user spelled it.
     case reservedComponent(String)
+    /// The name exactly matches an existing sibling in the folder.
+    case nameTaken(String)
 
     /// The reason shown to the user, in the style of the existing alert texts.
     public var message: String {
@@ -75,6 +77,8 @@ public enum EntryPathIssue: Equatable {
             return "A name must not contain a NUL character."
         case .reservedComponent(let name):
             return "\"\(name)\" is a reserved name and is never shown in the project tree."
+        case .nameTaken(let name):
+            return "\"\(name)\" already exists in this folder."
         }
     }
 }
@@ -201,4 +205,37 @@ public func parseRelativeEntryPath(_ path: String) -> [String]? {
         return nil
     }
     return components
+}
+
+/// Determines the default selected range (in UTF-16 code units) when renaming an entry.
+///
+/// The caller invokes collision only for single-component input (a multi-component
+/// create lands its final component in a folder the tree has not listed).
+public func initialRenameSelection(in name: String, isDirectory: Bool) -> NSRange {
+    let nsName = name as NSString
+    let length = nsName.length
+    if length == 0 || isDirectory {
+        return NSRange(location: 0, length: length)
+    }
+
+    let lastDotRange = nsName.range(of: ".", options: .backwards)
+    if lastDotRange.location != NSNotFound, lastDotRange.location > 0, lastDotRange.location < length - 1 {
+        return NSRange(location: 0, length: lastDotRange.location)
+    }
+
+    return NSRange(location: 0, length: length)
+}
+
+/// Checks if a single-component name collides with existing siblings.
+///
+/// The caller invokes collision only for single-component input (a multi-component
+/// create lands its final component in a folder the tree has not listed).
+public func liveCollisionIssue(finalComponent: String, siblingNames: [String], excluding: String? = nil) -> EntryPathIssue? {
+    for sibling in siblingNames {
+        if sibling == excluding { continue }
+        if sibling == finalComponent {
+            return .nameTaken(finalComponent)
+        }
+    }
+    return nil
 }

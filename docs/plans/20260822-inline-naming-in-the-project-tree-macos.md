@@ -142,18 +142,18 @@ chosen (same alert, same moment as today), not only at commit.
 - Modify: `Sources/PisakaCore/FileName.swift`
 - Modify: `Tests/PisakaCoreTests/FileNameTests.swift`
 
-- [ ] Add `.nameTaken(String)` to `EntryPathIssue` with message "\"X\" already
+- [x] Add `.nameTaken(String)` to `EntryPathIssue` with message "\"X\" already
       exists in this folder." (wording beside the other reasons)
-- [ ] Add `initialRenameSelection(in name: String, isDirectory: Bool) ->
+- [x] Add `initialRenameSelection(in name: String, isDirectory: Bool) ->
       NSRange`: whole range for empty, dotfile (leading dot), no dot after
       position 0, trailing dot (empty extension), or directory; else
       0..<(last-dot index)
-- [ ] Add `liveCollisionIssue(finalComponent:siblingNames:excluding:) ->
+- [x] Add `liveCollisionIssue(finalComponent:siblingNames:excluding:) ->
       EntryPathIssue?`: exact-case match against `siblingNames`, skipping
       `excluding`; nil otherwise. Document on both rules that the *caller*
       invokes collision only for single-component input (a multi-component
       create lands its final component in a folder the tree has not listed)
-- [ ] Tests: selection edges — `file.swift` → 0..<4, `.gitignore` whole,
+- [x] Tests: selection edges — `file.swift` → 0..<4, `.gitignore` whole,
       `archive.tar.gz` → `archive.tar` (last-dot rule,
       `URL.deletingPathExtension` semantics), `a.b` → `a` (single-dot case
       pinned), `Makefile` whole (no extension), `Sources` as directory whole,
@@ -162,7 +162,7 @@ chosen (same alert, same moment as today), not only at commit.
       case-differing sibling NOT reported (exact-match rule, same comparison
       `MoveDropRule` makes), self excluded via `excluding`, substring
       near-match not reported; message text pinned
-- [ ] run swift test - must pass before task 2
+- [x] run swift test - must pass before task 2
 
 ### Task 2: The draft field component (new macOS-only file)
 
