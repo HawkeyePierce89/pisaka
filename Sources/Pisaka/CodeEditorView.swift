@@ -825,7 +825,13 @@ struct CodeEditorView: NSViewRepresentable {
 
         @objc private func windowDidResignKey(_ notification: Notification) {
             if let window = notification.object as? NSWindow, window === textView?.window {
-                completion.dismiss()
+                // Gated on visibility for the same reason the scroll handler is:
+                // with nothing shown — the state right after a commit — this is
+                // pure D4 teardown and must leave the late auto-import in
+                // flight; a *visible* popup still comes down.
+                if completion.isVisible {
+                    completion.dismiss()
+                }
             }
         }
 
@@ -1184,7 +1190,12 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func textDidEndEditing(_ notification: Notification) {
-            completion.dismiss()
+            // Same visibility gate as the scroll and resign-key handlers: a
+            // first-responder loss with nothing shown is the post-commit state,
+            // and dismissing there would cancel D4's late auto-import.
+            if completion.isVisible {
+                completion.dismiss()
+            }
         }
 
         // MARK: - Blame column
