@@ -169,21 +169,21 @@ chosen (same alert, same moment as today), not only at commit.
 **Files:**
 - Create: `Sources/Pisaka/ProjectTreeDraftField.swift`
 
-- [ ] `TreeNameFieldView`: leading gutter/icon column drawn from the existing
+- [x] `TreeNameFieldView`: leading gutter/icon column drawn from the existing
       `TreeRowLayout` constants (folder draft = chevron-column slot + folder
       icon; file draft = gutter + icon resolved from the typed final component,
       generic while blank), the `NSTextField` representable, and below it the
       small red reason `Text` that wraps (`lineLimit(nil)`), so the row height
       grows naturally
-- [ ] Representable: becomes first responder on appearance (one deferred
+- [x] Representable: becomes first responder on appearance (one deferred
       main-loop turn, `SearchBarView.takeFocus` pattern) and applies the
       preselected UTF-16 range to the field editor
-- [ ] Teardown signal: the hosted NSView subclass overrides
+- [x] Teardown signal: the hosted NSView subclass overrides
       `viewWillMove(toWindow:)` to set the teardown flag when `newWindow ==
       nil`; `dismantleNSView(_:coordinator:)` sets it as well; both run before
       AppKit ends editing, so the flag — not a responder read —
       deterministically separates teardown from click-away
-- [ ] Validation composition mirrors `PromptNameDelegate.revalidate`, in order:
+- [x] Validation composition mirrors `PromptNameDelegate.revalidate`, in order:
       blank → incomplete (no reason, Enter refused, normal colour); then the
       caller-chosen validator (`validateRelativeEntryPath` for creates,
       `validateSingleEntryName` for rename) → its `.message`; then — **only
@@ -193,15 +193,15 @@ chosen (same alert, same moment as today), not only at commit.
       to SwiftUI for the reason line and sets the field's own treatment —
       `.systemRed` text while an issue shows, label colour for blank or valid
       input
-- [ ] Keys: newline-family commands commit-if-valid else beep
+- [x] Keys: newline-family commands commit-if-valid else beep
       (`PlatformFeedback.warning()`) and refuse; `cancelOperation:` cancels;
       `controlTextDidEndEditing` decided by the three-way test (finishing flag
       → ignore; teardown flag or `field.window == nil` → teardown, ignore;
       otherwise user focus loss → cancel silently)
-- [ ] Accessibility: the field carries an accessibility label naming the
+- [x] Accessibility: the field carries an accessibility label naming the
       operation ("New File name" / "New Folder name" / rename-of-X); ordinary
       rows untouched
-- [ ] No new unit-testable logic lives here (view layer untested by convention;
+- [x] No new unit-testable logic lives here (view layer untested by convention;
       all decisions are Task 1 Core calls) — run swift test and xcodebuild
       (macOS + iOS) - must pass before task 3
 

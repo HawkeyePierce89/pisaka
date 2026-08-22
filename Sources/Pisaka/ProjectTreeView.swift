@@ -528,7 +528,7 @@ private struct FolderDisclosureRow<Menu: View>: View {
 /// them from here: duplicated as literals, a change to one row kind would
 /// silently desynchronize the other. Each is scaled through
 /// `\.interfaceMetrics` at its use site, like every other size in the tree.
-private enum TreeRowLayout {
+enum TreeRowLayout {
     /// The row's horizontal padding, inside the hover highlight.
     static let horizontalPadding: Double = 6
     /// The row's vertical padding, inside the hover highlight.
@@ -827,7 +827,7 @@ private struct TreeDropDelegate: DropDelegate {
 }
 
 /// Maps a semantic `FileIconColor` token to a concrete SwiftUI `Color`.
-private func color(for token: FileIconColor) -> Color {
+func color(for token: FileIconColor) -> Color {
     switch token {
     case .orange: return .orange
     case .yellow: return .yellow
