@@ -212,38 +212,38 @@ chosen (same alert, same moment as today), not only at commit.
 - Modify: `Sources/Pisaka/ContentView.swift`
 - Modify: `Sources/Pisaka/PisakaApp.swift`
 
-- [ ] `ProjectTreeView` holds `@State private var draft: TreeEditDraft?`
+- [x] `ProjectTreeView` holds `@State private var draft: TreeEditDraft?`
       (private Equatable enum: `.create(parent:isFolder:)` /
       `.rename(entry:)`); threaded down as a value + setter closures; a second
       command replaces the first
-- [ ] New `mayBeginFileOperation: () -> Bool` callback (default `{ true }`);
+- [x] New `mayBeginFileOperation: () -> Bool` callback (default `{ true }`);
       every New File / New Folder menu action guards it *before* setting the
       draft — during a revert the same alert fires at the same moment as today
       and no draft opens; wired through `ContentView` to `{ !revertInFlight() }`
-- [ ] Folder context menus: actions set `.create` instead of calling callbacks;
+- [x] Folder context menus: actions set `.create` instead of calling callbacks;
       labels lose their ellipses (`New File`, `New Folder`)
-- [ ] Target node observes the draft targeting itself: expands if collapsed
+- [x] Target node observes the draft targeting itself: expands if collapsed
       (the existing `onChange(of: isExpanded)` path loads children), renders
       the draft row as the literal first child *before* the `ForEach` with
       identical indent/padding/gutter/icon column; constant anchor id +
       root-level `ScrollViewReader` scrolls it into view; installs no
       tap/drag/drop/menu (it is not a real row)
-- [ ] Commit calls reshaped `onNewFile: (URL, String) -> Void` /
+- [x] Commit calls reshaped `onNewFile: (URL, String) -> Void` /
       `onNewFolder: (URL, String) -> Void` (raw text passed untrimmed) then
       clears the draft; Esc/focus-loss clear it without calling anything; disk
       failure reporting stays entirely app-side and dismisses the draft either
       way
-- [ ] Draft survives `treeRevision` bumps (nothing clears it there); dropped
+- [x] Draft survives `treeRevision` bumps (nothing clears it there); dropped
       when the target folder's reload fails as missing (the node reports
       targeted-gone up), and on `projectRoot` change
-- [ ] Siblings for the collision check come from the target node's loaded
+- [x] Siblings for the collision check come from the target node's loaded
       children listing; a nil listing skips the check silently
-- [ ] `PisakaApp.newFile(in:name:)` / `newFolder(in:name:)`: drop the
+- [x] `PisakaApp.newFile(in:name:)` / `newFolder(in:name:)`: drop the
       `promptName` call, keep writer-gate guard (defense-in-depth now),
       `parseRelativeEntryPath` defense-in-depth, `ensureDirectory`, create,
       open-in-tab, bump, failed-create refresh — bodies otherwise
       byte-identical
-- [ ] Existing suite stays green; xcodebuild both destinations - must pass
+- [x] Existing suite stays green; xcodebuild both destinations - must pass
       before task 4
 
 ### Task 4: Rename draft flow

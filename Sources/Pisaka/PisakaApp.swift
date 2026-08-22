@@ -702,8 +702,9 @@ struct PisakaApp: App {
                 onCreateBranchFromRemote: { createBranchFromRemote($0) },
                 onCheckoutRemote: { checkoutRemote($0) },
                 onNewBranch: { newBranch() },
-                onNewFile: { newFile(in: $0) },
-                onNewFolder: { newFolder(in: $0) },
+                mayBeginFileOperation: { !revertInFlight() },
+                onNewFile: { dir, name in newFile(in: dir, name: name) },
+                onNewFolder: { dir, name in newFolder(in: dir, name: name) },
                 onRename: { renameItem(at: $0) },
                 onMove: { moveItem(at: $0, into: $1) },
                 onDelete: { deleteItem(at: $0) },
@@ -2906,12 +2907,8 @@ struct PisakaApp: App {
     /// surfaced non-fatally — and because `ensureDirectory` does not roll back,
     /// a multi-component failure still bumps `treeRevision` so intermediates it
     /// already created are visible instead of leaving the tree contradicting disk.
-    private func newFile(in directory: URL) {
+    private func newFile(in directory: URL, name rawName: String) {
         guard !revertInFlight() else { return }
-        guard let rawName = FilePanels.promptName(
-            title: "New File",
-            validator: { validateRelativeEntryPath($0)?.message }
-        ) else { return }
         guard let components = parseRelativeEntryPath(rawName) else {
             reportInvalidName(rawName)
             return
@@ -2937,12 +2934,8 @@ struct PisakaApp: App {
     /// refreshes the tree for the same no-rollback reason as `newFile(in:)`. The
     /// dialog likewise validates live through `validateRelativeEntryPath(_:)`,
     /// with the post-OK parse kept as defense-in-depth.
-    private func newFolder(in directory: URL) {
+    private func newFolder(in directory: URL, name rawName: String) {
         guard !revertInFlight() else { return }
-        guard let rawName = FilePanels.promptName(
-            title: "New Folder",
-            validator: { validateRelativeEntryPath($0)?.message }
-        ) else { return }
         guard let components = parseRelativeEntryPath(rawName) else {
             reportInvalidName(rawName)
             return

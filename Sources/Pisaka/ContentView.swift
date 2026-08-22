@@ -158,8 +158,9 @@ struct ContentView: View {
     /// Project-tree file-operation callbacks, threaded down to `ProjectTreeView`.
     /// Default no-ops so previews/tests can construct the view without the app
     /// wiring.
-    var onNewFile: (URL) -> Void = { _ in }
-    var onNewFolder: (URL) -> Void = { _ in }
+    var mayBeginFileOperation: () -> Bool = { true }
+    var onNewFile: (URL, String) -> Void = { _, _ in }
+    var onNewFolder: (URL, String) -> Void = { _, _ in }
     var onRename: (URL) -> Void = { _ in }
     /// Invoked when a project-tree drag drops the entry at the first URL onto the
     /// folder at the second, wired to `PisakaApp.moveItem(at:into:)`. The view
@@ -485,6 +486,7 @@ struct ContentView: View {
                 model: model,
                 onOpenFile: onOpenFile,
                 onOpenFolder: onOpenFolder,
+                mayBeginFileOperation: mayBeginFileOperation,
                 onNewFile: onNewFile,
                 onNewFolder: onNewFolder,
                 onRename: onRename,

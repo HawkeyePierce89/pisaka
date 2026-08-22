@@ -33,11 +33,12 @@ struct ProjectTreeView: View {
     /// Invoked when the empty-pane placeholder is clicked. Defaults to a no-op
     /// so previews/tests can construct the view without the app wiring.
     var onOpenFolder: () -> Void = {}
+    var mayBeginFileOperation: () -> Bool = { true }
     /// Create a new file inside the given directory. Defaults to a no-op so
     /// previews/tests can construct the view without the app wiring.
-    var onNewFile: (URL) -> Void = { _ in }
+    var onNewFile: (URL, String) -> Void = { _, _ in }
     /// Create a new folder inside the given directory.
-    var onNewFolder: (URL) -> Void = { _ in }
+    var onNewFolder: (URL, String) -> Void = { _, _ in }
     /// Rename the file or folder at the given url.
     var onRename: (URL) -> Void = { _ in }
     /// Delete the file or folder at the given url.
@@ -61,6 +62,8 @@ struct ProjectTreeView: View {
     /// with nothing published, so it survives re-renders without causing any (see
     /// `TreeDragSession`).
     @StateObject private var dragSession = TreeDragSession()
+
+    @State private var draft: TreeEditDraft?
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
@@ -113,36 +116,50 @@ struct ProjectTreeView: View {
 
     private func tree(root: URL) -> some View {
         ScrollView {
-            // A plain VStack (not LazyVStack): the tree is already lazy
-            // via DisclosureGroup, which only reads a directory on
-            // expansion. A lazy container could discard an off-screen
-            // node's cached @State children/expansion and force a
-            // re-read on re-scroll, breaking the caching documented on
-            // DirectoryNodeView.
-            VStack(alignment: .leading, spacing: 0) {
-                DirectoryNodeView(
-                    model: model,
-                    url: root,
-                    name: root.lastPathComponent,
-                    onOpenFile: onOpenFile,
-                    onNewFile: onNewFile,
-                    onNewFolder: onNewFolder,
-                    onRename: onRename,
-                    onDelete: onDelete,
-                    onRun: onRun,
-                    onRunTest: onRunTest,
-                    onMove: onMove,
-                    dragSession: dragSession,
-                    isRoot: true,
-                    startsExpanded: true
-                )
-                // Tie the root node's identity to the open folder so
-                // switching projects starts a fresh node instead of
-                // reusing the previous root's cached @State children.
-                .id(root)
+            ScrollViewReader { proxy in
+                // A plain VStack (not LazyVStack): the tree is already lazy
+                // via DisclosureGroup, which only reads a directory on
+                // expansion. A lazy container could discard an off-screen
+                // node's cached @State children/expansion and force a
+                // re-read on re-scroll, breaking the caching documented on
+                // DirectoryNodeView.
+                VStack(alignment: .leading, spacing: 0) {
+                    DirectoryNodeView(
+                        model: model,
+                        url: root,
+                        name: root.lastPathComponent,
+                        onOpenFile: onOpenFile,
+                        onNewFile: onNewFile,
+                        onNewFolder: onNewFolder,
+                        onRename: onRename,
+                        onDelete: onDelete,
+                        onRun: onRun,
+                        onRunTest: onRunTest,
+                        onMove: onMove,
+                        mayBeginFileOperation: mayBeginFileOperation,
+                        draft: $draft,
+                        dragSession: dragSession,
+                        isRoot: true,
+                        startsExpanded: true
+                    )
+                    // Tie the root node's identity to the open folder so
+                    // switching projects starts a fresh node instead of
+                    // reusing the previous root's cached @State children.
+                    .id(root)
+                }
+                .padding(.vertical, metrics.scaled(4))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .onChange(of: draft) { newDraft in
+                    if newDraft != nil {
+                        withAnimation {
+                            proxy.scrollTo("draft-row")
+                        }
+                    }
+                }
             }
-            .padding(.vertical, metrics.scaled(4))
-            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .onChange(of: model.projectRoot) { _ in
+            draft = nil
         }
     }
 }
@@ -163,13 +180,15 @@ private struct DirectoryNodeView: View {
     let url: URL
     let name: String
     let onOpenFile: (URL) -> Void
-    let onNewFile: (URL) -> Void
-    let onNewFolder: (URL) -> Void
+    let onNewFile: (URL, String) -> Void
+    let onNewFolder: (URL, String) -> Void
     let onRename: (URL) -> Void
     let onDelete: (URL) -> Void
     let onRun: (URL) -> Void
     let onRunTest: (URL) -> Void
     let onMove: (URL, URL) -> Void
+    let mayBeginFileOperation: () -> Bool
+    @Binding var draft: TreeEditDraft?
     /// The tree-wide drag state, handed down the recursion so every row reads and
     /// writes the same one.
     let dragSession: TreeDragSession
@@ -193,13 +212,15 @@ private struct DirectoryNodeView: View {
         url: URL,
         name: String,
         onOpenFile: @escaping (URL) -> Void,
-        onNewFile: @escaping (URL) -> Void,
-        onNewFolder: @escaping (URL) -> Void,
+        onNewFile: @escaping (URL, String) -> Void,
+        onNewFolder: @escaping (URL, String) -> Void,
         onRename: @escaping (URL) -> Void,
         onDelete: @escaping (URL) -> Void,
         onRun: @escaping (URL) -> Void,
         onRunTest: @escaping (URL) -> Void,
         onMove: @escaping (URL, URL) -> Void,
+        mayBeginFileOperation: @escaping () -> Bool,
+        draft: Binding<TreeEditDraft?>,
         dragSession: TreeDragSession,
         isRoot: Bool = false,
         startsExpanded: Bool = false
@@ -215,6 +236,8 @@ private struct DirectoryNodeView: View {
         self.onRun = onRun
         self.onRunTest = onRunTest
         self.onMove = onMove
+        self.mayBeginFileOperation = mayBeginFileOperation
+        self._draft = draft
         self.dragSession = dragSession
         self.isRoot = isRoot
         _isExpanded = State(initialValue: startsExpanded)
@@ -222,6 +245,24 @@ private struct DirectoryNodeView: View {
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
+            if case .create(let parent, let isFolder) = draft, parent == url {
+                TreeNameFieldView(
+                    draft: draft!,
+                    siblings: children?.map(\.name) ?? [],
+                    onCommit: { newName in
+                        if isFolder {
+                            onNewFolder(url, newName)
+                        } else {
+                            onNewFile(url, newName)
+                        }
+                        draft = nil
+                    },
+                    onCancel: { draft = nil }
+                )
+                .padding(.leading, metrics.scaled(12))
+                .id("draft-row")
+            }
+
             ForEach(children ?? []) { entry in
                 if entry.isDirectory {
                     DirectoryNodeView(
@@ -236,6 +277,8 @@ private struct DirectoryNodeView: View {
                         onRun: onRun,
                         onRunTest: onRunTest,
                         onMove: onMove,
+                        mayBeginFileOperation: mayBeginFileOperation,
+                        draft: $draft,
                         dragSession: dragSession
                     )
                     .padding(.leading, metrics.scaled(12))
@@ -289,8 +332,12 @@ private struct DirectoryNodeView: View {
                 dragSession: dragSession,
                 onMove: onMove
             ) {
-                Button("New File…") { onNewFile(url) }
-                Button("New Folder…") { onNewFolder(url) }
+                Button("New File") {
+                    if mayBeginFileOperation() { draft = .create(parent: url, isFolder: false) }
+                }
+                Button("New Folder") {
+                    if mayBeginFileOperation() { draft = .create(parent: url, isFolder: true) }
+                }
                 if !isRoot {
                     Divider()
                     Button("Rename…") { onRename(url) }
@@ -345,6 +392,8 @@ private struct DirectoryNodeView: View {
         } catch {
             if !Self.isMissingFileError(error) {
                 PlatformFeedback.warning()
+            } else if case .create(let parent, _) = draft, parent == url {
+                draft = nil
             }
             children = nil
         }
