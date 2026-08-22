@@ -296,7 +296,10 @@ private struct DirectoryNodeView: View {
                                 draft = .rename(entry: entry)
                             }
                         },
-                        onRename: { newName in onRename(entry.url, newName) },
+                        onRename: { newName in
+                            onRename(entry.url, newName)
+                            draft = nil
+                        },
                         onRenameCancel: { draft = nil },
                         onDelete: { onDelete(entry.url) },
                         onRun: { onRun(entry.url) },
@@ -326,7 +329,10 @@ private struct DirectoryNodeView: View {
                     TreeNameFieldView(
                         draft: draft!,
                         siblings: siblings,
-                        onCommit: { newName in onRename(url, newName) },
+                        onCommit: { newName in
+                            onRename(url, newName)
+                            draft = nil
+                        },
                         onCancel: { draft = nil }
                     )
                 } else {
@@ -746,7 +752,7 @@ private struct FileRowView: View {
                     Button {
                         onRunTest()
                     } label: {
-                        Label("Run Tests", systemImage: "play.fill")
+                        Label("Run Test", systemImage: "checkmark.diamond")
                     }
                 }
                 if RunCommand.canRun(fileName: entry.name)
