@@ -254,7 +254,11 @@ private struct DirectoryNodeView: View {
             if case .create(let parent, let isFolder) = draft, parent == url {
                 Group {
                     TreeNameFieldView(
-                        draft: draft!,
+                        // Rebuilt from the payload the `if case` just bound, not
+                        // re-read out of the optional: the binding is the proof
+                        // the draft is a create for *this* folder, so nothing
+                        // here can be nil and no force-unwrap is needed to say so.
+                        draft: .create(parent: parent, isFolder: isFolder),
                         siblings: children?.map(\.name) ?? [],
                         onCommit: { newName in
                             if isFolder {
@@ -337,7 +341,9 @@ private struct DirectoryNodeView: View {
                     .accessibilityHidden(true)
                 if case .rename(let draftedEntry) = draft, draftedEntry.url == url {
                     TreeNameFieldView(
-                        draft: draft!,
+                        // The bound entry, not the optional re-read: see the
+                        // create row above.
+                        draft: .rename(entry: draftedEntry),
                         siblings: siblings,
                         onCommit: { newName in
                             onRename(url, newName)
@@ -608,11 +614,10 @@ private struct FolderDisclosureRow<Menu: View>: View {
         // not need.
         .onTapGesture { if !isDrafted { configuration.isExpanded.toggle() } }
         .onHover { isHovering = $0 }
-        .contextMenu {
-            if !isDrafted {
-                menu()
-            }
-        }
+        // Not `.contextMenu { if !isDrafted { menu() } }`: that installs the
+        // modifier either way, so right-clicking the drafted row opens an empty
+        // panel and flashes it shut. The helper omits the modifier instead.
+        .projectTreeContextMenu(isEnabled: !isDrafted, menuItems: menu)
         // Every folder row is a drop target, the root included: that is how an
         // entry is moved back to the top of the project.
         .onDrop(
@@ -657,6 +662,13 @@ private struct FolderDisclosureRow<Menu: View>: View {
 /// them from here: duplicated as literals, a change to one row kind would
 /// silently desynchronize the other. Each is scaled through
 /// `\.interfaceMetrics` at its use site, like every other size in the tree.
+///
+/// Internal rather than `private` for the same reason `color(for:)` is: the
+/// draft field in `ProjectTreeDraftField.swift` is a third reader, and it is one
+/// by necessity — an inline draft occupies the row it stands in, so it must be
+/// padded and gutter-inset with these very numbers or the tree would visibly
+/// shift as a draft opens and closes. Both readers are project-tree view files;
+/// the type is not part of any wider view vocabulary.
 enum TreeRowLayout {
     /// The row's horizontal padding, inside the hover highlight.
     static let horizontalPadding: Double = 6
@@ -726,7 +738,9 @@ private struct FileRowView: View {
                 .foregroundStyle(color(for: icon.color))
             if case .rename(let draftedEntry) = draft, draftedEntry.url == entry.url {
                 TreeNameFieldView(
-                    draft: draft!,
+                    // The bound entry, not the optional re-read, exactly as the
+                    // folder row does it.
+                    draft: .rename(entry: draftedEntry),
                     siblings: siblings,
                     onCommit: onRename,
                     onCancel: onRenameCancel
@@ -756,29 +770,29 @@ private struct FileRowView: View {
         .projectTreeDragSource(isEnabled: !isDraftedRow, url: entry.url, session: dragSession)
         .onTapGesture { if !isDraftedRow { onOpen() } }
         .onHover { isHovering = $0 }
-        .contextMenu {
-            if !isDraftedRow {
-                if RunCommand.canRun(fileName: entry.name) {
-                    Button {
-                        onRun()
-                    } label: {
-                        Label("Run", systemImage: "play.fill")
-                    }
+        // Through the same helper the folder row uses, for the same reason: a
+        // drafted row must have no menu at all, not an empty one.
+        .projectTreeContextMenu(isEnabled: !isDraftedRow) {
+            if RunCommand.canRun(fileName: entry.name) {
+                Button {
+                    onRun()
+                } label: {
+                    Label("Run", systemImage: "play.fill")
                 }
-                if TestCommand.isTestFile(fileName: entry.name) {
-                    Button {
-                        onRunTest()
-                    } label: {
-                        Label("Run Test", systemImage: "checkmark.diamond")
-                    }
-                }
-                if RunCommand.canRun(fileName: entry.name)
-                    || TestCommand.isTestFile(fileName: entry.name) {
-                    Divider()
-                }
-                Button("Rename") { onBeginRename() }
-                Button("Delete") { onDelete() }
             }
+            if TestCommand.isTestFile(fileName: entry.name) {
+                Button {
+                    onRunTest()
+                } label: {
+                    Label("Run Test", systemImage: "checkmark.diamond")
+                }
+            }
+            if RunCommand.canRun(fileName: entry.name)
+                || TestCommand.isTestFile(fileName: entry.name) {
+                Divider()
+            }
+            Button("Rename") { onBeginRename() }
+            Button("Delete") { onDelete() }
         }
     }
 
@@ -821,6 +835,32 @@ private extension View {
     /// an empty item provider: a provider with nothing registered still begins a
     /// drag AppKit renders and no target can ever accept. `isEnabled` is fixed
     /// for a row's lifetime, so the branch costs no identity churn.
+    /// Gives this row the right-click menu `menuItems` builds — or leaves the
+    /// row exactly as it is, which is what a *drafted* row wants.
+    ///
+    /// Deliberately a `@ViewBuilder` branch rather than an empty menu body:
+    /// `.contextMenu` installed with nothing in it still opens on a right-click,
+    /// so the drafted row answered with an empty panel that flashed shut.
+    /// Omitting the modifier leaves AppKit no menu to open at all — the click
+    /// then only cancels the draft (`TreeDraftDismissRegion`), which is the whole
+    /// intent.
+    ///
+    /// The branch changes the row's view identity, and that costs nothing here:
+    /// unlike `projectTreeDragSource(isEnabled:url:session:)`'s flag, this one
+    /// does flip — but at most twice per draft (opened, then committed or
+    /// cancelled), and the row is being rebuilt at both those moments anyway.
+    @ViewBuilder
+    func projectTreeContextMenu<MenuItems: View>(
+        isEnabled: Bool,
+        @ViewBuilder menuItems: () -> MenuItems
+    ) -> some View {
+        if isEnabled {
+            contextMenu(menuItems: menuItems)
+        } else {
+            self
+        }
+    }
+
     @ViewBuilder
     func projectTreeDragSource(
         isEnabled: Bool = true,
@@ -978,6 +1018,16 @@ private struct TreeDropDelegate: DropDelegate {
 }
 
 /// Maps a semantic `FileIconColor` token to a concrete SwiftUI `Color`.
+///
+/// Belongs to the project tree's view layer, and is internal rather than
+/// `private` on purpose: it has two readers, both of them files of this tree —
+/// this one (the folder row's and the file row's icons) and
+/// `ProjectTreeDraftField.swift` (the draft's icon column, which must resolve
+/// the icon the same way or a drafted row would not read like the row it
+/// replaces). The tidier-looking alternative, a `FileIconColor -> Color`
+/// extension in Core, is barred: `PisakaCore` is Foundation-only and must never
+/// import SwiftUI, so the mapping from the semantic token to a concrete color is
+/// exactly the part of `FileIcon` that has to live up here.
 func color(for token: FileIconColor) -> Color {
     switch token {
     case .orange: return .orange

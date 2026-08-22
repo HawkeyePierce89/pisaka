@@ -216,20 +216,20 @@ readable in full), and the row grows to fit.
 **Files:**
 - Modify: `Sources/Pisaka/ProjectTreeView.swift`
 
-- [ ] at all three `draft!` sites (the create child row, the folder label rename,
+- [x] at all three `draft!` sites (the create child row, the folder label rename,
       the file row rename) build the draft from the payload the `if case` already
       bound instead of force-unwrapping the optional
-- [ ] add a small `@ViewBuilder` helper that attaches `.contextMenu` only when
+- [x] add a small `@ViewBuilder` helper that attaches `.contextMenu` only when
       the row is not drafted, and use it on both row kinds, so a right-click on
       the drafted row does nothing instead of flashing an empty panel; note in
       the helper's comment that the flag flips at most twice per draft, so the
       identity change it causes costs nothing
-- [ ] decide the visibility question deliberately and record it: `color(for:)`
+- [x] decide the visibility question deliberately and record it: `color(for:)`
       and `TreeRowLayout` stay internal because both project-tree view files
       legitimately need them and the alternative (a SwiftUI extension in Core) is
       barred; extend `color(for:)`'s doc comment to say it belongs to the project
       tree's view layer and name both readers
-- [ ] no new tests (view layer). Run `swift test` and `swiftlint --strict` — must
+- [x] no new tests (view layer). Run `swift test` and `swiftlint --strict` — must
       be clean
 
 ### Task 6: The documentation the findings name
