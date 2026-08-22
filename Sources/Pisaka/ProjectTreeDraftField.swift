@@ -147,8 +147,8 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
                 let isDir: Bool
                 let name: String
                 switch draft {
-                case .create:
-                    isDir = false
+                case .create(_, let isFolder):
+                    isDir = isFolder
                     name = text
                 case .rename(let entry):
                     isDir = entry.isDirectory
