@@ -149,11 +149,9 @@ struct ProjectTreeView: View {
                 }
                 .padding(.vertical, metrics.scaled(4))
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .onChange(of: draft) { newDraft in
-                    if newDraft != nil {
-                        withAnimation {
-                            proxy.scrollTo("draft-row")
-                        }
+                .onReceive(NotificationCenter.default.publisher(for: Notification.Name("ProjectTreeDraftRowAppeared"))) { _ in
+                    withAnimation {
+                        proxy.scrollTo("draft-row")
                     }
                 }
             }
@@ -264,6 +262,9 @@ private struct DirectoryNodeView: View {
                 )
                 .padding(.leading, metrics.scaled(12))
                 .id("draft-row")
+                .onAppear {
+                    NotificationCenter.default.post(name: Notification.Name("ProjectTreeDraftRowAppeared"), object: nil)
+                }
             }
 
             let currentChildrenNames = children?.map(\.name) ?? []

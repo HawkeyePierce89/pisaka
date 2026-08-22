@@ -163,10 +163,19 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: CustomTextField, context: Context) {
+        context.coordinator.parent = self
         if nsView.stringValue != text {
             nsView.stringValue = text
         }
-        nsView.textColor = issue != nil ? .systemRed : .labelColor
+
+        let currentIssue = context.coordinator.computeIssue(for: text)
+        if currentIssue != issue {
+            DispatchQueue.main.async {
+                self.issue = currentIssue
+            }
+        }
+
+        nsView.textColor = currentIssue != nil ? .systemRed : .labelColor
     }
 
     func dismantleNSView(_ nsView: CustomTextField, coordinator: Coordinator) {
@@ -192,15 +201,10 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
             self.parent = parent
         }
 
-        func controlTextDidChange(_ obj: Notification) {
-            guard let field = obj.object as? NSTextField else { return }
-            let newText = field.stringValue
-            parent.text = newText
-
+        func computeIssue(for newText: String) -> EntryPathIssue? {
             let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty {
-                parent.issue = nil
-                return
+                return nil
             }
 
             // Validator
@@ -213,8 +217,7 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
             }
 
             if let issue = issue {
-                parent.issue = issue
-                return
+                return issue
             }
 
             // Collision
@@ -224,10 +227,17 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
                 case .create: excludingName = nil
                 case .rename(let entry): excludingName = entry.name
                 }
-                parent.issue = liveCollisionIssue(finalComponent: trimmed, siblingNames: parent.siblings, excluding: excludingName)
+                return liveCollisionIssue(finalComponent: trimmed, siblingNames: parent.siblings, excluding: excludingName)
             } else {
-                parent.issue = nil
+                return nil
             }
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            let newText = field.stringValue
+            parent.text = newText
+            parent.issue = computeIssue(for: newText)
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -236,8 +246,13 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
                 commandSelector == #selector(NSResponder.insertLineBreak(_:)) ||
                 commandSelector == #selector(NSResponder.insertParagraphSeparator(_:)) {
 
+                let currentIssue = computeIssue(for: parent.text)
                 let trimmed = parent.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmed.isEmpty || parent.issue != nil {
+
+                if trimmed.isEmpty || currentIssue != nil {
+                    if parent.issue != currentIssue {
+                        parent.issue = currentIssue
+                    }
                     PlatformFeedback.warning()
                     return true // Handled (swallowed)
                 }
