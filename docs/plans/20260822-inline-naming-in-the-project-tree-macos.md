@@ -252,27 +252,29 @@ chosen (same alert, same moment as today), not only at commit.
 - Modify: `Sources/Pisaka/ProjectTreeView.swift`,
   `Sources/Pisaka/ContentView.swift`, `Sources/Pisaka/PisakaApp.swift`
 
-- [ ] File-row and folder-row menus show `Rename` (no ellipsis); action guards
+- [x] File-row and folder-row menus show `Rename` (no ellipsis); action guards
       `mayBeginFileOperation` first, then sets `.rename(entry:)`
-- [ ] Label swap: while drafted, `FileRowView`'s name and `DirectoryNodeView`'s
+- [x] Label swap: while drafted, `FileRowView`'s name and `DirectoryNodeView`'s
       folder-label closure render `TreeNameFieldView` instead of the `Text` —
       pre-filled with `entry.name`, preselection from Core
       `initialRenameSelection(in:entry.isDirectory)`
-- [ ] While a row is drafted its tap (expand/open), drag source (via the
+- [x] While a row is drafted its tap (expand/open), drag source (via the
       existing `projectTreeDragSource(isEnabled:)` opt-out), drop delegate and
       context menu are suppressed, and the folder row drops its combined-element
-- [x] `ProjectTreeDraftField.swift`: `TreeNameFieldView` modifier updates
-  - Drop `.padding(.horizontal)` and `.padding(.vertical)` for `.rename` (drawn inline within the existing row's padding)
-  - Drop `iconColumn` and `reasonGutter` for `.rename`
-- [x] `ProjectTreeView.swift`: `onRename: (URL, String) -> Void`
-- [x] `DirectoryNodeView` rendering
-  - Label closure conditionally renders `TreeNameFieldView` instead of `Text`
-  - While a row is drafted its tap (expand/open), drag source (via the existing `projectTreeDragSource(isEnabled:)` opt-out), drop delegate and context menu are suppressed, and the folder row drops its combined-element button trait and expansion action so VoiceOver reaches the embedded text field
-  - File-row and folder-row menus show `Rename` (no ellipsis); action guards `mayBeginFileOperation` first, then sets `.rename(entry:)`
-  - Parent node drops the draft when a reload loses the drafted entry's url from `children`
-- [x] `PisakaApp.swift`: `renameItem(at:name:)` drops `promptName`, keeps trim, unchanged-name guard, `isValidFileName` + `isExcludedEntryName` guards, `performMove(from:to:)`
-- [x] Menu ellipsis removal completed everywhere (folder rows and file rows)
-- [x] Run `swift test`, `swiftlint --strict`, both builds - must pass before task 5
+      button trait and expansion action so VoiceOver reaches the embedded text
+      field; hover highlight stays — caret placement and selection never
+      compete with row gestures
+- [x] Siblings come from the parent node's listing already in hand; collision
+      excludes the entry's own current name (always single-component input
+      here), so Enter on the unchanged name stays the silent no-op (app-side
+      guard unchanged)
+- [x] Parent node drops the draft when a reload loses the drafted entry's url
+      from `children`
+- [x] `onRename: (URL, String) -> Void`; `PisakaApp.renameItem(at:name:)`
+      drops `promptName`, keeps trim, unchanged-name guard, `isValidFileName` +
+      `isExcludedEntryName` guards, `performMove(from:to:)`
+- [x] Menu ellipsis removal completed everywhere (folder rows and file rows);
+      run swift test, swiftlint --strict, both builds - must pass before task 5
 
 ### Task 5: Documentation
 
