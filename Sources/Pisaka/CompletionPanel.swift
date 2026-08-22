@@ -23,6 +23,12 @@ final class CompletionPanel {
     var isVisible: Bool { isShown }
     var onCommit: ((Int) -> Void)?
 
+    /// A click anywhere outside the panel, fired before the panel hides itself.
+    /// The controller forwards this to its own `dismiss()`: the panel going away
+    /// alone would leave the pending request and the offered list alive, free to
+    /// re-present themselves over whatever the click landed on.
+    var onOutsideClick: (() -> Void)?
+
     func show(
         rows: [CompletionRow],
         selection: CompletionPopupSelection?,
@@ -79,6 +85,11 @@ final class CompletionPanel {
             ) { [weak self] event in
                 guard let self, let panel = self.panel else { return event }
                 if event.window !== panel {
+                    // The controller's dismissal first — it cancels the pending
+                    // request and supersedes the list, which the panel hiding
+                    // alone must not leave alive. Idempotent either way: if the
+                    // callback already ran it, this hits the `isShown` guard.
+                    self.onOutsideClick?()
                     self.dismiss()
                 }
                 return event

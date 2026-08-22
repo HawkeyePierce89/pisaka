@@ -201,6 +201,18 @@ final class CompletionController {
     private var generation = 0
     private var bufferVersion = 0
 
+    /// Where the world stood when the visible presentation was anchored: the
+    /// `bufferVersion` and caret location captured by every `present(…)`.
+    ///
+    /// This is how a clip-view bounds change is read as one of its two very
+    /// different causes — see `clipViewDidScroll()`, its only reader.
+    private struct PresentationBaseline {
+        let bufferVersion: Int
+        let caretLocation: Int
+    }
+
+    private var presentationBaseline: PresentationBaseline?
+
     /// Debounce before a (non-explicit) provider call, coalescing rapid
     /// keystrokes.
     private let debounceInterval: Duration = .milliseconds(150)
@@ -451,11 +463,24 @@ final class CompletionController {
         let caret = textView.selectedRange()
         let range = IdentifierScanner.completionPrefixRange(in: nsText, at: caret.location)
         let anchor = textView.firstRect(forCharacterRange: range, actualRange: nil)
+        presentationBaseline = PresentationBaseline(
+            bufferVersion: bufferVersion,
+            caretLocation: caret.location
+        )
 
         panel.onCommit = { [weak self] index in
             guard let self else { return }
             self.snapshot?.selection?.select(index)
             self.commit(.insert)
+        }
+
+        // The plan's dismissal set funnels an outside click through *this*
+        // controller's `dismiss()` — cancelling `pendingTask`, bumping the
+        // generation and forgetting the list — not through a panel-level hide,
+        // which would leave a superseded answer in flight, free to reopen over
+        // whatever word the click landed on.
+        panel.onOutsideClick = { [weak self] in
+            self?.dismiss()
         }
 
         panel.show(
@@ -539,11 +564,51 @@ final class CompletionController {
         case replace
     }
 
+    /// The editor's clip view scrolled while the panel is up: take it down —
+    /// unless the scroll was this editor's own doing.
+    ///
+    /// A bounds change is two different events wearing one notification. A
+    /// genuine user scroll (wheel, trackpad, scrollbar, minimap drag) moves the
+    /// text out from under a screen-anchored panel, so the panel comes down and
+    /// its list is superseded like any other member of the dismissal set. But
+    /// the text view also scrolls *itself* to keep the insertion point visible —
+    /// every keystroke that crosses the right viewport edge of an unwrapped
+    /// line, an Enter at the bottom edge, an arrow key along a long word — and
+    /// dismissing there would close the list mid-word and cancel its debounced
+    /// narrowing request, breaking exactly what the popup exists for (and that
+    /// the frame-change handler's own comment already guards for bounds'
+    /// sibling). The two are told apart by where the world stood when this
+    /// presentation was anchored: if the buffer has been edited since
+    /// (`bufferVersion` bumps on every edit notification) or the caret has
+    /// moved, the scroll was self-driven — the same rows are simply re-presented
+    /// at the live anchor, which is also how the panel follows the caret until
+    /// the fresh answer lands. A caret move out of the word still takes the
+    /// popup down through its own entry (`textViewDidChangeSelection`) no matter
+    /// which of the two ran first.
+    func clipViewDidScroll() {
+        guard isVisible, let textView, let snapshot else { return }
+        let selfDriven: Bool
+        if let baseline = presentationBaseline {
+            selfDriven = textView.selectedRange().location != baseline.caretLocation
+                || bufferVersion != baseline.bufferVersion
+        } else {
+            // Unreachable through `present(…)`, which sets the baseline before
+            // showing; a user scroll is the safe reading if ever false.
+            selfDriven = false
+        }
+        if selfDriven {
+            present(rows: snapshot.rows, selection: snapshot.selection)
+        } else {
+            dismiss()
+        }
+    }
+
     func dismiss() {
         pendingTask?.cancel()
         pendingTask = nil
         generation += 1
         snapshot = nil
+        presentationBaseline = nil
         panel.dismiss()
         forgetList()
     }

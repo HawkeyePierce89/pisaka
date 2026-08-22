@@ -1636,14 +1636,15 @@ struct CodeEditorView: NSViewRepresentable {
             // point: two observers of the same notification would eventually
             // disagree about what a scroll is.
             hover.dismiss()
-            // Gated on visibility because `dismiss()` also tears down the D4
-            // state (the late auto-import resolve of a row committed moments
-            // ago): a scroll after a commit — with nothing shown — must leave
-            // that in flight. A *visible* popup still comes down, and its
-            // superseded answer with it.
-            if completion.isVisible {
-                completion.dismiss()
-            }
+            // Routed through the controller rather than dismissed here: it can
+            // tell a user scroll (panel down) from the text view's own
+            // insertion-point autoscroll — a keystroke past the right edge of
+            // an unwrapped line, Enter at the bottom edge, an arrow along a
+            // long word — which must keep the list up and narrowing, not kill
+            // it mid-word (see `clipViewDidScroll`). Like the resign-key and
+            // end-editing handlers it does nothing when nothing is shown,
+            // leaving the post-commit D4 state alone.
+            completion.clipViewDidScroll()
             refreshGeometry()
             bracketHighlight.refreshVisible()
             searchController.refreshVisibleHighlight()
