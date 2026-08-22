@@ -30,11 +30,14 @@ import PisakaCore
 /// the typed prefix, or `.replace` (Tab) which consumes the trailing suffix of the
 /// identifier as well. `IdentifierScanner` provides both ranges.
 ///
-/// **Staleness guards and dismissal.** The controller maintains a strict dismissal
-/// set to tear down the popup if the context changes: losing first responder,
-/// clicking outside, scrolling, moving the caret out of the word, or typing a
-/// space. Before applying any completion, it re-verifies that the text in the
-/// buffer exactly matches the text that was on screen when the popup was shown.
+    /// **Staleness guards and dismissal.** The controller maintains a strict dismissal
+    /// set to tear down the popup if the context changes: losing first responder,
+    /// clicking outside, scrolling, moving the caret out of the word, or typing a
+    /// space. A commit answers to the snapshot's word *start*, not its exact
+    /// text — `update` keeps the previous list serving while a fresh answer
+    /// debounces, so the live word may have grown or shrunk under the open panel,
+    /// and every commit range is derived from whatever stands there now (see
+    /// `commit(_:)`).
 ///
 /// **Display strings as keys.** The snapshot keeps whole `CompletionItem`s keyed
 /// by `CompletionItem.displayText`. This string is the key in all three tables —
@@ -181,8 +184,12 @@ final class CompletionController {
     private var followUpTask: Task<Void, Never>?
 
     /// Raises and lowers the coordinator's programmatic-edit flag around an
-    /// insertion this controller performs *outside* AppKit's own
-    /// `insertCompletion` bracket — i.e. the late auto-import only. Set by
+    /// insertion this controller performs, so the edit notification the
+    /// inserted text fires is not mistaken for typing and cannot re-open the
+    /// popup over it. Both commit paths bracket themselves with this — the
+    /// simple `insertText` replacement and a plan carrying edits. The one
+    /// application outside a bracket is the D4 follow-up, which raises and
+    /// lowers the flag itself around its own plan. Set by
     /// `Coordinator.attachCompletion(textView:)`.
     var noteProgrammaticEdit: (Bool) -> Void = { _ in }
 
@@ -217,6 +224,14 @@ final class CompletionController {
     /// is whatever has been typed since the dot — legitimately nothing. Explicit
     /// invocation still works there; it only removes the debounce.
     ///
+    /// `caretMove` marks the bare-caret-move entry (`textViewDidChangeSelection`)
+    /// and changes what the snapshot-location gate below does with a mismatch:
+    /// a caret move may only *invalidate* (asking would pop a list under every
+    /// arrow key), while a keystroke or an explicit ask that has moved to a new
+    /// word — most importantly onto the far side of a just-typed `.`, whose old
+    /// snapshot answers the pre-dot word — legitimately starts a *new* question:
+    /// the stale list is dropped and the fresh request still goes out.
+    ///
     /// The request is built here, on the main actor, from the live buffer — the
     /// text goes *into* the request rather than being read later, so the words the
     /// provider harvests are the ones on screen when the user paused, not the ones
@@ -225,7 +240,8 @@ final class CompletionController {
         provider: CodeIntelligenceProviding?,
         fileURL: URL?,
         language: SyntaxLanguage?,
-        explicit: Bool
+        explicit: Bool,
+        caretMove: Bool
     ) {
         pendingTask?.cancel()
         pendingTask = nil
@@ -274,8 +290,20 @@ final class CompletionController {
 
         // The caret must sit where the shown list was computed; anywhere else —
         // open space, another dot, a different word entirely — invalidates it.
+        // What invalidation *means* depends on why this update runs. A bare
+        // caret move asks no question (a click or an arrow key must never pop
+        // a list), so it refuses outright. A keystroke or an explicit ask has
+        // moved to a context that deserves its own answer — the typed `.`
+        // after the very word the panel is serving, ⌃Space right after it —
+        // so the stale list is dropped, the panel comes down, and the fresh
+        // request still goes out. Neither `generation` nor `pendingTask` is
+        // touched on this path: the token captured at the top of this method
+        // is the one the fresh answer is validated against, and the pending
+        // task was already cancelled there.
         if let snap = snapshot, prefixRange.location != snap.prefixLocation {
-            return refuse()
+            guard !caretMove else { return refuse() }
+            snapshot = nil
+            panel.dismiss()
         }
 
         let request = CompletionRequest(
@@ -722,6 +750,16 @@ final class CompletionController {
     /// committed word is in the buffer and there is a real "before" to compare
     /// against.
     ///
+    /// **There is deliberately no generation-token check here.** Every UI
+    /// dismissal after a commit — a scroll, a click elsewhere, the window
+    /// losing key — bumps `generation`, and none of them supersedes this
+    /// import: the row is already in the buffer, and what guards it is
+    /// `bufferVersion` (any buffer touch, typed or programmatic, aborts),
+    /// explicit cancellation (`update`'s keystroke entry and `reset` both run
+    /// `forgetList()`, which cancels this task), and the plan re-derivation
+    /// against the live text below. A dismissal that merely hides a panel
+    /// must not silently drop the import.
+    ///
     /// An item past `prefetchResolveLimit` has no resolve in flight, so this is
     /// also where one is started: it is worth a round trip now that it is the row
     /// the user chose, and the answer takes exactly the path a prefetched one
@@ -739,12 +777,11 @@ final class CompletionController {
         // word, and that is exactly the "typed" text
         // `plan(for:over:replacing:in:)` has to re-express the edits against.
         let word = item.displayText
-        let token = generation
         let task: Task<[CompletionEdit], Never>
         if let inFlight {
             task = inFlight
         } else if let provider {
-            task = startResolve(for: item, provider: provider, token: token)
+            task = startResolve(for: item, provider: provider, token: generation)
         } else {
             return
         }
@@ -754,7 +791,6 @@ final class CompletionController {
             guard !Task.isCancelled,
                   let self,
                   let textView,
-                  token == self.generation,
                   version == self.bufferVersion,
                   let plan = self.plan(
                       for: edits,

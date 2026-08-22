@@ -794,7 +794,7 @@ struct CodeEditorView: NSViewRepresentable {
             // strip avoids by clearing after an insertion. Auto-pair and the
             // indented newline take the same path and are equally not typing.
             if !isApplyingProgrammaticEdit {
-                updateCompletions(explicit: false)
+                updateCompletions(explicit: false, caretMove: false)
             }
         }
 
@@ -856,12 +856,17 @@ struct CodeEditorView: NSViewRepresentable {
         /// `language` is the one the highlighter is attached to (`updateHighlighter`
         /// owns it), so the keywords offered are always the ones being highlighted;
         /// a plain-text buffer passes `nil` and gets none.
-        private func updateCompletions(explicit: Bool) {
+        ///
+        /// `caretMove` marks the selection-change entry: a bare caret move may
+        /// only invalidate a stale list, never ask for one — see
+        /// `CompletionController.update`.
+        private func updateCompletions(explicit: Bool, caretMove: Bool) {
             completion.update(
                 provider: symbolIndex?.provider,
                 fileURL: fileURL,
                 language: language,
-                explicit: explicit
+                explicit: explicit,
+                caretMove: caretMove
             )
         }
 
@@ -874,7 +879,7 @@ struct CodeEditorView: NSViewRepresentable {
         /// invocation on a still-debouncing prefix waits for the fresh answer
         /// rather than flashing the previous word's list.
         func requestCompletions() {
-            updateCompletions(explicit: true)
+            updateCompletions(explicit: true, caretMove: false)
         }
 
         /// Drop the candidate snapshot because the editor is now showing a
@@ -1166,7 +1171,11 @@ struct CodeEditorView: NSViewRepresentable {
             // still on screen.
             hover.dismiss()
             if completion.isVisible {
-                updateCompletions(explicit: false)
+                // The one caret-move entry: the controller may only *invalidate*
+                // a stale list here, never ask for a new one — a click or an
+                // arrow key must not pop a list. Asking on typing is handled by
+                // `textDidChange` above.
+                updateCompletions(explicit: false, caretMove: true)
             }
             // The find bar's "current" match follows the caret (see
             // `EditorSearchController.selectionChanged()`), so it must move with
@@ -1616,7 +1625,14 @@ struct CodeEditorView: NSViewRepresentable {
             // point: two observers of the same notification would eventually
             // disagree about what a scroll is.
             hover.dismiss()
-            completion.dismiss()
+            // Gated on visibility because `dismiss()` also tears down the D4
+            // state (the late auto-import resolve of a row committed moments
+            // ago): a scroll after a commit — with nothing shown — must leave
+            // that in flight. A *visible* popup still comes down, and its
+            // superseded answer with it.
+            if completion.isVisible {
+                completion.dismiss()
+            }
             refreshGeometry()
             bracketHighlight.refreshVisible()
             searchController.refreshVisibleHighlight()
@@ -1629,13 +1645,21 @@ struct CodeEditorView: NSViewRepresentable {
         /// `makeNSView` seeds the scan.
         @objc private func syncableFrameChanged() {
             // Same reasoning as the scroll above, and the same reasoning as the
-            // font change: a reflow moves the text out from under a popover
-            // anchored in screen coordinates. Unlike a scroll, this one can
-            // happen with the pointer perfectly still — a window resized from
-            // the keyboard, the bottom panel toggled, the sidebar dragged — so
-            // the next mouse-moved event cannot be relied on to clean it up.
+            // font change: a reflow moves the text out from under the *hover*
+            // popover, which is anchored in screen coordinates under a still
+            // pointer. Unlike a scroll, this one can happen with the pointer
+            // perfectly still — a window resized from the keyboard, the bottom
+            // panel toggled, the sidebar dragged — so the next mouse-moved event
+            // cannot be relied on to clean it up.
             hover.dismiss()
-            completion.dismiss()
+            // The completion panel is deliberately *not* dismissed here: a frame
+            // change fires for ordinary typing (a character that grows the
+            // document), and dismissing would cancel the debounced narrowing
+            // request on every such keystroke — the list would close instead of
+            // narrowing with the first row still selected. The panel's anchor is
+            // recomputed from the live text view on every presentation, and any
+            // real viewport movement reports through the bounds notification,
+            // which does dismiss it.
             refreshGeometry()
             bracketHighlight.refreshVisible()
             searchController.refreshVisibleHighlight()
