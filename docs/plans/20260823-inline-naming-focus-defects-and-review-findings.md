@@ -190,25 +190,25 @@ vertically clipped to about half its height. The field **wraps** (as the retired
 dialog did — a deep path is the reason relative-path create exists, so it must be
 readable in full), and the row grows to fit.
 
-- [ ] configure the field for wrapping the way `FilePanels.promptName` does
+- [x] configure the field for wrapping the way `FilePanels.promptName` does
       (`usesSingleLineMode = false`, wrapping cell, no scrolling, no line cap,
       `.byWordWrapping`)
-- [ ] implement `sizeThatFits(_:nsView:context:)` on the representable, returning
+- [x] implement `sizeThatFits(_:nsView:context:)` on the representable, returning
       the height the cell needs at the proposed width, clamped to at least one
       line and at most the same six-line ceiling the dialog uses; handle an
       unspecified/infinite proposed width by falling back to the field's current
       width
-- [ ] keep this height calculation local rather than sharing `FilePanels`': the
+- [x] keep this height calculation local rather than sharing `FilePanels`': the
       dialog's is bound to its fixed 400pt accessory width and to an
       `NSLayoutConstraint` it mutates, while the inline field's width is whatever
       the tree pane gives it — state that in the doc comment and cross-reference
       the dialog's version
-- [ ] replace `metrics.scaled(16) // icon is approx 16` in `reasonGutter`: put
+- [x] replace `metrics.scaled(16) // icon is approx 16` in `reasonGutter`: put
       the reason line in an `HStack` led by the *same* `iconColumn` view rendered
       hidden, so the reason's inset is the icon column's real width by
       construction (and stays zero for a rename draft, which has no icon column)
       — no new literal, and `TreeRowLayout` gains nothing it does not need
-- [ ] no new tests (view layout). Run `swift test` and `swiftlint --strict` —
+- [x] no new tests (view layout). Run `swift test` and `swiftlint --strict` —
       must be clean
 
 ### Task 5: Tree-view hygiene — force-unwraps and the empty context menu

@@ -50,11 +50,25 @@ struct TreeNameFieldView: View {
             .font(metrics.scaledFont(.body))
 
             if let issue = issue {
-                Text(issue.message)
-                    .foregroundColor(Color(NSColor.systemRed))
-                    .font(metrics.scaledFont(.caption))
-                    .lineLimit(nil)
-                    .padding(.leading, reasonGutter)
+                HStack(alignment: .top, spacing: metrics.scaled(4)) {
+                    // The *same* icon column the field sits beside, drawn hidden
+                    // and collapsed to zero height: the reason's inset is then
+                    // that column's real width by construction, so it cannot
+                    // drift from a literal, and a rename draft — which has no
+                    // icon column at all — keeps a zero inset for free. The font
+                    // must match the row's, since the column's width is the
+                    // chevron gutter plus a symbol drawn at that font.
+                    iconColumn
+                        .font(metrics.scaledFont(.body))
+                        .frame(height: 0)
+                        .hidden()
+                        .accessibilityHidden(true)
+
+                    Text(issue.message)
+                        .foregroundColor(Color(NSColor.systemRed))
+                        .font(metrics.scaledFont(.caption))
+                        .lineLimit(nil)
+                }
             }
         }
         .padding(.horizontal, isCreate ? metrics.scaled(TreeRowLayout.horizontalPadding) : 0)
@@ -69,15 +83,6 @@ struct TreeNameFieldView: View {
     private var isCreate: Bool {
         if case .create = draft { return true }
         return false
-    }
-
-    private var reasonGutter: Double {
-        switch draft {
-        case .create:
-            return TreeRowLayout.chevronGutter(metrics) + metrics.scaled(4) + metrics.scaled(16) // icon is approx 16
-        case .rename:
-            return 0
-        }
     }
 
     @ViewBuilder
@@ -239,6 +244,17 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
         field.stringValue = text
         field.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
 
+        // Wrap, never scroll — exactly as the retired `FilePanels.promptName`
+        // dialog did. A deep relative path is the whole reason relative-path
+        // create exists, so it has to be readable in full; the row grows to fit
+        // it (see `sizeThatFits`). Enter is still never a line break: the
+        // coordinator swallows every newline selector and commits instead.
+        field.usesSingleLineMode = false
+        field.cell?.wraps = true
+        field.cell?.isScrollable = false
+        field.maximumNumberOfLines = 0
+        field.lineBreakMode = .byWordWrapping
+
         switch draft {
         case .create(_, let isFolder):
             field.setAccessibilityLabel(isFolder ? "New Folder name" : "New File name")
@@ -268,6 +284,54 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
             return initialRenameSelection(in: entry.name, isDirectory: entry.isDirectory)
         }
     }
+
+    /// The height the wrapping field needs at the width the tree pane offers, so
+    /// a path long enough to wrap is shown in full instead of being clipped to a
+    /// fraction of its first line.
+    ///
+    /// Deliberately *not* shared with `FilePanels.promptFieldHeight(of:)`, whose
+    /// arithmetic is the same idea in a different shape: the dialog measures
+    /// against its own fixed 400 pt accessory width and feeds the answer to an
+    /// `NSLayoutConstraint` it mutates on every keystroke, while this field's
+    /// width is whatever the tree pane proposes on each layout pass and the
+    /// answer is simply returned. Only the clamp — at least one line, at most
+    /// `maximumLines` — is a shared *number*, and it is stated in both places.
+    ///
+    /// An unspecified or infinite proposed width carries no information to wrap
+    /// against, so it falls back to the width the field is currently laid out
+    /// at.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: CustomTextField, context: Context) -> CGSize? {
+        let width = Self.wrappingWidth(proposal.width, of: nsView)
+        return CGSize(width: width, height: Self.fittingHeight(of: nsView, at: width))
+    }
+
+    private static func wrappingWidth(_ proposed: CGFloat?, of field: CustomTextField) -> CGFloat {
+        guard let proposed, proposed.isFinite, proposed > 0 else {
+            return max(field.frame.width, 1)
+        }
+        return proposed
+    }
+
+    private static func fittingHeight(of field: CustomTextField, at width: CGFloat) -> CGFloat {
+        let lineHeight = (field.font ?? .systemFont(ofSize: NSFont.systemFontSize)).boundingRectForFont.height
+        let oneLine = ceil(lineHeight) + fieldVerticalPadding
+        let maximum = ceil(lineHeight * CGFloat(maximumLines)) + fieldVerticalPadding
+        guard let cell = field.cell else { return oneLine }
+        let fitting = cell.cellSize(
+            forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)
+        ).height
+        return min(max(ceil(fitting), oneLine), maximum)
+    }
+
+    /// The same ceiling the retired dialog used: past six lines the input is
+    /// pathological and a taller row would push the tree around more than it
+    /// helps.
+    private static let maximumLines = 6
+
+    /// A couple of points of slack so the field editor's caret and the font's
+    /// descenders are not clipped. Smaller than the dialog's, which also has to
+    /// clear a bezel this borderless field does not draw.
+    private static let fieldVerticalPadding: CGFloat = 2
 
     func updateNSView(_ nsView: CustomTextField, context: Context) {
         context.coordinator.parent = self
