@@ -91,7 +91,7 @@ Intent: state, once and testably, what a mouse-down means to an open draft, so
 the view layer holds no policy — only the AppKit facts (which window, which
 point, which rect).
 
-- [ ] add `TreeDraftDismissRule.decision(clickedWindowIsDraftWindow:point:draftBounds:)`
+- [x] add `TreeDraftDismissRule.decision(clickedWindowIsDraftWindow:point:draftBounds:)`
       returning a two-case `TreeDraftClickDecision` (`ignore` / `cancel`), with
       the contract documented in full: a click in another window is always
       `ignore` (that window's business — Find in Files, a diff window, an
@@ -102,12 +102,12 @@ point, which rect).
       are `CGRect.contains` (half-open, so the bottom/right edge is outside), and
       an empty or null rect is `cancel` because a draft with no measured area
       cannot own a click
-- [ ] write tests covering: other window ignored regardless of point; inside →
+- [x] write tests covering: other window ignored regardless of point; inside →
       ignore; outside on each of the four sides → cancel; the two contains-edge
       cases; empty and `.null` bounds → cancel
-- [ ] add the one-line index entry in `CLAUDE.md` beside `MoveDropRule.swift` and
+- [x] add the one-line index entry in `CLAUDE.md` beside `MoveDropRule.swift` and
       the full entry in `docs/architecture/core-workspace.md`
-- [ ] run `swift test` — must pass before Task 2
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: Mouse-down outside the draft cancels it
 

@@ -76,6 +76,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `CanonicalPath.swift` — "same file?" / "inside this dir?"; the `/private` caveat.
 - `DisplayPath.swift` — breadcrumb segments.
 - `MoveDropRule.swift` — the project tree's drag-and-drop engine: may this drop land, and where?
+- `TreeDraftDismissRule.swift` — the project tree's inline-naming draft: does this mouse-down cancel it?
 
 `docs/architecture/core-editor.md` — editor engines (pure, `NSString` + UTF-16 offsets):
 - `DuplicateEngine.swift` — ⌘D duplicate (JetBrains semantics).

@@ -687,3 +687,66 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     spelling, the `/private` spelling, a collision and the absence of a false
     collision when the only same-named entry is the source itself under another
     parent, a missing source, a missing target, and the ordinary accept.
+  - `TreeDraftDismissRule.swift` — the one rule that decides whether a mouse-down
+    cancels the project tree's open inline-naming draft: *is this click the
+    draft's business?* `public enum TreeDraftDismissRule`, one static function
+    `decision(clickedWindowIsDraftWindow:point:draftBounds:)` returning a two-case
+    `public enum TreeDraftClickDecision { case ignore; case cancel }`. It exists
+    because a tree row is a plain SwiftUI view that never takes first responder,
+    so `controlTextDidEndEditing` cannot hear a click on one: the view layer keeps
+    a local `.leftMouseDown`/`.rightMouseDown` monitor alive for exactly as long
+    as a draft is (`ProjectTreeDraftField`, `app-window.md`) and asks this rule
+    what each event means. Everything the rule takes is an AppKit *fact* — which
+    window, which point, which rectangle — so the view holds no policy, the same
+    split `MoveDropRule` uses for the drag.
+    **The three answers.** A click in *another window* is `ignore` regardless of
+    where it landed: Find in Files, a diff window, an alert and Preferences each
+    own their clicks, and cancelling on one would destroy a half-typed name
+    because the user reached for a different window. The window check comes
+    first, before the geometry, because two windows' coordinate spaces overlap.
+    A click *inside* `draftBounds` is `ignore` — placing the caret and
+    drag-selecting are ordinary edits, and so is clicking the draft's icon column
+    or its validation-reason line. Anything *else in the draft's own window* is
+    `cancel`: another tree row, the editor, a tab, the bottom bar — the user's
+    attention moved, and the Finder-like answer is to end the naming silently
+    rather than commit something they stopped looking at. App *deactivation*
+    needs no case at all: a local monitor sees no other app's events, so ⌘Tab
+    away and back preserves the draft for free.
+    **`cancel` is not a swallow.** The rule decides the draft's fate, never the
+    click's: the monitor returns the event unchanged, so a cancelling click also
+    does what it would have done anyway — the folder toggles, the file opens, the
+    right-clicked row gets its context menu. That is what Finder (and Zed) do,
+    and the alternative charges the user two clicks for one intent. It is safe
+    because cancelling is a SwiftUI state change, which invalidates layout for the
+    *next* display pass: the click AppKit dispatches immediately after the monitor
+    returns still hit-tests the geometry the user was looking at, so the row that
+    shifts up once the draft disappears is not the row that gets the click.
+    **What `draftBounds` is.** The draft's *whole* region — icon column, text
+    field and reason line — in the same space as `point`. The view layer gets both
+    from one invisible `NSView` installed as the draft's outermost `.background`:
+    SwiftUI sizes a background to its primary view, so that view's `bounds` **is**
+    the draft's rectangle by construction and `convert(_:from: nil)` puts the event
+    in the same space. Hit-testing the `NSTextField`'s frame instead would miss the
+    icon and the reason line, and reconstructing the rect from SwiftUI's `.global`
+    space would mean guessing at flipped-coordinate conversions; this way
+    "clicking the icon does not cancel" holds by construction rather than by a
+    measured inset, and nothing here knows about flipped coordinates.
+    **Edges and the degenerate rectangle.** Containment is `CGRect.contains(_:)` —
+    half-open, so the origin edges are inside and the `maxX`/`maxY` edges are out.
+    A one-point disagreement at a boundary is invisible to a user and not worth a
+    bespoke rule; matching AppKit's own convention is what keeps it predictable.
+    An empty or `.null` rectangle is `cancel`, and needs no branch of its own
+    because `contains` already answers `false` for both: a draft with no measured
+    area cannot own a click. That is not theoretical — it is the state between the
+    draft appearing and its first layout pass, and reading it as "inside" would
+    make the draft briefly uncancellable, the worse failure of the two.
+    This is the project's second Foundation-level file to import `CoreGraphics`
+    rather than `Foundation` (after `MinimapGeometry`), for the same reason: the
+    vocabulary *is* points and rectangles, and importing the geometry types keeps
+    the view from having to translate them.
+    Tested (`TreeDraftDismissRuleTests`) against a rectangle with a non-zero
+    origin, so a test that passes only at the zero point cannot: another window
+    ignored with the point inside, far outside and with an unmeasured rect;
+    inside ignored; both `contains` edges (origin corner inside, far corner out,
+    and just inside the far edge); outside on each of the four sides; and empty,
+    zero-height, `.null` and `.infinite` bounds.
