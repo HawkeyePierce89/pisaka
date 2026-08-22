@@ -13,14 +13,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     and `confirmRevert(fileNames:)` — a warning-style destructive-confirm
     `NSAlert` (listing the affected files in `informativeText`, "Revert"/"Cancel"
     buttons, returning `true` only on Revert), mirroring `confirmClose`. For the
-    writable project tree it adds two more:
+    writable project tree it adds `confirmDelete(fileNames:) -> Bool` — a warning-style
+    destructive-confirm `NSAlert` listing the target(s), returning `true` only on
+    Delete, mirroring `confirmClose`/`confirmRevert`. It also holds
     `promptName(title:defaultValue:validator:) -> String?` — an `NSAlert` hosting a
     wide (400 pt) *wrapping multiline* `NSTextField` accessory (made the initial
     first responder), returning the entered string on OK (pre-filled with
-    `defaultValue` — empty for New, the current name for Rename) or `nil` on
-    Cancel — and `confirmDelete(fileNames:) -> Bool` — a warning-style
-    destructive-confirm `NSAlert` listing the target(s), returning `true` only on
-    Delete, mirroring `confirmClose`/`confirmRevert`.
+    `defaultValue`) or `nil` on Cancel. This function now serves only the two branch prompts (New Branch / Branch from Remote); the project tree operations have migrated to inline naming, but `promptName` remains live code for branches.
     `promptName`'s field *wraps* instead of scrolling (`usesSingleLineMode =
     false`, wrapping non-scrollable cell, `maximumNumberOfLines = 0`,
     `preferredMaxLayoutWidth` set — all of which a plain `NSTextField()` already

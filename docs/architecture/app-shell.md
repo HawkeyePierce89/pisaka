@@ -483,12 +483,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     every *other* dirty file.
     `PisakaApp` also orchestrates the writable project tree, wiring the four
     `ProjectTreeView` callbacks (threaded via `ContentView`) to disk + model
-    reconciliation: New File (`promptName` → `parseRelativeEntryPath` →
+    reconciliation: New File (receives the accepted text from the view's inline draft → `parseRelativeEntryPath` →
     `fileService.ensureDirectory(at:)` on the parent chain, skipped entirely for a
     single component → `fileService.createFile(at:)` → `model.open(url:)` to show
     it → bump `treeRevision`), New Folder (same, `createDirectory` on the final
     component, no tab opened), Rename
-    (`promptName` pre-filled with the current name, a no-op when unchanged →
+    (receives the accepted text from the draft, a no-op when unchanged →
     validate → `performMove(from:to:)`, the shared body below: capture
     `model.planRename(from:to:)` *before* the move → `fileService.move(from:to:)`
     → `model.applyRenamePlan(_:)` → bump), and Delete

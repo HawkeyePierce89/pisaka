@@ -423,19 +423,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     runs for every expanded node, so an external `rm -rf build` (which now reaches
     the tree on its own through `ProjectWatcher`) would otherwise beep once per
     expanded descendant before the parent's re-read drops them.
-    Rows carry `.contextMenu`s for the writable tree, calling four callbacks
-    threaded `PisakaApp → ContentView → ProjectTreeView` (same shape as
-    `onOpenFile`/`onOpenFolder`): `onNewFile(dir)`, `onNewFolder(dir)`,
-    `onRename(url)`, `onDelete(url)`, `onRun(url)`, and `onRunTest(url)`. A
-    directory row offers New
-    File… / New Folder… and (non-root only) Rename… / Delete; the root row offers
-    only the two create actions; a file row offers Rename… / Delete, plus a "Run"
-    item (play icon → `onRun(url)`) shown only when
-    `RunCommand.canRun(url.lastPathComponent)` and a "Run Test" item
-    (`checkmark.diamond` icon → `onRunTest(url)`) shown only when
-    `TestCommand.isTestFile(fileName:)` (directories get neither item). The
-    callbacks
-    only request the operation — `PisakaApp` does the disk I/O and bumps
+    Rows carry `.contextMenu`s for the writable tree, backing the inline naming flow. A directory row offers New File / New Folder (no ellipsis) and (non-root only) Rename / Delete; the root row offers only the two create actions; a file row offers Rename / Delete, plus a "Run" item (play icon → `onRun(url)`) shown only when `RunCommand.canRun(url.lastPathComponent)` and a "Run Test" item (`checkmark.diamond` icon → `onRunTest(url)`) shown only when `TestCommand.isTestFile(fileName:)` (directories get neither item). The create and rename actions no longer prompt via dialog: they guard against `mayBeginFileOperation` at command time (so the "Git operation in progress" alert fires exactly when the menu is chosen), then set an inline `@State private var draft: TreeEditDraft?`. A drafted folder row expands if collapsed and renders the draft as its literal first child, scrolled into view; a drafted file or folder row swaps its label for the draft field. While a row is drafted, its tap (expand/open), drag source, drop delegate, context menu, and button trait are suppressed so VoiceOver reaches the field and gestures do not compete with typing. The draft survives `treeRevision` bumps, tearing down only on project switch, parent folder collapse, or target missing. The `onNewFile(URL, String)` / `onNewFolder(URL, String)` / `onRename(URL, String)` callbacks take the final accepted text and run under the same writer gate as defense-in-depth, while `onDelete` / `onRun` / `onRunTest` remain parameterless callbacks.
+  - `ProjectTreeDraftField.swift` — the AppKit-backed `NSTextField` for inline naming. Driven by a deterministic focus-loss rule: in-window end-editing cancels the draft silently; window resign-key does not (the editor stays installed); and a deterministic teardown flag (set by the view subclass in `viewWillMove(toWindow:)` when `newWindow == nil` and by `dismantleNSView`) separates a genuine teardown from a click-away without relying on responder-chain reads. The layer split gives this view no business logic: it collects the typed text, draws red text and a wrapped reason line on invalid input, and delegates all rules (validation, preselection, live collision check) to `FileName`.
     `treeRevision`. `DirectoryNodeView` also observes
     `.onChange(of: model.treeRevision)`: when currently expanded it re-reads
     `children(of:)` so a created / renamed / deleted entry appears without

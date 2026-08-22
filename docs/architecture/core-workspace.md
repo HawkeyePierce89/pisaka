@@ -211,6 +211,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     is an ordinary, visible entry). `isValidFileName` alone judges *no* reserved
     names at all — the rename call site checks `isExcludedEntryName` separately —
     which is the one documented gap in the predicate↔validator matrix.
+    Core also exports two rules specifically for the inline naming flow: `initialRenameSelection(in:isDirectory:) -> NSRange` (selecting the name up to the *last* dot for files, or the whole name for directories, empty extensions, or dotfiles) and `liveCollisionIssue(finalComponent:siblingNames:excluding:) -> EntryPathIssue?`. The collision check is exact-case and is run by the caller *only* when the trimmed input contains no `/` (a single component): a multi-component create lands its final component in a folder the tree has not listed, so no siblings are available, and the "already exists in this folder" `.nameTaken` issue is only true under this restriction.
     Foundation-only.
   - `GitRefName.swift` — pure, testable `GitRefName.isValid(_:) -> Bool` for the
     branch-switcher's "New Branch…" dialog, separate from `isValidFileName` (a
