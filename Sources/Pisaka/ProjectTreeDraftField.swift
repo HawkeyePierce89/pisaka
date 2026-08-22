@@ -246,27 +246,27 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
             field.setAccessibilityLabel("rename of \(entry.name)")
         }
 
-        // Take focus
-        DispatchQueue.main.async {
-            guard let window = field.window else { return }
-            window.makeFirstResponder(field)
-            if let editor = window.firstResponder as? NSTextView, editor.isFieldEditor {
-                let isDir: Bool
-                let name: String
-                switch draft {
-                case .create(_, let isFolder):
-                    isDir = isFolder
-                    name = text
-                case .rename(let entry):
-                    isDir = entry.isDirectory
-                    name = entry.name
-                }
-                let range = initialRenameSelection(in: name, isDirectory: isDir)
-                editor.setSelectedRange(range)
-            }
-        }
+        // The selection is decided once, here, from the one Core rule; the field
+        // applies it the moment it first takes focus (see `CustomTextField`).
+        // Focus itself is *not* requested here: at `makeNSView` time the field
+        // has no window yet, and asking on the next runloop turn silently loses
+        // every draft whose row joins the window later (expanding a collapsed
+        // folder and drafting in it is one command).
+        field.pendingSelection = initialSelection
 
         return field
+    }
+
+    /// The range to preselect when the draft opens, by the same Core rule the
+    /// retired dialog used: a rename preselects the name minus its extension, a
+    /// create has nothing to select yet.
+    private var initialSelection: NSRange {
+        switch draft {
+        case .create(_, let isFolder):
+            return initialRenameSelection(in: text, isDirectory: isFolder)
+        case .rename(let entry):
+            return initialRenameSelection(in: entry.name, isDirectory: entry.isDirectory)
+        }
     }
 
     func updateNSView(_ nsView: CustomTextField, context: Context) {
@@ -289,14 +289,65 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
         nsView.isTearingDown = true
     }
 
+    /// The draft's field, which takes keyboard focus itself rather than being
+    /// handed it from outside.
+    ///
+    /// `viewDidMoveToWindow` is the symmetric hook to the `viewWillMove(toWindow:)`
+    /// this class already overrides, and the first moment AppKit guarantees a
+    /// window: it fires for the whole subtree when an ancestor joins one, so the
+    /// late-attachment path (a collapsed folder expanded and drafted in the same
+    /// command) is covered, which the old "ask on the next runloop turn, give up
+    /// if there is no window" block was not.
     class CustomTextField: NSTextField {
         var isTearingDown = false
+
+        /// Applied to the field editor exactly once, right after focus is first
+        /// taken, then cleared: a later re-attachment must never re-select over
+        /// what the user has since typed or selected.
+        var pendingSelection: NSRange?
+
+        /// One-shot. A draft replaced by a second command must not have a stale
+        /// request steal focus back into the field it is tearing down.
+        private var hasTakenFocus = false
 
         override func viewWillMove(toWindow newWindow: NSWindow?) {
             super.viewWillMove(toWindow: newWindow)
             if newWindow == nil {
                 isTearingDown = true
             }
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            acquireFocus(retryOnRefusal: true)
+        }
+
+        /// Take first responder and apply the initial selection, at most once.
+        ///
+        /// `makeFirstResponder` can refuse (another responder declines to
+        /// resign), which no window hook can foresee; that one case retries a
+        /// single time on the next runloop turn, re-checking the window and the
+        /// teardown flag. One attempt, never a poll.
+        private func acquireFocus(retryOnRefusal: Bool) {
+            guard !hasTakenFocus, !isTearingDown, let window else { return }
+
+            guard window.makeFirstResponder(self) else {
+                guard retryOnRefusal else { return }
+                DispatchQueue.main.async { [weak self] in
+                    self?.acquireFocus(retryOnRefusal: false)
+                }
+                return
+            }
+
+            hasTakenFocus = true
+            applyPendingSelection(in: window)
+        }
+
+        private func applyPendingSelection(in window: NSWindow) {
+            guard let range = pendingSelection else { return }
+            pendingSelection = nil
+            guard let editor = window.firstResponder as? NSTextView, editor.isFieldEditor else { return }
+            editor.setSelectedRange(range)
         }
     }
 

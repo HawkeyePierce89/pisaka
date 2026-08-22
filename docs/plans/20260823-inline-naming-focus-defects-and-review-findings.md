@@ -159,25 +159,25 @@ Intent: fix defect 2. `makeNSView`'s single `DispatchQueue.main.async` guard
 silently gives up when the field is not yet in a window, and the draft opens
 deaf.
 
-- [ ] delete the `DispatchQueue.main.async` focus block from `makeNSView`;
+- [x] delete the `DispatchQueue.main.async` focus block from `makeNSView`;
       instead have `CustomTextField` acquire focus in `viewDidMoveToWindow` — the
       symmetric hook to the `viewWillMove(toWindow:)` the class already
       overrides, and the moment AppKit guarantees a window exists (it fires for
       the whole subtree when an ancestor joins a window, so the late-attachment
       path the guard used to lose is covered)
-- [ ] carry the initial selection range on the field, computed once by
+- [x] carry the initial selection range on the field, computed once by
       `makeNSView` from `initialRenameSelection(in:isDirectory:)`, and apply it
       to the field editor exactly once, immediately after focus is first taken;
       clear it afterwards so a second `viewDidMoveToWindow` (window change,
       re-attachment) can never re-select or clobber a selection the user has
       since changed
-- [ ] guard acquisition with a one-shot flag plus the existing teardown flag, so
+- [x] guard acquisition with a one-shot flag plus the existing teardown flag, so
       a draft replaced by a second command cannot have a stale request steal
       focus back
-- [ ] cover the one path a hook cannot: if `makeFirstResponder` refuses, retry
+- [x] cover the one path a hook cannot: if `makeFirstResponder` refuses, retry
       once on the next runloop turn, re-checking that the field is still in a
       window and not tearing down — bounded, one attempt, no polling
-- [ ] no new tests (AppKit focus is invisible to `swift test`). Run `swift test`
+- [x] no new tests (AppKit focus is invisible to `swift test`). Run `swift test`
       and `swiftlint --strict` — must be clean
 
 ### Task 4: The field fits its wrapped text; the reason line aligns by construction
