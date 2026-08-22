@@ -59,6 +59,11 @@ struct TreeNameFieldView: View {
         }
         .padding(.horizontal, isCreate ? metrics.scaled(TreeRowLayout.horizontalPadding) : 0)
         .padding(.vertical, isCreate ? metrics.scaled(TreeRowLayout.verticalPadding) : 0)
+        // Outermost, *after* the padding: SwiftUI sizes a background to its
+        // primary view, so the region's bounds is this whole draft — icon
+        // column, field and reason line together. Clicking any of them is
+        // therefore "inside" by construction rather than by a measured inset.
+        .background(TreeDraftDismissRegion(onCancel: onCancel))
     }
 
     private var isCreate: Bool {
@@ -108,6 +113,108 @@ struct TreeNameFieldView: View {
         let dummyURL = URL(fileURLWithPath: finalComponent)
         let entry = DirectoryEntry(url: dummyURL, isDirectory: false)
         return FileIcon(for: entry)
+    }
+}
+
+/// The draft's invisible dismiss region: the one view that hears a mouse-down
+/// anywhere in the window and asks `TreeDraftDismissRule` what it means.
+///
+/// It exists because a project-tree row is a plain SwiftUI view that never takes
+/// first responder, so clicking one moves focus nowhere and the field's
+/// `controlTextDidEndEditing` never fires. A local `NSEvent` monitor hears the
+/// click before any view does; that delegate callback stays as the fallback for
+/// what genuinely *does* move first responder.
+///
+/// Attached as the draft's outermost `.background`, so its `bounds` is the whole
+/// draft's rectangle. It draws nothing, hit-tests to `nil` and declares no size
+/// of its own, so it can neither intercept a click nor influence layout.
+struct TreeDraftDismissRegion: NSViewRepresentable {
+    /// Cancel the draft. Called for a mouse-down elsewhere in the draft's own
+    /// window; never for another window's, and never for a click on the draft.
+    let onCancel: () -> Void
+
+    func makeNSView(context: Context) -> DismissRegionView {
+        let view = DismissRegionView()
+        view.onCancel = onCancel
+        return view
+    }
+
+    func updateNSView(_ nsView: DismissRegionView, context: Context) {
+        nsView.onCancel = onCancel
+    }
+
+    static func dismantleNSView(_ nsView: DismissRegionView, coordinator: ()) {
+        nsView.uninstallMonitor()
+    }
+
+    /// Claim exactly what is proposed and nothing more. A background is sized to
+    /// its primary view, so this only makes explicit that the region never adds
+    /// a millimetre to the draft.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: DismissRegionView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 0, height: proposal.height ?? 0)
+    }
+
+    /// Owns the local mouse-down monitor for exactly as long as the draft lives.
+    ///
+    /// Lifetime is tied to the window, not to `init`/`deinit`: installed in
+    /// `viewDidMoveToWindow` once there is a window to compare events against,
+    /// removed when the window goes away and again from `dismantleNSView`. Both
+    /// halves are idempotent, so no monitor can outlive its draft or double up —
+    /// and one draft at a time is already the tree's invariant.
+    final class DismissRegionView: NSView {
+        var onCancel: (() -> Void)?
+
+        private var monitor: Any?
+
+        /// Invisible to the pointer: the region must observe clicks, never
+        /// receive them. Returning `nil` leaves every row, tab and pane below it
+        /// as clickable as if it were not there.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil {
+                uninstallMonitor()
+            } else {
+                installMonitor()
+            }
+        }
+
+        /// A *local* monitor — this app's events only, which is also why ⌘Tab
+        /// away and back preserves the draft: another app's clicks are never
+        /// seen. Idempotent, so a re-entered window installs nothing twice.
+        func installMonitor() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+                guard let self else { return event }
+                // AppKit delivers a local monitor on the main thread — the same
+                // reasoning `ZoomController` records for the app's other one.
+                MainActor.assumeIsolated { self.handle(event) }
+                // ALWAYS the event, unchanged: cancelling a draft does not
+                // swallow the click. The folder still toggles, the file still
+                // opens, the right-clicked row still gets its menu.
+                return event
+            }
+        }
+
+        func uninstallMonitor() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+        }
+
+        /// Hand AppKit's facts to the Core rule and act on its answer. No policy
+        /// lives here: which window, which point, which rectangle — that is all.
+        private func handle(_ event: NSEvent) {
+            guard let window else { return }
+            let decision = TreeDraftDismissRule.decision(
+                clickedWindowIsDraftWindow: event.window === window,
+                point: convert(event.locationInWindow, from: nil),
+                draftBounds: bounds
+            )
+            if decision == .cancel {
+                onCancel?()
+            }
+        }
     }
 }
 

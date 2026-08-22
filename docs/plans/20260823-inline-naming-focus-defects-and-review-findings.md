@@ -119,34 +119,34 @@ responder, so `controlTextDidEndEditing` cannot hear a click on one. A local
 `.leftMouseDown` / `.rightMouseDown` monitor, alive only while a draft is, hears
 every click before any view does.
 
-- [ ] add a small `NSViewRepresentable` (the draft's dismiss region) whose
+- [x] add a small `NSViewRepresentable` (the draft's dismiss region) whose
       `NSView` subclass installs the local monitor in `viewDidMoveToWindow`
       (window non-nil) and removes it when the window goes away and in
       `dismantleNSView` — so the monitor's lifetime is exactly the draft's, and
       no monitor can outlive it or double up (one draft at a time is already the
       tree's invariant)
-- [ ] make the region view invisible and non-interactive: `hitTest` returns
+- [x] make the region view invisible and non-interactive: `hitTest` returns
       `nil`, no drawing, and it declares no size of its own so it cannot
       influence the draft's layout
-- [ ] attach it as the outermost `.background` of `TreeNameFieldView`'s `VStack`,
+- [x] attach it as the outermost `.background` of `TreeNameFieldView`'s `VStack`,
       after the padding, so its `bounds` covers icon column, field and reason
       line together (decision B) — the acceptance criterion "clicking the icon or
       the reason line does not cancel" then holds by construction rather than by
       a measured inset
-- [ ] in the monitor: ignore events whose `event.window` is not the region's
+- [x] in the monitor: ignore events whose `event.window` is not the region's
       window, convert `locationInWindow` into the region's coordinates, ask
       `TreeDraftDismissRule`, invoke `onCancel` on `cancel`, and **always return
       the event unchanged** so the click proceeds (decision A: the folder still
       toggles, the file still opens, the right-clicked row still gets its menu —
       Finder-like)
-- [ ] follow `ZoomController`'s monitor discipline: store the token, `[weak
+- [x] follow `ZoomController`'s monitor discipline: store the token, `[weak
       self]`, and `MainActor.assumeIsolated` in the closure with the same
       one-line reason
-- [ ] keep `controlTextDidEndEditing` and its teardown-flag discrimination
+- [x] keep `controlTextDidEndEditing` and its teardown-flag discrimination
       exactly as they are — it remains the fallback for anything that genuinely
       moves first responder (Tab-away, a control that takes focus), and the two
       paths are idempotent because both end at `draft = nil`
-- [ ] no new tests: the policy is Task 1's and already tested; this is view
+- [x] no new tests: the policy is Task 1's and already tested; this is view
       wiring (untested by convention). Run `swift test` and `swiftlint --strict`
       — must be clean
 
