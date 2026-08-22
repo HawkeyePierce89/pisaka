@@ -312,6 +312,10 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `DiffView.swift` — side-by-side read-only diff panes.
 - `CommitLogView.swift` / `CommitGraphView.swift` / `LogFilterBar.swift` — Log table, graph gutter, filter bar.
 
+`docs/architecture/style-lint.md` — the SwiftLint enforcement machinery (no
+Swift files of its own): the two `.swiftlint.yml` files, `.githooks/pre-commit`,
+ci.yml's `lint` job, and the version-bump procedure.
+
 ### Cross-cutting invariants (details in the docs above)
 
 - **Generation tokens**: every async git/search model orders overlapping work by
@@ -447,7 +451,12 @@ that file as the *only* DEBUG-only branch outside `Sources/Pisaka/iOS/`) and
 `interfaceScale`, which roots inject the environment, which views declare a zoom
 surface, that the hover popover passes mouse events through and declares none,
 and the Preferences stepper reading its grid from `ZoomScaleRule` — the first
-three by set equality).
+three by set equality) and `LintConfigurationTests`
+(both `.swiftlint.yml` files — the version pin, `mandatory_comma`, the root and
+child disabled-rule sets by set equality, every measured threshold ceiling,
+every in-file disable counted by path/rule — plus `.githooks/pre-commit`'s gate
+shape and `ci.yml`'s lint job with the cross-file version pair; full inventory
+in that suite's doc comments).
 **Every one of these suites matches against comment- and literal-stripped
 text** — load-bearing, not tidy: these files quote their own settings in
 comments, so a raw `contains` stays green when the setting it names is deleted.
@@ -496,7 +505,10 @@ xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platfo
 CI (`.github/workflows/ci.yml`) runs these same gates on every pull request and
 push to `master`: `swift test` first, then — only when it is green — an unsigned
 macOS build and an unsigned iOS build (device arch, `generic/platform=iOS`,
-covering libgit2 linking) in parallel. No signing, secrets, or simulator. The
+covering libgit2 linking) in parallel, plus an independent `lint` job
+(pinned SwiftLint 0.65.0, `--strict`, no `needs:`) that refuses style
+violations even when the pre-commit hook was bypassed or never installed. No
+signing, secrets, or simulator. The
 **macOS build is `-configuration Release`, the iOS one Debug**, on purpose: the
 Sparkle updater is entirely behind `#if !DEBUG`, so a Debug-only gate would never
 compile the shipping path and a Sparkle API change would first surface inside the

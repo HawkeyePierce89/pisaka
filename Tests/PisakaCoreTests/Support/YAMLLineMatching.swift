@@ -59,9 +59,10 @@ func topLevelBlock(_ key: String, in text: String) -> [String]? {
     var entries: [String] = []
     for line in raw[(start + 1)...] {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
-        if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
-        // A zero-indent line ends the block.
+        // A zero-indent line ends the block — checked BEFORE the comment skip,
+        // so a column-0 comment between two blocks cannot glue them into one.
         if !line.hasPrefix(" ") && !line.hasPrefix("\t") { break }
+        if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
         entries.append(trimmed)
     }
     return entries

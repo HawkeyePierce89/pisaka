@@ -1,0 +1,77 @@
+# Style lint — one enforced style
+
+The SwiftLint gate: what makes style *enforced* rather than conventional. The
+static pin for everything here is `Tests/PisakaCoreTests/LintConfigurationTests.swift`
+(see that suite's doc comment for the full assertion inventory); this doc
+carries the rationale and the procedures.
+
+## The authority and its two files
+
+`.swiftlint.yml` at the repository root is the single style authority: every
+relaxed, disabled or re-tuned rule carries a written reason beside it.
+`Tests/.swiftlint.yml` is a nested child whose `disabled_rules` apply to the
+test tree only — SwiftLint discovers nested configs from the invocation
+directory and **merges** them into the root file, so `swiftlint lint --strict`
+with no `--config` (the only blessed form) judges both trees under one merged
+document.
+
+Two files exist because the alternative — thresholds raised above the largest
+*test* file — would switch `file_length`/`type_body_length` off for `Sources/`
+too. The child widens nothing for application code; `LintConfigurationTests`
+pins both files' `disabled_rules` by set equality so a quietly widened
+exemption fails `swift test`.
+
+## The three-way version pin
+
+`swiftlint_version:` in `.swiftlint.yml` is the one pin. It is enforced twice
+because SwiftLint itself only *warns* on a mismatch:
+
+- `.githooks/pre-commit` refuses when `swiftlint version` differs from it,
+  reading the pin out of the index copy of `.swiftlint.yml` (`git show
+  :.swiftlint.yml`) so a partially staged config edit cannot make the enforced
+  pin and the applied rules come from two different versions of the file;
+- ci.yml's `lint` job downloads exactly the release whose URL names the pinned
+  version and verifies the archive's SHA-256 before running it.
+
+`LintConfigurationTests` asserts the cross-file pair (CI URL version component
+equals the config pin) and that the hook carries no version literal of its own,
+so the three cannot disagree. Bumping SwiftLint therefore means: change
+`swiftlint_version:` in `.swiftlint.yml`, re-download the release asset,
+recompute its SHA-256, and update the URL + digest in ci.yml — the suite fails
+until every site has moved together.
+
+## What the pre-commit hook does, and why
+
+- **It lints what is being committed, not the worktree**: `git checkout-index
+  -a --prefix=` materialises the whole index (both config files travel with
+  it) into a scratch tree, and the staged paths are judged there. A partially
+  staged file is measured by the content the commit will carry.
+- **Its staged-file list covers exactly the trees `included:` names**
+  (`'Sources/*.swift' 'Tests/*.swift'`). The paths are then handed to
+  swiftlint *explicitly*, and explicit paths bypass `included:` (only
+  `excluded:` applies under `--force-exclude`) — an unscoped `'*.swift'` would
+  judge e.g. root-level files CI's discovery-mode run never sees, and the two
+  gates would disagree about one commit.
+- **It refuses; it never rewrites.** No `--fix`: a hook silently editing
+  already-staged content is content loss.
+- **No graceful degradation**: no `swiftlint`, wrong version, unreadable pin,
+  violations — all refuse with actionable messages. Skipping is how a violation
+  gets in. Activate with `git config core.hooksPath .githooks` (one time per
+  clone; git does not clone hooks).
+
+## Why CI is the real gate
+
+Hooks are local courtesy: not cloned, bypassable with `--no-verify`. The
+`lint` job runs the identical check (`--strict`, no `--config`, whole tree)
+independently of the build graph (`needs:` absent on purpose — style should be
+the fastest feedback), cannot be non-fatal, and prints `./swiftlint --version`
+before linting so each run's log records which binary judged it.
+
+## In-file exemptions
+
+A `// swiftlint:disable…` inside a source file is an exemption outside both
+configs' authority, invisible to any `.yml` diff — which is how it slips past
+review. Every such marker under `Sources/` and `Tests/` is counted by
+(path, rule) in `LintConfigurationTests.documentedInFileExemptions`; adding,
+moving or removing one fails the suite until the dictionary moves with it.
+Use the narrowest form (`:next`) and write the reason beside it.

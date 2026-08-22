@@ -27,15 +27,22 @@ import XCTest
 ///  * the child's `disabled_rules` equals its documented five-rule set **by
 ///    set equality**, so quietly widening the test-tree exemptions (adding a
 ///    rule here is free, removing a line of lint coverage) fails the suite;
+///  * the root's own `disabled_rules` equals its documented three-rule set by
+///    the same set equality, and every configured threshold equals its
+///    measured ceiling — a raised ceiling or an added disable is lint
+///    coverage lost without any source change a reviewer could catch;
 ///  * every *in-file* exemption — a lint-disable comment anywhere under
 ///    `Sources/` or `Tests/` — equals the small documented set by path, rule
 ///    and count, so an exemption added silently in a source file fails here
 ///    instead of passing review unnoticed;
 ///  * `.githooks/pre-commit` exists, is executable, and keeps the shape that
 ///    makes it a gate rather than a courtesy: it reads its version pin out of
-///    `.swiftlint.yml` (never a literal of its own), lints what is being
-///    committed (`--strict`, `--force-exclude`, over a materialised index),
-///    never rewrites staged content (`--fix` is absent) and never softens
+///    `.swiftlint.yml`'s staged copy (never a literal of its own), collects
+///    staged Swift files from exactly the authority's `included:` trees
+///    (explicit paths bypass `included:`, so any other scope would make hook
+///    and CI judge different commits), lints what is being committed
+///    (`--strict`, `--force-exclude`, over a materialised index), never
+///    rewrites staged content (`--fix` is absent) and never softens
 ///    (`|| true`-style escapes are absent), and every refusal branch reaches
 ///    `exit 1`;
 ///  * the CI lint job is the half that actually refuses a pull request — hooks
@@ -103,6 +110,47 @@ final class LintConfigurationTests: XCTestCase {
                        """)
     }
 
+    /// The root file's own `disabled_rules` — the rules switched off across BOTH
+    /// trees, the more consequential half — equals its documented three-rule set
+    /// **by set equality**, exactly like the child's set above. Every entry is a
+    /// behavior kept out of the linter's reach and carries its reason beside it in
+    /// `.swiftlint.yml`; a quietly added fourth rule is lint coverage lost.
+    func testRootDisabledRulesEqualTheDocumentedSet() throws {
+        let block = try XCTUnwrap(topLevelBlock("disabled_rules", in: try rootText()),
+                                  ".swiftlint.yml has no disabled_rules block")
+        let rules = Set(block.compactMap { $0.hasPrefix("- ") ? $0.dropFirst(2).trimmingCharacters(in: .whitespaces) : nil })
+        XCTAssertEqual(rules, Self.documentedRootExemptions,
+                       """
+                       .swiftlint.yml disables something other than the documented rules. \
+                       Widen the set only by changing BOTH the config (with its written \
+                       reason) and documentedRootExemptions here — an unexplained \
+                       exemption is lint coverage lost across both trees.
+                       """)
+    }
+
+    /// The measured ceilings themselves. Each number's reason sits beside it in
+    /// `.swiftlint.yml`, and each was measured over this tree — so a quietly
+    /// raised ceiling is lint coverage lost without any source change at all,
+    /// the same regression class as a silently reverted `mandatory_comma`.
+    /// (The two scalar thresholds configure their bound directly rather than in
+    /// a block, so they are matched on active lines instead.)
+    func testRootThresholdsEqualTheirMeasuredCeilings() throws {
+        let text = try rootText()
+        for (rule, expected) in Self.documentedRootThresholds {
+            let block = try XCTUnwrap(topLevelBlock(rule, in: text),
+                                      "\(rule) is missing from .swiftlint.yml")
+            for (key, value) in expected {
+                XCTAssertEqual(block.filter { $0 == "\(key): \(value)" }.count, 1,
+                               "\(rule).\(key) must stay \(value) — the measured ceiling")
+            }
+        }
+        let active = try activeRootLines()
+        for (rule, value) in ["large_tuple": "4", "function_parameter_count": "8"] {
+            XCTAssertTrue(active.contains("\(rule): \(value)"),
+                          "\(rule) must stay \(value) — the measured ceiling")
+        }
+    }
+
     /// Every in-file lint exemption under `Sources/` and `Tests/`, counted by
     /// (relative path, rule), must equal this dictionary.
     ///
@@ -126,12 +174,13 @@ final class LintConfigurationTests: XCTestCase {
                     Self.repositoryRoot.appendingPathComponent(tree).path.count))
                 for line in text.components(separatedBy: .newlines) {
                     guard let markerRange = line.range(of: marker) else { continue }
-                    var remainder = String(line[markerRange.upperBound...])
-                    for scope in ["next", "previous", "this"]
-                    where remainder.hasPrefix(":\(scope)") {
-                        remainder = String(remainder.dropFirst(scope.count + 1))
-                    }
-                    let rules = remainder.split(whereSeparator: { $0 == " " || $0 == "\t" })
+                    // Scope suffixes (`:next`/`:previous`/`:this`) carry a colon and so
+                    // fail the letter filter below; commas separate rule lists in a
+                    // disable command and are folded to separators here, so each rule in
+                    // a list lands under its own name instead of a phantom catch-all.
+                    let rules = line[markerRange.upperBound...]
+                        .replacingOccurrences(of: ",", with: " ")
+                        .split(whereSeparator: { $0 == " " || $0 == "\t" })
                         .map(String.init)
                         .filter { !$0.isEmpty && $0.allSatisfy { $0.isLetter || $0 == "_" } }
                     for rule in rules.isEmpty ? ["(every rule)"] : rules {
@@ -178,7 +227,8 @@ final class LintConfigurationTests: XCTestCase {
     }
 
     /// One source of truth for the version: the hook reads `swiftlint_version`
-    /// out of `.swiftlint.yml`. A hardcoded literal here would let hook and
+    /// out of `.swiftlint.yml`'s *staged* copy — the same place the rules it
+    /// enforces come from. A hardcoded literal here would let hook and
     /// configuration disagree silently — SwiftLint itself only warns on a
     /// mismatch, which is why something else must enforce the pin at all.
     ///
@@ -218,6 +268,33 @@ final class LintConfigurationTests: XCTestCase {
                       (git checkout-index), not the working tree — a partially staged file is \
                       judged by the content this commit will carry
                       """)
+    }
+
+    /// The hook's staged-file list must cover exactly the trees the style
+    /// authority's `included:` names — no more, no less. The collected paths are
+    /// handed to swiftlint explicitly, and explicit paths bypass `included:` under
+    /// `--force-exclude`: an unscoped collection would judge files CI's
+    /// discovery-mode run never sees (violations refused locally that CI waves
+    /// through, and vice versa), a narrower one would leave files ungated
+    /// everywhere. Derived from the config so the two cannot drift apart.
+    func testPreCommitHookCollectsExactlyTheAuthoritysTrees() throws {
+        let included = try XCTUnwrap(topLevelBlock("included", in: try rootText()),
+                                     ".swiftlint.yml has no included: block")
+        let trees = included.compactMap { $0.hasPrefix("- ") ? $0.dropFirst(2).trimmingCharacters(in: .whitespaces) : nil }
+        XCTAssertFalse(trees.isEmpty, "included: must name at least one tree")
+        let collectLine = try XCTUnwrap(
+            try activeHookLines().first { $0.contains("--diff-filter=ACMR") },
+            "the hook must collect staged files with git diff --cached --diff-filter=ACMR")
+        XCTAssertEqual(collectLine,
+                       "git diff --cached --name-only --diff-filter=ACMR -z -- "
+                           + trees.map { "'\($0)/*.swift'" }.joined(separator: " ")
+                           + " >\"$list\"",
+                       """
+                       the hook must collect staged Swift files from exactly the trees \
+                       .swiftlint.yml's included: names (\(trees.joined(separator: ", "))) — \
+                       explicit paths bypass included:, so any other scope makes the local \
+                       gate judge a different commit than CI's discovery-mode run
+                       """)
     }
 
     func testPreCommitHookNeverFixesAndNeverSoftens() throws {
@@ -358,9 +435,12 @@ final class LintConfigurationTests: XCTestCase {
         let block = try ciLintJobBlock()
 
         let lintLines = block.filter { $0.contains("./swiftlint lint") }
-        XCTAssertEqual(lintLines.count, 1, "exactly one lint invocation may judge the pull request")
-        XCTAssertTrue(lintLines.allSatisfy { $0.contains("--strict") },
-                      "the CI lint must pass --strict so warnings refuse too")
+        XCTAssertEqual(lintLines, ["run: ./swiftlint lint --strict"], """
+            exactly one lint invocation may judge the pull request, and it must be \
+            exactly this: --strict so warnings refuse, and no path arguments — paths \
+            would narrow CI's judgment below the whole first-party tree while the \
+            pre-commit hook keeps judging every staged file in included:
+            """)
 
         XCTAssertFalse(block.contains { $0.contains("--config") }, """
             the lint job must pass no config override: running from the repository root lets \
@@ -445,6 +525,25 @@ final class LintConfigurationTests: XCTestCase {
     private static let documentedInFileExemptions: [String: [String: Int]] = [
         "Tests/PisakaCoreTests/LeetCodeAPITests.swift": ["line_length": 2],
         "Tests/PisakaCoreTests/LSPProvisioningManifestTests.swift": ["line_length": 7],
+    ]
+
+    /// The root config's whole-tree exemptions, as `.swiftlint.yml` documents
+    /// them (each beside its written reason there).
+    private static let documentedRootExemptions: Set<String> = [
+        "optional_data_string_conversion",
+        "notification_center_detachment",
+        "orphaned_doc_comment",
+    ]
+
+    /// The measured ceilings, as `.swiftlint.yml` configures them.
+    private static let documentedRootThresholds: [String: [String: String]] = [
+        "identifier_name": ["min_length": "1", "max_length": "60"],
+        "type_name": ["min_length": "2", "max_length": "60"],
+        "line_length": ["warning": "140", "error": "140"],
+        "file_length": ["warning": "1400", "error": "1400"],
+        "type_body_length": ["warning": "1400", "error": "1400"],
+        "function_body_length": ["warning": "140", "error": "140"],
+        "cyclomatic_complexity": ["warning": "22", "error": "22"],
     ]
 
     /// The repository root, derived from this file's own compile-time path
@@ -548,9 +647,11 @@ final class LintConfigurationTests: XCTestCase {
         var block: [String] = []
         for line in raw[(start + 1)...] {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
+            // Terminators first — a column-0 comment between jobs must end this
+            // job's block, not be skipped into it.
             if !line.hasPrefix(" ") && !line.hasPrefix("\t") { break }
             if line.hasPrefix("  "), !line.hasPrefix("   ") { break }
+            if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
             block.append(trimmed)
         }
         return block

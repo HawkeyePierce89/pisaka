@@ -95,6 +95,8 @@ Files app). No terminal, no language servers, no commit dialog — details in
 - macOS 13+ and/or iOS/iPadOS 17+; Swift 6.0+ toolchain (Xcode 16+).
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) to generate the project
   (`brew install xcodegen`).
+- Contributing: [SwiftLint 0.65.0](#style-lint-swiftlint) — commits are
+  refused without it, deliberately with no graceful degradation.
 - macOS: the `git` CLI on your `PATH` for the git features (iOS uses libgit2
   in-process). Optional, each unlocking its language's semantic intelligence:
   Xcode (Swift), a Go toolchain (`gopls`), a Rust toolchain (`rust-analyzer`),
@@ -141,8 +143,15 @@ single style authority, and every relaxation in it carries its reason.
 One-time contributor setup:
 
 ```sh
-brew install swiftlint   # or download 0.65.0's portable_swiftlint.zip from GitHub Releases
-swiftlint version        # must print 0.65.0
+# The pinned release is the reliable route — brew's formula can be a different
+# version, and only 0.65.0 passes the gate:
+curl -fsSL --retry 3 -o swiftlint.zip \
+  https://github.com/realm/SwiftLint/releases/download/0.65.0/portable_swiftlint.zip
+unzip -o swiftlint.zip && rm swiftlint.zip
+install -m 755 swiftlint /usr/local/bin/   # or any directory on your PATH
+
+brew install swiftlint    # alternative; whatever it serves, the check below decides
+swiftlint version         # MUST print 0.65.0 — any other binary is refused
 git config core.hooksPath .githooks
 ```
 

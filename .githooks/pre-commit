@@ -17,12 +17,14 @@ set -eu
 
 cd "$(git rev-parse --show-toplevel)"
 
-# One source of truth for the version: read the pin out of .swiftlint.yml.
-# This file contains no version literal of its own, so hook and configuration
-# cannot disagree — a disagreement is exactly the failure this gate exists to
-# prevent. (SwiftLint itself only WARNS on a version mismatch, which is why
-# something else has to enforce it.)
-pin=$(sed -n 's/^swiftlint_version:[[:space:]]*\([0-9][0-9.]*\)[[:space:]]*$/\1/p' .swiftlint.yml)
+# One source of truth for the version: read the pin out of .swiftlint.yml —
+# the copy in the INDEX, the same place the rules below come from, so a
+# partially staged edit to that file cannot make the enforced pin and the
+# applied rules disagree. This file contains no version literal of its own, so
+# hook and configuration cannot disagree either — a disagreement is exactly the
+# failure this gate exists to prevent. (SwiftLint itself only WARNS on a
+# version mismatch, which is why something else has to enforce it.)
+pin=$(git show :.swiftlint.yml | sed -n 's/^swiftlint_version:[[:space:]]*\([0-9][0-9.]*\)[[:space:]]*$/\1/p')
 if [ -z "$pin" ]; then
     echo "pre-commit: could not read swiftlint_version from .swiftlint.yml" >&2
     exit 1
@@ -54,12 +56,21 @@ if [ "$installed" != "$pin" ]; then
     exit 1
 fi
 
-# The commit is judged by what it will contain: only added/copied/modified/
-# renamed staged files count, and deletions are nothing to lint.
 list=$(mktemp)
 work=$(mktemp -d)
-trap 'rm -rf "$list" "$work"' EXIT INT TERM
-git diff --cached --name-only --diff-filter=ACMR -z -- '*.swift' >"$list"
+trap 'rm -rf "$list" "$work"' EXIT
+# A trapped POSIX-sh signal handler returns and execution CONTINUES, so the
+# cleanup trap alone would let Ctrl-C sail through. The signal traps exit —
+# which runs the EXIT trap above — instead of merely cleaning up.
+trap 'exit 130' INT
+trap 'exit 143' TERM
+# Only added/copied/modified/renamed staged files count (deletions are nothing
+# to lint), scoped to exactly the trees the style authority's `included:` names.
+# The paths are then handed to swiftlint EXPLICITLY, and explicit paths bypass
+# `included:` (only `excluded:` applies under --force-exclude) — so an unscoped
+# '*.swift' here would judge e.g. Package.swift, which CI's discovery-mode run
+# never sees, and the two gates would disagree about the same commit.
+git diff --cached --name-only --diff-filter=ACMR -z -- 'Sources/*.swift' 'Tests/*.swift' >"$list"
 if [ ! -s "$list" ]; then
     exit 0
 fi
