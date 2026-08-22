@@ -111,7 +111,7 @@ public enum LeetCodeSolutionFile {
             fileExtension: "js",
             lineCommentPrefix: "//",
             displayName: "JavaScript"
-        )
+        ),
     ]
 
     /// The language LeetCode calls `langSlug`, or `nil` when it is one this app

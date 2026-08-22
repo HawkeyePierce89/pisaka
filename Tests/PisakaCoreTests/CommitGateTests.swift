@@ -334,7 +334,7 @@ final class CommitGateTests: XCTestCase {
             .conflictedFiles(["a.swift", "b.swift"]),
             .identityIncomplete,
             .emptyMessage,
-            .nothingSelected
+            .nothingSelected,
         ]
         for block in blocks {
             XCTAssertFalse(

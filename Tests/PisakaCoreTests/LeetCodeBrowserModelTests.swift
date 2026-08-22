@@ -76,7 +76,7 @@ final class LeetCodeBrowserModelTests: XCTestCase {
         "number-of-islands",
         "serialize-and-deserialize-binary-tree",
         "greatest-common-divisor-of-strings",
-        "reverse-prefix-of-word"
+        "reverse-prefix-of-word",
     ]
 
     private func makeTree(_ files: [String: String] = [:]) -> StubFileTree {
@@ -149,7 +149,7 @@ final class LeetCodeBrowserModelTests: XCTestCase {
             catalogPath: cacheJSON(
                 fetchedAt: "2026-08-11T11:00:00Z",
                 rows: [(1, "two-sum"), (2, "add-two-numbers")]
-            )
+            ),
         ]
     }
 
@@ -645,7 +645,7 @@ final class LeetCodeBrowserModelTests: XCTestCase {
                 "two-sum",
                 "add-two-numbers",
                 "median-of-two-sorted-arrays",
-                "two-sum-iii-data-structure-design"
+                "two-sum-iii-data-structure-design",
             ]
         )
     }
@@ -668,7 +668,7 @@ final class LeetCodeBrowserModelTests: XCTestCase {
                 "two-sum",
                 "add-two-numbers",
                 "median-of-two-sorted-arrays",
-                "two-sum-iii-data-structure-design"
+                "two-sum-iii-data-structure-design",
             ]
         )
 

@@ -124,12 +124,12 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
         if completion {
             capabilities["completionProvider"] = .object([
                 "resolveProvider": .bool(resolvesCompletionItems),
-                "triggerCharacters": .array([.string("."), .string("(")])
+                "triggerCharacters": .array([.string("."), .string("(")]),
             ])
         }
         return .object([
             "capabilities": .object(capabilities),
-            "serverInfo": .object(["name": .string("scripted"), "version": .string("1.0")])
+            "serverInfo": .object(["name": .string("scripted"), "version": .string("1.0")]),
         ])
     }
 

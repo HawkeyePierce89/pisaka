@@ -350,7 +350,7 @@ final class LSPWorkspaceTests: XCTestCase {
             ("view.ts", .typescript, "typescript"),
             ("view.jsx", .javascript, "javascriptreact"),
             ("view.js", .javascript, "javascript"),
-            ("view.mjs", .javascript, "javascript")
+            ("view.mjs", .javascript, "javascript"),
         ]
         let fake = LSPServerDescription(
             id: "fake-tsls",
@@ -1330,7 +1330,7 @@ final class LSPWorkspaceTests: XCTestCase {
                 downloaded(
                     path: "/servers/node/24.20.0/bin/node",
                     options: .object(["tsserver": .object(["path": .string("/servers/ts")])])
-                )
+                ),
             ])
         )
         XCTAssertEqual(workspace.liveServerCount, 0)

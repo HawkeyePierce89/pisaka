@@ -173,7 +173,7 @@ final class CompletionPanel {
             scrollView.topAnchor.constraint(equalTo: background.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: background.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: background.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: background.trailingAnchor)
+            scrollView.trailingAnchor.constraint(equalTo: background.trailingAnchor),
         ])
 
         panel.contentView = background
@@ -348,7 +348,7 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
             let color = (index == selection) ? NSColor.selectedControlTextColor : NSColor.labelColor
             let attr = NSAttributedString(string: Self.singleLineDisplay(row.displayText), attributes: [
                 .font: codeFont,
-                .foregroundColor: color
+                .foregroundColor: color,
             ])
             attr.draw(at: NSPoint(x: CGFloat(metrics.pt(28)), y: originY + (rHeight - attr.size().height) / 2))
         }

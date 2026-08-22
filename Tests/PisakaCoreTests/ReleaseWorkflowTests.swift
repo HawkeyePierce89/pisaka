@@ -328,7 +328,7 @@ final class ReleaseWorkflowTests: XCTestCase {
             "DEVELOPER_ID_CERT_PASSWORD",
             "APP_STORE_CONNECT_API_KEY_P8",
             "APP_STORE_CONNECT_KEY_ID",
-            "APP_STORE_CONNECT_ISSUER_ID"
+            "APP_STORE_CONNECT_ISSUER_ID",
         ] {
             assertGuardExits(#"-z "${\#(secret)}""#, in: script, step: "Preflight", because: """
                 without \(secret) the release cannot be signed or notarized at all, and the whole \
@@ -770,7 +770,8 @@ final class ReleaseWorkflowTests: XCTestCase {
         // the stronger one.
         for key in ["${RUNNER_TEMP}/developer-id.p12",
                     "${RUNNER_TEMP}/notary-key.p8",
-                    Self.tapDeployKeyPath] {
+                    Self.tapDeployKeyPath,
+        ] {
             XCTAssertTrue(script.contains { $0.hasPrefix("rm -f") && $0.contains(key) }, """
                 release.yml's `\(Self.keychainCleanupStepName)` step must `rm -f \(key)`. The step \
                 that writes it removes it on every path it reaches the end of, but a cancelled \
@@ -1021,7 +1022,7 @@ final class ReleaseWorkflowTests: XCTestCase {
         "Versions/B/XPCServices/Downloader.xpc",
         "Versions/B/XPCServices/Installer.xpc",
         "Versions/B/Autoupdate",
-        "Versions/B/Updater.app"
+        "Versions/B/Updater.app",
     ]
 
     /// Whether `line` invokes `codesign` to *apply* a signature, as opposed to
@@ -1866,7 +1867,8 @@ final class ReleaseWorkflowTests: XCTestCase {
             """)
         for flag in [#"--key "$API_KEY""#,
                      #"--key-id "$APP_STORE_CONNECT_KEY_ID""#,
-                     #"--issuer "$APP_STORE_CONNECT_ISSUER_ID""#] {
+                     #"--issuer "$APP_STORE_CONNECT_ISSUER_ID""#,
+        ] {
             XCTAssertTrue(invocation.contains { $0.contains(flag) }, """
                 `notarytool submit` must pass `\(flag)`. The key, its id and the team's issuer id \
                 are the whole authentication to the notary service, and a missing one is an error \
@@ -1882,7 +1884,8 @@ final class ReleaseWorkflowTests: XCTestCase {
 
         for secret in ["APP_STORE_CONNECT_API_KEY_P8",
                        "APP_STORE_CONNECT_KEY_ID",
-                       "APP_STORE_CONNECT_ISSUER_ID"] {
+                       "APP_STORE_CONNECT_ISSUER_ID",
+        ] {
             XCTAssertTrue(script.contains { $0 == "\(secret): ${{ secrets.\(secret) }}" }, """
                 release.yml's `\(Self.notarizeStepName)` step must receive \(secret) through its \
                 `env:` block. The preflight refuses a run without it, so a missing mapping *here* \
@@ -2134,7 +2137,7 @@ final class ReleaseWorkflowTests: XCTestCase {
             "Stage the update archive",
             "Generate and sign the appcast",
             "Publish the GitHub Release",
-            Self.caskBumpStepName
+            Self.caskBumpStepName,
         ]
 
         var positions: [(String, Int)] = []
@@ -2710,7 +2713,8 @@ final class ReleaseWorkflowTests: XCTestCase {
         let text = try activeText()
         for leak in ["cat \"$KEY\"", "cat \"${KEY}\"", "cat $KEY", "cat ${KEY}",
                      "echo \"$\(Self.tapDeployKeySecret)\"",
-                     "echo \"${\(Self.tapDeployKeySecret)}\""] {
+                     "echo \"${\(Self.tapDeployKeySecret)}\"",
+        ] {
             XCTAssertFalse(text.contains(leak), """
                 release.yml carries `\(leak)`. That prints the deploy key's bytes into a public \
                 workflow log; the runner's secret masking is a substring replacement and does not \
@@ -3570,14 +3574,14 @@ final class ReleaseWorkflowTests: XCTestCase {
         ".github/workflows/release.yml",
         "README.md",
         "docs/FEATURES.md",
-        "docs/RELEASING.md"
+        "docs/RELEASING.md",
     ]
 
     /// The literal instructions an ad-hoc-signed download needed. Matched as
     /// strings because that is what a user copies out of a document.
     private static let gatekeeperWorkarounds = [
         "xattr -dr com.apple.quarantine",
-        "Open Anyway"
+        "Open Anyway",
     ]
 
     /// The acceptance criterion of the signing work, pinned so a revert cannot

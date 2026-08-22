@@ -58,7 +58,7 @@ final class LSPRustProvisioningTests: XCTestCase {
                         stripComponents: 0,
                         destinationSubpath: "bin",
                         architecture: .arm64
-                    )
+                    ),
                 ],
                 executableSubpath: "bin/rust-analyzer"
             )

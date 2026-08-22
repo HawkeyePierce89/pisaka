@@ -51,7 +51,7 @@ final class VendoredGrammarQueryTests: XCTestCase {
             "operator",
             "string",
             "punctuation.delimiter",
-            "punctuation.bracket"
+            "punctuation.bracket",
         ])
 
         assertResolvesWithoutFallingBackToPlain(emitted)
@@ -80,7 +80,7 @@ final class VendoredGrammarQueryTests: XCTestCase {
             "constant", // booleans
             "number",
             "string",   // quoted and bare values
-            "variable" // keys and `${…}` references
+            "variable", // keys and `${…}` references
         ])
 
         assertResolvesWithoutFallingBackToPlain(emitted)
@@ -121,7 +121,7 @@ final class VendoredGrammarQueryTests: XCTestCase {
             "punctuation.bracket",
             "variable",
             "type",
-            "function"
+            "function",
         ])
 
         assertResolvesWithoutFallingBackToPlain(emitted)

@@ -156,7 +156,7 @@ final class ScriptedLeetCodeTransport: LeetCodeTransport, @unchecked Sendable {
             route,
             [
                 Step(answer: .failure(error), delay: 0),
-                Step(answer: .success(response), delay: 0)
+                Step(answer: .success(response), delay: 0),
             ]
         )
     }

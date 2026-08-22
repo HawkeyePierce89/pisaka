@@ -24,7 +24,7 @@ public enum RunCommand {
         // not a Go-specific shortfall.
         "go": ["go", "run"],
         "sh": ["bash"],
-        "bash": ["bash"]
+        "bash": ["bash"],
     ]
 
     /// The shell command that runs `fileName` (at `absolutePath`), or `nil` when

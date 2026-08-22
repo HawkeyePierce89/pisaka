@@ -564,7 +564,7 @@ final class SettingsStoreTests: XCTestCase {
             [
                 LSPDownloadableServer.typescript.id: "maybe",
                 LSPDownloadableServer.python.id: "accepted",
-                "legacy-server": "declined"
+                "legacy-server": "declined",
             ],
             forKey: SettingsStore.Keys.lspServerConsent
         )
@@ -675,7 +675,7 @@ final class SettingsStoreTests: XCTestCase {
         defaults.set(
             [
                 LSPDownloadableServer.typescript.id: 7,
-                LSPDownloadableServer.python.id: "declined"
+                LSPDownloadableServer.python.id: "declined",
             ] as [String: Any],
             forKey: SettingsStore.Keys.lspServerConsent
         )

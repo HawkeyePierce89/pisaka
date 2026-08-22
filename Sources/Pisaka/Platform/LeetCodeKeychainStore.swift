@@ -68,7 +68,7 @@ final class LeetCodeKeychainStore: LeetCodeCredentialStore, @unchecked Sendable 
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account
+            kSecAttrAccount as String: account,
         ]
     }
 
@@ -120,7 +120,7 @@ final class LeetCodeKeychainStore: LeetCodeCredentialStore, @unchecked Sendable 
             baseQuery as CFDictionary,
             [
                 kSecValueData as String: data,
-                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
             ] as CFDictionary
         )
         guard updated == errSecSuccess else { throw LeetCodeKeychainError(status: updated) }

@@ -219,7 +219,7 @@ final class LeetCodeJudgeAPITests: XCTestCase {
             "Cookie": "LEETCODE_SESSION=session-value; csrftoken=csrf-value",
             "Referer": "https://leetcode.com/problems/two-sum/",
             "User-Agent": LeetCodeAPI.userAgent,
-            "x-csrftoken": "csrf-value"
+            "x-csrftoken": "csrf-value",
         ]
 
         XCTAssertEqual(
@@ -385,7 +385,7 @@ final class LeetCodeJudgeAPITests: XCTestCase {
     func testPendingAndStartedCarryNothingButTheState() throws {
         for (fixture, expected) in [
             ("judge-check-pending.json", LeetCodeJudgeCheck.pending),
-            ("judge-check-started.json", LeetCodeJudgeCheck.started)
+            ("judge-check-started.json", LeetCodeJudgeCheck.started),
         ] {
             for kind in LeetCodeJudgeKind.allCases {
                 let check = try LeetCodeAPI.parseJudgeCheck(response(fixture), kind: kind)

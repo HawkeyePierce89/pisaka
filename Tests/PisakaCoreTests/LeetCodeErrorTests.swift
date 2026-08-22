@@ -11,7 +11,7 @@ final class LeetCodeErrorTests: XCTestCase {
         .paidOnly(slug: "two-sum-ii"),
         .throttled(retryAfter: 30),
         .folderUnavailable,
-        .fileSystem(reason: "You don’t have permission to save the file “0001-two-sum.swift”.")
+        .fileSystem(reason: "You don’t have permission to save the file “0001-two-sum.swift”."),
     ]
 
     func testEveryErrorHasANonEmptyDescription() {

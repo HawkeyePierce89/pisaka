@@ -435,7 +435,7 @@ final class DiffGutterView: NSRulerView, ZoomSurfaceProviding {
 
         let attributes: [NSAttributedString.Key: Any] = [
             .font: rulerFont,
-            .foregroundColor: NSColor.secondaryLabelColor
+            .foregroundColor: NSColor.secondaryLabelColor,
         ]
         let textOrigin = textView.textContainerOrigin
         let relativePoint = convert(NSPoint.zero, from: textView)

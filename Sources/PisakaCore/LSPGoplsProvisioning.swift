@@ -583,7 +583,7 @@ public final class LSPGoplsProvisioningModel: ObservableObject {
                 languages: [.go],
                 launch: .executable(path: installation.executablePath),
                 environment: ["PATH": searchPath]
-            )
+            ),
         ]
     }
 

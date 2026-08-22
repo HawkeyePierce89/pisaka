@@ -203,22 +203,29 @@ to 2200 and `type_body_length` to 2150, which switches those rules off for
 - Modify: ~604 sites across `Sources/PisakaCore`, `Sources/Pisaka`,
   `Tests/PisakaCoreTests`
 
-- [ ] Run `swiftlint --fix` from the repository root (verified in this session
+- [x] Run `swiftlint --fix` from the repository root (verified in this session
       to *insert* mandatory trailing commas in array and dictionary literals).
       This is a local conformance step only — neither the hook nor CI ever
       runs `--fix`.
-- [ ] Confirm `swiftlint lint --quiet` now reports **zero** `trailing_comma`
+- [x] Confirm `swiftlint lint --quiet` now reports **zero** `trailing_comma`
       violations.
-- [ ] Read the diff as a whole and confirm it is punctuation only: no line
+- [x] Read the diff as a whole and confirm it is punctuation only: no line
       other than a collection-literal element's last one changed, no
       reordering, no reflow. Anything else in the diff is a bug in the pass,
       not an accepted side effect.
-- [ ] Pay particular attention to the repository-file suites that read Swift
+      (Verified mechanically across all 113 changed files by stripping
+      whitespace + commas from both sides and comparing: no content change.
+      One fixer bug repaired by hand at 21 sites where stacked closing
+      delimiters made it place the comma mid-line before the closer (`,]`),
+      tripping the `comma` spacing rule — each fixed by moving that closing
+      delimiter onto its own line so the trailing comma lands at end-of-line.)
+- [x] Pay particular attention to the repository-file suites that read Swift
       source text (`LSPSourceGatingTests`, `SparkleSourceGatingTests`,
       `ZoomSourceGatingTests`, `CrossPlatformAuditTests`): they match on
       stripped text and should be indifferent, but they are the suites a
-      whole-tree punctuation sweep would break first.
-- [ ] Run `swift test` — must pass before Task 3.
+      whole-tree punctuation sweep would break first. (All green under the
+      full `swift test` run below.)
+- [x] Run `swift test` — must pass before Task 3.
 
 ### Task 3: Bring the remainder to zero violations
 

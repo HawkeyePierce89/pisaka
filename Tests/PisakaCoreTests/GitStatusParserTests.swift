@@ -169,7 +169,7 @@ final class GitStatusParserTests: XCTestCase {
                 ChangedFile(path: "README.md", status: .added),
                 ChangedFile(path: "docs/new.md", status: .renamed, oldPath: "docs/old.md"),
                 ChangedFile(path: "obsolete.txt", status: .deleted),
-                ChangedFile(path: "scratch.tmp", status: .untracked)
+                ChangedFile(path: "scratch.tmp", status: .untracked),
             ]
         )
     }
@@ -212,7 +212,7 @@ final class GitStatusParserTests: XCTestCase {
             [
                 ChangedFile(path: "Sources/app.swift", status: .modified),
                 ChangedFile(path: "merge/target.swift", status: .conflicted),
-                ChangedFile(path: "scratch.tmp", status: .untracked)
+                ChangedFile(path: "scratch.tmp", status: .untracked),
             ]
         )
     }

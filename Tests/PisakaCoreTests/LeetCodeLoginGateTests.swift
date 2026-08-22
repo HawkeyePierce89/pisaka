@@ -259,7 +259,7 @@ final class LeetCodeLoginGateTests: XCTestCase {
             ("throttled", { $0.serve(.userStatus, body: Self.fixture("throttled.json")) }),
             ("apiChanged", { $0.serve(.userStatus, body: Self.fixture("invalid-no-data.json")) }),
             ("garbage", { $0.serve(.userStatus, json: "not json at all") }),
-            ("500", { $0.serve(.userStatus, json: "{}", statusCode: 500) })
+            ("500", { $0.serve(.userStatus, json: "{}", statusCode: 500) }),
         ]
         for (name, script) in failures {
             let transport = ScriptedLeetCodeTransport()
@@ -286,7 +286,7 @@ final class LeetCodeLoginGateTests: XCTestCase {
                 )
             ),
             ("401", LeetCodeHTTPResponse(statusCode: 401)),
-            ("403", LeetCodeHTTPResponse(statusCode: 403))
+            ("403", LeetCodeHTTPResponse(statusCode: 403)),
         ]
         for (name, response) in refusals {
             let transport = ScriptedLeetCodeTransport()

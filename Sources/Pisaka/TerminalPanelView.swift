@@ -167,7 +167,7 @@ private struct TerminalHostView: NSViewRepresentable {
             terminalView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             terminalView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             terminalView.topAnchor.constraint(equalTo: container.topAnchor),
-            terminalView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            terminalView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
         // Focus the freshly installed terminal so keystrokes go to it — but only on
         // an actual install (initial mount or a tab switch), never on every

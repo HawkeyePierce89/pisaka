@@ -249,7 +249,7 @@ final class SymbolQueryTests: XCTestCase {
             "function_declaration", "init_declaration", "pattern", "property_declaration",
             "protocol_body", "protocol_declaration", "protocol_function_declaration",
             "protocol_property_declaration", "simple_identifier", "source_file", "type_identifier",
-            "typealias_declaration", "user_type", "value_binding_pattern"
+            "typealias_declaration", "user_type", "value_binding_pattern",
         ], anonymous: ["init", "let", "var"], fields: ["body", "name"]),
 
         .javascript: (named: [
@@ -257,7 +257,7 @@ final class SymbolQueryTests: XCTestCase {
             "field_definition", "function_declaration", "function_expression",
             "generator_function_declaration", "identifier", "lexical_declaration",
             "method_definition", "pair", "private_property_identifier", "program",
-            "property_identifier", "variable_declaration", "variable_declarator"
+            "property_identifier", "variable_declaration", "variable_declarator",
         ], anonymous: ["const", "let"], fields: ["body", "key", "name", "property", "value"]),
 
         .typescript: (named: [
@@ -269,12 +269,12 @@ final class SymbolQueryTests: XCTestCase {
             "method_signature", "module", "nested_identifier", "pair",
             "private_property_identifier", "program", "property_identifier", "property_signature",
             "public_field_definition", "type_alias_declaration", "type_identifier",
-            "variable_declaration", "variable_declarator"
+            "variable_declaration", "variable_declarator",
         ], anonymous: ["const", "let"], fields: ["body", "key", "name", "value"]),
 
         .python: (named: [
             "assignment", "block", "class_definition", "decorated_definition",
-            "expression_statement", "function_definition", "identifier", "module"
+            "expression_statement", "function_definition", "identifier", "module",
         ], anonymous: [], fields: ["body", "left", "name"]),
 
         // Go's anonymous set is empty on purpose, and one absence in it is
@@ -292,7 +292,7 @@ final class SymbolQueryTests: XCTestCase {
             "interface_type", "method_declaration", "method_elem", "parameter_declaration",
             "parameter_list", "pointer_type", "source_file", "struct_type", "type_alias",
             "type_declaration", "type_identifier", "type_spec", "var_declaration", "var_spec",
-            "var_spec_list"
+            "var_spec_list",
         ], anonymous: [], fields: ["name", "receiver", "type"]),
 
         // Rust's anonymous set is empty, and that is the whole shape of the
@@ -310,7 +310,7 @@ final class SymbolQueryTests: XCTestCase {
             "field_declaration", "field_declaration_list", "field_identifier", "function_item",
             "function_signature_item", "generic_type", "identifier", "impl_item", "mod_item",
             "scoped_type_identifier", "source_file", "static_item", "struct_item", "trait_item",
-            "type_identifier", "type_item", "union_item"
+            "type_identifier", "type_item", "union_item",
         ], anonymous: [], fields: ["body", "name", "type"]),
 
         .markdown: (named: ["atx_heading", "inline", "paragraph", "setext_heading"],
@@ -318,12 +318,12 @@ final class SymbolQueryTests: XCTestCase {
 
         .css: (named: [
             "class_name", "class_selector", "id_name", "id_selector", "keyframes_name",
-            "keyframes_statement"
+            "keyframes_statement",
         ], anonymous: [], fields: []),
 
         .yaml: (named: [
             "anchor", "anchor_name", "block_mapping", "block_mapping_pair", "block_node",
-            "document", "flow_node"
+            "document", "flow_node",
         ], anonymous: [], fields: ["key"]),
 
         .json: (named: ["document", "object", "pair", "string", "string_content"],
@@ -332,7 +332,7 @@ final class SymbolQueryTests: XCTestCase {
         .html: (named: ["attribute", "attribute_name", "attribute_value", "quoted_attribute_value"],
                 anonymous: [], fields: []),
 
-        .dockerfile: (named: ["from_instruction", "image_alias"], anonymous: [], fields: ["as"])
+        .dockerfile: (named: ["from_instruction", "image_alias"], anonymous: [], fields: ["as"]),
     ]
 
     // MARK: - Reading the shipped queries

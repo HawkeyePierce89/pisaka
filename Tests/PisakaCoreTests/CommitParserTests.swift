@@ -47,7 +47,8 @@ final class CommitParserTests: XCTestCase {
                 date: "2026-06-25T10:00:00+00:00",
                 subject: "Fix the thing",
                 refs: []
-            )]
+            ),
+            ]
         )
     }
 

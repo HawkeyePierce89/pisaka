@@ -102,7 +102,7 @@ final class LeetCodeAPITests: XCTestCase {
             "Cookie": "LEETCODE_SESSION=session-value; csrftoken=csrf-value",
             "Referer": "https://leetcode.com/",
             "User-Agent": LeetCodeAPI.userAgent,
-            "x-csrftoken": "csrf-value"
+            "x-csrftoken": "csrf-value",
         ]
 
         var post = expected
@@ -184,7 +184,7 @@ final class LeetCodeAPITests: XCTestCase {
         let carried = [
             "https://leetcode.com/accounts/login/",
             "https://leetcode.com/graphql?next=1",
-            "https://www.leetcode.com/graphql"
+            "https://www.leetcode.com/graphql",
         ]
         for target in carried {
             XCTAssertTrue(
@@ -206,7 +206,7 @@ final class LeetCodeAPITests: XCTestCase {
             // the public suffix.
             "https://com/graphql",
             // A scheme downgrade would put the pair on the wire in clear text.
-            "http://leetcode.com/graphql"
+            "http://leetcode.com/graphql",
         ]
         for target in stripped {
             XCTAssertFalse(
@@ -556,7 +556,7 @@ final class LeetCodeAPITests: XCTestCase {
     func testAnImplausibleRetryAfterHeaderIsRefusedRatherThanNamed() throws {
         let implausible = [
             "inf", "-inf", "infinity", "nan", "1e400", "99999999999999999999",
-            "7200", "0", "-30", "soon", ""
+            "7200", "0", "-30", "soon", "",
         ]
         for raw in implausible {
             let throttled = try response(
@@ -826,7 +826,7 @@ final class LeetCodeAPITests: XCTestCase {
         for sentence in [
             "Request was throttled. Try again later. Ticket 90210.",
             "Request was throttled. Expected available in 99999 seconds.",
-            "Request was throttled. Expected available in 0 seconds."
+            "Request was throttled. Expected available in 0 seconds.",
         ] {
             let body = "{\"detail\":\"\(sentence)\"}"
             let response = LeetCodeHTTPResponse(statusCode: 403, body: Data(body.utf8))

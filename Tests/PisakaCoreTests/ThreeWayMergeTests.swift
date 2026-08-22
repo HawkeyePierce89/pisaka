@@ -39,7 +39,7 @@ final class ThreeWayMergeTests: XCTestCase {
         XCTAssertEqual(regions, [
             .stable(["a"]),
             .conflict(ConflictHunk(base: ["b"], ours: ["X"], theirs: ["Y"])),
-            .stable(["c"])
+            .stable(["c"]),
         ])
     }
 
@@ -73,7 +73,7 @@ final class ThreeWayMergeTests: XCTestCase {
         XCTAssertEqual(regions, [
             .stable(["a"]),
             .conflict(ConflictHunk(base: ["b"], ours: ["B"], theirs: [])),
-            .stable(["c"])
+            .stable(["c"]),
         ])
     }
 
@@ -88,7 +88,7 @@ final class ThreeWayMergeTests: XCTestCase {
             .conflict(ConflictHunk(base: ["b"], ours: ["B1"], theirs: ["B2"])),
             .stable(["c"]),
             .conflict(ConflictHunk(base: ["d"], ours: ["D1"], theirs: ["D2"])),
-            .stable(["e"])
+            .stable(["e"]),
         ])
     }
 
@@ -125,7 +125,7 @@ final class ThreeWayMergeTests: XCTestCase {
         XCTAssertEqual(regions, [
             .stable(["a"]),
             .conflict(ConflictHunk(base: ["b", "c"], ours: ["X1", "X2"], theirs: ["Y1"])),
-            .stable(["d"])
+            .stable(["d"]),
         ])
     }
 

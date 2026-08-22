@@ -866,7 +866,7 @@ final class WorkspaceModelTests: XCTestCase {
                 WorkspaceModel.RenameRetarget(
                     id: folderTab.id, newURL: URL(fileURLWithPath: "/project/lib")),
                 WorkspaceModel.RenameRetarget(
-                    id: nested.id, newURL: URL(fileURLWithPath: "/project/lib/a.swift"))
+                    id: nested.id, newURL: URL(fileURLWithPath: "/project/lib/a.swift")),
             ]
         )
         // Capturing the plan does not mutate any tab.
@@ -884,7 +884,7 @@ final class WorkspaceModelTests: XCTestCase {
         model.close(id: b.id, force: true)
         model.applyRenamePlan([
             WorkspaceModel.RenameRetarget(id: a.id, newURL: URL(fileURLWithPath: "/project/a2.swift")),
-            WorkspaceModel.RenameRetarget(id: b.id, newURL: URL(fileURLWithPath: "/project/b2.swift"))
+            WorkspaceModel.RenameRetarget(id: b.id, newURL: URL(fileURLWithPath: "/project/b2.swift")),
         ])
 
         XCTAssertEqual(model.openFiles.map(\.url), [URL(fileURLWithPath: "/project/a2.swift")])
@@ -1421,7 +1421,7 @@ final class WorkspaceModelTests: XCTestCase {
         let dir = URL(fileURLWithPath: "/project", isDirectory: true)
         let entries = [
             DirectoryEntry(url: dir.appendingPathComponent("src", isDirectory: true), isDirectory: true),
-            DirectoryEntry(url: dir.appendingPathComponent("README.md"), isDirectory: false)
+            DirectoryEntry(url: dir.appendingPathComponent("README.md"), isDirectory: false),
         ]
         let model = WorkspaceModel(fileService: StubFileService(directoryEntries: entries))
 
@@ -2000,7 +2000,7 @@ final class WorkspaceModelTests: XCTestCase {
     func testRestoreSessionOpensTabsInOrderAndRestoresSelection() {
         let service = PathContentsFileService(contents: [
             "/p/a.txt": "alpha",
-            "/p/b.txt": "beta"
+            "/p/b.txt": "beta",
         ])
         let model = WorkspaceModel(fileService: service)
 
@@ -2029,7 +2029,7 @@ final class WorkspaceModelTests: XCTestCase {
         // the fallback would land on `b.txt`.
         let service = PathContentsFileService(contents: [
             "/p/a.txt": "alpha",
-            "/p/b.txt": "beta"
+            "/p/b.txt": "beta",
         ])
         let model = WorkspaceModel(fileService: service)
 
@@ -2080,7 +2080,7 @@ final class WorkspaceModelTests: XCTestCase {
         // is skipped exactly like an unreadable file — including for the selection.
         let service = PathContentsFileService(contents: [
             "/p/a.txt": "alpha",
-            "/p/b.txt": "beta"
+            "/p/b.txt": "beta",
         ])
         let model = WorkspaceModel(fileService: service)
 
@@ -2126,7 +2126,7 @@ final class WorkspaceModelTests: XCTestCase {
         let service = PathContentsFileService(contents: [
             "/p/a.txt": "alpha",
             "/p/sub/../a.txt": "alpha",
-            "/p/b.txt": "beta"
+            "/p/b.txt": "beta",
         ])
         let model = WorkspaceModel(fileService: service)
 
@@ -2148,7 +2148,7 @@ final class WorkspaceModelTests: XCTestCase {
     func testRestoreSessionOutOfRangeSelectionFallsBackToLastTab() {
         let service = PathContentsFileService(contents: [
             "/p/a.txt": "alpha",
-            "/p/b.txt": "beta"
+            "/p/b.txt": "beta",
         ])
         let model = WorkspaceModel(fileService: service)
 
@@ -2164,7 +2164,7 @@ final class WorkspaceModelTests: XCTestCase {
     func testRestoreSessionMissingSelectionFallsBackToLastTab() {
         let service = PathContentsFileService(contents: [
             "/p/a.txt": "alpha",
-            "/p/b.txt": "beta"
+            "/p/b.txt": "beta",
         ])
         let model = WorkspaceModel(fileService: service)
 
@@ -2276,7 +2276,7 @@ final class WorkspaceModelTests: XCTestCase {
         // silently break the round trip either.
         let service = PathContentsFileService(contents: [
             "/p/a.txt": "alpha",
-            "/p/b.txt": "beta"
+            "/p/b.txt": "beta",
         ])
         let source = WorkspaceModel(fileService: service)
         _ = try? source.open(url: URL(fileURLWithPath: "/p/a.txt"))
@@ -2418,7 +2418,7 @@ final class WorkspaceModelTests: XCTestCase {
             "/a/one.txt": "one",
             "/a/two.txt": "two",
             "/b/x.txt": "ex",
-            "/b/y.txt": "why"
+            "/b/y.txt": "why",
         ])
         let model = WorkspaceModel(fileService: service)
         _ = try? model.open(url: URL(fileURLWithPath: "/a/one.txt"))
@@ -2460,7 +2460,7 @@ final class WorkspaceModelTests: XCTestCase {
         // and an untitled one traveled into the outgoing snapshot.
         let service = PathContentsFileService(contents: [
             "/a/one.txt": "one",
-            "/b/x.txt": "ex"
+            "/b/x.txt": "ex",
         ])
         let model = WorkspaceModel(fileService: service)
         let titled = try? model.open(url: URL(fileURLWithPath: "/a/one.txt"))

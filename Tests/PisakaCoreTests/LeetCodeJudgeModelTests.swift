@@ -256,7 +256,7 @@ final class LeetCodeJudgeModelTests: XCTestCase {
             .unsupportedLanguage("md"),
             .unsupportedLanguage(""),
             .notSignedIn,
-            .busy
+            .busy,
         ]
         for refusal in refusals {
             XCTAssertFalse(refusal.isReady, "\(refusal) must not be ready")
@@ -455,7 +455,7 @@ final class LeetCodeJudgeModelTests: XCTestCase {
                     statusCode: 429,
                     headers: ["Retry-After": "42"]
                 ),
-                Self.response("judge-check-run-accepted.json")
+                Self.response("judge-check-run-accepted.json"),
             ]
         )
 
@@ -474,7 +474,7 @@ final class LeetCodeJudgeModelTests: XCTestCase {
             .check(id: submissionID),
             sequence: [
                 Self.response("judge-check-pending.json"),
-                Self.response("rest-not-authenticated.json", statusCode: 403)
+                Self.response("rest-not-authenticated.json", statusCode: 403),
             ]
         )
 
@@ -500,7 +500,7 @@ final class LeetCodeJudgeModelTests: XCTestCase {
             [
                 "judge-check-pending.json",
                 "judge-check-run-accepted.json",
-                "judge-check-run-wrong-answer.json"
+                "judge-check-run-wrong-answer.json",
             ]
         )
         var restarted = false
@@ -735,7 +735,7 @@ final class LeetCodeJudgeModelTests: XCTestCase {
             .question(slug: "two-sum"),
             sequence: [
                 LeetCodeHTTPResponse(statusCode: 500, body: Data()),
-                Self.response("question-detail.json")
+                Self.response("question-detail.json"),
             ]
         )
 

@@ -64,7 +64,7 @@ final class LSPRustToolchainService: LSPRustToolchainDiscovering, @unchecked Sen
             FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".cargo/bin", isDirectory: true).path,
             "/opt/homebrew/bin",
-            "/usr/local/bin"
+            "/usr/local/bin",
         ]
     }
 

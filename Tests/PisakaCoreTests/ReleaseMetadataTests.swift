@@ -75,7 +75,8 @@ final class ReleaseMetadataTests: XCTestCase {
         let plist = try loadInfoPlist()
         XCTAssertEqual(Set(plist.keys),
                        ["LSApplicationCategoryType", "ITSAppUsesNonExemptEncryption",
-                        "SUFeedURL", "SUPublicEDKey"],
+                        "SUFeedURL", "SUPublicEDKey",
+                       ],
                        """
                        Resources/Info.plist is a partial plist merged into Xcode's generated one. \
                        Anything Xcode can generate (CFBundleName, the version keys, the \
@@ -214,7 +215,7 @@ final class ReleaseMetadataTests: XCTestCase {
     private static let expectedAccessedAPIs: Set<Pair> = [
         Pair(category: "NSPrivacyAccessedAPICategoryUserDefaults", reason: "CA92.1"),
         Pair(category: "NSPrivacyAccessedAPICategoryFileTimestamp", reason: "3B52.1"),
-        Pair(category: "NSPrivacyAccessedAPICategorySystemBootTime", reason: "35F9.1")
+        Pair(category: "NSPrivacyAccessedAPICategorySystemBootTime", reason: "35F9.1"),
     ]
 
     private static let accessedAPIMismatchMessage = """

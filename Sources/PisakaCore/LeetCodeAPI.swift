@@ -272,7 +272,7 @@ public enum LeetCodeAPI {
             "Cookie": credentials.cookieHeaderValue,
             "Referer": referer,
             "User-Agent": userAgent,
-            "x-csrftoken": credentials.csrfToken
+            "x-csrftoken": credentials.csrfToken,
         ]
     }
 
@@ -300,7 +300,7 @@ public enum LeetCodeAPI {
                 "data_input": input,
                 "lang": langSlug,
                 "question_id": questionID,
-                "typed_code": code
+                "typed_code": code,
             ],
             credentials: credentials
         )
@@ -325,7 +325,7 @@ public enum LeetCodeAPI {
             payload: [
                 "lang": langSlug,
                 "question_id": questionID,
-                "typed_code": code
+                "typed_code": code,
             ],
             credentials: credentials
         )
@@ -383,7 +383,7 @@ public enum LeetCodeAPI {
         let payload: [String: Any] = [
             "operationName": operationName,
             "query": query,
-            "variables": variables
+            "variables": variables,
         ]
         // `.sortedKeys` is the only reason this cannot fail: the payload is three
         // string-keyed members of JSON-legal types. An empty body would produce a

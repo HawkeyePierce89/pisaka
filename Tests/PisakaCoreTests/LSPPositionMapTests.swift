@@ -385,7 +385,7 @@ final class LSPPositionMapTests: XCTestCase {
             LSPPosition(line: 1, character: 2),
             LSPPosition(line: 2, character: 99),
             LSPPosition(line: 3, character: 5),
-            LSPPosition(line: 99, character: 0)
+            LSPPosition(line: 99, character: 0),
         ]
         for start in positions {
             for end in positions {

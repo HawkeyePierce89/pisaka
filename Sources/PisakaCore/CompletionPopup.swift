@@ -63,7 +63,7 @@ public enum CompletionPopup {
             .selector: .init(symbolName: "s.square", color: .pink),
             .key: .init(symbolName: "k.square", color: .yellow),
             .stage: .init(symbolName: "shippingbox", color: .orange),
-            .anchor: .init(symbolName: "link", color: .gray)
+            .anchor: .init(symbolName: "link", color: .gray),
         ]
 
         public init(symbolName: String, color: FileIconColor) {

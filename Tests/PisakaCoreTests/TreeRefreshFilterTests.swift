@@ -18,14 +18,14 @@ final class TreeRefreshFilterTests: XCTestCase {
         XCTAssertFalse(shouldRefresh([
             "/Users/dev/project/.git",
             "/Users/dev/project/.git/objects/ab",
-            "/Users/dev/project/.git/refs/heads"
+            "/Users/dev/project/.git/refs/heads",
         ]))
     }
 
     func testMixedBatchWithOneRealPathRefreshes() {
         XCTAssertTrue(shouldRefresh([
             "/Users/dev/project/.git/objects",
-            "/Users/dev/project/src"
+            "/Users/dev/project/src",
         ]))
     }
 
@@ -48,7 +48,7 @@ final class TreeRefreshFilterTests: XCTestCase {
         // FSEvents reports directories with a trailing slash.
         XCTAssertFalse(shouldRefresh([
             "/Users/dev/project/.git/",
-            "/Users/dev/project/.git/refs/heads/"
+            "/Users/dev/project/.git/refs/heads/",
         ]))
     }
 
@@ -78,7 +78,7 @@ final class TreeRefreshFilterTests: XCTestCase {
     func testDSStoreMixedWithARealPathRefreshes() {
         XCTAssertTrue(shouldRefresh([
             "/Users/dev/project/.DS_Store",
-            "/Users/dev/project/src/main.swift"
+            "/Users/dev/project/src/main.swift",
         ]))
     }
 
@@ -165,7 +165,7 @@ final class TreeRefreshFilterTests: XCTestCase {
         XCTAssertFalse(shouldRefresh([
             "/Users/dev/project/.git/objects",
             "/Users/dev/project/.DS_Store",
-            "/Users/dev/other/elsewhere"
+            "/Users/dev/other/elsewhere",
         ]))
     }
 

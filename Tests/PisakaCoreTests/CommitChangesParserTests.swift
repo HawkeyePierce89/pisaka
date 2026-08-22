@@ -16,7 +16,7 @@ final class CommitChangesParserTests: XCTestCase {
         XCTAssertEqual(CommitChangesParser.parse(output), [
             ChangedFile(path: "Sources/A.swift", status: .modified),
             ChangedFile(path: "Sources/B.swift", status: .added),
-            ChangedFile(path: "Sources/C.swift", status: .deleted)
+            ChangedFile(path: "Sources/C.swift", status: .deleted),
         ])
     }
 
@@ -54,7 +54,7 @@ final class CommitChangesParserTests: XCTestCase {
         let output = "M\tA.swift\r\nA\tB.swift\r\n"
         XCTAssertEqual(CommitChangesParser.parse(output), [
             ChangedFile(path: "A.swift", status: .modified),
-            ChangedFile(path: "B.swift", status: .added)
+            ChangedFile(path: "B.swift", status: .added),
         ])
     }
 

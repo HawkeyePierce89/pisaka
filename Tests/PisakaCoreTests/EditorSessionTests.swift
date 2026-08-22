@@ -20,7 +20,7 @@ final class EditorSessionTests: XCTestCase {
         XCTAssertEqual(session.tabs, [
             .file(path: "/p/a.swift"),
             .untitled(text: "scratch"),
-            .file(path: "/p/b.swift")
+            .file(path: "/p/b.swift"),
         ])
     }
 
@@ -170,7 +170,7 @@ final class EditorSessionTests: XCTestCase {
         XCTAssertEqual(merged.tabs, [
             .untitled(text: "notes"),
             .file(path: "/elsewhere/n.txt"),
-            .file(path: "/b/x.txt")
+            .file(path: "/b/x.txt"),
         ])
         // Anything restored takes the selection, shifted past the carried tabs.
         XCTAssertEqual(merged.selectedIndex, 2)
@@ -224,7 +224,7 @@ final class EditorSessionTests: XCTestCase {
         XCTAssertEqual(merged.tabs, [
             .file(path: "/elsewhere/n.txt"),
             .untitled(text: "notes"),
-            .file(path: "/b/gone.txt")
+            .file(path: "/b/gone.txt"),
         ])
         XCTAssertEqual(merged.selectedIndex, 0)
         XCTAssertEqual(merged.folderPath, "/b")
@@ -727,11 +727,11 @@ final class EditorSessionTests: XCTestCase {
                     "futureSessionField": 42,
                     "tabs": [
                         ["path": "/p/a.swift", "futureTabField": true],
-                        ["text": "scratch"]
+                        ["text": "scratch"],
                     ],
-                    "selectedIndex": 1
-                ]
-            ]
+                    "selectedIndex": 1,
+                ],
+            ],
         ]
         let data = try PropertyListSerialization.data(
             fromPropertyList: plist,
@@ -759,9 +759,9 @@ final class EditorSessionTests: XCTestCase {
             "futureSessionField": 42,
             "tabs": [
                 ["path": "/p/a.swift", "futureTabField": true],
-                ["text": "scratch"]
+                ["text": "scratch"],
             ],
-            "selectedIndex": 1
+            "selectedIndex": 1,
         ]
         let data = try PropertyListSerialization.data(
             fromPropertyList: plist,
@@ -789,9 +789,9 @@ final class EditorSessionTests: XCTestCase {
             "tabs": [
                 ["path": "/p/a.swift"],
                 ["futureKind": "terminal"],
-                ["path": "/p/b.swift"]
+                ["path": "/p/b.swift"],
             ],
-            "selectedIndex": 2
+            "selectedIndex": 2,
         ]
         let data = try PropertyListSerialization.data(
             fromPropertyList: plist,
@@ -805,7 +805,7 @@ final class EditorSessionTests: XCTestCase {
         XCTAssertEqual(loaded?.tabs, [
             .file(path: "/p/a.swift"),
             SessionTab(),
-            .file(path: "/p/b.swift")
+            .file(path: "/p/b.swift"),
         ])
         XCTAssertEqual(loaded?.selectedIndex, 2)
     }

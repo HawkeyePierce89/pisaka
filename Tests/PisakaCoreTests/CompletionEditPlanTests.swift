@@ -42,7 +42,7 @@ final class CompletionEditPlanTests: XCTestCase {
         let result = CompletionEditPlan.make(
             edits: [
                 primary(typedWord, "Greeter"),
-                additional(NSRange(location: 18, length: 0), "import Greetings\n")
+                additional(NSRange(location: 18, length: 0), "import Greetings\n"),
             ],
             in: text as NSString,
             replacing: typedWord,
@@ -70,7 +70,7 @@ final class CompletionEditPlanTests: XCTestCase {
             edits: [
                 additional(NSRange(location: 0, length: 3), "AAA"),
                 primary(NSRange(location: 4, length: 3), "BBB"),
-                additional(NSRange(location: 8, length: 3), "CCC")
+                additional(NSRange(location: 8, length: 3), "CCC"),
             ],
             in: text as NSString,
             replacing: NSRange(location: 4, length: 3),
@@ -91,7 +91,7 @@ final class CompletionEditPlanTests: XCTestCase {
         let result = CompletionEditPlan.make(
             edits: [
                 primary(typedWord, "Greeter"),
-                additional(NSRange(location: 12, length: 7), "// TAIL")
+                additional(NSRange(location: 12, length: 7), "// TAIL"),
             ],
             in: text as NSString,
             replacing: typedWord,
@@ -114,7 +114,7 @@ final class CompletionEditPlanTests: XCTestCase {
                 additional(NSRange(location: 0, length: 0), "import A\n"),   // +9
                 additional(NSRange(location: 1, length: 1), ""),             // -1
                 primary(typedWord, "Greeter"),
-                additional(NSRange(location: 14, length: 0), "// after\n")   // after: no shift
+                additional(NSRange(location: 14, length: 0), "// after\n"),   // after: no shift
             ],
             in: text as NSString,
             replacing: typedWord,
@@ -172,7 +172,7 @@ final class CompletionEditPlanTests: XCTestCase {
         let result = CompletionEditPlan.make(
             edits: [
                 primary(NSRange(location: 0, length: 3), "AAA"),
-                primary(NSRange(location: 4, length: 3), "BBB")
+                primary(NSRange(location: 4, length: 3), "BBB"),
             ],
             in: text as NSString,
             replacing: NSRange(location: 0, length: 3),
@@ -186,7 +186,7 @@ final class CompletionEditPlanTests: XCTestCase {
         let result = CompletionEditPlan.make(
             edits: [
                 primary(NSRange(location: 0, length: 5), "X"),
-                additional(NSRange(location: 3, length: 4), "Y")
+                additional(NSRange(location: 3, length: 4), "Y"),
             ],
             in: text as NSString,
             replacing: NSRange(location: 0, length: 5),
@@ -205,7 +205,7 @@ final class CompletionEditPlanTests: XCTestCase {
             edits: [
                 primary(typedWord, "Greeter"),
                 additional(NSRange(location: 0, length: 0), "import A\n"),
-                additional(NSRange(location: 0, length: 0), "import B\n")
+                additional(NSRange(location: 0, length: 0), "import B\n"),
             ],
             in: text as NSString,
             replacing: typedWord,
@@ -222,7 +222,7 @@ final class CompletionEditPlanTests: XCTestCase {
         let result = CompletionEditPlan.make(
             edits: [
                 primary(typedWord, "Greeter"),
-                additional(NSRange(location: 8, length: 0), "@")
+                additional(NSRange(location: 8, length: 0), "@"),
             ],
             in: text as NSString,
             replacing: typedWord,
@@ -239,7 +239,7 @@ final class CompletionEditPlanTests: XCTestCase {
         let result = CompletionEditPlan.make(
             edits: [
                 primary(typedWord, "Greeter"),
-                additional(NSRange(location: 11, length: 0), "()")
+                additional(NSRange(location: 11, length: 0), "()"),
             ],
             in: text as NSString,
             replacing: typedWord,
@@ -256,7 +256,7 @@ final class CompletionEditPlanTests: XCTestCase {
         let result = CompletionEditPlan.make(
             edits: [
                 primary(typedWord, "Greeter"),
-                additional(NSRange(location: 50, length: 0), "import A\n")
+                additional(NSRange(location: 50, length: 0), "import A\n"),
             ],
             in: text as NSString,
             replacing: typedWord,
@@ -271,7 +271,7 @@ final class CompletionEditPlanTests: XCTestCase {
         let result = CompletionEditPlan.make(
             edits: [
                 primary(typedWord, "Greeter"),
-                additional(NSRange(location: -1, length: 2), "x")
+                additional(NSRange(location: -1, length: 2), "x"),
             ],
             in: text as NSString,
             replacing: typedWord,
@@ -397,7 +397,7 @@ final class CompletionEditPlanTests: XCTestCase {
         let preview = "greet"
         let edits = [
             primary(typedWord, "greet"),
-            additional(NSRange(location: 0, length: 0), "import Greetings\n")
+            additional(NSRange(location: 0, length: 0), "import Greetings\n"),
         ]
         XCTAssertEqual(
             edits[0].shifted(afterReplacingTypedWord: typedWord, withLength: 5),
@@ -439,7 +439,7 @@ final class CompletionEditPlanTests: XCTestCase {
         let typedWord = NSRange(location: 26, length: 3)  // "Gre"
         let edits = [
             primary(typedWord, "Greeter"),
-            additional(NSRange(location: 18, length: 0), "import Greetings\n")
+            additional(NSRange(location: 18, length: 0), "import Greetings\n"),
         ]
         // The user arrowed onto a different row first, so the buffer now holds
         // that row's text where "Gre" was.
@@ -473,7 +473,7 @@ final class CompletionEditPlanTests: XCTestCase {
         let typedWord = NSRange(location: 26, length: 3)  // "Gre"
         let edits = [
             primary(typedWord, "Greeter"),
-            additional(NSRange(location: 18, length: 0), "import Greetings\n")
+            additional(NSRange(location: 18, length: 0), "import Greetings\n"),
         ]
         // AppKit already inserted the plain text, because the resolve had not
         // landed when the user hit Return.
@@ -506,7 +506,7 @@ final class CompletionEditPlanTests: XCTestCase {
         let typedWord = NSRange(location: 26, length: 3)
         let edits = [
             primary(typedWord, "Greeter"),
-            additional(NSRange(location: 18, length: 0), "import Greetings\n")
+            additional(NSRange(location: 18, length: 0), "import Greetings\n"),
         ]
         let live = "import Foundation\nlet x = Greete\n"  // a character deleted again
         let result = CompletionEditPlan.make(

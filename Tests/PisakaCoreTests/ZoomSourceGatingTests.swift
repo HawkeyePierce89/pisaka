@@ -48,7 +48,7 @@ final class ZoomSourceGatingTests: XCTestCase {
         "InterfaceMetrics.swift",
         "ZoomScaleRule.swift",
         "SettingsStore.swift",
-        "InterfaceScaleEnvironment.swift"
+        "InterfaceScaleEnvironment.swift",
     ]
 
     func testOnlyThePlumbingNamesTheRawInterfaceScale() throws {
@@ -106,7 +106,7 @@ final class ZoomSourceGatingTests: XCTestCase {
         "SourceViewerContent.swift",
         "ProjectSearchView.swift",
         "MergeView.swift",
-        "LeetCodeBrowserView.swift"
+        "LeetCodeBrowserView.swift",
     ]
 
     func testTheInterfaceScaledRootsAreExactlyTheDocumentedSet() throws {
@@ -142,7 +142,7 @@ final class ZoomSourceGatingTests: XCTestCase {
     /// explained rather than counted.
     private static let interfaceScaledSheetPresenters: Set<String> = [
         "PisakaApp.swift",
-        "LeetCodeBrowserView.swift"
+        "LeetCodeBrowserView.swift",
     ]
 
     func testTheSheetPresentersInjectTheScaleOnTheirContent() throws {
@@ -195,7 +195,7 @@ final class ZoomSourceGatingTests: XCTestCase {
         "CommitUnifiedDiffView.swift",
         "CommitDialogView.swift",
         // Interactive popups.
-        "CompletionPanel.swift"
+        "CompletionPanel.swift",
     ]
 
     func testTheZoomSurfacesAreExactlyTheDocumentedSet() throws {
@@ -216,7 +216,7 @@ final class ZoomSourceGatingTests: XCTestCase {
         "DiffView.swift",
         "MergeView.swift",
         "SourceViewerContent.swift",
-        "CompletionPanel.swift"
+        "CompletionPanel.swift",
     ]
 
     func testTheCodePanesScrollInsideTheCodeScrollView() throws {

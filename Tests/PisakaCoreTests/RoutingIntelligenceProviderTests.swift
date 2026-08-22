@@ -143,7 +143,7 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
                 range: NSRange(location: 40, length: 8),
                 fileURL: indexFile,
                 line: 3
-            )
+            ),
         ])
         return index
     }
@@ -215,9 +215,9 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
                 "uri": .string(LSPWorkspace.documentURI(for: serverFile)),
                 "range": .object([
                     "start": .object(["line": .int(0), "character": .int(14)]),
-                    "end": .object(["line": .int(0), "character": .int(21)])
-                ])
-            ])
+                    "end": .object(["line": .int(0), "character": .int(21)]),
+                ]),
+            ]),
         ])
     }
 
@@ -229,7 +229,7 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
             "insertText": .string(label),
             "filterText": .string(label),
             "kind": .int(LSPCompletionItemKind.struct.rawValue),
-            "insertTextFormat": .int(1)
+            "insertTextFormat": .int(1),
         ])
     }
 
@@ -275,13 +275,13 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
             "contents": .array([
                 .object([
                     "language": .string("swift"),
-                    "value": .string("public struct Greeter")
-                ])
+                    "value": .string("public struct Greeter"),
+                ]),
             ]),
             "range": .object([
                 "start": .object(["line": .int(2), "character": .int(14)]),
-                "end": .object(["line": .int(2), "character": .int(21)])
-            ])
+                "end": .object(["line": .int(2), "character": .int(21)]),
+            ]),
         ])
     }
 
@@ -649,9 +649,9 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
                     "sortText": .string("100"),
                     "insertText": .string("Greeter"),
                     "kind": .int(LSPCompletionItemKind.struct.rawValue),
-                    "data": .object(["itemId": .int(7)])
-                ])
-            ])
+                    "data": .object(["itemId": .int(7)]),
+                ]),
+            ]),
         ])))
         transport.script(LSPMethod.resolveCompletionItem, .reply(.object([
             "label": .string("Greeter"),
@@ -661,10 +661,10 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
                     "newText": .string("import Core\n"),
                     "range": .object([
                         "start": .object(["line": .int(0), "character": .int(0)]),
-                        "end": .object(["line": .int(0), "character": .int(0)])
-                    ])
-                ])
-            ])
+                        "end": .object(["line": .int(0), "character": .int(0)]),
+                    ]),
+                ]),
+            ]),
         ])))
         let router = makeRouter(index: makeIndex())
 
@@ -721,7 +721,7 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
                 range: NSRange(location: 13, length: 9),
                 fileURL: typescriptDeclarationFile,
                 line: 1
-            )
+            ),
         ])
         index.replace(fileURL: pythonDeclarationFile, symbols: [
             Symbol(
@@ -730,7 +730,7 @@ final class RoutingIntelligenceProviderTests: XCTestCase {
                 range: NSRange(location: 6, length: 9),
                 fileURL: pythonDeclarationFile,
                 line: 1
-            )
+            ),
         ])
         return index
     }

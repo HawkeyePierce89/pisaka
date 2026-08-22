@@ -272,7 +272,7 @@ final class InterfaceMetricsTests: XCTestCase {
             ("acknowledgements list", 180, 200, 280),
             ("browser number column", 48, 56, 90),
             ("browser difficulty column", 72, 88, 120),
-            ("login sheet width", 520, 760, .infinity)
+            ("login sheet width", 520, 760, .infinity),
         ]
         for scale in gridScales {
             let metrics = InterfaceMetrics(scale: scale)
