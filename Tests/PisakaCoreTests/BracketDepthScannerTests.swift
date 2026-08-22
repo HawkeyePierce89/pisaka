@@ -43,7 +43,7 @@ final class BracketDepthScannerTests: XCTestCase {
         // "((()))" — 0,1,2 on the openers, mirrored on the closers.
         XCTAssertEqual(scan("((()))"), [
             token(0, 0), token(1, 1), token(2, 2),
-            token(3, 2), token(4, 1), token(5, 0)
+            token(3, 2), token(4, 1), token(5, 0),
         ])
     }
 
@@ -53,7 +53,7 @@ final class BracketDepthScannerTests: XCTestCase {
         // from `BracketMatchEngine`, which counts each kind on its own.
         XCTAssertEqual(scan("{[()]}"), [
             token(0, 0), token(1, 1), token(2, 2),
-            token(3, 2), token(4, 1), token(5, 0)
+            token(3, 2), token(4, 1), token(5, 0),
         ])
     }
 
@@ -109,7 +109,7 @@ final class BracketDepthScannerTests: XCTestCase {
         XCTAssertEqual(tokens, [
             token(0, 0), token(2, 1), token(4, 1),
             token(6, 1), token(8, 1), token(10, 0),
-            token(12, 0, unmatched: true)
+            token(12, 0, unmatched: true),
         ])
     }
 
@@ -169,7 +169,7 @@ final class BracketDepthScannerTests: XCTestCase {
             token(0, 0),
             token(chunk - 1, 1),
             token(chunk, 1),
-            token(2 * chunk + 1, 0)
+            token(2 * chunk + 1, 0),
         ])
     }
 
@@ -188,7 +188,7 @@ final class BracketDepthScannerTests: XCTestCase {
             token(0, 0),
             token(chunk - 1, 0),
             token(chunk, 0),
-            token(2 * chunk - 1, 0)
+            token(2 * chunk - 1, 0),
         ])
     }
 
@@ -216,7 +216,7 @@ final class BracketDepthScannerTests: XCTestCase {
             2 * filler.utf16.count + 2,
             3 * filler.utf16.count + 3,
             4 * filler.utf16.count + 4,
-            5 * filler.utf16.count + 5
+            5 * filler.utf16.count + 5,
         ])
     }
 }

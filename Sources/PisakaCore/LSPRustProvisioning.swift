@@ -442,7 +442,7 @@ public final class LSPRustProvisioningModel: ObservableObject {
                 languages: [.rust],
                 launch: .executable(path: installation.executablePath),
                 environment: ["PATH": searchPath]
-            )
+            ),
         ]
     }
 

@@ -324,7 +324,7 @@ final class CommitLogModelTests: XCTestCase {
         git.commitList = [commit("a")]
         git.changesByHash["a"] = [
             ChangedFile(path: "A.swift", status: .modified),
-            ChangedFile(path: "B.swift", status: .added)
+            ChangedFile(path: "B.swift", status: .added),
         ]
         let model = CommitLogModel(gitService: git)
         await model.refresh(root: root, limit: 100)
@@ -801,7 +801,7 @@ final class CommitLogModelTests: XCTestCase {
         git.commitList = [
             commit("a", subject: "Fix parser bug"),
             commit("b", subject: "Add log filters"),
-            commit("c", subject: "Another bugfix")
+            commit("c", subject: "Another bugfix"),
         ]
         let model = CommitLogModel(gitService: git)
         await model.refresh(root: root, limit: 100)

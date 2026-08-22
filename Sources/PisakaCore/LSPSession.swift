@@ -291,8 +291,7 @@ public actor LSPSession {
         defer { deadline.cancel() }
 
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation {
-                (continuation: CheckedContinuation<JSONValue?, Error>) in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<JSONValue?, Error>) in
                 // Registered synchronously, before any suspension: the
                 // cancellation handler below can only reach the actor afterwards,
                 // so a cancel that fires immediately still finds the entry.

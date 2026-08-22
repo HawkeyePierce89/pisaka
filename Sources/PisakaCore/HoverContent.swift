@@ -961,7 +961,7 @@ enum HoverMarkup {
         "div", "dl", "dt", "em", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i",
         "img", "ins", "kbd", "li", "ol", "p", "pre", "q", "s", "samp", "small",
         "span", "strong", "sub", "summary", "sup", "table", "tbody", "td",
-        "tfoot", "th", "thead", "tr", "tt", "u", "ul", "var"
+        "tfoot", "th", "thead", "tr", "tt", "u", "ul", "var",
     ]
 
     /// The index just past `<tag …>` or `</tag>`, or `nil` when the `<` starts

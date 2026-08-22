@@ -44,27 +44,27 @@ final class LSPSessionTests: XCTestCase {
             "uri": .string("file:///tmp/Project/Sources/Greeter/Greeter.swift"),
             "range": .object([
                 "start": .object(["line": .int(4), "character": .int(15)]),
-                "end": .object(["line": .int(4), "character": .int(22)])
-            ])
-        ])
+                "end": .object(["line": .int(4), "character": .int(22)]),
+            ]),
+        ]),
     ])
 
     private let hoverResult: JSONValue = .object([
         "contents": .object([
             "kind": .string("markdown"),
-            "value": .string("```swift\nfunc greet()\n```")
+            "value": .string("```swift\nfunc greet()\n```"),
         ]),
         "range": .object([
             "start": .object(["line": .int(3), "character": .int(12)]),
-            "end": .object(["line": .int(3), "character": .int(17)])
-        ])
+            "end": .object(["line": .int(3), "character": .int(17)]),
+        ]),
     ])
 
     private let completionResult: JSONValue = .object([
         "isIncomplete": .bool(false),
         "items": .array([
             .object(["label": .string("greet()"), "sortText": .string("001")])
-        ])
+        ]),
     ])
 
     // MARK: - Helpers
@@ -610,7 +610,7 @@ final class LSPSessionTests: XCTestCase {
             transport.sentMethods,
             [
                 LSPMethod.initialize, LSPMethod.initialized,
-                LSPMethod.didOpen, LSPMethod.didChange, LSPMethod.didClose
+                LSPMethod.didOpen, LSPMethod.didChange, LSPMethod.didClose,
             ]
         )
         let change = try XCTUnwrap(transport.notifications(for: LSPMethod.didChange).first)
@@ -662,8 +662,8 @@ final class LSPSessionTests: XCTestCase {
             params: .object([
                 "items": .array([
                     .object(["section": .string("swift")]),
-                    .object(["section": .string("sourcekit-lsp")])
-                ])
+                    .object(["section": .string("sourcekit-lsp")]),
+                ]),
             ])
         )))
 
@@ -689,9 +689,9 @@ final class LSPSessionTests: XCTestCase {
     private let scriptedConfiguration: JSONValue = .object([
         "yaml": .object([
             "schemaStore": .object(["enable": .bool(true)]),
-            "completion": .bool(true)
+            "completion": .bool(true),
         ]),
-        "[yaml]": .object(["editor.tabSize": .int(2)])
+        "[yaml]": .object(["editor.tabSize": .int(2)]),
     ])
 
     func testAConfiguredSessionPushesItsSettingsRightAfterInitialized() async throws {
@@ -725,8 +725,8 @@ final class LSPSessionTests: XCTestCase {
                     .object(["section": .string("yaml")]),
                     .object(["section": .string("http")]),
                     .object(["section": .string("[yaml]")]),
-                    .object([:])
-                ])
+                    .object([:]),
+                ]),
             ])
         )))
 
@@ -742,7 +742,7 @@ final class LSPSessionTests: XCTestCase {
             try XCTUnwrap(scriptedConfiguration["yaml"]),
             .null,
             try XCTUnwrap(scriptedConfiguration["[yaml]"]),
-            .null
+            .null,
         ]))
         let isRunning = await session.isRunning
         XCTAssertTrue(isRunning)

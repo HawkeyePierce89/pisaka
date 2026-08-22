@@ -8,7 +8,7 @@ final class BranchRefTests: XCTestCase {
                 "refs/heads/main",
                 "refs/heads/feature",
                 "refs/remotes/origin/master",
-                "refs/remotes/origin/dev"
+                "refs/remotes/origin/dev",
             ],
             current: "main"
         )
@@ -64,7 +64,7 @@ final class BranchRefTests: XCTestCase {
         let refs = BranchRef.build(
             fromRefnames: [
                 "refs/remotes/origin/HEAD",
-                "refs/remotes/origin/master"
+                "refs/remotes/origin/master",
             ],
             current: nil
         )
@@ -99,7 +99,7 @@ final class BranchRefTests: XCTestCase {
             fromRefnames: [
                 "refs/heads/main",
                 "refs/heads/feature-login",
-                "refs/remotes/origin/Feature-Logout"
+                "refs/remotes/origin/Feature-Logout",
             ],
             current: nil
         )
@@ -133,7 +133,7 @@ final class BranchRefTests: XCTestCase {
                 "refs/remotes/origin",    // no "/" after the remote name
                 "refs/remotes//x",        // empty remote component
                 "refs/remotes/origin/",   // empty branch component
-                "refs/heads/main"        // valid
+                "refs/heads/main",        // valid
             ],
             current: nil
         )

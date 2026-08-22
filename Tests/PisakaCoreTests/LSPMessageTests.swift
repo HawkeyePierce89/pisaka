@@ -242,7 +242,7 @@ final class LSPMessageTests: XCTestCase {
         let ids = try [
             #"{"id":7,"result":1}"#,
             #"{"id":3,"result":2}"#,
-            #"{"id":"never-sent","result":3}"#
+            #"{"id":"never-sent","result":3}"#,
         ].map { json -> LSPRequestID? in
             guard case .response(let response) = try decode(json) else { return nil }
             return response.id

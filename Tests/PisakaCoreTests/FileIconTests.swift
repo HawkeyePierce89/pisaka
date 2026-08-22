@@ -38,7 +38,7 @@ final class FileIconTests: XCTestCase {
             "style.css": FileIcon(symbolName: "paintbrush", color: .blue),
             "logo.png": FileIcon(symbolName: "photo", color: .purple),
             "bundle.zip": FileIcon(symbolName: "doc.zipper", color: .gray),
-            "notes.txt": FileIcon(symbolName: "doc.text", color: .gray)
+            "notes.txt": FileIcon(symbolName: "doc.text", color: .gray),
         ]
 
         for (name, icon) in expected {

@@ -281,7 +281,7 @@ final class LeetCodeCatalogTests: XCTestCase {
             catalogPath: cacheJSON(
                 fetchedAt: "2026-08-11T11:00:00Z",
                 rows: [(1, "two-sum")]
-            )
+            ),
         ])
         let transport = ScriptedLeetCodeTransport()
         let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
@@ -300,7 +300,7 @@ final class LeetCodeCatalogTests: XCTestCase {
             catalogPath: cacheJSON(
                 fetchedAt: "2026-08-10T10:00:00Z",
                 rows: [(1, "stale-two-sum")]
-            )
+            ),
         ])
         let transport = ScriptedLeetCodeTransport()
         transport.serve(.problemList, json: problemListJSON([(1, "two-sum")]))
@@ -320,7 +320,7 @@ final class LeetCodeCatalogTests: XCTestCase {
             catalogPath: cacheJSON(
                 fetchedAt: "2027-01-01T00:00:00Z",
                 rows: [(1, "stale-two-sum")]
-            )
+            ),
         ])
         let transport = ScriptedLeetCodeTransport()
         transport.serve(.problemList, json: problemListJSON([(1, "two-sum")]))
@@ -357,7 +357,7 @@ final class LeetCodeCatalogTests: XCTestCase {
             catalogPath: cacheJSON(
                 fetchedAt: "2026-08-11T11:00:00Z",
                 rows: [(1, "two-sum")]
-            )
+            ),
         ])
         let transport = ScriptedLeetCodeTransport()
         transport.serve(
@@ -381,7 +381,7 @@ final class LeetCodeCatalogTests: XCTestCase {
             catalogPath: cacheJSON(
                 fetchedAt: "2026-08-11T11:00:00Z",
                 rows: [(1, "two-sum")]
-            )
+            ),
         ])
         let transport = ScriptedLeetCodeTransport()
         transport.serve(.problemList, json: problemListJSON([(1, "two-sum")]))
@@ -468,7 +468,7 @@ final class LeetCodeCatalogTests: XCTestCase {
                 fetchedAt: "2026-08-11T11:00:00Z",
                 rows: [(1, "two-sum")],
                 schemaVersion: 99
-            )
+            ),
         ])
         let transport = ScriptedLeetCodeTransport()
         transport.serve(.problemList, json: problemListJSON([(1, "refetched-two-sum")]))
@@ -487,7 +487,7 @@ final class LeetCodeCatalogTests: XCTestCase {
                 fetchedAt: "2026-08-11T11:00:00Z",
                 rows: [(1, "two-sum")],
                 difficulty: "impossible"
-            )
+            ),
         ])
         let transport = ScriptedLeetCodeTransport()
         transport.serve(.problemList, json: problemListJSON([(1, "refetched-two-sum")]))
@@ -507,7 +507,7 @@ final class LeetCodeCatalogTests: XCTestCase {
                 catalogPath: cacheJSON(
                     fetchedAt: "2026-08-11T11:00:00Z",
                     rows: [(1, slug)]
-                )
+                ),
             ])
             let transport = ScriptedLeetCodeTransport()
             transport.serve(.problemList, json: problemListJSON([(1, "refetched-two-sum")]))
@@ -710,7 +710,7 @@ final class LeetCodeCatalogTests: XCTestCase {
             catalogPath: cacheJSON(
                 fetchedAt: "2026-08-01T10:00:00Z",
                 rows: [(1, "two-sum")]
-            )
+            ),
         ])
         let transport = ScriptedLeetCodeTransport()
         transport.serve(
@@ -735,7 +735,7 @@ final class LeetCodeCatalogTests: XCTestCase {
             catalogPath: cacheJSON(
                 fetchedAt: "2026-08-01T10:00:00Z",
                 rows: [(1, "two-sum")]
-            )
+            ),
         ])
         let transport = ScriptedLeetCodeTransport()
         transport.fail(.problemList, with: LeetCodeError.network(reason: "offline"))
@@ -769,7 +769,7 @@ final class LeetCodeCatalogTests: XCTestCase {
             catalogPath: cacheJSON(
                 fetchedAt: "2026-08-11T11:00:00Z",
                 rows: [(1, "two-sum"), (2, "add-two-numbers")]
-            )
+            ),
         ])
         let transport = ScriptedLeetCodeTransport()
         let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
@@ -815,7 +815,7 @@ final class LeetCodeCatalogTests: XCTestCase {
             catalogPath: cacheJSON(
                 fetchedAt: "2026-08-10T10:00:00Z",
                 rows: [(1, "stale-two-sum")]
-            )
+            ),
         ])
         let transport = ScriptedLeetCodeTransport()
         transport.serve(
@@ -869,7 +869,7 @@ final class LeetCodeCatalogTests: XCTestCase {
             catalogPath: cacheJSON(
                 fetchedAt: "2026-08-01T10:00:00Z",
                 rows: [(1, "two-sum"), (2, "add-two-numbers")]
-            )
+            ),
         ])
         let transport = ScriptedLeetCodeTransport()
         transport.fail(.problemList, with: LeetCodeError.network(reason: "offline"))
@@ -930,7 +930,7 @@ final class LeetCodeCatalogTests: XCTestCase {
             catalogPath: cacheJSON(
                 fetchedAt: "2026-08-11T11:00:00Z",
                 rows: [(1, "two-sum"), (2, "add-two-numbers")]
-            )
+            ),
         ])
         let transport = ScriptedLeetCodeTransport()
         transport.serve(
@@ -981,7 +981,7 @@ final class LeetCodeCatalogTests: XCTestCase {
                     statusCode: 200,
                     headers: [:],
                     body: Data(problemListJSON([(1, "two-sum")], status: nil).utf8)
-                )
+                ),
             ]
         )
         let gate = Gate()
@@ -1026,7 +1026,7 @@ final class LeetCodeCatalogTests: XCTestCase {
                     statusCode: 200,
                     headers: [:],
                     body: Data(problemListJSON([(1, "two-sum")], status: nil).utf8)
-                )
+                ),
             ]
         )
         let gate = Gate()
@@ -1079,7 +1079,7 @@ final class LeetCodeCatalogTests: XCTestCase {
                     statusCode: 200,
                     headers: [:],
                     body: Data(problemListJSON([(1, "two-sum")], status: nil).utf8)
-                )
+                ),
             ]
         )
         let old = Gate()
@@ -1254,7 +1254,7 @@ final class LeetCodeCatalogTests: XCTestCase {
                     statusCode: 200,
                     headers: [:],
                     body: Data(problemListJSON([(2, "add-two-numbers")], status: "ac").utf8)
-                )
+                ),
             ]
         )
         let gate = Gate()

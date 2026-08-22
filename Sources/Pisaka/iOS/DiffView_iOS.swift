@@ -324,7 +324,7 @@ final class DiffBackgroundView_iOS: UIView {
         )
         let numberAttributes: [NSAttributedString.Key: Any] = [
             .font: numberFont,
-            .foregroundColor: UIColor.secondaryLabel
+            .foregroundColor: UIColor.secondaryLabel,
         ]
 
         let glyphRange = layoutManager.glyphRange(forBoundingRect: rect, in: textContainer)

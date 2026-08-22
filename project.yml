@@ -444,3 +444,34 @@ targets:
       - package: Sparkle
         product: Sparkle
         destinationFilters: [macOS]
+    # Wires this clone's git hooks in, on the one action every builder performs.
+    #
+    # Git never enables a repository's hooks by itself — `.git/hooks` is not
+    # cloned and `core.hooksPath` is per-clone local config — because a
+    # repository that could run its own scripts on `git clone` would be remote
+    # code execution. Every ecosystem that appears to install hooks
+    # "automatically" (husky's `prepare` script under `npm install`) is really
+    # riding on a step the developer had to run anyway. SwiftPM offers no such
+    # step: its manifest is evaluated in a sandbox, so `Package.swift` cannot
+    # have side effects, and `swift test` needs no dependency install at all
+    # (PisakaCore is Foundation-only by design). A build phase is therefore the
+    # one place in this project where something of ours runs unprompted, which
+    # is why the wiring lives here rather than in a setup script nobody runs.
+    #
+    # Idempotent: `git config` writes the same value every time. Silent on
+    # success so it costs a build nothing to read.
+    #
+    # It exits 0 when there is no git repository (an export, a tarball, a
+    # sandboxed CI checkout without `.git`). That is not the "graceful skip"
+    # the pre-commit hook deliberately refuses to make: this script only
+    # *enables* a gate, and failing a build because hooks cannot be wired would
+    # break building for a reason that has nothing to do with the build. The
+    # gate itself still refuses hard, and CI still refuses the pull request.
+    preBuildScripts:
+      - name: Wire git hooks (core.hooksPath)
+        basedOnDependencyAnalysis: false
+        script: |
+          set -eu
+          cd "$SRCROOT"
+          git rev-parse --git-dir >/dev/null 2>&1 || exit 0
+          git config core.hooksPath .githooks

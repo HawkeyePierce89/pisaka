@@ -27,7 +27,7 @@ final class LogFilterTests: XCTestCase {
         let filter = LogFilter(refSelection: .ref("--max-count=0"), author: "Bob")
         XCTAssertEqual(filter.gitArguments(), [
             "--author=Bob",
-            "--end-of-options", "--max-count=0"
+            "--end-of-options", "--max-count=0",
         ])
     }
 
@@ -57,7 +57,7 @@ final class LogFilterTests: XCTestCase {
         XCTAssertEqual(filter.gitArguments(), [
             "--all",
             "--since=1970-01-01T00:00:00Z",
-            "--until=1970-01-12T13:46:40Z"
+            "--until=1970-01-12T13:46:40Z",
         ])
     }
 
@@ -92,7 +92,7 @@ final class LogFilterTests: XCTestCase {
             "--since=1970-01-01T00:00:00Z",
             "--until=1970-01-01T00:00:00Z",
             "--end-of-options", "main",
-            "--", "src"
+            "--", "src",
         ])
     }
 
@@ -141,7 +141,7 @@ final class LogFilterTests: XCTestCase {
         let commits = [
             commit("a", subject: "Fix the parser BUG"),
             commit("b", subject: "Add a feature"),
-            commit("c", subject: "another bugfix")
+            commit("c", subject: "another bugfix"),
         ]
         XCTAssertEqual(LogFilter.search(commits, query: "bug").map(\.hash), ["a", "c"])
         XCTAssertEqual(LogFilter.search(commits, query: "FEATURE").map(\.hash), ["b"])

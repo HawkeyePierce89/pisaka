@@ -172,7 +172,7 @@ final class HoverContentTests: XCTestCase {
             [
                 .code("func greet() -> String", language: "swift"),
                 .prose("Greets somebody."),
-                .code("func greet(_ name: String) -> String", language: "swift")
+                .code("func greet(_ name: String) -> String", language: "swift"),
             ]
         )
     }
@@ -454,7 +454,7 @@ final class HoverContentTests: XCTestCase {
     func testAnEmptyElementBesideARealOneIsSimplyDropped() {
         let content = self.content([
             .code(language: "swift", value: "  \n "),
-            .markup(kind: .markdown, value: "Real.")
+            .markup(kind: .markdown, value: "Real."),
         ])
         XCTAssertEqual(content?.segments, [.prose("Real.")])
     }
@@ -479,14 +479,14 @@ final class HoverContentTests: XCTestCase {
         let content = self.content([
             .code(language: "swift", value: "func f()"),
             .markup(kind: .markdown, value: "Does a thing."),
-            .code(language: nil, value: "f()")
+            .code(language: nil, value: "f()"),
         ])
         XCTAssertEqual(
             content?.segments,
             [
                 .code("func f()", language: "swift"),
                 .prose("Does a thing."),
-                .code("f()", language: nil)
+                .code("f()", language: nil),
             ]
         )
     }
@@ -852,7 +852,7 @@ final class HoverContentTests: XCTestCase {
                     • See the guide
                     """
                 ),
-                .code("let value = try decode(Thing.self)", language: "swift")
+                .code("let value = try decode(Thing.self)", language: "swift"),
             ]
         )
     }
@@ -996,7 +996,7 @@ final class HoverContentTests: XCTestCase {
             .joined(separator: "\n")
         let content = HoverContent(hoverElements: [
             .code(language: "swift", value: filler),
-            .markup(kind: .plaintext, value: "never read")
+            .markup(kind: .plaintext, value: "never read"),
         ])
         XCTAssertEqual(content?.isTruncated, true)
         XCTAssertEqual(content?.segments.count, 1)
@@ -1008,7 +1008,7 @@ final class HoverContentTests: XCTestCase {
     func testAnOrdinaryAnswerIsNotTouchedByTheLineGuard() {
         let content = HoverContent(hoverElements: [
             .code(language: "swift", value: "func f() -> Int"),
-            .markup(kind: .markdown, value: "Does a thing.\n\nTwice.")
+            .markup(kind: .markdown, value: "Does a thing.\n\nTwice."),
         ])
         XCTAssertEqual(content?.isTruncated, false)
         XCTAssertEqual(

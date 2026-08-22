@@ -227,3 +227,37 @@ jobs:
           -clonedSourcePackagesDirPath SourcePackages
           -derivedDataPath DerivedData
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
+  # CI is the real gate for style. The pre-commit hook is only local courtesy:
+  # git does not clone hooks (.githooks/ needs a one-time `git config
+  # core.hooksPath .githooks` per clone) and any commit can bypass them with
+  # `--no-verify`. This job refuses the pull request itself, so a bypassed or
+  # never-installed hook merely defers the failure to here.
+  #
+  # No `needs:` on purpose: style is independent of the build graph, so this job
+  # should give the fastest possible feedback of any job in the file.
+  #
+  # The version comes from the release asset whose digest is checked below —
+  # the same pin `.swiftlint.yml` declares and the pre-commit hook reads.
+  # LintConfigurationTests fails if those three ever disagree.
+  lint:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Install SwiftLint 0.65.0
+        run: |
+          curl -fsSL --retry 3 -o swiftlint.zip https://github.com/realm/SwiftLint/releases/download/0.65.0/portable_swiftlint.zip
+          echo "d6cb0aa7a2f5f1ef306fc9e37bcb54dc9a26facc8f7784ac0c3dd3eccf5c6ba6  swiftlint.zip" | shasum -a 256 -c -
+          # Only the binary is extracted, by name. The archive also carries a
+          # `LICENSE`, and this runs in the checkout, which has its own — a bare
+          # `unzip` prompts to replace it, reads EOF on a runner, answers "None"
+          # and exits 1, so the job died before linting anything. Extracting the
+          # whole archive with `-o` would be worse than the failure: it would
+          # overwrite this repository's LICENSE with SwiftLint's.
+          unzip -q -o swiftlint.zip swiftlint
+          chmod +x swiftlint
+      - name: Record the SwiftLint version doing the judging
+        run: ./swiftlint --version
+      - name: Lint (--strict, from the repository root)
+        run: ./swiftlint lint --strict

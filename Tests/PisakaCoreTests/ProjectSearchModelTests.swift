@@ -169,7 +169,7 @@ final class ProjectSearchModelTests: XCTestCase {
             "sub/.gitignore": "!keep.log\n",
             "sub/keep.log": "needle kept",
             "sub/drop.log": "needle dropped",
-            "sub/b.swift": "needle nested"
+            "sub/b.swift": "needle nested",
         ])
         let model = ProjectSearchModel(fileService: stub)
 
@@ -188,7 +188,7 @@ final class ProjectSearchModelTests: XCTestCase {
             "a.ts": "needle",
             "b.tsx": "needle",
             "c.js": "needle",
-            "d.ts.map": "needle"
+            "d.ts.map": "needle",
         ])
         let model = ProjectSearchModel(fileService: stub)
 
@@ -214,7 +214,7 @@ final class ProjectSearchModelTests: XCTestCase {
         let stub = StubFiles(root: root, files: [
             "text.swift": "needle",
             "image.png": "PNG\0needle",
-            "huge.swift": String(repeating: "needle ", count: 10)
+            "huge.swift": String(repeating: "needle ", count: 10),
         ])
         // 20 bytes: "needle" fits, the 70-byte file does not.
         let model = ProjectSearchModel(fileService: stub, maxFileBytes: 20)
@@ -229,7 +229,7 @@ final class ProjectSearchModelTests: XCTestCase {
     func testDirtyOpenBufferIsSearchedInsteadOfDiskContents() async {
         let stub = StubFiles(root: root, files: [
             "a.swift": "saved text with no hits",
-            "b.swift": "needle on disk"
+            "b.swift": "needle on disk",
         ])
         let dirty = root.appendingPathComponent("a.swift")
         let model = ProjectSearchModel(
@@ -329,7 +329,7 @@ final class ProjectSearchModelTests: XCTestCase {
     func testMatchCapTruncatesResults() async {
         let stub = StubFiles(root: root, files: [
             "a.swift": "needle needle needle",
-            "b.swift": "needle needle needle"
+            "b.swift": "needle needle needle",
         ])
         let model = ProjectSearchModel(fileService: stub, maxMatches: 4)
 
@@ -350,7 +350,7 @@ final class ProjectSearchModelTests: XCTestCase {
         let stub = StubFiles(root: root, files: [:])
         let files = [
             root.appendingPathComponent("a.swift"),
-            root.appendingPathComponent("b.swift")
+            root.appendingPathComponent("b.swift"),
         ]
         // Both files stand in as open buffers, so the chunk never reaches the
         // (empty) stub for their contents.
@@ -394,7 +394,7 @@ final class ProjectSearchModelTests: XCTestCase {
         // to keep producing.
         let stub = StubFiles(root: root, files: [
             "a.swift": "needle needle",
-            "b.swift": "needle needle"
+            "b.swift": "needle needle",
         ])
         let model = ProjectSearchModel(fileService: stub, maxMatches: 2)
 
@@ -538,7 +538,7 @@ final class ProjectSearchModelTests: XCTestCase {
         let stub = StubFiles(root: root, files: [
             "a.swift": "needle one needle",
             "b.swift": "no hits here",
-            "sub/c.swift": "needle deep"
+            "sub/c.swift": "needle deep",
         ])
         let model = ProjectSearchModel(fileService: stub)
         await model.search(root: root, query: SearchQuery(pattern: "needle"), mask: "")
@@ -581,7 +581,7 @@ final class ProjectSearchModelTests: XCTestCase {
     func testReplaceAllRoutesAnOpenBufferThroughTheApplyClosureWithoutWritingToDisk() async {
         let stub = StubFiles(root: root, files: [
             "a.swift": "saved needle",
-            "b.swift": "disk needle"
+            "b.swift": "disk needle",
         ])
         let dirty = root.appendingPathComponent("a.swift")
         let applied = AppliedBuffers()
@@ -629,7 +629,7 @@ final class ProjectSearchModelTests: XCTestCase {
     func testReplaceAllSkipsAFileThatChangedSinceTheSearch() async {
         let stub = StubFiles(root: root, files: [
             "a.swift": "needle here",
-            "b.swift": "needle there"
+            "b.swift": "needle there",
         ])
         let model = ProjectSearchModel(fileService: stub)
         await model.search(root: root, query: SearchQuery(pattern: "needle"), mask: "")
@@ -649,7 +649,7 @@ final class ProjectSearchModelTests: XCTestCase {
     func testReplaceAllReportsAFileThatVanishedSinceTheSearch() async {
         let stub = StubFiles(root: root, files: [
             "a.swift": "needle here",
-            "b.swift": "needle there"
+            "b.swift": "needle there",
         ])
         let model = ProjectSearchModel(fileService: stub)
         await model.search(root: root, query: SearchQuery(pattern: "needle"), mask: "")
@@ -670,7 +670,7 @@ final class ProjectSearchModelTests: XCTestCase {
     func testReplaceAllContinuesAfterAPerFileWriteFailure() async {
         let stub = StubFiles(root: root, files: [
             "a.swift": "needle here",
-            "b.swift": "needle there"
+            "b.swift": "needle there",
         ])
         stub.failingWrites = ["a.swift"]
         let model = ProjectSearchModel(fileService: stub)
@@ -692,7 +692,7 @@ final class ProjectSearchModelTests: XCTestCase {
     func testReplaceAllStopsWhenTheProjectChangesMidBatch() async {
         let stub = StubFiles(root: root, files: [
             "a.swift": "needle",
-            "b.swift": "needle"
+            "b.swift": "needle",
         ])
         let model = ProjectSearchModel(fileService: stub)
         await model.search(root: root, query: SearchQuery(pattern: "needle"), mask: "")
@@ -855,7 +855,7 @@ final class ProjectSearchModelTests: XCTestCase {
     func testReplaceAllContinuesWhenANewQueryForTheSameProjectArrivesMidBatch() async {
         let stub = StubFiles(root: root, files: [
             "a.swift": "needle",
-            "b.swift": "needle"
+            "b.swift": "needle",
         ])
         let model = ProjectSearchModel(fileService: stub)
         await model.search(root: root, query: SearchQuery(pattern: "needle"), mask: "")

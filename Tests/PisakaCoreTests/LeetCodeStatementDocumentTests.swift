@@ -115,7 +115,7 @@ final class LeetCodeStatementDocumentTests: XCTestCase {
         let html = document(theme: theme)
         for colour in [
             theme.background, theme.text, theme.secondaryText,
-            theme.link, theme.codeBackground, theme.border
+            theme.link, theme.codeBackground, theme.border,
         ] {
             XCTAssertTrue(html.contains(colour), "\(colour) never reaches the CSS")
         }

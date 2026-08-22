@@ -95,6 +95,8 @@ Files app). No terminal, no language servers, no commit dialog — details in
 - macOS 13+ and/or iOS/iPadOS 17+; Swift 6.0+ toolchain (Xcode 16+).
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) to generate the project
   (`brew install xcodegen`).
+- Contributing: [SwiftLint](docs/architecture/style-lint.md) — commits are
+  refused without it, deliberately with no graceful degradation.
 - macOS: the `git` CLI on your `PATH` for the git features (iOS uses libgit2
   in-process). Optional, each unlocking its language's semantic intelligence:
   Xcode (Swift), a Go toolchain (`gopls`), a Rust toolchain (`rust-analyzer`),
@@ -117,7 +119,15 @@ The app is built through an XcodeGen-generated Xcode project (a single
 multiplatform target with macOS and iOS destinations); there is no SwiftPM
 executable target.
 
+**After cloning, run `make setup` once.** It wires this clone's git hooks
+(`core.hooksPath`) and refuses if the pinned SwiftLint is missing — see
+[`docs/architecture/style-lint.md`](docs/architecture/style-lint.md) for what it
+installs and why git cannot do this for you. `make` also wraps everything below: `make test`, `make lint`,
+`make build`, `make build-ios`.
+
 ```sh
+make setup             # one time per clone: hooks + linter check
+
 xcodegen generate      # regenerate Pisaka.xcodeproj from project.yml
 open Pisaka.xcodeproj  # build & run from Xcode (pick the macOS or an iOS destination)
 
@@ -132,6 +142,13 @@ swift test             # run the domain-logic test suite (PisakaCore, all platfo
 `swift test` builds and tests only the platform-agnostic `PisakaCore` library —
 the fast, dependency-free gate for the domain logic. The macOS app runs
 non-sandboxed so the standard open/save panels work without entitlements.
+
+### Style lint
+
+Style is enforced by SwiftLint at a pinned version; `.swiftlint.yml` at the
+repository root is the single authority, the pre-commit hook refuses a commit
+that violates it and CI refuses the pull request. Installation, the hook wiring
+and the full rationale: [`docs/architecture/style-lint.md`](docs/architecture/style-lint.md).
 
 ## Installing a released build
 
@@ -177,7 +194,11 @@ certificate renewal and what is still account-side — is documented in
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and every
 push to `master`: first `swift test`, then — only once tests are green — an
 unsigned macOS build and an unsigned iOS build (device arch, including libgit2
-linking) in parallel. No signing, secrets, or simulator are involved. The macOS
+linking) in parallel. A fourth, independent `lint` job runs alongside them from
+the start: the pinned SwiftLint 0.65.0 (digest-verified download) over the whole
+first-party tree with `--strict` — the same check the pre-commit hook enforces
+locally, so a pull request that fails style is refused even when the hook was
+bypassed. No signing, secrets, or simulator are involved. The macOS
 build uses the Release configuration and the iOS build Debug, so both
 configurations are compiled on every PR — the auto-updater exists only in
 non-DEBUG builds and would otherwise never be compiled until a release. The

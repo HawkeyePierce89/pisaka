@@ -80,7 +80,8 @@ struct GitCLIService: GitServicing {
         // names and subjects, matching the `changedFiles` rationale.
         let arguments =
             ["-c", "core.quotePath=false", "log", "--topo-order", "--parents",
-             "-n", String(limit), "--pretty=format:\(Commit.prettyFormat)"]
+             "-n", String(limit), "--pretty=format:\(Commit.prettyFormat)",
+            ]
             + filter.gitArguments()
         let result = try await run(arguments, in: root)
         guard result.exitCode == 0 else {
@@ -110,7 +111,8 @@ struct GitCLIService: GitServicing {
         // other calls.
         let result = try await run(
             ["-c", "core.quotePath=false", "for-each-ref",
-             "--format=%(refname)", "refs/heads", "refs/remotes", "refs/tags"],
+             "--format=%(refname)", "refs/heads", "refs/remotes", "refs/tags",
+            ],
             in: root
         )
         guard result.exitCode == 0 else {
@@ -184,7 +186,8 @@ struct GitCLIService: GitServicing {
         // `-c core.quotePath=false` keeps non-ASCII paths raw, matching `changedFiles`.
         let result = try await run(
             ["-c", "core.quotePath=false", "diff-tree", "--no-commit-id",
-             "--name-status", "-r", "-M", "-m", "--first-parent", "--root", hash],
+             "--name-status", "-r", "-M", "-m", "--first-parent", "--root", hash,
+            ],
             in: root
         )
         guard result.exitCode == 0 else {
@@ -302,7 +305,8 @@ struct GitCLIService: GitServicing {
     func blame(fileURL: URL) async throws -> [BlameLine?] {
         let result = try await run(
             ["-c", "core.quotePath=false", "blame", "--porcelain",
-             "--", fileURL.lastPathComponent],
+             "--", fileURL.lastPathComponent,
+            ],
             in: fileURL.deletingLastPathComponent(),
             on: Self.blameQueue
         )
@@ -986,7 +990,7 @@ struct GitCLIService: GitServicing {
         // terminal. It is inherited by the hooks and by any git they shell out to.
         let environment = [
             "GIT_INDEX_FILE": scratch.appendingPathComponent("index").path,
-            "GIT_TERMINAL_PROMPT": "0"
+            "GIT_TERMINAL_PROMPT": "0",
         ]
 
         // Seed the throw-away index from what is already committed. An unborn HEAD
@@ -1302,7 +1306,7 @@ struct GitCLIService: GitServicing {
         "GIT_AUTHOR_EMAIL",
         "GIT_COMMITTER_NAME",
         "GIT_COMMITTER_EMAIL",
-        "EMAIL"
+        "EMAIL",
     ]
 
     /// Launch `git` with `arguments` in `directory`, capturing stdout/stderr.

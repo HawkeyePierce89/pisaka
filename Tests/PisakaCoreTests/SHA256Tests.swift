@@ -85,7 +85,7 @@ final class SHA256Tests: XCTestCase {
         120: "2f3d335432c70b580af0e8e1b3674a7c020d683aa5f73aaaedfdc55af904c21c",
         127: "c57e9278af78fa3cab38667bef4ce29d783787a2f731d4e12200270f0c32320a",
         128: "6836cf13bac400e9105071cd6af47084dfacad4e5e302c94bfed24e013afb73e",
-        129: "c12cb024a2e5551cca0e08fce8f1c5e314555cc3fef6329ee994a3db752166ae"
+        129: "c12cb024a2e5551cca0e08fce8f1c5e314555cc3fef6329ee994a3db752166ae",
     ]
 
     func testLengthBoundarySweep() {
@@ -125,7 +125,8 @@ final class SHA256Tests: XCTestCase {
         // The realistic shape: pieces of wildly different sizes, including empty
         // ones, in the order a stream would deliver them.
         let pieces = ["", "a", "", "bcdefghij", String(repeating: "x", count: 63), "y",
-                      String(repeating: "z", count: 129), ""]
+                      String(repeating: "z", count: 129), "",
+                      ]
         var hasher = SHA256()
         for piece in pieces { hasher.update(Data(piece.utf8)) }
         XCTAssertEqual(

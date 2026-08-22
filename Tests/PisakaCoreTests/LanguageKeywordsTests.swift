@@ -161,7 +161,7 @@ final class LanguageKeywordsTests: XCTestCase {
             "break", "case", "chan", "const", "continue", "default", "defer",
             "else", "fallthrough", "for", "func", "go", "goto", "if", "import",
             "interface", "map", "package", "range", "return", "select",
-            "struct", "switch", "type", "var"
+            "struct", "switch", "type", "var",
         ]
         // The 22 predeclared types, the 4 predeclared constants (`nil` is
         // formally a zero value, and belongs here for the same reason) and the
@@ -170,13 +170,13 @@ final class LanguageKeywordsTests: XCTestCase {
         let types = [
             "any", "bool", "byte", "comparable", "complex64", "complex128", "error",
             "float32", "float64", "int", "int8", "int16", "int32", "int64", "rune",
-            "string", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr"
+            "string", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
         ]
         let constants = ["true", "false", "iota", "nil"]
         let builtins = [
             "append", "cap", "clear", "close", "complex", "copy", "delete", "imag",
             "len", "make", "max", "min", "new", "panic", "print", "println", "real",
-            "recover"
+            "recover",
         ]
 
         XCTAssertEqual(reserved.count, 25)
@@ -224,7 +224,7 @@ final class LanguageKeywordsTests: XCTestCase {
             "dyn", "else", "enum", "extern", "false", "fn", "for", "if",
             "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub",
             "ref", "return", "self", "Self", "static", "struct", "super",
-            "trait", "true", "type", "unsafe", "use", "where", "while"
+            "trait", "true", "type", "unsafe", "use", "where", "while",
         ]
         // The 17 primitive type names. Declared in no crate — not even `core` —
         // so no index and no buffer harvest can offer them.
@@ -232,7 +232,7 @@ final class LanguageKeywordsTests: XCTestCase {
             "bool", "char", "str",
             "f32", "f64",
             "i8", "i16", "i32", "i64", "i128", "isize",
-            "u8", "u16", "u32", "u64", "u128", "usize"
+            "u8", "u16", "u32", "u64", "u128", "usize",
         ]
         // The one contextual keyword, on Python's `match`/`case` precedent.
         let contextual = ["union"]
@@ -268,7 +268,7 @@ final class LanguageKeywordsTests: XCTestCase {
 
         for keyword in [
             "abstract", "become", "box", "do", "final", "gen", "macro",
-            "override", "priv", "try", "typeof", "unsized", "virtual", "yield"
+            "override", "priv", "try", "typeof", "unsized", "virtual", "yield",
         ] {
             XCTAssertFalse(rust.contains(keyword), "reserved-but-unusable: \(keyword)")
         }

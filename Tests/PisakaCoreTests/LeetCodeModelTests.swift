@@ -612,7 +612,7 @@ final class LeetCodeModelTests: XCTestCase {
                     statusCode: 200,
                     headers: [:],
                     body: Self.fixture("user-status-signed-in.json")
-                )
+                ),
             ]
         )
         let model = makeModel(tree: tree, transport: transport)
@@ -659,7 +659,7 @@ final class LeetCodeModelTests: XCTestCase {
                 )
             ),
             ("401", LeetCodeHTTPResponse(statusCode: 401, headers: [:], body: Data())),
-            ("403", LeetCodeHTTPResponse(statusCode: 403, headers: [:], body: Data()))
+            ("403", LeetCodeHTTPResponse(statusCode: 403, headers: [:], body: Data())),
         ]
         for (name, response) in rejections {
             let tree = makeTree()
@@ -807,7 +807,7 @@ final class LeetCodeModelTests: XCTestCase {
                 {"fetchedAt":"2026-08-05T00:00:00Z","problems":[\
                 {"difficulty":"easy","id":1,"isPaidOnly":false,"slug":"two-sum",\
                 "status":"notStarted","title":"Two Sum"}],"schemaVersion":1}
-                """
+                """,
         ])
         let transport = makeTransport()
         transport.fail(.question(slug: "two-sum"))

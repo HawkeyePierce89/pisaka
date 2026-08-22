@@ -27,7 +27,7 @@ final class LeetCodeCredentialsTests: XCTestCase {
     func testBothCookiesPresentProducesCredentials() {
         let result = LeetCodeCredentials.from(cookies: cookies([
             ("LEETCODE_SESSION", "sess-abc"),
-            ("csrftoken", "csrf-xyz")
+            ("csrftoken", "csrf-xyz"),
         ]))
         XCTAssertEqual(result, LeetCodeCredentials(session: "sess-abc", csrfToken: "csrf-xyz"))
     }
@@ -35,7 +35,7 @@ final class LeetCodeCredentialsTests: XCTestCase {
     func testCookieOrderDoesNotMatter() {
         let result = LeetCodeCredentials.from(cookies: cookies([
             ("csrftoken", "csrf-xyz"),
-            ("LEETCODE_SESSION", "sess-abc")
+            ("LEETCODE_SESSION", "sess-abc"),
         ]))
         XCTAssertEqual(result, LeetCodeCredentials(session: "sess-abc", csrfToken: "csrf-xyz"))
     }
@@ -47,7 +47,7 @@ final class LeetCodeCredentialsTests: XCTestCase {
             ("LEETCODE_SESSION", "sess-abc"),
             ("gr_user_id", "1234"),
             ("csrftoken", "csrf-xyz"),
-            ("_gid", "GA1.2.3")
+            ("_gid", "GA1.2.3"),
         ]))
         XCTAssertEqual(result, LeetCodeCredentials(session: "sess-abc", csrfToken: "csrf-xyz"))
     }
@@ -72,21 +72,21 @@ final class LeetCodeCredentialsTests: XCTestCase {
         // empty session is a login that appears to work and fails on every call.
         XCTAssertNil(LeetCodeCredentials.from(cookies: cookies([
             ("LEETCODE_SESSION", ""),
-            ("csrftoken", "csrf-xyz")
+            ("csrftoken", "csrf-xyz"),
         ])))
     }
 
     func testWhitespaceOnlyCSRFValueIsTreatedAsAbsent() {
         XCTAssertNil(LeetCodeCredentials.from(cookies: cookies([
             ("LEETCODE_SESSION", "sess-abc"),
-            ("csrftoken", "   ")
+            ("csrftoken", "   "),
         ])))
     }
 
     func testValuesAreTrimmed() {
         let result = LeetCodeCredentials.from(cookies: cookies([
             ("LEETCODE_SESSION", "  sess-abc\n"),
-            ("csrftoken", " csrf-xyz ")
+            ("csrftoken", " csrf-xyz "),
         ]))
         XCTAssertEqual(result, LeetCodeCredentials(session: "sess-abc", csrfToken: "csrf-xyz"))
     }
@@ -96,7 +96,7 @@ final class LeetCodeCredentialsTests: XCTestCase {
         let result = LeetCodeCredentials.from(cookies: cookies([
             ("LEETCODE_SESSION", "stale"),
             ("csrftoken", "csrf-xyz"),
-            ("LEETCODE_SESSION", "fresh")
+            ("LEETCODE_SESSION", "fresh"),
         ]))
         XCTAssertEqual(result?.session, "fresh")
     }
@@ -105,7 +105,7 @@ final class LeetCodeCredentialsTests: XCTestCase {
         let result = LeetCodeCredentials.from(cookies: cookies([
             ("LEETCODE_SESSION", "sess-abc"),
             ("LEETCODE_SESSION", ""),
-            ("csrftoken", "csrf-xyz")
+            ("csrftoken", "csrf-xyz"),
         ]))
         XCTAssertEqual(result?.session, "sess-abc")
     }
@@ -115,7 +115,7 @@ final class LeetCodeCredentialsTests: XCTestCase {
         // different cookie, not this one.
         XCTAssertNil(LeetCodeCredentials.from(cookies: cookies([
             ("leetcode_session", "sess-abc"),
-            ("CSRFToken", "csrf-xyz")
+            ("CSRFToken", "csrf-xyz"),
         ])))
     }
 

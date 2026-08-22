@@ -474,7 +474,7 @@ struct ProjectSearchView: View {
         var lines = [
             "Replaced \(summary.matchesReplaced) match"
             + "\(summary.matchesReplaced == 1 ? "" : "es") in \(summary.filesChanged) "
-            + "file\(summary.filesChanged == 1 ? "" : "s")."
+            + "file\(summary.filesChanged == 1 ? "" : "s").",
         ]
         if summary.filesSkipped > 0 {
             lines.append(

@@ -88,7 +88,7 @@ final class BlameParserTests: XCTestCase {
             group(hash: hashA, origLine: 1, finalLine: 1, author: "Ada", summary: "First", content: "line one"),
             group(hash: hashB, origLine: 4, finalLine: 2, author: "Grace", summary: "Second", content: "line two"),
             repeatGroup(hash: hashA, origLine: 2, finalLine: 3, content: "line three"),
-            group(hash: hashB, origLine: 5, finalLine: 4, author: "Grace", summary: "Second", content: "line four")
+            group(hash: hashB, origLine: 5, finalLine: 4, author: "Grace", summary: "Second", content: "line four"),
         ].joined(separator: "\n")
 
         let lines = BlameParser.parse(output)
@@ -105,7 +105,7 @@ final class BlameParserTests: XCTestCase {
         let output = [
             group(hash: hashA, origLine: 1, finalLine: 1, author: "Ada", summary: "First", content: "one"),
             repeatGroup(hash: hashA, origLine: 2, finalLine: 2, content: "two"),
-            repeatGroup(hash: hashA, origLine: 3, finalLine: 3, content: "three")
+            repeatGroup(hash: hashA, origLine: 3, finalLine: 3, content: "three"),
         ].joined(separator: "\n")
 
         let lines = BlameParser.parse(output)
@@ -124,7 +124,7 @@ final class BlameParserTests: XCTestCase {
     func testMetadataArrivingAfterAnEarlierHeaderStillResolves() {
         let output = [
             repeatGroup(hash: hashA, origLine: 1, finalLine: 1, content: "one"),
-            group(hash: hashA, origLine: 2, finalLine: 2, author: "Ada", summary: "First", content: "two")
+            group(hash: hashA, origLine: 2, finalLine: 2, author: "Ada", summary: "First", content: "two"),
         ].joined(separator: "\n")
 
         let lines = BlameParser.parse(output)
@@ -143,7 +143,7 @@ final class BlameParserTests: XCTestCase {
                 author: "Not Committed Yet",
                 summary: "Version of main.swift from src/main.swift",
                 content: "brand new"
-            )
+            ),
         ].joined(separator: "\n")
 
         let lines = BlameParser.parse(output)
@@ -171,7 +171,7 @@ final class BlameParserTests: XCTestCase {
     func testGroupHeaderCarryingNumLinesCount() {
         let output = [
             group(hash: hashA, origLine: 1, finalLine: 1, numLines: 2, author: "Ada", content: "one"),
-            repeatGroup(hash: hashA, origLine: 2, finalLine: 2, content: "two")
+            repeatGroup(hash: hashA, origLine: 2, finalLine: 2, content: "two"),
         ].joined(separator: "\n")
 
         let lines = BlameParser.parse(output)
@@ -216,7 +216,7 @@ final class BlameParserTests: XCTestCase {
             "zzzz 1 2 3",
             group(hash: hashA, origLine: 1, finalLine: 1, author: "Ada", content: "one"),
             "   ",
-            "notahash notanumber notanumber"
+            "notahash notanumber notanumber",
         ].joined(separator: "\n")
 
         let lines = BlameParser.parse(output)
@@ -229,7 +229,7 @@ final class BlameParserTests: XCTestCase {
     func testGapsStayNil() {
         let output = [
             group(hash: hashA, origLine: 1, finalLine: 1, author: "Ada", content: "one"),
-            repeatGroup(hash: hashA, origLine: 5, finalLine: 4, content: "four")
+            repeatGroup(hash: hashA, origLine: 5, finalLine: 4, content: "four"),
         ].joined(separator: "\n")
 
         let lines = BlameParser.parse(output)
@@ -243,7 +243,7 @@ final class BlameParserTests: XCTestCase {
     func testNonPositiveFinalLineNumberIsIgnored() {
         let output = [
             group(hash: hashA, origLine: 1, finalLine: 0, author: "Ada", content: "bogus"),
-            group(hash: hashB, origLine: 1, finalLine: 1, author: "Grace", content: "one")
+            group(hash: hashB, origLine: 1, finalLine: 1, author: "Grace", content: "one"),
         ].joined(separator: "\n")
 
         let lines = BlameParser.parse(output)
@@ -395,7 +395,7 @@ final class BlameParserTests: XCTestCase {
     func testBareTabIsConsumedAsAnEmptyContentLine() {
         let output = [
             group(hash: hashA, origLine: 1, finalLine: 1, author: "Ada", content: ""),
-            group(hash: hashB, origLine: 2, finalLine: 2, author: "Grace", content: "two")
+            group(hash: hashB, origLine: 2, finalLine: 2, author: "Grace", content: "two"),
         ].joined(separator: "\n")
 
         let lines = BlameParser.parse(output)
@@ -411,7 +411,7 @@ final class BlameParserTests: XCTestCase {
             repeatGroup(hash: hashA, origLine: 2, finalLine: 2, content: "author-time 1"),
             repeatGroup(hash: hashA, origLine: 3, finalLine: 3, content: "author-tz +0900"),
             repeatGroup(hash: hashA, origLine: 4, finalLine: 4, content: "summary evil"),
-            repeatGroup(hash: hashA, origLine: 5, finalLine: 5, content: "\(zeroHash) 9 9 9")
+            repeatGroup(hash: hashA, origLine: 5, finalLine: 5, content: "\(zeroHash) 9 9 9"),
         ].joined(separator: "\n")
 
         let lines = BlameParser.parse(output)
@@ -439,7 +439,7 @@ final class BlameParserTests: XCTestCase {
         let output = [
             group(hash: hashA, origLine: 1, finalLine: 1, author: "Ada", summary: "First", content: "one"),
             "author Evil <x@y>",
-            "summary evil"
+            "summary evil",
         ].joined(separator: "\n")
 
         let lines = BlameParser.parse(output)
@@ -461,7 +461,7 @@ final class BlameParserTests: XCTestCase {
         let output = [
             group(hash: hashA, origLine: 1, finalLine: 1, author: "Ada", summary: "First", content: "line one\r"),
             group(hash: hashB, origLine: 2, finalLine: 2, author: "Grace", summary: "Second", content: "line two\r"),
-            repeatGroup(hash: hashA, origLine: 3, finalLine: 3, content: "line three\r")
+            repeatGroup(hash: hashA, origLine: 3, finalLine: 3, content: "line three\r"),
         ].joined(separator: "\n")
 
         let lines = BlameParser.parse(output)
@@ -477,7 +477,7 @@ final class BlameParserTests: XCTestCase {
     func testWhollyCRLFTerminatedOutputParses() {
         let output = [
             group(hash: hashA, origLine: 1, finalLine: 1, author: "Ada", summary: "First", content: "line one"),
-            group(hash: hashB, origLine: 2, finalLine: 2, author: "Grace", summary: "Second", content: "line two")
+            group(hash: hashB, origLine: 2, finalLine: 2, author: "Grace", summary: "Second", content: "line two"),
         ]
         .joined(separator: "\n")
         .replacingOccurrences(of: "\n", with: "\r\n") + "\r\n"
@@ -540,7 +540,7 @@ final class BlameParserTests: XCTestCase {
     func testContentLinesSpelledLikeBoundaryAndPreviousAreInert() {
         let output = [
             group(hash: hashA, origLine: 1, finalLine: 1, author: "Ada", summary: "First", content: "boundary"),
-            repeatGroup(hash: hashA, origLine: 2, finalLine: 2, content: "previous \(hashB) src/x.swift")
+            repeatGroup(hash: hashA, origLine: 2, finalLine: 2, content: "previous \(hashB) src/x.swift"),
         ].joined(separator: "\n")
 
         let lines = BlameParser.parse(output)

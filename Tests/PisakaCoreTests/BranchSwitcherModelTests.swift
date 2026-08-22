@@ -107,7 +107,7 @@ final class BranchSwitcherModelTests: XCTestCase {
             "refs/heads/feature",
             "refs/remotes/origin/main",
             "refs/remotes/origin/HEAD",
-            "refs/tags/v1.0"
+            "refs/tags/v1.0",
         ]
         git.current = localCurrent("main")
         let model = makeModel(git)
@@ -592,7 +592,7 @@ final class BranchSwitcherModelTests: XCTestCase {
         git.refnames = [
             "refs/heads/main",
             "refs/heads/feature",
-            "refs/remotes/origin/feature"
+            "refs/remotes/origin/feature",
         ]
         git.current = localCurrent("main")
         let model = makeModel(git)
@@ -615,7 +615,7 @@ final class BranchSwitcherModelTests: XCTestCase {
         let git = StubGit()
         git.refnames = [
             "refs/heads/main",
-            "refs/remotes/origin/feature"
+            "refs/remotes/origin/feature",
         ]
         git.current = localCurrent("main")
         let model = makeModel(git)
@@ -639,7 +639,7 @@ final class BranchSwitcherModelTests: XCTestCase {
         git.refnames = [
             "refs/heads/main",
             "refs/heads/feature",
-            "refs/remotes/origin/feature"
+            "refs/remotes/origin/feature",
         ]
         git.current = localCurrent("main")
         git.checkoutError = GitError.checkoutFailed(reason: "Your local changes would be overwritten: a.swift")
@@ -659,7 +659,7 @@ final class BranchSwitcherModelTests: XCTestCase {
         let git = StubGit()
         git.refnames = [
             "refs/heads/main",
-            "refs/remotes/origin/feature"
+            "refs/remotes/origin/feature",
         ]
         git.current = localCurrent("main")
         git.createError = GitError.checkoutFailed(reason: "already exists")
@@ -685,7 +685,7 @@ final class BranchSwitcherModelTests: XCTestCase {
         let git = StubGit()
         git.refnames = [
             "refs/heads/main",
-            "refs/remotes/origin/feature"
+            "refs/remotes/origin/feature",
         ]
         git.current = localCurrent("main")
         let model = makeModel(git)
@@ -715,7 +715,7 @@ final class BranchSwitcherModelTests: XCTestCase {
         git.refnames = [
             "refs/heads/main",
             "refs/heads/feature",
-            "refs/remotes/origin/feature"
+            "refs/remotes/origin/feature",
         ]
         git.current = localCurrent("main")
         let model = makeModel(git)
@@ -746,7 +746,7 @@ final class BranchSwitcherModelTests: XCTestCase {
         let git = StubGit()
         git.refnames = [
             "refs/heads/main",
-            "refs/remotes/origin/feature"
+            "refs/remotes/origin/feature",
         ]
         git.current = localCurrent("main")
         let model = makeModel(git)
@@ -774,7 +774,7 @@ final class BranchSwitcherModelTests: XCTestCase {
         let git = StubGit()
         git.refnames = [
             "refs/heads/main",
-            "refs/remotes/origin/-bad"
+            "refs/remotes/origin/-bad",
         ]
         git.current = localCurrent("main")
         let model = makeModel(git)
@@ -800,7 +800,7 @@ final class BranchSwitcherModelTests: XCTestCase {
         let git = StubGit()
         git.refnames = [
             "refs/heads/main",
-            "refs/remotes/origin/-bad"
+            "refs/remotes/origin/-bad",
         ]
         git.current = localCurrent("main")
         let model = makeModel(git)
@@ -828,7 +828,7 @@ final class BranchSwitcherModelTests: XCTestCase {
             "refs/heads/main",
             "refs/heads/feature-x",
             "refs/remotes/origin/feature-y",
-            "refs/remotes/origin/main"
+            "refs/remotes/origin/main",
         ]
         let model = makeModel(git)
         await model.refresh(root: root)
@@ -880,11 +880,17 @@ final class BranchSwitcherModelTests: XCTestCase {
     // MARK: - pure helpers
 
     func testDefaultBranchNameForRemote() {
-        let remote = BranchRef(name: "refs/remotes/origin/master", isRemote: true, remoteName: "origin", shortName: "origin/master", isCurrent: false)
+        let remote = BranchRef(
+            name: "refs/remotes/origin/master", isRemote: true, remoteName: "origin",
+            shortName: "origin/master", isCurrent: false
+        )
         XCTAssertEqual(BranchSwitcherModel.defaultBranchName(forRemote: remote), "master")
 
         // Nested branch name under the remote.
-        let nested = BranchRef(name: "refs/remotes/upstream/feature/x", isRemote: true, remoteName: "upstream", shortName: "upstream/feature/x", isCurrent: false)
+        let nested = BranchRef(
+            name: "refs/remotes/upstream/feature/x", isRemote: true, remoteName: "upstream",
+            shortName: "upstream/feature/x", isCurrent: false
+        )
         XCTAssertEqual(BranchSwitcherModel.defaultBranchName(forRemote: nested), "feature/x")
 
         // A local ref returns its short name unchanged.
@@ -898,10 +904,13 @@ final class BranchSwitcherModelTests: XCTestCase {
     /// decision: the target local name has the `<remote>/` prefix stripped, and the
     /// start point is the remote ref itself.
     func testRemoteCheckoutDecisionNoLocalCreates() {
-        let remote = BranchRef(name: "refs/remotes/origin/feature", isRemote: true, remoteName: "origin", shortName: "origin/feature", isCurrent: false)
+        let remote = BranchRef(
+            name: "refs/remotes/origin/feature", isRemote: true, remoteName: "origin",
+            shortName: "origin/feature", isCurrent: false
+        )
         let branches = [
             BranchRef(name: "refs/heads/main", isRemote: false, remoteName: nil, shortName: "main", isCurrent: true),
-            remote
+            remote,
         ]
         XCTAssertEqual(
             BranchSwitcherModel.remoteCheckoutDecision(for: remote, among: branches),
@@ -912,12 +921,15 @@ final class BranchSwitcherModelTests: XCTestCase {
     /// A remote branch whose same-named local already exists becomes a checkout of
     /// that local — never a create.
     func testRemoteCheckoutDecisionExistingLocalChecksOut() {
-        let remote = BranchRef(name: "refs/remotes/origin/feature", isRemote: true, remoteName: "origin", shortName: "origin/feature", isCurrent: false)
+        let remote = BranchRef(
+            name: "refs/remotes/origin/feature", isRemote: true, remoteName: "origin",
+            shortName: "origin/feature", isCurrent: false
+        )
         let local = BranchRef(name: "refs/heads/feature", isRemote: false, remoteName: nil, shortName: "feature", isCurrent: false)
         let branches = [
             BranchRef(name: "refs/heads/main", isRemote: false, remoteName: nil, shortName: "main", isCurrent: true),
             local,
-            remote
+            remote,
         ]
         XCTAssertEqual(
             BranchSwitcherModel.remoteCheckoutDecision(for: remote, among: branches),
@@ -929,14 +941,20 @@ final class BranchSwitcherModelTests: XCTestCase {
     /// branch sharing its own full short name (`origin/feature`) must not be treated
     /// as the local, only a real `refs/heads/feature` local qualifies.
     func testRemoteCheckoutDecisionRemotesAreNotLocalCandidates() {
-        let remote = BranchRef(name: "refs/remotes/origin/feature", isRemote: true, remoteName: "origin", shortName: "origin/feature", isCurrent: false)
+        let remote = BranchRef(
+            name: "refs/remotes/origin/feature", isRemote: true, remoteName: "origin",
+            shortName: "origin/feature", isCurrent: false
+        )
         // Another remote with the stripped name as its short name would be a decoy if
         // remotes were considered — but they are not.
-        let decoyRemote = BranchRef(name: "refs/remotes/upstream/feature", isRemote: true, remoteName: "upstream", shortName: "feature", isCurrent: false)
+        let decoyRemote = BranchRef(
+            name: "refs/remotes/upstream/feature", isRemote: true, remoteName: "upstream",
+            shortName: "feature", isCurrent: false
+        )
         let branches = [
             BranchRef(name: "refs/heads/main", isRemote: false, remoteName: nil, shortName: "main", isCurrent: true),
             decoyRemote,
-            remote
+            remote,
         ]
         XCTAssertEqual(
             BranchSwitcherModel.remoteCheckoutDecision(for: remote, among: branches),

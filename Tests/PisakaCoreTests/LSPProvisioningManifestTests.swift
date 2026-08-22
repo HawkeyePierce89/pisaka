@@ -333,7 +333,7 @@ final class LSPProvisioningManifestTests: XCTestCase {
         )
         let cyclic = LSPProvisioningManifest(components: [
             LSPComponent(id: "a", version: "1", licenseSPDX: "MIT", licenseFileSubpaths: [], artifacts: [artifact], requires: ["b"]),
-            LSPComponent(id: "b", version: "1", licenseSPDX: "MIT", licenseFileSubpaths: [], artifacts: [artifact], requires: ["a"])
+            LSPComponent(id: "b", version: "1", licenseSPDX: "MIT", licenseFileSubpaths: [], artifacts: [artifact], requires: ["a"]),
         ])
         XCTAssertEqual(cyclic.installationOrder(for: "a").map(\.id), ["b", "a"])
     }
@@ -500,7 +500,7 @@ final class LSPProvisioningManifestTests: XCTestCase {
                 "8966f9429085c243817b9d13afa76e98920668c07a9b432901daaf047397c6cb",
                 14_576_027,
                 39_382_228
-            )
+            ),
         ]
 
         for architecture in LSPHostArchitecture.allCases {
@@ -618,13 +618,14 @@ final class LSPProvisioningManifestTests: XCTestCase {
         XCTAssertEqual(description.launch, .executable(path: "\(base)/node/24.19.0/bin/node"))
         XCTAssertEqual(description.arguments, [
             "\(base)/typescript-language-server/5.3.0/node_modules/typescript-language-server/lib/cli.mjs",
-            "--stdio"
+            "--stdio",
         ])
         XCTAssertEqual(
             description.initializationOptions,
             .object(["tsserver": .object([
                 "fallbackPath": .string("\(base)/typescript-language-server/5.3.0/node_modules/typescript/lib/tsserver.js")
-            ])]),
+            ]),
+            ]),
             """
             D11: the pinned tsserver is named outright rather than left to Node's upward walk, \
             and under `fallbackPath` rather than `path` — `path` would override a project's own \
@@ -646,7 +647,7 @@ final class LSPProvisioningManifestTests: XCTestCase {
         XCTAssertEqual(description.launch, .executable(path: "\(base)/node/24.19.0/bin/node"))
         XCTAssertEqual(description.arguments, [
             "\(base)/pyright/1.1.411/node_modules/pyright/dist/pyright-langserver.js",
-            "--stdio"
+            "--stdio",
         ])
         XCTAssertNil(description.initializationOptions)
         XCTAssertNil(
@@ -719,7 +720,11 @@ final class LSPProvisioningManifestTests: XCTestCase {
             "the entry point is the server module, not the package's `bin` shim"
         )
 
+        // Each flagged row is one indivisible pinned-artifact literal: id,
+        // file name, byte count and SHA-256 belong together, and breaking a
+        // row apart would invite an accidental edit of the pin data.
         let expected: [(String, String, Int, String)] = [
+            // swiftlint:disable:next line_length
             ("yaml-language-server", "yaml-language-server-1.24.0.tgz", 646_765, "11a321032012131f2ccdf7952dc347ce05291c66931a5de2f449b2dfc81f24b2"),
             ("ajv", "ajv-8.20.0.tgz", 217_611, "b2f0b3a893bbb8cc5efb6814f08b1499e19e31d5dd73683f5893382f48f6e7b3"),
             ("ajv-draft-04", "ajv-draft-04-1.0.0.tgz", 8_735, "b2328acf9b3a5b1b3a098789770c2dd34ed86b5913c904c056091ec10319c2e7"),
@@ -727,19 +732,25 @@ final class LSPProvisioningManifestTests: XCTestCase {
             ("@vscode/l10n", "l10n-0.0.18.tgz", 4_548, "f1c2dc897488595f6bb42121869f525c6c6a5f7c8dca550754199c3251ed7c5c"),
             ("fast-deep-equal", "fast-deep-equal-3.1.3.tgz", 3_656, "b019a0980f27638dc3f85836b0e478f188e00d7a6e5852c0819fa86f56e47b8f"),
             ("fast-uri", "fast-uri-3.1.5.tgz", 32_112, "82a71e7e3716dc8c392cac0762bce80614cf539ef22000415e26eaf5c453ce2f"),
+            // swiftlint:disable:next line_length
             ("json-schema-traverse", "json-schema-traverse-1.0.0.tgz", 6_074, "023222622df29fc274bde5d3590e47aa1d4a8e3c1d6e2aba029948ed79799b21"),
             ("jsonc-parser", "jsonc-parser-3.3.1.tgz", 27_354, "4a0315b8671e7463bae7af7c142cdf19e9aa7ba39eb36dc2df383b8648e3cbc9"),
             ("picomatch", "picomatch-4.0.5.tgz", 24_079, "e89c478225a42b3793bb4a39fd576de142c9829c26a5bd71782249e48b112f51"),
             ("prettier", "prettier-3.9.6.tgz", 2_800_155, "997da95cf2ae81053cafc79ef122a6e8dc12e3f2c619d57eb1f2e19525fb212f"),
             ("request-light", "request-light-0.5.8.tgz", 10_534, "4b6d4b48fa05056435b300a4a5f904bacbe0e6ddfa28bb44b729eb64f24375b9"),
+            // swiftlint:disable:next line_length
             ("require-from-string", "require-from-string-2.0.2.tgz", 1_816, "cb694a4965908f7775a0c757f00cf4e624d193cd71d77988fbcca0f597b88d82"),
             ("vscode-jsonrpc", "vscode-jsonrpc-8.2.0.tgz", 35_427, "3da44531c398f1545074cb728e359a822f35b9f8ac7171c847f42f0728b9c7cb"),
+            // swiftlint:disable:next line_length
             ("vscode-languageserver", "vscode-languageserver-9.0.1.tgz", 32_720, "6cd7f463ae7872e588a4dd5ed5149475fe32e53517509a81e715eb0540602412"),
+            // swiftlint:disable:next line_length
             ("vscode-languageserver-protocol", "vscode-languageserver-protocol-3.17.5.tgz", 59_008, "7473eb2d2163f3f8bea09644f9d803789a195e596b65d3946c4157e583e3ccc8"),
+            // swiftlint:disable:next line_length
             ("vscode-languageserver-textdocument", "vscode-languageserver-textdocument-1.0.13.tgz", 8_425, "46c8c250fa7667a9503cffb506512b99557784dfefbd8e318944856ca11ffbb9"),
+            // swiftlint:disable:next line_length
             ("vscode-languageserver-types", "vscode-languageserver-types-3.17.5.tgz", 71_382, "d673f9e7f8bbe51351be51c58f32d4dcfa97a670ebb86bc633368394c609cac0"),
             ("vscode-uri", "vscode-uri-3.1.0.tgz", 59_768, "c6ec752d7a4858237389b23fb4d5ac05c2f1f606071cd212a9b54730e43cfc54"),
-            ("yaml", "yaml-2.8.3.tgz", 111_837, "9539805d7447def2bed5c5b4acacc283362c5e80abc5d93472b2f35f0cbf85ad")
+            ("yaml", "yaml-2.8.3.tgz", 111_837, "9539805d7447def2bed5c5b4acacc283362c5e80abc5d93472b2f35f0cbf85ad"),
         ]
 
         XCTAssertEqual(component.artifacts.count, expected.count, "the closure gained or lost a package")
@@ -794,7 +805,7 @@ final class LSPProvisioningManifestTests: XCTestCase {
         XCTAssertEqual(description.launch, .executable(path: "\(base)/node/24.19.0/bin/node"))
         XCTAssertEqual(description.arguments, [
             "\(base)/yaml-language-server/1.24.0/node_modules/yaml-language-server/out/server/src/server.js",
-            "--stdio"
+            "--stdio",
         ])
         XCTAssertNil(
             description.initializationOptions,
@@ -806,9 +817,9 @@ final class LSPProvisioningManifestTests: XCTestCase {
                 "yaml": .object([
                     "schemaStore": .object(["enable": .bool(true)]),
                     "completion": .bool(true),
-                    "hover": .bool(true)
+                    "hover": .bool(true),
                 ]),
-                "http": .object(["proxyStrictSSL": .bool(true)])
+                "http": .object(["proxyStrictSSL": .bool(true)]),
             ]),
             "the section keys must be what the server pulls — an unnamed section is answered null"
         )
@@ -855,7 +866,7 @@ final class LSPProvisioningManifestTests: XCTestCase {
             "node_modules/vscode-languageserver-types/thirdpartynotices.txt",
             "node_modules/jsonc-parser/LICENSE.md",                        // .md
             "node_modules/require-from-string/license",                    // lowercase
-            "node_modules/vscode-uri/LICENSE.md"
+            "node_modules/vscode-uri/LICENSE.md",
         ] {
             XCTAssertTrue(component.licenseFileSubpaths.contains(subpath), "“\(subpath)” is no longer acknowledged")
         }

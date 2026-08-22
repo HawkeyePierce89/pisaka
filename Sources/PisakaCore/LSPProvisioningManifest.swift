@@ -300,7 +300,7 @@ extension LSPComponent {
                 byteCount: 53_439_583,
                 unpackedByteCount: 112_000_000,
                 architecture: .x64
-            )
+            ),
         ],
         executableSubpath: "bin/node"
     )
@@ -328,7 +328,7 @@ extension LSPComponent {
         licenseFileSubpaths: [
             "node_modules/typescript-language-server/LICENSE",
             "node_modules/typescript/LICENSE.txt",
-            "node_modules/typescript/ThirdPartyNoticeText.txt"
+            "node_modules/typescript/ThirdPartyNoticeText.txt",
         ],
         artifacts: [
             LSPArtifact(
@@ -344,7 +344,7 @@ extension LSPComponent {
                 byteCount: 4_377_468,
                 unpackedByteCount: 23_000_000,
                 destinationSubpath: "node_modules/typescript"
-            )
+            ),
         ],
         requires: ["node"],
         executableSubpath: "node_modules/typescript-language-server/lib/cli.mjs"
@@ -375,7 +375,7 @@ extension LSPComponent {
         licenseFileSubpaths: [
             "node_modules/pyright/LICENSE.txt",
             "node_modules/pyright/dist/typeshed-fallback/LICENSE",
-            "node_modules/fsevents/LICENSE"
+            "node_modules/fsevents/LICENSE",
         ],
         artifacts: [
             LSPArtifact(
@@ -391,7 +391,7 @@ extension LSPComponent {
                 byteCount: 22_808,
                 unpackedByteCount: 90_000,
                 destinationSubpath: "node_modules/fsevents"
-            )
+            ),
         ],
         requires: ["node"],
         executableSubpath: "node_modules/pyright/dist/pyright-langserver.js"
@@ -446,7 +446,7 @@ extension LSPComponent {
                 stripComponents: 0,
                 destinationSubpath: "bin",
                 architecture: .x64
-            )
+            ),
         ],
         executableSubpath: "bin/rust-analyzer"
     )
@@ -526,7 +526,7 @@ extension LSPComponent {
             "node_modules/vscode-languageserver-types/License.txt",
             "node_modules/vscode-languageserver-types/thirdpartynotices.txt",
             "node_modules/vscode-uri/LICENSE.md",
-            "node_modules/yaml/LICENSE"
+            "node_modules/yaml/LICENSE",
         ],
         artifacts: [
             LSPArtifact(
@@ -668,7 +668,7 @@ extension LSPComponent {
                 byteCount: 111_837,
                 unpackedByteCount: 1_300_000,
                 destinationSubpath: "node_modules/yaml"
-            )
+            ),
         ],
         requires: ["node"],
         executableSubpath: "node_modules/yaml-language-server/out/server/src/server.js"
@@ -802,9 +802,9 @@ public enum LSPDownloadableServer: String, CaseIterable, Equatable, Sendable, Id
                 "yaml": .object([
                     "schemaStore": .object(["enable": .bool(true)]),
                     "completion": .bool(true),
-                    "hover": .bool(true)
+                    "hover": .bool(true),
                 ]),
-                "http": .object(["proxyStrictSSL": .bool(true)])
+                "http": .object(["proxyStrictSSL": .bool(true)]),
             ])
         }
     }

@@ -41,7 +41,7 @@ final class LicenseNoticeTests: XCTestCase {
         let manifest = try LicenseCatalog.decode(manifest: Self.wellFormed)
         XCTAssertEqual(manifest.excluded, [
             LicenseExclusion(id: "swift-argument-parser",
-                             reason: "resolved only for SwiftTerm's Termcast executable target; not linked into the app")
+                             reason: "resolved only for SwiftTerm's Termcast executable target; not linked into the app"),
         ])
     }
 
@@ -155,7 +155,7 @@ final class LicenseNoticeTests: XCTestCase {
             .emptyManifest,
             .duplicateIdentifier("Neon"),
             .missingText(id: "Neon", file: "Neon.txt"),
-            .emptyText(id: "Neon", file: "Neon.txt")
+            .emptyText(id: "Neon", file: "Neon.txt"),
         ]
         for error in errors {
             let description = error.errorDescription ?? ""
@@ -268,6 +268,6 @@ final class LicenseNoticeTests: XCTestCase {
     private static let texts = [
         "Neon.txt": "BSD-3-Clause text\n",
         "libgit2.txt": "GPLv2 text with a LINKING EXCEPTION\n",
-        "TreeSitterGitignore.txt": "MIT text\n"
+        "TreeSitterGitignore.txt": "MIT text\n",
     ]
 }

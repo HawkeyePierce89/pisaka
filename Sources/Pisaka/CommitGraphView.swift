@@ -152,7 +152,7 @@ final class CommitGraphRowNSView: NSView {
     /// stays color-free).
     private static let palette: [NSColor] = [
         .systemBlue, .systemGreen, .systemOrange, .systemPurple,
-        .systemRed, .systemTeal, .systemPink, .systemYellow
+        .systemRed, .systemTeal, .systemPink, .systemYellow,
     ]
 }
 

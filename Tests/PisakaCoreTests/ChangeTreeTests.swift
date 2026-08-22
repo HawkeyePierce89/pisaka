@@ -77,7 +77,7 @@ final class ChangeTreeTests: XCTestCase {
             ChangeTree.build(from: [rootFile, nested], root: root),
             [
                 dirNode("zoo", [fileNode(nested)]),
-                fileNode(rootFile)
+                fileNode(rootFile),
             ]
         )
     }
@@ -98,7 +98,7 @@ final class ChangeTreeTests: XCTestCase {
             ChangeTree.build(from: [inB, inA], root: root),
             [
                 dirNode("alpha", [fileNode(inA)]),
-                dirNode("Beta", [fileNode(inB)])
+                dirNode("Beta", [fileNode(inB)]),
             ]
         )
     }
@@ -112,9 +112,9 @@ final class ChangeTreeTests: XCTestCase {
             [
                 dirNode("src", [
                     dirNode("src/core", [fileNode(nestedDeep)]),
-                    fileNode(nestedFile)
+                    fileNode(nestedFile),
                 ]),
-                fileNode(topFile)
+                fileNode(topFile),
             ]
         )
     }

@@ -241,7 +241,7 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertEqual(candidates.count, 2)
         XCTAssertEqual(candidates.map(\.relativePath), [
             "Sources/Core/Greeter.swift",
-            "Sources/Core/Greeter.swift"
+            "Sources/Core/Greeter.swift",
         ])
         XCTAssertEqual(candidates.map(\.isOutsideProjectRoot), [false, false])
         // 1-based display lines, derived from the offsets with `LineStartIndex`
@@ -256,7 +256,7 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         XCTAssertTrue(source.substring(from: candidates[1].range.location).hasPrefix("init(salutation"))
         XCTAssertEqual(candidates.map(\.displayLabel), [
             "Greeter — Sources/Core/Greeter.swift:2",
-            "Greeter — Sources/Core/Greeter.swift:5"
+            "Greeter — Sources/Core/Greeter.swift:5",
         ])
     }
 
@@ -462,9 +462,9 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                 "uri": .string(LSPWorkspace.documentURI(for: mainFile)),
                 "range": .object([
                     "start": .object(["line": .int(3), "character": .int(4)]),
-                    "end": .object(["line": .int(3), "character": .int(11)])
-                ])
-            ])
+                    "end": .object(["line": .int(3), "character": .int(11)]),
+                ]),
+            ]),
         ])))
         // Deliberately *not* in the loader: reading it would be the bug.
         let provider = makeProvider()
@@ -497,13 +497,13 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         transport.script(LSPMethod.hover, .reply(.object([
             "contents": .object([
                 "kind": .string("markdown"),
-                "value": .string("```swift\npublic struct Greeter\n```\n\nA greeter used by the tests.")
+                "value": .string("```swift\npublic struct Greeter\n```\n\nA greeter used by the tests."),
             ]),
             // Line 3, characters 14…21: `Greeter` in `let greeter = Greeter()`.
             "range": .object([
                 "start": .object(["line": .int(3), "character": .int(14)]),
-                "end": .object(["line": .int(3), "character": .int(21)])
-            ])
+                "end": .object(["line": .int(3), "character": .int(21)]),
+            ]),
         ])))
         let provider = makeProvider()
 
@@ -512,7 +512,7 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         let answer = try XCTUnwrap(hovered)
         XCTAssertEqual(answer.content.segments, [
             .code("public struct Greeter", language: "swift"),
-            .prose("A greeter used by the tests.")
+            .prose("A greeter used by the tests."),
         ])
         XCTAssertFalse(answer.content.isTruncated)
         // Mapped back into the buffer, not left in the server's line/character
@@ -529,10 +529,10 @@ final class LSPIntelligenceProviderTests: XCTestCase {
             "contents": .array([
                 .object([
                     "language": .string("swift"),
-                    "value": .string("func greet(_ name: String) -> String")
+                    "value": .string("func greet(_ name: String) -> String"),
                 ]),
-                .string("Returns a **greeting**.")
-            ])
+                .string("Returns a **greeting**."),
+            ]),
         ])))
         let provider = makeProvider()
 
@@ -541,7 +541,7 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         let answer = try XCTUnwrap(hovered)
         XCTAssertEqual(answer.content.segments, [
             .code("func greet(_ name: String) -> String", language: "swift"),
-            .prose("Returns a greeting.")
+            .prose("Returns a greeting."),
         ])
         XCTAssertEqual((mainSource as NSString).substring(with: answer.range), "Greeter")
     }
@@ -556,13 +556,13 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         transport.script(LSPMethod.hover, .reply(.object([
             "contents": .object([
                 "kind": .string("plaintext"),
-                "value": .string("struct Greeter")
+                "value": .string("struct Greeter"),
             ]),
             // Line 0, characters 0…0: nowhere near the hovered offset.
             "range": .object([
                 "start": .object(["line": .int(0), "character": .int(0)]),
-                "end": .object(["line": .int(0), "character": .int(0)])
-            ])
+                "end": .object(["line": .int(0), "character": .int(0)]),
+            ]),
         ])))
         let provider = makeProvider()
 
@@ -613,8 +613,8 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         transport.script(LSPMethod.hover, .reply(.object([
             "contents": .object([
                 "kind": .string("markdown"),
-                "value": .string("   \n\n---\n\n \t \n")
-            ])
+                "value": .string("   \n\n---\n\n \t \n"),
+            ]),
         ])))
         let provider = makeProvider()
 
@@ -843,7 +843,7 @@ final class LSPIntelligenceProviderTests: XCTestCase {
             "items": .array(
                 ["annotations", "attach", "blkio_config", "build", "image"]
                     .map(schemaPropertyItemJSON(label:))
-            )
+            ),
         ])))
         let provider = makeProvider(completionLimit: 3)
 
@@ -867,7 +867,7 @@ final class LSPIntelligenceProviderTests: XCTestCase {
             "items": .array(
                 ["annotations", "attach", "blkio_config", "build", "image"]
                     .map(schemaPropertyItemJSON(label:))
-            )
+            ),
         ])))
         let provider = makeProvider()
 
@@ -889,7 +889,7 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         transport.script(LSPMethod.completion, .reply(.object([
             "items": .array(
                 ["image", "annotations", "attach"].map(schemaPropertyItemJSON(label:))
-            )
+            ),
         ])))
         let provider = makeProvider()
 
@@ -927,8 +927,8 @@ final class LSPIntelligenceProviderTests: XCTestCase {
         transport.script(LSPMethod.completion, .reply(.object([
             "items": .array([
                 schemaPropertyItemJSON(label: "deploy"),
-                completionItemJSON(label: "image", sortText: "zz", insertText: "image: ")
-            ])
+                completionItemJSON(label: "image", sortText: "zz", insertText: "image: "),
+            ]),
         ])))
         let provider = makeProvider()
 
@@ -970,9 +970,9 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                     "label": .string("deploy"),
                     "insertText": .string("deploy:\r\n  "),
                     "insertTextFormat": .int(2),
-                    "kind": .int(LSPCompletionItemKind.property.rawValue)
-                ])
-            ])
+                    "kind": .int(LSPCompletionItemKind.property.rawValue),
+                ]),
+            ]),
         ])))
         let provider = makeProvider()
 
@@ -992,9 +992,9 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                     "label": .string("deploy"),
                     "insertText": .string("deploy:\n\n  "),
                     "insertTextFormat": .int(2),
-                    "kind": .int(LSPCompletionItemKind.property.rawValue)
-                ])
-            ])
+                    "kind": .int(LSPCompletionItemKind.property.rawValue),
+                ]),
+            ]),
         ])))
         let provider = makeProvider()
 
@@ -1017,9 +1017,9 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                     "label": .string("deploy"),
                     "insertText": .string("deploy:\r\n\r\n  "),
                     "insertTextFormat": .int(2),
-                    "kind": .int(LSPCompletionItemKind.property.rawValue)
-                ])
-            ])
+                    "kind": .int(LSPCompletionItemKind.property.rawValue),
+                ]),
+            ]),
         ])))
         let provider = makeProvider()
 
@@ -1041,9 +1041,9 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                     "insertText": .string("deploy:\n      "),
                     "insertTextFormat": .int(2),
                     "insertTextMode": .int(1),
-                    "kind": .int(LSPCompletionItemKind.property.rawValue)
-                ])
-            ])
+                    "kind": .int(LSPCompletionItemKind.property.rawValue),
+                ]),
+            ]),
         ])))
         let provider = makeProvider()
 
@@ -1065,9 +1065,9 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                     "insertText": .string("deploy:\n  "),
                     "insertTextFormat": .int(2),
                     "insertTextMode": .int(2),
-                    "kind": .int(LSPCompletionItemKind.property.rawValue)
-                ])
-            ])
+                    "kind": .int(LSPCompletionItemKind.property.rawValue),
+                ]),
+            ]),
         ])))
         let provider = makeProvider()
 
@@ -1095,12 +1095,12 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                             "newText": .string("# generated\n"),
                             "range": .object([
                                 "start": .object(["line": .int(0), "character": .int(0)]),
-                                "end": .object(["line": .int(0), "character": .int(0)])
-                            ])
-                        ])
-                    ])
-                ])
-            ])
+                                "end": .object(["line": .int(0), "character": .int(0)]),
+                            ]),
+                        ]),
+                    ]),
+                ]),
+            ]),
         ])))
         let provider = makeProvider()
 
@@ -1123,8 +1123,8 @@ final class LSPIntelligenceProviderTests: XCTestCase {
             "items": .array([
                 completionItemJSON(label: "beta", sortText: "100"),
                 completionItemJSON(label: "alpha", sortText: "100"),
-                completionItemJSON(label: "gamma", sortText: "100")
-            ])
+                completionItemJSON(label: "gamma", sortText: "100"),
+            ]),
         ])))
         let provider = makeProvider()
 
@@ -1143,8 +1143,8 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                 completionItemJSON(label: "Gree", sortText: "100"),
                 completionItemJSON(label: "Greeter", sortText: "300", detail: "second"),
                 completionItemJSON(label: "Greeter", sortText: "200", detail: "first"),
-                completionItemJSON(label: "Greeting", sortText: "400")
-            ])
+                completionItemJSON(label: "Greeting", sortText: "400"),
+            ]),
         ])))
         let provider = makeProvider()
 
@@ -1169,8 +1169,8 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                     insertText: "Greeting(${1:name})",
                     insertTextFormat: 2
                 ),
-                completionItemJSON(label: "GreeterBox", sortText: "300", insertTextFormat: 1)
-            ])
+                completionItemJSON(label: "GreeterBox", sortText: "300", insertTextFormat: 1),
+            ]),
         ])))
         let provider = makeProvider()
 
@@ -1208,8 +1208,8 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                     sortText: "300",
                     insertText: "greetingEscaped: \\}",
                     insertTextFormat: 2
-                )
-            ])
+                ),
+            ]),
         ])))
         let provider = makeProvider()
 
@@ -1284,8 +1284,8 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                     // Line 3, characters 13…18: one character further left than
                     // the typed `Gree`.
                     textEdit: (startLine: 3, startCharacter: 13, endLine: 3, endCharacter: 18)
-                )
-            ])
+                ),
+            ]),
         ])))
         let provider = makeProvider()
 
@@ -1329,8 +1329,8 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                     // Line 4, characters 21…22: the dot itself.
                     textEdit: (startLine: 4, startCharacter: 21, endLine: 4, endCharacter: 22),
                     textEditNewText: ".greet"
-                )
-            ])
+                ),
+            ]),
         ])))
         let provider = makeProvider()
         let typedWord = NSRange(location: memberCaret, length: 0)
@@ -1385,8 +1385,8 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                     sortText: "100",
                     textEdit: (startLine: 4, startCharacter: 21, endLine: 4, endCharacter: 22),
                     textEditNewText: "?.greet"
-                )
-            ])
+                ),
+            ]),
         ])))
         let provider = makeProvider()
 
@@ -1432,8 +1432,8 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                     sortText: "101",
                     textEdit: (startLine: 4, startCharacter: 21, endLine: 4, endCharacter: 27),
                     textEditNewText: ".greeting"
-                )
-            ])
+                ),
+            ]),
         ])))
         let provider = makeProvider()
         let caret = (mainSource as NSString).range(of: "greeter.greet").upperBound
@@ -1479,8 +1479,8 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                     // Empty, at the caret: nothing to drop, so it reads `.greet`.
                     textEdit: (startLine: 4, startCharacter: 27, endLine: 4, endCharacter: 27),
                     textEditNewText: ".greet"
-                )
-            ])
+                ),
+            ]),
         ])))
         let provider = makeProvider()
         let caret = (mainSource as NSString).range(of: "greeter.greet").upperBound
@@ -1591,10 +1591,10 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                     "newText": "import Core\n",
                     "range": [
                         "start": ["line": 1, "character": 0],
-                        "end": ["line": 1, "character": 0]
-                    ]
-                ]
-            ]
+                        "end": ["line": 1, "character": 0],
+                    ],
+                ],
+            ],
         ]
         transport.script(LSPMethod.resolveCompletionItem, .reply(lean))
         let provider = makeProvider()
@@ -1725,7 +1725,7 @@ final class LSPIntelligenceProviderTests: XCTestCase {
             "label": .string(label),
             "insertText": .string("\(label):\n  "),
             "insertTextFormat": .int(2),
-            "kind": .int(LSPCompletionItemKind.property.rawValue)
+            "kind": .int(LSPCompletionItemKind.property.rawValue),
         ])
     }
 
@@ -1745,7 +1745,7 @@ final class LSPIntelligenceProviderTests: XCTestCase {
             "sortText": .string(sortText),
             "insertText": .string(insertText ?? label),
             "filterText": .string(label),
-            "kind": .int(LSPCompletionItemKind.struct.rawValue)
+            "kind": .int(LSPCompletionItemKind.struct.rawValue),
         ]
         if let insertTextFormat { object["insertTextFormat"] = .int(insertTextFormat) }
         if let detail { object["detail"] = .string(detail) }
@@ -1755,13 +1755,13 @@ final class LSPIntelligenceProviderTests: XCTestCase {
                 "range": .object([
                     "start": .object([
                         "line": .int(textEdit.startLine),
-                        "character": .int(textEdit.startCharacter)
+                        "character": .int(textEdit.startCharacter),
                     ]),
                     "end": .object([
                         "line": .int(textEdit.endLine),
-                        "character": .int(textEdit.endCharacter)
-                    ])
-                ])
+                        "character": .int(textEdit.endCharacter),
+                    ]),
+                ]),
             ])
         }
         return .object(object)

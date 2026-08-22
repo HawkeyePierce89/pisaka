@@ -476,7 +476,7 @@ final class LSPProtocolTypesTests: XCTestCase {
                 .markup(kind: .markdown, value: "Greet writes a greeting."),
                 // A `MarkedString` naming an empty language is still a code
                 // block; it just does not say which language to colour it as.
-                .code(language: nil, value: "plain block")
+                .code(language: nil, value: "plain block"),
             ]
         )
     }
@@ -534,7 +534,7 @@ final class LSPProtocolTypesTests: XCTestCase {
             response.elements,
             [
                 .code(language: "swift", value: "let a: Int"),
-                .markup(kind: .markdown, value: "documentation")
+                .markup(kind: .markdown, value: "documentation"),
             ]
         )
     }
@@ -841,7 +841,7 @@ final class LSPProtocolTypesTests: XCTestCase {
             .object([
                 "itemId": .int(13118),
                 "sessionId": .int(0),
-                "uri": .string("file:///tmp/lspfix/pkg/Sources/App/main.swift")
+                "uri": .string("file:///tmp/lspfix/pkg/Sources/App/main.swift"),
             ])
         )
     }

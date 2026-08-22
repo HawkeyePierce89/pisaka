@@ -25,7 +25,7 @@ final class ProjectFileWalkTests: XCTestCase {
             "sub/.gitignore": "!keep.log\n",
             "sub/keep.log": "",
             "sub/drop.log": "",
-            "sub/b.swift": ""
+            "sub/b.swift": "",
         ])
 
         // `.gitignore` itself is an ordinary, indexable/searchable file — only
@@ -39,7 +39,7 @@ final class ProjectFileWalkTests: XCTestCase {
     func testTraversalDoesNotDescendIntoSymlinkedDirectory() {
         let stub = StubFileTree(root: root, files: [
             "a.swift": "",
-            "link/looped.swift": ""
+            "link/looped.swift": "",
         ])
         stub.symlinks = ["link"]
 
@@ -49,7 +49,7 @@ final class ProjectFileWalkTests: XCTestCase {
     func testTraversalSkipsSymlinkedFiles() {
         let stub = StubFileTree(root: root, files: [
             "real.swift": "",
-            "link.swift": ""
+            "link.swift": "",
         ])
         // A symlink to a *file* dereferences to `isDirectory == false`, so it is
         // indistinguishable from an ordinary entry in the listing: without the
@@ -63,7 +63,7 @@ final class ProjectFileWalkTests: XCTestCase {
     func testUnreadableDirectoryIsSkippedRatherThanFailingTheWalk() {
         let stub = StubFileTree(root: root, files: [
             "a.swift": "",
-            "secret/b.swift": ""
+            "secret/b.swift": "",
         ])
         stub.unreadableDirectories = ["secret"]
 
@@ -98,7 +98,7 @@ final class ProjectFileWalkTests: XCTestCase {
     func testUnreadableNestedDirectoryStillYieldsAReadableWalk() {
         let stub = StubFileTree(root: root, files: [
             "a.swift": "",
-            "secret/b.swift": ""
+            "secret/b.swift": "",
         ])
         stub.unreadableDirectories = ["secret"]
 
@@ -113,7 +113,7 @@ final class ProjectFileWalkTests: XCTestCase {
         let stub = StubFileTree(root: root, files: [
             "sub/deep.swift": "",
             "b.swift": "",
-            "a.swift": ""
+            "a.swift": "",
         ])
 
         XCTAssertEqual(walk(stub), ["a.swift", "b.swift", "sub/deep.swift"])
@@ -126,7 +126,7 @@ final class ProjectFileWalkTests: XCTestCase {
             "a.ts": "",
             "b.tsx": "",
             "c.js": "",
-            "d.ts.map": ""
+            "d.ts.map": "",
         ])
 
         XCTAssertEqual(walk(stub, mask: ["*.ts", "*.tsx"]), ["a.ts", "b.tsx"])

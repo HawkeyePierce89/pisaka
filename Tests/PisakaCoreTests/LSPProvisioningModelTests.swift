@@ -59,7 +59,7 @@ final class LSPProvisioningModelTests: XCTestCase {
             licenseFileSubpaths: ["LICENSE"],
             artifacts: [
                 artifact(nodeARM, byteCount: nodeBytes, architecture: .arm64),
-                artifact(nodeIntel, byteCount: nodeBytes, architecture: .x64)
+                artifact(nodeIntel, byteCount: nodeBytes, architecture: .x64),
             ],
             executableSubpath: "bin/node"
         )
@@ -79,7 +79,7 @@ final class LSPProvisioningModelTests: XCTestCase {
                     typescript,
                     byteCount: typescriptBytes,
                     destinationSubpath: "node_modules/typescript"
-                )
+                ),
             ],
             requires: ["node"],
             executableSubpath: "node_modules/typescript-language-server/lib/cli.mjs"
@@ -92,7 +92,7 @@ final class LSPProvisioningModelTests: XCTestCase {
             licenseFileSubpaths: ["node_modules/pyright/LICENSE.txt"],
             artifacts: [
                 artifact(pyright, byteCount: pyrightBytes, destinationSubpath: "node_modules/pyright"),
-                artifact(fsevents, byteCount: fseventsBytes, destinationSubpath: "node_modules/fsevents")
+                artifact(fsevents, byteCount: fseventsBytes, destinationSubpath: "node_modules/fsevents"),
             ],
             requires: ["node"],
             executableSubpath: "node_modules/pyright/dist/pyright-langserver.js"
@@ -113,7 +113,7 @@ final class LSPProvisioningModelTests: XCTestCase {
                     yamlServer,
                     byteCount: yamlServerBytes,
                     destinationSubpath: "node_modules/yaml-language-server"
-                )
+                ),
             ],
             requires: ["node"],
             executableSubpath: "node_modules/yaml-language-server/out/server/src/server.js"
@@ -383,7 +383,7 @@ final class LSPProvisioningModelTests: XCTestCase {
             [
                 "/Pisaka-tests/LanguageServers/typescript-language-server/5.3.0"
                     + "/node_modules/typescript-language-server/lib/cli.mjs",
-                "--stdio"
+                "--stdio",
             ]
         )
         XCTAssertEqual(
@@ -393,8 +393,8 @@ final class LSPProvisioningModelTests: XCTestCase {
                     "fallbackPath": .string(
                         "/Pisaka-tests/LanguageServers/typescript-language-server/5.3.0"
                             + "/node_modules/typescript/lib/tsserver.js"
-                    )
-                ])
+                    ),
+                ]),
             ])
         )
 
@@ -1369,7 +1369,7 @@ final class LSPProvisioningModelTests: XCTestCase {
             [
                 "/Pisaka-tests/LanguageServers/yaml-language-server/1.24.0"
                     + "/node_modules/yaml-language-server/out/server/src/server.js",
-                "--stdio"
+                "--stdio",
             ]
         )
         // The configuration is what is *sent* — the note is not on the description

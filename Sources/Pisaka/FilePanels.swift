@@ -163,7 +163,7 @@ enum FilePanels {
             reason.topAnchor.constraint(equalTo: field.bottomAnchor, constant: 6),
             reason.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             reason.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            reason.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            reason.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
 
         // `NSTextField.delegate` is weak, so the delegate must outlive `runModal()`.

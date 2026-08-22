@@ -51,7 +51,7 @@ final class CompletionPopupTests: XCTestCase {
             .selector: "s.square",
             .key: "k.square",
             .stage: "shippingbox",
-            .anchor: "link"
+            .anchor: "link",
         ]
 
         for kind in SymbolKind.allCases {
@@ -88,7 +88,7 @@ final class CompletionPopupTests: XCTestCase {
             CompletionItem(text: "beta", kind: nil, isFromCurrentFile: true, displayText: "beta_disp"),
             CompletionItem(
                 text: "gamma", kind: nil, isFromCurrentFile: true, displayText: "alpha_disp"
-            ) // dup displayText
+            ), // dup displayText
         ]
 
         let rows = CompletionRow.rows(for: items, language: nil)

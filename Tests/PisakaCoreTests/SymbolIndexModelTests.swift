@@ -103,7 +103,7 @@ final class SymbolIndexModelTests: XCTestCase {
         let stub = StubFileTree(root: root, files: [
             "a.swift": "sym alpha\n",
             "sub/b.py": "sym beta\n",
-            "notes.txt": "sym gamma\n"
+            "notes.txt": "sym gamma\n",
         ])
         let extractor = RecordingExtractor()
         let model = SymbolIndexModel(fileService: stub, extractSymbols: extractor.extract)
@@ -124,7 +124,7 @@ final class SymbolIndexModelTests: XCTestCase {
     func testUnindexableLanguagesNeverReachTheExtractor() async {
         let stub = StubFileTree(root: root, files: [
             "a.swift": "sym alpha\n",
-            ".gitignore": "sym ignored\n"
+            ".gitignore": "sym ignored\n",
         ])
         let extractor = RecordingExtractor()
         let model = SymbolIndexModel(fileService: stub, extractSymbols: extractor.extract)
@@ -319,7 +319,7 @@ final class SymbolIndexModelTests: XCTestCase {
     func testRefreshOnlyReExtractsFilesWhoseStampChanged() async {
         let stub = StubFileTree(root: root, files: [
             "a.swift": "sym alpha\n",
-            "b.swift": "sym beta\n"
+            "b.swift": "sym beta\n",
         ])
         let extractor = RecordingExtractor()
         let model = SymbolIndexModel(fileService: stub, extractSymbols: extractor.extract)
@@ -368,7 +368,7 @@ final class SymbolIndexModelTests: XCTestCase {
     func testAnUnreadableFileIsSkippedAndRetriedOnTheNextRefresh() async {
         let stub = StubFileTree(root: root, files: [
             "a.swift": "sym alpha\n",
-            "b.swift": "sym beta\n"
+            "b.swift": "sym beta\n",
         ])
         stub.unreadableFiles = ["b.swift"]
         let extractor = RecordingExtractor()
@@ -406,7 +406,7 @@ final class SymbolIndexModelTests: XCTestCase {
     func testRefreshDropsAFileTheWalkNoLongerSees() async {
         let stub = StubFileTree(root: root, files: [
             "a.swift": "sym alpha\n",
-            "b.swift": "sym beta\n"
+            "b.swift": "sym beta\n",
         ])
         let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
         await model.rebuild(root: root)
@@ -428,7 +428,7 @@ final class SymbolIndexModelTests: XCTestCase {
     func testRefreshKeepsTheIndexWhenTheRootCannotBeListed() async {
         let stub = StubFileTree(root: root, files: [
             "a.swift": "sym alpha\n",
-            "b.swift": "sym beta\n"
+            "b.swift": "sym beta\n",
         ])
         let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
         await model.rebuild(root: root)
@@ -954,7 +954,7 @@ final class SymbolIndexModelTests: XCTestCase {
     func testAHandOffForAFileWithNoQueryReadsNothing() async {
         let stub = StubFileTree(root: root, files: [
             ".gitignore": "sym alpha\n",
-            "notes.txt": "sym beta\n"
+            "notes.txt": "sym beta\n",
         ])
         let model = SymbolIndexModel(fileService: stub, extractSymbols: RecordingExtractor().extract)
         await model.rebuild(root: root)

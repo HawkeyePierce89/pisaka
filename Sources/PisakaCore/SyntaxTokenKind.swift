@@ -118,6 +118,6 @@ public enum SyntaxTokenKind: Equatable {
         // SQL modifiers (NOWAIT/MAXVALUE) are emitted as `type.qualifier`.
         // This overrides the `type` prefix intentionally, as they are keywords,
         // not types. No other pinned grammar emits it.
-        "type.qualifier": .keyword
+        "type.qualifier": .keyword,
     ]
 }

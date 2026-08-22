@@ -325,7 +325,7 @@ final class HoverPanel {
                     attributes: [
                         .font: isCode ? codeFont : proseFont,
                         .foregroundColor: isCode ? NSColor.labelColor : NSColor.secondaryLabelColor,
-                        .paragraphStyle: isCode ? codeParagraph : proseParagraph
+                        .paragraphStyle: isCode ? codeParagraph : proseParagraph,
                     ]
                 )
             )
@@ -337,7 +337,7 @@ final class HoverPanel {
                     attributes: [
                         .font: proseFont,
                         .foregroundColor: NSColor.tertiaryLabelColor,
-                        .paragraphStyle: proseParagraph
+                        .paragraphStyle: proseParagraph,
                     ]
                 )
             )

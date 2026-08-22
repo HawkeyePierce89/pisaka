@@ -93,7 +93,7 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
     func testDefinitionsMatchExactlyAndCaseSensitively() {
         let store = index([
             "a.swift": [symbol("Worker", kind: .type, in: "a.swift")],
-            "b.swift": [symbol("worker", in: "b.swift"), symbol("WorkerPool", kind: .type, in: "b.swift")]
+            "b.swift": [symbol("worker", in: "b.swift"), symbol("WorkerPool", kind: .type, in: "b.swift")],
         ])
 
         let found = SymbolIntelligenceProvider.definitions(
@@ -110,9 +110,9 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
             "z.swift": [symbol("run", in: "z.swift", at: 10, line: 2)],
             "a.swift": [
                 symbol("run", in: "a.swift", at: 90, line: 9),
-                symbol("run", in: "a.swift", at: 20, line: 3)
+                symbol("run", in: "a.swift", at: 20, line: 3),
             ],
-            "m.swift": [symbol("run", in: "m.swift", at: 0, line: 1)]
+            "m.swift": [symbol("run", in: "m.swift", at: 0, line: 1)],
         ])
 
         let found = SymbolIntelligenceProvider.definitions(
@@ -129,7 +129,7 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
     func testDefinitionsWithoutACurrentFileFallBackToPathOrder() {
         let store = index([
             "z.swift": [symbol("run", in: "z.swift")],
-            "a.swift": [symbol("run", in: "a.swift")]
+            "a.swift": [symbol("run", in: "a.swift")],
         ])
 
         let found = SymbolIntelligenceProvider.definitions(
@@ -196,7 +196,7 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
                     range: NSRange(location: 0, length: 3),
                     fileURL: external,
                     line: 1
-                )
+                ),
             ]
         )
         XCTAssertTrue(store.symbols(named: "run").isEmpty)
@@ -285,7 +285,7 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
                     range: NSRange(location: 5, length: 3),
                     fileURL: spelled,
                     line: 1
-                )
+                ),
             ]
         )
 
@@ -303,7 +303,7 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
     func testCaseSensitivePrefixOutranksCaseInsensitive() {
         let store = index([
             "a.swift": [symbol("Arrays", kind: .type, in: "a.swift")],
-            "b.swift": [symbol("arrayCount", in: "b.swift")]
+            "b.swift": [symbol("arrayCount", in: "b.swift")],
         ])
         let items = SymbolIntelligenceProvider.completions(
             for: completionRequest("arr"),
@@ -315,7 +315,7 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
     func testCurrentFileOutranksTheRestOfTheProject() {
         let store = index([
             "a.swift": [symbol("runAll", in: "a.swift")],
-            "z.swift": [symbol("run", in: "z.swift")]
+            "z.swift": [symbol("run", in: "z.swift")],
         ])
         let items = SymbolIntelligenceProvider.completions(
             for: completionRequest("ru", from: "a.swift"),
@@ -346,8 +346,8 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
             "a.swift": [
                 symbol("runEverythingNow", in: "a.swift", at: 0),
                 symbol("run", in: "a.swift", at: 40),
-                symbol("runAll", in: "a.swift", at: 80)
-            ]
+                symbol("runAll", in: "a.swift", at: 80),
+            ],
         ])
         let items = SymbolIntelligenceProvider.completions(
             for: completionRequest("run", from: "a.swift"),
@@ -361,8 +361,8 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         let store = index([
             "a.swift": [
                 symbol("runB", in: "a.swift", at: 0),
-                symbol("runA", in: "a.swift", at: 40)
-            ]
+                symbol("runA", in: "a.swift", at: 40),
+            ],
         ])
         let items = SymbolIntelligenceProvider.completions(
             for: completionRequest("run", from: "a.swift"),
@@ -401,8 +401,8 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         let store = index([
             "a.swift": [
                 symbol("aBigCat", kind: .type, in: "a.swift", at: 0),
-                symbol("aback", in: "a.swift", at: 40)
-            ]
+                symbol("aback", in: "a.swift", at: 40),
+            ],
         ])
         let items = SymbolIntelligenceProvider.completions(
             for: completionRequest("abc", from: "a.swift"),
@@ -418,8 +418,8 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         let store = index([
             "a.swift": [
                 symbol("arrayBuffer", in: "a.swift", at: 0),
-                symbol("aRowRef", in: "a.swift", at: 40)
-            ]
+                symbol("aRowRef", in: "a.swift", at: 40),
+            ],
         ])
         let items = SymbolIntelligenceProvider.completions(
             for: completionRequest("arr", from: "a.swift"),
@@ -527,8 +527,8 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
                 symbol("helper", in: "a.swift", at: 80),
                 // A file-scope constant: the right *kind*, but nothing to hang
                 // off, so a dot cannot reach it.
-                symbol("limit", kind: .constant, in: "a.swift", at: 100)
-            ]
+                symbol("limit", kind: .constant, in: "a.swift", at: 100),
+            ],
         ])
         let items = SymbolIntelligenceProvider.completions(
             for: memberRequest(receiver: nil),
@@ -547,8 +547,8 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
                 symbol("Worker", kind: .type, in: "a.swift", at: 0),
                 symbol("zeta", kind: .method, in: "a.swift", at: 20, container: "Worker"),
                 symbol("Other", kind: .type, in: "a.swift", at: 40),
-                symbol("alpha", kind: .property, in: "a.swift", at: 60, container: "Other")
-            ]
+                symbol("alpha", kind: .property, in: "a.swift", at: 60, container: "Other"),
+            ],
         ])
         let items = SymbolIntelligenceProvider.completions(
             for: memberRequest(receiver: "Worker"),
@@ -563,14 +563,14 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         let store = index([
             "a.swift": [
                 symbol("Worker", kind: .type, in: "a.swift", at: 0),
-                symbol("run", kind: .method, in: "a.swift", at: 20, container: "Worker")
+                symbol("run", kind: .method, in: "a.swift", at: 20, container: "Worker"),
             ],
             // Sorts *before* the receiver's file, so storage order alone would
             // have offered this one.
             "0.swift": [
                 symbol("Other", kind: .type, in: "0.swift", at: 0),
-                symbol("run", kind: .property, in: "0.swift", at: 20, container: "Other")
-            ]
+                symbol("run", kind: .property, in: "0.swift", at: 20, container: "Other"),
+            ],
         ])
         let items = SymbolIntelligenceProvider.completions(
             for: memberRequest(receiver: "Worker"),
@@ -589,8 +589,8 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
                     symbol("worker", kind: receiverKind, in: "a.swift", at: 0),
                     symbol("longMember", kind: .method, in: "a.swift", at: 20, container: "worker"),
                     symbol("Other", kind: .type, in: "a.swift", at: 40),
-                    symbol("ab", kind: .property, in: "a.swift", at: 60, container: "Other")
-                ]
+                    symbol("ab", kind: .property, in: "a.swift", at: 60, container: "Other"),
+                ],
             ])
         }
 
@@ -621,8 +621,8 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         let store = index([
             "a.swift": [
                 symbol("doRequest", kind: .method, in: "a.swift", at: 0, container: "Worker"),
-                symbol("total", kind: .property, in: "a.swift", at: 20, container: "Worker")
-            ]
+                symbol("total", kind: .property, in: "a.swift", at: 20, container: "Worker"),
+            ],
         ])
         let items = SymbolIntelligenceProvider.completions(
             for: memberRequest("dR", receiver: "worker"),
@@ -721,8 +721,8 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
                 symbol("doRequest", kind: .method, in: "a.swift", at: 20, container: "Worker"),
                 symbol("Other", kind: .type, in: "a.swift", at: 40),
                 // …while `dr` is a literal, case-sensitive prefix of this one.
-                symbol("drab", kind: .property, in: "a.swift", at: 60, container: "Other")
-            ]
+                symbol("drab", kind: .property, in: "a.swift", at: 60, container: "Other"),
+            ],
         ])
         let items = SymbolIntelligenceProvider.completions(
             for: memberRequest("dr", receiver: "Worker"),
@@ -740,12 +740,12 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         let store = index([
             "a.swift": [
                 symbol("A", kind: .type, in: "a.swift", at: 0),
-                symbol("alphaValue", kind: .method, in: "a.swift", at: 20, container: "A")
+                symbol("alphaValue", kind: .method, in: "a.swift", at: 20, container: "A"),
             ],
             "z.swift": [
                 symbol("Z", kind: .type, in: "z.swift", at: 0),
-                symbol("alp", kind: .property, in: "z.swift", at: 20, container: "Z")
-            ]
+                symbol("alp", kind: .property, in: "z.swift", at: 20, container: "Z"),
+            ],
         ])
         let items = SymbolIntelligenceProvider.completions(
             for: memberRequest("al", receiver: nil, from: "a.swift"),
@@ -814,7 +814,7 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         }
         groups["zzz.swift"] = [
             symbol("Worker", kind: .type, in: "zzz.swift", at: 0),
-            symbol("workerOnly", kind: .method, in: "zzz.swift", at: 20, container: "Worker")
+            symbol("workerOnly", kind: .method, in: "zzz.swift", at: 20, container: "Worker"),
         ]
 
         let items = SymbolIntelligenceProvider.completions(
@@ -851,7 +851,7 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
             // the class *name*, with no leading `.` — because this is the entry
             // the rule actually costs the user, and a fixture that wrote `.btn-`
             // would be testing a symbol the index cannot contain.
-            "c.css": [symbol("btn-primary", kind: .selector, in: "c.css")]
+            "c.css": [symbol("btn-primary", kind: .selector, in: "c.css")],
         ])
         for prefix in ["Get", "run", "service", "btn"] {
             XCTAssertTrue(
@@ -871,9 +871,9 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         let store = index([
             "a.yml": [
                 symbol("services", kind: .key, in: "a.yml"),
-                symbol("secrets", kind: .anchor, in: "a.yml", at: 40)
+                symbol("secrets", kind: .anchor, in: "a.yml", at: 40),
             ],
-            "b.swift": [symbol("serialize", kind: .function, in: "b.swift")]
+            "b.swift": [symbol("serialize", kind: .function, in: "b.swift")],
         ])
         let items = SymbolIntelligenceProvider.completions(
             for: completionRequest("se", from: "c.yml"),
@@ -903,8 +903,8 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
         let store = index([
             "a.swift": [
                 symbol("start", kind: .method, in: "a.swift", container: "Worker"),
-                symbol("stop it", kind: .method, in: "a.swift", at: 20, container: "Worker")
-            ]
+                symbol("stop it", kind: .method, in: "a.swift", at: 20, container: "Worker"),
+            ],
         ])
         let items = SymbolIntelligenceProvider.completions(
             for: memberRequest(receiver: "Worker", from: "a.swift"),
@@ -949,7 +949,7 @@ final class SymbolIntelligenceProviderTests: XCTestCase {
     func testDuplicateNamesCollapseToTheirBestRankedEntry() {
         let store = index([
             "a.swift": [symbol("total", kind: .property, in: "a.swift")],
-            "z.swift": [symbol("total", kind: .variable, in: "z.swift")]
+            "z.swift": [symbol("total", kind: .variable, in: "z.swift")],
         ])
         let items = SymbolIntelligenceProvider.completions(
             for: completionRequest("tot", from: "a.swift", text: "total total"),

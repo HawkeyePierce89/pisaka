@@ -116,7 +116,7 @@ struct SyntaxTheme {
         .dynamic(light: 0x7B2FBE, dark: 0xD9A2FF),
         .dynamic(light: 0x1B6BCC, dark: 0x6FB3FF),
         .dynamic(light: 0x0E7C86, dark: 0x5BD5E0),
-        .dynamic(light: 0x1E7A33, dark: 0x7EE787)
+        .dynamic(light: 0x1E7A33, dark: 0x7EE787),
     ]
 
     private static let unmatchedBracket: PlatformColor = .dynamic(light: 0xC4241A, dark: 0xFF6B60)
@@ -144,7 +144,7 @@ struct SyntaxTheme {
         .punctuation: .dynamic(light: 0x3D3D3D, dark: 0xD6D6D6),
         .property: .dynamic(light: 0x0F68A0, dark: 0x67B7A4),
         .parameter: .dynamic(light: 0x0F68A0, dark: 0x9EF1DD),
-        .label: .dynamic(light: 0x9B2393, dark: 0xFC5FA3)
+        .label: .dynamic(light: 0x9B2393, dark: 0xFC5FA3),
     ]
 }
 

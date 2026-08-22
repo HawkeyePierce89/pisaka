@@ -38,8 +38,9 @@ public enum GitRefName {
         if name.contains("/.") { return false }
 
         // Any `/`-separated component ending in `.lock` is disallowed too.
-        for component in name.split(separator: "/", omittingEmptySubsequences: false) {
-            if component.hasSuffix(".lock") { return false }
+        for component in name.split(separator: "/", omittingEmptySubsequences: false)
+        where component.hasSuffix(".lock") {
+            return false
         }
 
         // Scanned over *unicode scalars*, not `Character`s: `\r\n` is a single
