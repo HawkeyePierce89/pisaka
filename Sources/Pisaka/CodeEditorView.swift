@@ -1182,6 +1182,17 @@ struct CodeEditorView: NSViewRepresentable {
                 // arrow key must not pop a list. Asking on typing is handled by
                 // `textDidChange` above.
                 updateCompletions(explicit: false, caretMove: true)
+            } else {
+                // Nothing is shown, but a request may already be in flight
+                // behind its debounce: without this, an answer computed for one
+                // caret position could land after a click moved the caret onto
+                // an identically-spelled word — `apply` compares the prefix
+                // *text*, not the location — and open over a question nobody
+                // asked. Cancelled here rather than through `update(…)`
+                // deliberately: the full entry runs `forgetList()`, which would
+                // kill D4's late auto-import scheduled moments ago by a commit
+                // whose own caret move lands in this branch.
+                completion.invalidatePendingRequest()
             }
             // The find bar's "current" match follows the caret (see
             // `EditorSearchController.selectionChanged()`), so it must move with

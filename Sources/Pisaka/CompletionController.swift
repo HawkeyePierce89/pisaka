@@ -911,6 +911,30 @@ final class CompletionController {
         dismiss()
     }
 
+    /// Cancel the in-flight request without touching the panel or any list
+    /// state — the caret moved while nothing was shown.
+    ///
+    /// `textViewDidChangeSelection` forwards a caret move to `update(…)` only
+    /// when the panel is visible, so an answer still travelling behind its
+    /// debounce would otherwise survive the move. `apply`'s staleness guards
+    /// compare the prefix *text* and the member *receiver* against the live
+    /// buffer — never the location — so an identically-spelled word at the new
+    /// offset passes them, and a list computed for one position (an LSP answer
+    /// is a question about an offset) opens over another. Cancelling the task
+    /// and bumping the generation here retires that answer at both of its
+    /// checks, exactly as `update`'s entry does.
+    ///
+    /// Deliberately *not* `forgetList()`: this runs on every post-commit caret
+    /// move too, and D4's late auto-import — scheduled by the commit whose own
+    /// insertion moved the caret — must stay in flight. Nothing else needs
+    /// clearing: a hidden panel implies no snapshot (`dismiss` cleared it) and
+    /// no prefetched resolves (`forgetList` ran with it).
+    func invalidatePendingRequest() {
+        pendingTask?.cancel()
+        pendingTask = nil
+        generation += 1
+    }
+
     /// Forget everything that belongs to the currently-offered list: its
     /// prefetched resolves and any late auto-import still waiting on one. The
     /// snapshot itself is deliberately *not* dropped here — `update` keeps the

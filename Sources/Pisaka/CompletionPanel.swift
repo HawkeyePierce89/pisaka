@@ -51,8 +51,14 @@ final class CompletionPanel {
         }
 
         let width = min(Self.maximumWidth, contentView.measureWidth(for: rows, codeFontSize: codeFontSize))
-        let visibleRows = min(rows.count, 30) // Cap visible size
-        let height = contentView.rowHeight(codeFontSize: codeFontSize) * CGFloat(visibleRows)
+        let rowHeight = contentView.rowHeight(codeFontSize: codeFontSize)
+        // The provider's 30 is a *list* cap, not a visible one: at a zoomed code
+        // font thirty rows outrun the screen, so the drawn count is bounded by
+        // whatever space the anchor's screen actually has on either side. The
+        // rest stays reachable through the scroll view, exactly as the plan
+        // specifies ("rows beyond the visible cap scroll").
+        let visibleRows = Self.visibleRowCount(rows.count, rowHeight: rowHeight, anchoredTo: anchor)
+        let height = rowHeight * CGFloat(visibleRows)
 
         let contentSize = NSSize(width: width, height: height)
         panel.setContentSize(contentSize)
@@ -172,6 +178,22 @@ final class CompletionPanel {
         return screen?.visibleFrame ?? anchor
     }
 
+    /// How many rows may be drawn at once: the provider's list cap, bounded by
+    /// the room the anchor's screen has below or above the anchor (whichever is
+    /// larger, since `origin(for:anchoredTo:)` flips sides when below fails).
+    ///
+    /// The floor keeps a cramped screen from degenerating into a zero-row
+    /// panel — a too-tall popup clamps at the screen edge (the pre-existing
+    /// behaviour) and stays usable, an empty one cannot.
+    private static func visibleRowCount(_ totalRows: Int, rowHeight: CGFloat, anchoredTo anchor: NSRect) -> Int {
+        guard rowHeight > 0 else { return min(totalRows, 30) }
+        let visible = visibleFrame(for: anchor)
+        let below = max(0, anchor.minY - gap - visible.minY)
+        let above = max(0, visible.maxY - anchor.maxY - gap)
+        let fitRows = Int(floor(max(below, above) / rowHeight))
+        return min(totalRows, 30, max(fitRows, 5))
+    }
+
     private static func origin(for size: NSSize, anchoredTo anchor: NSRect) -> NSPoint {
         let visible = visibleFrame(for: anchor)
         var originY = anchor.minY - gap - size.height
@@ -227,12 +249,30 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
         return ceil(codeFont.ascender - codeFont.descender) + 6 // padding
     }
 
+    /// The row's text projected onto one line.
+    ///
+    /// An LSP item's display text is what the server inserts, and a YAML
+    /// property completion legitimately carries newlines (`services:\n  `).
+    /// Drawing that verbatim paints over the rows below and desyncs the visual
+    /// list from click hit-testing, which divides the row height evenly. The
+    /// popup shows single-line choices: the first line stands in for the whole
+    /// insertion, marked with an ellipsis. Display-only — the committed text
+    /// and every key built on it stay the full string.
+    private static func singleLineDisplay(_ text: String) -> String {
+        guard text.contains("\n") || text.contains("\r") else { return text }
+        var head = text.components(separatedBy: .newlines)[0]
+        while let last = head.last, last == " " || last == "\t" {
+            head.removeLast()
+        }
+        return head + "…"
+    }
+
     func measureWidth(for rows: [CompletionRow], codeFontSize: CGFloat) -> CGFloat {
         let codeFont = NSFont.monospacedSystemFont(ofSize: codeFontSize, weight: .regular)
         var maxW: CGFloat = 0
         let attributes: [NSAttributedString.Key: Any] = [.font: codeFont]
         for row in rows {
-            let textString = row.displayText as NSString
+            let textString = Self.singleLineDisplay(row.displayText) as NSString
             let size = textString.size(withAttributes: attributes)
             maxW = max(maxW, size.width)
         }
@@ -279,7 +319,7 @@ private final class CompletionListContentView: NSView, ZoomSurfaceProviding {
             }
 
             let color = (index == selection) ? NSColor.selectedControlTextColor : NSColor.labelColor
-            let attr = NSAttributedString(string: row.displayText, attributes: [
+            let attr = NSAttributedString(string: Self.singleLineDisplay(row.displayText), attributes: [
                 .font: codeFont,
                 .foregroundColor: color
             ])
