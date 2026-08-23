@@ -97,6 +97,17 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// is retained by the scroll view, which the coordinator's collaborators reach.
     var onToggleAnnotate: (() -> Void)?
 
+    /// One character edit landed in the buffer, reported with the two line-start
+    /// tables this class maintains anyway (`previousLineStarts` pre-edit,
+    /// `newLineStarts` post-edit) plus the text storage's edited range and length
+    /// delta. The diagnostics channel consumes exactly this arithmetic —
+    /// ``DiagnosticShift.updated`` is `BlameShift.updated`'s shape — so handing it
+    /// over here means the shift never re-derives line geometry a second time.
+    ///
+    /// The owner captures itself **weakly** when installing this, for the same
+    /// retain-cycle reason as `onToggleAnnotate` above.
+    var onEdit: ((_ previousLineStarts: [Int], _ newLineStarts: [Int], _ editedRange: NSRange, _ changeInLength: Int) -> Void)?
+
     /// Parses ``BlameLine/date``'s raw ISO-8601 string. One formatter, reused —
     /// a label is built once per *commit*, not per line, but the memo is rebuilt
     /// on every install.
@@ -359,6 +370,11 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
                 changeInLength: textStorage.changeInLength
             )
         }
+        // The diagnostics shift consumes the same tables (see `onEdit`). Fired
+        // for every character edit, including the full-range edit a wholesale
+        // buffer swap posts — the model's `noteBufferReplaced` has already
+        // dropped that document's set by then, so the shifted result is a no-op.
+        onEdit?(previousLineStarts, lineStartOffsets, textStorage.editedRange, textStorage.changeInLength)
         updateThickness()
         needsDisplay = true
     }

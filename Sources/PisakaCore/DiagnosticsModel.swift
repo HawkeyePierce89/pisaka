@@ -183,6 +183,15 @@ public final class DiagnosticsModel: ObservableObject {
 
     // MARK: - Read-only queries (the views' whole surface)
 
+    /// Every diagnostic currently held for `url`, in the store's own (arrival)
+    /// order — the editor overlay's lookup. The squiggle needs each diagnostic's
+    /// exact buffer range and severity, which the per-line worst-severity query
+    /// deliberately flattens away; overlap resolution into painted runs is the
+    /// view layer's (`BracketOverlayLayoutManager.setDiagnosticRuns`).
+    public func diagnostics(in url: URL) -> [Diagnostic] {
+        store.entry(for: url)?.diagnostics ?? []
+    }
+
     /// Every diagnostic of `url` whose range contains `offset`, ordered by
     /// ``Diagnostic/orderingKey`` — hover's lookup (D34).
     public func diagnostics(at offset: Int, in url: URL) -> [Diagnostic] {

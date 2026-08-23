@@ -720,6 +720,7 @@ struct PisakaApp: App {
                 reveal: reveal,
                 symbolIndex: symbolIndexController,
                 lspSync: lspDocumentSync,
+                diagnostics: diagnostics,
                 provisioning: lspProvisioning,
                 gopls: lspGopls,
                 rust: lspRust,

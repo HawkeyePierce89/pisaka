@@ -412,4 +412,31 @@ final class DiagnosticsModelTests: XCTestCase {
         XCTAssertEqual(model.counts.errors, 1)
         XCTAssertEqual(model.counts.warnings, 0)
     }
+
+    /// The overlay's lookup (Task 6): the whole held set for one document —
+    /// exact ranges and severities, not the per-line worst the gutter reads —
+    /// and an empty array, never a trap, for a document nothing was received
+    /// for.
+    func testDiagnosticsInHandsTheDocumentsWholeSetForTheOverlay() {
+        XCTAssertTrue(model.diagnostics(in: url).isEmpty)
+
+        let set = [
+            diagnostic(at: 4, length: 3, line: 1, severity: .error, message: "err"),
+            diagnostic(at: 8, length: 3, line: 2, severity: .warning, message: "warn"),
+        ]
+        syncAtVersionOne()
+        model.receive(published(set, version: 1))
+        syncAtVersionOne(otherURL)
+        model.receive(published(
+            [diagnostic(at: 0, length: 1, line: 0, message: "other")],
+            version: 1,
+            url: otherURL
+        ))
+
+        XCTAssertEqual(model.diagnostics(in: url), set)
+        XCTAssertEqual(model.diagnostics(in: otherURL).map(\.message), ["other"])
+        // A clear empties the query like it empties every other view surface.
+        model.receive(.cleared(.document(url: url)))
+        XCTAssertTrue(model.diagnostics(in: url).isEmpty)
+    }
 }

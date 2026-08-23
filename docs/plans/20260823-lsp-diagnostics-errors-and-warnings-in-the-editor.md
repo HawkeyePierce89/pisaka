@@ -336,30 +336,30 @@ by absence.
 - Modify: `Sources/Pisaka/BracketOverlayLayoutManager.swift`,
   `Sources/Pisaka/SyntaxTheme.swift`, `Sources/Pisaka/CodeEditorView.swift`
 
-- [ ] Add four dynamic colors to `SyntaxTheme` with light/dark values chosen
+- [x] Add four dynamic colors to `SyntaxTheme` with light/dark values chosen
       deliberately against the existing palette (error red distinct from
       `unmatchedBracketColor` and `.string`; warning amber distinct from
       `searchMatchBackground`; information and hint muted), plus the `ns…`
       accessors the temporary-attribute call sites need.
-- [ ] Add a `diagnosticRuns: [(range: NSRange, severity:)]` cache to
+- [x] Add a `diagnosticRuns: [(range: NSRange, severity:)]` cache to
       `BracketOverlayLayoutManager`, sorted ascending and binary-searched like
       the rainbow runs, painted through `.underlineStyle` + `.underlineColor` in
       `applyOverlays(in:)` so Neon's per-write clear cannot erase it; add
       `setDiagnosticRuns(_:)` and a `clearDiagnostics(in:storageLength:)` on the
       pre-edit-coordinate contract `clearRainbow` already documents.
-- [ ] Draw the squiggle by overriding
+- [x] Draw the squiggle by overriding
       `drawUnderline(forGlyphRange:underlineType:...)`: when the underline type
       carries the diagnostic marker, stroke a zigzag path along the fragment's
       baseline in the run's color instead of the straight line AppKit would draw.
       Document why (AppKit has no wavy `NSUnderlineStyle`) and that overlapping
       diagnostics resolve to the worst severity for the overlapping span.
-- [ ] In `CodeEditorView.Coordinator`: push the active document's runs on every
+- [x] In `CodeEditorView.Coordinator`: push the active document's runs on every
       model change and tab switch; on the text-storage edit notification, drive
       `diagnostics.noteEdit(...)` from the ruler's pre/post line-start arrays (a
       `onEdit` closure on the ruler, captured **weakly** per the file's stated
       retain-cycle rule) and re-push; drive `noteBufferReplaced(url:)` from the
       `contentReplaced` branch beside `beginBlameBufferSwap()`.
-- [ ] Build both destinations (`xcodebuild` macOS + iOS) and run
+- [x] Build both destinations (`xcodebuild` macOS + iOS) and run
       `swiftlint --strict`; run `swift test` — must pass before Task 7.
 
 ### Task 7: Gutter markers

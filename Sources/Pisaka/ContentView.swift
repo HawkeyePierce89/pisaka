@@ -78,6 +78,13 @@ struct ContentView: View {
     /// (`nil` in previews/tests syncs nothing), both for the `symbolIndex`
     /// reasons above.
     var lspSync: LSPDocumentSyncController?
+    /// The diagnostics channel's observable model — the store the editor paints
+    /// its squiggles from. Owned by `PisakaApp` and threaded straight into
+    /// `CodeEditorView`; deliberately **not** `@ObservedObject` and optional
+    /// (`nil` in previews/tests shows none), both for the `symbolIndex` reasons
+    /// above — and doubly so because the store republishes on every keystroke's
+    /// shift, which must not re-render this view.
+    var diagnostics: DiagnosticsModel?
     /// Which downloadable language servers exist and what state each is in.
     /// Threaded straight through to the consent banner, and deliberately **not**
     /// `@ObservedObject` — the `symbolIndex` precedent, and for the reason
@@ -638,6 +645,7 @@ struct ContentView: View {
                     reveal: reveal,
                     symbolIndex: symbolIndex,
                     lspSync: lspSync,
+                    diagnostics: diagnostics,
                     onGoToDefinition: onGoToDefinition,
                     onViewDefinitionOutsideProject: onViewDefinitionOutsideProject
                 )
