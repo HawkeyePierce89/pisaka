@@ -9,7 +9,8 @@ import PisakaCore
 /// (information and hint deliberately absent — the header answers "how much is
 /// broken", not "how much was said"), below it one group per diagnosed file in
 /// the store's stable reading order (`Diagnostic.orderingKey`: path, then
-/// buffer position, then most severe first). Each row shows the severity icon
+/// buffer position, then span/severity/message/source — a total order). Each
+/// row shows the severity icon
 /// in `SyntaxTheme`'s severity color, the message, and the one-based line;
 /// activating a row calls back with `(url, range)` so the app can open-or-reveal
 /// through the same `activateSearchMatch(url:range:)` entry point Find in Files

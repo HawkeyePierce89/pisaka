@@ -667,6 +667,7 @@ struct ContentView: View {
                     externalTextRevision: model.textReplacementRevision(for: file.id),
                     fileURL: file.url,
                     diskRevision: model.diskRevision(for: file.id),
+                    projectRoot: model.projectRoot,
                     text: binding(for: file.id),
                     fontSize: settings.fontSize,
                     completionEnabled: settings.completionEnabled,

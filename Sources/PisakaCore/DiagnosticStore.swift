@@ -66,8 +66,11 @@ public struct DiagnosticStore: Equatable, Sendable {
     /// `Hashable` so the SwiftUI list can key rows by **content** rather than by
     /// offset: an insertion above an earlier row must not shift every
     /// subsequent row's identity (a stateful row view would otherwise carry its
-    /// hover highlight onto a different message). Two byte-identical rows
-    /// collapse to one — which is what a list keyed by content means.
+    /// hover highlight onto a different message). Content-keyed identity is
+    /// only sound when the content is unique, which is why
+    /// ``rows(relativeTo:)`` — not this type — collapses byte-identical rows:
+    /// a `ForEach` keyed on `\.self` with two equal elements is undefined
+    /// behavior, not a merge.
     public struct Row: Equatable, Hashable, Sendable {
         public let severity: DiagnosticSeverity
         public let message: String
@@ -233,6 +236,14 @@ public struct DiagnosticStore: Equatable, Sendable {
     /// by path, rows within a file by ``Diagnostic/orderingKey`` — the stable
     /// reading order decided once on the value type.
     ///
+    /// Byte-identical rows are collapsed here, deliberately: two diagnostics
+    /// that flatten to the same severity, message, span and line render — and
+    /// activate — identically, and the view keys its `ForEach` on exactly these
+    /// fields (`Row`'s note), where duplicate ids are undefined behavior rather
+    /// than a merge. The collapse is a *rendering* rule, not a store one: the
+    /// entry keeps every diagnostic, so the overlay, the gutter, hover and
+    /// ``counts`` all still see both.
+    ///
     /// The relative path reuses `CanonicalPath`'s primitives through the same
     /// two-probe order `DisplayPath.relativeComponents(of:under:)` documents
     /// (lexical first, canonical fallback), minus the home fallback: a file
@@ -243,12 +254,15 @@ public struct DiagnosticStore: Equatable, Sendable {
         entries
             .filter { !$0.value.diagnostics.isEmpty }
             .map { url, entry -> FileRows in
-                FileRows(
+                var seen = Set<Row>()
+                let rows = entry.diagnostics
+                    .sorted { $0.orderingKey < $1.orderingKey }
+                    .map(Row.init)
+                    .filter { seen.insert($0).inserted }
+                return FileRows(
                     url: url,
                     pathComponents: Self.pathComponents(of: url, relativeTo: root),
-                    rows: entry.diagnostics
-                        .sorted { $0.orderingKey < $1.orderingKey }
-                        .map(Row.init)
+                    rows: rows
                 )
             }
             .sorted { lhs, rhs in

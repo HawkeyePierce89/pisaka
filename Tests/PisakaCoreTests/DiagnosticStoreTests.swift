@@ -413,6 +413,65 @@ final class DiagnosticStoreTests: XCTestCase {
         ])
     }
 
+    /// Byte-identical rows collapse to one — the rendering rule the view's
+    /// content-keyed `ForEach` rides on (`Row`'s note): two equal elements
+    /// under `id: \.self` are undefined behavior, not a merge. The collapse is
+    /// the *query's*, not the store's — the entry keeps both, so hover and the
+    /// per-line folding still see them, and ``counts`` still counts each.
+    func testByteIdenticalRowsCollapseToOne() {
+        var store = DiagnosticStore()
+        store.replace(
+            url: mainURL,
+            serverKey: swiftKey,
+            diagnostics: [
+                diagnostic(at: 4, line: 1),
+                diagnostic(at: 4, line: 1),
+                // Same span and severity but a different message: a distinct
+                // row, not a duplicate.
+                diagnostic(at: 4, line: 1, message: "other"),
+                diagnostic(at: 8, line: 2),
+            ]
+        )
+
+        let groups = store.rows(relativeTo: rootURL)
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].rows.count, 3, "the exact duplicate collapses; distinct rows survive")
+        XCTAssertEqual(groups[0].rows.map(\.range.location), [4, 4, 8])
+        XCTAssertEqual(groups[0].rows.map(\.message), ["m", "other", "m"])
+
+        // The entry itself is untouched by the rendering rule.
+        XCTAssertEqual(store.entry(for: mainURL)?.diagnostics.count, 4)
+        XCTAssertEqual(store.counts.errors, 4)
+    }
+
+    /// Two diagnostics that differ only in hidden metadata (here: `source`,
+    /// which no surface shows) flatten to identical rows and so collapse too —
+    /// they render identically and reveal identically.
+    func testRowsDifferingOnlyInHiddenMetadataCollapse() {
+        var store = DiagnosticStore()
+        let clang = Diagnostic(
+            range: NSRange(location: 4, length: 3),
+            line: 1,
+            severity: .warning,
+            message: "unused variable",
+            source: "clang",
+            fileURL: mainURL
+        )
+        let swiftc = Diagnostic(
+            range: NSRange(location: 4, length: 3),
+            line: 1,
+            severity: .warning,
+            message: "unused variable",
+            source: "swiftc",
+            fileURL: mainURL
+        )
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [clang, swiftc])
+
+        let groups = store.rows(relativeTo: rootURL)
+        XCTAssertEqual(groups[0].rows.count, 1)
+        XCTAssertEqual(store.entry(for: mainURL)?.diagnostics.count, 2)
+    }
+
     // MARK: - Counts
 
     func testCountsCoverErrorsAndWarningsOnly() {

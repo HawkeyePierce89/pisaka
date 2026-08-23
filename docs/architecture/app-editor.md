@@ -592,13 +592,26 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     inputs beside the ones above: an optional `lspSync:
     LSPDocumentSyncController?` and an optional `diagnostics: DiagnosticsModel?`
     (both defaulted nil so previews compile; the app owns both). **The sync
-    forwards inside `Coordinator.reindexSymbols`** — the one method all three
-    index triggers already funnel through — calling the sync controller's
+    forwards inside `Coordinator.reindexSymbols`** — the one method all four
+    index triggers already funnel through (tab switch, buffer replacement, and
+    the two *retargets* below) — calling the sync controller's
     `noteBufferOpened`/`noteBufferChanged` immediately beside the index
     controller's same-named call, which is what guarantees the symbol index and
     the LSP server are always told about the same buffer in the same order and
     can never disagree about which buffer is current; an untitled buffer is
     skipped by the existing guard, since there is no URL to file it under.
+    The **retarget triggers** cover the two ways a displayed buffer's
+    coordinates change while its id and text stay put, both of which would
+    otherwise leave every surface dark until the user happened to type or
+    switch: a new **URL** (Save As giving an untitled buffer its first path; a
+    project-tree rename/move retargeting through `applyRenamePlan` after the
+    move's `forgetIndexedBuffer` already `didClose`d the old URL and cleared its
+    diagnostics via D33), and a new **root** (`projectRoot`, compared against a
+    value seeded in `makeNSView` so a fresh view does not re-read as one) — the
+    first Open Folder of a run carrying tabs, whose buffers were never synced
+    because every earlier trigger ran with no root. Background retargeted tabs
+    stay lazy: they sync on their first switch like any other background
+    buffer.
     **Edits** flow through the ruler's `onEdit` closure (captured weakly per the
     retain-cycle rule), whose pre/post line-start tables this class maintained
     for blame anyway: the coordinator's `bufferEdited` hands them straight to

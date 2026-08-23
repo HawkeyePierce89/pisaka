@@ -148,34 +148,67 @@ public extension Diagnostic {
     /// two surfaces (the Problems list and hover's merged messages) must agree
     /// on it.
     ///
-    /// The key is a **total** order — no two diagnostics compare equal unless
-    /// they are equal — so a sort is stable regardless of the sort algorithm's
-    /// own stability: grouped by file path, then top-to-bottom through the
-    /// buffer, then most severe first within one position (the error sitting on
-    /// a token outranks the hint sharing its start).
+    /// The key is a **total** order — no two distinct diagnostics compare equal
+    /// — so a sort is stable regardless of the sort algorithm's own stability:
+    /// grouped by file path, then top-to-bottom through the buffer, then most
+    /// severe first at one start — severity outranks every remaining field, so
+    /// the worst complaint at a position is always the one read first — then
+    /// shorter span, message and source lexicographically among equals, which
+    /// is what keeps two same-position same-severity complaints from tying.
+    /// Every field
+    /// a diagnostic can differ in but `line` participates (`line` is derived
+    /// from the start offset by the mapping, never an independent fact), so two
+    /// keys compare equal only when the diagnostics do.
     struct OrderingKey: Equatable, Comparable {
         public let filePath: String
         public let startOffset: Int
+        public let endOffset: Int
         public let severity: DiagnosticSeverity
+        public let message: String
+        public let source: String?
 
-        public init(path: String, startOffset: Int, severity: DiagnosticSeverity) {
+        public init(
+            path: String,
+            startOffset: Int,
+            endOffset: Int,
+            severity: DiagnosticSeverity,
+            message: String,
+            source: String?
+        ) {
             self.filePath = path
             self.startOffset = startOffset
+            self.endOffset = endOffset
             self.severity = severity
+            self.message = message
+            self.source = source
         }
 
         init(_ diagnostic: Diagnostic) {
             self.init(
                 path: diagnostic.fileURL.standardizedFileURL.path,
                 startOffset: diagnostic.range.location,
-                severity: diagnostic.severity
+                endOffset: diagnostic.range.location + diagnostic.range.length,
+                severity: diagnostic.severity,
+                message: diagnostic.message,
+                source: diagnostic.source
             )
         }
 
         public static func < (lhs: OrderingKey, rhs: OrderingKey) -> Bool {
             if lhs.filePath != rhs.filePath { return lhs.filePath < rhs.filePath }
             if lhs.startOffset != rhs.startOffset { return lhs.startOffset < rhs.startOffset }
-            return lhs.severity > rhs.severity
+            if lhs.severity != rhs.severity { return lhs.severity > rhs.severity }
+            if lhs.endOffset != rhs.endOffset { return lhs.endOffset < rhs.endOffset }
+            if lhs.message != rhs.message { return lhs.message < rhs.message }
+            // Spelled out rather than through `Optional`'s own Comparable
+            // conformance: absent sorts before any present value, including the
+            // empty string, so a missing source stays distinct from a blank one.
+            switch (lhs.source, rhs.source) {
+            case (nil, nil): return false
+            case (nil, _): return true
+            case (_, nil): return false
+            case (let lhsSource?, let rhsSource?): return lhsSource < rhsSource
+            }
         }
     }
 

@@ -53,6 +53,13 @@ struct CodeEditorView: NSViewRepresentable {
     /// compiles.
     var diskRevision: Int = 0
 
+    /// The workspace's project root, or `nil` while no folder is open. A change
+    /// under an unchanged buffer means every earlier sync of that buffer answered
+    /// against a different root — or against none, where a sync could not run at
+    /// all — so it joins the retarget test in `updateNSView`. Defaults to `nil`
+    /// so a default-constructed view compiles.
+    var projectRoot: URL?
+
     /// The editor contents. Edits are written back through this binding.
     @Binding var text: String
 
@@ -402,6 +409,9 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.attachDiagnostics(model: diagnostics)
         context.coordinator.navigateToDefinition = onGoToDefinition
         context.coordinator.viewDefinitionOutsideProject = onViewDefinitionOutsideProject
+        // Seed the retarget comparison so the first update after creation does
+        // not read as one: the immediate sync below already happened here.
+        context.coordinator.syncedProjectRoot = projectRoot
         context.coordinator.reindexSymbols(
             text: text,
             language: language,
@@ -465,6 +475,25 @@ struct CodeEditorView: NSViewRepresentable {
         let previousFileID = context.coordinator.fileID
         let switchedFile = previousFileID != fileID
         context.coordinator.fileID = fileID
+
+        // Same tab, new coordinates. Two retargets keep the file id and the text
+        // while invalidating every sync the buffer ever did:
+        //
+        // - A **URL change** — Save As (an untitled buffer's first path) or a
+        //   project-tree rename/move (`applyRenamePlan`). The rename path has
+        //   already `didClose`d the old URL (`forgetIndexedBuffer`, which also
+        //   cleared that document's diagnostics via D33), and nothing else would
+        //   ever tell the server about the new one: a push-only server sits
+        //   silent until asked, and the push channel's triggers are exactly the
+        //   ones this branch funnels.
+        // - A **root change** — the first Open Folder of a run carrying tabs.
+        //   Those buffers were never synced at all (every earlier trigger ran
+        //   with no root, where `prepare` answers `nil` by design), their views
+        //   persist unchanged across the open, and neither of the two triggers
+        //   above fires for them.
+        let retargetedBuffer = context.coordinator.fileURL != fileURL
+            || context.coordinator.syncedProjectRoot != projectRoot
+        context.coordinator.syncedProjectRoot = projectRoot
 
         // Remember where the *outgoing* tab was sitting. Ordering is load-bearing
         // twice over, which is why this is the first thing a switch does:
@@ -653,10 +682,12 @@ struct CodeEditorView: NSViewRepresentable {
             contentReplaced: contentReplaced
         )
 
-        // Re-index the shown file's symbols. Only on a tab switch or a wholesale
-        // buffer swap, and then immediately: ordinary keystrokes are covered by
-        // `textDidChange` (debounced), so scheduling here as well would re-parse
-        // the file twice per settled burst of typing.
+        // Re-index the shown file's symbols. On a tab switch, a wholesale
+        // buffer swap, or a retarget (new URL or new root under an unchanged
+        // buffer — see `retargetedBuffer`), and then immediately: ordinary
+        // keystrokes are covered by `textDidChange` (debounced), so scheduling
+        // here as well would re-parse the file twice per settled burst of
+        // typing.
         context.coordinator.symbolIndex = symbolIndex
         context.coordinator.lspSync = lspSync
         // Keep the diagnostics binding current (an identity-checked no-op when
@@ -668,7 +699,7 @@ struct CodeEditorView: NSViewRepresentable {
         // same reason.
         context.coordinator.navigateToDefinition = onGoToDefinition
         context.coordinator.viewDefinitionOutsideProject = onViewDefinitionOutsideProject
-        if switchedFile || contentReplaced {
+        if switchedFile || contentReplaced || retargetedBuffer {
             context.coordinator.reindexSymbols(
                 text: textView.string,
                 language: language,
@@ -726,6 +757,13 @@ struct CodeEditorView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
         var fileID: UUID?
+
+        /// The workspace root the buffer's last immediate sync ran against
+        /// (`nil` = none yet / no folder). Owned here — unlike `fileURL`, which
+        /// `syncBlame` records for the blame column — because its only reader is
+        /// `updateNSView`'s retarget test, and seeding it in `makeNSView` is
+        /// what keeps a freshly created view from re-reading as one.
+        var syncedProjectRoot: URL?
 
         /// The language whose highlighter is currently attached (`nil` = plain
         /// text, no highlighter). Used to decide when to rebuild on tab switch,
@@ -798,8 +836,11 @@ struct CodeEditorView: NSViewRepresentable {
 
         /// The displayed file's URL, as last seen by `syncBlame`. Kept so the
         /// gutter's context-menu action (which passes nothing) knows *what* to
-        /// blame; `nil` for an untitled buffer.
-        private var fileURL: URL?
+        /// blame, and so `updateNSView`'s retarget test can see a Save As or a
+        /// project-tree rename/move (same tab, new path); `nil` for an untitled
+        /// buffer. Readable within the type because both readers live here;
+        /// still only ever *written* by `syncBlame`.
+        var fileURL: URL?
 
         /// Fixed minimap row height per document line, in points. The proportional
         /// minimap multiplies this by the line count for `contentHeight`; the

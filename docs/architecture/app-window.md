@@ -248,7 +248,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     as just "Problems"), below it one group per diagnosed file in
     `store.rows(relativeTo:)`'s stable order — file icon, relative path components,
     then rows of severity icon, message (two-line limited) and a one-based line
-    number. The one-based display is the store's zero-based buffer geometry plus
+    number. Rows key their `ForEach` by rendered content (`Row`'s `Hashable`), so
+    an insertion above must not shift identity onto another message — sound only
+    because `rows(relativeTo:)` collapses byte-identical rows first, which is why
+    two diagnostics differing in nothing the panel shows list once. The one-based
+    display is the store's zero-based buffer geometry plus
     one, because the number beside a message must read as what the gutter shows;
     severity colors come from `SyntaxTheme.diagnosticColor(for:)` — three surfaces,
     one palette — and every size runs through `\.interfaceMetrics` like its sibling

@@ -1887,11 +1887,17 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     one placement that cannot be clamped returns `nil`: unreachable through
     today's clamping rules, kept as a gate so a future change to them cannot hand
     TextKit an `NSRange` it traps on.
-    `OrderingKey` (path, then start offset, then most severe first) is a **total**
-    order decided here rather than in the view, because two surfaces — the Problems
-    list and hover's merged messages — must agree on reading order without
-    consulting each other, and a stable sort needs a key with no ties unless the
-    diagnostics are equal.
+    `OrderingKey` (path, then start offset, then most severe first at one
+    start — severity outranks every remaining field, so the worst complaint at a
+    position is always read first — then shorter span, then message and source
+    lexicographically among equals, absent source before any present one) is a **total**
+    order decided here rather than in the view, because two surfaces — the
+    Problems list and hover's merged messages — must agree on reading order
+    without consulting each other, and a stable sort needs a key with no ties
+    unless the diagnostics are equal. The tie-break fields are what make that
+    claim true rather than aspirational: real servers do emit two complaints at
+    one position with one severity, and Swift's sort is not guaranteed stable,
+    so without them the reading order would depend on the push's arrival order.
     `hoverContent(for:merging:)` is D34's builder: each message as a
     severity-labelled prose segment ("error: …" — the label is what keeps a bare
     message from reading as documentation), in `orderingKey` order, above the type
@@ -1961,7 +1967,12 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     never a crash indexing past the array; `rows(relativeTo:)` grouping by file in
     `orderingKey` order with relative path components via `CanonicalPath`/
     `DisplayPath`'s two-probe order (absolute components for a file outside the
-    root — the panel invents no `~` story the breadcrumb would disagree with);
+    root — the panel invents no `~` story the breadcrumb would disagree with) and
+    collapsing byte-identical rows, a *rendering* rule the view's content-keyed
+    `ForEach` rides on: rows are keyed by their flattened fields (`Row`'s note),
+    where duplicate ids are undefined behavior rather than a merge, while the
+    entry itself keeps every diagnostic so hover, the overlay and `counts` still
+    see both;
     and `counts`, errors and warnings only, because the header answers "how much
     is broken", not "how much was said".
 
@@ -2475,7 +2486,15 @@ asks. Diagnostics are push-only, so without an unprompted sync the server would
 never re-diagnose anything after its first look at a file. Every open buffer of a
 served language is therefore flushed 400 ms after typing stops (per-URL debounce,
 superseded by the next keystroke for the same file) and immediately on tab
-    open/switch, through exactly one `LSPWorkspace.prepare(url:language:text:)`
+    open/switch — or when the displayed buffer's *coordinates* change under an
+    unchanged id and text: a Save As or a project-tree rename/move (the old URL
+    was `didClose`d by the rename's `forgetIndexedBuffer`, and nothing else would
+    ever introduce the new one), or a folder change under it, which is the shape
+    of the first Open Folder of a run carrying tabs (those buffers were never
+    synced at all — every earlier trigger ran with no root, where `prepare`
+    answers `nil`). Background tabs stay lazy in every case: they sync on their
+    first switch, like every other background buffer, through exactly one
+    `LSPWorkspace.prepare(url:language:text:)`
     call with no follow-up request — the whole of D2's machinery (launch coalescing,
     root check, unavailability gate, didOpen/didChange/no-op) already lives inside
     it, so this adds a *trigger*, not a second code path. The sync alone passes

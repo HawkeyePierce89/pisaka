@@ -325,9 +325,19 @@ final class DiagnosticTests: XCTestCase {
     private func key(
         _ path: String,
         _ start: Int,
-        _ severity: DiagnosticSeverity
+        _ severity: DiagnosticSeverity,
+        end: Int? = nil,
+        message: String = "",
+        source: String? = nil
     ) -> Diagnostic.OrderingKey {
-        Diagnostic.OrderingKey(path: path, startOffset: start, severity: severity)
+        Diagnostic.OrderingKey(
+            path: path,
+            startOffset: start,
+            endOffset: end ?? start,
+            severity: severity,
+            message: message,
+            source: source
+        )
     }
 
     /// Grouped by file, then by position, then most severe first — and no two
@@ -349,6 +359,19 @@ final class DiagnosticTests: XCTestCase {
             key("/a.swift", 40, .hint),
             key("/b.swift", 10, .warning),
         ])
+    }
+
+    /// Severity outranks the span at one start: a one-character error precedes
+    /// a warning covering the whole line, because the reading order the panel
+    /// and the hover share is "worst first at this position" — the span is a
+    /// tie-break *below* severity, never above it.
+    func testSeverityOutranksSpanLengthAtOneStartOffset() {
+        let error = key("/a.swift", 10, .error, end: 11)
+        let warning = key("/a.swift", 10, .warning, end: 40)
+        XCTAssertLessThan(error, warning)
+        XCTAssertEqual([warning, error].sorted(), [error, warning])
+        // And within one severity the shorter span still comes first.
+        XCTAssertLessThan(error, key("/a.swift", 10, .error, end: 40))
     }
 
     /// The order is total: irreflexive, antisymmetric (exactly one of `a < b`,
@@ -381,6 +404,81 @@ final class DiagnosticTests: XCTestCase {
         }
     }
 
+    /// Totality holds over *diagnostics*, not just over the three fields the
+    /// reading order names: two same-position same-severity complaints that
+    /// real servers emit side by side must still order deterministically —
+    /// shorter span first below severity, then message, then source, with an absent source
+    /// sorting before any present one rather than collapsing into the empty
+    /// string. This is what a sort's stability actually rides on (Swift's sort
+    /// is not guaranteed stable), so it is pinned against its exact failure
+    /// mode.
+    func testDistinctDiagnosticsSharingPathStartAndSeverityStillCompare() {
+        let first = Diagnostic(
+            range: NSRange(location: 4, length: 3),
+            line: 0,
+            severity: .error,
+            message: "cannot find value",
+            source: "swiftc",
+            fileURL: URL(fileURLWithPath: "/tmp/A.swift")
+        )
+        // Same path, start and severity as `first`; every remaining field
+        // differs in one respect or another across these three.
+        let longerRange = Diagnostic(
+            range: NSRange(location: 4, length: 9),
+            line: 0,
+            severity: .error,
+            message: "cannot find value",
+            source: "swiftc",
+            fileURL: URL(fileURLWithPath: "/tmp/A.swift")
+        )
+        let otherMessage = Diagnostic(
+            range: NSRange(location: 4, length: 3),
+            line: 0,
+            severity: .error,
+            message: "type annotation missing",
+            source: "swiftc",
+            fileURL: URL(fileURLWithPath: "/tmp/A.swift")
+        )
+        let noSource = Diagnostic(
+            range: NSRange(location: 4, length: 3),
+            line: 0,
+            severity: .error,
+            message: "cannot find value",
+            source: nil,
+            fileURL: URL(fileURLWithPath: "/tmp/A.swift")
+        )
+        let emptySource = Diagnostic(
+            range: NSRange(location: 4, length: 3),
+            line: 0,
+            severity: .error,
+            message: "cannot find value",
+            source: "",
+            fileURL: URL(fileURLWithPath: "/tmp/A.swift")
+        )
+        let all = [first, longerRange, otherMessage, noSource, emptySource]
+        for a in all {
+            for b in all where a != b {
+                XCTAssertTrue(a.orderingKey != b.orderingKey, "\(a) and \(b) must have distinct keys")
+                XCTAssertFalse(a.orderingKey == b.orderingKey)
+            }
+        }
+        // The tie-breaks themselves: shorter span first at one start; message
+        // lexicographic among equal spans; absent source before present, before
+        // an alphabetically later present one.
+        XCTAssertLessThan(first.orderingKey, longerRange.orderingKey)
+        XCTAssertLessThan(first.orderingKey, otherMessage.orderingKey, "\"c…\" < \"t…\"")
+        XCTAssertLessThan(noSource.orderingKey, emptySource.orderingKey, "nil < \"\"")
+        XCTAssertLessThan(emptySource.orderingKey, first.orderingKey, "\"\" < \"swiftc\"")
+        // And the sorted order is fully decided, whatever order the push
+        // arrived in.
+        let sorted = all.map(\.orderingKey).sorted()
+        for i in sorted.indices {
+            for j in sorted.indices where i < j {
+                XCTAssertNotEqual(sorted[i], sorted[j], "no ties survive the sort")
+            }
+        }
+    }
+
     /// The key derives from the diagnostic itself — path standardized, start
     /// offset from the buffer range.
     func testTheOrderingKeyDerivesFromTheDiagnostic() {
@@ -394,7 +492,7 @@ final class DiagnosticTests: XCTestCase {
         )
         XCTAssertEqual(
             diagnostic.orderingKey,
-            key("/tmp/pkg/Src/A.swift", 12, .warning)
+            key("/tmp/pkg/Src/A.swift", 12, .warning, end: 15, message: "m")
         )
     }
 
