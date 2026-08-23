@@ -633,6 +633,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     toggles, the file opens, the right-clicked row gets its own menu — which
     is what Finder does with an inline rename and what a
     swallow-the-first-click rule would cost the user a second click for. The
+    drafted row is the one exception, since `projectTreeContextMenu(isEnabled:)`
+    installs no menu on it while the draft is open and AppKit resolves the menu
+    before SwiftUI re-renders the cancelled row: right-clicking it beside the
+    field cancels and opens nothing (`TreeDraftDismissRule`). The
     rule is asked on the mouse-**down** — where the user aimed, and what
     keeps a text-selection drag out of the field from reading as a click
     elsewhere — but a left-click's cancellation is held until the matching
@@ -658,7 +662,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     it can neither intercept a click nor move the layout. Two edges of that
     construction are stated where they are decided (`TreeDraftDismissRule`'s
     "What `draftBounds` is") and worth repeating here: what is handed to the
-    rule is `bounds.intersection(visibleRect)`, since the tree scrolls and a
+    rule is `visibleRect` — `bounds` as the superviews actually show it, so
+    no intersection with `bounds` is needed — since the tree scrolls and a
     draft scrolled out of the clip view would otherwise keep owning clicks
     on the pane header and the panes around it; and only a *create* draft
     draws an icon column of its own, so during a **rename** the row's icon
@@ -735,7 +740,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     at the width the tree pane proposes, clamped to at least one line and at
     most the same six-line ceiling the dialog used (past that the input is
     pathological and a taller row pushes the tree around more than it
-    helps). **Only a concrete, positive, finite proposed width is answered**;
+    helps). The two points of caret/descender slack are added to the
+    *measurement* as well as to that floor and that ceiling — carried by only
+    two of the three, the measured heights in between would be the one part of
+    the range drawn without it, the same field tighter at two lines than at
+    one. **Only a concrete, positive, finite proposed width is answered**;
     the unspecified, zero and infinite proposals are the row's `HStack`
     probing for flexibility and return `nil`, handing them to SwiftUI's
     default sizing. The tempting alternative — answering them with the

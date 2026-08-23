@@ -68,7 +68,9 @@ user sees it.
   Clicking anywhere outside the draft — another row, a tab, the editor, the
   bottom bar — cancels it silently *and* still does what that click would
   normally do (the folder toggles, the file opens, the right-clicked row gets its
-  menu), the way an inline rename behaves in Finder; clicking the field, a create
+  menu — every row but the one being named, which has no menu while its draft is
+  open, so that click only cancels and the menu is back on the next one), the way
+  an inline rename behaves in Finder; clicking the field, a create
   draft's icon or the reason line does not cancel, and neither does the window's
   title bar or ⌘Tabbing to another app and ⌘Tabbing back, which leaves the draft
   and its text untouched. (Coming back by *clicking* the window is an ordinary

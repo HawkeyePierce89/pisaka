@@ -306,7 +306,10 @@ struct TreeDraftDismissRegion: NSViewRepresentable {
                 MainActor.assumeIsolated { self.handle(event) }
                 // ALWAYS the event, unchanged: cancelling a draft does not
                 // swallow the click. The folder still toggles, the file still
-                // opens, the right-clicked row still gets its menu.
+                // opens, the right-clicked row still gets its menu — every row
+                // but the drafted one, which has no menu installed while its
+                // draft is open and so opens none on the click that cancels it
+                // (`TreeDraftDismissRule` states that exception).
                 return event
             }
         }
@@ -357,17 +360,20 @@ struct TreeDraftDismissRegion: NSViewRepresentable {
             // cannot arise.
             let insideContent = window.contentView != nil
                 && window.contentLayoutRect.contains(event.locationInWindow)
-            // `bounds` intersected with `visibleRect`, not `bounds`: the tree is
-            // a scroll view, so a draft scrolled out of the clip view keeps a
-            // rectangle that now maps over the pane's header and the panes
-            // above and below it. Clipped away, it owns none of that — and a
+            // `visibleRect`, **not** `bounds`: the tree is a scroll view, so a
+            // draft scrolled out of the clip view keeps a `bounds` that now maps
+            // over the pane's header and the panes above and below it — clicking
+            // there would read as clicking the draft. `visibleRect` is that same
+            // rectangle already clipped to what the superviews actually show (it
+            // is by definition a sub-rectangle of `bounds`, in the same
+            // coordinate space, so intersecting the two would be a no-op), and a
             // fully scrolled-out draft yields the empty rectangle the rule
             // already answers `cancel` for.
             let decision = TreeDraftDismissRule.decision(
                 clickedWindowIsDraftWindow: event.window === window,
                 clickedInsideWindowContent: insideContent,
                 point: convert(event.locationInWindow, from: nil),
-                draftBounds: bounds.intersection(visibleRect)
+                draftBounds: visibleRect
             )
             guard decision == .cancel else {
                 // A down *on* the draft also clears any pending cancel: without
@@ -513,7 +519,11 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
         let fitting = cell.cellSize(
             forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)
         ).height
-        return min(max(ceil(fitting), oneLine), maximum)
+        // The slack is added to the *measurement* too, not only to the floor and
+        // the ceiling: a two-line draft measures taller than `oneLine`, so a bare
+        // `ceil(fitting)` would win the `max` and be the one height in the range
+        // drawn without it — the same field, tighter at two lines than at one.
+        return min(max(ceil(fitting) + Self.fieldVerticalPadding, oneLine), maximum)
     }
 
     /// The same ceiling the tree's retired dialog used: past six lines the input is

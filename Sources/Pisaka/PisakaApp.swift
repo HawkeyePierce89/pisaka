@@ -3143,12 +3143,14 @@ struct PisakaApp: App {
 
     /// Surface a rejected name the same non-fatal way as a disk failure.
     ///
-    /// The two call sites have different grammars, so the text does too. The
-    /// create dialogs (`isPath: true`) treat a slash as a path separator, so the
-    /// message explains the *per-component* rule. Rename (`isPath: false`) still
-    /// takes a single name and rejects any slash outright — a path there would be
-    /// a move, a separate feature — so it must not be told that slashes separate
-    /// folders.
+    /// Both call sites are now post-*commit* reporters — the inline draft has
+    /// already accepted the name against the same Core rule — and the two have
+    /// different grammars, so the text does too. The create paths
+    /// (`newFile(in:name:)`/`newFolder(in:name:)`, `isPath: true`) treat a slash
+    /// as a path separator, so the message explains the *per-component* rule.
+    /// Rename (`isPath: false`) still takes a single name and rejects any slash
+    /// outright — a path there would be a move, a separate feature — so it must
+    /// not be told that slashes separate folders.
     private func reportInvalidName(_ name: String, isPath: Bool = true) {
         PlatformFeedback.warning()
         let alert = NSAlert()

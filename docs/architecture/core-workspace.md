@@ -748,7 +748,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     click's: the monitor returns the event unchanged, so a cancelling click also
     does what it would have done anyway — the folder toggles, the file opens, the
     right-clicked row gets its context menu. That is what Finder (and Zed) do,
-    and the alternative charges the user two clicks for one intent. The rule
+    and the alternative charges the user two clicks for one intent. One row is
+    the stated exception, and by construction: the **drafted row itself** has no
+    menu installed while its draft is open (a menu that empties itself would
+    flash an empty panel shut), and AppKit resolves the menu inside the same
+    dispatch the cancel runs in — before SwiftUI has re-rendered the row with one
+    — so right-clicking it beside the field cancels and opens nothing, and the
+    ordinary menu is back on the next right-click. The rule
     answers a *point*, and the view layer reads that point from the mouse-**down**
     — where the user aimed, and the fact that keeps a text-selection drag out of
     the field from reading as a click elsewhere. *Applying* the answer is a
@@ -781,7 +787,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     measured inset, and nothing here knows about flipped coordinates. Two edges
     of that construction are the geometry answering rather than the rule bending,
     and both are stated on the rule itself: the caller passes the **visible** part
-    of the rectangle (`bounds.intersection(visibleRect)`), because the tree
+    of the rectangle (`visibleRect`, which is `bounds` already clipped by the
+    superviews and so needs no intersection), because the tree
     scrolls and a draft scrolled out of the clip view would otherwise keep owning
     clicks on the pane's header and its neighbours; and only a **create** draft
     draws an icon column of its own, so during a *rename* the row's icon — and

@@ -185,8 +185,10 @@ enum FilePanels {
             validator: validator
         )
         field.delegate = delegate
-        // Get the initial state right before the dialog is shown: a pre-filled
-        // Rename opens with OK enabled, an empty create with OK disabled. Run it
+        // Get the initial state right before the dialog is shown: of the two
+        // surviving callers, "New Branch from Remote" opens pre-filled with OK
+        // enabled and "New Branch…" opens empty with OK disabled — both through
+        // the blank-input branch alone, since neither passes a validator. Run it
         // before the frame is sized so a reason shown from the start is included.
         delegate.revalidate(text: defaultValue)
 

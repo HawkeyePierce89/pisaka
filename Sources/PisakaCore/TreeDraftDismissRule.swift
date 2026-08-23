@@ -78,6 +78,16 @@ public enum TreeDraftClickDecision: Equatable {
 /// Finder's behaviour (and Zed's), and the alternative would charge the user two
 /// clicks for one intent.
 ///
+/// One row is the exception, and by construction rather than by oversight: the
+/// **drafted row itself** carries no context menu while its draft is open (a
+/// menu that empties itself instead flashes an empty panel shut, so the view
+/// layer omits the modifier). Right-clicking it beside the field — its icon, its
+/// chevron column, its padding — is outside the draft, so the rule answers
+/// `cancel` and the draft ends, but AppKit resolves the menu in that same
+/// dispatch, before the row has been re-rendered with one. Nothing opens; the
+/// next right-click gets the ordinary menu. It is the one place the sentence
+/// above does not reach.
+///
 /// This rule answers a *point*, and the view layer reads that point from the
 /// mouse-**down** — the position the user aimed at, and the one fact that keeps
 /// a text-selection drag out of the field from reading as a click elsewhere.
