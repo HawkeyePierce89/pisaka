@@ -1014,7 +1014,14 @@ struct CodeEditorView: NSViewRepresentable {
                 return HoverController.Source(
                     provider: symbolIndex.provider,
                     fileURL: self.fileURL,
-                    rootGeneration: symbolIndex.currentRootGeneration
+                    rootGeneration: symbolIndex.currentRootGeneration,
+                    diagnosticsAtOffset: { [weak self] url, offset in
+                        // D34's lookup: the same store the squiggles and the
+                        // gutter read, queried at the moment the hover asks.
+                        // Empty for an undiagnosed document, which leaves the
+                        // controller's dwell rule exactly as it was.
+                        self?.diagnosticsModel?.diagnostics(at: offset, in: url) ?? []
+                    }
                 )
             }
         }

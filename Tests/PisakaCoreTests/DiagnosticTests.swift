@@ -344,4 +344,81 @@ final class DiagnosticTests: XCTestCase {
             key("/tmp/pkg/Src/A.swift", 12, .warning)
         )
     }
+
+    // MARK: - Hover content (D34)
+
+    private func diagnosed(
+        at location: Int,
+        _ severity: DiagnosticSeverity,
+        _ message: String
+    ) -> Diagnostic {
+        Diagnostic(
+            range: NSRange(location: location, length: 3),
+            line: 0,
+            severity: severity,
+            message: message,
+            source: nil,
+            fileURL: url
+        )
+    }
+
+    func testOneDiagnosticAloneIsALabelledProseSegment() throws {
+        let content = try XCTUnwrap(
+            Diagnostic.hoverContent(for: [diagnosed(at: 4, .warning, "unused x")], merging: nil)
+        )
+        XCTAssertEqual(content.segments, [.prose("warning: unused x")])
+        XCTAssertFalse(content.isTruncated)
+    }
+
+    /// Two sharing one range sort most-severe-first, per the ordering key — the
+    /// error a pointer rests on leads its hint.
+    func testTwoOnOneRangeOrderMostSevereFirst() throws {
+        let content = try XCTUnwrap(Diagnostic.hoverContent(
+            for: [
+                diagnosed(at: 4, .hint, "h"),
+                diagnosed(at: 4, .error, "e"),
+            ],
+            merging: nil
+        ))
+        XCTAssertEqual(content.segments, [.prose("error: e"), .prose("hint: h")])
+    }
+
+    /// The messages ride above the type answer, in front of it.
+    func testADiagnosticSitsAboveTheTypeAnswer() throws {
+        let typeAnswer = try XCTUnwrap(HoverContent(segments: [.code("func f()"), .prose("doc")]))
+        let content = try XCTUnwrap(
+            Diagnostic.hoverContent(for: [diagnosed(at: 0, .error, "bad")], merging: typeAnswer)
+        )
+        XCTAssertEqual(content.segments, [.prose("error: bad"), .code("func f()"), .prose("doc")])
+        XCTAssertFalse(content.isTruncated)
+    }
+
+    /// A message past the line cap comes out clipped and marked — D26's cap
+    /// applied once, by the checking initializer, not re-applied here or left
+    /// to the renderer's line-count pass.
+    func testAMessageLongerThanTheCapIsClippedAndMarked() throws {
+        let long = String(repeating: "a", count: HoverContent.maximumLineLength + 100)
+        let content = try XCTUnwrap(
+            Diagnostic.hoverContent(for: [diagnosed(at: 0, .error, long)], merging: nil)
+        )
+        XCTAssertEqual(content.segments.count, 1)
+        XCTAssertEqual(content.segments.first?.text.count, HoverContent.maximumLineLength)
+        XCTAssertTrue(content.isTruncated)
+    }
+
+    /// Nothing diagnosed: the type answer passes through whole — segments and
+    /// its own truncation mark included.
+    func testAnEmptySetFallsThroughToTheTypeAnswerUnchanged() throws {
+        let typeAnswer = try XCTUnwrap(
+            HoverContent(segments: [.prose("Int"), .prose("doc")], isTruncated: true)
+        )
+        let content = Diagnostic.hoverContent(for: [], merging: typeAnswer)
+        XCTAssertEqual(content, typeAnswer)
+    }
+
+    /// No diagnostics and no type answer is no popover (D25), never an empty
+    /// one.
+    func testNothingAtAllBuildsNoContent() {
+        XCTAssertNil(Diagnostic.hoverContent(for: [], merging: nil))
+    }
 }

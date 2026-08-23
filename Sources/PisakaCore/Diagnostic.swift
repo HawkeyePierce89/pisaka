@@ -33,6 +33,18 @@ public enum DiagnosticSeverity: Int, Sendable, Hashable {
     /// The wire integer for this severity — the "both ways" half of the table.
     public var lspValue: Int { rawValue }
 
+    /// The severity's spoken form — the word hover prefixes a diagnostic's
+    /// message with (D34), lowercase because that is how servers and compilers
+    /// name severities in the output a developer already reads.
+    public var label: String {
+        switch self {
+        case .error: return "error"
+        case .warning: return "warning"
+        case .information: return "information"
+        case .hint: return "hint"
+        }
+    }
+
     /// Higher is more serious; the input to both `<` and `OrderingKey`.
     private var seriousnessRank: Int {
         switch self {
@@ -188,4 +200,46 @@ public extension Diagnostic {
 
     /// Where this diagnostic sorts, per the rules on `OrderingKey`.
     var orderingKey: OrderingKey { OrderingKey(self) }
+}
+
+// MARK: - Hover (D34)
+
+public extension Diagnostic {
+    /// The hover popover's content for a pointer resting on `diagnostics`
+    /// (D34): each message as a severity-labelled prose segment in
+    /// ``orderingKey`` order, above `typeAnswer`'s segments when there is one
+    /// and alone when there is not.
+    ///
+    /// The labels are what make a bare message readable — "value of type X has
+    /// no member" without its "error:" reads as documentation rather than as a
+    /// complaint — and the order is the panel's, decided here for the same
+    /// reason the key exists: two surfaces must agree on it without consulting
+    /// each other.
+    ///
+    /// **The cap machinery is not applied twice.** Building goes through the
+    /// `HoverContent` checking initializer, which is where D26's two length caps
+    /// already run on every hover answer; cutting to a *line count* stays the
+    /// renderer's call at presentation (`truncated(toLineCount:)`), exactly as
+    /// for a plain type answer. Nothing here truncates again — the merged value
+    /// travels the one path a server's answer always took.
+    ///
+    /// `nil` only when there is nothing to draw at all: an empty set with no
+    /// type answer — or messages that normalize to nothing — is "no popover",
+    /// never an empty one (D25). An empty set with a type answer falls through
+    /// to that answer **unchanged** — segments and truncation mark alike;
+    /// there are no diagnostics, so there is nothing to merge above it.
+    static func hoverContent(
+        for diagnostics: [Diagnostic],
+        merging typeAnswer: HoverContent?
+    ) -> HoverContent? {
+        guard !diagnostics.isEmpty else { return typeAnswer }
+        let ordered = diagnostics.sorted { $0.orderingKey < $1.orderingKey }
+        let labelled = ordered.map { diagnostic in
+            HoverSegment.prose("\(diagnostic.severity.label): \(diagnostic.message)")
+        }
+        return HoverContent(
+            segments: labelled + (typeAnswer?.segments ?? []),
+            isTruncated: typeAnswer?.isTruncated ?? false
+        )
+    }
 }

@@ -2,7 +2,8 @@
 import AppKit
 import PisakaCore
 
-/// Turns "the pointer has been sitting on this identifier" into a hover request,
+/// Turns "the pointer has been sitting on this identifier" — or, since D34,
+/// "the pointer has come to rest inside a diagnostic" — into a hover request,
 /// and its answer into a popover.
 ///
 /// Built in the `CompletionController` mould, because it has the same shape of
@@ -20,10 +21,12 @@ import PisakaCore
 ///
 /// Everything it decides is Core's: `IdentifierScanner` says what counts as a
 /// word (so hover, ⌘-click and completion can never disagree), the provider
-/// decides whether there is an answer, and `HoverContent` decides what the
-/// answer looks like and how much of it fits. This class owns exactly two facts
-/// of its own — where the pointer is, and whether the answer on screen still
-/// describes it.
+/// decides whether there is an answer, `HoverContent` decides what the
+/// answer looks like and how much of it fits, and since D34 the diagnostic
+/// messages merge into that same answer through `Diagnostic.hoverContent` —
+/// still the one popover, with no second surface. This class owns exactly two
+/// facts of its own — where the pointer is, and whether the answer on screen
+/// still describes it.
 ///
 /// **Silent throughout.** No server, no capability, no answer, a timeout, a
 /// stale document: all of them are "no popover", with no beep and no alert.
@@ -52,6 +55,14 @@ final class HoverController: NSObject {
         /// editor-has-gone path read `nil == nil` and *accept* the stale answer
         /// it exists to drop.
         let rootGeneration: Int
+        /// Every diagnostic currently held for `fileURL` at a buffer offset, in
+        /// ``Diagnostic/orderingKey`` order — D34's lookup, read *at the moment
+        /// the question would be asked* like everything else in here. Empty for
+        /// an undiagnosed document (and for a preview), which makes the whole
+        /// diagnostics half of the dwell rule inert rather than special-cased:
+        /// the pointer rules below collapse onto the identifier-only behaviour
+        /// they had before this existed.
+        let diagnosticsAtOffset: (URL, Int) -> [Diagnostic]
     }
 
     /// Supplies the above; `nil` means "nothing to ask", which is the state a
@@ -128,19 +139,42 @@ final class HoverController: NSObject {
 
     /// The pointer moved to `point`, in the text view's own coordinates.
     ///
-    /// Three outcomes and no others: the pointer is over something that is not a
-    /// word (dismiss), it is still over the thing the current answer is about
-    /// (do nothing at all), or it is over a new identifier (supersede everything
+    /// Three outcomes and no others: the pointer is over something that is
+    /// neither a word nor diagnosed text (dismiss), it is still over the thing
+    /// the current answer is about (do nothing at all), or it is over a new
+    /// identifier — or into a diagnostic range (D34) — (supersede everything
     /// and start a fresh dwell).
     func pointerMoved(to point: NSPoint, in textView: NSTextView) {
         guard let offset = Self.characterIndex(at: point, in: textView) else {
             dismiss()
             return
         }
-        // Only an identifier is worth asking about, and its range is what
-        // anchors the popover before the server names a range of its own. This
-        // is also the gate that keeps whitespace, punctuation and the empty
-        // region past a line's end from reaching the provider at all.
+        // The source is read once, up front, and reused below: D34's diagnostics
+        // lookup needs it *before* any ask is decided, and calling twice for one
+        // event would be two snapshots of something the gates must reason about
+        // as one. `nil` does not dismiss by itself — the gates below keep
+        // deciding that exactly as they did — so a popover whose editor has lost
+        // its index controller still leaves through the suppression test rather
+        // than being torn down ahead of it.
+        let resolvedSource = source()
+        // D34: what a server has flagged under the pointer, read at the moment
+        // the question would be asked like everything else here. Empty for an
+        // undiagnosed document (and for a preview), which makes every
+        // diagnostic-shaped branch below inert: the rules collapse onto the
+        // identifier-only behaviour they had before this lookup existed.
+        let hitDiagnostics = resolvedSource.map { source -> [Diagnostic] in
+            source.fileURL.map { source.diagnosticsAtOffset($0, offset) } ?? []
+        } ?? []
+        guard let storage = textView.textStorage else {
+            dismiss()
+            return
+        }
+        // An identifier is still the first thing worth asking about, and its
+        // range is what anchors the popover when it is all there is. This is
+        // also the gate that keeps whitespace, punctuation and the empty region
+        // past a line's end from reaching the provider at all — unless a
+        // diagnostic sits under the pointer, which asks too (D34): a squiggle
+        // can cover punctuation no scanner calls a word.
         //
         // Read through the storage's own `NSMutableString` rather than
         // `textView.string`: this line runs on every mouse-moved event, and the
@@ -148,9 +182,8 @@ final class HoverController: NSObject {
         // other `textView.string` in the editor sits behind a debounce or an
         // explicit command; nothing here may. Read-only, and synchronously on the
         // main actor, so no edit can interleave.
-        guard let storage = textView.textStorage,
-              let match = IdentifierScanner.identifier(in: storage.mutableString, at: offset)
-        else {
+        let match = IdentifierScanner.identifier(in: storage.mutableString, at: offset)
+        guard match != nil || !hitDiagnostics.isEmpty else {
             dismiss()
             return
         }
@@ -171,20 +204,26 @@ final class HoverController: NSObject {
         // there is what makes this test and the ask below agree; a guard on the
         // offset alone cannot, because the `.` after a name and the newline after
         // one sit at the very same offset relative to it.
-        if let anchorRange,
-           NSLocationInRange(offset, anchorRange) || Self.range(anchorRange, contains: match.range) {
-            return
+        //
+        // The anchor may now equally be a diagnostic union (D34); the offset test
+        // covers it without ceremony, since the pointer staying inside the union
+        // is precisely "still about the answer on screen".
+        if let anchorRange {
+            let matchCovered = match.map { Self.range(anchorRange, contains: $0.range) } ?? false
+            if NSLocationInRange(offset, anchorRange) || matchCovered {
+                return
+            }
         }
         // Nothing on screen to keep, so the *second* probe's answer is no longer
         // wanted: a question is only asked when the pointer is over the word
-        // itself. `IdentifierScanner` also resolves the identifier *ending* at an
-        // offset (the caret's rule), so without this the space after a name and the
-        // `.` of `worker.name` would reach the provider as questions about the word
-        // before them. Keeping them out also makes the offset the question carries
+        // itself — or inside a diagnostic range, which is D34's addition and the
+        // one place the ending-at probe's resolution is allowed to stand in.
+        // Keeping the rest out also makes the offset the question carries
         // agree with the range the answer is anchored to, which matters because the
         // servers disagree at exactly those positions (sourcekit-lsp resolves at the
         // preceding token, gopls' node lookup is `[Pos, End)`).
-        guard NSLocationInRange(offset, match.range) else {
+        let insideIdentifier = match.map { NSLocationInRange(offset, $0.range) } ?? false
+        guard insideIdentifier || !hitDiagnostics.isEmpty else {
             dismiss()
             return
         }
@@ -198,16 +237,30 @@ final class HoverController: NSObject {
         panel.dismiss()
         anchorRange = nil
 
-        // Read the source *before* claiming the identifier. `anchorRange` is the
-        // re-ask suppressor, and it means "this word has been asked about" — so
-        // setting it for a question that is never asked (no provider, i.e. a
-        // preview or an editor whose index controller has gone) would make the
-        // pointer have to leave the word and come back before anything happens.
-        guard let source = source() else { return }
-        anchorRange = match.range
-        let provider = source.provider
-        let rootGeneration = source.rootGeneration
-        let fileURL = source.fileURL
+        // What the question carries and what it anchors to: the identifier's
+        // span when there is one, extended over every diagnostic range it hit —
+        // or, for a pointer resting inside a squiggle but not on any word, the
+        // union of the hit spans alone. The union is what makes the re-ask
+        // suppressor hold across the whole span: moving between overlapping
+        // diagnostics' text must not tear the popover down per pixel. Off an
+        // identifier the question carries the span's start rather than the
+        // pointer's own offset — servers resolve tokens, and a diagnostic begins
+        // at the construct it complains about, so the start is the likeliest
+        // position to resolve at all.
+        let question = Self.question(for: offset, identifier: match, diagnostics: hitDiagnostics)
+
+        // The anchor is claimed only once a question is certain to be asked — it
+        // means "this has been asked about", and the source read up front is the
+        // one this ask consumes (nothing is read twice for one event).
+        guard let resolvedSource else { return }
+        anchorRange = question.anchor
+        let provider = resolvedSource.provider
+        let rootGeneration = resolvedSource.rootGeneration
+        let fileURL = resolvedSource.fileURL
+        // The messages travel with the question, captured synchronously before
+        // the hop like everything else: a push landing during the dwell or the
+        // await must not rewrite what this popover is about to say mid-flight.
+        let pendingDiagnostics = hitDiagnostics
         dwellTask = Task { [weak self, weak textView] in
             try? await Task.sleep(for: .seconds(HoverContent.dwellDelay))
             if Task.isCancelled { return }
@@ -229,7 +282,7 @@ final class HoverController: NSObject {
             // read is as safe here as it was there.
             let request = HoverRequest(
                 fileURL: fileURL,
-                offset: offset,
+                offset: question.offset,
                 text: textView.string
             )
             let answer = await provider.hover(for: request)
@@ -239,8 +292,17 @@ final class HoverController: NSObject {
                   self.source()?.rootGeneration == rootGeneration
             else { return }
             self.dwellTask = nil
-            guard let answer else { return }
-            self.present(answer, in: textView)
+            // D34: the messages ride the same popover — above the type answer
+            // when there is one, alone when there is not, and nothing shows at
+            // all when both come back empty (the no-empty-popover rule decides,
+            // silently, as ever).
+            guard let content = Diagnostic.hoverContent(
+                for: pendingDiagnostics,
+                merging: answer?.content
+            ) else { return }
+            // The server's own range stays the honest span when it answered; a
+            // diagnostics-only answer keeps the union set at ask time.
+            self.present(content, anchoredTo: answer?.range ?? question.anchor, in: textView)
         }
     }
 
@@ -252,19 +314,27 @@ final class HoverController: NSObject {
     // MARK: - Showing and hiding
 
     /// Put the answer on screen, anchored to the span it is about.
-    private func present(_ answer: HoverAnswer, in textView: NSTextView) {
+    ///
+    /// One popover, one content type: the merged answer D34 builds is the same
+    /// `HoverContent` a plain type answer always was — no second panel, no
+    /// second presentation path.
+    private func present(
+        _ content: HoverContent,
+        anchoredTo rawRange: NSRange,
+        in textView: NSTextView
+    ) {
         // Only over the window the user is actually in. A popover that arrived a
         // dwell after the editor lost focus would float over whatever took it.
         guard let window = textView.window, window.isKeyWindow else { return }
         let length = textView.textStorage?.length ?? 0
-        guard answer.range.location >= 0, answer.range.location <= length else { return }
+        guard rawRange.location >= 0, rawRange.location <= length else { return }
         // Clamped by truncating the length rather than intersecting, for
         // `pendingRevealRange`'s reason: a range starting exactly at the buffer's
         // end shares no unit with it, and an intersection would answer `{0, 0}` —
         // anchoring the popover at the top of the file.
         let clamped = NSRange(
-            location: answer.range.location,
-            length: min(max(answer.range.length, 0), length - answer.range.location)
+            location: rawRange.location,
+            length: min(max(rawRange.length, 0), length - rawRange.location)
         )
         // Measured *before* the anchor is published, and the order is load-bearing:
         // `firstRect` can force layout on a range not yet laid out, and a reflow
@@ -275,11 +345,13 @@ final class HoverController: NSObject {
         // re-asks, for a visible flicker and a redundant round trip.
         let anchor = textView.firstRect(forCharacterRange: clamped, actualRange: nil)
         // What the pointer is now measured against: the server's own range when
-        // it sent one, which is usually wider than the identifier (a qualified
-        // name, an operator expression) and is the honest span of the answer.
+        // it sent one, which is usually wider than what was asked about (a
+        // qualified name, an operator expression) and is the honest span of the
+        // answer; for diagnostics alone it is the union of the flagged spans,
+        // set when the question was claimed.
         anchorRange = clamped
         panel.show(
-            answer.content.truncated(),
+            content.truncated(),
             anchoredTo: anchor,
             in: window,
             codeFontSize: codeFontSize,
@@ -322,6 +394,39 @@ final class HoverController: NSObject {
     /// within it must not re-ask.
     private static func range(_ outer: NSRange, contains inner: NSRange) -> Bool {
         inner.location >= outer.location && NSMaxRange(inner) <= NSMaxRange(outer)
+    }
+
+    /// Where a hover question about `offset` points and what it anchors to.
+    ///
+    /// The identifier's span when there is one — extended, when the pointer also
+    /// sits in diagnosed text, over every diagnostic range it hit — or otherwise
+    /// the union of the hit ranges alone. Off an identifier the request carries
+    /// the union's *start*: a diagnostic begins at the construct it complains
+    /// about, so the start is the likeliest position for a token-resolving
+    /// server to answer at all (see `pointerMoved`).
+    private static func question(
+        for offset: Int,
+        identifier: IdentifierScanner.Match?,
+        diagnostics: [Diagnostic]
+    ) -> (offset: Int, anchor: NSRange) {
+        var anchor = identifier.map(\.range)
+        var start = offset
+        if let first = diagnostics.first {
+            let union = diagnostics.dropFirst().reduce(first.range) { Self.union($0, $1.range) }
+            anchor = anchor.map { Self.union($0, union) } ?? union
+            let inside = identifier.map { NSLocationInRange(offset, $0.range) } ?? false
+            if !inside { start = union.location }
+        }
+        return (start, anchor ?? NSRange(location: offset, length: 0))
+    }
+
+    /// The smallest range covering both — how overlapping diagnostics become
+    /// one anchor span. Both inputs are store-mapped ranges (`location >= 0`),
+    /// so no `NSNotFound` guard is owed here.
+    private static func union(_ a: NSRange, _ b: NSRange) -> NSRange {
+        let location = min(a.location, b.location)
+        let end = max(NSMaxRange(a), NSMaxRange(b))
+        return NSRange(location: location, length: end - location)
     }
 
     // MARK: - Resolving the character under the pointer

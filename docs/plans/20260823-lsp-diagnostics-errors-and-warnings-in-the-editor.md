@@ -427,25 +427,25 @@ by absence.
 - Modify: `Sources/PisakaCore/Diagnostic.swift`,
   `Sources/Pisaka/HoverController.swift`, `Sources/Pisaka/CodeEditorView.swift`
 
-- [ ] Add the pure builder
+- [x] Add the pure builder
       `Diagnostic.hoverContent(for diagnostics:merging typeAnswer:)` producing
       `HoverContent` segments — the messages as prose, severity-labelled and in
       `orderingKey` order, above the type answer's segments when there is one —
       and reusing `HoverContent`'s existing truncation so D26's cap is applied
       once, not twice.
-- [ ] Extend `HoverController.Source` with a diagnostics lookup, and change the
+- [x] Extend `HoverController.Source` with a diagnostics lookup, and change the
       dwell rule so a pointer inside a diagnostic range asks even when it is not
       over an identifier; the anchor becomes the diagnostic's range (union of the
       ones hit) so the re-ask suppressor still holds while the pointer stays in
       it.
-- [ ] Keep every dismissal rule, the generation token and the silent-failure
+- [x] Keep every dismissal rule, the generation token and the silent-failure
       behaviour exactly as they are; no second popover type is introduced.
-- [ ] Extend `DiagnosticTests` with the hover-content builder: one diagnostic
+- [x] Extend `DiagnosticTests` with the hover-content builder: one diagnostic
       alone, two on one range, a diagnostic plus a type answer, a message longer
       than the cap, and an empty set falling through to the type answer
       unchanged.
-- [ ] Run `swift test`, `swiftlint --strict`, and the macOS build — must pass
-      before Task 10.
+- [x] Run `swift test`, `swiftlint --strict`, and the macOS build — must pass
+      before Task 10. (3303 tests green; lint clean; macOS build succeeded.)
 
 ### Task 10: Verify acceptance criteria
 
