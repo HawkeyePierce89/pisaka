@@ -467,16 +467,18 @@ private struct DirectoryNodeView: View {
     /// themselves performed is noise, not information.
     private func loadChildren() {
         do {
-            children = try model.children(of: url)
+            let listing = try model.children(of: url)
+            children = listing
 
-            // Parent node drops the draft when a reload loses the drafted entry's url
-            if case .rename(let draftedEntry) = draft,
-               let currentChildren = children,
-               !currentChildren.contains(where: { $0.url == draftedEntry.url }) {
-                // To safely determine if this node is the parent, we can check if the drafted entry's URL is a direct child
-                if draftedEntry.url.deletingLastPathComponent().standardizedFileURL.path == url.standardizedFileURL.path {
-                    draft = nil
-                }
+            // A successful reload can lose the draft just as thoroughly as a
+            // collapse or an `ENOENT` does — the entry the draft is drawn at, or
+            // the child folder its subtree hangs from, is simply no longer
+            // listed (an external delete, rename or move). That row is gone from
+            // the hierarchy with nothing left to draw the field, so the draft is
+            // dropped here for the reason recorded on the collapse above.
+            if let expected = draftedChild(),
+               !listing.contains(where: { $0.name == expected.name && (!expected.mustBeDirectory || $0.isDirectory) }) {
+                draft = nil
             }
         } catch {
             if !Self.isMissingFileError(error) {
@@ -517,6 +519,39 @@ private struct DirectoryNodeView: View {
             anchor.standardizedFileURL.resolvingSymlinksInPath().path,
             isWithin: directory.standardizedFileURL.resolvingSymlinksInPath().path
         )
+    }
+
+    /// The child of *this* directory that the open draft depends on: the row the
+    /// draft is drawn at when it is anchored here, or the folder its subtree
+    /// hangs from when it is anchored deeper. `nil` when no draft is anchored
+    /// below this directory, or when the draft is drawn by this node's own row
+    /// (a create in this very folder — this folder exists, we just read it).
+    ///
+    /// This is the reload half of `draftIsBelow(_:)`, and deliberately the same
+    /// reach: a listing that no longer offers the way down to the drafted row has
+    /// taken that row out of the hierarchy exactly as a collapse would. A
+    /// directory is additionally *required to still be one* when the draft lives
+    /// further down, because a folder replaced by a file of the same name (an
+    /// external `rm -rf src && touch src`) stops rendering its subtree without
+    /// ever losing the name.
+    private func draftedChild() -> (name: String, mustBeDirectory: Bool)? {
+        guard let draft, draftIsBelow(url) else { return nil }
+        let anchor: URL
+        switch draft {
+        case .create(let parent, _): anchor = parent
+        case .rename(let draftedEntry): anchor = draftedEntry.url.deletingLastPathComponent()
+        }
+        let anchorComponents = anchor.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        let selfComponents = url.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        if anchorComponents.count > selfComponents.count {
+            return (anchorComponents[selfComponents.count], true)
+        }
+        // Anchored in this very directory: a rename's row is the drafted entry
+        // itself (of either kind), a create's row is this folder's own.
+        if case .rename(let draftedEntry) = draft {
+            return (draftedEntry.url.lastPathComponent, false)
+        }
+        return nil
     }
 
     /// Whether `error` is "this path is gone" — the node is about to disappear from

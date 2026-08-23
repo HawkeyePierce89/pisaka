@@ -459,7 +459,23 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     it flips at most twice per draft (opened, then committed or cancelled),
     at moments the row is rebuilt anyway. The
     draft survives `treeRevision` bumps, tearing down only on project
-    switch, parent folder collapse, or target missing. The `onNewFile(URL,
+    switch, or when the row that draws it leaves the hierarchy. That last
+    condition has one reach, spelled by `draftIsBelow(_:)` and asked at
+    three sites: collapsing a folder, an `ENOENT` on its reload, and a
+    *successful* reload that no longer lists the way down to the drafted
+    row (`draftedChild()` — the drafted entry itself when the draft is
+    anchored in that directory, otherwise the child folder its subtree
+    hangs from, which must still be a directory, since a folder replaced by
+    a file of the same name stops rendering its subtree without losing the
+    name). All three are the whole *subtree*, not the direct children: a
+    draft left behind by a narrower rule would survive with nothing drawing
+    it — no field to press Esc in, no mouse-down monitor (the region view
+    went away with the row) — and a later re-expansion, or the path simply
+    reappearing, would revive an editable field that steals focus for an
+    edit the user believes they ended. A folder's *own* rename draft is
+    deliberately outside that reach: it is drawn in the folder's label row,
+    which its parent still lists, so collapsing the folder keeps it. The
+    `onNewFile(URL,
     String)` / `onNewFolder(URL, String)` / `onRename(URL, String)`
     callbacks take the final accepted text and run under the same writer
     gate as defense-in-depth, while `onDelete` / `onRun` / `onRunTest`
