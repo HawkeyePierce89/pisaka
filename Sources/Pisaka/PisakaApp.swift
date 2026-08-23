@@ -113,6 +113,28 @@ struct PisakaApp: App {
     /// same reason.
     private let lspWorkspace: LSPWorkspace
 
+    /// Every language server's published diagnostics, with the sync/revision
+    /// bookkeeping that decides which pushes may land (D31/D32): what the
+    /// editor's overlays, the gutter and the Problems panel read. A plain
+    /// stored reference like every model above — this scene's `body` reads
+    /// nothing published on it, so observing it would only put `ContentView`
+    /// back on the republish path for value nothing in this scene shows; the
+    /// surfaces that show diagnostics observe it themselves.
+    private let diagnostics: DiagnosticsModel
+
+    /// Schedules the push channel's sync (D30): every open buffer of a served
+    /// language is flushed to its server behind a 400 ms debounce, and
+    /// immediately on a tab open/switch, so the server re-diagnoses without
+    /// being asked. A plain stored reference like `symbolIndexController`, for
+    /// the same reason: it publishes nothing and must outlive individual
+    /// editor views.
+    ///
+    /// **A reader**, exactly like everything else in the LSP layer: it raises
+    /// no `autosave.suspend()`/`localChanges.beginRevert()` and is gated by
+    /// none — a flush landing mid-revert sends one extra whole-file
+    /// notification whose late pushes the acceptance gate drops.
+    private let lspDocumentSync: LSPDocumentSyncController
+
     /// Downloads, verifies and installs the language servers this app can provision
     /// itself (phase 2b). A plain stored reference like `lspWorkspace`, and for the
     /// same reason: the `@main` App is created once, and the engine's in-flight
@@ -284,6 +306,22 @@ struct PisakaApp: App {
                 fallback: symbolIndex.provider
             )
         )
+        // The diagnostics channel (D29–D32), composed beside the routing above:
+        // the workspace's push sink feeds the model — clears included, so every
+        // teardown path blanks the three surfaces synchronously — and the sync
+        // controller is what makes pushes come at all. Captured directly rather
+        // than through `self` for the registry closures' reason below: this runs
+        // during `init`, and the sink must outlive it holding the model.
+        let diagnostics = DiagnosticsModel()
+        self.diagnostics = diagnostics
+        lspWorkspace.onDiagnostics = { [diagnostics] event in
+            diagnostics.receive(event)
+        }
+        let lspDocumentSync = LSPDocumentSyncController(
+            model: diagnostics,
+            workspace: lspWorkspace
+        )
+        self.lspDocumentSync = lspDocumentSync
         // Resolve `sourcekit-lsp` off the main thread now, so the first ⌘-click in a
         // cold project does not pay for an `xcrun` inside the launch turn. Purely an
         // optimisation — the lookup is cached either way (see `LSPToolchain`).
@@ -681,6 +719,7 @@ struct PisakaApp: App {
                 search: search,
                 reveal: reveal,
                 symbolIndex: symbolIndexController,
+                lspSync: lspDocumentSync,
                 provisioning: lspProvisioning,
                 gopls: lspGopls,
                 rust: lspRust,
@@ -1796,6 +1835,16 @@ struct PisakaApp: App {
         if lspWorkspace.prepareForFolderChange(root: url) != lspGenerationBefore {
             Task { await lspWorkspace.shutdownAll() }
         }
+
+        // Register the switch with the diagnostics channel in this same turn,
+        // for the same reason one step removed: the model's cleared sync
+        // bookkeeping means no push routed from an old project's server can
+        // land, and the pending debounced flushes are dropped rather than
+        // flushing new-folder text at an old project's still-live server. The
+        // next tab open/switch or settled keystroke re-syncs against whatever
+        // serves the new root.
+        diagnostics.prepareForFolderChange()
+        lspDocumentSync.reset()
     }
 
     // MARK: - Commit dialog
@@ -3243,6 +3292,11 @@ struct PisakaApp: App {
     private func forgetIndexedBuffer(_ url: URL?) {
         guard let url, model.fileID(forURL: url) == nil else { return }
         symbolIndexController.noteBufferClosed(url: url)
+        // The sync controller rides the same guard: a closed tab's pending
+        // debounced flush is cancelled, so nothing pushes a buffer no editor
+        // holds. The server-side goodbye is the `didClose` below, which also
+        // emits the document clear (D33) the model routes into its store.
+        lspDocumentSync.noteBufferClosed(url: url)
         Task { await lspWorkspace.didClose(url: url) }
     }
 
@@ -3267,11 +3321,12 @@ struct PisakaApp: App {
     /// harmless — the second scheduling supersedes the first under the same key.
     private func reindexReloadedBuffer(id: UUID, url: URL) {
         guard let text = model.text(for: id) else { return }
-        symbolIndexController.noteBufferOpened(
-            url: url,
-            text: text,
-            language: SyntaxLanguage(forFileName: url.lastPathComponent)
-        )
+        let language = SyntaxLanguage(forFileName: url.lastPathComponent)
+        symbolIndexController.noteBufferOpened(url: url, text: text, language: language)
+        // The push channel rides the same immediate trigger: the server must be
+        // told the replacement before it can re-diagnose the file (D30), and a
+        // resync touches a bounded set of files, not a burst.
+        lspDocumentSync.noteBufferOpened(url: url, text: text, language: language)
     }
 
     /// Tell the symbol index that the project's files changed on disk — the

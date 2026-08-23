@@ -114,6 +114,14 @@ struct CodeEditorView: NSViewRepresentable {
     /// default-constructed view (previews/tests) still compiles.
     var symbolIndex: SymbolIndexController = SymbolIndexController(model: SymbolIndexModel())
 
+    /// Schedules the diagnostics channel's push sync (D30) beside the index
+    /// re-index above, from the *same* three triggers — so both readers of a
+    /// buffer are told about every change in the same order and can never
+    /// disagree about which text is current. Owned by `PisakaApp`; not observed
+    /// (it publishes nothing); optional so a default-constructed view
+    /// (previews/tests) compiles and simply syncs nothing.
+    var lspSync: LSPDocumentSyncController?
+
     /// Open the file a chosen definition lives in and select the declaration's
     /// name range. Wired to the very `PisakaApp.activateSearchMatch(url:range:)`
     /// a Find in Files result goes through — opening the tab is the app's job, and
@@ -364,6 +372,7 @@ struct CodeEditorView: NSViewRepresentable {
         // the disk walk may not have reached this file yet (or may be gone
         // entirely, for a file outside the opened folder).
         context.coordinator.symbolIndex = symbolIndex
+        context.coordinator.lspSync = lspSync
         context.coordinator.navigateToDefinition = onGoToDefinition
         context.coordinator.viewDefinitionOutsideProject = onViewDefinitionOutsideProject
         context.coordinator.reindexSymbols(
@@ -591,6 +600,7 @@ struct CodeEditorView: NSViewRepresentable {
         // `textDidChange` (debounced), so scheduling here as well would re-parse
         // the file twice per settled burst of typing.
         context.coordinator.symbolIndex = symbolIndex
+        context.coordinator.lspSync = lspSync
         // Keep the navigation closure current: it captures `PisakaApp`'s state, so
         // a stale one from a previous update would open tabs through a torn-down
         // scene's workspace. The out-of-root destination is kept current for the
@@ -714,6 +724,11 @@ struct CodeEditorView: NSViewRepresentable {
         /// coordinator only asks it for work. A deallocated one simply means no
         /// re-index, which is the same graceful nothing a preview gets.
         weak var symbolIndex: SymbolIndexController?
+
+        /// Schedules the diagnostics channel's push sync for the shown file
+        /// (`reindexSymbols` forwards to it beside the index calls). Held
+        /// weakly for `symbolIndex`'s exact reason.
+        weak var lspSync: LSPDocumentSyncController?
 
         /// The displayed file's URL, as last seen by `syncBlame`. Kept so the
         /// gutter's context-menu action (which passes nothing) knows *what* to
@@ -991,12 +1006,19 @@ struct CodeEditorView: NSViewRepresentable {
         /// so there is nothing to file it under. The language gate lives in the
         /// controller, so a plain-text or unindexable file costs one call and no
         /// task.
+        ///
+        /// The diagnostics sync (D30) rides the exact same two calls — the three
+        /// call sites above this method are its whole trigger surface, and riding
+        /// here rather than beside them is what guarantees the index and the LSP
+        /// server are always told about the same buffer in the same order.
         func reindexSymbols(text: String, language: SyntaxLanguage?, immediate: Bool) {
             guard let symbolIndex, let fileURL else { return }
             if immediate {
                 symbolIndex.noteBufferOpened(url: fileURL, text: text, language: language)
+                lspSync?.noteBufferOpened(url: fileURL, text: text, language: language)
             } else {
                 symbolIndex.noteBufferChanged(url: fileURL, text: text, language: language)
+                lspSync?.noteBufferChanged(url: fileURL, text: text, language: language)
             }
         }
 

@@ -297,7 +297,7 @@ by absence.
 - Create: `Sources/Pisaka/LSPDocumentSyncController.swift`
 - Modify: `Sources/Pisaka/PisakaApp.swift`, `Sources/Pisaka/CodeEditorView.swift`
 
-- [ ] `LSPDocumentSyncController` (macOS-gated, thin untested glue in
+- [x] `LSPDocumentSyncController` (macOS-gated, thin untested glue in
       `SymbolIndexController`'s exact idiom): a per-URL cancellable `Task` map, a
       400 ms debounce for `noteBufferChanged(url:text:language:)`, no debounce
       for `noteBufferOpened(...)`, and `reset()` for a folder change. Each task
@@ -305,23 +305,30 @@ by absence.
       `lspWorkspace.prepare(url:language:text:)`, and reports
       `noteSynced(url:version:revision:)` on success; a `nil` prepare (no server,
       unavailable, outside the root, folder moved) does nothing at all, silently.
-- [ ] Compose in `PisakaApp.init` beside the existing LSP block: construct
+      (Pinning reads a new `DiagnosticsModel.currentRevision(for:)`.)
+- [x] Compose in `PisakaApp.init` beside the existing LSP block: construct
       `DiagnosticsModel`, set `lspWorkspace.onDiagnostics` to forward into it,
       construct the sync controller. Wire `prepareForFolderChange` (the same
       main-actor turn as `lspWorkspace.prepareForFolderChange` /
       `symbolIndexController.reset`) and the tab-close path beside the existing
       `lspWorkspace.didClose(url:)` call.
-- [ ] Call the sync controller from `CodeEditorView`'s three existing call sites
+- [x] Call the sync controller from `CodeEditorView`'s three existing call sites
       beside `symbolIndexController.noteBufferOpened`/`noteBufferChanged`, and
       from `PisakaApp`'s `noteBufferClosed`/`noteBufferOpened` sites — the same
       triggers, so the two readers can never disagree about which buffer is
-      current.
-- [ ] Verify by inspection that nothing in this path raises the writer gate, and
-      that a `nil` prepare produces no log output and no alert.
-- [ ] Extend `DiagnosticsModelTests` with the sync bookkeeping contract the
+      current. (Forwarded inside `Coordinator.reindexSymbols`, which is exactly
+      where those two index calls live and which all three sites funnel through.)
+- [x] Verify by inspection that nothing in this path raises the writer gate, and
+      that a `nil` prepare produces no log output and no alert (verified: the
+      only `autosave`/`beginRevert` mentions in `LSPWorkspace`/the controller are
+      doc comments stating their absence; `prepare` logs nothing on any failure,
+      uniform-nil contract, and the controller acts not at all on `nil`).
+- [x] Extend `DiagnosticsModelTests` with the sync bookkeeping contract the
       controller depends on (revision pinned before the hop, a sync reported for
       a revision that has since moved is recorded but its pushes rejected).
-- [ ] Run `swift test` and `swiftlint --strict` — must pass before Task 6.
+- [x] Run `swift test` and `swiftlint --strict` — must pass before Task 6.
+      (3293 tests green; lint clean; macOS app build verified as well, since
+      these macOS-only files are outside `swift test`'s target.)
 
 ### Task 6: Editor underlines
 

@@ -76,6 +76,20 @@ public final class DiagnosticsModel: ObservableObject {
 
     // MARK: - Sync bookkeeping (fed by LSPDocumentSyncController)
 
+    /// The document's current buffer revision — what ``noteEdit`` and
+    /// ``noteBufferReplaced(url:)`` bump, and zero for a document nothing has
+    /// touched yet.
+    ///
+    /// The one thing the sync controller reads of this model, and it reads it
+    /// **once, synchronously**, at the moment it schedules a flush — the
+    /// generation-token rule. Everything the flush does afterwards happens
+    /// across hops the pin cannot span, so a sync racing a keystroke records
+    /// the *old* revision and the acceptance gate rejects its pushes until the
+    /// next debounce re-syncs; see ``noteSynced(url:version:revision:)``.
+    public func currentRevision(for url: URL) -> Int {
+        revisions[url.standardizedFileURL] ?? 0
+    }
+
     /// Record that `url` was flushed to its server: the server now holds
     /// `version`, and the buffer stood at `revision` when the flush began.
     ///

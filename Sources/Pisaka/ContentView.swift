@@ -69,6 +69,15 @@ struct ContentView: View {
     /// controller over a fresh, never-walked index so a default-constructed view
     /// (previews/tests) still compiles.
     var symbolIndex: SymbolIndexController = SymbolIndexController(model: SymbolIndexModel())
+    /// Schedules the diagnostics channel's push sync (D30): the same three
+    /// editor triggers — tab open/switch, wholesale buffer swap, settled typing
+    /// — that drive the symbol index also flush the buffer to its language
+    /// server, so the two readers can never disagree about which buffer is
+    /// current. Owned by `PisakaApp` and threaded straight into
+    /// `CodeEditorView`; deliberately **not** `@ObservedObject` and optional
+    /// (`nil` in previews/tests syncs nothing), both for the `symbolIndex`
+    /// reasons above.
+    var lspSync: LSPDocumentSyncController?
     /// Which downloadable language servers exist and what state each is in.
     /// Threaded straight through to the consent banner, and deliberately **not**
     /// `@ObservedObject` — the `symbolIndex` precedent, and for the reason
@@ -628,6 +637,7 @@ struct ContentView: View {
                     search: search,
                     reveal: reveal,
                     symbolIndex: symbolIndex,
+                    lspSync: lspSync,
                     onGoToDefinition: onGoToDefinition,
                     onViewDefinitionOutsideProject: onViewDefinitionOutsideProject
                 )

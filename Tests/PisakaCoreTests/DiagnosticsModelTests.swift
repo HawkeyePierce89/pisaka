@@ -167,6 +167,106 @@ final class DiagnosticsModelTests: XCTestCase {
         XCTAssertEqual(entry()?.diagnostics.first?.message, "fresh")
     }
 
+    // MARK: - The sync controller's pin (Task 5)
+
+    /// A revision starts implicitly at zero — what an untouched document's first
+    /// sync records.
+    func testCurrentRevisionIsZeroUntilAnEditTouchesTheDocument() {
+        XCTAssertEqual(model.currentRevision(for: url), 0)
+        XCTAssertEqual(model.currentRevision(for: otherURL), 0)
+    }
+
+    /// Each edit bumps exactly its own document's revision, by exactly one.
+    func testEachEditBumpsOnlyThatDocumentsRevision() {
+        let edit = insertAtFive()
+        model.noteEdit(
+            url: url,
+            previousLineStarts: edit.previous,
+            newLineStarts: edit.new,
+            editedRange: edit.range,
+            changeInLength: edit.delta
+        )
+        model.noteEdit(
+            url: url,
+            previousLineStarts: edit.previous,
+            newLineStarts: edit.new,
+            editedRange: edit.range,
+            changeInLength: edit.delta
+        )
+        model.noteSynced(url: otherURL, version: 1, revision: model.currentRevision(for: otherURL))
+
+        XCTAssertEqual(model.currentRevision(for: url), 2)
+        XCTAssertEqual(model.currentRevision(for: otherURL), 0)
+    }
+
+    /// The controller's sequence when typing continues across a flush: the pin
+    /// taken before the hop goes stale, so the flush that completes afterwards
+    /// records it and every push it produces is rejected — until the next
+    /// debounce re-pins the moved revision.
+    func testAPinTakenBeforeEditsRejectsTheFlushesPushesUntilItRePins() {
+        // Scheduling time: the pin is read synchronously.
+        let pinned = model.currentRevision(for: url)
+        XCTAssertEqual(pinned, 0)
+
+        // Two keystrokes land while the debounce/flush is in flight.
+        let edit = insertAtFive()
+        for _ in 0..<2 {
+            model.noteEdit(
+                url: url,
+                previousLineStarts: edit.previous,
+                newLineStarts: edit.new,
+                editedRange: edit.range,
+                changeInLength: edit.delta
+            )
+        }
+
+        // Flush completes and reports the pinned revision verbatim.
+        model.noteSynced(url: url, version: 1, revision: pinned)
+
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "mid-flight")], version: 1))
+        XCTAssertNil(entry(), "pushes from a flush that raced a keystroke are dropped")
+
+        // The next debounce re-pins the current revision and the channel opens.
+        model.noteSynced(url: url, version: 2, revision: model.currentRevision(for: url))
+        let fresh = [diagnostic(at: 4, length: 3, line: 1, severity: .warning, message: "settled")]
+        model.receive(published(fresh, version: 2))
+        XCTAssertEqual(entry()?.diagnostics, fresh)
+    }
+
+    /// A wholesale replacement moves the revision too — so a sync pinned before
+    /// the replacement cannot accept anything after it.
+    func testABufferReplacementMovesTheRevisionTheControllerPinned() {
+        let pinned = model.currentRevision(for: url)
+
+        model.noteBufferReplaced(url: url)
+
+        XCTAssertNotEqual(model.currentRevision(for: url), pinned)
+
+        // The stale pin cannot open the gate even for a matching version: the
+        // replacement also dropped the sync record, which is the working half
+        // here — pinned only as the second line of defence.
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "m")], version: nil))
+        XCTAssertNil(entry())
+    }
+
+    /// A folder change resets every document's revision to zero, so a sync
+    /// recorded before the switch can never equal a post-switch revision.
+    func testAFolderChangeResetsEveryRevision() {
+        let edit = insertAtFive()
+        model.noteEdit(
+            url: url,
+            previousLineStarts: edit.previous,
+            newLineStarts: edit.new,
+            editedRange: edit.range,
+            changeInLength: edit.delta
+        )
+
+        model.prepareForFolderChange()
+
+        XCTAssertEqual(model.currentRevision(for: url), 0)
+        XCTAssertEqual(model.currentRevision(for: otherURL), 0)
+    }
+
     // MARK: - Shifting (D32)
 
     func testAnEditShiftsASetAndDropsWhatItTouched() {
