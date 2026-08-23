@@ -156,6 +156,177 @@ final class DiagnosticsModelTests: XCTestCase {
         XCTAssertEqual(entry()?.diagnostics, set)
     }
 
+    // MARK: - The hold-and-reconcile step
+
+    /// The race the hold exists for: the workspace committed the flushed
+    /// version and routed the answer, but the controller's report has not
+    /// landed yet (several main-actor hops behind the commit). Dropping here
+    /// would strand the document blank until the next interaction.
+    func testAPushThatArrivesBeforeItsSyncIsAppliedWhenTheSyncRecordsIt() {
+        let set = [diagnostic(at: 0, length: 3, line: 0, message: "first")]
+        model.receive(published(set, version: 1))
+        XCTAssertNil(entry(), "nothing is stored while no record exists")
+
+        model.noteSynced(url: url, version: 1, revision: 0)
+
+        XCTAssertEqual(entry()?.diagnostics, set, "the landing record admits the held push")
+        XCTAssertEqual(entry()?.serverKey, serverKey)
+    }
+
+    /// sourcekit-lsp sends no version: the reconcile must work on the revision
+    /// half alone, or the primary server never passes the gate.
+    func testAnUnversionedPushHeldBeforeItsSyncIsAppliedOnTheRevisionHalfAlone() {
+        let set = [diagnostic(at: 4, length: 3, line: 1, severity: .warning, message: "unversioned")]
+        model.receive(published(set, version: nil))
+
+        model.noteSynced(url: url, version: 1, revision: 0)
+
+        XCTAssertEqual(entry()?.diagnostics, set)
+    }
+
+    /// The hold is judged against the record that lands, verbatim: a push
+    /// describing another sync's text is discarded unreplayed, and the channel
+    /// stays live for pushes the ordinary gate admits.
+    func testAHeldPushForAMismatchedVersionIsDiscardedWhenTheRecordLands() {
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "future")], version: 2))
+
+        model.noteSynced(url: url, version: 1, revision: 0)
+        XCTAssertNil(entry())
+
+        let set = [diagnostic(at: 0, length: 3, line: 0, message: "now")]
+        model.receive(published(set, version: 1))
+        XCTAssertEqual(entry()?.diagnostics, set)
+    }
+
+    /// The starvation shape (iteration two's fix, finished): a provider flush
+    /// bumped the server past the recorded version while a keystroke moved the
+    /// buffer, so the record is stale on both halves — and the settling sync's
+    /// forced republish provokes a push that lands *before* that sync's report
+    /// does. Held, then admitted by the landing report.
+    func testAHeldPushAgainstAStaleRecordIsJudgedByTheLandingReport() {
+        syncAtVersionOne()
+        model.noteEdit(
+            url: url,
+            previousLineStarts: lineStarts,
+            newLineStarts: lineStarts,
+            editedRange: NSRange(location: 5, length: 2),
+            changeInLength: 0
+        )
+        // The provider's push: version past the record, revision moved.
+        model.receive(published(
+            [diagnostic(at: 0, length: 3, line: 0, message: "mid")],
+            version: 2
+        ))
+        XCTAssertNil(entry(), "the stale-record push is held, not shown")
+
+        // The settling sync forces the republish (version 3) and its answer
+        // beats the report across the hops.
+        let set = [diagnostic(at: 4, length: 3, line: 1, severity: .warning, message: "settled")]
+        model.receive(published(set, version: 3))
+        XCTAssertNil(entry())
+
+        model.noteSynced(url: url, version: 3, revision: 1)
+        XCTAssertEqual(entry()?.diagnostics, set, "the settling sync's own push is what lands")
+    }
+
+    /// An edit between the hold and the report condemns the held set: it
+    /// describes text nobody can shift it across (D32).
+    func testAnEditAfterTheHoldDropsIt() {
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "held")], version: 1))
+
+        let edit = insertAtFive()
+        model.noteEdit(
+            url: url,
+            previousLineStarts: edit.previous,
+            newLineStarts: edit.new,
+            editedRange: edit.range,
+            changeInLength: edit.delta
+        )
+
+        // Even a report whose version matches cannot resurrect it…
+        model.noteSynced(url: url, version: 1, revision: 1)
+        XCTAssertNil(entry())
+
+        // …and the channel is alive for the next cycle's own push.
+        model.noteSynced(url: url, version: 2, revision: 1)
+        let set = [diagnostic(at: 6, length: 3, line: 1, message: "fresh")]
+        model.receive(published(set, version: 2))
+        XCTAssertEqual(entry()?.diagnostics, set)
+    }
+
+    /// A wholesale replacement between the hold and the report drops the held
+    /// set like any other content of the replaced buffer.
+    func testABufferReplacementDropsTheHeldPush() {
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "held")], version: 1))
+
+        model.noteBufferReplaced(url: url)
+        model.noteSynced(url: url, version: 1, revision: 1)
+
+        XCTAssertNil(entry())
+    }
+
+    /// A folder change drops every hold along with the bookkeeping: no
+    /// old-project push may land through the new project's first sync.
+    func testAFolderChangeDropsHeldPushes() {
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "old")], version: 1))
+        model.receive(published(
+            [diagnostic(at: 0, length: 3, line: 0, message: "old other")],
+            version: 1,
+            url: otherURL
+        ))
+
+        model.prepareForFolderChange()
+
+        model.noteSynced(url: url, version: 1, revision: 0)
+        XCTAssertNil(entry())
+        XCTAssertTrue(model.store.rows(relativeTo: root).isEmpty)
+    }
+
+    /// Each teardown scope condemns only its own holds: a document clear takes
+    /// that document's, a server clear takes that server's, and a different
+    /// server's held push survives to be judged by its own record.
+    func testClearsDropOnlyTheirOwnScopeOfHeldPushes() {
+        let goID = "gopls"
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "swift")], version: 1))
+        model.receive(.published(
+            url: otherURL,
+            serverID: goID,
+            root: root.path,
+            version: 1,
+            diagnostics: [diagnostic(otherURL, at: 0, length: 3, line: 0, message: "go")]
+        ))
+
+        // Another server's document clear does not touch the Swift hold…
+        model.receive(.cleared(.document(url: otherURL)))
+        model.noteSynced(url: url, version: 1, revision: 0)
+        XCTAssertEqual(entry()?.diagnostics.first?.message, "swift")
+        XCTAssertTrue(model.store.entry(for: otherURL)?.diagnostics.isEmpty ?? true)
+
+        // …and the server clear takes exactly that server's remaining hold.
+        model.receive(.published(
+            url: otherURL,
+            serverID: goID,
+            root: root.path,
+            version: 2,
+            diagnostics: [diagnostic(otherURL, at: 0, length: 3, line: 0, message: "go again")]
+        ))
+        model.receive(.cleared(.server(serverID: goID, root: root.path)))
+        model.noteSynced(url: otherURL, version: 2, revision: 0)
+        XCTAssertNil(model.store.entry(for: otherURL), "a condemned server's hold dies with it")
+    }
+
+    /// One hold per document, newest wins: the settling push replaces whatever
+    /// earlier push was waiting, so a superseded set can never land.
+    func testASecondPushReplacesTheOneHeldForItsDocument() {
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "stale")], version: 1))
+        let set = [diagnostic(at: 4, length: 3, line: 1, severity: .warning, message: "newest")]
+        model.receive(published(set, version: 2))
+
+        model.noteSynced(url: url, version: 2, revision: 0)
+
+        XCTAssertEqual(entry()?.diagnostics, set)
+    }
+
     /// Task 5's contract, pinned here where it is consumed: a sync reported for
     /// a revision that has since moved is recorded, but its pushes are rejected
     /// until a fresh sync pins the current revision.

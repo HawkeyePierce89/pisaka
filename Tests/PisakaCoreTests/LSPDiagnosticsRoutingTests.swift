@@ -714,6 +714,40 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         XCTAssertEqual(model.counts, DiagnosticStore.Counts(errors: 0, warnings: 0))
     }
 
+    /// The report-vs-push race at full composition: the workspace committed
+    /// the flushed version and routes the server's answer before the
+    /// controller's task has resumed far enough to report the sync (its own
+    /// doc comment concedes a real server pushes "well before the flush that
+    /// carried it returns"). The event reaches the sink, the model has no
+    /// record yet — and when the report lands it must admit the held push,
+    /// with no second notification arriving to save it.
+    func testAPushThatBeatsItsSyncsReportStillLandsInTheStore() async throws {
+        let model = DiagnosticsModel()
+        workspace.onDiagnostics = { [weak self, weak model] event in
+            self?.events.append(event)
+            model?.receive(event)
+        }
+
+        let prepared = try await open(mainFile, text: "let a = 1\n")
+        try push(to: harness.latest, uri: prepared.uri, version: prepared.version, [
+            (LSPPosition(line: 0, character: 4), LSPPosition(line: 0, character: 5), .error, "early"),
+        ])
+        await waitFor("the sink to see the early push") { !self.publishedEvents().isEmpty }
+        XCTAssertTrue(
+            publishedEntries(in: model).isEmpty,
+            "routed before its report exists: nothing on the surfaces yet"
+        )
+
+        // The controller's report, exactly as `schedule` makes it — after the
+        // push, which is the ordering the race produces.
+        model.noteSynced(url: mainFile, version: prepared.version, revision: 0)
+
+        let diagnostics = publishedEntries(in: model)
+        XCTAssertEqual(diagnostics.count, 1, "the landing report admits the held push")
+        XCTAssertEqual(diagnostics.first?.message, "early")
+        XCTAssertEqual(model.counts, DiagnosticStore.Counts(errors: 1, warnings: 0))
+    }
+
     private func publishedEntries(in model: DiagnosticsModel) -> [Diagnostic] {
         model.store.entry(for: mainFile)?.diagnostics ?? []
     }

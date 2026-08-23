@@ -1978,7 +1978,28 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     bump + drop the sync record — the server no longer holds text anyone mapped a
     push against); a plain tab switch is deliberately *not* one of these, so a
     background document's set and sync record survive the view swap and its
-    squiggles repaint from the store on switching back. `prepareForFolderChange()`
+    squiggles repaint from the store on switching back.
+    **The hold-and-reconcile step** closes the one hole dropping leaves: the
+    workspace commits a flushed version several main-actor hops before the
+    controller's report lands, and a fast server's publish can be routed inside
+    that window — where "rejected" would strand the document blank until the next
+    interaction, on exactly the first-diagnosis moment the feature exists for
+    (`attachNotificationConsumer`'s own comment concedes a real server pushes
+    "well before the flush that carried it returns"). So a push that finds no
+    record, or a record pinned to a revision the buffer has moved past — either
+    signature of a report still in flight — is **held** (one per document, newest
+    wins, carrying its hold-time revision) and judged when the next record lands:
+    admitted only if that sync itself is current and the versions match (absent
+    passes), because the hold's survival plus the landing record together pin it
+    to exactly that sync's text. Every invalidating event drops holds — `noteEdit`,
+    `noteBufferReplaced`, both clears (scoped: a server clear takes only that
+    server's), and the folder change — so a hold can never resurrect anything a
+    teardown or a keystroke condemned. A version mismatch against a *current*
+    record stays the ordinary D32 drop (a late replay, another flusher's push).
+    One honest trade: a held unversioned push may rarely describe the previous
+    flush's text; accepting it draws at worst one briefly-wrong set for the
+    instant before the settling answer replaces it — D32's own trade, made once,
+    here. `prepareForFolderChange()`
     clears bookkeeping along with the
     store in the same main-actor turn as the workspace's own token, so no push
     from an old project's server can pass — and only fires when the root actually
@@ -2483,7 +2504,15 @@ same reason (the coordinator ignores it while it is in flight). On the receive
 side the model refuses a push whose document was edited since the sync that
 produced it: the buffer revision pinned synchronously at each sync must still be
 current, so a push computed against moved-
-past text is dropped, never replayed against an edit log. **Rejected:** the exact
+past text is dropped, never replayed against an edit log — with one carve-out,
+the **hold-and-reconcile step**: the workspace commits a flushed version several
+main-actor hops before the controller's report lands, and a fast server's answer
+can be routed inside that window, where dropping would strand the document blank
+until the next interaction. A push that finds no record, or a record pinned to a
+moved-past revision, is held (one per document, newest wins) and judged by the
+next report; everything that invalidates state — edits, replacements, clears,
+folder changes — drops holds too, and a version mismatch against a *current*
+record stays an outright drop. **Rejected:** the exact
 alternative — queueing edits and replaying them onto a late-arriving push — needs a
 bounded per-document edit log and a revision↔version map; dropping is simpler,
 self-correcting (the last keystroke always schedules one more sync whose push has

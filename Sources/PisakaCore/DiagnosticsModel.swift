@@ -38,6 +38,34 @@ import Foundation
 /// push shift the stored set incrementally (`DiagnosticShift.updated`),
 /// dropping what the edit touched; a wholesale buffer replacement clears the
 /// document's set outright.
+///
+/// ## Pushes that beat their own sync (the hold-and-reconcile step)
+///
+/// There are two moments where a failed gate means something other than stale:
+/// the windows between the workspace committing a flushed version and the
+/// controller's task resuming far enough to report `noteSynced` — several main
+/// -actor hops after the bytes went out, during which a fast server's publish
+/// can arrive. Dropping such a push strands the document blank until the next
+/// keystroke or tab switch, which on a freshly opened file is exactly the
+/// first-diagnosis moment the feature exists for. So a push is **held** (one
+/// per document, newest wins) when it finds no record at all, or a record
+/// pinned to a revision the buffer has moved past — the signature of a report
+/// still in flight, whether the push it belongs to outran it or a predecessor
+/// report has not been superseded yet. It is judged when the next record
+/// lands: accepted only if that sync itself is current (its pinned revision
+/// equals the buffer's) and the push's version matches it — an absent version
+/// passes on the revision half alone, as everywhere else. Every invalidating
+/// event drops the hold — an edit (the held set predates text nobody can
+/// shift it across), a wholesale replacement, either clear, and the folder
+/// change — so a hold can never resurrect anything a teardown or a keystroke
+/// has already condemned. A version mismatch against a **current** record is
+/// the ordinary D32 staleness — a late replay, or another flusher's push —
+/// and is dropped outright as before, unreplayed. One honest trade remains:
+/// a held push carrying no version may rarely describe the previous sync's
+/// text (a provider flush racing the settling one); accepting it can draw one
+/// misplaced set for the instant before the answer to the settling sync
+/// replaces it — the same briefly-wrong-over-blank trade D32 already makes,
+/// self-correcting by the push that answer is guaranteed to provoke.
 @MainActor
 public final class DiagnosticsModel: ObservableObject {
     /// What one successful sync recorded: the server version the workspace
@@ -66,6 +94,14 @@ public final class DiagnosticsModel: ObservableObject {
     /// time. Implicitly zero until first touched.
     private var revisions: [URL: Int] = [:]
 
+    /// A push that arrived before its document's bookkeeping could accept it —
+    /// the routed-before-reported race documented on the type. One per
+    /// document (newest wins), carrying the revision at the moment of the hold
+    /// so the reconcile can prove the buffer stood still across it. Held only
+    /// between the push and the next event that touches the document; never
+    /// replayed after an invalidation.
+    private var heldPushes: [URL: (event: LSPDiagnosticEvent, revisionAtHold: Int)] = [:]
+
     public init() {}
 
     // MARK: - Sync bookkeeping (fed by LSPDocumentSyncController)
@@ -93,8 +129,29 @@ public final class DiagnosticsModel: ObservableObject {
     /// debounce re-syncs. Recording anyway (rather than refusing) keeps the
     /// last-known sync truthful; rejecting is the gate's decision, not the
     /// recorder's.
+    ///
+    /// Recording is also when a held push is judged: this record is the one it
+    /// was waiting for. Accepted only when this sync itself is current (its
+    /// pinned revision equals the buffer's — otherwise the held set describes
+    /// text the buffer has moved past) and its version matches (absent passes,
+    /// as everywhere). The hold's own survival already proves nothing was
+    /// typed since the hold — every edit drops it — so together the clauses
+    /// pin the set to exactly the text this sync delivered.
     public func noteSynced(url: URL, version: Int, revision: Int) {
-        syncs[url.standardizedFileURL] = SyncRecord(version: version, revision: revision)
+        let key = url.standardizedFileURL
+        syncs[key] = SyncRecord(version: version, revision: revision)
+
+        if let held = heldPushes.removeValue(forKey: key),
+           case .published(let url, let serverID, let root, let heldVersion, let diagnostics) = held.event,
+           held.revisionAtHold == (revisions[key] ?? 0),
+           revision == (revisions[key] ?? 0),
+           heldVersion.map({ $0 == version }) ?? true {
+            store.replace(
+                url: url,
+                serverKey: DiagnosticStore.ServerKey(serverID: serverID, root: root),
+                diagnostics: diagnostics
+            )
+        }
     }
 
     /// One edit landed in `url`'s buffer: shift the stored set across it and
@@ -112,6 +169,10 @@ public final class DiagnosticsModel: ObservableObject {
     ) {
         let key = url.standardizedFileURL
         revisions[key] = (revisions[key] ?? 0) + 1
+        // A held push predates the edit: its set cannot be shifted across text
+        // nobody mapped for it, so it is honest "unknown" like any other
+        // touched content (D32). The settling sync's republish replaces it.
+        heldPushes[key] = nil
         let shifted = DiagnosticShift.updated(
             store.entry(for: url)?.diagnostics ?? [],
             previousLineStarts: previousLineStarts,
@@ -130,6 +191,7 @@ public final class DiagnosticsModel: ObservableObject {
         let key = url.standardizedFileURL
         revisions[key] = (revisions[key] ?? 0) + 1
         syncs[key] = nil
+        heldPushes[key] = nil
         store.clear(url: url)
     }
 
@@ -138,16 +200,34 @@ public final class DiagnosticsModel: ObservableObject {
     /// Receive one event from the workspace's sink.
     ///
     /// A `published` passes the acceptance gate documented on the type or is
-    /// dropped — silently, like everything else in this layer. The clears are
-    /// applied as they come; each teardown path emits exactly one, and a late
-    /// duplicate after a folder change finds nothing to clear.
+    /// dropped — silently, like everything else in this layer — except the
+    /// bookkeeping-lag states that earn the hold-and-reconcile step: a push
+    /// with no record, or against a record pinned to a revision the buffer has
+    /// moved past, is held for the next record's landing instead of dropped,
+    /// because both mean the push may belong to a sync whose report is still in
+    /// flight. A version mismatch against a *current* record is staleness in
+    /// the ordinary D32 sense and is dropped outright, never replayed. The
+    /// clears are applied as they come; each teardown path emits exactly one,
+    /// and a late duplicate after a folder change finds nothing to clear.
     public func receive(_ event: LSPDiagnosticEvent) {
         switch event {
         case .published(let url, let serverID, let root, let version, let diagnostics):
             let key = url.standardizedFileURL
-            guard let sync = syncs[key],
-                  sync.revision == (revisions[key] ?? 0) else { return }
-            if let version, version != sync.version { return }
+            let currentRevision = revisions[key] ?? 0
+            guard let sync = syncs[key] else {
+                heldPushes[key] = (event, currentRevision)
+                return
+            }
+            let versionMatches = version.map({ $0 == sync.version }) ?? true
+            guard sync.revision == currentRevision else {
+                // The record predates the buffer's present state: its own
+                // pushes are stale by the live clause, and this push may be
+                // the in-flight sync's answer. Hold it for that report.
+                heldPushes[key] = (event, currentRevision)
+                return
+            }
+            guard versionMatches else { return }
+            heldPushes[key] = nil
             store.replace(
                 url: url,
                 serverKey: DiagnosticStore.ServerKey(serverID: serverID, root: root),
@@ -155,8 +235,17 @@ public final class DiagnosticsModel: ObservableObject {
             )
         case .cleared(.server(let serverID, let root)):
             store.clear(serverKey: DiagnosticStore.ServerKey(serverID: serverID, root: root))
+            // The teardown condemns everything that server produced, whatever
+            // stage of the gate it had reached; a different server's holds are
+            // not touched.
+            heldPushes = heldPushes.filter { _, held in
+                guard case .published(_, let heldServerID, let heldRoot, _, _) = held.event
+                else { return true }
+                return heldServerID != serverID || heldRoot != root
+            }
         case .cleared(.document(let url)):
             store.clear(url: url)
+            heldPushes[url.standardizedFileURL] = nil
         }
     }
 
@@ -174,6 +263,7 @@ public final class DiagnosticsModel: ObservableObject {
     public func prepareForFolderChange() {
         syncs.removeAll()
         revisions.removeAll()
+        heldPushes.removeAll()
         store.clearAll()
     }
 
