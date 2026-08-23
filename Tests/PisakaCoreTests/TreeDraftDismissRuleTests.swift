@@ -3,11 +3,11 @@ import XCTest
 
 /// The project tree's inline-naming dismiss rule.
 ///
-/// Three questions, in the order the rule asks them: is the click even in the
-/// draft's window, is it inside the draft's measured region, and what does a
-/// region with no area mean. The view layer supplies the AppKit facts and holds
-/// no policy, so everything the feature decides about a stray click is asserted
-/// here.
+/// Four questions, in the order the rule asks them: is the click even in the
+/// draft's window, did it land in that window's content area or on its chrome,
+/// is it inside the draft's measured region, and what does a region with no area
+/// mean. The view layer supplies the AppKit facts and holds no policy, so
+/// everything the feature decides about a stray click is asserted here.
 ///
 /// The rectangle used throughout is `(10, 20, 100, 40)` — a non-zero origin on
 /// purpose, so a test that passes only because the origin is the zero point
@@ -16,9 +16,15 @@ final class TreeDraftDismissRuleTests: XCTestCase {
 
     private let bounds = CGRect(x: 10, y: 20, width: 100, height: 40)
 
-    private func decision(at point: CGPoint, sameWindow: Bool = true, in rect: CGRect? = nil) -> TreeDraftClickDecision {
+    private func decision(
+        at point: CGPoint,
+        sameWindow: Bool = true,
+        inContent: Bool = true,
+        in rect: CGRect? = nil
+    ) -> TreeDraftClickDecision {
         TreeDraftDismissRule.decision(
             clickedWindowIsDraftWindow: sameWindow,
+            clickedInsideWindowContent: inContent,
             point: point,
             draftBounds: rect ?? bounds
         )
@@ -41,6 +47,31 @@ final class TreeDraftDismissRuleTests: XCTestCase {
         // The empty-rect rule must not overtake the window rule: a diff window's
         // click cannot cancel a draft that has not laid out yet either.
         XCTAssertEqual(decision(at: .zero, sameWindow: false, in: .zero), .ignore)
+    }
+
+    // MARK: - The window's own chrome
+
+    func testAClickOnTheWindowChromeIsIgnored() {
+        // The title bar, a resize edge, the traffic lights: the same window and
+        // squarely outside the draft, but the user is moving the window they are
+        // typing in, not looking away from it.
+        XCTAssertEqual(decision(at: CGPoint(x: 60, y: -30), inContent: false), .ignore)
+    }
+
+    func testAClickOnTheWindowChromeIsIgnoredEvenWithNoMeasuredArea() {
+        // Ahead of the degenerate rectangle on purpose: a window dragged before
+        // the draft's first layout pass must not be the click that destroys it.
+        XCTAssertEqual(decision(at: .zero, inContent: false, in: .zero), .ignore)
+    }
+
+    func testAClickOnAnotherWindowsChromeIsIgnored() {
+        XCTAssertEqual(decision(at: CGPoint(x: 60, y: 40), sameWindow: false, inContent: false), .ignore)
+    }
+
+    func testAClickInTheContentAreaOutsideTheDraftStillCancels() {
+        // The chrome check must not swallow the rule's whole purpose: a click on
+        // another tree row is in the content area and still ends the draft.
+        XCTAssertEqual(decision(at: CGPoint(x: 60, y: 100), inContent: true), .cancel)
     }
 
     // MARK: - Inside the draft

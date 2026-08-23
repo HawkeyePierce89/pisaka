@@ -848,9 +848,10 @@ private extension View {
     /// intent.
     ///
     /// The branch changes the row's view identity, and that costs nothing here:
-    /// unlike `projectTreeDragSource(isEnabled:url:session:)`'s flag, this one
-    /// does flip — but at most twice per draft (opened, then committed or
-    /// cancelled), and the row is being rebuilt at both those moments anyway.
+    /// the flag flips at most twice per draft (opened, then committed or
+    /// cancelled), and the row is being rebuilt at both those moments anyway —
+    /// the same bound `projectTreeDragSource(isEnabled:url:session:)`'s flag
+    /// carries, since both are driven by the row's drafted-ness.
     @ViewBuilder
     func projectTreeContextMenu<MenuItems: View>(
         isEnabled: Bool,
@@ -868,8 +869,10 @@ private extension View {
     ///
     /// The opt-out is a `@ViewBuilder` branch rather than an `.onDrag` returning
     /// an empty item provider: a provider with nothing registered still begins a
-    /// drag AppKit renders and no target can ever accept. `isEnabled` is fixed
-    /// for a row's lifetime, so the branch costs no identity churn.
+    /// drag AppKit renders and no target can ever accept. `isEnabled` flips only
+    /// with the row's drafted-ness — at most twice per draft, when the row is
+    /// being rebuilt anyway — so the branch's identity churn is bounded, the same
+    /// argument `projectTreeContextMenu(isEnabled:menuItems:)` records.
     @ViewBuilder
     func projectTreeDragSource(
         isEnabled: Bool = true,

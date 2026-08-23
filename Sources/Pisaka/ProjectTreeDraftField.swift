@@ -210,8 +210,15 @@ struct TreeDraftDismissRegion: NSViewRepresentable {
     /// Claim exactly what is proposed and nothing more. A background is sized to
     /// its primary view, so this only makes explicit that the region never adds
     /// a millimetre to the draft.
+    ///
+    /// The unspecified and infinite proposals are answered as zero rather than
+    /// passed through: a representable that returns `.infinity` for SwiftUI's
+    /// max probe claims unbounded width, which is a broken frame the moment this
+    /// view is used anywhere but as a background. Zero is the honest answer for
+    /// a view that draws nothing.
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: DismissRegionView, context: Context) -> CGSize? {
-        CGSize(width: proposal.width ?? 0, height: proposal.height ?? 0)
+        let size = proposal.replacingUnspecifiedDimensions(by: .zero)
+        return CGSize(width: size.width.isFinite ? size.width : 0, height: size.height.isFinite ? size.height : 0)
     }
 
     /// Owns the local mouse-down monitor for exactly as long as the draft lives.
@@ -266,6 +273,14 @@ struct TreeDraftDismissRegion: NSViewRepresentable {
         /// lives here: which window, which point, which rectangle — that is all.
         private func handle(_ event: NSEvent) {
             guard let window else { return }
+            // The window's *content* area, which the title bar, the resize edges
+            // and the traffic lights are not: dragging or resizing the window
+            // one is typing in must not destroy a half-typed name. A window with
+            // no content view answers `false` and so preserves the draft; the
+            // draft lives in that view, so the case cannot arise.
+            let insideContent = window.contentView.map {
+                $0.bounds.contains($0.convert(event.locationInWindow, from: nil))
+            } ?? false
             // `bounds` intersected with `visibleRect`, not `bounds`: the tree is
             // a scroll view, so a draft scrolled out of the clip view keeps a
             // rectangle that now maps over the pane's header and the panes
@@ -274,6 +289,7 @@ struct TreeDraftDismissRegion: NSViewRepresentable {
             // already answers `cancel` for.
             let decision = TreeDraftDismissRule.decision(
                 clickedWindowIsDraftWindow: event.window === window,
+                clickedInsideWindowContent: insideContent,
                 point: convert(event.locationInWindow, from: nil),
                 draftBounds: bounds.intersection(visibleRect)
             )
@@ -365,19 +381,26 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
     /// answer is simply returned. Only the clamp — at least one line, at most
     /// `maximumLines` — is a shared *number*, and it is stated in both places.
     ///
-    /// An unspecified or infinite proposed width carries no information to wrap
-    /// against, so it falls back to the width the field is currently laid out
-    /// at.
+    /// **Only a concrete, positive, finite width is answered.** The unspecified,
+    /// zero and infinite proposals are the enclosing `HStack` probing for
+    /// flexibility, and they carry no width to wrap against — but the tempting
+    /// fallback, "the width the field is currently laid out at", is the one
+    /// answer this view must never give: SwiftUI positions an `NSTextField`
+    /// representable by its *alignment rect*, so the field's frame ends up four
+    /// points wider than the width it was assigned. Reporting that frame back as
+    /// the row's minimum makes the row four points wider on the next pass, whose
+    /// frame is four points wider again — a ratchet that ends in AppKit aborting
+    /// the window's constraint loop ("more Update Constraints in Window passes
+    /// than there are views"). The create draft, whose row is *not* capped at
+    /// `maxWidth: .infinity`, took exactly that path.
+    ///
+    /// Returning `nil` hands a probe back to SwiftUI's default sizing and leaves
+    /// the concrete placement proposal — the only one that says how wide the
+    /// tree pane actually is — to decide the row. Nothing about the row's own
+    /// frame is ever fed back into its layout.
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: CustomTextField, context: Context) -> CGSize? {
-        let width = Self.wrappingWidth(proposal.width, of: nsView)
+        guard let width = proposal.width, width.isFinite, width > 0 else { return nil }
         return CGSize(width: width, height: Self.fittingHeight(of: nsView, at: width))
-    }
-
-    private static func wrappingWidth(_ proposed: CGFloat?, of field: CustomTextField) -> CGFloat {
-        guard let proposed, proposed.isFinite, proposed > 0 else {
-            return max(field.frame.width, 1)
-        }
-        return proposed
     }
 
     private static func fittingHeight(of field: CustomTextField, at width: CGFloat) -> CGFloat {
@@ -438,8 +461,13 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
         /// what the user has since typed or selected.
         var pendingSelection: NSRange?
 
-        /// One-shot. A draft replaced by a second command must not have a stale
-        /// request steal focus back into the field it is tearing down.
+        /// One-shot *per attachment*. A draft replaced by a second command must
+        /// not have a stale request steal focus back into the field it is
+        /// tearing down — but a field that leaves a window and rejoins one is
+        /// alive again and needs the caret back, so this is cleared alongside
+        /// `isTearingDown`. Re-acquiring cannot re-select over what the user has
+        /// typed: `pendingSelection` is cleared the first time it is applied and
+        /// never restored, which is why the two flags are separate.
         private var hasTakenFocus = false
 
         override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -451,12 +479,15 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            // The flag means "being removed", so joining a window clears it: a
-            // re-attached field is alive again, and a latched flag would leave
-            // it unable to report the focus loss `controlTextDidEndEditing`
-            // exists to catch.
+            // Both flags mean "this attachment is over", so joining a window
+            // clears both: a re-attached field is alive again — a latched
+            // `isTearingDown` would leave it unable to report the focus loss
+            // `controlTextDidEndEditing` exists to catch, and a latched
+            // `hasTakenFocus` would leave it open, editable and permanently
+            // without the caret, which is the defect this hook exists to remove.
             if window != nil {
                 isTearingDown = false
+                hasTakenFocus = false
             }
             acquireFocus(retryOnRefusal: true)
         }

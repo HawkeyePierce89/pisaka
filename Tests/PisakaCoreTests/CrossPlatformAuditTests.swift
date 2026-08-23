@@ -67,16 +67,19 @@ final class CrossPlatformAuditTests: XCTestCase {
         let bounds = CGRect(x: 10, y: 20, width: 100, height: 30)
         XCTAssertEqual(
             TreeDraftDismissRule.decision(clickedWindowIsDraftWindow: true,
+                                          clickedInsideWindowContent: true,
                                           point: CGPoint(x: 10, y: 20),
                                           draftBounds: bounds),
             .ignore)
         XCTAssertEqual(
             TreeDraftDismissRule.decision(clickedWindowIsDraftWindow: true,
+                                          clickedInsideWindowContent: true,
                                           point: CGPoint(x: 110, y: 50),
                                           draftBounds: bounds),
             .cancel)
         XCTAssertEqual(
             TreeDraftDismissRule.decision(clickedWindowIsDraftWindow: true,
+                                          clickedInsideWindowContent: true,
                                           point: CGPoint(x: 10, y: 20),
                                           draftBounds: .zero),
             .cancel)

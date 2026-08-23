@@ -20,10 +20,11 @@ public enum TreeDraftClickDecision: Equatable {
 /// The view layer therefore keeps a local `.leftMouseDown`/`.rightMouseDown`
 /// monitor alive for exactly as long as a draft is, and asks this rule what each
 /// event means. Everything the rule needs is an AppKit *fact* — which window the
-/// event came from, where in the draft's own coordinates it landed, and how big
-/// the draft is — so no policy is left in the view.
+/// event came from, whether it landed in that window's content area at all,
+/// where in the draft's own coordinates it landed, and how big the draft is — so
+/// no policy is left in the view.
 ///
-/// ## The three answers
+/// ## The four answers
 ///
 /// - **Another window → `ignore`.** Find in Files, a diff window, an alert or the
 ///   Preferences window each own their clicks; a draft in the project window has
@@ -36,6 +37,14 @@ public enum TreeDraftClickDecision: Equatable {
 ///   icon column or its validation-reason line — which is why the caller
 ///   measures the *whole* draft, not the text field (see "What `draftBounds`
 ///   is").
+/// - **The window's chrome → `ignore`.** A click on the title bar, a resize
+///   edge, the traffic lights or the toolbar lands in the draft's own window and
+///   outside the draft, but the user is moving, resizing or minimising the
+///   window they are typing in — their attention did not move at all. Finder
+///   does not abandon an inline rename when the window is dragged, and silently
+///   destroying a half-typed name for it would be the worst kind of surprise.
+///   The caller answers this with one fact: did the click land inside the
+///   window's *content* area.
 /// - **Anything else in the draft's own window → `cancel`.** Another tree row,
 ///   the editor, a tab, the bottom bar: the user's attention moved, and the
 ///   Finder-like answer is to end the naming silently rather than to commit
@@ -96,6 +105,12 @@ public enum TreeDraftDismissRule {
     ///   - clickedWindowIsDraftWindow: whether the event's window is the window
     ///     the draft lives in. The caller compares object identity; an event with
     ///     no window at all is not the draft's window and so is `false`.
+    ///   - clickedInsideWindowContent: whether the event landed inside that
+    ///     window's content view. `false` is the window's chrome — title bar,
+    ///     resize edge, traffic lights, toolbar. Meaningful only when the window
+    ///     matches, and a window with no content view at all answers `false`,
+    ///     which preserves the draft rather than destroying it on a state that
+    ///     cannot occur.
     ///   - point: the event location converted into the draft region's own
     ///     coordinates. Meaningful only when the window matches, and ignored
     ///     otherwise.
@@ -103,10 +118,15 @@ public enum TreeDraftDismissRule {
     ///     to what is visible, in that same space.
     public static func decision(
         clickedWindowIsDraftWindow: Bool,
+        clickedInsideWindowContent: Bool,
         point: CGPoint,
         draftBounds: CGRect
     ) -> TreeDraftClickDecision {
         guard clickedWindowIsDraftWindow else { return .ignore }
+        // Ahead of the rectangle, and therefore ahead of the degenerate case
+        // below: a window dragged by its title bar before the draft has laid out
+        // must not be the one click that destroys the name.
+        guard clickedInsideWindowContent else { return .ignore }
         // `contains` already answers `false` for an empty or null rect, so the
         // degenerate case needs no branch of its own — it falls out as `cancel`,
         // which is the documented answer.

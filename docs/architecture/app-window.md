@@ -583,11 +583,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     discipline (token stored, `[weak self]`, `MainActor.assumeIsolated` for
     the same recorded reason), differing only in being installed per draft
     rather than per app run. Each event is handed to `TreeDraftDismissRule`
-    as three AppKit facts — is this the draft's own window, where did it
-    land in the region's coordinates, how big is the region — and nothing
-    else: another window's click is that window's business, a click inside
-    the draft is an ordinary edit (caret placement, drag-selection),
-    anything else in the draft's own window cancels.
+    as four AppKit facts — is this the draft's own window, did it land inside
+    that window's content view, where did it land in the region's
+    coordinates, how big is the region — and nothing
+    else: another window's click is that window's business, a click on this
+    window's *chrome* is the user moving or resizing the window they are
+    typing in, a click inside the draft is an ordinary edit (caret
+    placement, drag-selection), anything else in the draft's own window
+    cancels.
     Two things follow, and both are deliberate. **The dismissing click is
     never swallowed**: the monitor always returns the event unchanged, so
     cancelling and the click's ordinary effect both happen — the folder
@@ -640,8 +643,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     collapsed folder and drafting in it is a single command) which the
     retired "ask on the next runloop turn, give up if there is no window"
     block silently lost, opening the draft deaf. Acquisition is one-shot
-    (guarded by that flag plus the teardown flag, so a draft replaced by a
-    second command cannot steal focus back), the initial selection from
+    *per attachment* (guarded by that flag plus the teardown flag, so a
+    draft replaced by a second command cannot steal focus back) — joining a
+    window clears **both** flags, because a field that leaves a window and
+    rejoins one is alive again and needs the caret back as much as it needs
+    to be cancellable again; a latched focus flag would leave that draft
+    open, editable and permanently deaf, which is the very defect this hook
+    exists to remove. Re-acquiring cannot re-select over what the user has
+    typed, which is what keeps the two flags separate: the initial selection from
     `initialRenameSelection(in:isDirectory:)` is computed once in
     `makeNSView` and applied to the field editor exactly once — then
     cleared, so a re-attachment can never re-select over what the user has
@@ -659,8 +668,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     at the width the tree pane proposes, clamped to at least one line and at
     most the same six-line ceiling the dialog used (past that the input is
     pathological and a taller row pushes the tree around more than it
-    helps); an unspecified or infinite proposed width carries nothing to
-    wrap against and falls back to the field's current width. Enter is still
+    helps). **Only a concrete, positive, finite proposed width is answered**;
+    the unspecified, zero and infinite proposals are the row's `HStack`
+    probing for flexibility and return `nil`, handing them to SwiftUI's
+    default sizing. The tempting alternative — answering them with the
+    width the field is currently laid out at — is the one thing this must
+    never do: SwiftUI positions an `NSTextField` representable by its
+    *alignment rect*, so the field's frame is four points wider than the
+    width it was assigned, and reporting that frame back as the row's
+    minimum widens the row four points per layout pass until AppKit aborts
+    the window's constraint loop. The create draft, whose row is not capped
+    at `maxWidth: .infinity`, took exactly that path. Enter is still
     never a line break — the coordinator swallows every newline selector and
     commits instead. The arithmetic is deliberately *not* shared with
     `FilePanels.promptFieldHeight(of:)`, which measures against a fixed 400

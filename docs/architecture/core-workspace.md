@@ -692,20 +692,31 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
   - `TreeDraftDismissRule.swift` — the one rule that decides whether a mouse-down
     cancels the project tree's open inline-naming draft: *is this click the
     draft's business?* `public enum TreeDraftDismissRule`, one static function
-    `decision(clickedWindowIsDraftWindow:point:draftBounds:)` returning a two-case
+    `decision(clickedWindowIsDraftWindow:clickedInsideWindowContent:point:draftBounds:)`
+    returning a two-case
     `public enum TreeDraftClickDecision { case ignore; case cancel }`. It exists
     because a tree row is a plain SwiftUI view that never takes first responder,
     so `controlTextDidEndEditing` cannot hear a click on one: the view layer keeps
     a local `.leftMouseDown`/`.rightMouseDown` monitor alive for exactly as long
     as a draft is (`ProjectTreeDraftField`, `app-window.md`) and asks this rule
     what each event means. Everything the rule takes is an AppKit *fact* — which
-    window, which point, which rectangle — so the view holds no policy, the same
+    window, whether the click was in that window's content area at all, which
+    point, which rectangle — so the view holds no policy, the same
     split `MoveDropRule` uses for the drag.
-    **The three answers.** A click in *another window* is `ignore` regardless of
+    **The four answers.** A click in *another window* is `ignore` regardless of
     where it landed: Find in Files, a diff window, an alert and Preferences each
     own their clicks, and cancelling on one would destroy a half-typed name
     because the user reached for a different window. The window check comes
     first, before the geometry, because two windows' coordinate spaces overlap.
+    A click on the window's own **chrome** — its title bar, a resize edge, the
+    traffic lights, the toolbar — is `ignore` too, and is asked *second*, ahead of
+    the geometry: the click is in the draft's window and outside the draft, but
+    the user is dragging, resizing or minimising the window they are typing in,
+    so their attention never moved. Finder does not abandon an inline rename when
+    the window is dragged, and destroying a half-typed name for it would be the
+    worst kind of surprise. The view answers this with one fact — did the point
+    land inside `window.contentView`'s bounds — and a window with no content view
+    answers `false`, preserving the draft on a state that cannot occur.
     A click *inside* `draftBounds` is `ignore` — placing the caret and
     drag-selecting are ordinary edits, and so is clicking the draft's icon column
     or its validation-reason line. Anything *else in the draft's own window* is
@@ -749,14 +760,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     because `contains` already answers `false` for both: a draft with no measured
     area cannot own a click. That is not theoretical — it is the state between the
     draft appearing and its first layout pass, and reading it as "inside" would
-    make the draft briefly uncancellable, the worse failure of the two.
+    make the draft briefly uncancellable, the worse failure of the two. The
+    chrome check sits ahead of this one for the same reason it sits ahead of the
+    geometry: a window dragged by its title bar in that same pre-layout instant
+    must not be the one click that destroys the name.
     This is the project's second Foundation-level file to import `CoreGraphics`
     rather than `Foundation` (after `MinimapGeometry`), for the same reason: the
     vocabulary *is* points and rectangles, and importing the geometry types keeps
     the view from having to translate them.
     Tested (`TreeDraftDismissRuleTests`) against a rectangle with a non-zero
     origin, so a test that passes only at the zero point cannot: another window
-    ignored with the point inside, far outside and with an unmeasured rect;
+    ignored with the point inside, far outside and with an unmeasured rect; the
+    chrome ignored — outside the draft, again with an unmeasured rect, and on
+    another window's chrome — with the content area outside the draft still
+    cancelling, so the new check cannot swallow the rule's purpose;
     inside ignored; both `contains` edges (origin corner inside, far corner out,
     and just inside the far edge); outside on each of the four sides; and empty,
     zero-height, zero-width, `.null` and `.infinite` bounds; and
