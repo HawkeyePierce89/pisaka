@@ -1170,13 +1170,22 @@ public final class LSPWorkspace {
               key.root == LSPWorkspace.rootKey(for: currentRoot) else { return }
         guard let params = notification.params,
               let push = try? params.decoded(as: LSPPublishDiagnosticsParams.self) else { return }
-        guard let state = documents[push.uri], state.serverKey == key else { return }
-        if let version = push.version, version != state.version { return }
-
         // The URI round-trips through URL here once, at the boundary: everything
         // downstream (the store's keys, the panel's paths) speaks URL, and a URI
         // that does not parse names no file this editor opened.
         guard let url = URL(string: push.uri) else { return }
+        // Looked up by the server's own spelling first, then by *ours* for the
+        // same URL. This is the only place in this file where a server-supplied
+        // URI is compared against a key we generated, and a server is free to
+        // re-spell what it was given — a different but equivalent
+        // percent-encoding of a non-ASCII or reserved character is the ordinary
+        // case. A raw string compare would then miss every push for that file,
+        // silently and for the whole session, with no fallback to notice it by.
+        // Re-standardizing through the very function that produced the keys
+        // (`documentURI(for:)`) makes the two spellings converge on one entry.
+        let uri = documents[push.uri] != nil ? push.uri : LSPWorkspace.documentURI(for: url)
+        guard let state = documents[uri], state.serverKey == key else { return }
+        if let version = push.version, version != state.version { return }
         let content = state.text as NSString
         let lineStarts = LSPPositionMap.lineStarts(in: content)
         let diagnostics = push.diagnostics.compactMap {

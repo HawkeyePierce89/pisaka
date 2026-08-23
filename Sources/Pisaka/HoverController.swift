@@ -210,7 +210,18 @@ final class HoverController: NSObject {
         // is precisely "still about the answer on screen".
         if let anchorRange {
             let matchCovered = match.map { Self.range(anchorRange, contains: $0.range) } ?? false
-            if NSLocationInRange(offset, anchorRange) || matchCovered {
+            // A *zero-length* anchor is the one shape `NSLocationInRange` cannot
+            // answer for: a server's "expected `}`" at a position produces a
+            // union of width 0, which contains no offset at all, so a pointer
+            // resting on that very character would fail this test on every
+            // `mouseMoved` — dismissing and re-dwelling the popover per pixel of
+            // jitter. Its own offset *is* "still about the answer on screen" for
+            // it, the same reading `DiagnosticStore.diagnostics(at:)` and
+            // `DiagnosticRun.merged` already give an empty range.
+            let insideAnchor = anchorRange.length == 0
+                ? offset == anchorRange.location
+                : NSLocationInRange(offset, anchorRange)
+            if insideAnchor || matchCovered {
                 return
             }
         }

@@ -630,6 +630,34 @@ final class DiagnosticsModelTests: XCTestCase {
         XCTAssertNil(entry())
     }
 
+    /// Closing a document drops its bookkeeping too, not just its set: the sync
+    /// record and the revision describe a buffer the editor no longer holds, so
+    /// keeping them would both gate the file's next life against its previous
+    /// one and grow the two maps by every file the session ever opened.
+    func testClosingADocumentDropsItsSyncRecordAndRevision() {
+        model.noteEdit(
+            url: url,
+            previousLineStarts: lineStarts,
+            newLineStarts: lineStarts,
+            editedRange: NSRange(location: 0, length: 0),
+            changeInLength: 0
+        )
+        XCTAssertEqual(model.currentRevision(for: url), 1, "the edit bumped the revision")
+        model.noteSynced(url: url, version: 1, revision: 1)
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "m")], version: 1))
+        XCTAssertNotNil(entry())
+
+        model.receive(.cleared(.document(url: url)))
+        XCTAssertNil(entry())
+        XCTAssertEqual(model.currentRevision(for: url), 0, "a closed document is gated from zero again")
+
+        // And the sync record is gone with it: a push naming the version the
+        // *closed* document was last synced at finds no record to pass, so it is
+        // held rather than admitted.
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "late")], version: 1))
+        XCTAssertNil(entry(), "no surviving record can admit a push for the closed document")
+    }
+
     // MARK: - Query forwarding
 
     func testTheViewQueriesReadTheStore() {

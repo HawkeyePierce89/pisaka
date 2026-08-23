@@ -857,8 +857,15 @@ document, together with the limits they carry.
     must be a document **this**
     `(server, root)` currently holds (a closed file, another server's file, or an
     unopened one is noise), and a present `version` must equal the version last
-    flushed for it. A URI that does not parse as a `URL` is dropped last, at the one
-    boundary where the round-trip happens. A push passing every gate is mapped
+    flushed for it. A URI that does not parse as a `URL` is dropped first, at the
+    one boundary where the round-trip happens — and the parse comes first for a
+    reason: this is the only place a **server-supplied** URI meets a key we
+    generated, so the lookup tries the server's own spelling and then *ours* for
+    the same parsed URL (`documentURI(for:)`, the very function that minted the
+    keys). A server is free to re-spell what it was handed — a different but
+    equivalent percent-encoding is the ordinary case — and a raw string compare
+    alone would drop every diagnostic for that file, silently, for the whole
+    session, with nothing to notice it by. A push passing every gate is mapped
     against `documents[uri].text` —
     the text the *server was told*, not the live buffer; reconciling the editor's
     later edits is `DiagnosticShift`'s job downstream, never a remap here — one
@@ -1986,8 +1993,14 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     marking every line a multi-line diagnostic spans, which is why it grew the
     `lineStarts:` parameter the plan did not name: line geometry is the one thing
     a store of offsets deliberately does not keep, and the caller already holds
-    the table; inconsistent geometry degrades to all-`nil` at the requested count,
-    never a crash indexing past the array; `rows(relativeTo:)` grouping by file in
+    the table. **Both ends of the marked band come from that table**, never from
+    the stored `Diagnostic.line` — that number counts by LSP's separator set
+    (D1) and is only ever *printed* (the panel's `:N`), so reading it as geometry
+    here would mix two numberings and, in a file delimited by NEL/LS/PS, paint a
+    one-line diagnostic as a band as tall as every exotic separator above it.
+    A diagnostic starting outside the requested window is skipped rather than
+    clamped onto line 0, and inconsistent geometry degrades to all-`nil` at the
+    requested count, never a crash indexing past the array; `rows(relativeTo:)` grouping by file in
     `orderingKey` order with relative path components via `CanonicalPath`/
     `DisplayPath`'s two-probe order (absolute components for a file outside the
     root — the panel invents no `~` story the breadcrumb would disagree with) and
@@ -2055,7 +2068,11 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     One honest trade: a held unversioned push may rarely describe the previous
     flush's text; accepting it draws at worst one briefly-wrong set for the
     instant before the settling answer replaces it — D32's own trade, made once,
-    here. `prepareForFolderChange()`
+    here. A `.cleared(.document)` — the last tab on the file closed — takes the
+    document's *whole* record with it: the set, the hold, the sync record and the
+    revision. The two maps are then bounded by the open tabs rather than by every
+    file the session ever opened, and a file reopened later is gated from zero
+    instead of against the numbers of its previous life. `prepareForFolderChange()`
     clears bookkeeping along with the
     store in the same main-actor turn as the workspace's own token, so no push
     from an old project's server can pass — and only fires when the root actually

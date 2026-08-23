@@ -197,14 +197,24 @@ public struct DiagnosticStore: Equatable, Sendable {
     /// line per diagnostic, no text and no tables. The caller already holds the
     /// ruler's line-start array at the call site, so passing it costs nothing.
     ///
+    /// **Both ends of the marked band come from the caller's table**, never from
+    /// the stored ``Diagnostic/line``. That number counts lines the way the
+    /// *mapping* table did (LSP's separators, D1) and is only ever printed — the
+    /// panel's `:N` suffix. Reading it as geometry here would mix two
+    /// numberings: in a file delimited by NEL/LS/PS the editor counts lines the
+    /// LSP table does not, so a one-line diagnostic would paint a band as tall
+    /// as every exotic separator above it. The contract stated on `Diagnostic`
+    /// ("geometry consumers go through the editor's own table") is therefore
+    /// applied here rather than assumed.
+    ///
     /// Inconsistent geometry degrades honestly: an empty or unanchored table,
     /// or a negative count, yields all-`nil` at exactly `lineCount` — a blank
-    /// marker column, never a crash indexing past the array. A diagnostic whose
-    /// stored `line` falls outside the requested window is skipped rather than
-    /// clamped onto line 0, where it would be a lie — **outside on either
-    /// side**: the mapping never mints a negative line, but `Diagnostic` is a
-    /// public value type with a public memberwise init, so the guard screens the
-    /// lower bound too rather than trusting a caller this method never met.
+    /// marker column, never a crash indexing past the array. A diagnostic that
+    /// starts outside the requested window is skipped rather than clamped onto
+    /// line 0, where it would be a lie — **outside on either side**: the mapping
+    /// never mints a negative offset, but `Diagnostic` is a public value type
+    /// with a public memberwise init, so the guard screens the lower bound too
+    /// rather than trusting a caller this method never met.
     public func worstSeverityPerLine(
         url: URL,
         lineCount: Int,
@@ -216,7 +226,7 @@ public struct DiagnosticStore: Equatable, Sendable {
         var result = [DiagnosticSeverity?](repeating: nil, count: lineCount)
         guard let entry = entries[url.standardizedFileURL] else { return result }
         for diagnostic in entry.diagnostics {
-            guard diagnostic.line >= 0, diagnostic.line < lineCount else { continue }
+            guard diagnostic.range.location >= 0 else { continue }
             // The last line the span touches: for a zero-length range its own
             // line; otherwise the line containing the last covered character
             // (`end - 1`, exclusive end), then clamped into the window. The
@@ -225,9 +235,13 @@ public struct DiagnosticStore: Equatable, Sendable {
             let (end, endOverflowed) = diagnostic.range.location
                 .addingReportingOverflow(diagnostic.range.length)
             guard !endOverflowed else { continue }
+            // The first line, from the same table as the last — see the note
+            // above on why the stored `line` is not read here.
+            let firstLine = LSPPositionMap.lineIndex(containing: diagnostic.range.location, lineStarts: lineStarts)
+            guard firstLine < lineCount else { continue }
             let lastCovered = diagnostic.range.length > 0 ? end - 1 : diagnostic.range.location
             let lastLine = min(LSPPositionMap.lineIndex(containing: lastCovered, lineStarts: lineStarts), lineCount - 1)
-            for line in diagnostic.line...max(diagnostic.line, lastLine) {
+            for line in firstLine...max(firstLine, lastLine) {
                 // Worst severity wins; `.error` is Comparable's greatest case.
                 result[line] = max(result[line] ?? diagnostic.severity, diagnostic.severity)
             }

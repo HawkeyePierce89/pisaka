@@ -204,8 +204,8 @@ final class DiagnosticStoreTests: XCTestCase {
     }
 
     /// A span ending exactly on a separator covers through the previous line
-    /// only; and a diagnostic whose stored start line sits past the requested
-    /// window is skipped rather than clamped onto line 0.
+    /// only; and a diagnostic starting past the requested window is skipped
+    /// rather than clamped onto line 0.
     func testSpanEdgesAndOutOfRangeLinesStayHonest() {
         var store = DiagnosticStore()
         store.replace(
@@ -214,14 +214,40 @@ final class DiagnosticStoreTests: XCTestCase {
             diagnostics: [
                 // Ends exactly where line 1 starts.
                 diagnostic(at: 0, length: 4, line: 0, severity: .warning),
-                // Stored line 9 of a 3-line request.
-                diagnostic(at: 8, line: 9, severity: .error),
+                // Starts on line 2 of the table — outside a two-line window.
+                diagnostic(at: 8, line: 2, severity: .error),
             ]
         )
 
         XCTAssertEqual(
-            store.worstSeverityPerLine(url: mainURL, lineCount: 3, lineStarts: lineStarts),
-            [.warning, nil, nil]
+            store.worstSeverityPerLine(url: mainURL, lineCount: 2, lineStarts: lineStarts),
+            [.warning, nil]
+        )
+    }
+
+    /// The marked band is derived from the **caller's** table at both ends, so
+    /// the stored ``Diagnostic/line`` — which counts by LSP's separator set and
+    /// is only ever printed — cannot stretch a one-line diagnostic across the
+    /// gap between the two numberings.
+    ///
+    /// The setup is the divergence itself: a buffer whose lines are separated by
+    /// U+2028, which the editor's table splits on and the mapping's does not. A
+    /// diagnostic on the editor's line 2 therefore carries a stored `line` of 0.
+    func testTheMarkedBandIgnoresTheStoredLSPLineNumber() {
+        var store = DiagnosticStore()
+        // "aa\u{2028}bb\u{2028}cc" — the editor sees three lines at [0, 3, 6];
+        // the LSP mapping sees one, so every diagnostic in it carries line 0.
+        let editorLineStarts = [0, 3, 6]
+        store.replace(
+            url: mainURL,
+            serverKey: swiftKey,
+            diagnostics: [diagnostic(at: 6, length: 2, line: 0, severity: .error)]
+        )
+
+        XCTAssertEqual(
+            store.worstSeverityPerLine(url: mainURL, lineCount: 3, lineStarts: editorLineStarts),
+            [nil, nil, .error],
+            "marked where the editor draws it, not where LSP numbered it"
         )
     }
 
@@ -553,18 +579,22 @@ final class DiagnosticStoreTests: XCTestCase {
 
     // MARK: - Degenerate geometry
 
-    /// A negative `line` is skipped, not indexed with. Unreachable through the
-    /// mapping — which never mints one — but `Diagnostic` is a public value type
-    /// with a public memberwise init, and the query promises "never a crash
-    /// indexing past the array" to callers it never met.
-    func testANegativeLineIsSkippedRatherThanIndexedWith() {
+    /// A negative *location* is skipped, not indexed with — the marked band is
+    /// derived from offsets, so the offset is what the lower-bound guard screens
+    /// (the stored `line` is never read as geometry here). Unreachable through
+    /// the mapping — which never mints one — but `Diagnostic` is a public value
+    /// type with a public memberwise init, and the query promises "never a crash
+    /// indexing past the array" to callers it never met. A nonsense `line` beside
+    /// a sound offset is simply ignored, which is the same promise from the other
+    /// side.
+    func testANegativeLocationIsSkippedRatherThanIndexedWith() {
         var store = DiagnosticStore()
         store.replace(
             url: mainURL,
             serverKey: swiftKey,
             diagnostics: [
-                diagnostic(at: 0, line: -1, severity: .error),
-                diagnostic(at: 4, line: 1, severity: .warning),
+                diagnostic(at: -1, line: 0, severity: .error),
+                diagnostic(at: 4, line: -1, severity: .warning),
             ]
         )
 

@@ -845,7 +845,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     and the squiggle dismisses exactly as before. The anchor becomes the **union**
     of the ranges hit (identifier span extended over them when there is one), so
     the re-ask suppressor holds across the whole diagnosed span instead of tearing
-    the popover down per pixel of jitter; off an identifier the question carries
+    the popover down per pixel of jitter — and the suppressor's containment test
+    reads a **zero-length** anchor as containing its own offset, because
+    `NSLocationInRange` contains nothing in an empty range and a server's
+    "expected `}`" at a position produces exactly one (the same reading
+    `DiagnosticStore.diagnostics(at:)` and `DiagnosticRun.merged` already give
+    it); off an identifier the question carries
     the union's *start* rather than the pointer's own offset, because servers
     resolve tokens and a diagnostic begins at the construct it complains about.
     The answer is merged through Core's `Diagnostic.hoverContent(for:merging:)` —

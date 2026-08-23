@@ -89,11 +89,15 @@ public final class DiagnosticsModel: ObservableObject {
     @Published public private(set) var store = DiagnosticStore()
 
     /// Per-document sync records, keyed by standardized URL — cleared by
-    /// `prepareForFolderChange()` and per-document by `noteBufferReplaced(url:)`.
+    /// `prepareForFolderChange()`, per-document by `noteBufferReplaced(url:)`,
+    /// and dropped outright when the document's last tab closes (the
+    /// `.cleared(.document)` branch of ``receive(_:)``).
     private var syncs: [URL: SyncRecord] = [:]
     /// Per-document buffer revisions. Bumped by every edit and every wholesale
     /// replacement; compared by the gate against the revision pinned at sync
-    /// time. Implicitly zero until first touched.
+    /// time. Implicitly zero until first touched, and dropped again with the
+    /// sync record when the document closes — so both maps stay bounded by the
+    /// open tabs rather than by every file the session ever opened.
     private var revisions: [URL: Int] = [:]
 
     /// A push that arrived before its document's bookkeeping could accept it —
@@ -272,8 +276,19 @@ public final class DiagnosticsModel: ObservableObject {
                 return heldServerID != serverID || heldRoot != root
             }
         case .cleared(.document(let url)):
-            store.clear(url: url)
-            heldPushes[url.standardizedFileURL] = nil
+            let key = url.standardizedFileURL
+            store.clear(url: key)
+            heldPushes[key] = nil
+            // The document left the editor, so every record describing it is
+            // now about a life nobody is looking at: the sync record names a
+            // version of a document this workspace no longer holds open, and
+            // the revision it would be compared against belongs to a buffer
+            // that is gone. Dropping both is what keeps the two maps bounded by
+            // the *open* tabs rather than by every file ever opened in the
+            // session, and it means a file reopened later is gated from zero
+            // instead of against its predecessor's numbers.
+            syncs[key] = nil
+            revisions[key] = nil
         }
     }
 

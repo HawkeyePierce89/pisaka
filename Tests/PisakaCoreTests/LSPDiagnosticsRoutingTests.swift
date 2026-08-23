@@ -349,6 +349,32 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         )
     }
 
+    /// A server may re-spell the URI it was handed — a different but equivalent
+    /// percent-encoding is the ordinary case — and the push must still find its
+    /// document. Matching the raw strings alone would drop every diagnostic for
+    /// that file, silently, for the whole session.
+    func testAPushRespellingTheURIStillFindsItsDocument() async throws {
+        let plusFile = root.appendingPathComponent("Sources/App/a+b.swift")
+        let prepared = try await open(plusFile, text: "let a = 1\n")
+        // What we sent the server; what it echoes differs only in the encoding
+        // of the `+`, which needs no escaping and is therefore free to carry one.
+        XCTAssertEqual(prepared.uri, LSPWorkspace.documentURI(for: plusFile))
+        let respelled = prepared.uri.replacingOccurrences(of: "a+b.swift", with: "a%2Bb.swift")
+        XCTAssertNotEqual(respelled, prepared.uri, "the two spellings must actually differ")
+
+        try push(
+            to: harness.latest,
+            uri: respelled,
+            version: prepared.version,
+            [(LSPPosition(line: 0, character: 4), LSPPosition(line: 0, character: 5), .error, "respelled")]
+        )
+
+        await waitFor("the re-spelled push") { !self.publishedEvents().isEmpty }
+        let received = publishedEvents().first!
+        XCTAssertEqual(received.url.standardizedFileURL, plusFile.standardizedFileURL)
+        XCTAssertEqual(received.diagnostics.map(\.message), ["respelled"])
+    }
+
     // MARK: - The forced flush (the sync's supply)
 
     /// The providers keep D2's no-op: their question needs no second

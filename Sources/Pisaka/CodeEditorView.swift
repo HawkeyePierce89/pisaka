@@ -546,10 +546,13 @@ struct CodeEditorView: NSViewRepresentable {
             // A *plain tab switch* (the incoming file's own text, untouched while
             // it sat off screen) is not D32's wholesale replacement: the store is
             // keyed by URL precisely so a background document's set survives the
-            // view swap, and dropping it here would strand it — the switch-back
-            // sync takes D2's identical-text fast path, so the push-only server
-            // would never re-publish and the file would show nothing until
-            // someone edited it again. The swap below still posts one full-range
+            // view swap, and the set is still true text-for-text — nothing was
+            // typed into that buffer while it sat off screen, so there is
+            // nothing to shift and nothing to clear. Dropping it here would
+            // blank the file for as long as it takes the switch-back sync to be
+            // answered, and for a server that answers a re-published identical
+            // document with nothing at all, for as long as it takes someone to
+            // edit it again. The swap below still posts one full-range
             // edit — suppressed in *every* case via `isSwappingBuffer`: shifting
             // either document's set across swap geometry would drop entries, and
             // the recorded URL still names the *outgoing* file here, so the
