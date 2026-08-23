@@ -729,7 +729,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     there, while guessing at a band would make real clicks near the tree pane's
     left edge stop cancelling — the worse error, so the limit is recorded rather
     than approximated. (The top edge is the title bar, so resizing from it is
-    already exempt.) The **activating click** that brings the app back to the
+    already exempt; and since a resize *drag* takes the mouse over from its own
+    down, that `cancel` is one the view never gets to apply — the deferral limit
+    below.) The **activating click** that brings the app back to the
     front is the other, and is the counterpart of the ⌘Tab note below: the
     monitor sees no other app's events, but it does see the click that returns to
     this one.
@@ -757,6 +759,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     land that shift in the middle of the click and the row the user pressed would
     no longer be under the release — costing exactly the second click decision A
     exists to avoid. A right-click needs no wait: `NSMenu` opens on the down.
+    Waiting has its own **stated limit**: a gesture that takes the mouse over
+    from its own down — a window resize begun in the content area's edge band, a
+    drag started on any non-drafted tree row — runs a modal tracking loop that
+    dequeues events itself rather than letting them through `NSApp.sendEvent`,
+    so the monitor hears the down (answered `cancel`) and never the release that
+    would apply it. The answer is unapplied rather than lost: the draft outlives
+    the gesture, still editable and still cancellable by Esc or by the next click
+    outside it, and a drag that moves the drafted row's own entry drops the draft
+    anyway on the tree's re-read. Cancelling on the down instead would trade this
+    edge for the far commoner one above.
     **What `draftBounds` is.** The draft's *whole* region — icon column, text
     field and reason line — in the same space as `point`. The view layer gets both
     from one invisible `NSView` installed as the draft's outermost `.background`:

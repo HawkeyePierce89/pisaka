@@ -287,6 +287,15 @@ struct TreeDraftDismissRegion: NSViewRepresentable {
         /// that up, so the tap it enables is the same one it always was.
         /// A right-click is unaffected and stays on the down, because that is
         /// when `NSMenu` opens.
+        ///
+        /// The wait's stated cost: a gesture that takes the mouse over from its
+        /// own down — a window resize begun in the content area's edge band, a
+        /// drag started on any non-drafted row — runs a modal tracking loop that
+        /// dequeues its own events, so the `.leftMouseUp` never reaches this
+        /// monitor and the pending cancel is simply never applied. The draft
+        /// outlives that gesture, still editable and still cancellable by Esc or
+        /// by the next click outside it; the flag is cleared by the next
+        /// mouse-down either way. `TreeDraftDismissRule` records the limit.
         func installMonitor() {
             guard monitor == nil else { return }
             let mask: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseUp, .rightMouseDown]

@@ -58,7 +58,10 @@ public enum TreeDraftClickDecision: Equatable {
 ///   mouse-down there is no fact that separates them from an ordinary click on
 ///   whatever is drawn there — guessing at a band would instead make real clicks
 ///   near the pane's left edge stop cancelling, which is the worse error. (The
-///   *top* edge is the title bar, so resizing from it is already exempt.) The
+///   *top* edge is the title bar, so resizing from it is already exempt. And
+///   because a resize *drag* takes the mouse over from its own down, that
+///   answer is one the view layer never gets to apply — see the deferral limit
+///   below.) The
 ///   **activating click** that brings the app back to the front is the other:
 ///   see the note on ⌘Tab above — the monitor sees no other app's events, but it
 ///   does see the click that returns to this one.
@@ -85,6 +88,20 @@ public enum TreeDraftClickDecision: Equatable {
 /// the cancel run on the down, that shift would land in the middle of the click
 /// and the row the user pressed would no longer be under the release. A
 /// right-click needs no such wait — `NSMenu` opens on the down.
+///
+/// Waiting has one cost, and it is a **stated limit**: a left-click whose
+/// mouse-**up** the monitor never sees leaves the draft standing. AppKit
+/// gestures that take the mouse over from their own mouse-down run a modal
+/// tracking loop that dequeues events itself instead of letting them through
+/// `NSApp.sendEvent`, so the local monitor hears the down — answered `cancel`
+/// here — and never the release that would apply it. A window resize begun in
+/// the band along the content area's own edges is one such gesture; a
+/// project-tree row drag (every row but the drafted one is a drag source) is the
+/// other. The answer is unapplied rather than lost: the draft stays open,
+/// editable and cancellable by Esc or by the next click outside it, and a drag
+/// that moves the drafted row's own entry drops the draft anyway when the tree
+/// re-reads that directory. Applying the cancel on the down instead would trade
+/// this edge for the far commoner one above, which is the whole reason to wait.
 ///
 /// ## What `draftBounds` is
 ///

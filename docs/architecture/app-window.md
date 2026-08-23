@@ -625,7 +625,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the line where AppKit draws it and so leaves two limits stated on the
     rule: a resize drag begun from the content side of the bottom, left or
     right edge, and the click that reactivates the app, both land inside the
-    content area and both cancel.
+    content area and are both answered `cancel` (the resize drag's answer is
+    never applied, for the deferral reason below).
     Two things follow, and both are deliberate. **The dismissing click is
     never swallowed**: the monitor always returns the event unchanged, so
     cancelling and the click's ordinary effect both happen — the folder
@@ -639,7 +640,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     inside the view the press began in, and cancelling shifts every row
     below the draft up. Running it on the down would move the tree in the
     middle of the click and cost that second click after all. A right-click
-    cancels on the down, since that is when `NSMenu` opens.
+    cancels on the down, since that is when `NSMenu` opens. The wait's stated
+    cost, recorded on the rule: a gesture that takes the mouse over from its own
+    down — a window resize begun in the content area's edge band, a drag started
+    on any non-drafted row — runs a modal tracking loop that dequeues its own
+    events, so the `.leftMouseUp` never reaches the monitor and the pending
+    cancel is never applied. The draft outlives that gesture, still editable and
+    still cancellable by Esc or by the next click outside it.
     And **the region tested against is a real view, not a computed
     rectangle**: the draft is a `VStack` of which only the field is an
     `NSView`, so the region is an invisible `NSViewRepresentable` attached
