@@ -23,6 +23,15 @@ import Foundation
 ///   unavailable for the rest of the app run and nothing is ever launched for it
 ///   again. Silently, always: no alert, no banner, no state the user can see —
 ///   the language simply keeps answering with tree-sitter.
+/// * **What a server says unprompted** (D29). Every session carries a
+///   notification stream with exactly one consumer — a main-actor task this
+///   file owns beside the session and cancels with it. It decodes
+///   `textDocument/publishDiagnostics`, accepts a push only for a document
+///   that server currently holds at the version it was last given (D31), maps
+///   the entries onto buffer offsets against the text the server was told, and
+///   hands the result to ``onDiagnostics``. Every teardown path emits the
+///   matching clear synchronously (D33), and the stream's own termination —
+///   the externally-killed server — clears the key on the way out.
 ///
 /// The budget is per `(server, root)` rather than per server, so a server that
 /// cannot cope with *one* project (a half-checked-out package, a `Package.swift`
@@ -47,6 +56,7 @@ import Foundation
 /// `@MainActor` for `SymbolIndexModel`'s reason: the bookkeeping is touched from
 /// the editor's own turn (a folder switch, a tab close) and must be *synchronous*
 /// there, so `prepareForFolderChange` can pin a generation before any hop.
+
 @MainActor
 public final class LSPWorkspace {
     /// How a transport is made. `@MainActor` because launching a process is the
@@ -129,6 +139,10 @@ public final class LSPWorkspace {
     private let processID: Int?
 
     private var sessions: [ServerKey: LSPSession] = [:]
+    /// The per-session notification consumer (D29), keyed like `sessions` and
+    /// cancelled wherever the session goes away — see
+    /// `attachNotificationConsumer(for:)`.
+    private var notificationTasks: [ServerKey: Task<Void, Never>] = [:]
     /// The transport behind each session — including one whose handshake has not
     /// finished yet, registered the moment the factory hands it over.
     ///
@@ -171,6 +185,14 @@ public final class LSPWorkspace {
     private var epoch = 0
     private var launchCounter = 0
     private var flushCounter = 0
+
+    /// The sink every accepted push and every teardown clear is handed to —
+    /// `DiagnosticsModel.receive(_:)` in the composed app, a recording closure
+    /// in the tests. `nil` (the default) changes nothing about routing: pushes
+    /// are decoded, gated and then dropped, exactly as notifications were
+    /// before this channel existed. Called on the main actor, always — every
+    /// emission site is one of this class's own main-actor methods.
+    public var onDiagnostics: ((LSPDiagnosticEvent) -> Void)?
 
     public init(
         registry: LSPServerRegistry = .standard,
@@ -246,6 +268,18 @@ public final class LSPWorkspace {
         pendingLaunches = [:]
         documents = [:]
 
+        // D33: every diagnostic a torn-down server produced dies with it, and
+        // the model is told *now*, synchronously — not after a polite goodbye
+        // that may take a whole request budget. Each consumer task is cancelled
+        // with its session and stays silent on the way out (it sees the
+        // cancellation, knows this path already cleared), so the key's clear is
+        // emitted exactly once.
+        for key in live.keys {
+            notificationTasks[key]?.cancel()
+            notificationTasks[key] = nil
+            onDiagnostics?(.cleared(.server(serverID: key.serverID, root: key.root)))
+        }
+
         // `transports` is deliberately *not* emptied alongside the other three. It
         // is the only map `terminateNow()` reads, and every process below stays
         // alive until the `await` that stops it returns — so clearing it here would
@@ -297,13 +331,23 @@ public final class LSPWorkspace {
     public func terminateNow() {
         epoch += 1
 
-        let live = transports
+        let live = sessions
+        let liveTransports = transports
         sessions = [:]
         transports = [:]
         pendingLaunches = [:]
         documents = [:]
 
-        for transport in live.values { transport.terminate() }
+        // D33, synchronously: quit time offers no further run-loop turn in which
+        // a consumer task could wake, so the clears go out from here. The
+        // cancelled consumers stay silent (see `shutdownAll`).
+        for key in live.keys {
+            notificationTasks[key]?.cancel()
+            notificationTasks[key] = nil
+            onDiagnostics?(.cleared(.server(serverID: key.serverID, root: key.root)))
+        }
+
+        for transport in liveTransports.values { transport.terminate() }
     }
 
     // MARK: - Registration
@@ -359,6 +403,18 @@ public final class LSPWorkspace {
 
         let dead = Set(sessions.keys).union(pendingLaunches.keys).filter { isStale($0.serverID) }
         guard !dead.isEmpty else { return }
+
+        // D33, for the registry's half of it: a stale server's diagnostics die
+        // with it, before any goodbye — both halves below tear something down
+        // (a live session, or a launch that already registered), and neither
+        // waits politely before the model is told. Emitted once per dead key up
+        // front; a key whose pending launch never registered simply clears
+        // nothing. The cancelled consumers stay silent on their way out.
+        for key in dead {
+            notificationTasks[key]?.cancel()
+            notificationTasks[key] = nil
+            onDiagnostics?(.cleared(.server(serverID: key.serverID, root: key.root)))
+        }
 
         // Every map a `prepare` reads is emptied *before* the first hop, so one
         // racing this call finds nothing to hand out rather than a session that is
@@ -688,6 +744,10 @@ public final class LSPWorkspace {
         while let inFlight = flushes[uri] { _ = await inFlight.task.value }
 
         guard let state = documents.removeValue(forKey: uri) else { return }
+        // D33's per-document rule: the last tab on the file closed, and its set
+        // goes with it — emitted whether or not a session survives to be told
+        // (the editor's copy of the document is gone either way).
+        onDiagnostics?(.cleared(.document(url: url)))
         guard let session = sessions[state.serverKey] else { return }
 
         // Claimed like a flush, so a request that arrives while the notification is
@@ -931,6 +991,11 @@ public final class LSPWorkspace {
                 await session.terminate()
                 forget(transport, for: key)
                 unavailable.insert(key)
+                // D33's unavailability rule: the key is retired for the app run,
+                // so whatever a *predecessor* life of it left on screen goes too.
+                // This attempt never registered, so the clear is for the dead
+                // lives before it.
+                onDiagnostics?(.cleared(.server(serverID: key.serverID, root: key.root)))
                 return nil
             }
             guard sessions[key] == nil else {
@@ -950,6 +1015,10 @@ public final class LSPWorkspace {
                 return nil
             }
             sessions[key] = session
+            // The push channel opens with the session, not with the first
+            // request: from here on this server may say things nobody asked for,
+            // and its consumer must already be listening.
+            attachNotificationConsumer(for: key)
             return session
         } catch {
             await session.terminate()
@@ -985,6 +1054,13 @@ public final class LSPWorkspace {
         // makes the next request send a `didOpen` rather than a `didChange`
         // against a document the new process has never heard of.
         documents = documents.filter { $0.value.serverKey != key }
+        // D33: its diagnostics die with it too — synchronously, in this same
+        // mutation prefix, so the editor's surfaces blank in the turn the crash
+        // was noticed rather than whenever the consumer task next runs. The task
+        // is cancelled here and stays silent on its way out; this is the clear.
+        notificationTasks[key]?.cancel()
+        notificationTasks[key] = nil
+        onDiagnostics?(.cleared(.server(serverID: key.serverID, root: key.root)))
         let mayRestart = noteFailure(of: key)
         if let dead { await dead.terminate() }
         return mayRestart
@@ -998,9 +1074,83 @@ public final class LSPWorkspace {
         failures[key] = count
         guard count <= LSPWorkspace.backoffDelays.count else {
             unavailable.insert(key)
+            // D33's last teardown site: a spent budget retires the key, and the
+            // key's diagnostics go with it. Usually a duplicate of the clear
+            // `noteDeath` emitted one line earlier for this same crash; it is
+            // the *only* one on the launch-failure path, where no session ever
+            // died but a predecessor's answers may still be on screen.
+            onDiagnostics?(.cleared(.server(serverID: key.serverID, root: key.root)))
             return false
         }
         return true
+    }
+
+    // MARK: - Notifications (D29)
+
+    /// Attach the one per-session notification consumer (D29), held in
+    /// `notificationTasks` beside the session.
+    ///
+    /// Called from `launch` the moment a session is filed under its key, so the
+    /// stream has its consumer before the first request goes out — a real
+    /// server may push diagnostics for the `didOpen` well before the flush that
+    /// carried it returns. Cancelled by every teardown path (each of which
+    /// emits the key's clear itself); left to run out on its own only when the
+    /// stream finishes under it, which is how an externally-killed server is
+    /// noticed (D33).
+    private func attachNotificationConsumer(for key: ServerKey) {
+        guard let session = sessions[key] else { return }
+        notificationTasks[key]?.cancel()
+        let stream = session.notifications
+        notificationTasks[key] = Task { @MainActor [weak self] in
+            for await notification in stream {
+                guard let self else { return }
+                self.route(notification, from: key)
+            }
+            guard let self, !Task.isCancelled else { return }
+            // The stream finishing is the crash/exit signal (D33): EOF or a
+            // framing error ended the conversation without any of the deliberate
+            // teardowns below having spoken. Skipped when a *replacement* session
+            // now owns the key — its pushes have already re-published, and
+            // clearing for the dead predecessor would wipe them.
+            if let filed = self.sessions[key], filed !== session { return }
+            self.onDiagnostics?(.cleared(.server(serverID: key.serverID, root: key.root)))
+        }
+    }
+
+    /// Decode one notification and, when it survives D31's gates, hand the
+    /// mapped set to the sink. Every other method is ignored, as before.
+    ///
+    /// The gates, in order: the URI must be one **this** `(server, root)`
+    /// currently holds — a push for a closed file, a file another server owns,
+    /// or a file nobody opened is noise — and the version, when the server sent
+    /// one, must be the one this workspace last gave it. A push that passes both
+    /// is mapped against the text the server was *told* (`documents[uri].text`),
+    /// not the live buffer: the editor's copy may already have moved on, and
+    /// reconciling that difference is ``DiagnosticShift``'s job downstream, in
+    /// the model — never a remap here.
+    private func route(_ notification: LSPServerNotification, from key: ServerKey) {
+        guard notification.method == LSPMethod.publishDiagnostics else { return }
+        guard let params = notification.params,
+              let push = try? params.decoded(as: LSPPublishDiagnosticsParams.self) else { return }
+        guard let state = documents[push.uri], state.serverKey == key else { return }
+        if let version = push.version, version != state.version { return }
+
+        // The URI round-trips through URL here once, at the boundary: everything
+        // downstream (the store's keys, the panel's paths) speaks URL, and a URI
+        // that does not parse names no file this editor opened.
+        guard let url = URL(string: push.uri) else { return }
+        let content = state.text as NSString
+        let lineStarts = LSPPositionMap.lineStarts(in: content)
+        let diagnostics = push.diagnostics.compactMap {
+            Diagnostic.make(from: $0, in: content, lineStarts: lineStarts, url: url)
+        }
+        onDiagnostics?(.published(
+            url: url,
+            serverID: key.serverID,
+            root: key.root,
+            version: push.version,
+            diagnostics: diagnostics
+        ))
     }
 
     // MARK: - URIs
@@ -1053,4 +1203,45 @@ public final class LSPWorkspace {
 
     /// Every document some server currently holds open.
     var openDocumentURIs: Set<String> { Set(documents.keys) }
+}
+
+/// What the diagnostics channel says, in one value: an accepted push, or the
+/// clear that follows a teardown (D33).
+///
+/// This is the whole output side of the push channel — ``LSPWorkspace/onDiagnostics``'s
+/// payload. `published` carries the set already mapped onto buffer offsets
+/// against the text the server was told (D31); what happens to it next —
+/// accepted against sync bookkeeping or dropped (D32) — is downstream. The
+/// `serverID`/`root` pair mirrors `DiagnosticStore.ServerKey` so a clear can be
+/// keyed exactly as the store keys its provenance; `published` spells both
+/// halves out rather than carrying that store type so this file keeps speaking
+/// its own vocabulary.
+public enum LSPDiagnosticEvent: Equatable, Sendable {
+    /// An accepted push for a held document, mapped to UTF-16 buffer offsets.
+    /// `version` is the wire value verbatim (`nil` when the server sent none);
+    /// the model's acceptance gate reads it against its last sync.
+    case published(
+        url: URL,
+        serverID: String,
+        root: String,
+        version: Int?,
+        diagnostics: [Diagnostic]
+    )
+    /// Something was torn down and its diagnostics go with it. One case with an
+    /// explicit scope rather than two overloads of `.cleared` because Swift
+    /// cannot pattern-match same-named cases against each other — the switch
+    /// would resolve every `.cleared` to whichever shape was declared last.
+    ///
+    /// - `server`: every diagnostic one `(server, root)` produced dies with it
+    ///   — a death, a shutdown, an un-registration, the fourth-failure
+    ///   unavailability, the externally-killed-server signal.
+    /// - `document`: one document left the editor (`didClose`) and its set goes
+    ///   with it.
+    case cleared(Cleared)
+
+    /// The scope a ``cleared`` event names.
+    public enum Cleared: Equatable, Sendable {
+        case server(serverID: String, root: String)
+        case document(url: URL)
+    }
 }

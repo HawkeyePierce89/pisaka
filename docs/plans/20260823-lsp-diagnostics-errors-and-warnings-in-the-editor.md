@@ -249,23 +249,23 @@ by absence.
 - Modify: `Sources/PisakaCore/LSPWorkspace.swift`
 - Create: `Sources/PisakaCore/DiagnosticsModel.swift`
 
-- [ ] In `LSPWorkspace.launch`, attach one main-actor consumer task per session,
+- [x] In `LSPWorkspace.launch`, attach one main-actor consumer task per session,
       held beside the session and cancelled with it. It decodes
       `textDocument/publishDiagnostics`, applies D31 (URI must be a document
       currently held for this key; `version` must be absent or equal to the held
       version), maps through `Diagnostic.make(from:in:lineStarts:)` against
       `documents[uri].text`, and hands the result to a sink. Every other
       notification is ignored as before.
-- [ ] Add the sink as `var onDiagnostics: ((LSPDiagnosticEvent) -> Void)?` with
+- [x] Add the sink as `var onDiagnostics: ((LSPDiagnosticEvent) -> Void)?` with
       `LSPDiagnosticEvent` covering
       `published(url:serverID:version:diagnostics:)` and
       `cleared(serverID:root:)` / `cleared(url:)`.
-- [ ] Emit the clears on every teardown path per D33: `noteDeath`,
+- [x] Emit the clears on every teardown path per D33: `noteDeath`,
       `shutdownAll`, `terminateNow`, `updateRegistry`'s stale-key branch (both
       the live-session and pending-launch halves), the `unavailable.insert`
       sites, and `didClose(url:)`. The consumer task's own termination emits the
       key's clear — that is the externally-killed-server path.
-- [ ] Create `DiagnosticsModel`: `@MainActor public final class ... :
+- [x] Create `DiagnosticsModel`: `@MainActor public final class ... :
       ObservableObject` (the `SymbolIndexModel` precedent) holding a
       `DiagnosticStore`, a per-document buffer revision, and the sync
       bookkeeping. API: `noteSynced(url:version:revision:)`,
@@ -275,21 +275,21 @@ by absence.
       one **and** the document's revision still equals the revision recorded at
       that sync — D32's drop rule), `prepareForFolderChange()` (clear
       everything, bump the generation), and the read-only queries the views use.
-- [ ] Document on the model that it is a **reader**: it never raises
+- [x] Document on the model that it is a **reader**: it never raises
       `autosave.suspend()`/`localChanges.beginRevert()` and is never gated by
       them, for the symbol index's stated reason.
-- [ ] Write `LSPDiagnosticsRoutingTests` over `ScriptedLSPTransport`: a push for
+- [x] Write `LSPDiagnosticsRoutingTests` over `ScriptedLSPTransport`: a push for
       an open document reaches the sink with buffer offsets; a push with a stale
       version is dropped; a push for an unopened URI is dropped; a crash
       mid-session clears that key; a folder switch clears everything; `didClose`
       clears one document; `updateRegistry` removing a server clears its
       documents and not another server's.
-- [ ] Write `DiagnosticsModelTests`: a push accepted when nothing was edited
+- [x] Write `DiagnosticsModelTests`: a push accepted when nothing was edited
       since the sync; the same push dropped when the revision moved; an edit
       shifting a set and dropping the touched diagnostic; a buffer replacement
       clearing; two documents kept independent; the generation dropping a push
       that arrives after a folder change.
-- [ ] Run `swift test` — must pass before Task 5.
+- [x] Run `swift test` — must pass before Task 5.
 
 ### Task 5: The debounced sync and the app composition
 
