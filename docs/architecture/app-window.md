@@ -655,7 +655,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     rejoins one is alive again and needs the caret back as much as it needs
     to be cancellable again; a latched focus flag would leave that draft
     open, editable and permanently deaf, which is the very defect this hook
-    exists to remove. Re-acquiring cannot re-select over what the user has
+    exists to remove. Because that clearing happens one line before the
+    acquisition, the flag alone cannot refuse a *spurious* notification —
+    AppKit re-sends `viewDidMoveToWindow` for the same window when an
+    ancestor is re-added — so the acquisition is made idempotent against the
+    state itself: **a field that already owns its field editor returns
+    immediately**. Without that test `makeFirstResponder` would resign the
+    live editor, and the resulting `controlTextDidEndEditing` trips none of
+    its three tests (nothing is finishing, nothing is tearing down, the
+    window is there) and cancels the draft mid-typing — the same silent loss
+    from the opposite direction. Re-acquiring cannot re-select over what the user has
     typed, which is what keeps the two flags separate: the initial selection from
     `initialRenameSelection(in:isDirectory:)` is computed once in
     `makeNSView` and applied to the field editor exactly once — then

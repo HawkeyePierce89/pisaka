@@ -527,6 +527,20 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
         private func acquireFocus(retryOnRefusal: Bool) {
             guard !hasTakenFocus, !isTearingDown, let window else { return }
 
+            // Already editing in this window — nothing to acquire. AppKit
+            // re-sends `viewDidMoveToWindow` for the *same* window when an
+            // ancestor is re-added, and that path clears `hasTakenFocus` one
+            // line before calling here, so the flag alone cannot say no.
+            // `makeFirstResponder(self)` would then resign the live field
+            // editor, which posts `controlTextDidEndEditing` with none of its
+            // three tests tripped — cancelling, silently, the draft the user is
+            // still typing into. Owning the field editor *is* having taken
+            // focus, so record that and stop.
+            if let editor = currentEditor(), window.firstResponder === editor {
+                hasTakenFocus = true
+                return
+            }
+
             guard window.makeFirstResponder(self) else {
                 guard retryOnRefusal else { return }
                 DispatchQueue.main.async { [weak self] in
