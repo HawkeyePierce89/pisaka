@@ -344,6 +344,110 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         )
     }
 
+    // MARK: - The forced flush (the sync's supply)
+
+    /// The providers keep D2's no-op: their question needs no second
+    /// notification when another flusher already delivered this exact text.
+    func testAnUnforcedPrepareOnIdenticalTextIsStillANoOp() async throws {
+        _ = try await open(mainFile, text: "let a = 1\n")
+        XCTAssertEqual(harness.latest.notifications(for: LSPMethod.didChange).count, 0)
+
+        let again = await workspace.prepare(url: mainFile, language: .swift, text: "let a = 1\n")
+        XCTAssertEqual(again?.version, 1)
+        XCTAssertEqual(
+            harness.latest.notifications(for: LSPMethod.didChange).count,
+            0,
+            "an identical-text request sends nothing — the provider path's contract"
+        )
+    }
+
+    /// The diagnostics sync declines that no-op (`forceFlush: true`): a
+    /// push-only server publishes only when a notification arrives, so the
+    /// settling flush must leave the server one more to answer even when the
+    /// bytes are identical — otherwise the push its gate would accept never
+    /// exists.
+    func testAForcedPrepareRepublishesIdenticalTextAtANewVersion() async throws {
+        _ = try await open(mainFile, text: "let a = 1\n")
+
+        let forcedPrepare = await workspace.prepare(
+            url: mainFile,
+            language: .swift,
+            text: "let a = 1\n",
+            forceFlush: true
+        )
+        let forced = try XCTUnwrap(forcedPrepare)
+
+        XCTAssertEqual(forced.version, 2)
+        XCTAssertTrue(workspace.stillHolds(forced), "the document state moved with the bump")
+        let changes = harness.latest.notifications(for: LSPMethod.didChange)
+        XCTAssertEqual(changes.count, 1, "one full-text didChange for the identical text")
+        let change = try XCTUnwrap(changes.first)
+        XCTAssertEqual(change.params?["textDocument"]?["version"]?.intValue, 2)
+        XCTAssertEqual(change.params?["contentChanges"]?[0]?["text"]?.stringValue, "let a = 1\n")
+    }
+
+    /// The starvation shape the forced flag exists for: a provider flush (a
+    /// completion at its shorter debounce) delivers the typed text before the
+    /// diagnostics debounce fires, and its publish dies at the model's gate —
+    /// version past the record, revision moved. An unforced settling sync would
+    /// then find nothing to send and nothing coming, stranding the pre-typing
+    /// set on all three surfaces; with the forced republish the burst always
+    /// ends in a push the gate accepts.
+    func testAProviderFlushCannotStarveTheSettlingSyncsPush() async throws {
+        let model = DiagnosticsModel()
+        workspace.onDiagnostics = { [weak model] event in model?.receive(event) }
+
+        let first = try await open(mainFile, text: "a")
+        model.noteSynced(url: mainFile, version: first.version, revision: 0)
+        try push(to: harness.latest, uri: first.uri, version: 1, [
+            (LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), .error, "old"),
+        ])
+        await waitFor("the first push") { !self.publishedEntries(in: model).isEmpty }
+
+        // The keystroke bumps the revision; the provider (unforced prepare)
+        // delivers the new text…
+        model.noteEdit(
+            url: mainFile,
+            previousLineStarts: [0],
+            newLineStarts: [0],
+            editedRange: NSRange(location: 1, length: 0),
+            changeInLength: 1
+        )
+        let provider = try await open(mainFile, text: "ab")
+        XCTAssertEqual(provider.version, 2)
+
+        // …and the publish it provokes lands while the record still names the
+        // first sync: rejected by the gate.
+        try push(to: harness.latest, uri: provider.uri, version: 2, [
+            (LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 2), .warning, "mid"),
+        ])
+        await settle()
+        XCTAssertFalse(
+            publishedEntries(in: model).contains { $0.message == "mid" },
+            "the provider-provoked push is stale against the record — rejected"
+        )
+
+        // The settling sync forces the identical-text republish and records it;
+        // the answer to *that* is what the surfaces finally show.
+        let settledPrepare = await workspace.prepare(
+            url: mainFile,
+            language: .swift,
+            text: "ab",
+            forceFlush: true
+        )
+        let settled = try XCTUnwrap(settledPrepare)
+        XCTAssertEqual(settled.version, 3)
+        model.noteSynced(url: mainFile, version: settled.version, revision: 1)
+        try push(to: harness.latest, uri: settled.uri, version: settled.version, [
+            (LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 2), .warning, "new"),
+        ])
+        await waitFor("the post-settle push") { self.publishedEntries(in: model).first?.message == "new" }
+
+        // And the typed text genuinely travelled twice — the transport-level
+        // fact a push-only server's next publish depends on.
+        XCTAssertEqual(harness.latest.notifications(for: LSPMethod.didChange).count, 2)
+    }
+
     // MARK: - Clears (D33)
 
     func testACrashMidSessionClearsThatKey() async throws {

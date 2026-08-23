@@ -116,11 +116,21 @@ final class LSPDocumentSyncController {
                 try? await Task.sleep(for: interval)
                 if Task.isCancelled { return }
             }
-            // One prepare call, no follow-up request. A `nil` answer — no
-            // server, unavailable, outside the root, folder moved, pipe gone —
-            // does nothing at all, silently: D7's fallback discipline applies
-            // to this layer's one unprompted act too.
-            let prepared = await workspace.prepare(url: url, language: language, text: text)
+            // One prepare call, no follow-up request — forced, because the sync
+            // is the channel's whole supply: a completion/hover/definition flush
+            // may already have delivered this exact text (its push then died at
+            // the gate, version moved past the record), and an unforced landing
+            // here would send nothing for a push-only server to answer. The
+            // forced republish is what makes D32's self-correction unconditional.
+            // A `nil` answer — no server, unavailable, outside the root, folder
+            // moved, pipe gone — does nothing at all, silently: D7's fallback
+            // discipline applies to this layer's one unprompted act too.
+            let prepared = await workspace.prepare(
+                url: url,
+                language: language,
+                text: text,
+                forceFlush: true
+            )
             guard let self, !Task.isCancelled else { return }
             if let prepared {
                 model.noteSynced(url: url, version: prepared.version, revision: revision)

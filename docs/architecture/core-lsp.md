@@ -536,7 +536,14 @@ document, together with the limits they carry.
     pushed on a keystroke, and every request calls `prepare(url:language:text:)`
     first, which sends a `didOpen` (or a `didChange` with a bumped version) exactly
     when the text differs from what *this* server was last given, and nothing at all
-    when it does not. A document is never opened against a root it does not live
+    when it does not. The one caller that declines that no-op is the diagnostics
+    sync, through `prepare`'s defaulted `forceFlush`: a push-only server publishes
+    only when a notification arrives, so when another flusher (a completion at its
+    shorter debounce, a hover) has already delivered the settling sync's exact text
+    — its publish then dying at the model's gate, version past the record — the
+    sync must still leave one version-bumping full-text `didChange` behind, or the
+    burst ends with no accepted push anywhere (D30/D32). A document is never opened
+    against a root it does not live
     under: a server initialized for one project has no business being told about a
     file from another, and the answers it gave would be about the wrong build.
     **The flush is serialised per document**, through the `flushes` table (the
@@ -2431,16 +2438,25 @@ asks. Diagnostics are push-only, so without an unprompted sync the server would
 never re-diagnose anything after its first look at a file. Every open buffer of a
 served language is therefore flushed 400 ms after typing stops (per-URL debounce,
 superseded by the next keystroke for the same file) and immediately on tab
-open/switch, through exactly one `LSPWorkspace.prepare(url:language:text:)` call
-with no follow-up request — the whole of D2's machinery (launch coalescing, root
-check, unavailability gate, didOpen/didChange/no-op) already lives inside it, so
-this adds a *trigger*, not a second code path. The cost is one full-text
-`didChange` per settled burst per edited file, the same shape as the symbol index's
-own debounce beside which it runs. One consequence is stated rather than hidden:
-opening a served file now launches its server, where before a completion or a
-⌘-click was needed — that is what "diagnostics on open" means, and consent-gated
-servers still sit outside the registry until consented, so nothing new starts
-without the same gates every other launch has.
+    open/switch, through exactly one `LSPWorkspace.prepare(url:language:text:)`
+    call with no follow-up request — the whole of D2's machinery (launch coalescing,
+    root check, unavailability gate, didOpen/didChange/no-op) already lives inside
+    it, so this adds a *trigger*, not a second code path. The sync alone passes
+    that call's `forceFlush` flag, and the reason is supply, not politeness: a
+    push-only server answers *notifications*, and any other flusher landing first
+    (a completion at 150 ms, a hover) has already delivered the same text without
+    leaving an accepted push behind — its version moved past the model's record,
+    so the gate rejected the publish it provoked. An unforced settling sync would
+    then find nothing to send and nothing coming, freezing all three surfaces at
+    the pre-typing state; one redundant full-text `didChange` (bytes identical,
+    version bumped) is what makes the burst always end in a notification the
+    server must answer and the gate can accept. The cost is one extra whole-file
+    `didChange` only in exactly those bursts — the ordinary settle still sends
+    one. One consequence is stated rather than hidden:
+    opening a served file now launches its server, where before a completion or a
+    ⌘-click was needed — that is what "diagnostics on open" means, and consent-gated
+    servers still sit outside the registry until consented, so nothing new starts
+    without the same gates every other launch has.
 
 **D31 — Diagnostics are anchored to the text the server was told.** A push is
 mapped through `LSPPositionMap` against `documents[uri].text` at receipt, accepted
@@ -2471,7 +2487,9 @@ past text is dropped, never replayed against an edit log. **Rejected:** the exac
 alternative — queueing edits and replaying them onto a late-arriving push — needs a
 bounded per-document edit log and a revision↔version map; dropping is simpler,
 self-correcting (the last keystroke always schedules one more sync whose push has
-no edits after it), and matches the preference for briefly missing over misplaced.
+no edits after it — and that sync *forces* its notification past D2's no-op, so
+the correction does not silently depend on nobody else having flushed first), and
+matches the preference for briefly missing over misplaced.
 
 **D33 — A server's diagnostics die with it.** Clearing is keyed by `(server, root)`
 and emitted on every teardown path — `noteDeath`, `shutdownAll`,

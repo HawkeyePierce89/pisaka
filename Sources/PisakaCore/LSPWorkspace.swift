@@ -531,10 +531,24 @@ public final class LSPWorkspace {
     /// document, one full-text `didChange` when the text differs from what it was
     /// last told, and nothing at all when it does not — so a second request at the
     /// same keystroke sends no notification.
+    ///
+    /// `forceFlush` retires that no-op for one caller: the diagnostics sync
+    /// (D30). A push-only server publishes when a notification *arrives*, and any
+    /// other flusher landing first — a completion at its shorter debounce, a
+    /// hover, a definition — has already told the server this exact text without
+    /// leaving behind an accepted push: its version moved past the model's sync
+    /// record, so the gate rejected the publish it provoked, and the settling
+    /// sync arriving afterwards would find nothing to send and nothing coming.
+    /// One more full-text `didChange` — bytes identical, version bumped — is what
+    /// keeps D32's self-correction unconditional: every settled burst ends with a
+    /// notification the server must answer, whose push the gate accepts, because
+    /// the sync record is written from exactly this returned version. Providers
+    /// keep the default: their question itself needs no second notification.
     public func prepare(
         url: URL,
         language: SyntaxLanguage,
-        text: String
+        text: String,
+        forceFlush: Bool = false
     ) async -> PreparedDocument? {
         guard let root = currentRoot else { return nil }
         guard let description = registry.description(for: language) else { return nil }
@@ -564,7 +578,8 @@ public final class LSPWorkspace {
                 // not an LSP id (see `lspLanguageID(forFileNamed:)`).
                 languageID: language.lspLanguageID(forFileNamed: url.lastPathComponent),
                 session: session,
-                key: key
+                key: key,
+                forceFlush: forceFlush
             )
         } catch {
             // The notification could not be written, which means the pipe is gone.
@@ -601,12 +616,17 @@ public final class LSPWorkspace {
     ///
     /// The serialisation is the whole of this method; `send(…)` below is the part
     /// that talks. See `flushes` for what interleaving two of them costs.
+    ///
+    /// `forceFlush` is the diagnostics sync's flag (see `prepare`): it only ever
+    /// turns the identical-text no-op into a version-bumping full-text
+    /// `didChange`, so a push-only server has one more notification to answer.
     private func flush(
         uri: String,
         text: String,
         languageID: String,
         session: LSPSession,
-        key: ServerKey
+        key: ServerKey,
+        forceFlush: Bool
     ) async throws -> Int {
         // Wait out whatever is already flushing this document. A loop rather than
         // one wait: several requests can be queued on the same flush, they all wake
@@ -622,8 +642,11 @@ public final class LSPWorkspace {
         while let inFlight = flushes[uri] { _ = await inFlight.task.value }
 
         // The no-op — a second request at the same keystroke — is answered without
-        // claiming anything, so the common path allocates nothing.
-        if let state = documents[uri], state.serverKey == key, state.text == text {
+        // claiming anything, so the common path allocates nothing. A forced flush
+        // (D30's settling sync) declines it: its whole purpose is to provoke one
+        // more publish when somebody else already delivered this text.
+        if let state = documents[uri], state.serverKey == key,
+           state.text == text, !forceFlush {
             return state.version
         }
 
@@ -640,7 +663,8 @@ public final class LSPWorkspace {
                         text: text,
                         languageID: languageID,
                         session: session,
-                        key: key
+                        key: key,
+                        forceFlush: forceFlush
                     )
                 )
             } catch {
@@ -665,10 +689,11 @@ public final class LSPWorkspace {
         text: String,
         languageID: String,
         session: LSPSession,
-        key: ServerKey
+        key: ServerKey,
+        forceFlush: Bool
     ) async throws -> Int {
         if let state = documents[uri], state.serverKey == key {
-            guard state.text != text else { return state.version }
+            if state.text == text, !forceFlush { return state.version }
             let version = state.version + 1
             try await session.didChange(
                 LSPDidChangeTextDocumentParams(uri: uri, version: version, fullText: text)

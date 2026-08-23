@@ -659,8 +659,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     every pending debounce for a folder change. Each task pins
     `model.currentRevision(for:)` **synchronously before its first hop** — the
     generation-token rule, applied where an answer's acceptance will be judged —
-    then awaits `prepare(url:language:text:)` and reports
-    `noteSynced(url:version:revision:)` on success. A `nil` prepare — no server,
+    then awaits `prepare(url:language:text:forceFlush: true)` and reports
+    `noteSynced(url:version:revision:)` on success. The flag is the one thing this
+    layer adds to D2's flush: a completion/hover/definition prepare may already
+    have delivered the same text (its push then dying at the gate, version past
+    the record), and an unforced landing would send nothing for a push-only server
+    to answer — the forced republish is what keeps the burst ending in a push the
+    model accepts (core-lsp.md, D30). A `nil` prepare — no server,
     unavailable, outside the root, folder moved, pipe gone — does nothing at all,
     silently: D7's uniform-`nil` discipline covers this layer's one unprompted act
     too, and nothing on this path raises or takes the writer gate (D10). The
