@@ -99,15 +99,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     nothing else in this text view ever sets, is the unambiguous "this underline
     is ours" bit `drawUnderline` tests before replacing AppKit's straight line.
     `setDiagnosticRuns(_:)` replaces wholesale and repaints; its input goes
-    through `mergedDiagnosticRuns(_:)`, which resolves overlaps *per character*
+    through **Core's** `DiagnosticRun.merged(_:)` (`core-lsp.md`, `Diagnostic.swift`),
+    which resolves overlaps *per character*
     into non-overlapping segments each carrying the most serious severity covering
     it (an error inside a warning makes its own stretch red without repainting the
-    rest) and coalesces adjacent equal-severity segments back together — done here
+    rest) and coalesces adjacent equal-severity segments back together. Resolved at
+    this single write boundary
     rather than at draw time because the cache is what every later intersection
     binary-searches, and a small sorted non-overlapping array keeps those searches
-    exact (`firstDiagnosticIndex(endingAfter:)`, the rainbow runs' device). The
-    merge is quadratic in boundaries on purpose: diagnostic sets are small, and
-    anything stateful would outlive the push that justified it.
+    exact (`firstDiagnosticIndex(endingAfter:)`, the rainbow runs' device); the
+    algorithm itself lives in Core because it is pure and this repository keeps pure
+    decisions where `swift test` can see them — the view half only strokes what it
+    is handed. A **zero-length** run widens to one unit there rather than vanishing:
+    servers emit empty ranges, and every other surface shows them (the gutter marks
+    the line, hover's `diagnostics(at:)` rule is written for exactly that shape, the
+    panel lists it), so dropping them here alone would leave a line flagged in the
+    gutter with nothing under it.
     `clearDiagnostics(in:storageLength:)` follows `clearRainbow`'s pre-edit-
     coordinate contract exactly — the storage posts its edit notification before
     notifying layout managers, so the cached ranges are still pre-edit while
@@ -118,7 +125,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     cache entry does not drop its attribute — TextKit shifts the underline along
     with the characters — so the truncation records where it cut (`stalePaintStart`)
     and the next `setDiagnosticRuns` widens its clear from that character to the
-    end of the buffer, removing what no cache entry any longer describes; without
+    end of the buffer, removing what no cache entry any longer describes. What it
+    records is floored at **the edit's own location**, and that floor is the whole
+    correctness of the scheme: the dropped run's start is a *pre-edit* offset while
+    the clear is measured in *post-edit* space, so a deletion — which shifts the
+    surviving tail of a dropped run left, below that start — would otherwise clear
+    from above the residue and leave the squiggle painted under undiagnosed text,
+    with the recorded value already consumed and no later push computing a span
+    that covers it. Nothing can shift below the edit's location, because everything
+    from there to the edit's end is cleared outright, so the floor is exact rather
+    than merely generous; the `min` against the dropped start still matters for a
+    run straddling the edit, whose head survives *unmoved* at a lower offset. Without
     this, an edit intersecting a squiggle would leave an orphaned dotted underline
     attribute in the storage for the rest of the session (invisible today —
     `drawUnderline` draws nothing on a cache miss — but a lie waiting for a future
@@ -389,7 +406,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `drawHashMarksAndLabels` pass. `setDiagnosticSeverities(_:)` takes
     `DiagnosticsModel.worstSeverityPerLine(url:lineCount:lineStarts:)`'s array
     wholesale and keeps the blame column's `count == lineCount` invariant at the
-    setter — defensively padding with `nil` / truncating anything else — so the
+    setter — an array of any other length is **refused outright**, never padded or
+    truncated into a lie about which lines are clean (the store already sizes the
+    answer, so a mismatch means the geometry moved under the read, and the column
+    already on screen is the better of the two wrong answers) — so the
     draw loop indexes it by line number with no bounds arithmetic of its own; an
     unchanged array is a no-op (this fires on every diagnostics-model mutation
     and every keystroke-driven repaint), and thickness is deliberately *not*

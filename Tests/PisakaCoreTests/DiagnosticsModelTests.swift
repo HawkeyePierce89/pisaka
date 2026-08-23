@@ -341,7 +341,12 @@ final class DiagnosticsModelTests: XCTestCase {
         model.receive(.cleared(.document(url: otherURL)))
         model.noteSynced(url: url, version: 1, revision: 0)
         XCTAssertEqual(entry()?.diagnostics.first?.message, "swift")
-        XCTAssertTrue(model.store.entry(for: otherURL)?.diagnostics.isEmpty ?? true)
+        // …while its own hold is condemned: the record it was waiting for lands,
+        // and nothing is admitted against it. Asserted by *landing that record*,
+        // because the entry simply not existing yet would satisfy any weaker
+        // check whether or not the hold was ever dropped.
+        model.noteSynced(url: otherURL, version: 1, revision: 0)
+        XCTAssertNil(model.store.entry(for: otherURL), "a closed document's hold dies with it")
 
         // …and the server clear takes exactly that server's remaining hold.
         model.receive(.published(
@@ -671,5 +676,48 @@ final class DiagnosticsModelTests: XCTestCase {
         // A clear empties the query like it empties every other view surface.
         model.receive(.cleared(.document(url: url)))
         XCTAssertTrue(model.diagnostics(in: url).isEmpty)
+    }
+
+    /// The reconcile's *revision* clause, which the ordinary hold tests cannot
+    /// reach because every one of them lands a report pinned to the current
+    /// revision.
+    ///
+    /// The reachable failing case is a late report: two keystrokes move the
+    /// buffer to revision 2, a push is held against it, and then a flush that
+    /// began before those keystrokes finally reports, pinned to revision 1. Its
+    /// record describes text the buffer has already moved past, so admitting the
+    /// held set against it would paint squiggles at offsets nobody mapped — D32's
+    /// whole prohibition. Without the clause the set lands; with it the hold is
+    /// consumed and discarded, and the channel stays live for the next report.
+    func testAHeldPushIsDiscardedWhenTheLandingReportIsPinnedToAMovedPastRevision() {
+        let edit = insertAtFive()
+        model.noteEdit(
+            url: url,
+            previousLineStarts: edit.previous,
+            newLineStarts: edit.new,
+            editedRange: edit.range,
+            changeInLength: edit.delta
+        )
+        model.noteEdit(
+            url: url,
+            previousLineStarts: edit.new,
+            newLineStarts: edit.new,
+            editedRange: NSRange(location: 0, length: 0),
+            changeInLength: 0
+        )
+        XCTAssertEqual(model.currentRevision(for: url), 2)
+
+        // No record yet, so the push is held rather than dropped.
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "held")], version: 2))
+        XCTAssertNil(entry())
+
+        // The late report: pinned to revision 1, which the buffer has left.
+        model.noteSynced(url: url, version: 2, revision: 1)
+        XCTAssertNil(entry(), "a report describing moved-past text cannot admit a held set")
+
+        // …and the channel is still live: the next current report's own push lands.
+        model.noteSynced(url: url, version: 3, revision: 2)
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "fresh")], version: 3))
+        XCTAssertEqual(entry()?.diagnostics.map(\.message), ["fresh"])
     }
 }

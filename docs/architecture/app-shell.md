@@ -171,7 +171,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `diagnostics.prepareForFolderChange()` + `lspDocumentSync.reset()` run
     synchronously beside the index's and workspace's tokens — no push routed from an
     old project's server can land, and no pending debounce flushes new-folder text at
-    an old project's still-live server. Tab close rides `forgetIndexedBuffer(_:)`'s
+    an old project's still-live server. Only on a genuine *switch*, like the LSP
+    teardown it sits beside: re-opening the folder already open leaves every tab in
+    place, so nothing would re-sync afterwards and wiping the store there would blank
+    all three surfaces with nothing to repopulate them.
+    **Each of the three `updateRegistry` callbacks ends by re-syncing the open
+    buffers**, which is the one trigger the sync controller cannot supply itself.
+    Diagnostics are the only push-only surface here — everything else is
+    request-driven and recovers on the next completion/hover/⌘-click — and the
+    controller's whole trigger surface (tab open/switch, settled keystroke) gates on
+    `canServe`, which was false for that language a moment earlier. Without the
+    re-sync, consenting to a server, or gopls/rust-analyzer discovery finishing after
+    launch (the ordinary cold-start order), leaves the file on screen undiagnosed
+    until the user types. Tab close rides `forgetIndexedBuffer(_:)`'s
     existing guard too: `lspDocumentSync.noteBufferClosed(url:)` cancels that tab's
     pending flush beside the index call, before the fire-and-forget `didClose` whose
     document clear (D33) the model routes into its store. Nothing on any of these

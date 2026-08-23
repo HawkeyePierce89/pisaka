@@ -1449,7 +1449,7 @@ struct CodeEditorView: NSViewRepresentable {
                 return
             }
             let runs = (diagnosticsModel?.diagnostics(in: url) ?? []).map {
-                BracketOverlayLayoutManager.DiagnosticRun(range: $0.range, severity: $0.severity)
+                DiagnosticRun(range: $0.range, severity: $0.severity)
             }
             layoutManager.setDiagnosticRuns(runs)
         }

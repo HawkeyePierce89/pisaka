@@ -427,9 +427,12 @@ document, together with the limits they carry.
     an `LSPServerNotification` (method + params, nothing session-shaped attached)
     into `notifications: AsyncStream<LSPServerNotification>` instead of dropping
     it. The stream is built in `init` around a single continuation with
-    unbounded buffering, because its one consumer (`LSPWorkspace`, attached
-    before `start`) always drains it and a burst of pushes between two hops of
-    that consumer must not strand anything — a callback would have let two
+    unbounded buffering, because its one consumer (`LSPWorkspace`, attached once
+    the handshake has succeeded and the session is filed under its key) always
+    drains it: the buffer is what makes attaching *after* `start` safe — anything
+    the peer says during the handshake waits rather than being dropped — and a
+    burst of pushes between two hops of that consumer must not strand anything
+    either — a callback would have let two
     pushes reorder across two independent `Task` hops and leave stale errors on
     screen for the life of the session, which is the whole reason this is a
     stream (D29). Finishing is exactly once and exactly terminal: `close(reason:)`
@@ -846,7 +849,7 @@ document, together with the limits they carry.
     `session.notifications` from the moment the session is filed under its key —
     before the first request goes out, because a real server may push diagnostics
     for the `didOpen` well before the flush that carried it returns. `route(_:from:)`
-    applies D31's three gates in order: the push must name the folder this
+    applies D31's gates in order: the push must name the folder this
     workspace currently serves — a straggler from an old project's server in the
     window between `prepareForFolderChange` and the `shutdownAll()` it schedules
     would otherwise be routed, and, finding the model's bookkeeping cleared,
@@ -854,7 +857,9 @@ document, together with the limits they carry.
     must be a document **this**
     `(server, root)` currently holds (a closed file, another server's file, or an
     unopened one is noise), and a present `version` must equal the version last
-    flushed for it. A push passing all three is mapped against `documents[uri].text` —
+    flushed for it. A URI that does not parse as a `URL` is dropped last, at the one
+    boundary where the round-trip happens. A push passing every gate is mapped
+    against `documents[uri].text` —
     the text the *server was told*, not the live buffer; reconciling the editor's
     later edits is `DiagnosticShift`'s job downstream, never a remap here — one
     line-start scan per push, and the survivors go to the sink as an
@@ -1898,6 +1903,24 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     claim true rather than aspirational: real servers do emit two complaints at
     one position with one severity, and Swift's sort is not guaranteed stable,
     so without them the reading order would depend on the push's arrival order.
+    `sortedByOrderingKey(_:)` is how every one of those sorts is spelled, and the
+    reason is measured rather than stylistic: `orderingKey` is computed, and
+    building one standardizes a `URL` and allocates its path, so the naive
+    `sorted { $0.orderingKey < $1.orderingKey }` pays that twice per *comparison*.
+    Both call sites sit on a per-keystroke path — the panel's rows and counts
+    re-evaluate on every `@Published` store mutation — and n is the findings in one
+    file, which one unresolved import makes three digits. Decorate-sort-undecorate
+    builds each key once.
+    `DiagnosticRun` + `merged(_:)` is the editor overlay's value and its whole
+    algorithm, in Core for the ordinary reason (pure, therefore unit-tested):
+    freely-overlapping runs become the ascending non-overlapping form, each span
+    carrying the worst severity covering it, adjacent equal severities coalesced. A
+    **zero-length run widens to one unit** rather than being dropped — servers emit
+    empty ranges, and the gutter, hover and the panel all show them, so silently
+    skipping only the squiggle would flag a line with nothing under it; one at the
+    very end of the buffer widens past it and the paint side clamps it away, which
+    is the same "nothing to draw" a drop produced without also losing the drawable
+    ones.
     `hoverContent(for:merging:)` is D34's builder: each message as a
     severity-labelled prose segment ("error: …" — the label is what keeps a bare
     message from reading as documentation), in `orderingKey` order, above the type
@@ -1993,7 +2016,12 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     outright, never replayed against an edit log; the last keystroke has already
     scheduled one more sync whose push will have no edits after it, which is what
     makes dropping self-correcting. Edits after an *accepted* push go through
-    `noteEdit(...)` → `DiagnosticShift.updated` (shift + revision bump), a
+    `noteEdit(...)` → `DiagnosticShift.updated` (shift + revision bump — and it
+    reads the entry before touching the store, so an *undiagnosed* document costs no
+    `objectWillChange` at all: `apply(shift:to:)` already no-ops there, but calling
+    it is still a mutating access to a `@Published` value, which would wake the
+    panel's rows and the editor's whole-document gutter pass once per keystroke in
+    every plain-text file), a
     wholesale buffer replacement (a `reloadFromDisk`, Replace All or merge apply,
     on-screen or reported off-screen) through `noteBufferReplaced(url:)` (clear +
     bump + drop the sync record — the server no longer holds text anyone mapped a
@@ -2009,14 +2037,15 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     "well before the flush that carried it returns"). So a push that finds no
     record, or a record pinned to a revision the buffer has moved past — either
     signature of a report still in flight — is **held** (one per document, newest
-    wins, carrying its hold-time revision) and judged when the next record lands:
+    wins, the event alone with no revision beside it) and judged when the next record lands:
     admitted only if that sync itself is current and the versions match (absent
     passes), because the hold's survival plus the landing record together pin it
     to exactly that sync's text. Every invalidating event drops holds — `noteEdit`,
     `noteBufferReplaced`, both clears (scoped: a server clear takes only that
     server's), and the folder change — so a hold can never resurrect anything a
-    teardown or a keystroke condemned (and is why the reconcile never re-checks
-    the hold-time revision: nothing that bumps a revision leaves a hold behind).
+    teardown or a keystroke condemned — and is why no hold-time revision is stored
+    at all: nothing that bumps a revision leaves a hold behind, so the hold's mere
+    survival is already the proof a stored copy would have re-checked.
     A version mismatch against a *current* record is held too, not dropped:
     with no keystroke to point at, it is either a late replay — which the
     reconcile's version half then discards unreplayed — or the settling flush's
@@ -2471,7 +2500,9 @@ exactly as every other language does (D7), silently and per request.
 server-initiated notification on the floor; diagnostics are the first thing this
 client needs to *hear*. It exposes `notifications: AsyncStream<LSPServerNotification>`,
 built at init with one continuation, consumed by `LSPWorkspace` in one main-actor
-task per session attached before `start`. A stream rather than a callback because
+task per session, attached once `start`'s handshake has succeeded and the session
+is filed under its key — the unbounded buffer is what makes that ordering safe,
+holding anything the peer says during the handshake until the consumer arrives. A stream rather than a callback because
 ordering is the whole point: two pushes for one document ("2 errors", then "all
 clear") delivered through two independent `Task { @MainActor }` hops can arrive
 backwards, and a callback that published straight into UI state would strand stale
@@ -2516,9 +2547,12 @@ superseded by the next keystroke for the same file) and immediately on tab
 
 **D31 — Diagnostics are anchored to the text the server was told.** A push is
 mapped through `LSPPositionMap` against `documents[uri].text` at receipt, accepted
-only when the URI names a document that `(server, root)` currently holds **and**
+only when the pushing key's root is the folder this workspace **currently** serves,
+the URI names a document that `(server, root)` currently holds, **and**
 its `version`, when present, equals the version last flushed for it; a push for a
-URI nobody holds open is ignored (the surfaces cover open documents only). The
+URI nobody holds open is ignored (the surfaces cover open documents only), and so
+is one whose URI does not parse as a URL — the round-trip to `URL` happens once,
+here at the boundary, because everything downstream speaks `URL`. The
 live buffer is deliberately *not* consulted: the editor may already have moved on,
 and remapping against it here would guess. What happens instead is D32.
 
@@ -2546,8 +2580,12 @@ can be routed inside that window, where dropping would strand the document blank
 until the next interaction. A push that finds no record, or a record pinned to a
 moved-past revision, is held (one per document, newest wins) and judged by the
 next report; everything that invalidates state — edits, replacements, clears,
-folder changes — drops holds too, and a version mismatch against a *current*
-record stays an outright drop. **Rejected:** the exact
+folder changes — drops holds too. A version mismatch against a *current* record
+is **held as well**, not dropped: with no keystroke to condemn it the push is
+either a late replay, which the reconcile's version half then discards, or the
+settling flush's own publish arriving ahead of its report, which the reconcile
+admits. Holding costs nothing, because only the version the record actually lands
+with is ever accepted. **Rejected:** the exact
 alternative — queueing edits and replaying them onto a late-arriving push — needs a
 bounded per-document edit log and a revision↔version map; dropping is simpler,
 self-correcting (the last keystroke always schedules one more sync whose push has
@@ -2557,8 +2595,14 @@ matches the preference for briefly missing over misplaced.
 
 **D33 — A server's diagnostics die with it.** Clearing is keyed by `(server, root)`
 and emitted on every teardown path — `noteDeath`, `shutdownAll`,
-`terminateNow`, `updateRegistry`'s removals, each fourth-failure `unavailable.insert`
-— plus per-document on `didClose(url:)`. The externally-killed server has no
+`terminateNow`, `updateRegistry`'s removals, and both sites that retire a key into
+`unavailable` (a spent D7 budget, and a server disqualified for not speaking UTF-16,
+which never counts a failure at all) — plus per-document on `didClose(url:)`.
+Clearing is **at-least-once and idempotent**, never exactly-once: one crash can emit
+up to three clears for the same key (`noteDeath`, the fourth-failure retirement, and
+the consumer walking out of a finished stream), which is deliberate — every sink
+must absorb a duplicate, and a clear that finds nothing to clear is the cheap half
+of never leaving a dead server's squiggles on screen. The externally-killed server has no
 deliberate path, so it is covered by the *stream's* termination: the session's read
 task hits EOF, `close(reason:)` finishes the notification stream, the workspace's
 consumer task walks out of its loop and emits the key's clear on the way out. That

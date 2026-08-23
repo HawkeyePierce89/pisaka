@@ -50,15 +50,6 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// slice intersecting a write instead of scanning every match in the file.
     private var searchRanges: [NSRange] = []
 
-    /// One squiggled span: a buffer range and how serious it is.
-    ///
-    /// A struct rather than a tuple so the cache's "unchanged set" comparison is
-    /// the synthesized `==`, not a hand-written pairwise helper.
-    struct DiagnosticRun: Equatable {
-        var range: NSRange
-        var severity: DiagnosticSeverity
-    }
-
     /// Every diagnostic underline currently shown, sorted ascending by
     /// `range.location` and **non-overlapping** — `setDiagnosticRuns` merges the
     /// incoming set so every character is covered by exactly one span carrying
@@ -240,13 +231,14 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// Replace the diagnostic underlines wholesale and repaint them.
     ///
     /// The incoming runs may overlap freely (a server can publish nested spans);
-    /// they are merged here into the cache's canonical non-overlapping form —
-    /// sorted by location, each overlapping stretch carrying the *worst* of the
-    /// severities that touched it (`DiagnosticSeverity` orders by seriousness).
-    /// Resolving at the single write boundary means every later reader — the
-    /// per-write repaint below, and the zigzag in `drawUnderline` when a fragment
-    /// straddles two adjacent merged runs — sees one severity per character and
-    /// cannot disagree about which color wins.
+    /// `DiagnosticRun.merged(_:)` — Core's, with the whole algorithm and its
+    /// zero-length rule — puts them into the cache's canonical non-overlapping
+    /// form: sorted by location, each overlapping stretch carrying the *worst* of
+    /// the severities that touched it (`DiagnosticSeverity` orders by
+    /// seriousness). Resolving at the single write boundary means every later
+    /// reader — the per-write repaint below, and the zigzag in `drawUnderline`
+    /// when a fragment straddles two adjacent merged runs — sees one severity per
+    /// character and cannot disagree about which color wins.
     ///
     /// An unchanged set is a no-op: this runs on every diagnostics-model change
     /// and every keystroke-driven shift re-push, while a repaint costs one clear
@@ -262,7 +254,7 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// dropped character onward (`stalePaintStart`) — the truncated cache no
     /// longer knows what was painted past it.
     func setDiagnosticRuns(_ runs: [DiagnosticRun]) {
-        let merged = Self.mergedDiagnosticRuns(runs)
+        let merged = DiagnosticRun.merged(runs)
         guard merged != diagnosticRuns || stalePaintStart != nil else { return }
         let previous = diagnosticRanges()
         diagnosticRuns = merged
@@ -272,9 +264,11 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
         var clearedSpan = previousSpan
         if let staleStart = stalePaintStart {
             stalePaintStart = nil
-            // The residue sits anywhere from the first dropped run's start to
-            // the end of the (post-edit) buffer — TextKit shifted it across the
-            // edit. One removal over that whole span costs no more than the
+            // The residue sits anywhere from `stalePaintStart` to the end of
+            // the (post-edit) buffer — TextKit shifted it across the edit, and
+            // `clearDiagnostics` floored the recorded value at the edit's own
+            // location so a deletion's leftward shift stays inside the span.
+            // One removal over that whole span costs no more than the
             // bounding-span clear it replaces, and over-clearing is safe: this
             // class is the sole writer of these keys, and the paint below
             // restores every survivor immediately.
@@ -315,7 +309,18 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// have not yet been shifted by the edit.
     func clearDiagnostics(in range: NSRange, storageLength: Int) {
         if let firstDropped = diagnosticRuns.first(where: { NSMaxRange($0.range) > range.location })?.range.location {
-            stalePaintStart = min(stalePaintStart ?? Int.max, firstDropped)
+            // Floored at the edit's own location, which is the one offset both
+            // coordinate systems agree on. `firstDropped` is a *pre-edit* start
+            // and the residue is read back in *post-edit* space: a deletion
+            // shifts the surviving tail of a dropped run left, to below that
+            // start, so recording it alone would clear from above the residue
+            // and leave the squiggle painted under text that no longer carries a
+            // diagnostic. Nothing can shift below `range.location` — everything
+            // from there to the edit's end is cleared outright here — so the
+            // floor is exact, not merely safe. The `min` with `firstDropped`
+            // still matters for a run straddling the edit's start, whose head
+            // survives *unmoved* at a lower offset than the edit.
+            stalePaintStart = min(stalePaintStart ?? Int.max, min(firstDropped, range.location))
         }
         diagnosticRuns.removeAll { NSMaxRange($0.range) > range.location }
         let clampedRange = clamped(range, to: storageLength)
@@ -386,47 +391,6 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
             }
             index += 1
         }
-    }
-
-    /// Merge overlapping diagnostic runs into the cache's canonical form:
-    /// ascending by location, non-overlapping, **each span carrying the worst
-    /// severity that covers it**.
-    ///
-    /// A sweep over every range boundary splits the union into elementary
-    /// segments, each painted with the most serious diagnostic covering it
-    /// (nesting included: an error inside a warning makes its own stretch red
-    /// without repainting the rest), then adjacent equal-severity segments are
-    /// coalesced back together so the cache stays minimal. Diagnostic sets are
-    /// small, so the quadratic segment pass is not worth avoiding with anything
-    /// stateful.
-    private static func mergedDiagnosticRuns(_ runs: [DiagnosticRun]) -> [DiagnosticRun] {
-        let covering = runs.filter { $0.range.length > 0 }
-        guard !covering.isEmpty else { return [] }
-        var boundaries = Set<Int>()
-        for run in covering {
-            boundaries.insert(run.range.location)
-            boundaries.insert(NSMaxRange(run.range))
-        }
-        let edges = boundaries.sorted()
-        var result: [DiagnosticRun] = []
-        for index in 0..<(edges.count - 1) {
-            let start = edges[index]
-            let end = edges[index + 1]
-            var worst: DiagnosticSeverity?
-            for run in covering where run.range.location <= start && NSMaxRange(run.range) >= end {
-                worst = max(worst ?? run.severity, run.severity)
-            }
-            guard let severity = worst else { continue }
-            if let last = result.last, NSMaxRange(last.range) == start, last.severity == severity {
-                result[result.count - 1] = DiagnosticRun(
-                    range: NSRange(location: last.range.location, length: end - last.range.location),
-                    severity: severity
-                )
-            } else {
-                result.append(DiagnosticRun(range: NSRange(location: start, length: end - start), severity: severity))
-            }
-        }
-        return result
     }
 
     /// Every range the diagnostic cache currently describes — what a wholesale

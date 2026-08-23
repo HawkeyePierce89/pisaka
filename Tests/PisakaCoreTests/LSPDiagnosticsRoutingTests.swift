@@ -78,6 +78,11 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     }
 
     override func tearDown() {
+        // Terminated before the reference is dropped: every test here launches at
+        // least one session, and a session left alive keeps a read task suspended
+        // on a `ScriptedLSPTransport` stream nobody will ever close — one leaked
+        // task per server per test, for the whole run.
+        workspace.terminateNow()
         workspace.onDiagnostics = nil
         workspace = nil
         harness = nil
@@ -527,6 +532,14 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     func testAStragglersPushBetweenTheFolderSwitchsStepsNeverRoutes() async throws {
         let prepared = try await open(mainFile, text: "a")
 
+        // Liveness first, so the absence below is a fact about the folder switch
+        // rather than about routing having broken wholesale.
+        try push(to: harness.latest, uri: prepared.uri, version: prepared.version, [
+            (LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), nil, "before"),
+        ])
+        await waitFor("the pre-switch push") { !self.publishedEvents().isEmpty }
+        let countBefore = publishedEvents().count
+
         workspace.prepareForFolderChange(root: otherRoot)
 
         try push(to: harness.latest, uri: prepared.uri, version: prepared.version, [
@@ -534,7 +547,11 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         ])
         await settle()
 
-        XCTAssertTrue(publishedEvents().isEmpty, "an old root's server has nothing to say to this workspace")
+        XCTAssertEqual(
+            publishedEvents().count,
+            countBefore,
+            "an old root's server has nothing to say to this workspace"
+        )
     }
 
     func testTerminateNowEmitsTheKeySynchronously() async throws {

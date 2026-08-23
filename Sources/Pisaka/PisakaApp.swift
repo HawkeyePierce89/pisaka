@@ -391,10 +391,34 @@ struct PisakaApp: App {
         // `lspWorkspace` and the models are captured directly rather than through
         // `self`: this runs during `init`, and the closures must outlive it holding
         // those objects, not a half-built `PisakaApp` value.
+        //
+        // Each callback ends by re-syncing the open buffers (D30). Diagnostics
+        // are the one push-only channel here: every other LSP surface is
+        // request-driven and recovers on the next completion/hover/⌘-click,
+        // while the sync controller's whole trigger surface is tab open/switch
+        // and a settled keystroke — all of which gate on `canServe`, which was
+        // *false* for the language a moment ago. Without this, consenting to a
+        // server (or gopls/rust-analyzer discovery finishing after launch, which
+        // is the ordinary cold-start order) leaves the file on screen with no
+        // squiggles, no gutter markers and no Problems rows until the user types
+        // a character — precisely the "diagnosed before they finish reading it"
+        // moment the channel exists for.
+        let resyncDiagnostics: @MainActor () -> Void = { [weak workspace, lspDocumentSync] in
+            guard let workspace else { return }
+            for file in workspace.openFiles {
+                guard let url = file.url else { continue }
+                lspDocumentSync.noteBufferOpened(
+                    url: url,
+                    text: file.text,
+                    language: SyntaxLanguage(forFileName: url.lastPathComponent)
+                )
+            }
+        }
         provisioning.onRegistryChange = { @MainActor [lspWorkspace, gopls, rust] registry in
             await lspWorkspace.updateRegistry(
                 LSPServerRegistry(registry.descriptions + gopls.descriptions + rust.descriptions)
             )
+            resyncDiagnostics()
         }
         gopls.onDescriptionsChange = { @MainActor [lspWorkspace, provisioning, rust] descriptions in
             await lspWorkspace.updateRegistry(
@@ -402,6 +426,7 @@ struct PisakaApp: App {
                     provisioning.registry.descriptions + descriptions + rust.descriptions
                 )
             )
+            resyncDiagnostics()
         }
         rust.onDescriptionsChange = { @MainActor [lspWorkspace, provisioning, gopls] descriptions in
             await lspWorkspace.updateRegistry(
@@ -409,6 +434,7 @@ struct PisakaApp: App {
                     provisioning.registry.descriptions + gopls.descriptions + descriptions
                 )
             )
+            resyncDiagnostics()
         }
         self.lspProvisioning = provisioning
 

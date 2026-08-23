@@ -490,4 +490,113 @@ final class DiagnosticStoreTests: XCTestCase {
 
         XCTAssertEqual(store.counts, DiagnosticStore.Counts(errors: 2, warnings: 1))
     }
+
+    // MARK: - Row ordering and path components
+
+    /// Files whose display components are *identical* still order
+    /// deterministically, because the group sort falls through to the absolute
+    /// URL. Without the tie-break the panel's list is left in the store
+    /// dictionary's iteration order, which Swift re-seeds per process — so the
+    /// same store would render in a different order from one launch to the next.
+    ///
+    /// Each pair is a file inside the root whose relative components happen to
+    /// spell an absolute path outside it — `/tmp/pkg/tmp/outN/x.swift` flattens
+    /// to `["tmp", "outN", "x.swift"]`, and so does `/tmp/outN/x.swift`, which is
+    /// shown absolutely. Five collisions rather than one on purpose: with the
+    /// tie-break gone the surviving order is a hash-seeded permutation, and one
+    /// pair would coincide with the right answer half the time.
+    func testGroupsWithIdenticalPathComponentsOrderByAbsoluteURL() {
+        var store = DiagnosticStore()
+        var expectedComponents: [[String]] = []
+        var expectedURLs: [URL] = []
+        for index in 0..<5 {
+            let inside = URL(fileURLWithPath: "/tmp/pkg/tmp/out\(index)/x.swift")
+            let outside = URL(fileURLWithPath: "/tmp/out\(index)/x.swift")
+            for url in [inside, outside] {
+                store.replace(url: url, serverKey: swiftKey, diagnostics: [diagnostic(url, at: 0, line: 0)])
+            }
+            expectedComponents.append(["tmp", "out\(index)", "x.swift"])
+            expectedComponents.append(["tmp", "out\(index)", "x.swift"])
+            // Components decide the pair's position; inside the pair the
+            // absolute URL decides, and `/tmp/out…` precedes `/tmp/pkg/…`.
+            expectedURLs.append(outside)
+            expectedURLs.append(inside)
+        }
+
+        let groups = store.rows(relativeTo: rootURL)
+        XCTAssertEqual(groups.map(\.pathComponents), expectedComponents)
+        XCTAssertEqual(groups.map(\.url), expectedURLs)
+    }
+
+    /// A file reached through a *symlinked* spelling of the root still shows
+    /// relative components: the lexical probe misses, and the canonical probe
+    /// behind it is what stops the row from falling back to an absolute path
+    /// that would disagree with the breadcrumb for the same file.
+    func testRelativeComponentsSurviveASymlinkedSpellingOfTheRoot() throws {
+        let base = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("diagnostic-store-symlink-\(UUID().uuidString)", isDirectory: true)
+        let real = base.appendingPathComponent("real", isDirectory: true)
+        let sources = real.appendingPathComponent("Sources", isDirectory: true)
+        try FileManager.default.createDirectory(at: sources, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let link = base.appendingPathComponent("link", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+
+        // The file is named through the *real* path, the root through the link.
+        let file = sources.appendingPathComponent("main.swift")
+        var store = DiagnosticStore()
+        store.replace(url: file, serverKey: swiftKey, diagnostics: [diagnostic(file, at: 0, line: 0)])
+
+        XCTAssertEqual(store.rows(relativeTo: link).map(\.pathComponents), [["Sources", "main.swift"]])
+    }
+
+    // MARK: - Degenerate geometry
+
+    /// A negative `line` is skipped, not indexed with. Unreachable through the
+    /// mapping — which never mints one — but `Diagnostic` is a public value type
+    /// with a public memberwise init, and the query promises "never a crash
+    /// indexing past the array" to callers it never met.
+    func testANegativeLineIsSkippedRatherThanIndexedWith() {
+        var store = DiagnosticStore()
+        store.replace(
+            url: mainURL,
+            serverKey: swiftKey,
+            diagnostics: [
+                diagnostic(at: 0, line: -1, severity: .error),
+                diagnostic(at: 4, line: 1, severity: .warning),
+            ]
+        )
+
+        XCTAssertEqual(
+            store.worstSeverityPerLine(url: mainURL, lineCount: 3, lineStarts: lineStarts),
+            [nil, .warning, nil]
+        )
+    }
+
+    /// A span whose end overflows `Int` is skipped like any other garbage
+    /// geometry — the guard's counterpart to `DiagnosticShift`'s two.
+    func testAnOverflowingSpanIsSkippedRatherThanTrapping() {
+        var store = DiagnosticStore()
+        store.replace(
+            url: mainURL,
+            serverKey: swiftKey,
+            diagnostics: [
+                Diagnostic(
+                    range: NSRange(location: Int.max - 1, length: 5),
+                    line: 0,
+                    severity: .error,
+                    message: "overflow",
+                    source: "test",
+                    fileURL: mainURL
+                ),
+                diagnostic(at: 8, line: 2, severity: .warning),
+            ]
+        )
+
+        XCTAssertEqual(
+            store.worstSeverityPerLine(url: mainURL, lineCount: 3, lineStarts: lineStarts),
+            [nil, nil, .warning]
+        )
+    }
 }

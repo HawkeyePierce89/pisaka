@@ -129,11 +129,15 @@ public actor LSPSession {
     /// Every server-initiated notification the peer sends, in wire order (D29).
     ///
     /// Exactly **one consumer**: `LSPWorkspace`, which attaches its iteration
-    /// before `start` and keeps it for the life of the session. Buffering is
-    /// unbounded because that owner always consumes — a burst of pushes between
-    /// two hops of the consumer task must not strand anything, which is the whole
-    /// reason this is a stream and not a callback (two pushes reordered by two
-    /// independent `Task` hops would leave stale errors on screen forever).
+    /// once the handshake has succeeded and the session is filed under its key,
+    /// and keeps it for the life of the session. Attaching *after* `start` is
+    /// safe — and is half of why the buffer is unbounded: the stream exists from
+    /// `init`, so anything the peer says during the handshake waits for the
+    /// consumer instead of being dropped. The other half is the steady state,
+    /// where a burst of pushes between two hops of the consumer task must not
+    /// strand anything — the whole reason this is a stream and not a callback
+    /// (two pushes reordered by two independent `Task` hops would leave stale
+    /// errors on screen forever).
     /// **Finishing is the signal**: `close(reason:)` — already the single
     /// terminal transition, so no second finish is reachable — finishes the
     /// stream exactly once however the conversation ended (EOF, framing error,

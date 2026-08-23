@@ -729,7 +729,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     identifier (bump the token, cancel the dwell, take the panel down, and start
     again). `IdentifierScanner` is the gate and the anchor both, so hover, ⌘-click
     and completion can never disagree about what a word is, and whitespace,
-    punctuation and the empty region past a line's end never reach the provider.
+    punctuation and the empty region past a line's end never reach the provider —
+    except where D34 widens it, below: punctuation inside a diagnostic's span is
+    asked about, at the union's start.
     The anchor is deliberately also set for a request that turns out to have **no**
     answer, so a server that knows nothing about an identifier is asked once per
     visit rather than once per mouse-moved event — but it is set **after** the
@@ -748,11 +750,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     inside the anchor answers both cases, and keeps a server range wider than the
     identifier (a qualified name, an operator expression) doing what it is for:
     moving within it re-asks nothing.
-    **Asking, however, requires the offset to be inside the identifier.** The
+    **Asking requires the offset to be inside the identifier — or inside a
+    diagnostic**, which is D34's one widening of this rule. The
     ending-at probe is wanted only for the suppression test; once there is nothing
     on screen to keep, a match the offset lies *outside* of is dismissed instead of
     asked about — so the space after a name and the `.` of `worker.name` never reach
-    the provider as questions about the word before them. It is also what keeps the
+    the provider as questions about the word before them, *unless* they lie in
+    diagnosed text, where the pointer rests on something the popover can speak about
+    whether or not it is over a word. It is also what keeps the
     offset the question carries and the range the answer is anchored to talking
     about the same thing, which matters because the servers disagree at exactly
     those positions (sourcekit-lsp resolves at the preceding token, gopls' node

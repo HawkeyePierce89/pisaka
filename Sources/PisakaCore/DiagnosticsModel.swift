@@ -98,11 +98,14 @@ public final class DiagnosticsModel: ObservableObject {
 
     /// A push that arrived before its document's bookkeeping could accept it —
     /// the routed-before-reported race documented on the type. One per
-    /// document (newest wins), carrying the revision at the moment of the hold
-    /// so the reconcile can prove the buffer stood still across it. Held only
-    /// between the push and the next event that touches the document; never
-    /// replayed after an invalidation.
-    private var heldPushes: [URL: (event: LSPDiagnosticEvent, revisionAtHold: Int)] = [:]
+    /// document, newest wins.
+    ///
+    /// The event alone, with no revision beside it: the hold's *survival* is
+    /// already the proof that the buffer stood still across it, because every
+    /// revision bump (`noteEdit`, `noteBufferReplaced`, `prepareForFolderChange`)
+    /// drops the hold. Held only between the push and the next event that
+    /// touches the document; never replayed after an invalidation.
+    private var heldPushes: [URL: LSPDiagnosticEvent] = [:]
 
     public init() {}
 
@@ -145,12 +148,16 @@ public final class DiagnosticsModel: ObservableObject {
         let key = url.standardizedFileURL
         syncs[key] = SyncRecord(version: version, revision: revision)
 
+        // `heldURL`, not the parameter: the two standardize identically (the
+        // hold is filed under a key derived from the event's own URL), and
+        // naming them apart is what keeps that a fact a reader can check rather
+        // than one a shadowed binding hides.
         if let held = heldPushes.removeValue(forKey: key),
-           case .published(let url, let serverID, let root, let heldVersion, let diagnostics) = held.event,
+           case .published(let heldURL, let serverID, let root, let heldVersion, let diagnostics) = held,
            revision == (revisions[key] ?? 0),
            heldVersion.map({ $0 == version }) ?? true {
             store.replace(
-                url: url,
+                url: heldURL,
                 serverKey: DiagnosticStore.ServerKey(serverID: serverID, root: root),
                 diagnostics: diagnostics
             )
@@ -176,8 +183,17 @@ public final class DiagnosticsModel: ObservableObject {
         // nobody mapped for it, so it is honest "unknown" like any other
         // touched content (D32). The settling sync's republish replaces it.
         heldPushes[key] = nil
+        // Read before writing, and skipped entirely when there is nothing to
+        // shift. `apply(shift:to:)` already no-ops for an unknown document, but
+        // *calling* it is a mutating access to a `@Published` value and so
+        // publishes regardless — one `objectWillChange` per keystroke in every
+        // undiagnosed file, waking the Problems panel's rows and counts and the
+        // editor's whole-document gutter pass for a store that did not change.
+        // A read is not a mutation, so the guard costs nothing and the
+        // behaviour is identical.
+        guard let existing = store.entry(for: url)?.diagnostics else { return }
         let shifted = DiagnosticShift.updated(
-            store.entry(for: url)?.diagnostics ?? [],
+            existing,
             previousLineStarts: previousLineStarts,
             newLineStarts: newLineStarts,
             editedRange: editedRange,
@@ -220,14 +236,14 @@ public final class DiagnosticsModel: ObservableObject {
             let key = url.standardizedFileURL
             let currentRevision = revisions[key] ?? 0
             guard let sync = syncs[key] else {
-                heldPushes[key] = (event, currentRevision)
+                heldPushes[key] = event
                 return
             }
             guard sync.revision == currentRevision else {
                 // The record predates the buffer's present state: its own
                 // pushes are stale by the live clause, and this push may be
                 // the in-flight sync's answer. Hold it for that report.
-                heldPushes[key] = (event, currentRevision)
+                heldPushes[key] = event
                 return
             }
             guard version.map({ $0 == sync.version }) ?? true else {
@@ -236,7 +252,7 @@ public final class DiagnosticsModel: ObservableObject {
                 // publish beating its report home. Holding costs nothing —
                 // the reconcile's version half admits only the version that
                 // record actually lands with.
-                heldPushes[key] = (event, currentRevision)
+                heldPushes[key] = event
                 return
             }
             heldPushes[key] = nil
@@ -251,7 +267,7 @@ public final class DiagnosticsModel: ObservableObject {
             // stage of the gate it had reached; a different server's holds are
             // not touched.
             heldPushes = heldPushes.filter { _, held in
-                guard case .published(_, let heldServerID, let heldRoot, _, _) = held.event
+                guard case .published(_, let heldServerID, let heldRoot, _, _) = held
                 else { return true }
                 return heldServerID != serverID || heldRoot != root
             }

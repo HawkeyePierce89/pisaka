@@ -174,7 +174,7 @@ public struct DiagnosticStore: Equatable, Sendable {
     /// contains exactly its own offset, so pointing at it still finds it.
     public func diagnostics(at offset: Int, in url: URL) -> [Diagnostic] {
         guard let entry = entries[url.standardizedFileURL] else { return [] }
-        return entry
+        let hits = entry
             .diagnostics
             .filter { diagnostic in
                 let start = diagnostic.range.location
@@ -182,7 +182,7 @@ public struct DiagnosticStore: Equatable, Sendable {
                 if diagnostic.range.length == 0 { return offset == start }
                 return start <= offset && offset < end
             }
-            .sorted { $0.orderingKey < $1.orderingKey }
+        return Diagnostic.sortedByOrderingKey(hits)
     }
 
     /// Worst severity per line, at exactly `lineCount` entries — the ruler
@@ -201,7 +201,10 @@ public struct DiagnosticStore: Equatable, Sendable {
     /// or a negative count, yields all-`nil` at exactly `lineCount` — a blank
     /// marker column, never a crash indexing past the array. A diagnostic whose
     /// stored `line` falls outside the requested window is skipped rather than
-    /// clamped onto line 0, where it would be a lie.
+    /// clamped onto line 0, where it would be a lie — **outside on either
+    /// side**: the mapping never mints a negative line, but `Diagnostic` is a
+    /// public value type with a public memberwise init, so the guard screens the
+    /// lower bound too rather than trusting a caller this method never met.
     public func worstSeverityPerLine(
         url: URL,
         lineCount: Int,
@@ -213,7 +216,7 @@ public struct DiagnosticStore: Equatable, Sendable {
         var result = [DiagnosticSeverity?](repeating: nil, count: lineCount)
         guard let entry = entries[url.standardizedFileURL] else { return result }
         for diagnostic in entry.diagnostics {
-            guard diagnostic.line < lineCount else { continue }
+            guard diagnostic.line >= 0, diagnostic.line < lineCount else { continue }
             // The last line the span touches: for a zero-length range its own
             // line; otherwise the line containing the last covered character
             // (`end - 1`, exclusive end), then clamped into the window. The
@@ -255,8 +258,7 @@ public struct DiagnosticStore: Equatable, Sendable {
             .filter { !$0.value.diagnostics.isEmpty }
             .map { url, entry -> FileRows in
                 var seen = Set<Row>()
-                let rows = entry.diagnostics
-                    .sorted { $0.orderingKey < $1.orderingKey }
+                let rows = Diagnostic.sortedByOrderingKey(entry.diagnostics)
                     .map(Row.init)
                     .filter { seen.insert($0).inserted }
                 return FileRows(

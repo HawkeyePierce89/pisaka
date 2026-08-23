@@ -572,4 +572,62 @@ final class DiagnosticTests: XCTestCase {
     func testNothingAtAllBuildsNoContent() {
         XCTAssertNil(Diagnostic.hoverContent(for: [], merging: nil))
     }
+
+    // MARK: - Painting runs
+
+    private func run(_ location: Int, _ length: Int, _ severity: DiagnosticSeverity) -> DiagnosticRun {
+        DiagnosticRun(range: NSRange(location: location, length: length), severity: severity)
+    }
+
+    func testMergeIsIdentityForDisjointRunsAndSortsThem() {
+        XCTAssertEqual(
+            DiagnosticRun.merged([run(20, 4, .warning), run(0, 5, .error)]),
+            [run(0, 5, .error), run(20, 4, .warning)]
+        )
+    }
+
+    /// An error nested inside a warning makes its own stretch red and leaves the
+    /// warning either side of it — three runs out of two.
+    func testANestedErrorSplitsTheWarningAroundIt() {
+        XCTAssertEqual(
+            DiagnosticRun.merged([run(0, 20, .warning), run(8, 4, .error)]),
+            [run(0, 8, .warning), run(8, 4, .error), run(12, 8, .warning)]
+        )
+    }
+
+    /// A partial overlap: the shared stretch takes the worse severity, and the
+    /// unshared tails keep their own.
+    func testAPartialOverlapTakesTheWorseSeverityOnTheSharedStretch() {
+        XCTAssertEqual(
+            DiagnosticRun.merged([run(0, 10, .warning), run(6, 10, .error)]),
+            [run(0, 6, .warning), run(6, 10, .error)]
+        )
+    }
+
+    /// Adjacent equal severities coalesce, so the cache stays minimal and the
+    /// binary searches over it stay cheap.
+    func testAdjacentEqualSeveritiesCoalesceIntoOneRun() {
+        XCTAssertEqual(
+            DiagnosticRun.merged([run(0, 5, .error), run(5, 5, .error)]),
+            [run(0, 10, .error)]
+        )
+    }
+
+    /// A zero-length diagnostic widens to one unit instead of vanishing: the
+    /// gutter, hover and the panel all show it, so the squiggle must too.
+    func testAZeroLengthRunWidensToOneUnitRatherThanBeingDropped() {
+        XCTAssertEqual(DiagnosticRun.merged([run(7, 0, .error)]), [run(7, 1, .error)])
+    }
+
+    /// …and the widened unit still merges with whatever covers it, worst wins.
+    func testAZeroLengthRunMergesWithTheSpanItSitsIn() {
+        XCTAssertEqual(
+            DiagnosticRun.merged([run(0, 10, .warning), run(4, 0, .error)]),
+            [run(0, 4, .warning), run(4, 1, .error), run(5, 5, .warning)]
+        )
+    }
+
+    func testMergingNothingIsNothing() {
+        XCTAssertEqual(DiagnosticRun.merged([]), [])
+    }
 }

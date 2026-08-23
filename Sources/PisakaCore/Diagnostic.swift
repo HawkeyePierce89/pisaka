@@ -213,7 +213,103 @@ public extension Diagnostic {
     }
 
     /// Where this diagnostic sorts, per the rules on `OrderingKey`.
+    ///
+    /// Computed, and not cheaply — building a key standardizes the file URL and
+    /// allocates its path — so it is never used as a *comparator body*. Sorting
+    /// goes through ``sortedByOrderingKey(_:)``, which builds each key once.
     var orderingKey: OrderingKey { OrderingKey(self) }
+
+    /// `diagnostics` in ``orderingKey`` order, each key built exactly once.
+    ///
+    /// Decorate-sort-undecorate rather than `sorted { $0.orderingKey < ... }`:
+    /// the naive spelling constructs two keys per *comparison*, i.e. ~2·n·log n
+    /// URL standardizations, and every one of these sorts sits on a path that
+    /// re-runs per keystroke (the panel's rows and counts re-evaluate on every
+    /// `@Published` store mutation, and `noteEdit` is one per character). n is
+    /// the number of findings in one file, which an unresolved import makes
+    /// three digits without trying.
+    static func sortedByOrderingKey(_ diagnostics: [Diagnostic]) -> [Diagnostic] {
+        diagnostics
+            .map { (key: $0.orderingKey, diagnostic: $0) }
+            .sorted { $0.key < $1.key }
+            .map(\.diagnostic)
+    }
+}
+
+// MARK: - Painting runs
+
+/// One stretch of buffer the editor underlines, at one severity.
+///
+/// The overlay layer's value, decided here rather than there because
+/// ``DiagnosticRun/merged(_:)`` is a pure algorithm and this codebase keeps
+/// those in Core where `swift test` can see them; the AppKit half only strokes
+/// what this hands it.
+public struct DiagnosticRun: Equatable, Hashable, Sendable {
+    public var range: NSRange
+    public var severity: DiagnosticSeverity
+
+    public init(range: NSRange, severity: DiagnosticSeverity) {
+        self.range = range
+        self.severity = severity
+    }
+}
+
+public extension DiagnosticRun {
+    /// Merge freely-overlapping runs into the overlay cache's canonical form:
+    /// ascending by location, **non-overlapping**, each span carrying the worst
+    /// severity that covers it (`DiagnosticSeverity` orders by seriousness).
+    ///
+    /// A sweep over every range boundary splits the union into elementary
+    /// segments, each taking the most serious run covering it (nesting
+    /// included: an error inside a warning makes its own stretch red without
+    /// repainting the rest), then adjacent equal-severity segments are coalesced
+    /// back so the cache stays minimal. Diagnostic sets are small, so the
+    /// quadratic segment pass is not worth avoiding with anything stateful.
+    ///
+    /// **A zero-length run widens to one unit rather than vanishing.** Servers
+    /// do emit empty ranges (an "expected `}`" at a position), and every other
+    /// surface shows them — the gutter marks the line, hover finds them by the
+    /// `diagnostics(at:)` rule written for exactly this shape, the panel lists
+    /// them. Dropping them here alone would leave a line flagged in the gutter
+    /// with nothing under it. One unit is the narrowest span a squiggle can be
+    /// drawn in; a run at the very end of the buffer then widens past it and the
+    /// paint side clamps it away, which is the same "nothing to draw" the drop
+    /// produced, only without also losing the ones that *are* drawable.
+    static func merged(_ runs: [DiagnosticRun]) -> [DiagnosticRun] {
+        let covering = runs.map { run -> DiagnosticRun in
+            guard run.range.length == 0 else { return run }
+            return DiagnosticRun(
+                range: NSRange(location: run.range.location, length: 1),
+                severity: run.severity
+            )
+        }
+        guard !covering.isEmpty else { return [] }
+        var boundaries = Set<Int>()
+        for run in covering {
+            boundaries.insert(run.range.location)
+            boundaries.insert(NSMaxRange(run.range))
+        }
+        let edges = boundaries.sorted()
+        var result: [DiagnosticRun] = []
+        for index in 0..<(edges.count - 1) {
+            let start = edges[index]
+            let end = edges[index + 1]
+            var worst: DiagnosticSeverity?
+            for run in covering where run.range.location <= start && NSMaxRange(run.range) >= end {
+                worst = max(worst ?? run.severity, run.severity)
+            }
+            guard let severity = worst else { continue }
+            if let last = result.last, NSMaxRange(last.range) == start, last.severity == severity {
+                result[result.count - 1] = DiagnosticRun(
+                    range: NSRange(location: last.range.location, length: end - last.range.location),
+                    severity: severity
+                )
+            } else {
+                result.append(DiagnosticRun(range: NSRange(location: start, length: end - start), severity: severity))
+            }
+        }
+        return result
+    }
 }
 
 // MARK: - Hover (D34)
@@ -247,7 +343,7 @@ public extension Diagnostic {
         merging typeAnswer: HoverContent?
     ) -> HoverContent? {
         guard !diagnostics.isEmpty else { return typeAnswer }
-        let ordered = diagnostics.sorted { $0.orderingKey < $1.orderingKey }
+        let ordered = Diagnostic.sortedByOrderingKey(diagnostics)
         let labelled = ordered.map { diagnostic in
             HoverSegment.prose("\(diagnostic.severity.label): \(diagnostic.message)")
         }
