@@ -6,8 +6,9 @@ import XCTest
 /// Four questions, in the order the rule asks them: is the click even in the
 /// draft's window, did it land in that window's content area or on its chrome,
 /// is it inside the draft's measured region, and what does a region with no area
-/// mean. The view layer supplies the AppKit facts and holds no policy, so
-/// everything the feature decides about a stray click is asserted here.
+/// mean. A fifth follows the answer rather than producing it — *when* a `cancel`
+/// may be applied. The view layer supplies the AppKit facts and holds no policy,
+/// so everything the feature decides about a stray click is asserted here.
 ///
 /// The rectangle used throughout is `(10, 20, 100, 40)` — a non-zero origin on
 /// purpose, so a test that passes only because the origin is the zero point
@@ -127,8 +128,8 @@ final class TreeDraftDismissRuleTests: XCTestCase {
 
     func testAZeroWidthRectangleCancels() {
         // The axis companion: a draft clipped to nothing horizontally — the
-        // shape `bounds.intersection(visibleRect)` produces for a draft scrolled
-        // out of the tree's clip view — owns no click either.
+        // shape `visibleRect` takes for a draft scrolled out of the tree's clip
+        // view — owns no click either.
         XCTAssertEqual(decision(at: CGPoint(x: 10, y: 40), in: CGRect(x: 10, y: 20, width: 0, height: 40)), .cancel)
     }
 
@@ -140,5 +141,23 @@ final class TreeDraftDismissRuleTests: XCTestCase {
         // Not a case the view can produce, but the boundary companion to `.null`:
         // whatever the caller measures, the answer comes from `contains` alone.
         XCTAssertEqual(decision(at: CGPoint(x: 60, y: 40), in: .infinite), .ignore)
+    }
+
+    // MARK: - When the cancel is applied
+
+    func testAnOrdinaryClickDefersItsCancelToTheMouseUp() {
+        // The whole reason to wait: cancelling on the down shifts every row
+        // below the draft up, and the SwiftUI tap the click was aimed at
+        // completes only if the release is still inside the view it began in.
+        XCTAssertEqual(TreeDraftDismissRule.cancelTiming(opensContextMenuOnMouseDown: false), .onMouseUp)
+    }
+
+    func testAContextClickCancelsOnTheDown() {
+        // `NSMenu` opens in the down's own dispatch and its tracking loop eats
+        // the release, so a deferred cancel would never be applied at all. The
+        // caller answers this `true` for `.rightMouseDown` *and* for the
+        // Control-click macOS delivers as a `.leftMouseDown` — one gesture, two
+        // spellings, and they must not disagree.
+        XCTAssertEqual(TreeDraftDismissRule.cancelTiming(opensContextMenuOnMouseDown: true), .immediately)
     }
 }

@@ -11,6 +11,19 @@ public enum TreeDraftClickDecision: Equatable {
     case cancel
 }
 
+/// *When* the view layer may apply a `cancel` — the second half of the answer,
+/// and a separate moment from deciding it. See "the deferral, and its limit" on
+/// `TreeDraftDismissRule`.
+public enum TreeDraftCancelTiming: Equatable {
+    /// Cancel in the mouse-down's own dispatch. The click resolves whatever it
+    /// resolves — a context menu — in that same dispatch, so there is nothing
+    /// left to wait for.
+    case immediately
+    /// Cancel when the matching mouse-up arrives, so the geometry the user
+    /// pressed on stays standing for the whole click.
+    case onMouseUp
+}
+
 /// The one rule that decides whether a mouse-down cancels the project tree's
 /// open inline-naming draft.
 ///
@@ -88,16 +101,29 @@ public enum TreeDraftClickDecision: Equatable {
 /// next right-click gets the ordinary menu. It is the one place the sentence
 /// above does not reach.
 ///
+/// ## The deferral, and its limit
+///
 /// This rule answers a *point*, and the view layer reads that point from the
 /// mouse-**down** — the position the user aimed at, and the one fact that keeps
 /// a text-selection drag out of the field from reading as a click elsewhere.
-/// *Applying* the answer is a separate moment, and for a left-click it is the
-/// matching mouse-**up**: a SwiftUI tap completes only when the release is still
-/// inside the view the press began in, while cancelling removes a create draft's
-/// row (and a rename draft's reason line) and shifts every row below it up. Were
-/// the cancel run on the down, that shift would land in the middle of the click
-/// and the row the user pressed would no longer be under the release. A
-/// right-click needs no such wait — `NSMenu` opens on the down.
+/// *Applying* the answer is a separate moment, and `cancelTiming(…)` is the
+/// whole of it. For an ordinary left-click it is the matching mouse-**up**: a
+/// SwiftUI tap completes only when the release is still inside the view the
+/// press began in, while cancelling removes a create draft's row (and a rename
+/// draft's reason line) and shifts every row below it up. Were the cancel run on
+/// the down, that shift would land in the middle of the click and the row the
+/// user pressed would no longer be under the release.
+///
+/// A **context click** needs no such wait, and must not take one: `NSMenu` opens
+/// in the mouse-down's own dispatch and runs a modal tracking loop that dequeues
+/// the release itself, so a deferred cancel would never be applied at all. The
+/// fact the caller answers is *opens a context menu on the down*, *not* "is a
+/// right-click" — macOS spells that gesture two ways, and only one of them
+/// arrives as `.rightMouseDown`. A **Control-click** is delivered as an
+/// `.leftMouseDown` carrying `.control` and is converted to the menu path later,
+/// inside AppKit's own dispatch, so a monitor that classified by event type
+/// alone would defer it and leave the draft standing over the menu it just
+/// opened — the one gesture where right-click and Control-click would disagree.
 ///
 /// Waiting has one cost, and it is a **stated limit**: a left-click whose
 /// mouse-**up** the monitor never sees leaves the draft standing. AppKit
@@ -127,8 +153,10 @@ public enum TreeDraftClickDecision: Equatable {
 /// Two consequences of *by construction* are worth stating, because both are
 /// the geometry answering rather than a rule bending:
 ///
-/// - The caller passes the **visible** part of that rectangle
-///   (`bounds.intersection(visibleRect)`). The tree scrolls, and a draft
+/// - The caller passes the **visible** part of that rectangle — that view's
+///   `visibleRect`, which is by definition `bounds` already clipped to what its
+///   superviews show, in the same coordinate space, so intersecting the two
+///   would be a no-op. The tree scrolls, and a draft
 ///   scrolled out of the clip view keeps a rectangle that maps over the pane's
 ///   header and its neighbours; clipped away, the draft owns none of those
 ///   clicks, and a fully scrolled-out draft lands on the degenerate case below.
@@ -187,5 +215,23 @@ public enum TreeDraftDismissRule {
         // degenerate case needs no branch of its own — it falls out as `cancel`,
         // which is the documented answer.
         return draftBounds.contains(point) ? .ignore : .cancel
+    }
+
+    /// Decide *when* a `cancel` read from a mouse-down may be applied.
+    ///
+    /// Asked only after `decision(…)` has answered `cancel`; a click the draft
+    /// ignores has no timing.
+    ///
+    /// - Parameter opensContextMenuOnMouseDown: whether this mouse-down is the
+    ///   gesture that resolves a context menu in its own dispatch. The caller
+    ///   answers it from two AppKit facts and not from the event type alone —
+    ///   `.rightMouseDown`, **or** a `.leftMouseDown` carrying `.control`, which
+    ///   is how macOS delivers a Control-click. Both open the menu on the down
+    ///   and both run a tracking loop that eats the release, so both must cancel
+    ///   there; see "The deferral, and its limit" above.
+    /// - Returns: `.immediately` for such a click, `.onMouseUp` for every other,
+    ///   so the row the user pressed is still under the release.
+    public static func cancelTiming(opensContextMenuOnMouseDown: Bool) -> TreeDraftCancelTiming {
+        opensContextMenuOnMouseDown ? .immediately : .onMouseUp
     }
 }

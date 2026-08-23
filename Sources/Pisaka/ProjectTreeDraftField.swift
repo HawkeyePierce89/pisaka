@@ -285,8 +285,11 @@ struct TreeDraftDismissRegion: NSViewRepresentable {
         /// `.leftMouseUp` keeps the geometry the user clicked standing for the
         /// whole click; the cancel then runs immediately before AppKit dispatches
         /// that up, so the tap it enables is the same one it always was.
-        /// A right-click is unaffected and stays on the down, because that is
-        /// when `NSMenu` opens.
+        /// A **context click** is unaffected and stays on the down, because that
+        /// is when `NSMenu` opens — and because its tracking loop would eat the
+        /// release a deferred cancel waits for. That is both of its spellings:
+        /// `.rightMouseDown` *and* the Control-click AppKit hands the monitor as
+        /// a `.leftMouseDown` (see `opensContextMenu(on:)`).
         ///
         /// The wait's stated cost: a gesture that takes the mouse over from its
         /// own down — a window resize begun in the content area's edge band, a
@@ -383,11 +386,35 @@ struct TreeDraftDismissRegion: NSViewRepresentable {
                 leftClickCancelPending = false
                 return
             }
-            if event.type == .leftMouseDown {
+            switch TreeDraftDismissRule.cancelTiming(
+                opensContextMenuOnMouseDown: Self.opensContextMenu(on: event)
+            ) {
+            case .onMouseUp:
                 leftClickCancelPending = true
-            } else {
+            case .immediately:
+                // Nothing is left to wait for, and nothing may stay armed: the
+                // menu's tracking loop would eat the release this flag is
+                // waiting on, and the next unrelated one would discharge it.
+                leftClickCancelPending = false
                 onCancel?()
             }
+        }
+
+        /// The one AppKit fact behind `cancelTiming(opensContextMenuOnMouseDown:)`.
+        ///
+        /// Two spellings of one gesture: `.rightMouseDown`, and the
+        /// **Control-click**, which the window server delivers as an ordinary
+        /// `.leftMouseDown` carrying `.control` — AppKit only routes it to the
+        /// menu path later, inside `sendEvent(_:)`, long after a local monitor
+        /// has seen it. Classifying by event type alone would defer the
+        /// Control-click's cancel to a release the menu's tracking loop eats,
+        /// leaving the draft open over the menu it just opened.
+        ///
+        /// `deviceIndependentFlagsMask` because the raw flags carry the
+        /// hardware's left/right bits, which no comparison here wants.
+        private static func opensContextMenu(on event: NSEvent) -> Bool {
+            if event.type == .rightMouseDown { return true }
+            return event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.control)
         }
     }
 }

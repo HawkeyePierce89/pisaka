@@ -643,8 +643,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     mouse-**up**: a SwiftUI tap completes only when the release is still
     inside the view the press began in, and cancelling shifts every row
     below the draft up. Running it on the down would move the tree in the
-    middle of the click and cost that second click after all. A right-click
-    cancels on the down, since that is when `NSMenu` opens. The wait's stated
+    middle of the click and cost that second click after all. A **context
+    click** cancels on the down, since that is when `NSMenu` opens — and since
+    the menu's tracking loop eats the release a deferred cancel would wait for.
+    `DismissRegionView.opensContextMenu(on:)` is the one place that classifies
+    it, and it reads the *modifiers* as well as the type: a Control-click is the
+    same gesture, but macOS delivers it as a `.leftMouseDown` carrying
+    `.control` and only routes it to the menu path later, inside `sendEvent(_:)`
+    — so classifying by event type alone would defer it to a release that never
+    arrives and leave the draft open over the menu it just opened.
+    `TreeDraftDismissRule.cancelTiming(opensContextMenuOnMouseDown:)` holds the
+    policy; the view supplies only the AppKit fact. The wait's stated
     cost, recorded on the rule: a gesture that takes the mouse over from its own
     down — a window resize begun in the content area's edge band, a drag started
     on any non-drafted row — runs a modal tracking loop that dequeues its own

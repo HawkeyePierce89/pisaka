@@ -694,7 +694,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     draft's business?* `public enum TreeDraftDismissRule`, one static function
     `decision(clickedWindowIsDraftWindow:clickedInsideWindowContent:point:draftBounds:)`
     returning a two-case
-    `public enum TreeDraftClickDecision { case ignore; case cancel }`. It exists
+    `public enum TreeDraftClickDecision { case ignore; case cancel }`, plus the
+    companion `cancelTiming(opensContextMenuOnMouseDown:)` returning
+    `public enum TreeDraftCancelTiming { case immediately; case onMouseUp }` —
+    *when* a `cancel` may be applied, which is a separate moment from deciding
+    it. It exists
     because a tree row is a plain SwiftUI view that never takes first responder,
     so `controlTextDidEndEditing` cannot hear a click on one: the view layer keeps
     a local `.leftMouseDown`/`.leftMouseUp`/`.rightMouseDown` monitor alive for
@@ -764,7 +768,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     reason line) and shifts every row below it up. Cancelling on the down would
     land that shift in the middle of the click and the row the user pressed would
     no longer be under the release — costing exactly the second click decision A
-    exists to avoid. A right-click needs no wait: `NSMenu` opens on the down.
+    exists to avoid. A **context click** needs no wait and must not take one:
+    `NSMenu` opens in the down's own dispatch and its tracking loop dequeues the
+    release, so a deferred cancel would never be applied at all. That is what
+    `cancelTiming(opensContextMenuOnMouseDown:)` answers, and the fact it asks
+    for is *opens a menu on the down* rather than "is a right-click": macOS
+    spells that gesture twice, and only one spelling arrives as
+    `.rightMouseDown` — a **Control-click** is delivered as a `.leftMouseDown`
+    carrying `.control` and is routed to the menu path later, inside AppKit's
+    own `sendEvent(_:)`, long after the monitor has seen it. Classifying by event
+    type alone would defer that one and leave the draft standing over the menu it
+    just opened, the single gesture where the two spellings would disagree.
     Waiting has its own **stated limit**: a gesture that takes the mouse over
     from its own down — a window resize begun in the content area's edge band, a
     drag started on any non-drafted tree row — runs a modal tracking loop that
@@ -817,7 +831,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     another window's chrome — with the content area outside the draft still
     cancelling, so the new check cannot swallow the rule's purpose;
     inside ignored; both `contains` edges (origin corner inside, far corner out,
-    and just inside the far edge); outside on each of the four sides; and empty,
+    and just inside the far edge); outside on each of the four sides; both
+    timings (an ordinary click deferred to the release, a context click applied
+    on the down); and empty,
     zero-height, zero-width, `.null` and `.infinite` bounds; and
     `CrossPlatformAuditTests` additionally pins the half-open/empty semantics as
     platform-independent, beside `MinimapGeometry`'s.
