@@ -69,8 +69,10 @@ user sees it.
   bottom bar — cancels it silently *and* still does what that click would
   normally do (the folder toggles, the file opens, the right-clicked row gets its
   menu), the way an inline rename behaves in Finder; clicking the field, a create
-  draft's icon or the reason line does not cancel, and switching to another app
-  and back leaves the draft and its text untouched. A new file opens in a tab, a rename
+  draft's icon or the reason line does not cancel, and neither does the window's
+  title bar or ⌘Tabbing to another app and ⌘Tabbing back, which leaves the draft
+  and its text untouched. (Coming back by *clicking* the window is an ordinary
+  click and cancels the draft if it lands outside it.) A new file opens in a tab, a rename
   retargets any open tab (a renamed folder follows all its nested tabs), and a
   delete closes the affected tabs; the tree refreshes in place without reopening
   the folder. On macOS it also keeps up with changes made *outside* the app: the

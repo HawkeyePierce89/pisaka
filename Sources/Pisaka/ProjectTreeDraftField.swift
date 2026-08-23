@@ -248,8 +248,10 @@ struct TreeDraftDismissRegion: NSViewRepresentable {
         }
 
         /// A *local* monitor — this app's events only, which is also why ⌘Tab
-        /// away and back preserves the draft: another app's clicks are never
-        /// seen. Idempotent, so a re-entered window installs nothing twice.
+        /// away and ⌘Tab back preserves the draft: another app's clicks are
+        /// never seen. (Clicking the window to come back *is* this app's event
+        /// and cancels; `TreeDraftDismissRule` states that limit.) Idempotent,
+        /// so a re-entered window installs nothing twice.
         func installMonitor() {
             guard monitor == nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
@@ -273,11 +275,14 @@ struct TreeDraftDismissRegion: NSViewRepresentable {
         /// lives here: which window, which point, which rectangle — that is all.
         private func handle(_ event: NSEvent) {
             guard let window else { return }
-            // The window's *content* area, which the title bar, the resize edges
-            // and the traffic lights are not: dragging or resizing the window
-            // one is typing in must not destroy a half-typed name. A window with
-            // no content view answers `false` and so preserves the draft; the
-            // draft lives in that view, so the case cannot arise.
+            // The window's *content* area, which the title bar, the toolbar and
+            // the traffic lights are not: dragging the window one is typing in
+            // must not destroy a half-typed name. The resize band along the
+            // content view's own bottom/left/right edges *is* inside these
+            // bounds and is a stated limit of the rule, not an oversight — see
+            // `TreeDraftDismissRule`'s chrome answer. A window with no content
+            // view answers `false` and so preserves the draft; the draft lives
+            // in that view, so the case cannot arise.
             let insideContent = window.contentView.map {
                 $0.bounds.contains($0.convert(event.locationInWindow, from: nil))
             } ?? false
@@ -456,24 +461,45 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
     class CustomTextField: NSTextField {
         var isTearingDown = false
 
-        /// Applied to the field editor exactly once, right after focus is first
-        /// taken, then cleared: a later re-attachment must never re-select over
-        /// what the user has since typed or selected.
+        /// The range to install in the field editor the next time this field
+        /// takes focus, then cleared so it is applied exactly once per
+        /// acquisition.
+        ///
+        /// Seeded by `makeNSView` from the one Core rule
+        /// (`initialRenameSelection(in:isDirectory:)`), and refilled by
+        /// `viewWillMove(toWindow:)` with the *live* selection whenever the field
+        /// leaves its window — never with the rule again, so a re-attachment
+        /// restores what the user had rather than re-selecting the stem of a name
+        /// they have since edited.
         var pendingSelection: NSRange?
 
         /// One-shot *per attachment*. A draft replaced by a second command must
         /// not have a stale request steal focus back into the field it is
         /// tearing down — but a field that leaves a window and rejoins one is
         /// alive again and needs the caret back, so this is cleared alongside
-        /// `isTearingDown`. Re-acquiring cannot re-select over what the user has
-        /// typed: `pendingSelection` is cleared the first time it is applied and
-        /// never restored, which is why the two flags are separate.
+        /// `isTearingDown`, which is why the two flags are separate.
+        ///
+        /// Re-acquiring must not re-select over what the user has typed, and the
+        /// spent `pendingSelection` alone does not deliver that: taking first
+        /// responder makes `NSTextField` select its whole contents, and an
+        /// already-applied (therefore `nil`) range leaves that select-all
+        /// standing, so the next keystroke would replace everything typed so far.
+        /// `viewWillMove(toWindow:)` refills the range with the live selection on
+        /// the way out for exactly that reason.
         private var hasTakenFocus = false
 
         override func viewWillMove(toWindow newWindow: NSWindow?) {
             super.viewWillMove(toWindow: newWindow)
             if newWindow == nil {
                 isTearingDown = true
+                // Carry the caret across a detach. On a real teardown this field
+                // is discarded and the range with it; on a re-attachment it is
+                // what `becomeFirstResponder`'s select-all is overridden with,
+                // so a field that leaves a window and rejoins one comes back
+                // exactly where the user left it.
+                if let editor = currentEditor() as? NSTextView {
+                    pendingSelection = editor.selectedRange
+                }
             }
         }
 

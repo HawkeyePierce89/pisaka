@@ -31,20 +31,36 @@ public enum TreeDraftClickDecision: Equatable {
 ///   no opinion about them, and cancelling on one would destroy a half-typed name
 ///   because the user reached for a different window. (Nor does the *app* losing
 ///   activation cancel: a local monitor sees no other app's events at all, so
-///   ⌘Tab away and back preserves the draft for free.)
+///   ⌘Tab away and ⌘Tab back preserves the draft for free. Coming back by
+///   *clicking* the window is a different thing — that click is this app's own,
+///   the monitor sees it, and it cancels like any other click outside the draft;
+///   it is stated again under the chrome answer, with the other limit of that
+///   kind.)
 /// - **Inside the draft → `ignore`.** Clicking the field to place the caret, or
 ///   dragging to select, is an ordinary edit. So is clicking the draft's own
 ///   icon column or its validation-reason line — which is why the caller
 ///   measures the *whole* draft, not the text field (see "What `draftBounds`
 ///   is").
-/// - **The window's chrome → `ignore`.** A click on the title bar, a resize
-///   edge, the traffic lights or the toolbar lands in the draft's own window and
-///   outside the draft, but the user is moving, resizing or minimising the
-///   window they are typing in — their attention did not move at all. Finder
-///   does not abandon an inline rename when the window is dragged, and silently
-///   destroying a half-typed name for it would be the worst kind of surprise.
-///   The caller answers this with one fact: did the click land inside the
-///   window's *content* area.
+/// - **The window's chrome → `ignore`.** A click on the title bar, the traffic
+///   lights or the toolbar lands in the draft's own window and outside the
+///   draft, but the user is moving or minimising the window they are typing in —
+///   their attention did not move at all. Finder does not abandon an inline
+///   rename when the window is dragged, and silently destroying a half-typed
+///   name for it would be the worst kind of surprise. The caller answers this
+///   with one fact: did the click land inside the window's *content* area.
+///
+///   That fact draws the line where AppKit draws it, which leaves **two stated
+///   limits**, both of them clicks that land in the content area and therefore
+///   `cancel`. A **resize drag** begun from the content side of the bottom, left
+///   or right edge is one: the few points where AppKit starts a resize instead
+///   of delivering the click to a view are inside `contentView.bounds`, and at
+///   mouse-down there is no fact that separates them from an ordinary click on
+///   whatever is drawn there — guessing at a band would instead make real clicks
+///   near the pane's left edge stop cancelling, which is the worse error. (The
+///   *top* edge is the title bar, so resizing from it is already exempt.) The
+///   **activating click** that brings the app back to the front is the other:
+///   see the note on ⌘Tab above — the monitor sees no other app's events, but it
+///   does see the click that returns to this one.
 /// - **Anything else in the draft's own window → `cancel`.** Another tree row,
 ///   the editor, a tab, the bottom bar: the user's attention moved, and the
 ///   Finder-like answer is to end the naming silently rather than to commit
@@ -107,10 +123,11 @@ public enum TreeDraftDismissRule {
     ///     no window at all is not the draft's window and so is `false`.
     ///   - clickedInsideWindowContent: whether the event landed inside that
     ///     window's content view. `false` is the window's chrome — title bar,
-    ///     resize edge, traffic lights, toolbar. Meaningful only when the window
-    ///     matches, and a window with no content view at all answers `false`,
-    ///     which preserves the draft rather than destroying it on a state that
-    ///     cannot occur.
+    ///     traffic lights, toolbar — and *not* the resize band along the content
+    ///     view's own edges, which is inside those bounds (the limit stated
+    ///     above). Meaningful only when the window matches, and a window with no
+    ///     content view at all answers `false`, which preserves the draft rather
+    ///     than destroying it on a state that cannot occur.
     ///   - point: the event location converted into the draft region's own
     ///     coordinates. Meaningful only when the window matches, and ignored
     ///     otherwise.

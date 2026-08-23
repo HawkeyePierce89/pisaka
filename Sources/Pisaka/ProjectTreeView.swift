@@ -408,12 +408,16 @@ private struct DirectoryNodeView: View {
                 }
             }
         )
+        // Collapsing takes this node's whole subtree out of the hierarchy, not
+        // just its direct children — so a draft anywhere *below* this folder
+        // loses the view that renders it. It has to be dropped here, or it
+        // survives with nothing drawing it: no field to press Esc in, no
+        // mouse-down monitor (the region view went away with the row), and a
+        // later re-expansion would revive an editable field that steals focus
+        // for a rename the user believes they ended by collapsing the folder.
         .onChange(of: isExpanded) { expanded in
             if !expanded {
-                if case .create(let parent, _) = draft, parent == url {
-                    draft = nil
-                } else if case .rename(let draftedEntry) = draft,
-                          draftedEntry.url.deletingLastPathComponent().standardizedFileURL.path == url.standardizedFileURL.path {
+                if draftIsBelow(url) {
                     draft = nil
                 }
             } else if children == nil {
@@ -477,14 +481,42 @@ private struct DirectoryNodeView: View {
         } catch {
             if !Self.isMissingFileError(error) {
                 PlatformFeedback.warning()
-            } else if case .create(let parent, _) = draft, parent == url {
-                draft = nil
-            } else if case .rename(let draftedEntry) = draft,
-                      draftedEntry.url.deletingLastPathComponent().standardizedFileURL.path == url.standardizedFileURL.path {
+            } else if draftIsBelow(url) {
+                // This directory is gone, so everything under it is too — the
+                // same reach as a collapse, for the same reason.
                 draft = nil
             }
             children = nil
         }
+    }
+
+    /// Whether the open draft is anchored anywhere inside `directory` — which is
+    /// exactly the set of drafts that stop being rendered when `directory`
+    /// collapses or disappears.
+    ///
+    /// Both draft kinds are asked about the folder they would *write* into: a
+    /// create's target parent, and a rename's containing directory. Asking about
+    /// the containing directory rather than the entry itself is what keeps a
+    /// folder's own rename draft alive when that folder collapses — that draft is
+    /// drawn in the folder's label row, which stays on screen, and its containing
+    /// directory is the folder's parent, outside `directory`.
+    ///
+    /// The containment test is `ScopedFileAccess.path(_:isWithin:)` over the same
+    /// symlink-resolving transform `PisakaApp.isInsideProject(_:root:)` applies,
+    /// for the reason recorded there: `CanonicalPath` is Core-internal, so the
+    /// view repeats its transform rather than keeping a second, differently
+    /// spelled answer.
+    private func draftIsBelow(_ directory: URL) -> Bool {
+        guard let draft else { return false }
+        let anchor: URL
+        switch draft {
+        case .create(let parent, _): anchor = parent
+        case .rename(let draftedEntry): anchor = draftedEntry.url.deletingLastPathComponent()
+        }
+        return ScopedFileAccess.path(
+            anchor.standardizedFileURL.resolvingSymlinksInPath().path,
+            isWithin: directory.standardizedFileURL.resolvingSymlinksInPath().path
+        )
     }
 
     /// Whether `error` is "this path is gone" — the node is about to disappear from

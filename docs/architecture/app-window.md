@@ -587,10 +587,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     that window's content view, where did it land in the region's
     coordinates, how big is the region — and nothing
     else: another window's click is that window's business, a click on this
-    window's *chrome* is the user moving or resizing the window they are
+    window's *chrome* is the user moving or minimising the window they are
     typing in, a click inside the draft is an ordinary edit (caret
     placement, drag-selection), anything else in the draft's own window
-    cancels.
+    cancels. The chrome fact is `window.contentView`'s bounds, which draws
+    the line where AppKit draws it and so leaves two limits stated on the
+    rule: a resize drag begun from the content side of the bottom, left or
+    right edge, and the click that reactivates the app, both land inside the
+    content area and both cancel.
     Two things follow, and both are deliberate. **The dismissing click is
     never swallowed**: the monitor always returns the event unchanged, so
     cancelling and the click's ordinary effect both happen — the folder
@@ -619,9 +623,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     and the row's padding around the field belong to the row, sit outside
     the rectangle, and a click on them cancels like any other click on the
     row. Because the
-    monitor is *local*, ⌘Tab away and back preserves the draft: another
+    monitor is *local*, ⌘Tab away and ⌘Tab back preserves the draft: another
     app's clicks are never seen, and window resign-key is not a
-    cancellation.
+    cancellation. Returning by *clicking* the window is the limit noted
+    above — that event is this app's own, so it cancels if it lands outside
+    the draft.
     `controlTextDidEndEditing` remains the second path — the fallback for
     what genuinely moves first responder (Tab away, a control that takes
     focus) — with its three-way test unchanged: `isFinishing` (Enter or Esc

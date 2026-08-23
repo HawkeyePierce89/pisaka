@@ -708,15 +708,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     own their clicks, and cancelling on one would destroy a half-typed name
     because the user reached for a different window. The window check comes
     first, before the geometry, because two windows' coordinate spaces overlap.
-    A click on the window's own **chrome** — its title bar, a resize edge, the
-    traffic lights, the toolbar — is `ignore` too, and is asked *second*, ahead of
+    A click on the window's own **chrome** — its title bar, the traffic lights,
+    the toolbar — is `ignore` too, and is asked *second*, ahead of
     the geometry: the click is in the draft's window and outside the draft, but
-    the user is dragging, resizing or minimising the window they are typing in,
+    the user is dragging or minimising the window they are typing in,
     so their attention never moved. Finder does not abandon an inline rename when
     the window is dragged, and destroying a half-typed name for it would be the
     worst kind of surprise. The view answers this with one fact — did the point
     land inside `window.contentView`'s bounds — and a window with no content view
     answers `false`, preserving the draft on a state that cannot occur.
+    That one fact draws the line exactly where AppKit draws it, which leaves two
+    **stated limits**, both of them clicks inside the content area and therefore
+    `cancel`. A **resize drag** begun from the content side of the bottom, left
+    or right edge is one: those few points are inside `contentView.bounds` and no
+    mouse-down fact separates them from an ordinary click on whatever is drawn
+    there, while guessing at a band would make real clicks near the tree pane's
+    left edge stop cancelling — the worse error, so the limit is recorded rather
+    than approximated. (The top edge is the title bar, so resizing from it is
+    already exempt.) The **activating click** that brings the app back to the
+    front is the other, and is the counterpart of the ⌘Tab note below: the
+    monitor sees no other app's events, but it does see the click that returns to
+    this one.
     A click *inside* `draftBounds` is `ignore` — placing the caret and
     drag-selecting are ordinary edits, and so is clicking the draft's icon column
     or its validation-reason line. Anything *else in the draft's own window* is
@@ -724,7 +736,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     attention moved, and the Finder-like answer is to end the naming silently
     rather than commit something they stopped looking at. App *deactivation*
     needs no case at all: a local monitor sees no other app's events, so ⌘Tab
-    away and back preserves the draft for free.
+    away and ⌘Tab back preserves the draft for free — coming back by *clicking*
+    the window being the stated limit above, since that click is this app's own.
     **`cancel` is not a swallow.** The rule decides the draft's fate, never the
     click's: the monitor returns the event unchanged, so a cancelling click also
     does what it would have done anyway — the folder toggles, the file opens, the
