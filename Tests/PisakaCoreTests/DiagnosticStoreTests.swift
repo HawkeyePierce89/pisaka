@@ -44,37 +44,34 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(
             url: mainURL,
             serverKey: swiftKey,
-            version: 1,
             diagnostics: [
                 diagnostic(at: 0, line: 0),
                 diagnostic(at: 4, line: 1),
             ]
         )
         let secondPush = [diagnostic(at: 8, line: 2)]
-        store.replace(url: mainURL, serverKey: swiftKey, version: 2, diagnostics: secondPush)
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: secondPush)
 
         XCTAssertEqual(store.entry(for: mainURL)?.diagnostics, secondPush)
-        XCTAssertEqual(store.entry(for: mainURL)?.version, 2)
     }
 
     /// The "all clear" push is an empty *entry*, not a missing one: provenance
-    /// survives so the next acceptance comparison still has a version to read.
+    /// survives so a teardown keyed by the same server still finds the document.
     func testAnEmptyPushLandsAsAnEmptyEntryWithProvenance() {
         var store = DiagnosticStore()
-        store.replace(url: mainURL, serverKey: swiftKey, version: 3, diagnostics: [])
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [])
 
         let entry = store.entry(for: mainURL)
         XCTAssertEqual(entry?.diagnostics, [])
         XCTAssertEqual(entry?.serverKey, swiftKey)
-        XCTAssertEqual(entry?.version, 3)
     }
 
     // MARK: - Clearing
 
     func testClearByURLRemovesOnlyThatDocument() {
         var store = DiagnosticStore()
-        store.replace(url: mainURL, serverKey: swiftKey, version: 1, diagnostics: [diagnostic(at: 0, line: 0)])
-        store.replace(url: utilURL, serverKey: swiftKey, version: 1, diagnostics: [diagnostic(at: 4, line: 1)])
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 0, line: 0)])
+        store.replace(url: utilURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 4, line: 1)])
         store.clear(url: mainURL)
 
         XCTAssertNil(store.entry(for: mainURL))
@@ -83,8 +80,8 @@ final class DiagnosticStoreTests: XCTestCase {
 
     func testClearByServerKeyLeavesAnotherServersDocumentsAlone() {
         var store = DiagnosticStore()
-        store.replace(url: mainURL, serverKey: swiftKey, version: 1, diagnostics: [diagnostic(at: 0, line: 0)])
-        store.replace(url: utilURL, serverKey: goKey, version: 1, diagnostics: [diagnostic(at: 4, line: 1)])
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 0, line: 0)])
+        store.replace(url: utilURL, serverKey: goKey, diagnostics: [diagnostic(at: 4, line: 1)])
 
         store.clear(serverKey: swiftKey)
 
@@ -94,8 +91,8 @@ final class DiagnosticStoreTests: XCTestCase {
 
     func testClearAllEmptiesEverything() {
         var store = DiagnosticStore()
-        store.replace(url: mainURL, serverKey: swiftKey, version: 1, diagnostics: [diagnostic(at: 0, line: 0)])
-        store.replace(url: utilURL, serverKey: goKey, version: 1, diagnostics: [diagnostic(at: 4, line: 1)])
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [diagnostic(at: 0, line: 0)])
+        store.replace(url: utilURL, serverKey: goKey, diagnostics: [diagnostic(at: 4, line: 1)])
         store.clearAll()
 
         XCTAssertNil(store.entry(for: mainURL))
@@ -110,7 +107,6 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(
             url: mainURL,
             serverKey: swiftKey,
-            version: 7,
             diagnostics: [diagnostic(at: 0, line: 0)]
         )
         let shiftedSet = [diagnostic(at: 5, line: 1)]
@@ -118,7 +114,6 @@ final class DiagnosticStoreTests: XCTestCase {
 
         let entry = store.entry(for: mainURL)
         XCTAssertEqual(entry?.diagnostics, shiftedSet)
-        XCTAssertEqual(entry?.version, 7)
         XCTAssertEqual(entry?.serverKey, swiftKey)
     }
 
@@ -136,7 +131,6 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(
             url: mainURL,
             serverKey: swiftKey,
-            version: 1,
             diagnostics: [diagnostic(at: 4, line: 1)]
         )
 
@@ -151,7 +145,6 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(
             url: mainURL,
             serverKey: swiftKey,
-            version: 1,
             diagnostics: [diagnostic(at: 5, length: 0, line: 1)]
         )
 
@@ -165,7 +158,6 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(
             url: mainURL,
             serverKey: swiftKey,
-            version: 1,
             diagnostics: [
                 diagnostic(at: 4, line: 1, severity: .warning),
                 diagnostic(at: 4, line: 1, severity: .error),
@@ -184,7 +176,6 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(
             url: mainURL,
             serverKey: swiftKey,
-            version: 1,
             diagnostics: [
                 diagnostic(at: 4, line: 1, severity: .warning),
                 diagnostic(at: 5, line: 1, severity: .error),
@@ -203,7 +194,6 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(
             url: mainURL,
             serverKey: swiftKey,
-            version: 1,
             diagnostics: [diagnostic(at: 1, length: 5, line: 0, severity: .warning)]
         )
 
@@ -221,7 +211,6 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(
             url: mainURL,
             serverKey: swiftKey,
-            version: 1,
             diagnostics: [
                 // Ends exactly where line 1 starts.
                 diagnostic(at: 0, length: 4, line: 0, severity: .warning),
@@ -241,7 +230,6 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(
             url: mainURL,
             serverKey: swiftKey,
-            version: 1,
             diagnostics: [diagnostic(at: 0, line: 0)]
         )
 
@@ -270,7 +258,6 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(
             url: mainURL,
             serverKey: swiftKey,
-            version: 1,
             diagnostics: [diagnostic(at: 4, length: 6, line: 1, severity: .warning)]
         )
 
@@ -282,7 +269,6 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(
             url: mainURL,
             serverKey: swiftKey,
-            version: 1,
             diagnostics: [diagnostic(at: 0, length: 11, line: 0, severity: .error)]
         )
         XCTAssertEqual(
@@ -303,7 +289,6 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(
             url: mainURL,
             serverKey: swiftKey,
-            version: 1,
             diagnostics: [
                 diagnostic(at: 0, length: 3, line: 0, severity: .warning),
                 diagnostic(at: 4, length: 3, line: 0),
@@ -319,7 +304,6 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(
             url: mainURL,
             serverKey: swiftKey,
-            version: 1,
             diagnostics: [diagnostic(at: 0, length: 0, line: 0)]
         )
         XCTAssertEqual(store.worstSeverityPerLine(url: mainURL, lineCount: 1, lineStarts: [0]), [.error])
@@ -329,7 +313,6 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(
             url: mainURL,
             serverKey: swiftKey,
-            version: 1,
             diagnostics: [diagnostic(at: 0, length: 50, line: 0)]
         )
         XCTAssertEqual(store.worstSeverityPerLine(url: mainURL, lineCount: 1, lineStarts: [0]), [.error])
@@ -345,13 +328,11 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(
             url: utilURL,
             serverKey: swiftKey,
-            version: 1,
             diagnostics: [diagnostic(utilURL, at: 4, line: 1)]
         )
         store.replace(
             url: mainURL,
             serverKey: swiftKey,
-            version: 1,
             diagnostics: [
                 diagnostic(mainURL, at: 4, line: 1, severity: .hint),
                 diagnostic(mainURL, at: 0, line: 0),
@@ -371,7 +352,7 @@ final class DiagnosticStoreTests: XCTestCase {
     /// files a server happens to hold open.
     func testAClearedDocumentContributesNoRowGroup() {
         var store = DiagnosticStore()
-        store.replace(url: mainURL, serverKey: swiftKey, version: 2, diagnostics: [])
+        store.replace(url: mainURL, serverKey: swiftKey, diagnostics: [])
         XCTAssertTrue(store.rows(relativeTo: rootURL).isEmpty)
     }
 
@@ -390,7 +371,6 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(
             url: mainURL,
             serverKey: swiftKey,
-            version: 1,
             diagnostics: [
                 diagnostic(at: 4, line: 1, severity: .warning, message: "unused"),
                 error,
@@ -421,7 +401,6 @@ final class DiagnosticStoreTests: XCTestCase {
             store.replace(
                 url: url,
                 serverKey: swiftKey,
-                version: 1,
                 diagnostics: [diagnostic(url, at: 0, line: 0)]
             )
         }
@@ -442,7 +421,6 @@ final class DiagnosticStoreTests: XCTestCase {
         store.replace(
             url: mainURL,
             serverKey: swiftKey,
-            version: 1,
             diagnostics: [
                 diagnostic(at: 0, line: 0, severity: .error),
                 diagnostic(at: 4, line: 1, severity: .warning),

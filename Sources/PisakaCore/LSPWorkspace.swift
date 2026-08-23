@@ -1058,6 +1058,10 @@ public final class LSPWorkspace {
         // mutation prefix, so the editor's surfaces blank in the turn the crash
         // was noticed rather than whenever the consumer task next runs. The task
         // is cancelled here and stays silent on its way out; this is the clear.
+        // (If the consumer's stream finished first, it has already spoken for
+        // the crash; the two can both fire depending on which noticed first,
+        // which is fine: a clear is idempotent, and every sink must treat D33's
+        // clears as at-least-once.)
         notificationTasks[key]?.cancel()
         notificationTasks[key] = nil
         onDiagnostics?(.cleared(.server(serverID: key.serverID, root: key.root)))
@@ -1111,7 +1115,9 @@ public final class LSPWorkspace {
             // framing error ended the conversation without any of the deliberate
             // teardowns below having spoken. Skipped when a *replacement* session
             // now owns the key — its pushes have already re-published, and
-            // clearing for the dead predecessor would wipe them.
+            // clearing for the dead predecessor would wipe them. A `noteDeath`
+            // that notices the same crash later emits its own clear; both are
+            // fine (idempotent, at-least-once), as documented there.
             if let filed = self.sessions[key], filed !== session { return }
             self.onDiagnostics?(.cleared(.server(serverID: key.serverID, root: key.root)))
         }

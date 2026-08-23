@@ -608,11 +608,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     precedes the layout managers' notification, the mirror of
     `bracketHighlight.noteEdit`'s arithmetic) while deferring the repaint itself,
     which would otherwise write post-edit coordinates TextKit shifts again.
-    A wholesale buffer swap (`contentReplaced`) calls `beginDiagnosticsBufferSwap()`
-    → `noteBufferReplaced(url:)` beside `beginBlameBufferSwap()` — the model drops
-    that document's set outright (D32) — before the assignment posts its full-range
-    edit notification, so the shift the notification later drives is a no-op over
-    an empty set rather than work over data about to be discarded.
+    A buffer swap (`contentReplaced`) splits two ways, decided beside
+    `beginBlameBufferSwap()` before the assignment posts its full-range edit
+    notification: a *plain tab switch* (the incoming text is the file's own,
+    untouched off screen) **keeps** the outgoing document's set — the store is
+    keyed by URL so background documents survive the view swap, and dropping
+    would strand them behind D2's identical-text fast path, which never makes a
+    push-only server re-publish — while a genuine replacement (the displayed
+    buffer swapped, or this file rewritten off screen by Replace All /
+    `reloadFromDisk` / merge apply, which `externalTextRevision` reports) calls
+    `beginDiagnosticsBufferSwap()` → `noteBufferReplaced(url:)` and drops the
+    set outright (D32). Either way the full-range edit itself never reaches
+    `bufferEdited`'s shift (`isSwappingBuffer` guards it): for a kept set it
+    would drop every entry, and for a cleared one there is nothing to shift.
     Model changes arrive through one Combine subscription taken in
     `attachDiagnostics(model:)` (re-attachment identity-checked, torn down in
     `teardown`); each publishes into `scheduleDiagnosticOverlaysRefresh`, a
@@ -620,9 +628,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `refreshDiagnosticOverlays` pushing the active document's runs (range +
     severity) into `setDiagnosticRuns(_:)` and recomputing the gutter column from
     `worstSeverityPerLine` against the ruler's own line geometry — one method
-    covering all three feeds (model change, edit, tab switch/buffer swap), because
-    a swap has already cleared the outgoing set and the recomputed column comes
-    out all-`nil`: cleared without a second path.
+    covering all three feeds (model change, edit, tab switch/buffer swap),
+    because each must paint whatever the incoming file's store entry now holds:
+    all-`nil` when a replacement just cleared it, the retained set after a plain
+    switch back to a diagnosed background file.
   - `LSPDocumentSyncController.swift` (macOS) — the diagnostics channel's push
     sync (D30), and the reason a server ever re-diagnoses anything after its first
     look: D2's flush is request-driven, diagnostics are pushed unasked, so every

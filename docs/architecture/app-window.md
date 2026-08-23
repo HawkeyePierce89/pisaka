@@ -111,12 +111,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     open" branch is deliberately left bare (no bar without a file). The window
     body is a
     `VStack(spacing: 0) { mainArea; Divider(); bottomBar }`: an always-visible
-    VS Code-style `bottomBar` of three toggle buttons (Terminal / Git / Changes,
-    the active one highlighted, `arrow.triangle.pull` for Changes) sits flush at
-    the bottom, and     `mainArea` is the three-column `editorSplit` alone, or — when a
+    VS Code-style `bottomBar` of four toggle buttons (Terminal / Git / Changes /
+    Problems, the active one highlighted, `arrow.triangle.pull` for Changes,
+    `exclamationmark.triangle` for Problems) sits flush at
+    the bottom, and `mainArea` is the three-column `editorSplit` alone, or — when a
     `BottomPanel` is shown — `editorSplit` over the panel. The bottom bar also hosts
-    a fourth toggle button, Problems (`exclamationmark.triangle`), beside
-    the Terminal / Git / Changes trio (all active-one-highlighted), plus
     the `BranchSwitcherView` (JetBrains status-bar convention) showing the current
     branch, threaded through as the `branchSwitcher: BranchSwitcherModel` /
     `onSwitchBranch` / `onCreateBranch` parameters (owned by `PisakaApp`, defaulted

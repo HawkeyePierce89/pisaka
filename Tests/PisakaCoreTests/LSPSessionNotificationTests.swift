@@ -152,6 +152,29 @@ final class LSPSessionNotificationTests: XCTestCase {
         XCTAssertEqual(recorder.values.last?.params?["diagnostics"]?[0]?["severity"]?.intValue, 2)
     }
 
+    /// A hundred pushes emitted before the consumer's *first* hop must all
+    /// arrive, in send order — the unbounded-buffering claim D29's ordering
+    /// argument rests on (a coalescing policy would strand all but the last).
+    func testABurstEmittedBeforeTheConsumerRunsArrivesCompleteAndInOrder() async throws {
+        let transport = makeTransport()
+        let session = LSPSession(transport: transport, budgets: Self.quick)
+        try await start(session)
+
+        // Every push is enqueued while nobody consumes: the recorder attaches
+        // only after the whole burst is already in the stream.
+        for index in 0..<100 {
+            transport.push(
+                method: LSPMethod.publishDiagnostics,
+                params: .object(["burst": .int(index)])
+            )
+        }
+
+        let recorder = consume(session)
+        await waitFor("the whole burst") { recorder.values.count == 100 }
+        let indexes = recorder.values.compactMap { $0.params?["burst"]?.intValue }
+        XCTAssertEqual(indexes, Array(0..<100), "delivery order is wire order, with nothing stranded")
+    }
+
     func testANotificationInterleavedWithAResponseDoesNotDisturbThePendingTable() async throws {
         let transport = makeTransport()
         // The answer is still in flight when the pushes land.

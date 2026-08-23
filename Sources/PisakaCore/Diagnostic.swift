@@ -71,9 +71,11 @@ extension DiagnosticSeverity: Comparable {}
 /// sees an LSP position again. `line` counts lines the way the mapping table did
 /// (`LSPPositionMap.lineStarts(in:)`, LSP's separators), which differs from the
 /// editor's count only in a file delimited by NEL/LS/PS — the divergence D1
-/// already documents as bounded and invisible, since no line number from here is
-/// ever printed next to the gutter's own numbering without going through
-/// `LineStartIndex`.
+/// already documents as bounded. Geometry consumers (the gutter's marker column,
+/// the squiggles) go through the editor's own table; the one place the number is
+/// *printed* raw is the Problems panel's `:N` suffix, where it can differ from
+/// the gutter's on that same row — stated as a known limit in `core-lsp.md`
+/// rather than laundered through a second table here.
 public struct Diagnostic: Equatable, Hashable, Sendable {
     /// The span in the buffer, UTF-16 offsets, already clamped by the mapping.
     public var range: NSRange
@@ -133,30 +135,12 @@ public extension Diagnostic {
         }
         return Diagnostic(
             range: bufferRange,
-            line: lineIndex(containing: bufferRange.location, lineStarts: lineStarts),
+            line: LSPPositionMap.lineIndex(containing: bufferRange.location, lineStarts: lineStarts),
             severity: DiagnosticSeverity(lspValue: lsp.severity?.rawValue),
             message: lsp.message,
             source: lsp.source,
             fileURL: url
         )
-    }
-
-    /// Binary search for the line whose start is the greatest one `<= offset`;
-    /// an empty table (which `LSPPositionMap.lineStarts` never produces) reads
-    /// as one line starting at zero.
-    private static func lineIndex(containing offset: Int, lineStarts: [Int]) -> Int {
-        guard !lineStarts.isEmpty else { return 0 }
-        var low = 0
-        var high = lineStarts.count - 1
-        while low < high {
-            let mid = (low + high + 1) / 2
-            if lineStarts[mid] <= offset {
-                low = mid
-            } else {
-                high = mid - 1
-            }
-        }
-        return low
     }
 }
 

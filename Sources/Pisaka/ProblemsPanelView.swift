@@ -93,7 +93,7 @@ struct ProblemsPanelView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
 
-            ForEach(Array(group.rows.enumerated()), id: \.offset) { _, row in
+            ForEach(group.rows, id: \.self) { row in
                 ProblemRow(row: row, onActivate: { onActivate(group.url, row.range) })
             }
         }

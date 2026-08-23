@@ -439,8 +439,9 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         }
         // The diagnostics shift consumes the same tables (see `onEdit`). Fired
         // for every character edit, including the full-range edit a wholesale
-        // buffer swap posts — the model's `noteBufferReplaced` has already
-        // dropped that document's set by then, so the shifted result is a no-op.
+        // buffer swap posts — the coordinator ignores that one edit (a plain
+        // tab switch keeps the outgoing document's set; a genuine replacement
+        // has nothing left to shift), so the shift never sees swap geometry.
         onEdit?(previousLineStarts, lineStartOffsets, textStorage.editedRange, textStorage.changeInLength)
         updateThickness()
         needsDisplay = true

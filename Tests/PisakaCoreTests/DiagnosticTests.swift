@@ -176,6 +176,59 @@ final class DiagnosticTests: XCTestCase {
         )
     }
 
+    /// The remaining "unreadable → nil, never a failed push" spellings, so a
+    /// CodingKeys change cannot quietly turn any of them into a thrown error.
+    func testLenientDecodeSpellings() throws {
+        // A null severity decodes as an absent one (the mapping then says .error).
+        let nullSeverity = try JSONDecoder().decode(
+            LSPPublishDiagnosticsParams.self,
+            from: Data("""
+            {"uri":"file:///a","diagnostics":[{"range":{"start":{"line":0,"character":0},\
+            "end":{"line":0,"character":1}},"severity":null,"message":"m"}]}
+            """.utf8)
+        )
+        XCTAssertNil(nullSeverity.diagnostics.first?.severity)
+
+        // A non-integer version is *unreadable*, not "absent-with-a-lie": it
+        // decodes to nil (D31 then accepts against revision alone), never
+        // fails the push and never fabricates an integer.
+        let stringVersion = try JSONDecoder().decode(
+            LSPPublishDiagnosticsParams.self,
+            from: Data(#"{"uri":"file:///a","version":"7","diagnostics":[]}"#.utf8)
+        )
+        XCTAssertNil(stringVersion.version)
+
+        // A non-object element inside the array is dropped by the lenient
+        // per-element rule, not fatal to the push.
+        let strayElement = try JSONDecoder().decode(
+            LSPPublishDiagnosticsParams.self,
+            from: Data("""
+            {"uri":"file:///a","diagnostics":[42,{"range":{"start":{"line":0,"character":0},\
+            "end":{"line":0,"character":1}},"message":"kept"}]}
+            """.utf8)
+        )
+        XCTAssertEqual(strayElement.diagnostics.map(\.message), ["kept"])
+    }
+
+    /// The absent-severity `.error` fallback pinned end-to-end through the full
+    /// JSON → wire → mapping path (not only via `init(lspValue:)`).
+    func testAnAbsentSeverityThroughTheWholeMappingIsAnError() throws {
+        let params = try JSONDecoder().decode(
+            LSPPublishDiagnosticsParams.self,
+            from: Data("""
+            {"uri":"file:///a","diagnostics":[{"range":{"start":{"line":0,"character":0},\
+            "end":{"line":0,"character":1}},"message":"m"}]}
+            """.utf8)
+        )
+        let mapped = Diagnostic.make(
+            from: try XCTUnwrap(params.diagnostics.first),
+            in: "let x = 1" as NSString,
+            lineStarts: [0],
+            url: url
+        )
+        XCTAssertEqual(mapped?.severity, .error)
+    }
+
     // MARK: - Mapping onto the buffer
 
     func testAZeroLengthDiagnosticStaysZeroLengthAtItsOffset() throws {

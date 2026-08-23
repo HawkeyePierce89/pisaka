@@ -51,7 +51,13 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     private var searchRanges: [NSRange] = []
 
     /// One squiggled span: a buffer range and how serious it is.
-    typealias DiagnosticRun = (range: NSRange, severity: DiagnosticSeverity)
+    ///
+    /// A struct rather than a tuple so the cache's "unchanged set" comparison is
+    /// the synthesized `==`, not a hand-written pairwise helper.
+    struct DiagnosticRun: Equatable {
+        var range: NSRange
+        var severity: DiagnosticSeverity
+    }
 
     /// Every diagnostic underline currently shown, sorted ascending by
     /// `range.location` and **non-overlapping** — `setDiagnosticRuns` merges the
@@ -241,7 +247,7 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// (see `diagnosticUnderlineStyle`).
     func setDiagnosticRuns(_ runs: [DiagnosticRun]) {
         let merged = Self.mergedDiagnosticRuns(runs)
-        guard !areDiagnosticsEqual(merged, diagnosticRuns) else { return }
+        guard merged != diagnosticRuns else { return }
         let previous = diagnosticRanges()
         diagnosticRuns = merged
 
@@ -377,23 +383,15 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
             }
             guard let severity = worst else { continue }
             if let last = result.last, NSMaxRange(last.range) == start, last.severity == severity {
-                result[result.count - 1] = (
+                result[result.count - 1] = DiagnosticRun(
                     range: NSRange(location: last.range.location, length: end - last.range.location),
                     severity: severity
                 )
             } else {
-                result.append((range: NSRange(location: start, length: end - start), severity: severity))
+                result.append(DiagnosticRun(range: NSRange(location: start, length: end - start), severity: severity))
             }
         }
         return result
-    }
-
-    /// Tuple arrays carry no synthesized `==`; compare pairwise instead (the
-    /// equality no-op in `setDiagnosticRuns`).
-    private func areDiagnosticsEqual(_ lhs: [DiagnosticRun], _ rhs: [DiagnosticRun]) -> Bool {
-        lhs.count == rhs.count && zip(lhs, rhs).allSatisfy { pair in
-            NSEqualRanges(pair.0.range, pair.1.range) && pair.0.severity == pair.1.severity
-        }
     }
 
     /// Every range the diagnostic cache currently describes — what a wholesale

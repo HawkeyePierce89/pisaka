@@ -317,4 +317,34 @@ final class DiagnosticShiftTests: XCTestCase {
         )
         XCTAssertTrue(result.isEmpty)
     }
+
+    /// A diagnostic whose end offset overflows poisons the whole answer — the
+    /// documented "one bad entry" rule, pinned so it cannot be weakened into a
+    /// partial shift (which would look exactly like truth).
+    func testADiagnosticEndOffsetOverflowPoisonsTheAnswer() {
+        let result = DiagnosticShift.updated(
+            [
+                diagnostic(at: 4, line: 1),
+                diagnostic(at: Int.max - 1, length: 5, line: 1),
+            ],
+            previousLineStarts: [0, 4],
+            newLineStarts: [0, 4],
+            editedRange: NSRange(location: 0, length: 0),
+            changeInLength: 0
+        )
+        XCTAssertTrue(result.isEmpty)
+    }
+
+    /// A survivor entirely after the edit whose *shifted* bounds would overflow
+    /// also poisons the answer rather than trapping or shifting partially.
+    func testAShiftedSurvivorBoundsOverflowPoisonsTheAnswer() {
+        let result = DiagnosticShift.updated(
+            [diagnostic(at: Int.max - 10, length: 3, line: 1)],
+            previousLineStarts: [0, 4],
+            newLineStarts: [0, 4],
+            editedRange: NSRange(location: 0, length: 0),
+            changeInLength: 100
+        )
+        XCTAssertTrue(result.isEmpty)
+    }
 }

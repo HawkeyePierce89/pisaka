@@ -19,6 +19,8 @@ final class DiagnosticsModelTests: XCTestCase {
     /// "aaa\nbbb\nccc\n" — lines at [0, 4, 8, 12].
     private let lineStarts = [0, 4, 8, 12]
 
+    private var model: DiagnosticsModel!
+
     private var serverKey: DiagnosticStore.ServerKey {
         DiagnosticStore.ServerKey(serverID: serverID, root: root.path)
     }
@@ -27,8 +29,6 @@ final class DiagnosticsModelTests: XCTestCase {
         super.setUp()
         model = DiagnosticsModel()
     }
-
-    private var model = DiagnosticsModel()
 
     // MARK: - Fixtures
 
@@ -93,7 +93,28 @@ final class DiagnosticsModelTests: XCTestCase {
 
         XCTAssertEqual(entry()?.diagnostics, set)
         XCTAssertEqual(entry()?.serverKey, serverKey)
-        XCTAssertEqual(entry()?.version, 1)
+    }
+
+    /// A different `(server, root)` becoming the reporter wholesale-swaps the
+    /// entry — one set per document, keyed by its *current* answerer, never the
+    /// old server's set beside the new one.
+    func testAPushFromAnotherServerReplacesTheProvenanceAndTheSet() {
+        syncAtVersionOne()
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "swift")], version: 1))
+
+        let goID = "gopls"
+        model.noteSynced(url: url, version: 1, revision: 0)
+        model.receive(.published(
+            url: url,
+            serverID: goID,
+            root: root.path,
+            version: 1,
+            diagnostics: [diagnostic(at: 4, length: 3, line: 1, message: "go")]
+        ))
+
+        XCTAssertEqual(entry()?.diagnostics.count, 1)
+        XCTAssertEqual(entry()?.diagnostics.first?.message, "go")
+        XCTAssertEqual(entry()?.serverKey.serverID, goID)
     }
 
     func testTheSamePushIsDroppedOnceTheRevisionMoved() {

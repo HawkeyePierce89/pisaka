@@ -1,5 +1,21 @@
 import Foundation
 
+/// A notification the *server* initiated, lifted out of its envelope (D29).
+///
+/// The value the session's `notifications` stream carries: the method name and
+/// the params exactly as they arrived, with nothing session-shaped attached.
+/// What a method means — diagnostics to route, logs to drop — is entirely the
+/// consumer's business; this layer guarantees only wire order and delivery.
+public struct LSPServerNotification: Equatable, Hashable, Sendable {
+    public let method: String
+    public let params: JSONValue?
+
+    public init(method: String, params: JSONValue? = nil) {
+        self.method = method
+        self.params = params
+    }
+}
+
 /// One live conversation with one language server.
 ///
 /// Above `LSPFraming` (bytes) and `LSPProtocolTypes` (bodies), below
@@ -44,22 +60,6 @@ import Foundation
 /// none either — but since D29 they are not dropped: each one travels out on the
 /// `notifications` stream for its single consumer (`LSPWorkspace`) to act on,
 /// where an unrecognised one is ignored instead of here.
-/// A notification the *server* initiated, lifted out of its envelope (D29).
-///
-/// The value the session's `notifications` stream carries: the method name and
-/// the params exactly as they arrived, with nothing session-shaped attached.
-/// What a method means — diagnostics to route, logs to drop — is entirely the
-/// consumer's business; this layer guarantees only wire order and delivery.
-public struct LSPServerNotification: Equatable, Hashable, Sendable {
-    public let method: String
-    public let params: JSONValue?
-
-    public init(method: String, params: JSONValue? = nil) {
-        self.method = method
-        self.params = params
-    }
-}
-
 public actor LSPSession {
     /// How long each kind of exchange is worth waiting for (D7).
     ///

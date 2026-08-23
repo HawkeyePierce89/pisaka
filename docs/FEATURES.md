@@ -453,8 +453,12 @@ user sees it.
   names and knows nothing about types, and a plausible guess about the wrong
   `count` would be worse than nothing — so on a machine with no Xcode, in a
   language with no server, or while a server is still starting, nothing appears.
-   Nothing is ever reported: no server, no answer, a slow answer and a failure all
-   look the same, which is no popover at all.
+  Nothing is ever reported: no server, no answer, a slow answer and a failure all
+  look the same, which is no popover at all. Flagged code extends the same
+  popover: resting the pointer on an underlined span shows each of its diagnostic
+  messages above the type answer (prefixed "error: …", "warning: …"), and it does
+  so even when the span is punctuation rather than an identifier — or with no
+  type answer at all beneath it.
 - **Diagnostics** (macOS): with a language server running, its errors and warnings
   appear in three places while you work — a wavy underline under the offending
   code, a small severity dot in the gutter beside each affected line, and a
@@ -669,8 +673,8 @@ user sees it.
   restarts a running shell. Shells are terminated when you close their tab and
   when you quit, so no processes leak. Closing the last terminal tab collapses the
   panel (no empty gap), and a repeat click / Cmd+Shift+T reopens it. The Terminal,
-  Git Log, and Local Changes panels share one bottom dock — opening one replaces
-  whichever was shown. The terminal follows the app theme — the system light/dark
+  Git Log, Local Changes, and Problems panels share one bottom dock — opening one
+  replaces whichever was shown. The terminal follows the app theme — the system light/dark
   appearance, or a theme forced in Settings — and recolors live, without restarting
   the shell or losing scrollback; every open tab is recolored, including inactive
   ones.

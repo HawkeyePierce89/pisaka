@@ -514,6 +514,21 @@ struct CodeEditorView: NSViewRepresentable {
         // undone onto another's contents.
         let contentReplaced = switchedFile || textView.string != text
         if contentReplaced {
+            // A *plain tab switch* (the incoming file's own text, untouched while
+            // it sat off screen) is not D32's wholesale replacement: the store is
+            // keyed by URL precisely so a background document's set survives the
+            // view swap, and dropping it here would strand it — the switch-back
+            // sync takes D2's identical-text fast path, so the push-only server
+            // would never re-publish and the file would show nothing until
+            // someone edited it again. The swap below still posts one full-range
+            // edit, so `isSwappingBuffer` keeps that edit out of `bufferEdited`
+            // too: shifting the retained set across it would drop every entry.
+            // A genuine replacement — the displayed buffer swapped, or this file
+            // rewritten off screen by Replace All / reload / merge apply (what
+            // `externallyReplaced` reports) — clears as D32 says.
+            let diagnosticsSurvive = switchedFile && !externallyReplaced
+            context.coordinator.isSwappingBuffer = !diagnosticsSurvive
+            defer { context.coordinator.isSwappingBuffer = false }
             // Detach the active highlighter *before* swapping the buffer. Neon
             // installs itself as the text storage's delegate and schedules
             // highlighting asynchronously; if the outgoing grammar observed this
@@ -528,12 +543,14 @@ struct CodeEditorView: NSViewRepresentable {
             // whole-document replacement. The `syncBlame` after this block reloads
             // for the incoming contents.
             context.coordinator.beginBlameBufferSwap()
-            // Drop the outgoing document's diagnostics for the same reason and at
-            // the same point (D32: a wholesale buffer replacement — tab switch,
-            // reload, Replace All, merge apply — drops the set outright). The
-            // coordinator's recorded URL still names the outgoing file here;
-            // `syncBlame` below records the incoming one.
-            context.coordinator.beginDiagnosticsBufferSwap()
+            // Drop the document's diagnostics ahead of a wholesale replacement,
+            // at the same point as the blame column's (D32). Skipped for the
+            // plain-switch case above; the coordinator's recorded URL still
+            // names the outgoing file here — `syncBlame` below records the
+            // incoming one.
+            if !diagnosticsSurvive {
+                context.coordinator.beginDiagnosticsBufferSwap()
+            }
             // Assigning `string` replaces the whole buffer, which the text storage
             // posts as a single `didProcessEditingNotification` (edited range = the
             // full new length). The line-number ruler observes that notification
@@ -1324,6 +1341,13 @@ struct CodeEditorView: NSViewRepresentable {
         /// coordinator only reads the displayed file's entry out of its store.
         weak var diagnosticsModel: DiagnosticsModel?
 
+        /// Up while `updateNSView` replaces the text view's whole buffer: the
+        /// full-range edit that assignment posts must not reach
+        /// `bufferEdited`'s shift (a plain tab switch keeps the outgoing
+        /// document's set; a genuine replacement has nothing left to shift).
+        /// Set and cleared synchronously inside the content-replaced branch.
+        var isSwappingBuffer = false
+
         /// The store observation (one for the coordinator's lifetime). The model
         /// is mutated from several directions — accepted pushes, teardown clears,
         /// the edit-driven shift, wholesale-replacement drops — and every one of
@@ -1392,8 +1416,10 @@ struct CodeEditorView: NSViewRepresentable {
         /// subscription defers here), every edit (`bufferEdited` schedules the
         /// same repaint), and every tab switch / buffer replacement
         /// (`updateNSView` calls `refreshDiagnosticOverlays` directly) — because
-        /// a buffer swap has already dropped the outgoing document's set by the
-        /// time this runs, so the recomputed column is all-`nil`: cleared.
+        /// each feed must show the *incoming* file's column from whatever its
+        /// store entry now holds (all-`nil` when a genuine replacement just
+        /// cleared it, the retained set after a plain switch to a diagnosed
+        /// background file).
         private func refreshGutterMarkers() {
             guard let ruler = lineNumberRuler else { return }
             let severities: [DiagnosticSeverity?]
@@ -1435,6 +1461,13 @@ struct CodeEditorView: NSViewRepresentable {
             changeInLength delta: Int
         ) {
             guard editedRange.location != NSNotFound else { return }
+            // The one full-range edit a buffer swap posts is *not* an edit to
+            // shift across: for a plain tab switch the outgoing document's set
+            // deliberately survives (`updateNSView`'s content-replaced branch),
+            // and shifting it here would drop every entry; for a genuine
+            // replacement the store entry is already gone, so there is nothing
+            // to do either way.
+            guard !isSwappingBuffer else { return }
             if let url = fileURL {
                 diagnosticsModel?.noteEdit(
                     url: url,

@@ -60,9 +60,9 @@ import Foundation
 /// it could only launder a divergence, not fix one. Note the two numberings can
 /// disagree in principle (a diagnostic's `line` comes from LSP's separator set
 /// via `LSPPositionMap`; `newLineStarts` may be the editor's wider set) — the
-/// bounded D1 divergence already documented on `Diagnostic`, invisible here
-/// because no line number from either table is printed without going through
-/// the ruler's own geometry.
+/// bounded D1 divergence documented on `Diagnostic`: geometry consumers use the
+/// editor's table, and the panel's printed `:N` may differ from the gutter in a
+/// NEL/LS/PS file, which `core-lsp.md` states as a known limit.
 ///
 /// ## Fallback
 ///
@@ -136,25 +136,12 @@ public enum DiagnosticShift {
                 guard !startOverflowed, !endShiftOverflowed else { return [] }
                 var shifted = diagnostic
                 shifted.range = NSRange(location: newStart, length: diagnostic.range.length)
-                shifted.line = lineIndex(containing: newStart, lineStarts: newLineStarts)
+                shifted.line = LSPPositionMap.lineIndex(containing: newStart, lineStarts: newLineStarts)
                 result.append(shifted)
                 continue
             }
             // Intersects the touched span: dropped (D32). Nothing appended.
         }
         return result
-    }
-
-    /// Index of the last entry whose start is `<= offset`. `lineStarts` is
-    /// ascending and anchored at `0` (checked above) and `offset >= 0`, so index
-    /// `0` always qualifies and the result is never negative.
-    private static func lineIndex(containing offset: Int, lineStarts: [Int]) -> Int {
-        var low = 0
-        var high = lineStarts.count - 1
-        while low < high {
-            let mid = (low + high + 1) / 2
-            if lineStarts[mid] <= offset { low = mid } else { high = mid - 1 }
-        }
-        return low
     }
 }

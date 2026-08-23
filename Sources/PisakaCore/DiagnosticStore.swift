@@ -9,9 +9,10 @@ import Foundation
 /// `DiagnosticsModel`, Task 4's file) and be handed around by copy like
 /// `SymbolIndex`. Every mutation is wholesale or per-document; nothing here
 /// ranks, filters by language, or touches a server. Provenance is kept per
-/// entry — *which* server reported a document's set, at *which* version —
-/// because two of the clearing rules are keyed by that provenance (D33) and the
-/// model's acceptance gate reads the version.
+/// entry — *which* server reported a document's set — because two of the
+/// clearing rules are keyed by that provenance (D33). The push's wire version
+/// is deliberately not stored: the acceptance gate reads it off the model's own
+/// sync records, so keeping a second copy here would be state nobody reads.
 ///
 /// The server key mirrors `LSPWorkspace.ServerKey`'s `(serverID, root)` pair as
 /// its own public value rather than exposing the workspace's internal one:
@@ -38,14 +39,10 @@ public struct DiagnosticStore: Equatable, Sendable {
         /// Ordered however the last push arrived; the queries impose order.
         public var diagnostics: [Diagnostic]
         public let serverKey: ServerKey
-        /// The server version this set describes (`nil` when the push carried
-        /// none — most servers omit it). Read by the model's acceptance gate.
-        public let version: Int?
 
-        public init(diagnostics: [Diagnostic], serverKey: ServerKey, version: Int?) {
+        public init(diagnostics: [Diagnostic], serverKey: ServerKey) {
             self.diagnostics = diagnostics
             self.serverKey = serverKey
-            self.version = version
         }
     }
 
@@ -64,7 +61,13 @@ public struct DiagnosticStore: Equatable, Sendable {
 
     /// One row of the Problems panel: a single diagnostic flattened to what the
     /// list renders.
-    public struct Row: Equatable, Sendable {
+    ///
+    /// `Hashable` so the SwiftUI list can key rows by **content** rather than by
+    /// offset: an insertion above an earlier row must not shift every
+    /// subsequent row's identity (a stateful row view would otherwise carry its
+    /// hover highlight onto a different message). Two byte-identical rows
+    /// collapse to one — which is what a list keyed by content means.
+    public struct Row: Equatable, Hashable, Sendable {
         public let severity: DiagnosticSeverity
         public let message: String
         public let source: String?
@@ -122,16 +125,18 @@ public struct DiagnosticStore: Equatable, Sendable {
     /// everything previously known for it, including the empty push ("all
     /// clear"), which must land as an empty entry rather than a missing one so
     /// provenance survives for the next comparison.
+    ///
+    /// The wire version a push may carry is deliberately not part of the entry:
+    /// the model's acceptance gate reads versions off its own sync records, so
+    /// storing one here would be write-only state.
     public mutating func replace(
         url: URL,
         serverKey: ServerKey,
-        version: Int?,
         diagnostics: [Diagnostic]
     ) {
         entries[url.standardizedFileURL] = Entry(
             diagnostics: diagnostics,
-            serverKey: serverKey,
-            version: version
+            serverKey: serverKey
         )
     }
 
@@ -230,7 +235,7 @@ public struct DiagnosticStore: Equatable, Sendable {
                 .addingReportingOverflow(diagnostic.range.length)
             guard !endOverflowed else { continue }
             let lastCovered = diagnostic.range.length > 0 ? end - 1 : diagnostic.range.location
-            let lastLine = min(Self.lineIndex(containing: lastCovered, lineStarts: lineStarts), lineCount - 1)
+            let lastLine = min(LSPPositionMap.lineIndex(containing: lastCovered, lineStarts: lineStarts), lineCount - 1)
             for line in diagnostic.line...max(diagnostic.line, lastLine) {
                 // Worst severity wins; `.error` is Comparable's greatest case.
                 result[line] = max(result[line] ?? diagnostic.severity, diagnostic.severity)
@@ -305,16 +310,5 @@ public struct DiagnosticStore: Equatable, Sendable {
             return suffix
         }
         return Array(url.standardizedFileURL.pathComponents.drop { $0 == "/" })
-    }
-
-    /// Binary search for the line whose start is the greatest one `<= offset`.
-    private static func lineIndex(containing offset: Int, lineStarts: [Int]) -> Int {
-        var low = 0
-        var high = lineStarts.count - 1
-        while low < high {
-            let mid = (low + high + 1) / 2
-            if lineStarts[mid] <= offset { low = mid } else { high = mid - 1 }
-        }
-        return low
     }
 }

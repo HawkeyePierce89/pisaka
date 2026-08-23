@@ -5,7 +5,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
   - `PisakaApp.swift` — `@main` App, menu commands and shortcuts
     (Cmd+N/O, Cmd+Shift+O for "Open Folder…", Cmd+S/W), and the save/close and
     folder/file-open orchestration that ties the model to the file panels. The
-    Terminal, Git Log, and Local Changes are all VS Code-style *bottom dock
+    Terminal, Git Log, Local Changes, and Problems are all VS Code-style *bottom
+    dock
     panels* sharing one dock: it owns a
     single `@State private var bottomPanel: BottomPanel? = nil` (`nil` = no panel,
     passed as a binding to `ContentView`, which draws the always-visible

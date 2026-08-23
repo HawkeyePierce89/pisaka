@@ -21,13 +21,18 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         private(set) var launches: [(id: String, root: URL)] = []
         private(set) var transports: [ScriptedLSPTransport] = []
 
+        /// When set, every launch fails the way a missing executable does.
+        var launchError: LSPTransportError?
+        var initializeResult = ScriptedLSPTransport.initializeResult()
+
         func makeTransport(
             _ description: LSPServerDescription,
             _ root: URL
         ) throws -> LSPTransport {
             launches.append((description.id, root))
+            if let launchError { throw launchError }
             let transport = ScriptedLSPTransport()
-            transport.script(LSPMethod.initialize, .reply(ScriptedLSPTransport.initializeResult()))
+            transport.script(LSPMethod.initialize, .reply(initializeResult))
             // So a teardown in a test costs a round trip and not a budget.
             transport.script(LSPMethod.shutdown, .reply(.null))
             transports.append(transport)
@@ -221,11 +226,76 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
 
     func testANotificationNobodyRoutesIsIgnored() async throws {
         _ = try await open(mainFile, text: "a")
-        harness.latest.push(method: "window/logMessage", params: .object(["message": .string("hi")]))
+        try pushToMainFile(version: 1, message: "live")
+        await waitFor("the live push") { !self.publishedEvents().isEmpty }
 
+        harness.latest.push(method: "window/logMessage", params: .object(["message": .string("hi")]))
+        let countBefore = publishedEvents().count
         await settle()
 
-        XCTAssertTrue(events.isEmpty, "only publishDiagnostics is routed; the rest stay noise")
+        XCTAssertEqual(publishedEvents().count, countBefore, "only publishDiagnostics is routed; the rest stay noise")
+    }
+
+    /// A URI one server holds, pushed through a *different* server's transport,
+    /// is noise: the provenance gate (`state.serverKey == key`) stops one
+    /// server's answers overwriting another's for the same file.
+    func testAPushForAnotherServersDocumentIsDropped() async throws {
+        let fake = LSPServerDescription(
+            id: "fake-pyls",
+            languages: [.python],
+            launch: .executable(path: "/usr/local/bin/fake-pyls"),
+            arguments: ["--stdio"]
+        )
+        workspace = makeWorkspace(registry: LSPServerRegistry([.sourcekitLSP, fake]))
+        workspace.onDiagnostics = { [weak self] event in self?.events.append(event) }
+
+        let swift = try await open(mainFile, text: "a")
+        _ = try await open(pythonFile, language: .python, text: "x = 1")
+        XCTAssertEqual(workspace.liveServerCount, 2)
+
+        // The python transport speaks about main.swift — the exact shape of a
+        // cross-server overwrite if the gate ever goes away or inverts.
+        try push(
+            to: harness.firstTransport(of: "fake-pyls")!,
+            uri: swift.uri,
+            version: swift.version,
+            [(LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), nil, "impostor")]
+        )
+        let countBefore = publishedEvents().count
+        await settle()
+
+        XCTAssertEqual(publishedEvents().count, countBefore, "one server must not answer for another's document")
+    }
+
+    /// The silent-drop paths in `route` (undecodable params, no `uri`, a URI
+    /// that does not parse) each drop *one notification* — they must never kill
+    /// the consumer task, whose continued life is what makes D33's stream-finish
+    /// clear fire on a later crash.
+    func testMalformedPushesAreDroppedAndTheConsumerSurvives() async throws {
+        let prepared = try await open(mainFile, text: "a")
+
+        // Not decodable as LSPPublishDiagnosticsParams at all.
+        harness.latest.push(method: LSPMethod.publishDiagnostics, params: .object(["nope": .int(1)]))
+        // Decodes, but carries no `uri`.
+        harness.latest.push(
+            method: LSPMethod.publishDiagnostics,
+            params: .object(["version": .int(1), "diagnostics": .array([])])
+        )
+        // A `uri` no URL can parse.
+        harness.latest.push(
+            method: LSPMethod.publishDiagnostics,
+            params: .object(["uri": .string("::not a uri::"), "diagnostics": .array([])])
+        )
+        await settle()
+        XCTAssertTrue(publishedEvents().isEmpty, "none of the three malformed pushes may route")
+
+        // A well-formed push still lands: the consumer is alive.
+        try push(to: harness.latest, uri: prepared.uri, version: prepared.version, [
+            (LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), nil, "alive")
+        ])
+        await waitFor("the post-malformed push") {
+            self.publishedEvents().last?.diagnostics.first?.message == "alive"
+        }
     }
 
     func testAPushWithoutAVersionIsAccepted() async throws {
@@ -239,28 +309,37 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
 
     // MARK: - Dropped pushes
 
+    /// Each absence proof first proves the pipeline *live* with a good push, so
+    /// a fixed sleep can never mask a violation arriving just after it.
     func testAPushWithAStaleVersionIsDropped() async throws {
         let prepared = try await open(mainFile, text: "a")
-        try pushToMainFile(version: prepared.version + 7, message: "m")
+        try pushToMainFile(version: prepared.version, message: "live")
+        await waitFor("the live push") { !self.publishedEvents().isEmpty }
 
+        try pushToMainFile(version: prepared.version + 7, message: "m")
+        let countBefore = publishedEvents().count
         await settle()
 
-        XCTAssertTrue(publishedEvents().isEmpty, "a push for a version the server does not hold is noise")
+        XCTAssertEqual(publishedEvents().count, countBefore, "a push for a version the server does not hold is noise")
     }
 
     func testAPushForAnUnopenedURIIsDropped() async throws {
         _ = try await open(mainFile, text: "a")
+        try pushToMainFile(version: 1, message: "live")
+        await waitFor("the live push") { !self.publishedEvents().isEmpty }
+
         try push(
             to: harness.latest,
             uri: LSPWorkspace.documentURI(for: utilFile),
             version: 1,
             [(LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), nil, "m")]
         )
-
+        let countBefore = publishedEvents().count
         await settle()
 
-        XCTAssertTrue(
-            publishedEvents().isEmpty,
+        XCTAssertEqual(
+            publishedEvents().count,
+            countBefore,
             "the panel covers held documents only; a URI no server holds is dropped"
         )
     }
@@ -348,6 +427,9 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         _ = try await open(utilFile, text: "b")
 
         await workspace.didClose(url: mainFile)
+        // A second close of the same document is the guard's early return: it
+        // must not emit a duplicate document-scoped clear.
+        await workspace.didClose(url: mainFile)
 
         XCTAssertEqual(events.count, 1)
         guard case .cleared(.document(let closedURL))? = events.first else {
@@ -409,5 +491,126 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             clearedServerIDs().isEmpty,
             "no clear may follow a surviving server's push"
         )
+    }
+
+    // MARK: - D33's remaining clear sites
+
+    /// A crash noticed by the *next request* (not by the stream's consumer)
+    /// still clears synchronously inside `noteDeath`, before the restart — so
+    /// by the time `open` returns, a clear for the dead life has landed.
+    func testACrashNoticedByTheNextRequestClearsBeforeTheRestart() async throws {
+        _ = try await open(mainFile, text: "a")
+        try pushToMainFile(version: 1, message: "m")
+        await waitFor("the push") { !self.publishedEvents().isEmpty }
+
+        events.removeAll()
+        harness.latest.closeStream()
+        _ = try await open(mainFile, text: "b")
+        XCTAssertEqual(harness.launches.count, 2, "the request that noticed the death restarted the server")
+
+        XCTAssertFalse(
+            clearedServerIDs().isEmpty,
+            "noteDeath's synchronous clear must precede the replacement"
+        )
+        XCTAssertTrue(
+            clearedServerIDs().allSatisfy { $0 == "sourcekit-lsp" },
+            "only the dead key's clear may fire"
+        )
+    }
+
+    /// The spent-budget path (`noteFailure`'s fourth-failure unavailability) is
+    /// a teardown site even though no session ever died there: a predecessor's
+    /// answers may still be on screen when the key retires.
+    func testASpentCrashBudgetEmitsTheKeysClear() async throws {
+        // Three crashes are restarted from (D7's budget is three).
+        for attempt in 1...3 {
+            _ = try await open(mainFile, text: "a\(attempt)")
+            events.removeAll()
+            harness.latest.closeStream()
+            _ = try await open(mainFile, text: "a\(attempt + 1)")
+            XCTAssertEqual(harness.launches.count, attempt + 1)
+        }
+        XCTAssertEqual(workspace.liveServerCount, 1)
+
+        // The fourth death spends the budget: the request that notices it
+        // retires the key, answers nothing from then on, and emits its clear.
+        events.removeAll()
+        harness.latest.closeStream()
+        let prepared = await workspace.prepare(url: mainFile, language: .swift, text: "a5")
+        XCTAssertNil(prepared, "the fourth failure must retire the key")
+        XCTAssertEqual(harness.launches.count, 4, "nothing launches once the budget is spent")
+
+        let clears = clearedServerIDs()
+        XCTAssertFalse(clears.isEmpty, "the spent-budget path must speak")
+        XCTAssertTrue(clears.allSatisfy { $0 == "sourcekit-lsp" })
+    }
+
+    /// A handshake whose capability answer names an encoding every offset in
+    /// this codebase would misread (`utf-8`) never launches — and the key is
+    /// retired with its clear, though nothing was ever opened or published.
+    func testANonUTF16HandshakeRetiresTheKeyWithAClear() async throws {
+        harness.initializeResult = ScriptedLSPTransport.initializeResult(positionEncoding: "utf-8")
+
+        let prepared = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+
+        XCTAssertNil(prepared, "a server this client cannot address offsets for must not start")
+        XCTAssertEqual(harness.launches.count, 1)
+        XCTAssertEqual(clearedServerIDs(), ["sourcekit-lsp"])
+    }
+
+    /// A transport factory that cannot hand out a process at all (the missing-
+    /// executable case) counts like a crash: three attempts are retried, and the
+    /// fourth spends the budget and emits the key's clear — though nothing ever
+    /// opened or published, a predecessor life's answers may be on screen.
+    func testALaunchFailureSpendsIntoTheKeysClear() async throws {
+        harness.launchError = .launchFailed("sourcekit-lsp not found")
+
+        for _ in 1...3 {
+            let prepared = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+            XCTAssertNil(prepared)
+        }
+        XCTAssertTrue(clearedServerIDs().isEmpty, "retries are not teardowns")
+
+        let spent = await workspace.prepare(url: mainFile, language: .swift, text: "a")
+        XCTAssertNil(spent)
+        XCTAssertEqual(clearedServerIDs(), ["sourcekit-lsp"])
+    }
+
+    // MARK: - Composition (workspace → model)
+
+    /// The whole channel over one scripted server, wired exactly as `PisakaApp`
+    /// composes it — the workspace sink into `DiagnosticsModel.receive`, the
+    /// sync reported as `LSPDocumentSyncController` reports it — so neither
+    /// half can drift from the other: not the event shape, and not the root
+    /// spelling (`rootKey`'s canonical form, `/private/tmp/…` here) the clears
+    /// are keyed by.
+    func testTheWholeChannelFromPushToStoreAndBackToEmpty() async throws {
+        let model = DiagnosticsModel()
+        workspace.onDiagnostics = { [weak model] event in model?.receive(event) }
+
+        let prepared = try await open(mainFile, text: "let a = 1\nlet b = 2\n")
+        // The controller's report verbatim: prepare's version, the revision
+        // pinned synchronously before its hop (zero — nothing edited yet).
+        model.noteSynced(url: mainFile, version: prepared.version, revision: 0)
+
+        try push(to: harness.latest, uri: prepared.uri, version: prepared.version, [
+            (LSPPosition(line: 0, character: 4), LSPPosition(line: 0, character: 5), .error, "e"),
+            (LSPPosition(line: 1, character: 4), LSPPosition(line: 1, character: 5), .warning, "w"),
+        ])
+        await waitFor("the push in the store") { !self.publishedEntries(in: model).isEmpty }
+
+        let entry = try XCTUnwrap(model.store.entry(for: mainFile))
+        XCTAssertEqual(entry.serverKey.root, serverRoot, "the store keys by the canonical root, as the clears will")
+        XCTAssertEqual(entry.diagnostics.count, 2)
+        XCTAssertEqual(model.counts, DiagnosticStore.Counts(errors: 1, warnings: 1))
+
+        // And D33 empties it through the same wiring.
+        await workspace.shutdownAll()
+        XCTAssertTrue(model.rows(relativeTo: root).isEmpty)
+        XCTAssertEqual(model.counts, DiagnosticStore.Counts(errors: 0, warnings: 0))
+    }
+
+    private func publishedEntries(in model: DiagnosticsModel) -> [Diagnostic] {
+        model.store.entry(for: mainFile)?.diagnostics ?? []
     }
 }

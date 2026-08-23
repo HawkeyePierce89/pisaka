@@ -1854,8 +1854,15 @@ struct PisakaApp: App {
         // flushing new-folder text at an old project's still-live server. The
         // next tab open/switch or settled keystroke re-syncs against whatever
         // serves the new root.
-        diagnostics.prepareForFolderChange()
-        lspDocumentSync.reset()
+        //
+        // Only on a *switch*, like the LSP teardown just above: re-opening the
+        // folder already open leaves every tab in place, so no re-sync would
+        // follow — wiping the store there would blank all three surfaces with
+        // nothing to repopulate them until the next keystroke or tab switch.
+        if isSwitch {
+            diagnostics.prepareForFolderChange()
+            lspDocumentSync.reset()
+        }
     }
 
     // MARK: - Commit dialog

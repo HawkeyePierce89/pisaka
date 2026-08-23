@@ -1917,13 +1917,14 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
 
   - `DiagnosticStore.swift` — the value type keyed by document URL that both the
     model holds and the surfaces read, carrying provenance per entry (*which*
-    `(serverID, root)` reported a document's set, at *which* version) because two
-    clearing rules are keyed by that pair (D33) and the acceptance gate reads the
-    version. The server key mirrors the workspace's `(server, root)` as its own
+    `(serverID, root)` reported a document's set) because two
+    clearing rules are keyed by that pair (D33). The push's wire version is
+    deliberately *not* stored — the acceptance gate reads it off the model's own
+    sync records, so an entry copy would be write-only state. The server key mirrors the workspace's `(server, root)` as its own
     public type rather than exposing workspace internals; URLs are standardized at
     the boundary, with the canonical probe left to `CanonicalPath` where display
     paths need it — same-file identity is decided once, not re-derived under every
-    key. Mutations are wholesale or scoped: `replace(url:serverKey:version:
+    key. Mutations are wholesale or scoped: `replace(url:serverKey:
     diagnostics:)` is LSP semantics including the empty push (an "all clear" lands
     as an empty entry so provenance survives for the next comparison),
     `clear(url:)`, `clear(serverKey:)` (D33's teardown clears),
@@ -1965,11 +1966,18 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     scheduled one more sync whose push will have no edits after it, which is what
     makes dropping self-correcting. Edits after an *accepted* push go through
     `noteEdit(...)` → `DiagnosticShift.updated` (shift + revision bump), a
-    wholesale replacement through `noteBufferReplaced(url:)` (clear + bump + drop
-    the sync record — the server no longer holds text anyone mapped a push
-    against), and `prepareForFolderChange()` clears bookkeeping along with the
+    wholesale buffer replacement (a `reloadFromDisk`, Replace All or merge apply,
+    on-screen or reported off-screen) through `noteBufferReplaced(url:)` (clear +
+    bump + drop the sync record — the server no longer holds text anyone mapped a
+    push against); a plain tab switch is deliberately *not* one of these, so a
+    background document's set and sync record survive the view swap and its
+    squiggles repaint from the store on switching back. `prepareForFolderChange()`
+    clears bookkeeping along with the
     store in the same main-actor turn as the workspace's own token, so no push
-    from an old project's server can pass. `currentRevision(for:)` exists for
+    from an old project's server can pass — and only fires when the root actually
+    changed, since re-opening the open folder leaves every tab in place with
+    nothing that would repopulate an emptied store. `currentRevision(for:)`
+    exists for
     exactly one caller: the sync controller pinning it synchronously before its
     hop — the generation-token rule, one layer up from the models it usually
     guards. The read-only queries forward to the store unchanged; the views hold
@@ -2447,11 +2455,18 @@ push that produced a set and the next one, each edit runs `DiagnosticShift`:
 entirely before the edit — unchanged; entirely after — shifted and renumbered;
 intersecting the touched span — dropped. The error being fixed loses its underline
 on the first keystroke while errors elsewhere stay anchored, rather than drifting
-(no shift) or blinking off on every keystroke (a blanket clear). A wholesale buffer
-replacement (tab switch, `reloadFromDisk`, project Replace All, merge apply) drops
-the document's set outright. On the receive side the model refuses a push whose
-document was edited since the sync that produced it: the buffer revision pinned
-synchronously at each sync must still be current, so a push computed against moved-
+(no shift) or blinking off on every keystroke (a blanket clear). A wholesale
+*replacement* of one document's buffer (`reloadFromDisk`, project Replace All,
+merge apply — including the off-screen case, which `externalTextRevision` reports
+at the next switch) drops that document's set outright. A **plain tab switch is
+not a replacement**: the store is keyed by URL precisely so background documents'
+sets survive the view swap — dropping them would strand them, because the
+switch-back sync takes D2's identical-text fast path and a push-only server never
+re-publishes unasked. The swap's full-range edit is kept out of the shift for the
+same reason (the coordinator ignores it while it is in flight). On the receive
+side the model refuses a push whose document was edited since the sync that
+produced it: the buffer revision pinned synchronously at each sync must still be
+current, so a push computed against moved-
 past text is dropped, never replayed against an edit log. **Rejected:** the exact
 alternative — queueing edits and replaying them onto a late-arriving push — needs a
 bounded per-document edit log and a revision↔version map; dropping is simpler,

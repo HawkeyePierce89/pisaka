@@ -44,8 +44,8 @@ description of each — and of what it deliberately does *not* do — is in
   the download prompt says before you accept); Go via `gopls` (yours if you have it, otherwise built once with
   your own `go`); Rust via `rust-analyzer` (yours if you have it, otherwise the
   official binary downloaded once — a `cargo` is required either way). Every
-   language falls back to the built-in index silently — no alerts, ever. Where a
-   server is available, resting the pointer on a symbol also shows its
+  language falls back to the built-in index silently — no alerts, ever. Where a
+  server is available, resting the pointer on a symbol also shows its
    type/signature in a small popover (macOS only; there is no popover without a
    server, since the index knows names, not types), and its errors and warnings
    appear as you type: wavy underlines in the editor, severity markers in the

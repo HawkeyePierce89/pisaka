@@ -65,12 +65,6 @@ public final class DiagnosticsModel: ObservableObject {
     /// replacement; compared by the gate against the revision pinned at sync
     /// time. Implicitly zero until first touched.
     private var revisions: [URL: Int] = [:]
-    /// The folder-generation token, bumped by `prepareForFolderChange()` in the
-    /// same main-actor turn as the workspace's own — kept for symmetry with the
-    /// other models' tokens (and for a debugger's peace of mind). The *working*
-    /// gate is the cleared bookkeeping above: after a folder change no sync
-    /// record survives, so no push can pass until one is re-recorded.
-    private var generation = 0
 
     public init() {}
 
@@ -157,7 +151,6 @@ public final class DiagnosticsModel: ObservableObject {
             store.replace(
                 url: url,
                 serverKey: DiagnosticStore.ServerKey(serverID: serverID, root: root),
-                version: version,
                 diagnostics: diagnostics
             )
         case .cleared(.server(let serverID, let root)):
@@ -171,11 +164,14 @@ public final class DiagnosticsModel: ObservableObject {
     /// so no push routed from an old project's server can land (the gate does
     /// the dropping; this method just removes anything it could have matched).
     ///
+    /// There is deliberately no separate generation counter here: the *working*
+    /// gate is the cleared bookkeeping itself — after this call no sync record
+    /// survives, so no push can pass until the controller records a fresh one.
+    ///
     /// Called in the same main-actor turn as
     /// `LSPWorkspace.prepareForFolderChange(root:)` — synchronously, before any
     /// hop, like every generation pin in this codebase.
     public func prepareForFolderChange() {
-        generation += 1
         syncs.removeAll()
         revisions.removeAll()
         store.clearAll()
