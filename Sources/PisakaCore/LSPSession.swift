@@ -40,9 +40,26 @@ import Foundation
 /// (`client/registerCapability`, `workspace/configuration`). Every one gets a
 /// reply — an empty one where the spec allows, `MethodNotFound` where it does not
 /// — because a server left waiting on a reply to its own request will happily
-/// stall the request we are waiting on. Notifications, which want no reply, are
-/// ignored: phase 2a acts on none of them (diagnostics, logs and progress are all
-/// noise here), and ignoring an unknown one is what the spec asks for anyway.
+/// stall the request we are waiting on. Notifications, which want no reply, get
+/// none either — but since D29 they are not dropped: each one travels out on the
+/// `notifications` stream for its single consumer (`LSPWorkspace`) to act on,
+/// where an unrecognised one is ignored instead of here.
+/// A notification the *server* initiated, lifted out of its envelope (D29).
+///
+/// The value the session's `notifications` stream carries: the method name and
+/// the params exactly as they arrived, with nothing session-shaped attached.
+/// What a method means — diagnostics to route, logs to drop — is entirely the
+/// consumer's business; this layer guarantees only wire order and delivery.
+public struct LSPServerNotification: Equatable, Hashable, Sendable {
+    public let method: String
+    public let params: JSONValue?
+
+    public init(method: String, params: JSONValue? = nil) {
+        self.method = method
+        self.params = params
+    }
+}
+
 public actor LSPSession {
     /// How long each kind of exchange is worth waiting for (D7).
     ///
@@ -109,6 +126,24 @@ public actor LSPSession {
     public let transport: LSPTransport
     public let budgets: Budgets
 
+    /// Every server-initiated notification the peer sends, in wire order (D29).
+    ///
+    /// Exactly **one consumer**: `LSPWorkspace`, which attaches its iteration
+    /// before `start` and keeps it for the life of the session. Buffering is
+    /// unbounded because that owner always consumes — a burst of pushes between
+    /// two hops of the consumer task must not strand anything, which is the whole
+    /// reason this is a stream and not a callback (two pushes reordered by two
+    /// independent `Task` hops would leave stale errors on screen forever).
+    /// **Finishing is the signal**: `close(reason:)` — already the single
+    /// terminal transition, so no second finish is reachable — finishes the
+    /// stream exactly once however the conversation ended (EOF, framing error,
+    /// shutdown), and D33's clearing rule reads that as "the server died — clear
+    /// its diagnostics" without tearing anything down itself. This layer routes
+    /// nothing: diagnostics, logs and progress all arrive here alike, and what to
+    /// do with each is the consumer's decision.
+    public let notifications: AsyncStream<LSPServerNotification>
+    private var notificationsContinuation: AsyncStream<LSPServerNotification>.Continuation
+
     private var phase: Phase = .notStarted
     /// Why the session ended — handed to every request attempted afterwards, so a
     /// caller learns *that* the server is gone rather than getting a generic
@@ -138,6 +173,9 @@ public actor LSPSession {
     public init(transport: LSPTransport, budgets: Budgets = .standard) {
         self.transport = transport
         self.budgets = budgets
+        var escaped: AsyncStream<LSPServerNotification>.Continuation!
+        self.notifications = AsyncStream(bufferingPolicy: .unbounded) { escaped = $0 }
+        self.notificationsContinuation = escaped
     }
 
     // MARK: - State
@@ -457,6 +495,9 @@ public actor LSPSession {
         readTask?.cancel()
         readTask = nil
         transport.terminate()
+        // The consumer's crash/exit signal (D33). Unreachable twice: `close` is
+        // guarded by the phase above, so the stream finishes exactly once.
+        notificationsContinuation.finish()
     }
 
     // MARK: - Reading
@@ -500,10 +541,15 @@ public actor LSPSession {
                 continuation.resume(returning: response.result)
             }
 
-        case .notification:
-            // Diagnostics, logs, progress. Phase 2a asks questions and reads
-            // answers; nothing here changes what it would say.
-            break
+        case .notification(let notification):
+            // Diagnostics, logs, progress: nothing here acts on any of them,
+            // and nothing is dropped either — the consumer on `notifications`
+            // decides (D29). Yielding into a finished continuation is a no-op,
+            // so one racing the session's end is simply lost with it.
+            notificationsContinuation.yield(LSPServerNotification(
+                method: notification.method,
+                params: notification.params
+            ))
 
         case .serverRequest(let request):
             answer(request)

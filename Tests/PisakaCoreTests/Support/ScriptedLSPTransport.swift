@@ -142,6 +142,24 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
         write(framed)
     }
 
+    /// Make the fake server send a server-initiated notification at any moment —
+    /// diagnostics, logs, progress: whatever method a test names.
+    func push(method: String, params: JSONValue? = nil) {
+        emit(.notification(LSPNotificationMessage(method: method, params: params)))
+    }
+
+    /// The same, after a delay — how two pushes are ordered against other
+    /// traffic without depending on scheduler luck (`Step.delay`'s device, one
+    /// layer up).
+    func pushAfter(delay: TimeInterval, method: String, params: JSONValue? = nil) {
+        let message = LSPNotificationMessage(method: method, params: params)
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(max(0, delay) * 1_000_000_000))
+            guard let self else { return }
+            self.emit(.notification(message))
+        }
+    }
+
     func write(_ data: Data) {
         lock.lock()
         let finished = streamIsFinished

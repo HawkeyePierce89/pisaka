@@ -223,25 +223,25 @@ by absence.
 - Modify: `Sources/PisakaCore/LSPSession.swift`,
   `Tests/PisakaCoreTests/Support/ScriptedLSPTransport.swift`
 
-- [ ] Add `LSPServerNotification` (method + params) and `LSPSession.notifications:
+- [x] Add `LSPServerNotification` (method + params) and `LSPSession.notifications:
       AsyncStream<LSPServerNotification>`, built in `init` with a single
       continuation; `handle(_:)`'s `.notification` case yields into it instead of
       discarding, and `close(reason:)` finishes it exactly once (it is already
       the single terminal transition, so no second finish is reachable).
-- [ ] Document on the stream that it has one consumer (`LSPWorkspace`, attached
+- [x] Document on the stream that it has one consumer (`LSPWorkspace`, attached
       before `start`), that buffering is unbounded because the owner always
       consumes, and that finishing it is the crash/exit signal D33 reads.
-- [ ] Update the type's header comment: the "notifications are all noise here"
+- [x] Update the type's header comment: the "notifications are all noise here"
       paragraph is no longer true.
-- [ ] Extend `ScriptedLSPTransport` with `push(method:params:)` so a test can
+- [x] Extend `ScriptedLSPTransport` with `push(method:params:)` so a test can
       make the fake server send a server-initiated notification at any moment,
       and a `pushAfter(delay:)` variant for ordering cases.
-- [ ] Write `LSPSessionNotificationTests`: a notification is delivered with its
+- [x] Write `LSPSessionNotificationTests`: a notification is delivered with its
       params intact; two notifications arrive in send order; a notification
       interleaved with a request's response does not disturb the pending table;
       the stream finishes on EOF, on a framing error and on `shutdown()`; a
       malformed notification payload is dropped without ending the stream.
-- [ ] Run `swift test` — must pass before Task 4.
+- [x] Run `swift test` — must pass before Task 4.
 
 ### Task 4: Workspace routing, the clear rules, and the model
 
