@@ -186,34 +186,36 @@ by absence.
 - Create: `Sources/PisakaCore/DiagnosticShift.swift`,
   `Sources/PisakaCore/DiagnosticStore.swift`
 
-- [ ] `DiagnosticShift.updated(_:previousLineStarts:newLineStarts:editedRange:changeInLength:)`
+- [x] `DiagnosticShift.updated(_:previousLineStarts:newLineStarts:editedRange:changeInLength:)`
       in `BlameShift`'s shape and with its documentation discipline: compute the
       touched span in pre-edit coordinates, drop every diagnostic intersecting
       it, shift the rest by `changeInLength`, renumber each survivor's `line`
       from `newLineStarts`, and fall back to `[]` (honest "unknown", never a
       drifted set) on inconsistent input.
-- [ ] `DiagnosticStore`: a value type keyed by document URL, each entry holding
+- [x] `DiagnosticStore`: a value type keyed by document URL, each entry holding
       `[Diagnostic]` plus the server key that produced it and the version it
       describes. Operations: `replace(url:serverKey:version:diagnostics:)`
       (wholesale, LSP semantics), `clear(url:)`, `clear(serverKey:)`,
       `clearAll()`, `apply(shift:to:)`.
-- [ ] Query surface, all pure: `diagnostics(at offset:in url:)` (hover),
+- [x] Query surface, all pure: `diagnostics(at offset:in url:)` (hover),
       `worstSeverityPerLine(url:lineCount:)` returning `[DiagnosticSeverity?]` at
       exactly `lineCount` entries (the ruler indexes it by line, the `BlameShift`
       invariant applied here), `rows(relativeTo root: URL)` (grouped by file,
       ordered by `orderingKey`, carrying the relative path via
       `CanonicalPath`/`DisplayPath`), and `counts` (errors/warnings for the
-      header).
-- [ ] Write `DiagnosticShiftTests`: insertion before/inside/after a diagnostic, a
+      header). Note: `worstSeverityPerLine` grew one parameter (`lineStarts:`)
+      because marking every line a multi-line span crosses needs line geometry,
+      which the store deliberately does not keep; documented on the query.
+- [x] Write `DiagnosticShiftTests`: insertion before/inside/after a diagnostic, a
       deletion spanning one, an Enter split, a multi-line paste, a whole-line
       deletion, a replacement that exactly covers a diagnostic, and every
       inconsistent-input fallback.
-- [ ] Write `DiagnosticStoreTests`: wholesale replacement (a second push with
+- [x] Write `DiagnosticStoreTests`: wholesale replacement (a second push with
       fewer entries removes the first's), clear by url / by server key / all,
       per-line worst severity (two severities on one line, a multi-line
       diagnostic marking every line it spans, a line with none), ordering across
       two files, and the counts.
-- [ ] Run `swift test` — must pass before Task 3.
+- [x] Run `swift test` — must pass before Task 3.
 
 ### Task 3: The session's notification stream
 
