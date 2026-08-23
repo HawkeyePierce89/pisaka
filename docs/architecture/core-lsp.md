@@ -837,6 +837,16 @@ document, together with the limits they carry.
     `testAQuitWhileARemovedServerIsShuttingDownStillKillsIt` and
     `testTerminateNowKillsAServerAFolderSwitchIsStillShuttingDown` stage a quit
     inside each of the four windows.
+    **The withdrawn launch's consumer is cancelled with it, in the same branch.**
+    The up-front cancellation this method makes for every dead key runs *before*
+    the handshake returns, and a launch it did not stop files itself and attaches
+    a consumer afterwards — so the in-flight teardown cancels `notificationTasks`
+    beside `sessions` and `documents`, in the same synchronous prefix, under the
+    identity the branch already established (a consumer exists only beside a filed
+    session, so `sessions[key] === orphan` is exactly the condition under which the
+    entry is this launch's). Left attached it would outlive its session and speak
+    the stream-finish clear for a key this same call already cleared;
+    `testAWithdrawnInFlightLaunchClearsItsKeyExactlyOnce` pins the count.
     Neither generation moves either: a registry update is
     not a folder change, and a request in flight for a server that survived is
     still a request about the folder it was asked under. Every map a `prepare`

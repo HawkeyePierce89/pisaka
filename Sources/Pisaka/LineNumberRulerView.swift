@@ -130,9 +130,9 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// every model change, edit and tab switch, and cleared with everything
     /// else when a buffer is swapped. Kept at exactly `lineCount` entries — the
     /// store's query returns precisely the requested count, and the setter
-    /// below defensively re-sizes anything else — so the draw loop can index it
-    /// by line number without bounds arithmetic of its own: the blame array's
-    /// invariant, established at the setter instead of hoped for downstream.
+    /// below refuses anything else rather than padding it into a lie — so the
+    /// draw loop reads it by line number: the blame array's invariant,
+    /// established at the setter instead of hoped for downstream.
     private var diagnosticSeverities: [DiagnosticSeverity?] = []
 
     /// Horizontal gap between the marker column and whatever sits beside it.

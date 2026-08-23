@@ -24,6 +24,8 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         /// When set, every launch fails the way a missing executable does.
         var launchError: LSPTransportError?
         var initializeResult = ScriptedLSPTransport.initializeResult()
+        /// How long the handshake takes — the seam a launch is held in flight by.
+        var initializeDelay: TimeInterval = 0
 
         func makeTransport(
             _ description: LSPServerDescription,
@@ -32,7 +34,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             launches.append((description.id, root))
             if let launchError { throw launchError }
             let transport = ScriptedLSPTransport()
-            transport.script(LSPMethod.initialize, .reply(initializeResult))
+            transport.script(LSPMethod.initialize, .reply(initializeResult, after: initializeDelay))
             // So a teardown in a test costs a round trip and not a budget.
             transport.script(LSPMethod.shutdown, .reply(.null))
             transports.append(transport)
@@ -657,6 +659,43 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         XCTAssertTrue(
             clearedServerIDs().isEmpty,
             "no clear may follow a surviving server's push"
+        )
+    }
+
+    /// A launch withdrawn by `updateRegistry` while it is still handshaking runs
+    /// to completion — the epoch is deliberately *not* bumped for it (D16) — so
+    /// it files itself and opens its push channel **after** this method's
+    /// up-front cancellation has already run. The consumer that late attach
+    /// leaves behind belongs to a session the in-flight teardown is about to shut
+    /// down: unless that branch cancels it too, it outlives its session in
+    /// `notificationTasks` and speaks the stream-finish clear (D33) for a key the
+    /// same call already cleared.
+    func testAWithdrawnInFlightLaunchClearsItsKeyExactlyOnce() async throws {
+        let fake = LSPServerDescription(
+            id: "fake-pyls",
+            languages: [.python],
+            launch: .executable(path: "/usr/local/bin/fake-pyls"),
+            arguments: ["--stdio"]
+        )
+        workspace = makeWorkspace(registry: LSPServerRegistry([.sourcekitLSP, fake]))
+        workspace.onDiagnostics = { [weak self] event in self?.events.append(event) }
+        harness.initializeDelay = 0.2
+
+        async let request = workspace.prepare(url: pythonFile, language: .python, text: "x = 1")
+        await waitFor("the launch to start") { self.harness.launches.count == 1 }
+
+        await workspace.updateRegistry(LSPServerRegistry([.sourcekitLSP]))
+        let answer = await request
+        XCTAssertNil(answer, "a request against a withdrawn server falls back")
+        XCTAssertEqual(workspace.liveServerCount, 0)
+
+        // The stream finishes under the orphan's consumer inside the teardown
+        // above; the clear it would emit lands on a later main-actor turn.
+        await settle()
+        XCTAssertEqual(
+            clearedServerIDs(),
+            ["fake-pyls"],
+            "the withdrawn launch's key is cleared once, by updateRegistry — never again by an orphaned consumer"
         )
     }
 

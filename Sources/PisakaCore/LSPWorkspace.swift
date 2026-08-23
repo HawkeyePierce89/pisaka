@@ -484,6 +484,18 @@ public final class LSPWorkspace {
             guard sessions[key] === orphan else { await orphan.shutdown(); continue }
             sessions[key] = nil
             documents = documents.filter { $0.value.serverKey != key }
+            // The consumer this launch attached when it filed itself, which is
+            // *newer* than the cancellation at the top of this method: that one
+            // ran before the handshake finished, and `launch` opens the push
+            // channel the moment a session is filed. Cancelled here, in the same
+            // synchronous prefix as the two mutations above, so the task stays
+            // silent on its way out — the key's clear was already emitted up
+            // front — and the entry does not outlive the session it belonged to.
+            // Identity needs no separate check: `sessions[key] === orphan` above
+            // is exactly the condition under which this entry is this launch's,
+            // because a consumer is only ever attached beside a filed session.
+            notificationTasks[key]?.cancel()
+            notificationTasks[key] = nil
             // The transport is cleared *after* the goodbye, not before it, for the
             // reason the collection loop above states and the live-session loop
             // already obeys: `shutdown()` waits out a whole request budget against
