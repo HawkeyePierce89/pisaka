@@ -859,14 +859,15 @@ document, together with the limits they carry.
     `session.notifications` from the moment the session is filed under its key —
     before the first request goes out, because a real server may push diagnostics
     for the `didOpen` well before the flush that carried it returns. `route(_:from:)`
-    applies D31's gates in order: the push must name the folder this
+    applies D31's gates as a conjunction, **cheapest first**: the URI
+    must be a document **this**
+    `(server, root)` currently holds (a closed file, another server's file, or an
+    unopened one is noise), then the push must name the folder this
     workspace currently serves — a straggler from an old project's server in the
     window between `prepareForFolderChange` and the `shutdownAll()` it schedules
     would otherwise be routed, and, finding the model's bookkeeping cleared,
-    *held*, onto whatever same-path file the next project syncs — then the URI
-    must be a document **this**
-    `(server, root)` currently holds (a closed file, another server's file, or an
-    unopened one is noise), and a present `version` must equal the version last
+    *held*, onto whatever same-path file the next project syncs — and a present
+    `version` must equal the version last
     flushed for it. A URI that does not parse as a `URL` is dropped first, at the
     one boundary where the round-trip happens — and the parse comes first for a
     reason: this is the only place a **server-supplied** URI meets a key we
@@ -875,7 +876,15 @@ document, together with the limits they carry.
     keys). A server is free to re-spell what it was handed — a different but
     equivalent percent-encoding is the ordinary case — and a raw string compare
     alone would drop every diagnostic for that file, silently, for the whole
-    session, with nothing to notice it by. A push passing every gate is mapped
+    session, with nothing to notice it by. That ordering is about **cost**, not
+    meaning: a server finishing a workspace-wide check publishes one notification
+    per file it knows, nearly all of them for files no tab holds, and the two
+    gates that used to run before the membership test are the expensive pair —
+    `rootKey(for:)` resolves symlinks on the file system and `decoded(as:)`
+    re-encodes and re-parses the whole diagnostics array, both on the main actor
+    the editor types on. So the URI is read straight off the raw parameters
+    (`params["uri"]`) and the body is decoded only once the push is known to name
+    a document we hold. A push passing every gate is mapped
     against `documents[uri].text` —
     the text the *server was told*, not the live buffer; reconciling the editor's
     later edits is `DiagnosticShift`'s job downstream, never a remap here — one

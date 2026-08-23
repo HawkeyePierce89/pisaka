@@ -1163,29 +1163,43 @@ public final class LSPWorkspace {
     /// Decode one notification and, when it survives D31's gates, hand the
     /// mapped set to the sink. Every other method is ignored, as before.
     ///
-    /// The gates, in order: the push must name the folder this workspace
-    /// currently serves (a straggler from an old project's server between that
-    /// folder switch's two steps would otherwise be routed — and, finding the
-    /// model's bookkeeping cleared, *held* — onto whatever file of the same
-    /// path the next project syncs, under the old server's provenance); the URI
-    /// must be one **this** `(server, root)` currently holds — a push for a
-    /// closed file, a file another server owns, or a file nobody opened is
-    /// noise — and the version, when the server sent one, must be the one this
-    /// workspace last gave it. A push that passes all three is mapped against
+    /// The gates are a conjunction, and they run **cheapest first** because this
+    /// is the one entry point a server drives: the URI must be one **this**
+    /// `(server, root)` currently holds — a push for a closed file, a file
+    /// another server owns, or a file nobody opened is noise — then the push
+    /// must name the folder this workspace currently serves (a straggler from an
+    /// old project's server between that folder switch's two steps would
+    /// otherwise be routed — and, finding the model's bookkeeping cleared,
+    /// *held* — onto whatever file of the same path the next project syncs,
+    /// under the old server's provenance), and finally the version, when the
+    /// server sent one, must be the one this workspace last gave it.
+    ///
+    /// The order is load-bearing for cost, not for meaning. A server finishing a
+    /// workspace-wide check publishes one notification **per file it knows**,
+    /// nearly all of them for files no tab holds; the two gates this method used
+    /// to spend before the membership test are the expensive ones —
+    /// `rootKey(for:)` resolves symlinks against the file system, and
+    /// ``JSONValue/decoded(as:)`` re-encodes and re-parses the whole diagnostics
+    /// array — while the test that rejects those pushes is a dictionary lookup.
+    /// So the URI is read straight off the raw parameters and the array is
+    /// decoded only once the push is known to be for a document we hold, on the
+    /// main actor the editor also types on.
+    ///
+    /// A push that passes every gate is mapped against
     /// the text the server was *told* (`documents[uri].text`), not the live
     /// buffer: the editor's copy may already have moved on, and reconciling
     /// that difference is ``DiagnosticShift``'s job downstream, in the model —
     /// never a remap here.
     private func route(_ notification: LSPServerNotification, from key: ServerKey) {
         guard notification.method == LSPMethod.publishDiagnostics else { return }
-        guard let currentRoot,
-              key.root == LSPWorkspace.rootKey(for: currentRoot) else { return }
-        guard let params = notification.params,
-              let push = try? params.decoded(as: LSPPublishDiagnosticsParams.self) else { return }
         // The URI round-trips through URL here once, at the boundary: everything
         // downstream (the store's keys, the panel's paths) speaks URL, and a URI
-        // that does not parse names no file this editor opened.
-        guard let url = URL(string: push.uri) else { return }
+        // that does not parse names no file this editor opened. Read off the raw
+        // parameters rather than a decoded body, so a push for a file nobody
+        // holds costs one string read and one dictionary lookup.
+        guard let params = notification.params,
+              let rawURI = params["uri"]?.stringValue,
+              let url = URL(string: rawURI) else { return }
         // Looked up by the server's own spelling first, then by *ours* for the
         // same URL. This is the only place in this file where a server-supplied
         // URI is compared against a key we generated, and a server is free to
@@ -1195,8 +1209,11 @@ public final class LSPWorkspace {
         // silently and for the whole session, with no fallback to notice it by.
         // Re-standardizing through the very function that produced the keys
         // (`documentURI(for:)`) makes the two spellings converge on one entry.
-        let uri = documents[push.uri] != nil ? push.uri : LSPWorkspace.documentURI(for: url)
+        let uri = documents[rawURI] != nil ? rawURI : LSPWorkspace.documentURI(for: url)
         guard let state = documents[uri], state.serverKey == key else { return }
+        guard let currentRoot,
+              key.root == LSPWorkspace.rootKey(for: currentRoot) else { return }
+        guard let push = try? params.decoded(as: LSPPublishDiagnosticsParams.self) else { return }
         if let version = push.version, version != state.version { return }
         let content = state.text as NSString
         let lineStarts = LSPPositionMap.lineStarts(in: content)
