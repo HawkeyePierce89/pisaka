@@ -260,6 +260,84 @@ final class DiagnosticStoreTests: XCTestCase {
         XCTAssertEqual(store.worstSeverityPerLine(url: utilURL, lineCount: 3, lineStarts: lineStarts), [nil, nil, nil])
     }
 
+    /// The ruler indexes the result by line, so a span that runs through the
+    /// document's final line must mark every line from its start through that
+    /// last one — at exactly `lineCount` entries.
+    func testASpanReachingTheLastLineMarksEveryLineThroughIt() {
+        var store = DiagnosticStore()
+        // Spans from the start of line 1 across the separator into line 2 —
+        // the last line of the three-line document.
+        store.replace(
+            url: mainURL,
+            serverKey: swiftKey,
+            version: 1,
+            diagnostics: [diagnostic(at: 4, length: 6, line: 1, severity: .warning)]
+        )
+
+        let perLine = store.worstSeverityPerLine(url: mainURL, lineCount: 3, lineStarts: lineStarts)
+        XCTAssertEqual(perLine.count, 3, "exactly lineCount entries")
+        XCTAssertEqual(perLine, [nil, .warning, .warning])
+
+        // A span covering the whole buffer marks all three lines.
+        store.replace(
+            url: mainURL,
+            serverKey: swiftKey,
+            version: 1,
+            diagnostics: [diagnostic(at: 0, length: 11, line: 0, severity: .error)]
+        )
+        XCTAssertEqual(
+            store.worstSeverityPerLine(url: mainURL, lineCount: 3, lineStarts: lineStarts),
+            [.error, .error, .error]
+        )
+    }
+
+    /// A one-line document and an empty one are both marked honestly: the
+    /// single displayed line carries its worst severity, and a span running
+    /// past the end of such a buffer is clamped into the window rather than
+    /// trapping or vanishing. An empty document asked as zero lines answers
+    /// zero entries.
+    func testSingleLineAndEmptyDocumentsAreMarkedAtExactlyTheirLength() {
+        var store = DiagnosticStore()
+
+        // One line ("hello"): two severities on it, worst wins.
+        store.replace(
+            url: mainURL,
+            serverKey: swiftKey,
+            version: 1,
+            diagnostics: [
+                diagnostic(at: 0, length: 3, line: 0, severity: .warning),
+                diagnostic(at: 4, length: 3, line: 0),
+            ]
+        )
+        XCTAssertEqual(
+            store.worstSeverityPerLine(url: mainURL, lineCount: 1, lineStarts: [0]),
+            [.error]
+        )
+
+        // An empty document still displays one line; a zero-length diagnostic
+        // at offset 0 marks it.
+        store.replace(
+            url: mainURL,
+            serverKey: swiftKey,
+            version: 1,
+            diagnostics: [diagnostic(at: 0, length: 0, line: 0)]
+        )
+        XCTAssertEqual(store.worstSeverityPerLine(url: mainURL, lineCount: 1, lineStarts: [0]), [.error])
+
+        // A span running far past that one-line buffer's end is clamped onto
+        // the window rather than indexing out of it.
+        store.replace(
+            url: mainURL,
+            serverKey: swiftKey,
+            version: 1,
+            diagnostics: [diagnostic(at: 0, length: 50, line: 0)]
+        )
+        XCTAssertEqual(store.worstSeverityPerLine(url: mainURL, lineCount: 1, lineStarts: [0]), [.error])
+
+        // The same document asked for zero lines yields zero entries.
+        XCTAssertEqual(store.worstSeverityPerLine(url: mainURL, lineCount: 0, lineStarts: []), [])
+    }
+
     // MARK: - Panel rows
 
     func testRowsGroupAcrossTwoFilesInPathOrder() {

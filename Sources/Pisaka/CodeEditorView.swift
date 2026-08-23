@@ -1357,14 +1357,16 @@ struct CodeEditorView: NSViewRepresentable {
         /// immediately on a tab switch, where `updateNSView` calls it directly):
         /// it reads the whole entry — ranges and severities, already in buffer
         /// offsets — and hands them to the layout manager, which merges overlaps
-        /// into worst-severity spans and strokes the waves itself. An untitled
-        /// buffer names no document and clears.
+        /// into worst-severity spans and strokes the waves itself. The gutter's
+        /// severity markers are fed from the same read. An untitled buffer names
+        /// no document and clears both surfaces.
         func refreshDiagnosticOverlays() {
             pendingDiagnosticRepaint?.cancel()
             pendingDiagnosticRepaint = nil
             guard let textView,
                   let layoutManager = textView.layoutManager as? BracketOverlayLayoutManager
             else { return }
+            refreshGutterMarkers()
             guard let url = fileURL else {
                 layoutManager.setDiagnosticRuns([])
                 return
@@ -1373,6 +1375,31 @@ struct CodeEditorView: NSViewRepresentable {
                 BracketOverlayLayoutManager.DiagnosticRun(range: $0.range, severity: $0.severity)
             }
             layoutManager.setDiagnosticRuns(runs)
+        }
+
+        /// Feed the ruler's diagnostic-marker column from the same model read
+        /// the squiggles come out of: worst severity per displayed line, indexed
+        /// by the ruler's own line geometry (`lineCount` + `lineStarts`, so a
+        /// multi-line span marks every line it crosses). This one method covers
+        /// all three feeds the column needs — every model change (the
+        /// subscription defers here), every edit (`bufferEdited` schedules the
+        /// same repaint), and every tab switch / buffer replacement
+        /// (`updateNSView` calls `refreshDiagnosticOverlays` directly) — because
+        /// a buffer swap has already dropped the outgoing document's set by the
+        /// time this runs, so the recomputed column is all-`nil`: cleared.
+        private func refreshGutterMarkers() {
+            guard let ruler = lineNumberRuler else { return }
+            let severities: [DiagnosticSeverity?]
+            if let url = fileURL {
+                severities = diagnosticsModel?.worstSeverityPerLine(
+                    url: url,
+                    lineCount: ruler.lineCount,
+                    lineStarts: ruler.lineStarts
+                ) ?? Array(repeating: nil, count: ruler.lineCount)
+            } else {
+                severities = Array(repeating: nil, count: ruler.lineCount)
+            }
+            ruler.setDiagnosticSeverities(severities)
         }
 
         /// Queue `refreshDiagnosticOverlays` onto the next main-loop turn,

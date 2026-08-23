@@ -368,25 +368,25 @@ by absence.
 - Modify: `Sources/Pisaka/LineNumberRulerView.swift`,
   `Sources/Pisaka/CodeEditorView.swift`
 
-- [ ] Add a fixed-width marker column between the blame column and the line
+- [x] Add a fixed-width marker column between the blame column and the line
       numbers, contributing a **constant** width to `updateThickness()` whether
       or not there are diagnostics — so nothing shifts when a server starts,
       stops, or first reports. Document the trade (a few points of permanent
       gutter for everyone, versus a gutter that jumps under the pointer).
-- [ ] Add `setDiagnosticSeverities(_ severities: [DiagnosticSeverity?])`
+- [x] Add `setDiagnosticSeverities(_ severities: [DiagnosticSeverity?])`
       maintaining the `count == lineCount` invariant the blame column already
       relies on, and draw one marker per line in the draw loop beside
       `drawAnnotation`, in `SyntaxTheme`'s severity colors, at the scaled ruler
       font size.
-- [ ] Feed it from the coordinator with
+- [x] Feed it from the coordinator with
       `store.worstSeverityPerLine(url:lineCount:)` on every model change, edit
       and tab switch; clear on buffer swap.
-- [ ] Confirm the ruler still declares `zoomSurfaceKind == .code` and that the
+- [x] Confirm the ruler still declares `zoomSurfaceKind == .code` and that the
       marker scales with the code zoom like the numbers beside it.
-- [ ] Extend `DiagnosticStoreTests` with the exact-length and multi-line-span
+- [x] Extend `DiagnosticStoreTests` with the exact-length and multi-line-span
       cases the ruler indexes by (a diagnostic spanning the last line; a document
       of one line; an empty document).
-- [ ] Run `swift test`, `swiftlint --strict`, and the macOS build — must pass
+- [x] Run `swift test`, `swiftlint --strict`, and the macOS build — must pass
       before Task 8.
 
 ### Task 8: The Problems panel
