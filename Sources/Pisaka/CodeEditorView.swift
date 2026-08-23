@@ -521,13 +521,15 @@ struct CodeEditorView: NSViewRepresentable {
             // sync takes D2's identical-text fast path, so the push-only server
             // would never re-publish and the file would show nothing until
             // someone edited it again. The swap below still posts one full-range
-            // edit, so `isSwappingBuffer` keeps that edit out of `bufferEdited`
-            // too: shifting the retained set across it would drop every entry.
-            // A genuine replacement — the displayed buffer swapped, or this file
-            // rewritten off screen by Replace All / reload / merge apply (what
+            // edit — suppressed in *every* case via `isSwappingBuffer`: shifting
+            // either document's set across swap geometry would drop entries, and
+            // the recorded URL still names the *outgoing* file here, so the
+            // shift would target the wrong document outright. A genuine
+            // replacement — the displayed buffer swapped, or this file rewritten
+            // off screen by Replace All / reload / merge apply (what
             // `externallyReplaced` reports) — clears as D32 says.
             let diagnosticsSurvive = switchedFile && !externallyReplaced
-            context.coordinator.isSwappingBuffer = !diagnosticsSurvive
+            context.coordinator.isSwappingBuffer = true
             defer { context.coordinator.isSwappingBuffer = false }
             // Detach the active highlighter *before* swapping the buffer. Neon
             // installs itself as the text storage's delegate and schedules
@@ -543,13 +545,16 @@ struct CodeEditorView: NSViewRepresentable {
             // whole-document replacement. The `syncBlame` after this block reloads
             // for the incoming contents.
             context.coordinator.beginBlameBufferSwap()
-            // Drop the document's diagnostics ahead of a wholesale replacement,
-            // at the same point as the blame column's (D32). Skipped for the
-            // plain-switch case above; the coordinator's recorded URL still
-            // names the outgoing file here — `syncBlame` below records the
-            // incoming one.
+            // Drop the replaced document's diagnostics ahead of a wholesale
+            // replacement, at the same point as the blame column's (D32).
+            // Skipped for the plain-switch case above. The cleared document is
+            // the one whose *text* was replaced — the view's `fileURL` names
+            // exactly that: the incoming file on a switch (rewritten off screen
+            // by Replace All / reload / merge apply; the recorded URL still
+            // names the outgoing one until `syncBlame` re-records), and this
+            // file itself when it is displayed.
             if !diagnosticsSurvive {
-                context.coordinator.beginDiagnosticsBufferSwap()
+                context.coordinator.beginDiagnosticsBufferSwap(clearing: fileURL)
             }
             // Assigning `string` replaces the whole buffer, which the text storage
             // posts as a single `didProcessEditingNotification` (edited range = the
@@ -1494,12 +1499,14 @@ struct CodeEditorView: NSViewRepresentable {
             scheduleDiagnosticOverlaysRefresh()
         }
 
-        /// Drop the displayed document's diagnostics ahead of a wholesale buffer
+        /// Drop one document's diagnostics ahead of a wholesale buffer
         /// replacement (`updateNSView`'s content-replaced branch, beside
-        /// `beginBlameBufferSwap`). The recorded URL still names the *outgoing*
-        /// file at that point — `syncBlame` has not re-recorded yet.
-        func beginDiagnosticsBufferSwap() {
-            guard let url = fileURL else { return }
+        /// `beginBlameBufferSwap`). The URL is handed in rather than read from
+        /// `fileURL` because on a tab switch the recorded URL still names the
+        /// *outgoing* file at that point — `syncBlame` has not re-recorded yet —
+        /// while the replaced document is the incoming one.
+        func beginDiagnosticsBufferSwap(clearing url: URL?) {
+            guard let url else { return }
             diagnosticsModel?.noteBufferReplaced(url: url)
             scheduleDiagnosticOverlaysRefresh()
         }

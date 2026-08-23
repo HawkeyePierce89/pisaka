@@ -3339,6 +3339,15 @@ struct PisakaApp: App {
     /// harmless — the second scheduling supersedes the first under the same key.
     private func reindexReloadedBuffer(id: UUID, url: URL) {
         guard let text = model.text(for: id) else { return }
+        // The replacement is wholesale for the diagnostics channel too (D32):
+        // the document's set is dropped outright and its sync record with it,
+        // so a push computed against the pre-replacement text can no longer
+        // pass the acceptance gate. A background tab has no editor view whose
+        // content-replaced path would say this — this funnel is the only place
+        // that sees every rewritten tab (Replace All's buffer writes and the
+        // worktree resyncs alike). Clearing *before* the immediate re-sync
+        // below lets its push land against the fresh record.
+        diagnostics.noteBufferReplaced(url: url)
         let language = SyntaxLanguage(forFileName: url.lastPathComponent)
         symbolIndexController.noteBufferOpened(url: url, text: text, language: language)
         // The push channel rides the same immediate trigger: the server must be

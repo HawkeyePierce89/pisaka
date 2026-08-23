@@ -617,8 +617,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     push-only server re-publish — while a genuine replacement (the displayed
     buffer swapped, or this file rewritten off screen by Replace All /
     `reloadFromDisk` / merge apply, which `externalTextRevision` reports) calls
-    `beginDiagnosticsBufferSwap()` → `noteBufferReplaced(url:)` and drops the
-    set outright (D32). Either way the full-range edit itself never reaches
+    `beginDiagnosticsBufferSwap(clearing:)` → `noteBufferReplaced(url:)` and
+    drops the replaced document's set outright (D32). The URL is handed in —
+    the view's `fileURL`, i.e. the *incoming* file on a switch — because the
+    coordinator's recorded URL still names the outgoing one there, and clearing
+    it would destroy the innocent bystander's set while leaving the rewritten
+    file's stale entry standing. Either way the full-range edit itself never
+    reaches
     `bufferEdited`'s shift (`isSwappingBuffer` guards it): for a kept set it
     would drop every entry, and for a cleared one there is nothing to shift.
     Model changes arrive through one Combine subscription taken in

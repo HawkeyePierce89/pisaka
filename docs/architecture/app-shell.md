@@ -278,7 +278,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     revision, at the previous revision's ranges, until the user selected or closed
     it. Immediate rather than debounced (a resync is a bounded set of files, not a
     burst), and re-indexing the selected tab twice is harmless — the second
-    scheduling supersedes the first under the same key.
+    scheduling supersedes the first under the same key. It is also the only place
+    that can tell the diagnostics channel about an off-screen wholesale
+    replacement (D32): a background tab has no editor view whose content-replaced
+    path would say so, so the call opens with
+    `diagnostics.noteBufferReplaced(url:)` — dropping the document's set and its
+    sync record outright, so a push computed against the pre-replacement text
+    cannot pass the acceptance gate — *before* the immediate re-sync below it,
+    whose push then lands against a fresh record.
     `replaceAllInProject(template:originGeneration:)` brackets
     `ProjectSearchModel.replaceAll` with
     the *same* coordination as `applyMerge`/`revertChanges`, because a project-wide
