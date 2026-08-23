@@ -153,7 +153,7 @@ by absence.
 - Create: `Sources/PisakaCore/Diagnostic.swift`
 - Modify: `Sources/PisakaCore/LSPProtocolTypes.swift`
 
-- [ ] Add the wire types to `LSPProtocolTypes.swift` in that file's "decode
+- [x] Add the wire types to `LSPProtocolTypes.swift` in that file's "decode
       leniently, encode exactly" style: `LSPDiagnosticSeverity` (raw `Int`, 1–4),
       `LSPDiagnostic` (`range`, `severity`, `code`, `source`, `message`, with
       everything optional but `range`/`message`),
@@ -161,24 +161,24 @@ by absence.
       `LSPMethod.publishDiagnostics`; declare `textDocument.publishDiagnostics`
       in the closed client-capability tree so the handshake stays an honest
       description of what this client does.
-- [ ] Create `Diagnostic.swift`: `DiagnosticSeverity`
+- [x] Create `Diagnostic.swift`: `DiagnosticSeverity`
       (`error`/`warning`/`information`/`hint`, `Comparable` by seriousness, with
       the LSP-integer mapping and the documented rule that an absent or unknown
       severity is treated as `.error`, which is what the spec's "client decides"
       means for an editor that must not hide a failure) and `Diagnostic` (buffer
       `range: NSRange`, `line: Int`, `severity`, `message`, `source: String?`,
       `fileURL`).
-- [ ] Add the pure conversion `Diagnostic.make(from:in:lineStarts:)` mapping one
+- [x] Add the pure conversion `Diagnostic.make(from:in:lineStarts:)` mapping one
       `LSPDiagnostic` through `LSPPositionMap` into buffer offsets, clamping an
       out-of-range position to the buffer and dropping a diagnostic whose range
       cannot be placed at all.
-- [ ] Add `Diagnostic.orderingKey` (file path, then start offset, then severity)
+- [x] Add `Diagnostic.orderingKey` (file path, then start offset, then severity)
       — the panel's stable order, decided here rather than in the view.
-- [ ] Write `DiagnosticTests`: the severity table both ways, absent/unknown
+- [x] Write `DiagnosticTests`: the severity table both ways, absent/unknown
       severity, an empty range (a zero-length diagnostic at a position), a range
       past the end of the buffer, a multi-line range, a range containing
       non-ASCII (UTF-16 counting), and the ordering key's total order.
-- [ ] Run `swift test` — must pass before Task 2.
+- [x] Run `swift test` — must pass before Task 2.
 
 ### Task 2: The shift rule and the store
 

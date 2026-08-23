@@ -47,6 +47,10 @@ public enum LSPMethod {
     /// nothing in Pisaka changes a server's settings while it runs.
     public static let didChangeConfiguration = "workspace/didChangeConfiguration"
 
+    /// Server-initiated, consumed by `LSPWorkspace` off the notification stream
+    /// (D29). The one push channel this client listens on.
+    public static let publishDiagnostics = "textDocument/publishDiagnostics"
+
     public static let didOpen = "textDocument/didOpen"
     public static let didChange = "textDocument/didChange"
     public static let didClose = "textDocument/didClose"
@@ -234,6 +238,101 @@ public struct LSPTextDocumentPositionParams: Equatable, Hashable, Sendable, Coda
 
     public init(uri: String, position: LSPPosition) {
         self.init(textDocument: LSPTextDocumentIdentifier(uri: uri), position: position)
+    }
+}
+
+// MARK: - Diagnostics
+
+/// LSP's `DiagnosticSeverity`. An open set (see the file comment) with the
+/// spec's 1…4 named, exactly as `LSPCompletionItemKind` is for completion:
+/// an unknown number must not fail the decode of an otherwise readable push.
+///
+/// The mapping to the editor's own severity — including what an unknown or
+/// absent value becomes — lives in `DiagnosticSeverity`, which is where the
+/// client-side decision belongs.
+public struct LSPDiagnosticSeverity: RawRepresentable, Equatable, Hashable, Sendable, Codable {
+    public let rawValue: Int
+    public init(rawValue: Int) { self.rawValue = rawValue }
+
+    public static let error = LSPDiagnosticSeverity(rawValue: 1)
+    public static let warning = LSPDiagnosticSeverity(rawValue: 2)
+    public static let information = LSPDiagnosticSeverity(rawValue: 3)
+    public static let hint = LSPDiagnosticSeverity(rawValue: 4)
+}
+
+/// One entry of `publishDiagnostics.diagnostics`, decoded leniently.
+///
+/// Everything but `range`/`message` is optional because the spec types it so,
+/// and each optional is read through a failure-tolerant path: a `severity` that
+/// is absent, `null` or a number this spec version does not name decodes to
+/// `nil` (and becomes `.error` one layer up), and `code` keeps whatever
+/// `integer | string` the server wrote as opaque `JSONValue`, since nothing in
+/// Pisaka reads it yet.
+public struct LSPDiagnostic: Equatable, Hashable, Sendable, Decodable {
+    public var range: LSPRange
+    /// The wire value 1…4, or `nil` for absent / unreadable / unrecognised.
+    public var severity: LSPDiagnosticSeverity?
+    /// The server's own error code (`integer | string`). Opaque here.
+    public var code: JSONValue?
+    public var source: String?
+    public var message: String
+
+    public init(
+        range: LSPRange,
+        severity: LSPDiagnosticSeverity? = nil,
+        code: JSONValue? = nil,
+        source: String? = nil,
+        message: String
+    ) {
+        self.range = range
+        self.severity = severity
+        self.code = code
+        self.source = source
+        self.message = message
+    }
+
+    private enum CodingKeys: String, CodingKey { case range, severity, code, source, message }
+
+    public init(from decoder: Swift.Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        range = try container.decode(LSPRange.self, forKey: .range)
+        message = try container.decode(String.self, forKey: .message)
+        severity = try? container.decodeIfPresent(LSPDiagnosticSeverity.self, forKey: .severity)
+        code = try? container.decodeIfPresent(JSONValue.self, forKey: .code)
+        source = try? container.decodeIfPresent(String.self, forKey: .source)
+    }
+}
+
+/// `textDocument/publishDiagnostics`'s params.
+///
+/// Decode-only — the server initiates this conversation, never Pisaka — and
+/// lenient at every level: a `version` that is absent or unreadable stays `nil`
+/// (D31 then accepts the push unconditionally rather than against a version),
+/// `diagnostics` may be missing or `null` without failing the decode, and one
+/// malformed entry is dropped while its siblings survive, per the same
+/// per-element rule `LSPHoverResponse` states.
+public struct LSPPublishDiagnosticsParams: Equatable, Hashable, Sendable, Decodable {
+    public var uri: String
+    /// The document version this set describes, when the server says so. Most
+    /// servers omit it; those that send it let D31 refuse a push computed
+    /// against text the editor has already moved past.
+    public var version: Int?
+    public var diagnostics: [LSPDiagnostic]
+
+    public init(uri: String, version: Int?, diagnostics: [LSPDiagnostic]) {
+        self.uri = uri
+        self.version = version
+        self.diagnostics = diagnostics
+    }
+
+    private enum CodingKeys: String, CodingKey { case uri, version, diagnostics }
+
+    public init(from decoder: Swift.Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        uri = try container.decode(String.self, forKey: .uri)
+        version = try? container.decodeIfPresent(Int.self, forKey: .version)
+        let entries = try? container.decodeIfPresent([JSONValue].self, forKey: .diagnostics)
+        diagnostics = (entries ?? []).compactMap { try? $0.decoded(as: LSPDiagnostic.self) }
     }
 }
 
@@ -773,7 +872,10 @@ public struct LSPClientInfo: Equatable, Hashable, Sendable, Codable {
 /// * **no** `snippetSupport` (D5), so `newText` *should* always be literal text —
 ///   and a server that sends `insertTextFormat: 2` anyway is taken at its word
 ///   only when the text carries no snippet syntax (`carriesSnippetSyntax`), which
-///   is what makes the YAML server contribute anything at all.
+///   is what makes the YAML server contribute anything at all;
+/// * publish-diagnostics with `versionSupport`, because D31 reads the version a
+///   push names when one is sent — and `relatedInformation: false`, since a
+///   related node is not modelled anywhere downstream.
 public struct LSPClientCapabilities: Equatable, Hashable, Sendable, Encodable {
     public init() {}
 
@@ -815,6 +917,10 @@ public struct LSPClientCapabilities: Equatable, Hashable, Sendable, Encodable {
 
         var kinds = completion.nestedContainer(keyedBy: StringKey.self, forKey: "completionItemKind")
         try kinds.encode(LSPCompletionItemKind.specified.map(\.rawValue), forKey: "valueSet")
+
+        var diagnostics = textDocument.nestedContainer(keyedBy: StringKey.self, forKey: "publishDiagnostics")
+        try diagnostics.encode(false, forKey: "relatedInformation")
+        try diagnostics.encode(true, forKey: "versionSupport")
 
         var workspace = root.nestedContainer(keyedBy: StringKey.self, forKey: "workspace")
         try workspace.encode(false, forKey: "workspaceFolders")

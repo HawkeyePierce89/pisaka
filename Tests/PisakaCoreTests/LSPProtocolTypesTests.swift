@@ -190,6 +190,7 @@ final class LSPProtocolTypesTests: XCTestCase {
             "dynamicRegistration":false},\
             "definition":{"dynamicRegistration":false,"linkSupport":true},\
             "hover":{"contentFormat":["markdown","plaintext"],"dynamicRegistration":false},\
+            "publishDiagnostics":{"relatedInformation":false,"versionSupport":true},\
             "synchronization":{"didSave":false,"dynamicRegistration":false,\
             "willSave":false,"willSaveWaitUntil":false}},\
             "workspace":{"configuration":false,"workspaceFolders":false}}
