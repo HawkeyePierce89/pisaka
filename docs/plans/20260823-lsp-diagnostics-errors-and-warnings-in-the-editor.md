@@ -449,13 +449,18 @@ by absence.
 
 ### Task 10: Verify acceptance criteria
 
-- [ ] `swift test` — full suite green
-- [ ] `swiftlint --strict` from the repository root — clean, with no new in-file
-      disable markers
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
-- [ ] Confirm by inspection that no Core file added here imports anything but
+- [x] `swift test` — full suite green (3303 tests, 0 failures)
+- [x] `swiftlint --strict` from the repository root — clean, with no new in-file
+      disable markers (0 violations in 377 files)
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
+      (BUILD SUCCEEDED)
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
+      (BUILD SUCCEEDED)
+- [x] Confirm by inspection that no Core file added here imports anything but
       Foundation, and that every new app file is inside `#if os(macOS)`
+      (verified: the four new Core files each carry exactly one
+      `import Foundation`; `LSPDocumentSyncController.swift` and
+      `ProblemsPanelView.swift` open with `#if os(macOS)` on line 1)
 
 ### Task 11: Update documentation
 
