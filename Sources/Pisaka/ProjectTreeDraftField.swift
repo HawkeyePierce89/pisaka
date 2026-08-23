@@ -440,7 +440,7 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
         nsView.textColor = currentIssue != nil ? .systemRed : .labelColor
     }
 
-    func dismantleNSView(_ nsView: CustomTextField, coordinator: Coordinator) {
+    static func dismantleNSView(_ nsView: CustomTextField, coordinator: Coordinator) {
         nsView.isTearingDown = true
     }
 

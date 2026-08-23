@@ -3005,13 +3005,14 @@ struct PisakaApp: App {
     /// Move the entry at `source` to `destination` on disk and carry everything
     /// that names it along: the open tabs, the symbol index and the tree.
     ///
-    /// The one body both project-tree moves share — the rename dialog
-    /// (`renameItem(at:)`, a move within one folder) and the drag-and-drop move
-    /// (`moveItem(at:into:)`, a move across folders). Each caller owns only its
-    /// own admission rules (prompt and name validation there, `MoveDropRule`
-    /// here); the *ordering* below is delicate enough that a second copy of it
-    /// would be a second thing to get wrong, and the two differ in nothing but
-    /// how `destination` was arrived at.
+    /// The one body both project-tree moves share — the rename
+    /// (`renameItem(at:newName:)`, a move within one folder) and the
+    /// drag-and-drop move (`moveItem(at:into:)`, a move across folders). Each
+    /// caller owns only its own admission rules (the inline draft's live
+    /// validation and that method's re-run guards there, `MoveDropRule` here);
+    /// the *ordering* below is delicate enough that a second copy of it would be
+    /// a second thing to get wrong, and the two differ in nothing but how
+    /// `destination` was arrived at.
     ///
     /// Callers must have passed the writer gate (`revertInFlight()`) before
     /// calling: this writes to the working tree.
