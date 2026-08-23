@@ -588,6 +588,70 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     dismissal is stated on both.
     `teardown` calls `hover.reset()` beside `completion.reset()`, so a closed tab
     cannot leave a floating annotation of its file on screen.
+    Diagnostics ride this file's existing machinery at every point, with two new
+    inputs beside the ones above: an optional `lspSync:
+    LSPDocumentSyncController?` and an optional `diagnostics: DiagnosticsModel?`
+    (both defaulted nil so previews compile; the app owns both). **The sync
+    forwards inside `Coordinator.reindexSymbols`** — the one method all three
+    index triggers already funnel through — calling the sync controller's
+    `noteBufferOpened`/`noteBufferChanged` immediately beside the index
+    controller's same-named call, which is what guarantees the symbol index and
+    the LSP server are always told about the same buffer in the same order and
+    can never disagree about which buffer is current; an untitled buffer is
+    skipped by the existing guard, since there is no URL to file it under.
+    **Edits** flow through the ruler's `onEdit` closure (captured weakly per the
+    retain-cycle rule), whose pre/post line-start tables this class maintained
+    for blame anyway: the coordinator's `bufferEdited` hands them straight to
+    `diagnostics.noteEdit(...)` — Core's shift runs on geometry nobody
+    re-derived — then clears the underline temporary attributes over the edited
+    span converted back to *pre-edit* coordinates (`didProcessEditing`
+    precedes the layout managers' notification, the mirror of
+    `bracketHighlight.noteEdit`'s arithmetic) while deferring the repaint itself,
+    which would otherwise write post-edit coordinates TextKit shifts again.
+    A wholesale buffer swap (`contentReplaced`) calls `beginDiagnosticsBufferSwap()`
+    → `noteBufferReplaced(url:)` beside `beginBlameBufferSwap()` — the model drops
+    that document's set outright (D32) — before the assignment posts its full-range
+    edit notification, so the shift the notification later drives is a no-op over
+    an empty set rather than work over data about to be discarded.
+    Model changes arrive through one Combine subscription taken in
+    `attachDiagnostics(model:)` (re-attachment identity-checked, torn down in
+    `teardown`); each publishes into `scheduleDiagnosticOverlaysRefresh`, a
+    coalescing hop onto the next main-loop turn that ends in
+    `refreshDiagnosticOverlays` pushing the active document's runs (range +
+    severity) into `setDiagnosticRuns(_:)` and recomputing the gutter column from
+    `worstSeverityPerLine` against the ruler's own line geometry — one method
+    covering all three feeds (model change, edit, tab switch/buffer swap), because
+    a swap has already cleared the outgoing set and the recomputed column comes
+    out all-`nil`: cleared without a second path.
+  - `LSPDocumentSyncController.swift` (macOS) — the diagnostics channel's push
+    sync (D30), and the reason a server ever re-diagnoses anything after its first
+    look: D2's flush is request-driven, diagnostics are pushed unasked, so every
+    open buffer of a served language must be handed to its server without being
+    asked about. It is `SymbolIndexController`'s exact idiom — an `@MainActor`
+    map of per-URL cancellable `Task`s over a 400 ms debounce, deliberately that
+    class's length because both readers fire from the same triggers at the same
+    shape of cost (one whole-file notification per settled burst per edited file)
+    — and it decides only *when*: everything about *what* a sync means lives in
+    Core (`LSPWorkspace.prepare`, `DiagnosticsModel`'s acceptance gate) and is
+    tested there; this file is thin untested glue like the rest of `Sources/Pisaka`.
+    `noteBufferChanged(url:text:language:)` debounces per URL (a newer task for
+    the same file cancels the older one — a burst flushes once);
+    `noteBufferOpened(...)` bypasses it, because the file being looked at must be
+    diagnosed before the user finishes reading it, and supersedes only *this*
+    file's pending debounce — the file switched away from keeps its timer, which
+    is the one chance its last keystrokes have of reaching the server;
+    `noteBufferClosed(url:)` cancels in-flight work for the closed tab (telling
+    the *server* stays `lspWorkspace.didClose`'s job beside it); `reset()` drops
+    every pending debounce for a folder change. Each task pins
+    `model.currentRevision(for:)` **synchronously before its first hop** — the
+    generation-token rule, applied where an answer's acceptance will be judged —
+    then awaits `prepare(url:language:text:)` and reports
+    `noteSynced(url:version:revision:)` on success. A `nil` prepare — no server,
+    unavailable, outside the root, folder moved, pipe gone — does nothing at all,
+    silently: D7's uniform-`nil` discipline covers this layer's one unprompted act
+    too, and nothing on this path raises or takes the writer gate (D10). The
+    language gate up front is `canServe`, policy-only: asking it starts nothing,
+    so a consent-pending or unavailable server simply schedules no work.
   - `CompletionPanel.swift` — a custom borderless, non-activating `NSPanel` replacing AppKit's native completion popup, built in `HoverPanel`'s mould but pointer-reachable. It accepts clicks (a row commits), so `ignoresMouseEvents` is false, but `canBecomeKey` / `canBecomeMain` stay false so typing keeps going to the editor. Its content view conforms to `ZoomSurfaceProviding` with `.code` because it is walked by the pointer and drawn at code size. It contains a scrolling row list (at most 30 drawn at once) where each row is the candidate text plus a badge symbol. The *drawn* count is bounded not just by the provider's list cap but by the room the anchor's screen actually has below or above the anchor — at a zoomed code font thirty rows outrun the screen, and rows past the cap stay reachable through the scroll view rather than offscreen (a five-row floor keeps a cramped screen from degenerating into an empty panel). Width is measured from the widest row; placement is below the anchor rect (flipped above when there is no room) and clamped horizontally. Each row is drawn as a **single line**: an LSP item's display text is what the server inserts, which legitimately carries newlines (`services:\n  `), so the panel projects it to its first line plus an ellipsis — drawing verbatim would paint over following rows and desync the visual list from click hit-testing, which divides the row height evenly. The projection is display-only: the committed text and every key built on `displayText` stay the full string. Its outside-click monitor does not merely hide the panel: it fires `onOutsideClick`, wired to the *controller's* `dismiss()` — a panel-level hide alone would leave `pendingTask` and the offered list alive, free to re-present over whatever word the click landed on.
   - `CompletionController.swift` — feeds the `CompletionPanel` from the asynchronous code-intelligence seam. The work is inverted: candidates are computed ahead of time behind a debounce (150 ms) and only then is the panel shown via `apply(…)`. Staleness guards ensure a late list refuses to show over a changed buffer: the generation token, plus the re-read caret, focus (`firstResponder` **and** key window — `NSWindow.firstResponder` is not cleared when its window stops being key, and nothing else would take down a panel shown over a background window), marked-text, exact-prefix and same-member checks all ensure the answer is still current.
     The prefix/member re-checks compare *text*, never the location, so an answer computed for one word must not open over another. A caret move that **leaves** the served word therefore retires anything still in flight — the visible case runs through `update(…)`'s location gate, and the hidden case (nothing shown yet, debounce or LSP round trip outstanding) reaches the narrow `invalidatePendingRequest()` — task cancelled, generation bumped, nothing else. It deliberately stops short of `forgetList()`: this path also carries every post-commit caret move, and D4's late auto-import scheduled by that commit must survive it (the same reason `windowDidResignKey` and `textDidEndEditing` gate on visibility). A caret move that **stays inside** the served word (same word start) supersedes nothing at all: `update` returns before its cancellation block, so the debounced narrowing answer and the standing rows' prefetched resolves stay alive — killing them would strand the panel on its stale list until the next keystroke and degrade a later deferred-row commit's import into a second undo group — while `apply`'s text/member/focus re-checks make a late arrival harmless wherever the caret ended up.
@@ -714,6 +778,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     a word is, whether there is an answer, what it looks like, how much of it fits
     — is Core's, and this class owns exactly two facts of its own: where the
     pointer is, and whether the answer on screen still describes it.
+    D34 extends the same pipeline to diagnostic messages rather than adding a
+    second surface. `Source` gains one lookup, `diagnosticsAtOffset(fileURL,
+    offset)` — read *at the moment the question is asked*, like everything else in
+    the source, and captured into the dwell task so a push landing mid-dwell
+    cannot rewrite what the popover is about to say. The ask gate widens from
+    "the offset is inside an identifier" to "inside an identifier **or inside a
+    diagnostic range**" (D34's reason: a squiggle can cover punctuation no scanner
+    names a word), while every dismissal rule, the generation token and the silent
+    failure stay byte-for-byte what they were — a pointer moving off both the word
+    and the squiggle dismisses exactly as before. The anchor becomes the **union**
+    of the ranges hit (identifier span extended over them when there is one), so
+    the re-ask suppressor holds across the whole diagnosed span instead of tearing
+    the popover down per pixel of jitter; off an identifier the question carries
+    the union's *start* rather than the pointer's own offset, because servers
+    resolve tokens and a diagnostic begins at the construct it complains about.
+    The answer is merged through Core's `Diagnostic.hoverContent(for:merging:)` —
+    messages above the type answer when there is one, alone when there is not,
+    nothing when both are empty — and presented by the *same* panel as the same
+    `HoverContent` type it always drew; the server's own range stays the honest
+    span when it answered, and a diagnostics-only answer anchors to the union set
+    at ask time.
   - `HoverPanel.swift` — the popover itself: a borderless, non-activating `NSPanel`
     drawing a `HoverContent` beside the identifier the pointer rests on.
     **The pointer cannot reach it, and that is the whole design** (`core-lsp.md`'s

@@ -9,10 +9,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     panels* sharing one dock: it owns a
     single `@State private var bottomPanel: BottomPanel? = nil` (`nil` = no panel,
     passed as a binding to `ContentView`, which draws the always-visible
-    Terminal/Git/Changes bar) and three View-menu commands — "Show/Hide Git Log"
-    (Cmd+Shift+L), "Show/Hide Terminal" (Cmd+Shift+T), and "Show/Hide Local Changes"
+    Terminal/Git/Changes/Problems bar) and four View-menu commands — "Show/Hide Git Log"
+    (Cmd+Shift+L), "Show/Hide Terminal" (Cmd+Shift+T), "Show/Hide Local Changes"
     (**Cmd+Shift+C**, moved off Cmd+Shift+G — the macOS standard for "Find
-    Previous", which the Find menu below claims), their labels reflecting the
+    Previous", which the Find menu below claims), and "Show/Hide Problems"
+    (**Cmd+Shift+M**, the language servers' published diagnostics), their labels reflecting the
     active state —
     all routed through one shared `togglePanel(_:)` handler (also wired to the
     bottom bar via `ContentView`'s `onTogglePanel` so a button and its matching menu
@@ -92,7 +93,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     destination of Go to Definition** (⌘-click / ⌃⌘J), which names a declaration's
     file and name range instead of a search hit: the two want the same three steps,
     and sharing them is what keeps a jump inside the file already being edited on
-    the same code path as one across the project.
+    the same code path as one across the project. The **Problems panel is its
+    third caller** (D34's sibling surfaces): a row activation hands over
+    `(url, range)` and takes this exact path, so opening a diagnosed file and
+    revealing its squiggle cannot drift from how every other surface opens and
+    reveals.
     The same `init()` additionally builds the **symbol index**: a
     `SymbolIndexModel` over the *same* `openBuffers` snapshot closure (so Find in
     Files and go-to-definition cannot disagree about what an open tab's text is) plus
@@ -152,6 +157,25 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     server that cannot be told opens the document afresh on its next request. None of
     this touches the writer gate: the LSP layer is a **reader**, so it neither raises
     `autosave.suspend()`/`localChanges.beginRevert()` nor is gated by them.
+    **The diagnostics channel (D29–D34) composes at the same point and nowhere
+    else.** `init()` builds one `DiagnosticsModel` (a plain stored `let`, the
+    workspace's own rule — this scene never observes it; the three surfaces subscribe
+    themselves), sets `lspWorkspace.onDiagnostics` to forward every event into it —
+    pushes *and* the teardown clears, which is what makes every server death blank
+    all three surfaces synchronously — captured directly rather than through `self`
+    for the registry closures' reason: this runs during `init`, and the sink must
+    outlive it holding the model. Beside it, one `LSPDocumentSyncController` over the
+    model and the workspace (full entry in `app-editor.md`). The folder switch
+    registers with both in the same main-actor turn as every other collaborator:
+    `diagnostics.prepareForFolderChange()` + `lspDocumentSync.reset()` run
+    synchronously beside the index's and workspace's tokens — no push routed from an
+    old project's server can land, and no pending debounce flushes new-folder text at
+    an old project's still-live server. Tab close rides `forgetIndexedBuffer(_:)`'s
+    existing guard too: `lspDocumentSync.noteBufferClosed(url:)` cancels that tab's
+    pending flush beside the index call, before the fire-and-forget `didClose` whose
+    document clear (D33) the model routes into its store. Nothing on any of these
+    paths raises or takes the writer gate either; the model is a reader by D10,
+    stated on its type.
     **Provisioning (phase 2b) is composed at the same point and pushed into the same
     workspace** — the layer itself is `core-provisioning.md`. `init()` builds the
     install engine over the two concrete seams (`LSPDownloadService`,

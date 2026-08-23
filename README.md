@@ -44,10 +44,13 @@ description of each — and of what it deliberately does *not* do — is in
   the download prompt says before you accept); Go via `gopls` (yours if you have it, otherwise built once with
   your own `go`); Rust via `rust-analyzer` (yours if you have it, otherwise the
   official binary downloaded once — a `cargo` is required either way). Every
-  language falls back to the built-in index silently — no alerts, ever. Where a
-  server is available, resting the pointer on a symbol also shows its
-  type/signature in a small popover (macOS only; there is no popover without a
-  server, since the index knows names, not types).
+   language falls back to the built-in index silently — no alerts, ever. Where a
+   server is available, resting the pointer on a symbol also shows its
+   type/signature in a small popover (macOS only; there is no popover without a
+   server, since the index knows names, not types), and its errors and warnings
+   appear as you type: wavy underlines in the editor, severity markers in the
+   gutter, and a **Problems** bottom panel (Cmd+Shift+M) listing every open
+   file's findings — click a row to jump to it.
 - **Git** — Local Changes with side-by-side diffs and multi-file revert; a
   commit dialog with per-line selection, amend, author editing and
   optional push; a 3-pane merge-conflict resolver; a Git Log with a branch
@@ -240,6 +243,7 @@ never on a pull request.
 | Cmd+Shift+L | Show/Hide the Git Log (commit history) bottom panel |
 | Cmd+Shift+T | Show/Hide the embedded terminal bottom panel |
 | Cmd+Shift+C | Show/Hide the Local Changes bottom panel   |
+| Cmd+Shift+M | Show/Hide the Problems (diagnostics) bottom panel |
 | Cmd+,       | Open Preferences                           |
 | Cmd+= / Cmd+− / Cmd+0 | Zoom in / out / reset the zone under the pointer (code, terminal, or interface) |
 | Cmd+ or Ctrl+scroll, pinch | The same zoom, by gesture |
@@ -254,10 +258,10 @@ The headline items; the complete list, with the reasoning per item, is in
   dialog, git blame, the terminal, Run File/Run Test, the path bar, session
   restore, every language server, and automatic updates. iOS covers the editor,
   the index-based intelligence, the libgit2-backed git essentials, and LeetCode.
-- Language servers answer Go to Definition, completion and hover types only — no
-  diagnostics, rename or Find Usages — and their versions are pinned in the app
+- Language servers answer Go to Definition, completion, hover types and
+  diagnostics only — no rename or Find Usages — and their versions are pinned in the app
   (the YAML server's *schemas* are not: those arrive from the network as you
-  edit).
+  edit). Diagnostics are macOS-only and cover open files of served languages.
   The hover popover is macOS-only, cannot be scrolled or selected (long answers
   are cut), and has no keyboard trigger. The index fallback matches *names*: no
   scope, type inference, reach into dependencies outside the opened folder — and

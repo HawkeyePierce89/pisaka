@@ -464,22 +464,36 @@ by absence.
 
 ### Task 11: Update documentation
 
-- [ ] `docs/architecture/core-lsp.md`: full per-file entries for the four new
+- [x] `docs/architecture/core-lsp.md`: full per-file entries for the four new
       Core files and the changed contracts of
       `LSPSession`/`LSPWorkspace`/`LSPProtocolTypes`, plus decisions D29–D34 in
       the file's existing numbered style, and the invariant list at the end
-- [ ] `docs/architecture/app-editor-overlays.md` (the overlay manager's fourth
+      (a "What diagnostics added" intro paragraph; a Diagnostics (D29–D34)
+      subsection with full entries for `Diagnostic.swift`,
+      `DiagnosticShift.swift`, `DiagnosticStore.swift`,
+      `DiagnosticsModel.swift`; amended contracts in the three existing
+      entries; D29–D34 appended to Decisions; four new Known-limits bullets;
+      the fixtures section documents `push(method:params:)`)
+- [x] `docs/architecture/app-editor-overlays.md` (the overlay manager's fourth
       cache and the squiggle drawing; the ruler's marker column),
       `app-editor.md` (`LSPDocumentSyncController`, the hover change),
       `app-window.md` (`ProblemsPanelView`), `app-shell.md` (the composition in
       `PisakaApp`), `core-services.md` (`BottomPanel`'s new case)
-- [ ] `CLAUDE.md`: one index line per new file only (`Diagnostic.swift`,
+      (also `SyntaxTheme`'s severity colors in app-editor-overlays, the
+      coordinator wiring in CodeEditorView's entry, ContentView's panel/bar,
+      and the View-menu command + `activateSearchMatch` third caller in
+      PisakaApp)
+- [x] `CLAUDE.md`: one index line per new file only (`Diagnostic.swift`,
       `DiagnosticShift.swift`, `DiagnosticStore.swift`, `DiagnosticsModel.swift`,
       `LSPDocumentSyncController.swift`, `ProblemsPanelView.swift`) and a
       one-clause amendment to the "Language servers" cross-cutting invariant
       noting the push channel and the debounced sync — no essays
-- [ ] `README.md` / `docs/FEATURES.md`: the user-facing line for the Problems
-      panel and its shortcut
+      (plus the D29/D31/D33 clause additions to the `LSPSession`/
+      `LSPWorkspace` index lines)
+- [x] `README.md` / `docs/FEATURES.md`: the user-facing line for the Problems
+      panel and its shortcut (⌘⇧M added to both shortcut tables/lists; a full
+      Diagnostics feature bullet in FEATURES.md; the four now-false "no
+      diagnostics" claims in both files' limitations corrected)
 
 ## Post-Completion (manual, by the user)
 

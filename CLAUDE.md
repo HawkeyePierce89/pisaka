@@ -115,9 +115,9 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LSPProtocolTypes.swift` — decode leniently, encode exactly; the closed capability tree.
 - `LSPPositionMap.swift` — offset ↔ `(line, character)`, LSP's separators only (D1).
 - `LSPTransport.swift` — the macOS/Core boundary; EOF reports a crash.
-- `LSPSession.swift` — one conversation: handshake, ids, budgets, cancel; both configuration channels (D27).
+- `LSPSession.swift` — one conversation: handshake, ids, budgets, cancel; both configuration channels (D27); the notification stream (D29).
 - `LSPServerDescription.swift` — description + registry (D9); the per-server `configuration` (D27).
-- `LSPWorkspace.swift` — one server per `(server, root)`; the D2 flush, D7 backoff, `updateRegistry(_:)` (D16).
+- `LSPWorkspace.swift` — one server per `(server, root)`; the D2 flush, D7 backoff, `updateRegistry(_:)` (D16); push routing + teardown clears (D31/D33).
 - `CompletionEditPlan.swift` — the pure auto-import rule.
 - `HoverContent.swift` — hover markup → renderable segments; the dwell delay and the three-dimensional cap (D25/D26).
 - `LSPIntelligenceProvider.swift` — protocol answers as seam values (D6 ranking).
@@ -126,6 +126,10 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `LSPGoplsProvisioning.swift` — the Go seams + model; the second registry contributor (D18–D20).
 - `LSPRustToolchain.swift` — the rust-analyzer pin, discovery report, prompt, Settings row (D21–D24).
 - `LSPRustProvisioning.swift` — the Rust seam + model; the third registry contributor (D21–D24).
+- `Diagnostic.swift` — buffer-anchored diagnostic + closed severity; wire→buffer mapping, ordering key, hover merge (D34).
+- `DiagnosticShift.swift` — pure shift across one edit; what it touches is dropped (D32).
+- `DiagnosticStore.swift` — diagnostics keyed by document URL with server/version provenance; per-line worst severity, panel rows.
+- `DiagnosticsModel.swift` — observable reader over the store + sync/revision bookkeeping; the acceptance gate (D31/D32).
 
 `docs/architecture/core-provisioning.md` — server provisioning (TS/JS, Python + YAML), incl. D11–D16, D28 and the pinned manifest's update procedure:
 - `SHA256.swift` — FIPS 180-4 digest in Foundation alone.
@@ -268,6 +272,7 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 
 `docs/architecture/app-window.md` — window chrome (macOS):
 - `ContentView.swift` — window layout; deliberately non-observed `commitDialog`.
+- `ProblemsPanelView.swift` — the Problems dock panel: grouped rows, counts header, open-and-reveal callback.
 - `DiffWindowContent.swift` / `DiffWindowController.swift` — separate diff windows.
 - `SourceViewerWindowController.swift` / `SourceViewerContent.swift` — the read-only out-of-project definition window.
 - `ProjectTreeView.swift` — project tree (lazy children, `treeRevision` reloads).
@@ -282,6 +287,7 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 
 `docs/architecture/app-editor.md` — code editor & find (macOS):
 - `CodeEditorView.swift` — the `NSTextView` wrapper; the weak-capture retain-cycle rule.
+- `LSPDocumentSyncController.swift` — the 400 ms push sync (D30); revision pinned before the hop.
 - `EditorSearchState.swift` / `EditorSearchController.swift` / `SearchBarView.swift` — find/replace bar state, execution, UI.
 - `EditorRevealState.swift` — one-shot reveal request.
 - `CompletionPanel.swift` — custom borderless completion panel, pointer-reachable.
@@ -334,7 +340,10 @@ ci.yml's `lint` job, and the version-bump procedure.
   would serialize the editor behind a background walk.
 - **Language servers**: one server per `(server, root)`, started lazily and
   never twice; sync is request-driven (the live buffer travels with the
-  request); fallback to tree-sitter is per request and silent (no alert, ever),
+  request) — except for the diagnostics push channel (D29/D30), which re-syncs
+  each open served buffer on a 400 ms debounce and on tab open/switch so
+  `publishDiagnostics` has something to answer; fallback to tree-sitter is per
+  request and silent (no alert, ever),
   and four failures mark that `(server, root)` unavailable for the app run. A
   **reader**, like the index. `Process` lives only in `Sources/Pisaka` behind
   `LSPTransport` — `LSPSourceGatingTests` asserts that. Registration is dynamic
