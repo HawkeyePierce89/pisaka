@@ -588,6 +588,14 @@ struct CodeEditorView: NSViewRepresentable {
             if !diagnosticsSurvive {
                 context.coordinator.beginDiagnosticsBufferSwap(clearing: fileURL)
             }
+            // Whatever the *store* does with the outgoing set, the *paint* does
+            // not survive the assignment below — TextKit drops every temporary
+            // attribute over the replaced characters — so the overlay's cache
+            // has to stop claiming it does. Unconditional, unlike the clear
+            // above: without it the incoming document renders unpainted
+            // whenever its merged runs happen to equal the outgoing document's,
+            // because `setDiagnosticRuns` treats an unchanged set as a no-op.
+            context.coordinator.invalidateDiagnosticPaint()
             // Assigning `string` replaces the whole buffer, which the text storage
             // posts as a single `didProcessEditingNotification` (edited range = the
             // full new length). The line-number ruler observes that notification
@@ -1549,6 +1557,16 @@ struct CodeEditorView: NSViewRepresentable {
         /// `fileURL` because on a tab switch the recorded URL still names the
         /// *outgoing* file at that point — `syncBlame` has not re-recorded yet —
         /// while the replaced document is the incoming one.
+        /// Drop the overlay's belief about what is painted, ahead of the
+        /// wholesale replacement that wipes the attributes themselves. Beside
+        /// `beginDiagnosticsBufferSwap` in `updateNSView`, but on *every*
+        /// content replacement rather than only a genuine one — see
+        /// `BracketOverlayLayoutManager.invalidateDiagnosticPaint()`.
+        func invalidateDiagnosticPaint() {
+            (textView?.layoutManager as? BracketOverlayLayoutManager)?
+                .invalidateDiagnosticPaint()
+        }
+
         func beginDiagnosticsBufferSwap(clearing url: URL?) {
             guard let url else { return }
             diagnosticsModel?.noteBufferReplaced(url: url)

@@ -90,8 +90,8 @@ public final class DiagnosticsModel: ObservableObject {
 
     /// Per-document sync records, keyed by standardized URL — cleared by
     /// `prepareForFolderChange()`, per-document by `noteBufferReplaced(url:)`,
-    /// and dropped outright when the document's last tab closes (the
-    /// `.cleared(.document)` branch of ``receive(_:)``).
+    /// and dropped outright when the document's last tab closes
+    /// (``noteDocumentClosed(url:)``).
     private var syncs: [URL: SyncRecord] = [:]
     /// Per-document buffer revisions. Bumped by every edit and every wholesale
     /// replacement; compared by the gate against the revision pinned at sync
@@ -195,7 +195,15 @@ public final class DiagnosticsModel: ObservableObject {
         // editor's whole-document gutter pass for a store that did not change.
         // A read is not a mutation, so the guard costs nothing and the
         // behaviour is identical.
-        guard let existing = store.entry(for: url)?.diagnostics else { return }
+        //
+        // The **empty** entry is guarded out for the same reason and is the
+        // more common of the two: an all-clear push installs an entry holding
+        // no diagnostics (`DiagnosticStore.replace`), so a clean served file
+        // being typed in — the steady state of every file that compiles — is
+        // exactly the case the first clause misses. Shifting an empty set can
+        // only produce an empty set, so skipping is behaviour-preserving here
+        // too.
+        guard let existing = store.entry(for: url)?.diagnostics, !existing.isEmpty else { return }
         let shifted = DiagnosticShift.updated(
             existing,
             previousLineStarts: previousLineStarts,
@@ -276,20 +284,35 @@ public final class DiagnosticsModel: ObservableObject {
                 return heldServerID != serverID || heldRoot != root
             }
         case .cleared(.document(let url)):
-            let key = url.standardizedFileURL
-            store.clear(url: key)
-            heldPushes[key] = nil
-            // The document left the editor, so every record describing it is
-            // now about a life nobody is looking at: the sync record names a
-            // version of a document this workspace no longer holds open, and
-            // the revision it would be compared against belongs to a buffer
-            // that is gone. Dropping both is what keeps the two maps bounded by
-            // the *open* tabs rather than by every file ever opened in the
-            // session, and it means a file reopened later is gated from zero
-            // instead of against its predecessor's numbers.
-            syncs[key] = nil
-            revisions[key] = nil
+            noteDocumentClosed(url: url)
         }
+    }
+
+    /// The document left the editor: forget its set and all of its bookkeeping.
+    ///
+    /// Every record describing it is now about a life nobody is looking at —
+    /// the sync record names a version of a document no workspace holds open,
+    /// and the revision it would be compared against belongs to a buffer that
+    /// is gone. Dropping all of it is what keeps the maps bounded by the *open*
+    /// tabs rather than by every file the session ever touched, and it means a
+    /// file reopened later is gated from zero instead of against its
+    /// predecessor's numbers.
+    ///
+    /// Reached two ways, and it needs both. `LSPWorkspace.didClose(url:)` emits
+    /// `.cleared(.document)` only for a URI it still *held* — every teardown
+    /// path (a death, a shutdown, an un-registration) wipes its document table
+    /// first, so a crash-then-close sequence emits nothing at all. The app
+    /// therefore calls this directly from the same "no tab shows this file any
+    /// more" guard that fires the `didClose`, which is also what bounds the
+    /// revision map for files no server ever served: `noteEdit` mints a
+    /// revision for any buffer that is typed in, served or not, and only a
+    /// close prunes it. Idempotent, so arriving both ways costs nothing.
+    public func noteDocumentClosed(url: URL) {
+        let key = url.standardizedFileURL
+        store.clear(url: key)
+        heldPushes[key] = nil
+        syncs[key] = nil
+        revisions[key] = nil
     }
 
     /// The folder changed: clear everything and invalidate every sync record,

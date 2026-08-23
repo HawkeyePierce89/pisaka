@@ -405,14 +405,7 @@ struct PisakaApp: App {
         // moment the channel exists for.
         let resyncDiagnostics: @MainActor () -> Void = { [weak workspace, lspDocumentSync] in
             guard let workspace else { return }
-            for file in workspace.openFiles {
-                guard let url = file.url else { continue }
-                lspDocumentSync.noteBufferOpened(
-                    url: url,
-                    text: file.text,
-                    language: SyntaxLanguage(forFileName: url.lastPathComponent)
-                )
-            }
+            PisakaApp.syncOpenBuffersForDiagnostics(of: workspace, through: lspDocumentSync)
         }
         provisioning.onRegistryChange = { @MainActor [lspWorkspace, gopls, rust] registry in
             await lspWorkspace.updateRegistry(
@@ -1870,7 +1863,25 @@ struct PisakaApp: App {
         // next request to count as a crash.
         let lspGenerationBefore = lspWorkspace.currentRequestGeneration
         if lspWorkspace.prepareForFolderChange(root: url) != lspGenerationBefore {
-            Task { await lspWorkspace.shutdownAll() }
+            Task { @MainActor [lspDocumentSync, lspWorkspace, model] in
+                await lspWorkspace.shutdownAll()
+                // Diagnose the tabs this open just installed — *every* one of
+                // them, not only the one the editor happens to display (D30).
+                // A restored session's background tabs have no `CodeEditorView`
+                // behind them, so the tab-switch trigger that is the sync's
+                // whole steady-state supply never fires for them and the server
+                // is never told they exist: the Problems panel would cover
+                // "files visited since launch" rather than the open ones.
+                //
+                // After the teardown rather than beside it, deliberately: a
+                // sync issued in the same turn as the switch would launch a
+                // server for the new root that `shutdownAll()` then stops,
+                // costing the launch and stranding the didOpen with it. The
+                // displayed tab's own sync is unaffected — it rides the
+                // editor's update and this call is idempotent (`prepare` sends
+                // nothing for text the server already holds).
+                PisakaApp.syncOpenBuffersForDiagnostics(of: model, through: lspDocumentSync)
+            }
         }
 
         // Register the switch with the diagnostics channel in this same turn,
@@ -3333,6 +3344,36 @@ struct PisakaApp: App {
     /// answering about a document it has dropped. Fire-and-forget, because nothing
     /// waits on it and a server that cannot be told is one whose next request opens
     /// the document afresh anyway.
+    /// Flush every open buffer of a served language to its language server, so
+    /// the push-only diagnostics channel has something to answer for all of
+    /// them (D30) — not only for the tab an editor view happens to display.
+    ///
+    /// The steady-state triggers are per-buffer and view-driven (a tab
+    /// open/switch through `CodeEditorView`, a settled keystroke), which leaves
+    /// two moments where a whole *set* of buffers becomes the server's business
+    /// at once and no view says so: a session restored into several tabs, and a
+    /// registry change that makes a language servable that was not a moment ago.
+    /// Both call this. Idempotent — `LSPWorkspace.prepare` sends nothing for
+    /// text the server already holds — and silent for an unserved language,
+    /// which the controller drops before it costs a task.
+    ///
+    /// Static so the `init`-time closure can reach it without capturing a
+    /// half-built `self`, and so both callers run one implementation.
+    @MainActor
+    private static func syncOpenBuffersForDiagnostics(
+        of workspace: WorkspaceModel,
+        through sync: LSPDocumentSyncController
+    ) {
+        for file in workspace.openFiles {
+            guard let url = file.url else { continue }
+            sync.noteBufferOpened(
+                url: url,
+                text: file.text,
+                language: SyntaxLanguage(forFileName: url.lastPathComponent)
+            )
+        }
+    }
+
     private func forgetIndexedBuffer(_ url: URL?) {
         guard let url, model.fileID(forURL: url) == nil else { return }
         symbolIndexController.noteBufferClosed(url: url)
@@ -3341,6 +3382,15 @@ struct PisakaApp: App {
         // holds. The server-side goodbye is the `didClose` below, which also
         // emits the document clear (D33) the model routes into its store.
         lspDocumentSync.noteBufferClosed(url: url)
+        // ...and the model is told here rather than only through that clear,
+        // because the workspace emits it solely for a URI it still holds: every
+        // teardown path wipes its document table first, so a crash-then-close
+        // leaves the sync record and the buffer revision behind, and a file no
+        // server ever served has no document table entry to begin with. This
+        // call is the one that fires for *every* close, which is what keeps the
+        // model's maps bounded by the open tabs; the workspace's clear remains
+        // for the closes it does see, and arriving twice is a no-op.
+        diagnostics.noteDocumentClosed(url: url)
         Task { await lspWorkspace.didClose(url: url) }
     }
 

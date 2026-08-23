@@ -253,6 +253,31 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// cache since the last push, the clear widens to everything from the first
     /// dropped character onward (`stalePaintStart`) — the truncated cache no
     /// longer knows what was painted past it.
+    /// Forget what the cache believes is painted, ahead of a wholesale buffer
+    /// replacement.
+    ///
+    /// Replacing the text view's whole `string` makes TextKit drop every
+    /// temporary attribute over the replaced characters, so *nothing* is
+    /// painted afterwards — but the cache still describes the outgoing
+    /// document, and `setDiagnosticRuns` returns early when the incoming
+    /// document's merged runs happen to equal it. Two files with the same error
+    /// at the same offset (the same bad `import` on line 1, say) are exactly
+    /// that case, and the switch would land on an unpainted buffer whose gutter
+    /// still shows the severity dots — the ruler draws from its own array, which
+    /// the swap does not wipe.
+    ///
+    /// Called on **every** content replacement, including the plain tab switch
+    /// where the outgoing document's *store entry* deliberately survives: what
+    /// survives there is the model's set, not this view's paint, and the
+    /// repaint that follows the swap restores it.
+    ///
+    /// No attribute is removed here — the swap has already removed them all —
+    /// so `stalePaintStart` is cleared with the cache rather than widened.
+    func invalidateDiagnosticPaint() {
+        diagnosticRuns = []
+        stalePaintStart = nil
+    }
+
     func setDiagnosticRuns(_ runs: [DiagnosticRun]) {
         let merged = DiagnosticRun.merged(runs)
         guard merged != diagnosticRuns || stalePaintStart != nil else { return }

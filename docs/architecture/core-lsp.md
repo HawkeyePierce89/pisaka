@@ -2040,11 +2040,14 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     scheduled one more sync whose push will have no edits after it, which is what
     makes dropping self-correcting. Edits after an *accepted* push go through
     `noteEdit(...)` → `DiagnosticShift.updated` (shift + revision bump — and it
-    reads the entry before touching the store, so an *undiagnosed* document costs no
-    `objectWillChange` at all: `apply(shift:to:)` already no-ops there, but calling
-    it is still a mutating access to a `@Published` value, which would wake the
-    panel's rows and the editor's whole-document gutter pass once per keystroke in
-    every plain-text file), a
+    reads the entry before touching the store, so a document with *nothing to shift*
+    costs no `objectWillChange` at all: `apply(shift:to:)` already no-ops there, but
+    calling it is still a mutating access to a `@Published` value, which would wake
+    the panel's rows and the editor's whole-document gutter pass once per keystroke.
+    The skip covers both shapes of "nothing" — no entry at all (every plain-text
+    file) and an **empty** entry, which is what an all-clear push installs and so
+    the steady state of every file that currently compiles; shifting an empty set
+    can only produce an empty set), a
     wholesale buffer replacement (a `reloadFromDisk`, Replace All or merge apply,
     on-screen or reported off-screen) through `noteBufferReplaced(url:)` (clear +
     bump + drop the sync record — the server no longer holds text anyone mapped a
@@ -2078,11 +2081,19 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     One honest trade: a held unversioned push may rarely describe the previous
     flush's text; accepting it draws at worst one briefly-wrong set for the
     instant before the settling answer replaces it — D32's own trade, made once,
-    here. A `.cleared(.document)` — the last tab on the file closed — takes the
+    here. `noteDocumentClosed(url:)` — the last tab on the file closed — takes the
     document's *whole* record with it: the set, the hold, the sync record and the
     revision. The two maps are then bounded by the open tabs rather than by every
     file the session ever opened, and a file reopened later is gated from zero
-    instead of against the numbers of its previous life. `prepareForFolderChange()`
+    instead of against the numbers of its previous life. It is reached **two ways
+    and needs both**: `receive(.cleared(.document))`, which the workspace emits only
+    for a URI it still *held* — every teardown wipes its document table first, so a
+    crash-then-close emits nothing — and a direct call from the app's own "no tab
+    shows this file any more" guard (`forgetIndexedBuffer`, beside the `didClose`),
+    which is the one that fires for *every* close and so also bounds the revision
+    map for files no server ever served (`noteEdit` mints a revision for any buffer
+    that is typed in, served or not). Idempotent, so arriving both ways costs
+    nothing. `prepareForFolderChange()`
     clears bookkeeping along with the
     store in the same main-actor turn as the workspace's own token, so no push
     from an old project's server can pass — and only fires when the root actually

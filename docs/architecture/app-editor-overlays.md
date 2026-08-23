@@ -115,6 +115,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the line, hover's `diagnostics(at:)` rule is written for exactly that shape, the
     panel lists it), so dropping them here alone would leave a line flagged in the
     gutter with nothing under it.
+    `invalidateDiagnosticPaint()` is the third mutator and the one a *swap*
+    needs: assigning the text view's whole `string` makes TextKit drop every
+    temporary attribute over the replaced characters, so nothing is painted
+    afterwards — but the cache still describes the outgoing document, and
+    `setDiagnosticRuns` treats an unchanged set as a no-op. Two files carrying
+    the same error at the same offset (the same bad `import` on line 1) merge to
+    byte-identical runs, and the switch would land on an unpainted buffer whose
+    gutter still shows the severity dots, since the ruler draws from its own
+    array which the swap does not wipe. `updateNSView` therefore calls it on
+    **every** content replacement — including the plain tab switch where the
+    outgoing document's *store entry* deliberately survives, because what
+    survives there is the model's set, not this view's paint. It removes no
+    attribute (the swap already removed them all), so it clears the cache and
+    `stalePaintStart` together rather than widening anything.
     `clearDiagnostics(in:storageLength:)` follows `clearRainbow`'s pre-edit-
     coordinate contract exactly — the storage posts its edit notification before
     notifying layout managers, so the cached ranges are still pre-edit while

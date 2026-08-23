@@ -175,18 +175,38 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     teardown it sits beside: re-opening the folder already open leaves every tab in
     place, so nothing would re-sync afterwards and wiping the store there would blank
     all three surfaces with nothing to repopulate them.
-    **Each of the three `updateRegistry` callbacks ends by re-syncing the open
-    buffers**, which is the one trigger the sync controller cannot supply itself.
-    Diagnostics are the only push-only surface here — everything else is
-    request-driven and recovers on the next completion/hover/⌘-click — and the
-    controller's whole trigger surface (tab open/switch, settled keystroke) gates on
-    `canServe`, which was false for that language a moment earlier. Without the
-    re-sync, consenting to a server, or gopls/rust-analyzer discovery finishing after
-    launch (the ordinary cold-start order), leaves the file on screen undiagnosed
-    until the user types. Tab close rides `forgetIndexedBuffer(_:)`'s
+    **`syncOpenBuffersForDiagnostics(of:through:)` is the set-wide trigger the sync
+    controller cannot supply itself**, and it has two callers. The controller's own
+    trigger surface is per-buffer and view-driven (a tab open/switch through
+    `CodeEditorView`, a settled keystroke), which leaves two moments where a whole
+    *set* of buffers becomes a server's business at once and no view says so. The
+    first is each of the three `updateRegistry` callbacks: diagnostics are the only
+    push-only surface here — everything else is request-driven and recovers on the
+    next completion/hover/⌘-click — and every trigger gates on `canServe`, which was
+    false for that language a moment earlier, so without the re-sync consenting to a
+    server, or gopls/rust-analyzer discovery finishing after launch (the ordinary
+    cold-start order), leaves the file on screen undiagnosed until the user types.
+    The second is `openFolder(url:)`, which is also the launch-time session restore:
+    a restored session's *background* tabs have no `CodeEditorView` behind them, so
+    the tab-switch trigger never fires for them and the server is never told they
+    exist — the Problems panel would cover "files visited since launch" rather than
+    the open ones. That call runs **inside the same `Task` that awaits
+    `shutdownAll()`**, after the teardown rather than beside it: a sync issued in the
+    switch's own turn would launch a server for the new root that `shutdownAll()`
+    then stops, costing the launch and stranding the `didOpen` with it. It is
+    idempotent (`prepare` sends nothing for text the server already holds), so the
+    displayed tab syncing itself through the editor as usual costs nothing. `static`,
+    so the `init`-time closure reaches it without capturing a half-built `self`.
+    Tab close rides `forgetIndexedBuffer(_:)`'s
     existing guard too: `lspDocumentSync.noteBufferClosed(url:)` cancels that tab's
     pending flush beside the index call, before the fire-and-forget `didClose` whose
-    document clear (D33) the model routes into its store. Nothing on any of these
+    document clear (D33) the model routes into its store — and
+    `diagnostics.noteDocumentClosed(url:)` beside them, because that clear is emitted
+    only for a URI the workspace still *held*: every teardown wipes its document
+    table first, so a crash-then-close would leave the sync record and the buffer
+    revision behind, and a file no server ever served was never in that table at all.
+    This call is the one that fires for every close, which is what keeps the model's
+    two maps bounded by the open tabs (`core-lsp.md`); arriving twice is a no-op. Nothing on any of these
     paths raises or takes the writer gate either; the model is a reader by D10,
     stated on its type.
     **Provisioning (phase 2b) is composed at the same point and pushed into the same

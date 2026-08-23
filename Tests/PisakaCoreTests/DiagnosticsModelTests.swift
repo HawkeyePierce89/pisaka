@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import PisakaCore
 
@@ -656,6 +657,84 @@ final class DiagnosticsModelTests: XCTestCase {
         // held rather than admitted.
         model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "late")], version: 1))
         XCTAssertNil(entry(), "no surviving record can admit a push for the closed document")
+    }
+
+    /// The close prune is reachable **without** a workspace event, because the
+    /// workspace emits `.cleared(.document)` only for a URI it still held: every
+    /// teardown wipes its document table first, so a crash-then-close emits
+    /// nothing, and a file no server ever served was never in that table at all.
+    /// The app calls this directly from its "no tab shows this file" guard, so
+    /// the maps stay bounded by the open tabs either way.
+    func testClosingADocumentDirectlyDropsTheBookkeepingNoEventWouldHaveCleared() {
+        model.noteEdit(
+            url: url,
+            previousLineStarts: lineStarts,
+            newLineStarts: lineStarts,
+            editedRange: NSRange(location: 0, length: 0),
+            changeInLength: 0
+        )
+        model.noteSynced(url: url, version: 3, revision: 1)
+        XCTAssertEqual(model.currentRevision(for: url), 1)
+
+        model.noteDocumentClosed(url: url)
+        XCTAssertEqual(model.currentRevision(for: url), 0, "a closed document is gated from zero again")
+
+        // The sync record went with it: a push naming the version the closed
+        // document was last synced at finds no record to pass and is held.
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "late")], version: 3))
+        XCTAssertNil(entry(), "no surviving record can admit a push for the closed document")
+
+        // Idempotent: arriving a second time (the workspace's own clear, when it
+        // does fire) costs nothing.
+        model.noteDocumentClosed(url: url)
+        XCTAssertEqual(model.currentRevision(for: url), 0)
+    }
+
+    // MARK: - Republishing
+
+    /// Typing in a document with **no** stored entry publishes nothing, and
+    /// neither does typing in one whose entry is empty — which is the steady
+    /// state of every file that currently compiles, since an all-clear push
+    /// installs an entry holding no diagnostics. Shifting an empty set can only
+    /// produce an empty set, so the skip is behaviour-preserving; without it
+    /// every keystroke in a clean served file wakes the panel's rows and counts
+    /// and the editor's whole-document gutter pass for a store that did not
+    /// change.
+    func testAnEditPublishesOnlyWhenThereIsSomethingToShift() {
+        var publishes = 0
+        let subscription = model.objectWillChange.sink { _ in publishes += 1 }
+        defer { subscription.cancel() }
+
+        let edit = insertAtFive()
+        func type() {
+            model.noteEdit(
+                url: url,
+                previousLineStarts: edit.previous,
+                newLineStarts: edit.new,
+                editedRange: edit.range,
+                changeInLength: edit.delta
+            )
+        }
+
+        type()
+        XCTAssertEqual(publishes, 0, "an undiagnosed document has nothing to shift")
+
+        // An all-clear push: an entry exists, holding nothing.
+        model.noteSynced(url: url, version: 1, revision: model.currentRevision(for: url))
+        model.receive(published([], version: 1))
+        XCTAssertEqual(entry()?.diagnostics, [])
+        publishes = 0
+
+        type()
+        XCTAssertEqual(publishes, 0, "an empty entry has nothing to shift either")
+
+        // ...and a document that *does* hold something still publishes its shift.
+        model.noteSynced(url: url, version: 2, revision: model.currentRevision(for: url))
+        model.receive(published([diagnostic(at: 8, length: 3, line: 2, message: "m")], version: 2))
+        publishes = 0
+        type()
+        XCTAssertEqual(publishes, 1, "a non-empty set is shifted and republished")
+        XCTAssertEqual(entry()?.diagnostics.count, 1)
     }
 
     // MARK: - Query forwarding
