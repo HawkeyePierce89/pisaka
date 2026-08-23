@@ -475,6 +475,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     edit the user believes they ended. A folder's *own* rename draft is
     deliberately outside that reach: it is drawn in the folder's label row,
     which its parent still lists, so collapsing the folder keeps it. The
+    containment test compares standardized, symlink-**un**resolved paths,
+    and is the one place here that deliberately does not follow
+    `CanonicalPath`'s resolve-first rule: the question is which row hangs
+    off which row, not which file is the same file, and the tree spells
+    both sides by appending components to the opened root, so both already
+    agree. Resolving would only introduce disagreement — a project holding
+    `link -> deep/real` would lose a draft rendered under `link` when the
+    unrelated `deep` collapses, and keep one alive unrendered when `link`
+    points outside the collapsed directory. The
     `onNewFile(URL,
     String)` / `onNewFolder(URL, String)` / `onRename(URL, String)`
     callbacks take the final accepted text and run under the same writer
@@ -591,7 +600,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     project-tree row is a plain SwiftUI view that never takes first
     responder, so clicking one moves focus nowhere and
     `controlTextDidEndEditing` never fires — which is why the draft carries
-    a **local `.leftMouseDown`/`.rightMouseDown` `NSEvent` monitor**, alive
+    a **local `.leftMouseDown`/`.leftMouseUp`/`.rightMouseDown` `NSEvent`
+    monitor**, alive
     for exactly as long as the draft is (installed in the region view's
     `viewDidMoveToWindow`, removed when the window goes away and again from
     `dismantleNSView`, both halves idempotent — and one draft at a time is
@@ -606,7 +616,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     window's *chrome* is the user moving or minimising the window they are
     typing in, a click inside the draft is an ordinary edit (caret
     placement, drag-selection), anything else in the draft's own window
-    cancels. The chrome fact is `window.contentView`'s bounds, which draws
+    cancels. The chrome fact is `window.contentLayoutRect`, measured
+    against `locationInWindow` in that same unflipped window space —
+    **not** `contentView`'s bounds, because a plain SwiftUI `WindowGroup`
+    window carries `fullSizeContentView` and its content view therefore
+    spans the title bar, which would answer `true` for every title-bar drag
+    and make the chrome answer unreachable. `contentLayoutRect` draws
     the line where AppKit draws it and so leaves two limits stated on the
     rule: a resize drag begun from the content side of the bottom, left or
     right edge, and the click that reactivates the app, both land inside the

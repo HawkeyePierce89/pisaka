@@ -325,15 +325,29 @@ struct TreeDraftDismissRegion: NSViewRepresentable {
             guard let window else { return }
             // The window's *content* area, which the title bar, the toolbar and
             // the traffic lights are not: dragging the window one is typing in
-            // must not destroy a half-typed name. The resize band along the
-            // content view's own bottom/left/right edges *is* inside these
-            // bounds and is a stated limit of the rule, not an oversight — see
-            // `TreeDraftDismissRule`'s chrome answer. A window with no content
-            // view answers `false` and so preserves the draft; the draft lives
-            // in that view, so the case cannot arise.
-            let insideContent = window.contentView.map {
-                $0.bounds.contains($0.convert(event.locationInWindow, from: nil))
-            } ?? false
+            // must not destroy a half-typed name.
+            //
+            // `contentLayoutRect`, **not** `contentView.bounds`: a plain
+            // SwiftUI `WindowGroup` window — which is the one this app makes —
+            // carries `fullSizeContentView` in its style mask, so its content
+            // view spans the whole frame *including* the title bar. Measuring
+            // there answers `true` for every title-bar click and drag, which
+            // would make the rule's chrome answer unreachable and destroy the
+            // draft on exactly the gesture that answer exists to survive.
+            // `contentLayoutRect` excludes the title bar (and any toolbar)
+            // whatever the style mask says, and is in window coordinates — the
+            // same unflipped space as `locationInWindow`, so the point goes in
+            // unconverted; converting it into the (flipped) content view first
+            // is what makes the naive spelling answer `true` again.
+            //
+            // The resize band along the content area's own bottom/left/right
+            // edges *is* inside this rectangle and is a stated limit of the
+            // rule, not an oversight — see `TreeDraftDismissRule`'s chrome
+            // answer. A window with no content view answers `false` and so
+            // preserves the draft; the draft lives in that view, so the case
+            // cannot arise.
+            let insideContent = window.contentView != nil
+                && window.contentLayoutRect.contains(event.locationInWindow)
             // `bounds` intersected with `visibleRect`, not `bounds`: the tree is
             // a scroll view, so a draft scrolled out of the clip view keeps a
             // rectangle that now maps over the pane's header and the panes

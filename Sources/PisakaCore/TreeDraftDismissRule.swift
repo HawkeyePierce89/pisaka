@@ -17,7 +17,8 @@ public enum TreeDraftClickDecision: Equatable {
 /// The draft (`ProjectTreeDraftField`) is an `NSTextField` inside a SwiftUI row
 /// that no other tree row can take first responder away from — a row is a plain
 /// SwiftUI view, so `controlTextDidEndEditing` never fires for a click on one.
-/// The view layer therefore keeps a local `.leftMouseDown`/`.rightMouseDown`
+/// The view layer therefore keeps a local
+/// `.leftMouseDown`/`.leftMouseUp`/`.rightMouseDown`
 /// monitor alive for exactly as long as a draft is, and asks this rule what each
 /// event means. Everything the rule needs is an AppKit *fact* — which window the
 /// event came from, whether it landed in that window's content area at all,
@@ -53,7 +54,7 @@ public enum TreeDraftClickDecision: Equatable {
 ///   limits**, both of them clicks that land in the content area and therefore
 ///   `cancel`. A **resize drag** begun from the content side of the bottom, left
 ///   or right edge is one: the few points where AppKit starts a resize instead
-///   of delivering the click to a view are inside `contentView.bounds`, and at
+///   of delivering the click to a view are inside that rectangle, and at
 ///   mouse-down there is no fact that separates them from an ordinary click on
 ///   whatever is drawn there — guessing at a band would instead make real clicks
 ///   near the pane's left edge stop cancelling, which is the worse error. (The
@@ -129,12 +130,16 @@ public enum TreeDraftDismissRule {
     ///     the draft lives in. The caller compares object identity; an event with
     ///     no window at all is not the draft's window and so is `false`.
     ///   - clickedInsideWindowContent: whether the event landed inside that
-    ///     window's content view. `false` is the window's chrome — title bar,
+    ///     window's content area. `false` is the window's chrome — title bar,
     ///     traffic lights, toolbar — and *not* the resize band along the content
-    ///     view's own edges, which is inside those bounds (the limit stated
-    ///     above). Meaningful only when the window matches, and a window with no
-    ///     content view at all answers `false`, which preserves the draft rather
-    ///     than destroying it on a state that cannot occur.
+    ///     area's own edges, which is inside it (the limit stated above).
+    ///     Meaningful only when the window matches, and a window with no content
+    ///     view at all answers `false`, which preserves the draft rather than
+    ///     destroying it on a state that cannot occur. The caller measures
+    ///     `NSWindow.contentLayoutRect`, which is the one AppKit rectangle that
+    ///     excludes the title bar even under `fullSizeContentView` — the style a
+    ///     plain SwiftUI window carries, and under which the content view itself
+    ///     spans the title bar and would answer `true` for every drag of it.
     ///   - point: the event location converted into the draft region's own
     ///     coordinates. Meaningful only when the window matches, and ignored
     ///     otherwise.

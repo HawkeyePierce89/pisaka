@@ -697,7 +697,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `public enum TreeDraftClickDecision { case ignore; case cancel }`. It exists
     because a tree row is a plain SwiftUI view that never takes first responder,
     so `controlTextDidEndEditing` cannot hear a click on one: the view layer keeps
-    a local `.leftMouseDown`/`.rightMouseDown` monitor alive for exactly as long
+    a local `.leftMouseDown`/`.leftMouseUp`/`.rightMouseDown` monitor alive for
+    exactly as long
     as a draft is (`ProjectTreeDraftField`, `app-window.md`) and asks this rule
     what each event means. Everything the rule takes is an AppKit *fact* — which
     window, whether the click was in that window's content area at all, which
@@ -715,12 +716,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     so their attention never moved. Finder does not abandon an inline rename when
     the window is dragged, and destroying a half-typed name for it would be the
     worst kind of surprise. The view answers this with one fact — did the point
-    land inside `window.contentView`'s bounds — and a window with no content view
-    answers `false`, preserving the draft on a state that cannot occur.
+    land inside `window.contentLayoutRect` — and a window with no content view
+    answers `false`, preserving the draft on a state that cannot occur. That
+    rectangle rather than `contentView`'s bounds because a plain SwiftUI window
+    carries `fullSizeContentView`, whose content view spans the title bar and so
+    would answer `true` for the very drag this answer exists to survive.
     That one fact draws the line exactly where AppKit draws it, which leaves two
     **stated limits**, both of them clicks inside the content area and therefore
     `cancel`. A **resize drag** begun from the content side of the bottom, left
-    or right edge is one: those few points are inside `contentView.bounds` and no
+    or right edge is one: those few points are inside that rectangle and no
     mouse-down fact separates them from an ordinary click on whatever is drawn
     there, while guessing at a band would make real clicks near the tree pane's
     left edge stop cancelling — the worse error, so the limit is recorded rather

@@ -503,11 +503,20 @@ private struct DirectoryNodeView: View {
     /// drawn in the folder's label row, which stays on screen, and its containing
     /// directory is the folder's parent, outside `directory`.
     ///
-    /// The containment test is `ScopedFileAccess.path(_:isWithin:)` over the same
-    /// symlink-resolving transform `PisakaApp.isInsideProject(_:root:)` applies,
-    /// for the reason recorded there: `CanonicalPath` is Core-internal, so the
-    /// view repeats its transform rather than keeping a second, differently
-    /// spelled answer.
+    /// The containment test is `ScopedFileAccess.path(_:isWithin:)` over
+    /// `standardizedFileURL` alone — deliberately **not** the symlink-resolving
+    /// transform `PisakaApp.isInsideProject(_:root:)` applies, which asks a
+    /// different question. That one asks "is this file the same file as one
+    /// inside the project", where two spellings of one file must agree; this one
+    /// asks "does this row hang off that row", which is a question about the
+    /// *tree*. The tree is built by appending components to the opened root and
+    /// to each listing, so both sides here are already spelled the same way, and
+    /// resolving would answer about the filesystem instead: a project containing
+    /// `link -> deep/real` would drop a draft rendered under `link` when the
+    /// unrelated `deep` collapses, and would keep one alive unrendered when
+    /// `link` points outside the collapsed directory. `standardizedFileURL` is
+    /// still applied on both sides — it removes `.`/`..` and trailing slashes
+    /// without touching symlinks.
     private func draftIsBelow(_ directory: URL) -> Bool {
         guard let draft else { return false }
         let anchor: URL
@@ -516,8 +525,8 @@ private struct DirectoryNodeView: View {
         case .rename(let draftedEntry): anchor = draftedEntry.url.deletingLastPathComponent()
         }
         return ScopedFileAccess.path(
-            anchor.standardizedFileURL.resolvingSymlinksInPath().path,
-            isWithin: directory.standardizedFileURL.resolvingSymlinksInPath().path
+            anchor.standardizedFileURL.path,
+            isWithin: directory.standardizedFileURL.path
         )
     }
 
@@ -541,8 +550,12 @@ private struct DirectoryNodeView: View {
         case .create(let parent, _): anchor = parent
         case .rename(let draftedEntry): anchor = draftedEntry.url.deletingLastPathComponent()
         }
-        let anchorComponents = anchor.standardizedFileURL.resolvingSymlinksInPath().pathComponents
-        let selfComponents = url.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        // Unresolved, for `draftIsBelow(_:)`'s reason and one more of its own:
+        // the name taken out of these components is compared against the names
+        // in *this* directory's listing, which are what the filesystem spells,
+        // not what they point at.
+        let anchorComponents = anchor.standardizedFileURL.pathComponents
+        let selfComponents = url.standardizedFileURL.pathComponents
         if anchorComponents.count > selfComponents.count {
             return (anchorComponents[selfComponents.count], true)
         }
