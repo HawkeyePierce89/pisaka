@@ -742,11 +742,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     click's: the monitor returns the event unchanged, so a cancelling click also
     does what it would have done anyway — the folder toggles, the file opens, the
     right-clicked row gets its context menu. That is what Finder (and Zed) do,
-    and the alternative charges the user two clicks for one intent. It is safe
-    because cancelling is a SwiftUI state change, which invalidates layout for the
-    *next* display pass: the click AppKit dispatches immediately after the monitor
-    returns still hit-tests the geometry the user was looking at, so the row that
-    shifts up once the draft disappears is not the row that gets the click.
+    and the alternative charges the user two clicks for one intent. The rule
+    answers a *point*, and the view layer reads that point from the mouse-**down**
+    — where the user aimed, and the fact that keeps a text-selection drag out of
+    the field from reading as a click elsewhere. *Applying* the answer is a
+    separate moment, and for a left-click it is the matching mouse-**up**: a
+    SwiftUI tap completes only when the release is still inside the view the press
+    began in, while cancelling removes a create draft's row (and a rename draft's
+    reason line) and shifts every row below it up. Cancelling on the down would
+    land that shift in the middle of the click and the row the user pressed would
+    no longer be under the release — costing exactly the second click decision A
+    exists to avoid. A right-click needs no wait: `NSMenu` opens on the down.
     **What `draftBounds` is.** The draft's *whole* region — icon column, text
     field and reason line — in the same space as `point`. The view layer gets both
     from one invisible `NSView` installed as the draft's outermost `.background`:

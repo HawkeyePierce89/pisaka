@@ -601,10 +601,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     toggles, the file opens, the right-clicked row gets its own menu — which
     is what Finder does with an inline rename and what a
     swallow-the-first-click rule would cost the user a second click for. The
-    cancellation is a SwiftUI state change that invalidates layout for the
-    *next* display pass, so the click AppKit dispatches immediately after
-    still hit-tests the geometry the user was looking at; the row that
-    shifts up when the draft disappears is not the row that gets the click.
+    rule is asked on the mouse-**down** — where the user aimed, and what
+    keeps a text-selection drag out of the field from reading as a click
+    elsewhere — but a left-click's cancellation is held until the matching
+    mouse-**up**: a SwiftUI tap completes only when the release is still
+    inside the view the press began in, and cancelling shifts every row
+    below the draft up. Running it on the down would move the tree in the
+    middle of the click and cost that second click after all. A right-click
+    cancels on the down, since that is when `NSMenu` opens.
     And **the region tested against is a real view, not a computed
     rectangle**: the draft is a `VStack` of which only the field is an
     `NSView`, so the region is an invisible `NSViewRepresentable` attached
@@ -675,6 +679,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `makeFirstResponder` refusing, retries a single bounded time on the next
     runloop turn, re-checking window and teardown. One attempt, never a
     poll.
+    **The field draws at the interface zone's size.** It is AppKit, so the
+    row's `.font(metrics.scaledFont(.body))` cannot reach it: the zone's
+    point size is handed to the representable as an `InterfaceMetrics` and
+    applied to the `NSFont` in `makeNSView` and again on every
+    `updateNSView` (a zoom step while a draft is open is one of those
+    passes), exactly as `HoverPanel` does for the chrome's one other AppKit
+    text surface. Two things depend on it, which is why a hard-coded
+    `NSFont.systemFontSize` was wrong rather than merely inconsistent: the
+    drafted row would draw at 13 pt beside the scaled icon and label of the
+    row it replaced, and the height below is measured off `field.font`.
     **The field wraps and the row grows to fit it.** A deep relative path is
     the whole reason relative-path create exists, so the field is configured
     exactly as the retired `FilePanels.promptName` dialog was

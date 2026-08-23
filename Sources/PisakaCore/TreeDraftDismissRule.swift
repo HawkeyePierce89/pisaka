@@ -72,11 +72,18 @@ public enum TreeDraftClickDecision: Equatable {
 /// unchanged, so the click also does what it would have done anyway — the folder
 /// toggles, the file opens, the right-clicked row gets its context menu. This is
 /// Finder's behaviour (and Zed's), and the alternative would charge the user two
-/// clicks for one intent. Cancelling is a SwiftUI state change, which invalidates
-/// layout for the *next* display pass, so the click AppKit dispatches
-/// immediately after the monitor returns still hit-tests the geometry the user
-/// was looking at: the row that shifts up once the draft disappears is not the
-/// row that gets the click.
+/// clicks for one intent.
+///
+/// This rule answers a *point*, and the view layer reads that point from the
+/// mouse-**down** — the position the user aimed at, and the one fact that keeps
+/// a text-selection drag out of the field from reading as a click elsewhere.
+/// *Applying* the answer is a separate moment, and for a left-click it is the
+/// matching mouse-**up**: a SwiftUI tap completes only when the release is still
+/// inside the view the press began in, while cancelling removes a create draft's
+/// row (and a rename draft's reason line) and shifts every row below it up. Were
+/// the cancel run on the down, that shift would land in the middle of the click
+/// and the row the user pressed would no longer be under the release. A
+/// right-click needs no such wait — `NSMenu` opens on the down.
 ///
 /// ## What `draftBounds` is
 ///

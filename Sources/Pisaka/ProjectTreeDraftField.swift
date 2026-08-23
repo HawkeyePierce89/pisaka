@@ -91,6 +91,14 @@ struct TreeNameFieldView: View {
                     issue: $issue,
                     draft: draft,
                     siblings: siblings,
+                    // The field is AppKit, so the row's `.font` modifier cannot
+                    // reach it: the interface zone's size has to be handed over
+                    // as a number and set on the `NSFont` itself, exactly as
+                    // `HoverPanel` does for the one other AppKit text surface in
+                    // the chrome. Without it the drafted row draws at 13 pt
+                    // beside a label the same row drew scaled — invisible at
+                    // 100%, wrong at every other interface zoom.
+                    metrics: metrics,
                     onCommit: onCommit,
                     onCancel: onCancel
                 )
@@ -98,19 +106,26 @@ struct TreeNameFieldView: View {
             .font(metrics.scaledFont(.body))
 
             if let issue = issue {
-                HStack(alignment: .top, spacing: metrics.scaled(4)) {
+                // The spacing is the create draft's icon-column gap, so it is
+                // branched with the column itself: an `HStack` inserts its
+                // spacing between *subviews*, and a modified `EmptyView` is
+                // still a subview — a zero-width one. Leaving the hidden column
+                // in for a rename would therefore inset its reason line by that
+                // gap instead of the zero the field sits at.
+                HStack(alignment: .top, spacing: isCreate ? metrics.scaled(4) : 0) {
                     // The *same* icon column the field sits beside, drawn hidden
                     // and collapsed to zero height: the reason's inset is then
                     // that column's real width by construction, so it cannot
-                    // drift from a literal, and a rename draft — which has no
-                    // icon column at all — keeps a zero inset for free. The font
-                    // must match the row's, since the column's width is the
-                    // chevron gutter plus a symbol drawn at that font.
-                    iconColumn
-                        .font(metrics.scaledFont(.body))
-                        .frame(height: 0)
-                        .hidden()
-                        .accessibilityHidden(true)
+                    // drift from a literal. The font must match the row's, since
+                    // the column's width is the chevron gutter plus a symbol
+                    // drawn at that font.
+                    if isCreate {
+                        iconColumn
+                            .font(metrics.scaledFont(.body))
+                            .frame(height: 0)
+                            .hidden()
+                            .accessibilityHidden(true)
+                    }
 
                     Text(issue.message)
                         .foregroundColor(Color(NSColor.systemRed))
@@ -233,6 +248,10 @@ struct TreeDraftDismissRegion: NSViewRepresentable {
 
         private var monitor: Any?
 
+        /// A left-click whose *down* the rule answered `cancel` for, waiting for
+        /// its own mouse-up. See `installMonitor`.
+        private var leftClickCancelPending = false
+
         /// Invisible to the pointer: the region must observe clicks, never
         /// receive them. Returning `nil` leaves every row, tab and pane below it
         /// as clickable as if it were not there.
@@ -252,9 +271,26 @@ struct TreeDraftDismissRegion: NSViewRepresentable {
         /// never seen. (Clicking the window to come back *is* this app's event
         /// and cancels; `TreeDraftDismissRule` states that limit.) Idempotent,
         /// so a re-entered window installs nothing twice.
+        ///
+        /// **The rule is asked on the down; a left-click acts on the up.** The
+        /// *decision* has to be read from the mouse-down — that is the point the
+        /// user aimed at, and it is what keeps a drag that starts inside the
+        /// field and leaves it (selecting text with the mouse) from reading as a
+        /// click elsewhere. But cancelling *there* would move the tree before
+        /// the click finished: a create draft's row disappears, a rename draft's
+        /// reason line collapses, and every row below shifts up while the button
+        /// is still held — so SwiftUI's tap, which completes only if the release
+        /// is still inside the view it began in, would fail on exactly the rows
+        /// decision A promises to serve. Holding the cancel until the matching
+        /// `.leftMouseUp` keeps the geometry the user clicked standing for the
+        /// whole click; the cancel then runs immediately before AppKit dispatches
+        /// that up, so the tap it enables is the same one it always was.
+        /// A right-click is unaffected and stays on the down, because that is
+        /// when `NSMenu` opens.
         func installMonitor() {
             guard monitor == nil else { return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            let mask: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseUp, .rightMouseDown]
+            monitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
                 guard let self else { return event }
                 // AppKit delivers a local monitor on the main thread — the same
                 // reasoning `ZoomController` records for the app's other one.
@@ -269,11 +305,23 @@ struct TreeDraftDismissRegion: NSViewRepresentable {
         func uninstallMonitor() {
             if let monitor { NSEvent.removeMonitor(monitor) }
             monitor = nil
+            // A pending cancel belongs to a click this view is no longer around
+            // to finish. Dropping it is the safe half: the draft survives a
+            // teardown-mid-click rather than being destroyed by one.
+            leftClickCancelPending = false
         }
 
         /// Hand AppKit's facts to the Core rule and act on its answer. No policy
         /// lives here: which window, which point, which rectangle — that is all.
         private func handle(_ event: NSEvent) {
+            if event.type == .leftMouseUp {
+                // The decision was made on this click's down; the up is only
+                // when it is allowed to take effect.
+                guard leftClickCancelPending else { return }
+                leftClickCancelPending = false
+                onCancel?()
+                return
+            }
             guard let window else { return }
             // The window's *content* area, which the title bar, the toolbar and
             // the traffic lights are not: dragging the window one is typing in
@@ -298,7 +346,17 @@ struct TreeDraftDismissRegion: NSViewRepresentable {
                 point: convert(event.locationInWindow, from: nil),
                 draftBounds: bounds.intersection(visibleRect)
             )
-            if decision == .cancel {
+            guard decision == .cancel else {
+                // A down *on* the draft also clears any pending cancel: without
+                // that, a previous down whose up was never seen (a click that
+                // ended in another app, say) would cancel the draft on the next
+                // release anywhere.
+                leftClickCancelPending = false
+                return
+            }
+            if event.type == .leftMouseDown {
+                leftClickCancelPending = true
+            } else {
                 onCancel?()
             }
         }
@@ -317,11 +375,23 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
     @Binding var issue: EntryPathIssue?
     let draft: TreeEditDraft
     let siblings: [String]
+    /// The interface zone's metrics, handed down from `TreeNameFieldView` rather
+    /// than read from the environment here: an `NSViewRepresentable` may read
+    /// `@Environment`, but the font has to be applied to the `NSFont` in
+    /// `makeNSView`/`updateNSView` either way, and taking it as a stored
+    /// property keeps `sizeThatFits`'s height arithmetic — which measures at the
+    /// same font — reading one value.
+    let metrics: InterfaceMetrics
     let onCommit: (String) -> Void
     let onCancel: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
+    }
+
+    /// The field's font: the row's `.body`, at the interface zone's scale.
+    private var scaledFont: NSFont {
+        NSFont.systemFont(ofSize: CGFloat(metrics.font(.body)))
     }
 
     func makeNSView(context: Context) -> CustomTextField {
@@ -331,13 +401,14 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
         field.drawsBackground = false
         field.focusRingType = .none
         field.stringValue = text
-        field.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        field.font = scaledFont
 
         // Wrap, never scroll — exactly as the tree's retired dialog did
-        // (`FilePanels.promptName`, which now serves only the branch prompts). A deep relative path is the whole reason relative-path
-        // create exists, so it has to be readable in full; the row grows to fit
-        // it (see `sizeThatFits`). Enter is still never a line break: the
-        // coordinator swallows every newline selector and commits instead.
+        // (`FilePanels.promptName`, which now serves only the branch prompts).
+        // A deep relative path is the whole reason relative-path create exists,
+        // so it has to be readable in full; the row grows to fit it (see
+        // `sizeThatFits`). Enter is still never a line break: the coordinator
+        // swallows every newline selector and commits instead.
         field.usesSingleLineMode = false
         field.cell?.wraps = true
         field.cell?.isScrollable = false
@@ -405,13 +476,16 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
     /// frame is ever fed back into its layout.
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: CustomTextField, context: Context) -> CGSize? {
         guard let width = proposal.width, width.isFinite, width > 0 else { return nil }
-        return CGSize(width: width, height: Self.fittingHeight(of: nsView, at: width))
+        return CGSize(width: width, height: fittingHeight(of: nsView, at: width))
     }
 
-    private static func fittingHeight(of field: CustomTextField, at width: CGFloat) -> CGFloat {
-        let lineHeight = (field.font ?? .systemFont(ofSize: NSFont.systemFontSize)).boundingRectForFont.height
-        let oneLine = ceil(lineHeight) + fieldVerticalPadding
-        let maximum = ceil(lineHeight * CGFloat(maximumLines)) + fieldVerticalPadding
+    private func fittingHeight(of field: CustomTextField, at width: CGFloat) -> CGFloat {
+        // `scaledFont` rather than the system default as the fallback: the
+        // height must be measured at the size the field draws at, and that size
+        // is the interface zone's.
+        let lineHeight = (field.font ?? scaledFont).boundingRectForFont.height
+        let oneLine = ceil(lineHeight) + Self.fieldVerticalPadding
+        let maximum = ceil(lineHeight * CGFloat(Self.maximumLines)) + Self.fieldVerticalPadding
         guard let cell = field.cell else { return oneLine }
         let fitting = cell.cellSize(
             forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)
@@ -433,6 +507,14 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
         context.coordinator.parent = self
         if nsView.stringValue != text {
             nsView.stringValue = text
+        }
+        // Re-applied, not set once: an interface zoom step while a draft is open
+        // re-runs this pass with new metrics, and the height `sizeThatFits`
+        // returns is measured off `field.font` — so a stale font would size the
+        // row for text it is no longer drawing.
+        let font = scaledFont
+        if nsView.font != font {
+            nsView.font = font
         }
 
         let currentIssue = context.coordinator.computeIssue(for: text)
