@@ -837,13 +837,6 @@ private enum ProjectTreeDrag {
 }
 
 private extension View {
-    /// Makes this row the source of a project-tree drag for `url` — or leaves it
-    /// exactly as it is, which is how the project root row opts out.
-    ///
-    /// The opt-out is a `@ViewBuilder` branch rather than an `.onDrag` returning
-    /// an empty item provider: a provider with nothing registered still begins a
-    /// drag AppKit renders and no target can ever accept. `isEnabled` is fixed
-    /// for a row's lifetime, so the branch costs no identity churn.
     /// Gives this row the right-click menu `menuItems` builds — or leaves the
     /// row exactly as it is, which is what a *drafted* row wants.
     ///
@@ -870,6 +863,13 @@ private extension View {
         }
     }
 
+    /// Makes this row the source of a project-tree drag for `url` — or leaves it
+    /// exactly as it is, which is how the project root row opts out.
+    ///
+    /// The opt-out is a `@ViewBuilder` branch rather than an `.onDrag` returning
+    /// an empty item provider: a provider with nothing registered still begins a
+    /// drag AppKit renders and no target can ever accept. `isEnabled` is fixed
+    /// for a row's lifetime, so the branch costs no identity churn.
     @ViewBuilder
     func projectTreeDragSource(
         isEnabled: Bool = true,

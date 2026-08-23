@@ -32,9 +32,10 @@ public enum TreeDraftClickDecision: Equatable {
 ///   activation cancel: a local monitor sees no other app's events at all, so
 ///   ⌘Tab away and back preserves the draft for free.)
 /// - **Inside the draft → `ignore`.** Clicking the field to place the caret, or
-///   dragging to select, is an ordinary edit. So is clicking the draft's icon
-///   column or its validation-reason line — which is why the caller measures the
-///   *whole* draft, not the text field (see "What `draftBounds` is").
+///   dragging to select, is an ordinary edit. So is clicking the draft's own
+///   icon column or its validation-reason line — which is why the caller
+///   measures the *whole* draft, not the text field (see "What `draftBounds`
+///   is").
 /// - **Anything else in the draft's own window → `cancel`.** Another tree row,
 ///   the editor, a tab, the bottom bar: the user's attention moved, and the
 ///   Finder-like answer is to end the naming silently rather than to commit
@@ -63,6 +64,19 @@ public enum TreeDraftClickDecision: Equatable {
 /// to know about flipped coordinates, and the "clicking the icon does not
 /// cancel" behaviour holds without a measured inset.
 ///
+/// Two consequences of *by construction* are worth stating, because both are
+/// the geometry answering rather than a rule bending:
+///
+/// - The caller passes the **visible** part of that rectangle
+///   (`bounds.intersection(visibleRect)`). The tree scrolls, and a draft
+///   scrolled out of the clip view keeps a rectangle that maps over the pane's
+///   header and its neighbours; clipped away, the draft owns none of those
+///   clicks, and a fully scrolled-out draft lands on the degenerate case below.
+/// - Only a **create** draft draws an icon column of its own. A *rename* draft
+///   sits inside the row that already draws one, so that icon — and the row's
+///   padding around the field — belongs to the row, is outside the rectangle,
+///   and a click there cancels like any other click on the row.
+///
 /// ## Edges, and the degenerate rectangle
 ///
 /// Containment is `CGRect.contains(_:)` — half-open, so the origin edges are
@@ -85,8 +99,8 @@ public enum TreeDraftDismissRule {
     ///   - point: the event location converted into the draft region's own
     ///     coordinates. Meaningful only when the window matches, and ignored
     ///     otherwise.
-    ///   - draftBounds: the draft region's `bounds` — the whole draft, in that
-    ///     same space.
+    ///   - draftBounds: the draft region's rectangle — the whole draft, clipped
+    ///     to what is visible, in that same space.
     public static func decision(
         clickedWindowIsDraftWindow: Bool,
         point: CGPoint,

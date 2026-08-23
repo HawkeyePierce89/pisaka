@@ -94,6 +94,13 @@ final class TreeDraftDismissRuleTests: XCTestCase {
         XCTAssertEqual(decision(at: CGPoint(x: 60, y: 20), in: CGRect(x: 10, y: 20, width: 100, height: 0)), .cancel)
     }
 
+    func testAZeroWidthRectangleCancels() {
+        // The axis companion: a draft clipped to nothing horizontally — the
+        // shape `bounds.intersection(visibleRect)` produces for a draft scrolled
+        // out of the tree's clip view — owns no click either.
+        XCTAssertEqual(decision(at: CGPoint(x: 10, y: 40), in: CGRect(x: 10, y: 20, width: 0, height: 40)), .cancel)
+    }
+
     func testANullRectangleCancels() {
         XCTAssertEqual(decision(at: CGPoint(x: 60, y: 40), in: .null), .cancel)
     }

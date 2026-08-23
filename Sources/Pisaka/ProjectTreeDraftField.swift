@@ -19,7 +19,9 @@ import PisakaCore
 // `PisakaApp`'s (`newFile(in:name:)` and its two siblings, behind the writer
 // gate). This file collects keystrokes, draws the refusal, and reports two
 // events — committed with this text, or cancelled. That is the same division the
-// retired `FilePanels` prompts kept; only the surface moved into the row.
+// tree's retired `FilePanels` prompts kept (`promptName` itself is still
+// live code — it serves the two branch prompts); only the surface moved into
+// the row.
 
 /// What an open draft is naming: a new entry inside `parent` (a file or a
 /// folder), or the existing `entry` being renamed.
@@ -160,7 +162,14 @@ struct TreeNameFieldView: View {
         if trimmed.isEmpty {
             return FileIcon(symbolName: "doc", color: .gray)
         }
+        // A trailing slash leaves an empty final component, and
+        // `URL(fileURLWithPath: "")` resolves to the process's current
+        // directory — an icon read off a path the user never typed. There is no
+        // final name yet, so the default doc icon is the honest answer.
         let finalComponent = trimmed.components(separatedBy: "/").last ?? ""
+        if finalComponent.isEmpty {
+            return FileIcon(symbolName: "doc", color: .gray)
+        }
         let dummyURL = URL(fileURLWithPath: finalComponent)
         let entry = DirectoryEntry(url: dummyURL, isDirectory: false)
         return FileIcon(for: entry)
@@ -257,10 +266,16 @@ struct TreeDraftDismissRegion: NSViewRepresentable {
         /// lives here: which window, which point, which rectangle — that is all.
         private func handle(_ event: NSEvent) {
             guard let window else { return }
+            // `bounds` intersected with `visibleRect`, not `bounds`: the tree is
+            // a scroll view, so a draft scrolled out of the clip view keeps a
+            // rectangle that now maps over the pane's header and the panes
+            // above and below it. Clipped away, it owns none of that — and a
+            // fully scrolled-out draft yields the empty rectangle the rule
+            // already answers `cancel` for.
             let decision = TreeDraftDismissRule.decision(
                 clickedWindowIsDraftWindow: event.window === window,
                 point: convert(event.locationInWindow, from: nil),
-                draftBounds: bounds
+                draftBounds: bounds.intersection(visibleRect)
             )
             if decision == .cancel {
                 onCancel?()
@@ -297,8 +312,8 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
         field.stringValue = text
         field.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
 
-        // Wrap, never scroll — exactly as the retired `FilePanels.promptName`
-        // dialog did. A deep relative path is the whole reason relative-path
+        // Wrap, never scroll — exactly as the tree's retired dialog did
+        // (`FilePanels.promptName`, which now serves only the branch prompts). A deep relative path is the whole reason relative-path
         // create exists, so it has to be readable in full; the row grows to fit
         // it (see `sizeThatFits`). Enter is still never a line break: the
         // coordinator swallows every newline selector and commits instead.
@@ -327,7 +342,7 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
     }
 
     /// The range to preselect when the draft opens, by the same Core rule the
-    /// retired dialog used: a rename preselects the name minus its extension, a
+    /// tree's retired dialog used: a rename preselects the name minus its extension, a
     /// create has nothing to select yet.
     private var initialSelection: NSRange {
         switch draft {
@@ -376,7 +391,7 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
         return min(max(ceil(fitting), oneLine), maximum)
     }
 
-    /// The same ceiling the retired dialog used: past six lines the input is
+    /// The same ceiling the tree's retired dialog used: past six lines the input is
     /// pathological and a taller row would push the tree around more than it
     /// helps.
     private static let maximumLines = 6
@@ -436,6 +451,13 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            // The flag means "being removed", so joining a window clears it: a
+            // re-attached field is alive again, and a latched flag would leave
+            // it unable to report the focus loss `controlTextDidEndEditing`
+            // exists to catch.
+            if window != nil {
+                isTearingDown = false
+            }
             acquireFocus(retryOnRefusal: true)
         }
 
@@ -462,9 +484,12 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
 
         private func applyPendingSelection(in window: NSWindow) {
             guard let range = pendingSelection else { return }
-            pendingSelection = nil
             guard let editor = window.firstResponder as? NSTextView, editor.isFieldEditor else { return }
             editor.setSelectedRange(range)
+            // Cleared only now that it has been applied: dropping it before the
+            // field editor was found would leave `becomeFirstResponder`'s
+            // select-all standing, which is exactly what the range prevents.
+            pendingSelection = nil
         }
     }
 
@@ -502,16 +527,23 @@ struct ProjectTreeDraftFieldRepresentable: NSViewRepresentable {
                 return issue
             }
 
-            // Collision
-            if !trimmed.contains("/") {
-                let excludingName: String?
-                switch parent.draft {
-                case .create: excludingName = nil
-                case .rename(let entry): excludingName = entry.name
+            // Collision, for single-component input only. Whether the input is
+            // one component is the *parser's* question, not the string's: a
+            // single trailing slash is the natural way to spell a folder, so
+            // `Sources/` is one component (`parseRelativeEntryPath`) while a
+            // `contains("/")` test would skip its collision check and then
+            // compare the raw `Sources/` against the siblings.
+            switch parent.draft {
+            case .create:
+                // The grammar passed above, so the path parses.
+                guard let components = parseRelativeEntryPath(newText), components.count == 1 else {
+                    return nil
                 }
-                return liveCollisionIssue(finalComponent: trimmed, siblingNames: parent.siblings, excluding: excludingName)
-            } else {
-                return nil
+                return liveCollisionIssue(finalComponent: components[0], siblingNames: parent.siblings, excluding: nil)
+            case .rename(let entry):
+                // A rename takes one name — `validateSingleEntryName` already
+                // rejected every `/` — so the trimmed input *is* the component.
+                return liveCollisionIssue(finalComponent: trimmed, siblingNames: parent.siblings, excluding: entry.name)
             }
         }
 

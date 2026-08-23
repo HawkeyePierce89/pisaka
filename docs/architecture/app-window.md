@@ -399,10 +399,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     every depth and scale; the cost is that the tree's whole content, files
     included, sits one gutter further right than before this change (which is the
     ordinary file-tree layout, and the one visible geometry change here). The
-    unscaled row geometry lives in one `TreeRowLayout` enum that **both** row kinds
-    read (the horizontal/vertical padding and the hover-highlight color, plus the
-    chevron column, its spacing and the gutter derived from the two) — as literals
-    they would drift apart, and reading alike is the whole point. Every size
+    unscaled row geometry lives in one `TreeRowLayout` enum with **three** readers
+    (the horizontal/vertical padding and the hover-highlight color, plus the
+    chevron column, its spacing and the gutter derived from the two): both row
+    kinds and — since the inline draft occupies the row it stands in and must be
+    padded and gutter-inset with the very same numbers, or the tree would visibly
+    shift as a draft opens and closes — `ProjectTreeDraftField.swift`, which is
+    why the enum is internal rather than `private`, exactly as `color(for:)` is.
+    As literals they would drift apart, and reading alike is the whole point. Every size
     goes through `\.interfaceMetrics` like the rest of the tree; the style names
     no `interfaceScale` and declares no zoom surface, so
     `ZoomSourceGatingTests`' set equalities are untouched. `DirectoryNodeView`
@@ -442,7 +446,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     scrolled into view; a drafted file or folder row swaps its label for the
     draft field. While a row is drafted, its tap (expand/open), drag source,
     drop delegate, context menu, and button trait are suppressed so
-    VoiceOver reaches the field and gestures do not compete with typing. The
+    VoiceOver reaches the field and gestures do not compete with typing.
+    The menu's suppression is the **absence** of the modifier, not an empty
+    menu body: `.contextMenu` installed with nothing in it still opens on a
+    right-click, so `if !isDrafted { … }` *inside* the builder answered a
+    drafted row with an empty panel that flashed shut. Both row kinds go
+    through one `projectTreeContextMenu(isEnabled:menuItems:)` `@ViewBuilder`
+    helper (the shape `projectTreeDragSource(isEnabled:url:session:)` already
+    had) that omits the modifier instead, leaving AppKit no menu to open at
+    all — the click then only cancels the draft. Unlike the drag source's
+    flag this one does flip, and the resulting view-identity change is free:
+    it flips at most twice per draft (opened, then committed or cancelled),
+    at moments the row is rebuilt anyway. The
     draft survives `treeRevision` bumps, tearing down only on project
     switch, parent folder collapse, or target missing. The `onNewFile(URL,
     String)` / `onNewFolder(URL, String)` / `onRename(URL, String)`
@@ -550,7 +565,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `FileName` and `TreeDraftDismissRule` (`core-workspace.md`). Validation
     composes in one fixed order: blank (not an error — no reason line, but
     Enter refuses), then the grammar validator for the draft's kind, then
-    the sibling collision check for single-component input only.
+    the sibling collision check for single-component input only — where
+    "single-component" is `parseRelativeEntryPath`'s answer and not a
+    `contains("/")` test on the string, because a single trailing slash is
+    the natural way to spell a folder (`Sources/` is one component, and the
+    string test both skipped its collision check and would have compared the
+    raw spelling against the siblings).
     **Focus loss is decided by two paths that never disagree.** A
     project-tree row is a plain SwiftUI view that never takes first
     responder, so clicking one moves focus nowhere and
@@ -586,7 +606,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     draft's rectangle, and "clicking the icon or the reason line does not
     cancel" holds by construction rather than by a measured inset. It draws
     nothing, hit-tests to `nil` and claims only the size proposed to it, so
-    it can neither intercept a click nor move the layout. Because the
+    it can neither intercept a click nor move the layout. Two edges of that
+    construction are stated where they are decided (`TreeDraftDismissRule`'s
+    "What `draftBounds` is") and worth repeating here: what is handed to the
+    rule is `bounds.intersection(visibleRect)`, since the tree scrolls and a
+    draft scrolled out of the clip view would otherwise keep owning clicks
+    on the pane header and the panes around it; and only a *create* draft
+    draws an icon column of its own, so during a **rename** the row's icon
+    and the row's padding around the field belong to the row, sit outside
+    the rectangle, and a click on them cancels like any other click on the
+    row. Because the
     monitor is *local*, ⌘Tab away and back preserves the draft: another
     app's clicks are never seen, and window resign-key is not a
     cancellation.
@@ -595,7 +624,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     focus) — with its three-way test unchanged: `isFinishing` (Enter or Esc
     already ended this draft), the teardown flag (set by the view subclass
     in `viewWillMove(toWindow:)` when `newWindow == nil` and by
-    `dismantleNSView`), and `window == nil`. It cannot instead *read* the
+    `dismantleNSView`, and cleared again in `viewDidMoveToWindow` whenever
+    there *is* a window — the flag means "being removed", and a re-attached
+    field is alive again), and `window == nil`. It cannot instead *read* the
     responder chain: the notification is posted from within
     `resignFirstResponder`, before the window installs the incoming
     responder, so `window.firstResponder` is still the field editor being
@@ -614,7 +645,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `initialRenameSelection(in:isDirectory:)` is computed once in
     `makeNSView` and applied to the field editor exactly once — then
     cleared, so a re-attachment can never re-select over what the user has
-    since typed — and the one case no window hook can foresee,
+    since typed (cleared *after* the field editor is found, so a miss leaves
+    the request standing rather than surrendering the range to
+    `becomeFirstResponder`'s select-all) — and the one case no window hook can foresee,
     `makeFirstResponder` refusing, retries a single bounded time on the next
     runloop turn, re-checking window and teardown. One attempt, never a
     poll.

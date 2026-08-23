@@ -138,17 +138,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     staging would arrive at its version directory unexecutable, a property of the
     stub and of nothing else.
   - `FileName.swift` — pure, testable name/path validation for the project-tree
-    dialogs, in two shapes over *one* rule: the boolean predicates
+    inline naming draft, in two shapes over *one* rule: the boolean predicates
     `isValidFileName(_:) -> Bool` / `parseRelativeEntryPath(_:) -> [String]?` (the
-    post-OK guards) and the reasoned validators `validateSingleEntryName(_:)` /
-    `validateRelativeEntryPath(_:) -> EntryPathIssue?` (which the dialogs run on
-    every keystroke to show a reason and gate OK). Both predicates are *facades*
+    guards the operation itself re-runs behind the writer gate) and the reasoned
+    validators `validateSingleEntryName(_:)` /
+    `validateRelativeEntryPath(_:) -> EntryPathIssue?` (which the draft runs on
+    every keystroke to show a reason and to decide whether Enter commits or
+    beeps). Both predicates are *facades*
     over the same private component rule (`componentIssue(_:isReserved:)`) and, for
     the path forms, the same private splitter (`relativePathComponents(_:)`), so a
     rule can never split into two implementations and a path parses exactly when
     the validator reports no issue; parity is structural and asserted on a matrix
     in the tests anyway.
-    `isValidFileName(_:)` is for the *rename* dialog: rejects an empty or
+    `isValidFileName(_:)` is for the *rename*: rejects an empty or
     whitespace-only name,
     the directory-navigation names `.` and `..`, and any name containing a path
     separator (`/`), NUL (`\0`), or a **line break that survives trimming** — it must
@@ -159,7 +161,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     like any whitespace, so `a\n` is accepted and only an interior one is rejected;
     in a path, a break at a component boundary — `a/\nb` — is likewise trimmed
     away per component and parses as `["a", "b"]`. Enter and Control-Return in the
-    prompt confirm instead of inserting one, so it is only reachable by paste.)
+    draft commit instead of inserting one, so it is only reachable by paste.)
     The separator/NUL scan runs over *unicode scalars*, not
     `Character`s: a combining mark following a `/` (`a/` + U+0338) fuses into one
     grapheme cluster that compares unequal to `"/"`, so a `Character`-level scan
@@ -171,7 +173,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     rejected separately at the call site via
     `FileService.isExcludedEntryName(_:)`, not here). Beside it,
     `parseRelativeEntryPath(_ path: String) -> [String]?` backs the *create*
-    dialogs, which accept a relative path of any depth (`centrifugo/config.json`)
+    drafts, which accept a relative path of any depth (`centrifugo/config.json`)
     rather than a single name: it trims the whole input, tolerates exactly *one*
     trailing `/` (so `a/b/` — the natural way to spell a folder — parses as
     `["a", "b"]`), splits on `/` *without* omitting empty subsequences, and trims
@@ -191,10 +193,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `.separatorInName`, `.lineBreak`, `.nulCharacter`,
     `.reservedComponent(String)` (the two payloads let the message name the
     component as the user spelled it) — with a `public var message: String`
-    carrying the English text the dialog displays. The wording lives in Core, not
-    the view, for the same reason `GitError.errorDescription` and
-    `FileServiceError`'s `LocalizedError` texts do: the decision and its
-    explanation are one rule, unit-tested together, while the AppKit prompt stays a
+    carrying the English text the draft's red reason line displays. The wording
+    lives in Core, not the view, for the same reason `GitError.errorDescription`
+    and `FileServiceError`'s `LocalizedError` texts do: the decision and its
+    explanation are one rule, unit-tested together, while the draft field stays a
     thin display of whatever the validator returns.
     `validateRelativeEntryPath(_:)` (create) and `validateSingleEntryName(_:)`
     (rename) report the first offending component's issue, or `nil` when the input
@@ -203,15 +205,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `.separatorInName` up front (rename takes one name — a path there would mean a
     *move*, a separate feature, and the entry would land on disk yet never appear
     in the tree). (2) Reserved-name semantics are **per context, mirroring each
-    call site's own post-OK guard exactly**, so a dialog can never block a name its
-    guard would accept or accept one it would reject: create paths use the
+    call site's own re-run guard exactly**, so the draft can never refuse a name
+    its guard would accept or accept one it would reject: create paths use the
     case-insensitive `FileService.isReservedCreateName(_:)` (a `.GIT` component
     resolves onto the real `.git` on a case-insensitive volume), rename uses the
     exact-match `FileService.isExcludedEntryName(_:)` (a user's own `.Git` folder
     is an ordinary, visible entry). `isValidFileName` alone judges *no* reserved
     names at all — the rename call site checks `isExcludedEntryName` separately —
     which is the one documented gap in the predicate↔validator matrix.
-    Core also exports two rules specifically for the inline naming flow: `initialRenameSelection(in:isDirectory:) -> NSRange` (selecting the name up to the *last* dot for files, or the whole name for directories, empty extensions, or dotfiles) and `liveCollisionIssue(finalComponent:siblingNames:excluding:) -> EntryPathIssue?`. The collision check is exact-case and is run by the caller *only* when the trimmed input contains no `/` (a single component): a multi-component create lands its final component in a folder the tree has not listed, so no siblings are available, and the "already exists in this folder" `.nameTaken` issue is only true under this restriction.
+    Core also exports two rules specifically for the inline naming flow: `initialRenameSelection(in:isDirectory:) -> NSRange` (selecting the name up to the *last* dot for files, or the whole name for directories, empty extensions, or dotfiles) and `liveCollisionIssue(finalComponent:siblingNames:excluding:) -> EntryPathIssue?`. The collision check is exact-case and is run by the caller *only* for single-component input: a multi-component create lands its final component in a folder the tree has not listed, so no siblings are available, and the "already exists in this folder" `.nameTaken` issue is only true under this restriction. Which input is single-component is `parseRelativeEntryPath`'s answer, **not** a `contains("/")` test on the string — a single trailing slash is the natural way to spell a folder, so `Sources/` is one component, and the string test both skipped its collision check and would have handed the raw spelling to the comparison.
     Foundation-only.
   - `GitRefName.swift` — pure, testable `GitRefName.isValid(_:) -> Bool` for the
     branch-switcher's "New Branch…" dialog, separate from `isValidFileName` (a
@@ -730,7 +732,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     icon and the reason line, and reconstructing the rect from SwiftUI's `.global`
     space would mean guessing at flipped-coordinate conversions; this way
     "clicking the icon does not cancel" holds by construction rather than by a
-    measured inset, and nothing here knows about flipped coordinates.
+    measured inset, and nothing here knows about flipped coordinates. Two edges
+    of that construction are the geometry answering rather than the rule bending,
+    and both are stated on the rule itself: the caller passes the **visible** part
+    of the rectangle (`bounds.intersection(visibleRect)`), because the tree
+    scrolls and a draft scrolled out of the clip view would otherwise keep owning
+    clicks on the pane's header and its neighbours; and only a **create** draft
+    draws an icon column of its own, so during a *rename* the row's icon — and
+    the row's padding around the field — belongs to the row, falls outside the
+    rectangle, and a click there cancels like any other click on the row.
     **Edges and the degenerate rectangle.** Containment is `CGRect.contains(_:)` —
     half-open, so the origin edges are inside and the `maxX`/`maxY` edges are out.
     A one-point disagreement at a boundary is invisible to a user and not worth a
@@ -749,4 +759,6 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     ignored with the point inside, far outside and with an unmeasured rect;
     inside ignored; both `contains` edges (origin corner inside, far corner out,
     and just inside the far edge); outside on each of the four sides; and empty,
-    zero-height, `.null` and `.infinite` bounds.
+    zero-height, zero-width, `.null` and `.infinite` bounds; and
+    `CrossPlatformAuditTests` additionally pins the half-open/empty semantics as
+    platform-independent, beside `MinimapGeometry`'s.

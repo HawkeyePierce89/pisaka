@@ -2,9 +2,9 @@ import Foundation
 
 /// Whether `name` is usable as a single file or directory name.
 ///
-/// Pure, testable validation for the project-tree *rename* dialog. (The
-/// path-accepting create dialogs do not go through here — they share only the
-/// per-component rule, `componentIssue(_:isReserved:)` below, via
+/// Pure, testable validation for a project-tree *rename*. (The path-accepting
+/// create drafts do not go through here — they share only the per-component
+/// rule, `componentIssue(_:isReserved:)` below, via
 /// `parseRelativeEntryPath(_:)`; this predicate additionally rejects any `/`,
 /// which there is a separator rather than an error.)
 /// Rejects an empty or whitespace-only name, the directory-navigation names
@@ -19,7 +19,7 @@ import Foundation
 /// through the same shared rule, so the predicate and the reasoned validator can
 /// never drift — except on *reserved* names, which this predicate deliberately
 /// does not judge (the rename call site checks `FileService.isExcludedEntryName`
-/// separately, and the create dialogs use `validateRelativeEntryPath(_:)`'s
+/// separately, and the create paths use `validateRelativeEntryPath(_:)`'s
 /// case-insensitive policy instead). The tests assert exactly that on a matrix.
 ///
 /// The separator/NUL scan runs over *unicode scalars*, not `Character`s: a
@@ -32,12 +32,13 @@ public func isValidFileName(_ name: String) -> Bool {
 }
 
 /// Why a user-entered entry name or relative path cannot be used, together with
-/// the human-readable reason the dialog shows under the input field.
+/// the human-readable reason shown under the input — the red line beneath the
+/// project tree's inline naming draft.
 ///
 /// The reason texts live here rather than in the view layer for the same reason
 /// `GitError.errorDescription` and `FileServiceError`'s `LocalizedError` texts
 /// do: the decision and its explanation are one rule, unit-tested together, and
-/// the AppKit prompt stays a thin display of whatever the validator returns.
+/// the draft field stays a thin display of whatever the validator returns.
 public enum EntryPathIssue: Equatable {
     /// The whole input is empty or whitespace-only.
     case emptyInput
@@ -49,8 +50,8 @@ public enum EntryPathIssue: Equatable {
     case navigationComponent(String)
     /// A `/` appeared in a context that takes a single name (rename).
     case separatorInName
-    /// A line break inside a component. Only reachable by paste — the prompt's
-    /// Enter confirms instead of inserting a newline.
+    /// A line break inside a component. Only reachable by paste — the draft's
+    /// Enter commits instead of inserting a newline.
     case lineBreak
     /// A NUL scalar inside a component.
     case nulCharacter
@@ -90,8 +91,9 @@ public enum EntryPathIssue: Equatable {
 ///
 /// `component` must already be trimmed. `isReserved` is the per-context
 /// reserved-name policy (case-insensitive for create paths, exact-match for
-/// rename, none for the plain-name predicate), matching the corresponding
-/// post-OK guard exactly so a dialog can never block a name the guard accepts.
+/// rename, none for the plain-name predicate), matching exactly the guard the
+/// operation itself re-runs behind the writer gate, so the draft can never
+/// refuse a name that guard accepts.
 private func componentIssue(_ component: String, isReserved: (String) -> Bool) -> EntryPathIssue? {
     if component.isEmpty { return .emptyComponent }
     if component == "." || component == ".." { return .navigationComponent(component) }
@@ -124,7 +126,8 @@ private func relativePathComponents(_ path: String) -> [String]? {
 
 /// Why the user-entered *relative* path cannot be created, or `nil` when it is
 /// valid — the reasoned form of `parseRelativeEntryPath(_:)`, which the New File
-/// / New Folder dialogs run on every keystroke to show a reason and gate OK.
+/// / New Folder draft runs on every keystroke to show a reason and to decide
+/// whether Enter commits or beeps.
 ///
 /// Reports, in order of the first offending component: `.emptyInput` for an
 /// empty/whitespace-only input; `.emptyComponent`, `.navigationComponent`,
@@ -161,8 +164,8 @@ private func singleEntryNameIssue(_ name: String,
 
 /// Why the user-entered *single* entry name cannot be used, or `nil` when it is
 /// valid — the reasoned form of `isValidFileName(_:)` plus the reserved-name
-/// rule, which the project-tree Rename dialog runs on every keystroke to show a
-/// reason and gate OK.
+/// rule, which the project-tree rename draft runs on every keystroke to show a
+/// reason and to decide whether Enter commits or beeps.
 ///
 /// Reports `.emptyInput` for an empty/whitespace-only input; `.separatorInName`
 /// for *any* `/` (rename takes a single name, not a path — a move is a separate
@@ -173,9 +176,9 @@ private func singleEntryNameIssue(_ name: String,
 ///
 /// The reserved check is deliberately the **exact-match** one, not the
 /// case-insensitive `isReservedCreateName(_:)` the create paths use: it mirrors
-/// the rename call site's own post-OK guard, so the dialog can never block a
-/// name that guard would accept (a user's own `.Git` folder is an ordinary,
-/// visible entry) or accept one it would reject.
+/// the guard `PisakaApp.renameItem` re-runs behind the writer gate, so the draft
+/// can never refuse a name that guard would accept (a user's own `.Git` folder
+/// is an ordinary, visible entry) or accept one it would reject.
 public func validateSingleEntryName(_ name: String) -> EntryPathIssue? {
     singleEntryNameIssue(name, isReserved: FileService.isExcludedEntryName)
 }
@@ -184,7 +187,7 @@ public func validateSingleEntryName(_ name: String) -> EntryPathIssue? {
 /// `nil` when it does not name a creatable entry.
 ///
 /// Pure, testable validation for the project-tree's New File / New Folder
-/// dialogs, which accept a path of any depth (`centrifugo/config.json`) rather
+/// drafts, which accept a path of any depth (`centrifugo/config.json`) rather
 /// than a single name: the caller creates the missing intermediate folders and
 /// then the final entry.
 ///
@@ -246,7 +249,10 @@ public func initialRenameSelection(in name: String, isDirectory: Bool) -> NSRang
 /// Checks if a single-component name collides with existing siblings.
 ///
 /// The caller invokes collision only for single-component input (a multi-component
-/// create lands its final component in a folder the tree has not listed).
+/// create lands its final component in a folder the tree has not listed), and
+/// asks `parseRelativeEntryPath(_:)` which input that is rather than testing the
+/// string for a `/`: `Sources/` is one component, so the string test would skip
+/// its check and then compare the raw spelling against the siblings.
 public func liveCollisionIssue(finalComponent: String, siblingNames: [String], excluding: String? = nil) -> EntryPathIssue? {
     for sibling in siblingNames {
         if sibling == excluding { continue }

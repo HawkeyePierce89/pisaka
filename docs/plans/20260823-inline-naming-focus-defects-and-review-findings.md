@@ -299,8 +299,13 @@ Not agent-automatable — these are the live reproductions the review used:
   Each cancels silently, creates/renames nothing, and the next keystroke does not
   reach the tree.
 - Right-click another row: the draft cancels and that row's menu opens.
-- Click inside the field, on the draft's icon, and on the reason line: nothing
-  cancels; caret placement and drag-selection work.
+- Click inside the field, on a *create* draft's icon, and on the reason line:
+  nothing cancels; caret placement and drag-selection work. (A rename draft draws
+  no icon of its own — the row's icon is the row's, and clicking it cancels like
+  any other click on the row.)
+- Scroll the tree until an open draft leaves the visible area, then click the
+  tree header's Refresh button: the draft cancels (the clipped-away rectangle
+  owns no clicks).
 - ⌘Tab away and back: the draft and its text survive. Esc, Enter-commit,
   Enter-refusal-with-beep and the disk-failure path behave as before.
 - Repeatedly open a draft on the project root row, on a nested collapsed folder
