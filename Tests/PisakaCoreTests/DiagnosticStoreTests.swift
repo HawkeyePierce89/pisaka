@@ -375,6 +375,43 @@ final class DiagnosticStoreTests: XCTestCase {
         XCTAssertTrue(store.rows(relativeTo: rootURL).isEmpty)
     }
 
+    /// The rendered shape: every flattened field the panel draws comes through,
+    /// and two diagnostics sharing one offset list most-severe-first.
+    func testRowsCarryTheRenderedFieldsAndOrderMostSevereFirstAtOneOffset() {
+        var store = DiagnosticStore()
+        let error = Diagnostic(
+            range: NSRange(location: 4, length: 3),
+            line: 1,
+            severity: .error,
+            message: "cannot find value",
+            source: "swiftc",
+            fileURL: mainURL
+        )
+        store.replace(
+            url: mainURL,
+            serverKey: swiftKey,
+            version: 1,
+            diagnostics: [
+                diagnostic(at: 4, line: 1, severity: .warning, message: "unused"),
+                error,
+            ]
+        )
+
+        let groups = store.rows(relativeTo: rootURL)
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(
+            groups[0].rows.map(\.message),
+            ["cannot find value", "unused"],
+            "orderingKey puts the error above the warning sharing its start"
+        )
+        let row = groups[0].rows[0]
+        XCTAssertEqual(row.severity, .error)
+        XCTAssertEqual(row.message, "cannot find value")
+        XCTAssertEqual(row.source, "swiftc")
+        XCTAssertEqual(row.range, NSRange(location: 4, length: 3))
+        XCTAssertEqual(row.line, 1)
+    }
+
     func testRowsCarryRelativePathsInsideTheRootAndAbsoluteOutside() {
         var store = DiagnosticStore()
         let nested = URL(fileURLWithPath: "/tmp/pkg/Sources/App/main.swift")

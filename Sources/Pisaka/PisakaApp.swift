@@ -731,6 +731,7 @@ struct PisakaApp: App {
                 },
                 bottomPanel: $bottomPanel,
                 onTogglePanel: { togglePanel($0) },
+                onActivateProblem: { url, range in activateSearchMatch(url: url, range: range) },
                 onClose: { closeFile(id: $0) },
                 onOpenFile: { openFile(url: $0) },
                 onOpenFolder: { openFolder() },
@@ -1054,6 +1055,15 @@ struct PisakaApp: App {
                     togglePanel(.changes)
                 }
                 .keyboardShortcut("c", modifiers: [.command, .shift])
+
+                // Toggle the Problems bottom dock panel (the language servers'
+                // published diagnostics). Same handler as the bottom bar's
+                // Problems button; the panel itself renders whatever the servers
+                // currently report, so it needs no on-appear fetch.
+                Button(bottomPanel == .problems ? "Hide Problems" : "Show Problems") {
+                    togglePanel(.problems)
+                }
+                .keyboardShortcut("m", modifiers: [.command, .shift])
             }
 
             CommandMenu("Find") {

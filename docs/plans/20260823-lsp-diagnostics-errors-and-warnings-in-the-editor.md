@@ -397,25 +397,29 @@ by absence.
   `Sources/Pisaka/ContentView.swift`, `Sources/Pisaka/PisakaApp.swift`
 - Create: `Sources/Pisaka/ProblemsPanelView.swift`
 
-- [ ] Add `.problems` to `BottomPanel` (`toggled(_:selecting:)` needs no change)
+- [x] Add `.problems` to `BottomPanel` (`toggled(_:selecting:)` needs no change)
       and extend `BottomPanelTests` to cover it in all three existing shapes.
-- [ ] `ProblemsPanelView`: a header with the error/warning counts from
+- [x] `ProblemsPanelView`: a header with the error/warning counts from
       `store.counts`, and a list of `store.rows(relativeTo:)` grouped by file —
       severity icon, relative path, line, message — in the
       `LocalChangesView`/`CommitLogView` idiom, sized through
       `\.interfaceMetrics` like its siblings. Activating a row calls back with
       `(url, range)`.
-- [ ] Wire it into `ContentView`'s `panelContent(_:)` and add its bottom-bar
+- [x] Wire it into `ContentView`'s `panelContent(_:)` and add its bottom-bar
       button beside Terminal/Git/Changes; wire the callback in `PisakaApp`
       straight to the existing `activateSearchMatch(url:range:)`, which already
       opens-or-reselects the tab and reveals the range.
-- [ ] Add the View-menu item beside the existing panel commands so button and
+- [x] Add the View-menu item beside the existing panel commands so button and
       command behave identically through `togglePanel`.
-- [ ] Extend `DiagnosticStoreTests` for the row shape: grouping across two files,
+- [x] Extend `DiagnosticStoreTests` for the row shape: grouping across two files,
       the relative path for a file at the root and one nested, a file outside the
-      root, and the counts excluding information/hint.
-- [ ] Run `swift test`, `swiftlint --strict`, and the macOS build — must pass
-      before Task 9.
+      root, and the counts excluding information/hint. (The grouping, root /
+      nested / outside path, and count cases already existed from Task 2's
+      suite; this task added the rendered-field + same-offset-severity-order
+      case.)
+- [x] Run `swift test`, `swiftlint --strict`, and the macOS build — must pass
+      before Task 9. (3297 tests green; lint clean; macOS build succeeded after
+      `xcodegen generate` picked up the new file.)
 
 ### Task 9: Hover carries the message
 

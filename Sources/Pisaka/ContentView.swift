@@ -139,6 +139,11 @@ struct ContentView: View {
     /// Routed through `PisakaApp` so the bottom-bar buttons and the View-menu
     /// commands share one implementation. Default no-op for previews/tests.
     var onTogglePanel: (BottomPanel) -> Void = { _ in }
+    /// Invoked when a Problems-panel row is activated, opening (or re-selecting)
+    /// the file and revealing the diagnostic's range. Wired to the same
+    /// `PisakaApp.activateSearchMatch(url:range:)` a Find in Files activation and
+    /// Go to Definition use. Default no-op for previews/tests.
+    var onActivateProblem: (URL, NSRange) -> Void = { _, _ in }
     /// Invoked when a tab requests to close (button or command). Defaults to a
     /// no-op so previews/tests can construct the view without the app wiring.
     var onClose: (UUID) -> Void = { _ in }
@@ -233,8 +238,8 @@ struct ContentView: View {
 
     var body: some View {
         // The editor (or editor-over-panel split) fills the window above an
-        // always-visible bottom bar of Terminal/Git/Changes toggle buttons,
-        // VS Code-style.
+        // always-visible bottom bar of Terminal/Git/Changes/Problems toggle
+        // buttons, VS Code-style.
         VStack(spacing: 0) {
             mainArea
             Divider()
@@ -418,18 +423,43 @@ struct ContentView: View {
                 onCommitFile: onCommitFile
             )
                 .frame(minHeight: metrics.scaled(120))
+        case .problems:
+            problemsPanel
+                .frame(minHeight: metrics.scaled(120))
         }
     }
 
-    /// The always-visible bottom bar: Terminal/Git/Changes toggle buttons, the
-    /// active one highlighted. Clicking goes through `onTogglePanel` (shared with
-    /// the View
-    /// menu) so a button and its matching command behave identically.
+    /// The Problems panel, hosted like its three siblings. `diagnostics` is
+    /// optional (`nil` in previews/tests), and a default-constructed throwaway
+    /// model would both allocate per body evaluation and never update — so the
+    /// nil branch renders the same empty state the real model shows when no
+    /// server has reported anything.
+    @ViewBuilder
+    private var problemsPanel: some View {
+        if let diagnostics {
+            ProblemsPanelView(
+                model: diagnostics,
+                projectRoot: model.projectRoot,
+                onActivate: onActivateProblem
+            )
+        } else {
+            Text("No problems")
+                .font(metrics.scaledFont(.callout))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// The always-visible bottom bar: Terminal/Git/Changes/Problems toggle
+    /// buttons, the active one highlighted. Clicking goes through `onTogglePanel`
+    /// (shared with the View menu) so a button and its matching command behave
+    /// identically.
     private var bottomBar: some View {
         HStack(spacing: metrics.scaled(4)) {
             bottomBarButton(title: "Terminal", systemImage: "terminal", panel: .terminal)
             bottomBarButton(title: "Git", systemImage: "arrow.triangle.branch", panel: .log)
             bottomBarButton(title: "Changes", systemImage: "arrow.triangle.pull", panel: .changes)
+            bottomBarButton(title: "Problems", systemImage: "exclamationmark.triangle", panel: .problems)
             Spacer()
             // JetBrains-style branch widget on the right of the status bar: shows
             // the current branch and opens the switch/create popover.
