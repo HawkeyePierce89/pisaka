@@ -279,15 +279,15 @@ readable in full), and the row grows to fit.
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] `swift test` — full suite green
-- [ ] `swiftlint --strict` from the repository root against the committed config,
+- [x] `swift test` — full suite green
+- [x] `swiftlint --strict` from the repository root against the committed config,
       clean, with no new in-file disable markers
-- [ ] `xcodegen generate` and the macOS build (`xcodebuild -project
+- [x] `xcodegen generate` and the macOS build (`xcodebuild -project
       Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`)
-- [ ] the iOS build (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+- [x] the iOS build (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
       -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`) —
       untouched by this work, but the gate stays the gate
-- [ ] confirm no `docs/architecture/` entry named above is left stale and that
+- [x] confirm no `docs/architecture/` entry named above is left stale and that
       `app-window.md` reads as continuous prose
 
 ## Post-Completion (manual, in the running app)

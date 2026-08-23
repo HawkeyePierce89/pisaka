@@ -402,11 +402,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     unscaled row geometry lives in one `TreeRowLayout` enum that **both** row kinds
     read (the horizontal/vertical padding and the hover-highlight color, plus the
     chevron column, its spacing and the gutter derived from the two) — as literals
-    they would drift apart, and reading alike is the whole point. Every size goes
-    through
-    `\.interfaceMetrics` like the rest of the tree; the style names no
-    `interfaceScale` and declares no zoom surface, so `ZoomSourceGatingTests`' set
-    equalities are untouched. `DirectoryNodeView`
+    they would drift apart, and reading alike is the whole point. Every size
+    goes through `\.interfaceMetrics` like the rest of the tree; the style names
+    no `interfaceScale` and declares no zoom surface, so
+    `ZoomSourceGatingTests`' set equalities are untouched. `DirectoryNodeView`
     takes a `startsExpanded` flag seeding `@State isExpanded` via
     `State(initialValue:)`: the root node is built with `startsExpanded: true`
     (its `.onAppear` loads children, since `onChange` never fires for an
@@ -416,17 +415,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     so each newly opened folder also starts expanded. Rows render type-specific
     icons via `FileIcon(for:)` (a file-scope `color(for:)` helper maps the
     semantic `FileIconColor` token to a concrete SwiftUI `Color`; internal
-    rather than `private` because the draft field's icon column must resolve
-    an icon exactly as the row it replaces does, and the tidier-looking
-    alternative — a `FileIconColor -> Color` extension in Core — is barred by
-    Core being Foundation-only). Directory-read errors are
-    swallowed (`PlatformFeedback.warning()`, and `children` left *unset* rather
-    than cached as an empty list, so collapsing and re-expanding retries a
-    transient failure), never crashing the view — *except*
-    a "no such file" error, which is swallowed silently: a revision-driven reload
-    runs for every expanded node, so an external `rm -rf build` (which now reaches
-    the tree on its own through `ProjectWatcher`) would otherwise beep once per
-    expanded descendant before the parent's re-read drops them.
+    rather than `private` because the draft field's icon column must resolve an
+    icon exactly as the row it replaces does, and the tidier-looking alternative
+    — a `FileIconColor -> Color` extension in Core — is barred by Core being
+    Foundation-only). Directory-read errors are swallowed
+    (`PlatformFeedback.warning()`, and `children` left *unset* rather than
+    cached as an empty list, so collapsing and re-expanding retries a transient
+    failure), never crashing the view — *except* a "no such file" error, which
+    is swallowed silently: a revision-driven reload runs for every expanded
+    node, so an external `rm -rf build` (which now reaches the tree on its own
+    through `ProjectWatcher`) would otherwise beep once per expanded descendant
+    before the parent's re-read drops them.
     Rows carry `.contextMenu`s for the writable tree, backing the inline
     naming flow. A directory row offers New File / New Folder (no ellipsis)
     and (non-root only) Rename / Delete; the root row offers only the two
