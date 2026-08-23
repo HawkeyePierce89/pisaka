@@ -79,8 +79,9 @@ final class LSPDocumentSyncController {
     /// Cancelling is all the close needs here — telling the *server* is
     /// `lspWorkspace.didClose(url:)`'s job, fired beside this call from the same
     /// app-side guard. A sync still inside its `prepare` when the cancel lands
-    /// runs to completion; that is harmless, because a push for a URI no server
-    /// holds is dropped at the workspace (D31) and the document clear has
+    /// runs to completion and reports `noteSynced` (an evicted task records what
+    /// its send really did); that is harmless, because a push for a URI no
+    /// server holds is dropped at the workspace (D31) and the document clear has
     /// already emptied the store.
     func noteBufferClosed(url: URL) {
         bufferTasks.removeValue(forKey: url.standardizedFileURL)?.cancel()
@@ -131,12 +132,29 @@ final class LSPDocumentSyncController {
                 text: text,
                 forceFlush: true
             )
-            guard let self, !Task.isCancelled else { return }
+            guard let self else { return }
+            // An evicted task still reports. Cancellation stops the *report*,
+            // never the bytes: a task already inside `prepare` when its
+            // replacement scheduled sends its notification to completion, and
+            // skipping the report is what would make that harmful. The newer
+            // sibling can flush after it — both released from one launch wait
+            // resume in unspecified order — leaving the server holding this
+            // task's older text at a *higher* version than any record names.
+            // Every later push then matches the workspace's own bookkeeping and
+            // reaches the model, where the missing report misjudges it: a
+            // versioned set is stranded in the hold, an unversioned one — most
+            // servers — is accepted against offsets it does not describe, with
+            // no settling sync left to correct either. Recording anyway keeps
+            // the record truthful about what the server holds, and the stale
+            // revision pin turns the outcome into D32's sanctioned trade:
+            // rejected until the next debounce re-syncs.
             if let prepared {
                 model.noteSynced(url: url, version: prepared.version, revision: revision)
             }
-            // Every replacement cancels the task it evicts, so a task that
-            // reaches here still owns the entry.
+            guard !Task.isCancelled else { return }
+            // Past this point only an uncancelled task arrives, and every
+            // replacement cancels the task it evicts — so this is still the
+            // entry's owner, and clearing it cannot drop the replacement's.
             self.bufferTasks[key] = nil
         }
     }

@@ -660,8 +660,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `model.currentRevision(for:)` **synchronously before its first hop** — the
     generation-token rule, applied where an answer's acceptance will be judged —
     then awaits `prepare(url:language:text:forceFlush: true)` and reports
-    `noteSynced(url:version:revision:)` on success. The flag is the one thing this
-    layer adds to D2's flush: a completion/hover/definition prepare may already
+    `noteSynced(url:version:revision:)` on success. The report is deliberately
+    not cancellation-gated, while the task-map cleanup below it is: a task
+    evicted by a newer schedule has already sent its bytes (cancellation stops
+    the report, never the notification), and skipping the record would let the
+    newer sibling flush *after* it — both released from one launch wait resume
+    in unspecified order — leaving the server holding older text at a higher
+    version than any record names. Downstream that misjudges every later push,
+    which matches the workspace's own bookkeeping: stranded in the hold when
+    versioned, accepted against wrong offsets with no settling sync left to
+    correct them when unversioned. Reporting anyway keeps the record truthful,
+    and the evicted task's stale revision pin rejects those pushes until the
+    next debounce re-syncs (D32's sanctioned trade). The flag is the one thing
+    this layer adds to D2's flush: a completion/hover/definition prepare may already
     have delivered the same text (its push then dying at the gate, version past
     the record), and an unforced landing would send nothing for a push-only server
     to answer — the forced republish is what keeps the burst ending in a push the
