@@ -684,14 +684,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the editor's content-replaced branch) with no third trigger behind them, and
     a record left naming the evicted task's older pin would fail every later
     push at the gate's revision half — the document blank until the user touches
-    it. Chaining makes the final record always the last sender's. The report is
-    deliberately not cancellation-gated, while the task-map cleanup below it is:
-    cancellation from `noteBufferClosed`/`reset()` carries no successor, so a
-    task already inside `prepare` sends its notification to completion, and
-    skipping its record would leave bookkeeping describing less than what the
-    server provably holds. Reporting anyway keeps the record truthful about what
-    the server holds, and the stale revision pin turns any mismatch into D32's
-    sanctioned trade: rejected until the next trigger re-syncs. The flag is the one thing
+    it. Chaining makes the final record always the last sender's. An
+    evicted task's report is therefore deliberately *not* cancellation-gated:
+    skipping it would leave bookkeeping describing less than what the server
+    provably holds, and the stale revision pin turns any mismatch into D32's
+    sanctioned trade — rejected until the next trigger re-syncs. **A
+    *discarded* schedule is the other half and reports nothing.**
+    `noteBufferClosed`/`reset()` carry no successor and run beside the model
+    call that forgets the document outright (`noteDocumentClosed`,
+    `prepareForFolderChange`), so there is no record left for a report to keep
+    truthful — a task still inside `prepare` when one of them lands sends its
+    notification to completion, but its report would only re-create the record
+    the close just pruned: an entry for a document no tab shows that nothing
+    prunes again, and one that gates the file's *next* life against this one's
+    version instead of from zero (`DiagnosticsModel.noteDocumentClosed`'s stated
+    invariant, and the same blank-until-touched failure chaining exists to
+    prevent, on the one path chaining cannot cover — a close and a reopen inside
+    one flush are unchained by construction). The verdict rides a small
+    reference-typed box per schedule, set by those two paths alone, so it dies
+    with its map entry; a per-URL counter would have to outlive every close
+    forever to stay readable, which is the unbounded map the flag exists to
+    prevent. The flag is the one thing
     this layer adds to D2's flush: a completion/hover/definition prepare may already
     have delivered the same text (its push then dying at the gate, version past
     the record), and an unforced landing would send nothing for a push-only server

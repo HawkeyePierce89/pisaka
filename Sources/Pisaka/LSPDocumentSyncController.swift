@@ -37,12 +37,34 @@ final class LSPDocumentSyncController {
     /// this controller adds a trigger, not a second code path.
     private let workspace: LSPWorkspace
 
+    /// One scheduled flush, boxed so the task can read the verdict its own
+    /// eviction writes.
+    ///
+    /// A reference type rather than a per-URL counter deliberately: the flag has
+    /// to outlive nothing but its own map entry, while a counter would have to
+    /// survive every close forever to still be read correctly by a task that
+    /// pinned it — the unbounded map this flag exists to prevent.
+    private final class Schedule {
+        /// Assigned by `schedule` immediately after the task is created, which
+        /// is before the body can run: `schedule` never suspends, so the first
+        /// hop the body takes is after this store.
+        var task: Task<Void, Never>?
+
+        /// Set by `noteBufferClosed`/`reset()` — the two paths that drop a
+        /// schedule *outright* — and never by an ordinary eviction, whose
+        /// successor chains on this task and needs its report to land first.
+        /// A discarded task reports nothing: the model has been told to forget
+        /// the document, so there is no record left for a report to keep
+        /// truthful (see the report site).
+        var isDiscarded = false
+    }
+
     /// The in-flight sync work per file; a newer piece of work for the *same*
     /// file cancels the older one and chains on its completion — a burst
     /// flushes once, and the reports cannot reorder (see `schedule`). Each task
     /// removes its own entry when it finishes uncancelled, so the dictionary is
     /// bounded by the number of files being typed in at once.
-    private var bufferTasks: [URL: Task<Void, Never>] = [:]
+    private var bufferTasks: [URL: Schedule] = [:]
 
     private let bufferDebounce: Duration = .milliseconds(400)
 
@@ -79,12 +101,16 @@ final class LSPDocumentSyncController {
     /// Cancelling is all the close needs here — telling the *server* is
     /// `lspWorkspace.didClose(url:)`'s job, fired beside this call from the same
     /// app-side guard. A sync still inside its `prepare` when the cancel lands
-    /// runs to completion and reports `noteSynced` (an evicted task records what
-    /// its send really did); that is harmless, because a push for a URI no
-    /// server holds is dropped at the workspace (D31) and the document clear has
-    /// already emptied the store.
+    /// runs its send to completion, but the discard marks its report dead: the
+    /// same guard has already told the model to forget the document
+    /// (`DiagnosticsModel.noteDocumentClosed`), and a report landing after that
+    /// would re-create the sync record the close just pruned — leaving a
+    /// document no tab shows in the model's maps, and gating the file's *next*
+    /// life against its predecessor's version instead of from zero.
     func noteBufferClosed(url: URL) {
-        bufferTasks.removeValue(forKey: url.standardizedFileURL)?.cancel()
+        let schedule = bufferTasks.removeValue(forKey: url.standardizedFileURL)
+        schedule?.isDiscarded = true
+        schedule?.task?.cancel()
     }
 
     /// Drop every pending debounce — what a folder change means.
@@ -93,7 +119,10 @@ final class LSPDocumentSyncController {
     /// publish; cancelling here just avoids doing the work first. Call it in the
     /// same main-actor turn as `prepareForFolderChange(root:)`.
     func reset() {
-        for task in bufferTasks.values { task.cancel() }
+        for schedule in bufferTasks.values {
+            schedule.isDiscarded = true
+            schedule.task?.cancel()
+        }
         bufferTasks.removeAll()
     }
 
@@ -113,9 +142,11 @@ final class LSPDocumentSyncController {
         // Captured before eviction so the replacement can wait out the task it
         // supersedes — see the body comment for why that ordering is load-bearing.
         let predecessor = bufferTasks[key]
-        predecessor?.cancel()
+        predecessor?.task?.cancel()
         let interval = bufferDebounce
-        bufferTasks[key] = Task { [weak self, model, workspace, predecessor] in
+        let schedule = Schedule()
+        bufferTasks[key] = schedule
+        schedule.task = Task { [weak self, model, workspace, predecessor, schedule] in
             if Task.isCancelled { return }
             if !immediate {
                 try? await Task.sleep(for: interval)
@@ -133,7 +164,7 @@ final class LSPDocumentSyncController {
             // document blank until the user touches it. Chaining makes the order
             // deterministic instead: the older report lands first, the newer
             // overwrites it, and the final record is always the last sender's.
-            await predecessor?.value
+            await predecessor?.task?.value
             if Task.isCancelled { return }
             // One prepare call, no follow-up request — forced, because the sync
             // is the channel's whole supply: a completion/hover/definition flush
@@ -151,16 +182,24 @@ final class LSPDocumentSyncController {
                 forceFlush: true
             )
             guard let self else { return }
-            // An evicted task still reports. Chaining above already orders two
-            // *schedules* of the same file, but cancellation from the other
-            // paths — `noteBufferClosed` and `reset()` — carries no successor,
-            // so a task inside `prepare` when its cancel lands sends its
-            // notification to completion regardless; skipping its report would
-            // leave the record describing a state older than what the server
-            // provably holds. Recording anyway keeps the record truthful, and
-            // the stale revision pin turns any mismatch into D32's sanctioned
-            // trade: rejected until the next trigger re-syncs.
-            if let prepared {
+            // An *evicted* task still reports, and the report is deliberately
+            // not cancellation-gated for it: the chaining above orders two
+            // schedules of the same file, and skipping the older one's record
+            // would leave the bookkeeping describing less than what the server
+            // provably holds. The stale revision pin turns any mismatch into
+            // D32's sanctioned trade — rejected until the next trigger
+            // re-syncs.
+            //
+            // A *discarded* task is the other half, and it is not the same
+            // case. `noteBufferClosed` and `reset()` carry no successor, and
+            // both run beside a model call that forgets the document outright
+            // (`noteDocumentClosed`, `prepareForFolderChange`): there is no
+            // record left for a report to keep truthful, so a report here would
+            // only re-create one — an entry for a document no tab shows, which
+            // nothing prunes again, and which gates the file's next life
+            // against this one's version rather than from zero. Silence is what
+            // keeps the model's maps bounded by the open tabs.
+            if let prepared, !schedule.isDiscarded {
                 model.noteSynced(url: url, version: prepared.version, revision: revision)
             }
             guard !Task.isCancelled else { return }

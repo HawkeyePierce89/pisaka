@@ -228,31 +228,6 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// straight line.
     static let diagnosticUnderlineStyle: NSUnderlineStyle = [.single, .patternDot]
 
-    /// Replace the diagnostic underlines wholesale and repaint them.
-    ///
-    /// The incoming runs may overlap freely (a server can publish nested spans);
-    /// `DiagnosticRun.merged(_:)` — Core's, with the whole algorithm and its
-    /// zero-length rule — puts them into the cache's canonical non-overlapping
-    /// form: sorted by location, each overlapping stretch carrying the *worst* of
-    /// the severities that touched it (`DiagnosticSeverity` orders by
-    /// seriousness). Resolving at the single write boundary means every later
-    /// reader — the per-write repaint below, and the zigzag in `drawUnderline`
-    /// when a fragment straddles two adjacent merged runs — sees one severity per
-    /// character and cannot disagree about which color wins.
-    ///
-    /// An unchanged set is a no-op: this runs on every diagnostics-model change
-    /// and every keystroke-driven shift re-push, while a repaint costs one clear
-    /// span plus one write per run.
-    ///
-    /// Unlike the rainbow setter this one *removes* the old underline attributes
-    /// first, over the bounding span of what was painted before: the diagnostic
-    /// cache covers the whole document rather than the visible slice, so there is
-    /// no Neon revalidation guaranteed to sweep a run that just went away. The
-    /// removal is safe because this class is the only writer of the marker style
-    /// (see `diagnosticUnderlineStyle`). When `clearDiagnostics` truncated the
-    /// cache since the last push, the clear widens to everything from the first
-    /// dropped character onward (`stalePaintStart`) — the truncated cache no
-    /// longer knows what was painted past it.
     /// Forget what the cache believes is painted, ahead of a wholesale buffer
     /// replacement.
     ///
@@ -278,6 +253,31 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
         stalePaintStart = nil
     }
 
+    /// Replace the diagnostic underlines wholesale and repaint them.
+    ///
+    /// The incoming runs may overlap freely (a server can publish nested spans);
+    /// `DiagnosticRun.merged(_:)` — Core's, with the whole algorithm and its
+    /// zero-length rule — puts them into the cache's canonical non-overlapping
+    /// form: sorted by location, each overlapping stretch carrying the *worst* of
+    /// the severities that touched it (`DiagnosticSeverity` orders by
+    /// seriousness). Resolving at the single write boundary means every later
+    /// reader — the per-write repaint below, and the zigzag in `drawUnderline`
+    /// when a fragment straddles two adjacent merged runs — sees one severity per
+    /// character and cannot disagree about which color wins.
+    ///
+    /// An unchanged set is a no-op: this runs on every diagnostics-model change
+    /// and every keystroke-driven shift re-push, while a repaint costs one clear
+    /// span plus one write per run.
+    ///
+    /// Unlike the rainbow setter this one *removes* the old underline attributes
+    /// first, over the bounding span of what was painted before: the diagnostic
+    /// cache covers the whole document rather than the visible slice, so there is
+    /// no Neon revalidation guaranteed to sweep a run that just went away. The
+    /// removal is safe because this class is the only writer of the marker style
+    /// (see `diagnosticUnderlineStyle`). When `clearDiagnostics` truncated the
+    /// cache since the last push, the clear widens to everything from the first
+    /// dropped character onward (`stalePaintStart`) — the truncated cache no
+    /// longer knows what was painted past it.
     func setDiagnosticRuns(_ runs: [DiagnosticRun]) {
         let merged = DiagnosticRun.merged(runs)
         guard merged != diagnosticRuns || stalePaintStart != nil else { return }

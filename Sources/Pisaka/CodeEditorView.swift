@@ -1551,12 +1551,6 @@ struct CodeEditorView: NSViewRepresentable {
             scheduleDiagnosticOverlaysRefresh()
         }
 
-        /// Drop one document's diagnostics ahead of a wholesale buffer
-        /// replacement (`updateNSView`'s content-replaced branch, beside
-        /// `beginBlameBufferSwap`). The URL is handed in rather than read from
-        /// `fileURL` because on a tab switch the recorded URL still names the
-        /// *outgoing* file at that point — `syncBlame` has not re-recorded yet —
-        /// while the replaced document is the incoming one.
         /// Drop the overlay's belief about what is painted, ahead of the
         /// wholesale replacement that wipes the attributes themselves. Beside
         /// `beginDiagnosticsBufferSwap` in `updateNSView`, but on *every*
@@ -1567,6 +1561,12 @@ struct CodeEditorView: NSViewRepresentable {
                 .invalidateDiagnosticPaint()
         }
 
+        /// Drop one document's diagnostics ahead of a wholesale buffer
+        /// replacement (`updateNSView`'s content-replaced branch, beside
+        /// `beginBlameBufferSwap`). The URL is handed in rather than read from
+        /// `fileURL` because on a tab switch the recorded URL still names the
+        /// *outgoing* file at that point — `syncBlame` has not re-recorded yet —
+        /// while the replaced document is the incoming one.
         func beginDiagnosticsBufferSwap(clearing url: URL?) {
             guard let url else { return }
             diagnosticsModel?.noteBufferReplaced(url: url)

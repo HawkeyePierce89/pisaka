@@ -3328,22 +3328,6 @@ struct PisakaApp: App {
         }
     }
 
-    /// Tell the symbol index that `url` no longer has an editor buffer behind it,
-    /// so it re-extracts the file from disk instead of keeping the text the closed
-    /// tab held.
-    ///
-    /// A no-op while *any* tab still shows the file: a cancelled close leaves the
-    /// tab open, and the same file can legitimately be reached through two tabs
-    /// (opened once by path and once through a symlink — `fileID(forURL:)` matches
-    /// canonically, exactly as the index keys its files).
-    ///
-    /// The language server is told the same thing at the same moment (D2's
-    /// `didClose`), under this one guard rather than a second copy of it: the two
-    /// consumers of a buffer must agree about when a file stops having one, and a
-    /// `didClose` for a file another tab still shows would leave the server
-    /// answering about a document it has dropped. Fire-and-forget, because nothing
-    /// waits on it and a server that cannot be told is one whose next request opens
-    /// the document afresh anyway.
     /// Flush every open buffer of a served language to its language server, so
     /// the push-only diagnostics channel has something to answer for all of
     /// them (D30) — not only for the tab an editor view happens to display.
@@ -3374,6 +3358,22 @@ struct PisakaApp: App {
         }
     }
 
+    /// Tell the symbol index that `url` no longer has an editor buffer behind it,
+    /// so it re-extracts the file from disk instead of keeping the text the closed
+    /// tab held.
+    ///
+    /// A no-op while *any* tab still shows the file: a cancelled close leaves the
+    /// tab open, and the same file can legitimately be reached through two tabs
+    /// (opened once by path and once through a symlink — `fileID(forURL:)` matches
+    /// canonically, exactly as the index keys its files).
+    ///
+    /// The language server is told the same thing at the same moment (D2's
+    /// `didClose`), under this one guard rather than a second copy of it: the two
+    /// consumers of a buffer must agree about when a file stops having one, and a
+    /// `didClose` for a file another tab still shows would leave the server
+    /// answering about a document it has dropped. Fire-and-forget, because nothing
+    /// waits on it and a server that cannot be told is one whose next request opens
+    /// the document afresh anyway.
     private func forgetIndexedBuffer(_ url: URL?) {
         guard let url, model.fileID(forURL: url) == nil else { return }
         symbolIndexController.noteBufferClosed(url: url)
