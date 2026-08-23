@@ -59,13 +59,15 @@ import Foundation
 /// shift it across), a wholesale replacement, either clear, and the folder
 /// change — so a hold can never resurrect anything a teardown or a keystroke
 /// has already condemned. A version mismatch against a **current** record is
-/// the ordinary D32 staleness — a late replay, or another flusher's push —
-/// and is dropped outright as before, unreplayed. One honest trade remains:
-/// a held push carrying no version may rarely describe the previous sync's
-/// text (a provider flush racing the settling one); accepting it can draw one
-/// misplaced set for the instant before the answer to the settling sync
-/// replaces it — the same briefly-wrong-over-blank trade D32 already makes,
-/// self-correcting by the push that answer is guaranteed to provoke.
+/// held too, for the same reason rather than against it: with no keystroke to
+/// point at, the mismatching version is either a late replay — which the
+/// reconcile's version half then discards unreplayed — or the settling flush's
+/// own publish beating its report home, which it admits. One honest trade
+/// remains: a held push carrying no version may rarely describe the previous
+/// sync's text (a provider flush racing the settling one); accepting it can
+/// draw one misplaced set for the instant before the answer to the settling
+/// sync replaces it — the same briefly-wrong-over-blank trade D32 already
+/// makes, self-correcting by the push that answer is guaranteed to provoke.
 @MainActor
 public final class DiagnosticsModel: ObservableObject {
     /// What one successful sync recorded: the server version the workspace
@@ -135,15 +137,16 @@ public final class DiagnosticsModel: ObservableObject {
     /// pinned revision equals the buffer's — otherwise the held set describes
     /// text the buffer has moved past) and its version matches (absent passes,
     /// as everywhere). The hold's own survival already proves nothing was
-    /// typed since the hold — every edit drops it — so together the clauses
-    /// pin the set to exactly the text this sync delivered.
+    /// typed since the hold — every revision bump (`noteEdit`,
+    /// `noteBufferReplaced`, `prepareForFolderChange`) drops it, which is why
+    /// the reconcile never re-checks the hold-time revision — so together the
+    /// clauses pin the set to exactly the text this sync delivered.
     public func noteSynced(url: URL, version: Int, revision: Int) {
         let key = url.standardizedFileURL
         syncs[key] = SyncRecord(version: version, revision: revision)
 
         if let held = heldPushes.removeValue(forKey: key),
            case .published(let url, let serverID, let root, let heldVersion, let diagnostics) = held.event,
-           held.revisionAtHold == (revisions[key] ?? 0),
            revision == (revisions[key] ?? 0),
            heldVersion.map({ $0 == version }) ?? true {
             store.replace(
@@ -205,8 +208,10 @@ public final class DiagnosticsModel: ObservableObject {
     /// with no record, or against a record pinned to a revision the buffer has
     /// moved past, is held for the next record's landing instead of dropped,
     /// because both mean the push may belong to a sync whose report is still in
-    /// flight. A version mismatch against a *current* record is staleness in
-    /// the ordinary D32 sense and is dropped outright, never replayed. The
+    /// flight. So is a version mismatch against a *current* record: with no
+    /// keystroke to condemn it, the push is either a late replay (the
+    /// reconcile's version half discards it) or the settling flush's own
+    /// publish arriving ahead of its report (the reconcile admits it). The
     /// clears are applied as they come; each teardown path emits exactly one,
     /// and a late duplicate after a folder change finds nothing to clear.
     public func receive(_ event: LSPDiagnosticEvent) {
@@ -218,7 +223,6 @@ public final class DiagnosticsModel: ObservableObject {
                 heldPushes[key] = (event, currentRevision)
                 return
             }
-            let versionMatches = version.map({ $0 == sync.version }) ?? true
             guard sync.revision == currentRevision else {
                 // The record predates the buffer's present state: its own
                 // pushes are stale by the live clause, and this push may be
@@ -226,7 +230,15 @@ public final class DiagnosticsModel: ObservableObject {
                 heldPushes[key] = (event, currentRevision)
                 return
             }
-            guard versionMatches else { return }
+            guard version.map({ $0 == sync.version }) ?? true else {
+                // The record is current but names another version: either a
+                // late replay of an older push or the settling flush's own
+                // publish beating its report home. Holding costs nothing —
+                // the reconcile's version half admits only the version that
+                // record actually lands with.
+                heldPushes[key] = (event, currentRevision)
+                return
+            }
             heldPushes[key] = nil
             store.replace(
                 url: url,

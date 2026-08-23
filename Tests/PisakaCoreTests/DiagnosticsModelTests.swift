@@ -141,11 +141,52 @@ final class DiagnosticsModelTests: XCTestCase {
         XCTAssertEqual(entry()?.diagnostics.first?.message, "first")
     }
 
-    func testAPushForAMismatchedVersionIsDropped() {
+    /// A versioned push whose version the *current* record does not name cannot
+    /// be condemned outright — with nothing typed, it is either a late replay or
+    /// the settling flush's own publish beating its report home — so it is
+    /// held, shown nowhere, and judged when the record that names its version
+    /// lands.
+    func testAPushForAMismatchedVersionAgainstACurrentRecordIsHeldThenJudged() {
         syncAtVersionOne()
-        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "m")], version: 2))
+        let set = [diagnostic(at: 0, length: 3, line: 0, message: "m")]
+        model.receive(published(set, version: 2))
+        XCTAssertNil(entry(), "held, not shown")
 
+        model.noteSynced(url: url, version: 2, revision: 0)
+        XCTAssertEqual(entry()?.diagnostics, set, "the landing report admits it")
+    }
+
+    /// The replay half of the same hold: a push for a version no sync ever
+    /// records stays unreplayed after the landing report discards it.
+    func testAHeldReplayAgainstACurrentRecordStaysDroppedAfterTheReportLands() {
+        syncAtVersionOne()
+        model.receive(published([diagnostic(at: 0, length: 3, line: 0, message: "replay")], version: 2))
         XCTAssertNil(entry())
+
+        // The next sync settles at yet another version; the reconcile's version
+        // half discards the held push, and the ordinary gate carries the live one.
+        model.noteSynced(url: url, version: 3, revision: 0)
+        XCTAssertNil(entry())
+
+        let set = [diagnostic(at: 4, length: 3, line: 1, severity: .warning, message: "fresh")]
+        model.receive(published(set, version: 3))
+        XCTAssertEqual(entry()?.diagnostics, set)
+    }
+
+    /// The forced-flush race ``LSPWorkspace/prepare(forceFlush:)``'s invariant
+    /// promises to cover: the settling sync bumps the server's version while the
+    /// previous record still stands (nothing was typed), the server's answer is
+    /// routed before the controller's report lands, and the landing report must
+    /// admit it — no second notification arrives to save the surfaces.
+    func testASettlingSyncsPublishBeatingItsReportHomeIsAdmittedByTheReport() {
+        syncAtVersionOne()
+        let set = [diagnostic(at: 4, length: 3, line: 1, severity: .warning, message: "settled")]
+        model.receive(published(set, version: 2))
+        XCTAssertNil(entry(), "the answer outran its own report: nothing on the surfaces yet")
+
+        model.noteSynced(url: url, version: 2, revision: 0)
+        XCTAssertEqual(entry()?.diagnostics, set)
+        XCTAssertEqual(model.counts.warnings, 1)
     }
 
     func testAPushWithoutAVersionIsAcceptedOnTheRevisionHalfAlone() {

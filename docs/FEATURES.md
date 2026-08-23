@@ -477,7 +477,10 @@ user sees it.
   their lines, and the server's next report (a fraction of a second after you
   pause) replaces the whole picture — including clearing everything on an
   all-clear. Closing a file drops its rows; quitting or crashing a server clears
-  everything it reported. Diagnostics need a server: files of languages without
+  everything it reported. Because the reports arrive unasked, opening a file of a
+  served language is itself what starts its server (where available or consented)
+  — before diagnostics existed, a server started only when you asked for
+  completion, Go to Definition or hover. Diagnostics need a server: files of languages without
   one show none of this, silently, exactly like hover.
 - A minimap to the right of the editor: a scaled-down,
   syntax-colored overview of the file with a draggable viewport rectangle.

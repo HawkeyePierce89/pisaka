@@ -350,6 +350,11 @@ document, together with the limits they carry.
     the line's content end, and
     `LSPPositionMapTests.testAnOffsetInsideACRLFPairIsNotAnAddressablePosition`
     states it outright instead of the round-trip assertion being quietly weakened.
+    `lineIndex(containing:lineStarts:)` is internal — not `private` — for the
+    same one-rule reason the rest of the file exists: the diagnostics layer
+    (`Diagnostic.make`, `DiagnosticShift.updated`,
+    `DiagnosticStore.worstSeverityPerLine`) reuses exactly this offset→line
+    search against this table rather than growing copies that could drift.
 
   - `LSPTransport.swift` — the whole macOS/Core boundary, and deliberately tiny:
     bytes out (`send`), bytes in (`incomingBytes`), stop (`terminate`). The
@@ -841,10 +846,15 @@ document, together with the limits they carry.
     `session.notifications` from the moment the session is filed under its key —
     before the first request goes out, because a real server may push diagnostics
     for the `didOpen` well before the flush that carried it returns. `route(_:from:)`
-    applies D31's two gates in order: the URI must be a document **this**
+    applies D31's three gates in order: the push must name the folder this
+    workspace currently serves — a straggler from an old project's server in the
+    window between `prepareForFolderChange` and the `shutdownAll()` it schedules
+    would otherwise be routed, and, finding the model's bookkeeping cleared,
+    *held*, onto whatever same-path file the next project syncs — then the URI
+    must be a document **this**
     `(server, root)` currently holds (a closed file, another server's file, or an
     unopened one is noise), and a present `version` must equal the version last
-    flushed for it. A push passing both is mapped against `documents[uri].text` —
+    flushed for it. A push passing all three is mapped against `documents[uri].text` —
     the text the *server was told*, not the live buffer; reconciling the editor's
     later edits is `DiagnosticShift`'s job downstream, never a remap here — one
     line-start scan per push, and the survivors go to the sink as an
@@ -1994,8 +2004,14 @@ the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
     to exactly that sync's text. Every invalidating event drops holds — `noteEdit`,
     `noteBufferReplaced`, both clears (scoped: a server clear takes only that
     server's), and the folder change — so a hold can never resurrect anything a
-    teardown or a keystroke condemned. A version mismatch against a *current*
-    record stays the ordinary D32 drop (a late replay, another flusher's push).
+    teardown or a keystroke condemned (and is why the reconcile never re-checks
+    the hold-time revision: nothing that bumps a revision leaves a hold behind).
+    A version mismatch against a *current* record is held too, not dropped:
+    with no keystroke to point at, it is either a late replay — which the
+    reconcile's version half then discards unreplayed — or the settling flush's
+    own publish beating its report home, which it admits; dropping would strand
+    the document blank until the next interaction, the exact failure the hold
+    exists to prevent.
     One honest trade: a held unversioned push may rarely describe the previous
     flush's text; accepting it draws at worst one briefly-wrong set for the
     instant before the settling answer replaces it — D32's own trade, made once,

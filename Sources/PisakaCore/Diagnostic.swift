@@ -30,9 +30,6 @@ public enum DiagnosticSeverity: Int, Sendable, Hashable {
         self = known
     }
 
-    /// The wire integer for this severity — the "both ways" half of the table.
-    public var lspValue: Int { rawValue }
-
     /// The severity's spoken form — the word hover prefixes a diagnostic's
     /// message with (D34), lowercase because that is how servers and compilers
     /// name severities in the output a developer already reads.

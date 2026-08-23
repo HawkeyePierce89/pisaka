@@ -63,10 +63,23 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// `range.location` and **non-overlapping** — `setDiagnosticRuns` merges the
     /// incoming set so every character is covered by exactly one span carrying
     /// the worst severity that covers it (the rule `drawUnderline` also applies
-    /// when a fragment straddles two adjacent runs). Sortedness and non-overlap
+    /// when a fragment straddles two adjacent merged runs). Sortedness and non-overlap
     /// are what let both paint paths binary-search the cache the way they search
     /// the rainbow runs.
     private var diagnosticRuns: [DiagnosticRun] = []
+
+    /// Set when `clearDiagnostics` drops cached runs whose underline attributes
+    /// may outlive them, and consumed by the next `setDiagnosticRuns`.
+    ///
+    /// Truncating the cache removes the *cache* entries, not the temporary
+    /// attributes over them: TextKit shifts attributes across an edit like any
+    /// other state, so the surviving tail of a dropped run stays painted even
+    /// though nothing in the store will repaint or describe it (`drawUnderline`
+    /// draws nothing on a cache miss, but the attribute is still there for any
+    /// future reader). The next wholesale push must therefore clear from the
+    /// first dropped character onward — not merely over what the truncated
+    /// cache says was painted, which is exactly the bookkeeping that was lost.
+    private var stalePaintStart: Int?
 
     /// The match the search bar considers current (⌘G's cursor), painted on top of
     /// its own `searchRanges` entry in a distinct color. `nil` while the bar is
@@ -244,15 +257,30 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// cache covers the whole document rather than the visible slice, so there is
     /// no Neon revalidation guaranteed to sweep a run that just went away. The
     /// removal is safe because this class is the only writer of the marker style
-    /// (see `diagnosticUnderlineStyle`).
+    /// (see `diagnosticUnderlineStyle`). When `clearDiagnostics` truncated the
+    /// cache since the last push, the clear widens to everything from the first
+    /// dropped character onward (`stalePaintStart`) — the truncated cache no
+    /// longer knows what was painted past it.
     func setDiagnosticRuns(_ runs: [DiagnosticRun]) {
         let merged = Self.mergedDiagnosticRuns(runs)
-        guard merged != diagnosticRuns else { return }
+        guard merged != diagnosticRuns || stalePaintStart != nil else { return }
         let previous = diagnosticRanges()
         diagnosticRuns = merged
 
         let length = storageLength
-        let clearedSpan = boundingRange(previous, clampingTo: length)
+        let previousSpan = boundingRange(previous, clampingTo: length)
+        var clearedSpan = previousSpan
+        if let staleStart = stalePaintStart {
+            stalePaintStart = nil
+            // The residue sits anywhere from the first dropped run's start to
+            // the end of the (post-edit) buffer — TextKit shifted it across the
+            // edit. One removal over that whole span costs no more than the
+            // bounding-span clear it replaces, and over-clearing is safe: this
+            // class is the sole writer of these keys, and the paint below
+            // restores every survivor immediately.
+            let start = previousSpan.length > 0 ? min(previousSpan.location, staleStart) : staleStart
+            clearedSpan = start < length ? NSRange(location: start, length: length - start) : clearedSpan
+        }
         withOverlayWrites {
             if clearedSpan.length > 0 {
                 removeTemporaryAttribute(.underlineStyle, forCharacterRange: clearedSpan)
@@ -275,13 +303,20 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// the tail of the cache no longer describes the buffer. What survives is
     /// repainted by the coordinator's next push, which rebuilds the cache from
     /// `DiagnosticsModel` — where ``DiagnosticShift.updated`` has already applied
-    /// exactly the same shift-and-drop arithmetic to the stored set.
+    /// exactly the same shift-and-drop arithmetic to the stored set — and that
+    /// push also clears what this truncation strands: a dropped run's attribute
+    /// survives the edit (shifted with its characters) but not in any cache, so
+    /// the first dropped run's start is handed to `setDiagnosticRuns` through
+    /// `stalePaintStart`.
     ///
     /// `range` and `storageLength` must both be in **pre-edit** coordinates, for
     /// the reason spelled out on `clearBackgrounds(storageLength:)` — this runs
     /// inside `didProcessEditingNotification`, where the temporary attributes
     /// have not yet been shifted by the edit.
     func clearDiagnostics(in range: NSRange, storageLength: Int) {
+        if let firstDropped = diagnosticRuns.first(where: { NSMaxRange($0.range) > range.location })?.range.location {
+            stalePaintStart = min(stalePaintStart ?? Int.max, firstDropped)
+        }
         diagnosticRuns.removeAll { NSMaxRange($0.range) > range.location }
         let clampedRange = clamped(range, to: storageLength)
         guard clampedRange.length > 0 else { return }

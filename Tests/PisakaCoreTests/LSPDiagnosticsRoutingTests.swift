@@ -517,6 +517,26 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         )
     }
 
+    /// The folder switch is two steps — `prepareForFolderChange` synchronously,
+    /// `shutdownAll()` a turn later — and an old project's consumer task is
+    /// still running inside that window, its documents still filed. A push it
+    /// routes there must never reach the sink: the model's bookkeeping is
+    /// already cleared, so the event would be *held*, and a next project that
+    /// contains the same absolute path could then reconcile the old project's
+    /// set onto the new file under the old server's provenance.
+    func testAStragglersPushBetweenTheFolderSwitchsStepsNeverRoutes() async throws {
+        let prepared = try await open(mainFile, text: "a")
+
+        workspace.prepareForFolderChange(root: otherRoot)
+
+        try push(to: harness.latest, uri: prepared.uri, version: prepared.version, [
+            (LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), nil, "straggler"),
+        ])
+        await settle()
+
+        XCTAssertTrue(publishedEvents().isEmpty, "an old root's server has nothing to say to this workspace")
+    }
+
     func testTerminateNowEmitsTheKeySynchronously() async throws {
         _ = try await open(mainFile, text: "a")
 

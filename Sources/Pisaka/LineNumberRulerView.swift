@@ -336,27 +336,18 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// Install the per-line worst severities for the displayed document and
     /// redraw. The array arrives exactly ``lineCount`` long — the caller passes
     /// this ruler's own count and line starts to the store's query, which
-    /// returns precisely that many entries. Should a differently-sized array
-    /// ever arrive (a future feed written against a stale count), it is padded
-    /// with `nil` / truncated to the current line count here rather than letting
-    /// the draw loop index past it.
+    /// returns precisely that many entries; anything else would be a caller
+    /// bug, and is refused rather than padded into a lie (the draw loop bounds
+    /// -checks its index regardless).
     ///
     /// Thickness is deliberately *not* touched: the column's width does not
     /// depend on its contents (see ``diagnosticColumnWidth``), so only a redraw
     /// is needed. An unchanged array is a no-op — this runs on every
     /// diagnostics-model mutation and every keystroke-driven repaint.
     func setDiagnosticSeverities(_ severities: [DiagnosticSeverity?]) {
-        let target = lineStartOffsets.count
-        let sized: [DiagnosticSeverity?]
-        if severities.count == target {
-            sized = severities
-        } else {
-            var adjusted = Array(severities.prefix(target))
-            adjusted.append(contentsOf: repeatElement(nil, count: target - adjusted.count))
-            sized = adjusted
-        }
-        guard sized != diagnosticSeverities else { return }
-        diagnosticSeverities = sized
+        guard severities.count == lineStartOffsets.count else { return }
+        guard severities != diagnosticSeverities else { return }
+        diagnosticSeverities = severities
         needsDisplay = true
     }
 

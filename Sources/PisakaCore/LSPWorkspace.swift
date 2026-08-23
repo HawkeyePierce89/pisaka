@@ -1151,16 +1151,23 @@ public final class LSPWorkspace {
     /// Decode one notification and, when it survives D31's gates, hand the
     /// mapped set to the sink. Every other method is ignored, as before.
     ///
-    /// The gates, in order: the URI must be one **this** `(server, root)`
-    /// currently holds — a push for a closed file, a file another server owns,
-    /// or a file nobody opened is noise — and the version, when the server sent
-    /// one, must be the one this workspace last gave it. A push that passes both
-    /// is mapped against the text the server was *told* (`documents[uri].text`),
-    /// not the live buffer: the editor's copy may already have moved on, and
-    /// reconciling that difference is ``DiagnosticShift``'s job downstream, in
-    /// the model — never a remap here.
+    /// The gates, in order: the push must name the folder this workspace
+    /// currently serves (a straggler from an old project's server between that
+    /// folder switch's two steps would otherwise be routed — and, finding the
+    /// model's bookkeeping cleared, *held* — onto whatever file of the same
+    /// path the next project syncs, under the old server's provenance); the URI
+    /// must be one **this** `(server, root)` currently holds — a push for a
+    /// closed file, a file another server owns, or a file nobody opened is
+    /// noise — and the version, when the server sent one, must be the one this
+    /// workspace last gave it. A push that passes all three is mapped against
+    /// the text the server was *told* (`documents[uri].text`), not the live
+    /// buffer: the editor's copy may already have moved on, and reconciling
+    /// that difference is ``DiagnosticShift``'s job downstream, in the model —
+    /// never a remap here.
     private func route(_ notification: LSPServerNotification, from key: ServerKey) {
         guard notification.method == LSPMethod.publishDiagnostics else { return }
+        guard let currentRoot,
+              key.root == LSPWorkspace.rootKey(for: currentRoot) else { return }
         guard let params = notification.params,
               let push = try? params.decoded(as: LSPPublishDiagnosticsParams.self) else { return }
         guard let state = documents[push.uri], state.serverKey == key else { return }

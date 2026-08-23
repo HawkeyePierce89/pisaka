@@ -387,7 +387,6 @@ final class DiagnosticStoreTests: XCTestCase {
         let row = groups[0].rows[0]
         XCTAssertEqual(row.severity, .error)
         XCTAssertEqual(row.message, "cannot find value")
-        XCTAssertEqual(row.source, "swiftc")
         XCTAssertEqual(row.range, NSRange(location: 4, length: 3))
         XCTAssertEqual(row.line, 1)
     }

@@ -43,10 +43,10 @@ final class DiagnosticTests: XCTestCase {
         XCTAssertEqual(DiagnosticSeverity(lspValue: 3), .information)
         XCTAssertEqual(DiagnosticSeverity(lspValue: 4), .hint)
 
-        XCTAssertEqual(DiagnosticSeverity.error.lspValue, 1)
-        XCTAssertEqual(DiagnosticSeverity.warning.lspValue, 2)
-        XCTAssertEqual(DiagnosticSeverity.information.lspValue, 3)
-        XCTAssertEqual(DiagnosticSeverity.hint.lspValue, 4)
+        XCTAssertEqual(DiagnosticSeverity.error.rawValue, 1)
+        XCTAssertEqual(DiagnosticSeverity.warning.rawValue, 2)
+        XCTAssertEqual(DiagnosticSeverity.information.rawValue, 3)
+        XCTAssertEqual(DiagnosticSeverity.hint.rawValue, 4)
     }
 
     /// An absent severity is the server declining to say — and an editor that

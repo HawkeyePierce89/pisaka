@@ -60,7 +60,8 @@ public struct DiagnosticStore: Equatable, Sendable {
     }
 
     /// One row of the Problems panel: a single diagnostic flattened to what the
-    /// list renders.
+    /// list renders — severity icon, message, and the one-based line; `source`
+    /// is deliberately not carried, because nothing on screen shows it.
     ///
     /// `Hashable` so the SwiftUI list can key rows by **content** rather than by
     /// offset: an insertion above an earlier row must not shift every
@@ -70,7 +71,6 @@ public struct DiagnosticStore: Equatable, Sendable {
     public struct Row: Equatable, Hashable, Sendable {
         public let severity: DiagnosticSeverity
         public let message: String
-        public let source: String?
         /// The span in the buffer, for open-and-reveal.
         public let range: NSRange
         /// The zero-based line it starts on, as stored.
@@ -79,23 +79,8 @@ public struct DiagnosticStore: Equatable, Sendable {
         init(_ diagnostic: Diagnostic) {
             severity = diagnostic.severity
             message = diagnostic.message
-            source = diagnostic.source
             range = diagnostic.range
             line = diagnostic.line
-        }
-
-        public init(
-            severity: DiagnosticSeverity,
-            message: String,
-            source: String?,
-            range: NSRange,
-            line: Int
-        ) {
-            self.severity = severity
-            self.message = message
-            self.source = source
-            self.range = range
-            self.line = line
         }
     }
 

@@ -114,7 +114,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `storageLength` already is not, and the extent is therefore a parameter — but
     it *drops* rather than shifts: the coordinator has already run Core's
     `DiagnosticShift.updated(...)` over the same edit by the time this fires, so
-    shifting here too would apply the rule twice to whatever survives.
+    shifting here too would apply the rule twice to whatever survives. Dropping a
+    cache entry does not drop its attribute — TextKit shifts the underline along
+    with the characters — so the truncation records where it cut (`stalePaintStart`)
+    and the next `setDiagnosticRuns` widens its clear from that character to the
+    end of the buffer, removing what no cache entry any longer describes; without
+    this, an edit intersecting a squiggle would leave an orphaned dotted underline
+    attribute in the storage for the rest of the session (invisible today —
+    `drawUnderline` draws nothing on a cache miss — but a lie waiting for a future
+    reader of those keys).
     The zigzag is drawn by overriding `drawUnderline(forGlyphRange:...)`: AppKit
     has no wavy pattern (`NSUnderlineStyle` offers solid/dash/dot only), so when
     the passed style carries our marker bit the override strokes a small sine-ish

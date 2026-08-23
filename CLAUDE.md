@@ -305,7 +305,7 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 - `BracketOverlayLayoutManager.swift` — temporary-attribute overlay merge.
 - `BracketHighlightController.swift` — debounced bracket scan.
 - `BlameController.swift` — blame-column owner (one-in-flight rule).
-- `LineNumberRulerView.swift` — gutter numbers + blame column.
+- `LineNumberRulerView.swift` — gutter numbers + blame column + diagnostic severity markers.
 - `MinimapTokenizer.swift` / `MinimapView.swift` — minimap parse + drawing.
 - `SyntaxLanguageConfiguration.swift` / `SyntaxTheme.swift` — grammar registry; color tables.
 

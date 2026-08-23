@@ -46,11 +46,11 @@ description of each — and of what it deliberately does *not* do — is in
   official binary downloaded once — a `cargo` is required either way). Every
   language falls back to the built-in index silently — no alerts, ever. Where a
   server is available, resting the pointer on a symbol also shows its
-   type/signature in a small popover (macOS only; there is no popover without a
-   server, since the index knows names, not types), and its errors and warnings
-   appear as you type: wavy underlines in the editor, severity markers in the
-   gutter, and a **Problems** bottom panel (Cmd+Shift+M) listing every open
-   file's findings — click a row to jump to it.
+  type/signature in a small popover (macOS only; there is no popover without a
+  server, since the index knows names, not types), and its errors and warnings
+  appear as you type: wavy underlines in the editor, severity markers in the
+  gutter, and a **Problems** bottom panel (Cmd+Shift+M) listing every open
+  file's findings — click a row to jump to it.
 - **Git** — Local Changes with side-by-side diffs and multi-file revert; a
   commit dialog with per-line selection, amend, author editing and
   optional push; a 3-pane merge-conflict resolver; a Git Log with a branch
