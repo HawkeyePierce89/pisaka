@@ -660,18 +660,25 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `model.currentRevision(for:)` **synchronously before its first hop** — the
     generation-token rule, applied where an answer's acceptance will be judged —
     then awaits `prepare(url:language:text:forceFlush: true)` and reports
-    `noteSynced(url:version:revision:)` on success. The report is deliberately
-    not cancellation-gated, while the task-map cleanup below it is: a task
-    evicted by a newer schedule has already sent its bytes (cancellation stops
-    the report, never the notification), and skipping the record would let the
-    newer sibling flush *after* it — both released from one launch wait resume
-    in unspecified order — leaving the server holding older text at a higher
-    version than any record names. Downstream that misjudges every later push,
-    which matches the workspace's own bookkeeping: stranded in the hold when
-    versioned, accepted against wrong offsets with no settling sync left to
-    correct them when unversioned. Reporting anyway keeps the record truthful,
-    and the evicted task's stale revision pin rejects those pushes until the
-    next debounce re-syncs (D32's sanctioned trade). The flag is the one thing
+    `noteSynced(url:version:revision:)` on success. **Successors chain on their
+    predecessor**: a new schedule captures the map entry it evicts and its task
+    awaits that handle's completion — report included — before preparing, with
+    cancellation checkpoints on both sides of the wait. The ordering is
+    load-bearing because two tasks released from one shared await (the
+    per-document flush wait chief among them) otherwise resume in unspecified
+    order, so their reports can land newest-pin-first; a wholesale rewrite of the
+    *displayed* tab is exactly two such schedules (`reindexReloadedBuffer`'s and
+    the editor's content-replaced branch) with no third trigger behind them, and
+    a record left naming the evicted task's older pin would fail every later
+    push at the gate's revision half — the document blank until the user touches
+    it. Chaining makes the final record always the last sender's. The report is
+    deliberately not cancellation-gated, while the task-map cleanup below it is:
+    cancellation from `noteBufferClosed`/`reset()` carries no successor, so a
+    task already inside `prepare` sends its notification to completion, and
+    skipping its record would leave bookkeeping describing less than what the
+    server provably holds. Reporting anyway keeps the record truthful about what
+    the server holds, and the stale revision pin turns any mismatch into D32's
+    sanctioned trade: rejected until the next trigger re-syncs. The flag is the one thing
     this layer adds to D2's flush: a completion/hover/definition prepare may already
     have delivered the same text (its push then dying at the gate, version past
     the record), and an unforced landing would send nothing for a push-only server

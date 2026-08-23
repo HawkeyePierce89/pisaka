@@ -38,9 +38,9 @@ final class LSPDocumentSyncController {
     private let workspace: LSPWorkspace
 
     /// The in-flight sync work per file; a newer piece of work for the *same*
-    /// file cancels the older one, so a burst of keystrokes flushes once —
-    /// `SymbolIndexController.bufferTasks`' structure and reasoning verbatim.
-    /// Each task removes its own entry when it finishes, so the dictionary is
+    /// file cancels the older one and chains on its completion — a burst
+    /// flushes once, and the reports cannot reorder (see `schedule`). Each task
+    /// removes its own entry when it finishes uncancelled, so the dictionary is
     /// bounded by the number of files being typed in at once.
     private var bufferTasks: [URL: Task<Void, Never>] = [:]
 
@@ -110,13 +110,31 @@ final class LSPDocumentSyncController {
         let revision = model.currentRevision(for: url)
 
         let key = url.standardizedFileURL
-        bufferTasks.removeValue(forKey: key)?.cancel()
+        // Captured before eviction so the replacement can wait out the task it
+        // supersedes — see the body comment for why that ordering is load-bearing.
+        let predecessor = bufferTasks[key]
+        predecessor?.cancel()
         let interval = bufferDebounce
-        bufferTasks[key] = Task { [weak self, model, workspace] in
+        bufferTasks[key] = Task { [weak self, model, workspace, predecessor] in
+            if Task.isCancelled { return }
             if !immediate {
                 try? await Task.sleep(for: interval)
                 if Task.isCancelled { return }
             }
+            // Wait out the evicted task *to completion*, report included, before
+            // preparing. Both tasks are released from the same shared awaits
+            // (the per-document flush wait chief among them) in unspecified
+            // order, so without this their `noteSynced` reports could land
+            // newest-pin-first: the record would then name the evicted task's
+            // older pin while `currentRevision` has moved past it, and with no
+            // further trigger scheduled — a wholesale rewrite of the displayed
+            // tab is exactly two such schedules and nothing after — every later
+            // push fails the acceptance gate's revision half and strands the
+            // document blank until the user touches it. Chaining makes the order
+            // deterministic instead: the older report lands first, the newer
+            // overwrites it, and the final record is always the last sender's.
+            await predecessor?.value
+            if Task.isCancelled { return }
             // One prepare call, no follow-up request — forced, because the sync
             // is the channel's whole supply: a completion/hover/definition flush
             // may already have delivered this exact text (its push then died at
@@ -133,21 +151,15 @@ final class LSPDocumentSyncController {
                 forceFlush: true
             )
             guard let self else { return }
-            // An evicted task still reports. Cancellation stops the *report*,
-            // never the bytes: a task already inside `prepare` when its
-            // replacement scheduled sends its notification to completion, and
-            // skipping the report is what would make that harmful. The newer
-            // sibling can flush after it — both released from one launch wait
-            // resume in unspecified order — leaving the server holding this
-            // task's older text at a *higher* version than any record names.
-            // Every later push then matches the workspace's own bookkeeping and
-            // reaches the model, where the missing report misjudges it: a
-            // versioned set is stranded in the hold, an unversioned one — most
-            // servers — is accepted against offsets it does not describe, with
-            // no settling sync left to correct either. Recording anyway keeps
-            // the record truthful about what the server holds, and the stale
-            // revision pin turns the outcome into D32's sanctioned trade:
-            // rejected until the next debounce re-syncs.
+            // An evicted task still reports. Chaining above already orders two
+            // *schedules* of the same file, but cancellation from the other
+            // paths — `noteBufferClosed` and `reset()` — carries no successor,
+            // so a task inside `prepare` when its cancel lands sends its
+            // notification to completion regardless; skipping its report would
+            // leave the record describing a state older than what the server
+            // provably holds. Recording anyway keeps the record truthful, and
+            // the stale revision pin turns any mismatch into D32's sanctioned
+            // trade: rejected until the next trigger re-syncs.
             if let prepared {
                 model.noteSynced(url: url, version: prepared.version, revision: revision)
             }
