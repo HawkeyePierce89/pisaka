@@ -671,10 +671,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     it can neither intercept a click nor move the layout. Two edges of that
     construction are stated where they are decided (`TreeDraftDismissRule`'s
     "What `draftBounds` is") and worth repeating here: what is handed to the
-    rule is `visibleRect` — `bounds` as the superviews actually show it, so
-    no intersection with `bounds` is needed — since the tree scrolls and a
-    draft scrolled out of the clip view would otherwise keep owning clicks
-    on the pane header and the panes around it; and only a *create* draft
+    rule is `bounds.intersection(visibleRect)` — since the tree scrolls and
+    a draft scrolled out of the clip view would otherwise keep owning clicks
+    on the pane header and the panes around it, while the intersection is
+    what keeps it from owning the whole window (AppKit's `visibleRect` is the
+    superviews' visible region in the receiver's coordinates and is *not*
+    intersected with the receiver's own `bounds`, so it is routinely larger
+    than it — measured, not assumed); and only a *create* draft
     draws an icon column of its own, so during a **rename** the row's icon
     and the row's padding around the field belong to the row, sit outside
     the rectangle, and a click on them cancels like any other click on the

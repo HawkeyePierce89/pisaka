@@ -132,8 +132,11 @@ public enum TreeDraftCancelTiming: Equatable {
 /// `NSApp.sendEvent`, so the local monitor hears the down — answered `cancel`
 /// here — and never the release that would apply it. A window resize begun in
 /// the band along the content area's own edges is one such gesture; a
-/// project-tree row drag (every row but the drafted one is a drag source) is the
-/// other. The answer is unapplied rather than lost: the draft stays open,
+/// project-tree row drag (every row but the drafted one is a drag source) is
+/// another; so is any scroller knob drag and any control that resolves a menu on
+/// the down. The list is the shape, not an inventory — every AppKit gesture that
+/// takes the mouse over from its own mouse-down behaves this way. The answer is
+/// unapplied rather than lost: the draft stays open,
 /// editable and cancellable by Esc or by the next click outside it, and a drag
 /// that moves the drafted row's own entry drops the draft anyway when the tree
 /// re-reads that directory. Applying the cancel on the down instead would trade
@@ -154,12 +157,17 @@ public enum TreeDraftCancelTiming: Equatable {
 /// the geometry answering rather than a rule bending:
 ///
 /// - The caller passes the **visible** part of that rectangle — that view's
-///   `visibleRect`, which is by definition `bounds` already clipped to what its
-///   superviews show, in the same coordinate space, so intersecting the two
-///   would be a no-op. The tree scrolls, and a draft
+///   `bounds` intersected with its `visibleRect`. The tree scrolls, and a draft
 ///   scrolled out of the clip view keeps a rectangle that maps over the pane's
 ///   header and its neighbours; clipped away, the draft owns none of those
-///   clicks, and a fully scrolled-out draft lands on the degenerate case below.
+///   clicks, and a fully scrolled-out draft intersects to `.null` and lands on
+///   the degenerate case below. The intersection is **not** redundant, however
+///   much "the portion not clipped by its superviews" sounds like it: AppKit
+///   returns that region in the receiver's coordinates without intersecting the
+///   receiver's own rectangle, so `visibleRect` is routinely *larger* than
+///   `bounds` and a draft handed it unintersected would own every click in the
+///   window. That is a fact about the view layer and is recorded there; the rule
+///   only requires that what arrives is the region the draft actually occupies.
 /// - Only a **create** draft draws an icon column of its own. A *rename* draft
 ///   sits inside the row that already draws one, so that icon — and the row's
 ///   padding around the field — belongs to the row, is outside the rectangle,

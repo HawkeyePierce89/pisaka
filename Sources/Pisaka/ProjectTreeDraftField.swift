@@ -363,20 +363,34 @@ struct TreeDraftDismissRegion: NSViewRepresentable {
             // cannot arise.
             let insideContent = window.contentView != nil
                 && window.contentLayoutRect.contains(event.locationInWindow)
-            // `visibleRect`, **not** `bounds`: the tree is a scroll view, so a
-            // draft scrolled out of the clip view keeps a `bounds` that now maps
-            // over the pane's header and the panes above and below it — clicking
-            // there would read as clicking the draft. `visibleRect` is that same
-            // rectangle already clipped to what the superviews actually show (it
-            // is by definition a sub-rectangle of `bounds`, in the same
-            // coordinate space, so intersecting the two would be a no-op), and a
-            // fully scrolled-out draft yields the empty rectangle the rule
-            // already answers `cancel` for.
+            // `bounds.intersection(visibleRect)`, and **both** halves are
+            // load-bearing.
+            //
+            // `visibleRect` is needed because the tree is a scroll view: a draft
+            // scrolled out of the clip view keeps a `bounds` that now maps over
+            // the pane's header and the panes above and below it, and clicking
+            // there would read as clicking the draft.
+            //
+            // Intersecting with `bounds` is needed because `visibleRect` is
+            // **not** a sub-rectangle of `bounds` — the intuitive reading of
+            // "the portion not clipped by its superviews", and measurably wrong.
+            // AppKit returns the superview chain's visible region expressed in
+            // the receiver's coordinates *without* intersecting the receiver's
+            // own rectangle, so a view whose superviews clip nothing gets back
+            // the whole content area: a 50×50 view in a 400×400 window measures
+            // `bounds (0, 0, 50, 50)` and `visibleRect (-100, -100, 400, 432)`.
+            // Handing that over unintersected makes the draft own every click in
+            // the window, which is the rule answering `ignore` for exactly the
+            // clicks — another tree row, the editor — it exists to cancel on.
+            //
+            // `CGRect.intersection` returns `.null` for disjoint rectangles, so
+            // the fully scrolled-out draft still lands on the degenerate case the
+            // rule already answers `cancel` for.
             let decision = TreeDraftDismissRule.decision(
                 clickedWindowIsDraftWindow: event.window === window,
                 clickedInsideWindowContent: insideContent,
                 point: convert(event.locationInWindow, from: nil),
-                draftBounds: visibleRect
+                draftBounds: bounds.intersection(visibleRect)
             )
             guard decision == .cancel else {
                 // A down *on* the draft also clears any pending cancel: without
