@@ -435,6 +435,13 @@ final class FileNameTests: XCTestCase {
         XCTAssertEqual(initialRenameSelection(in: "Sources", isDirectory: true), NSRange(location: 0, length: 7))
         XCTAssertEqual(initialRenameSelection(in: "foo.", isDirectory: false), NSRange(location: 0, length: 4))
         XCTAssertEqual(initialRenameSelection(in: ".env", isDirectory: true), NSRange(location: 0, length: 4))
+        // The leading dot is not an extension marker (`location > 0`), asserted
+        // as a *file* so the directory branch cannot answer for it.
+        XCTAssertEqual(initialRenameSelection(in: ".env", isDirectory: false), NSRange(location: 0, length: 4))
+        // A dotfile with a second dot: both guards hold, so the stem before the
+        // *last* dot is what a keystroke replaces.
+        XCTAssertEqual(initialRenameSelection(in: ".env.local", isDirectory: false), NSRange(location: 0, length: 4))
+        XCTAssertEqual(initialRenameSelection(in: ".eslintrc.json", isDirectory: false), NSRange(location: 0, length: 9))
         XCTAssertEqual(initialRenameSelection(in: "", isDirectory: false), NSRange(location: 0, length: 0))
     }
 

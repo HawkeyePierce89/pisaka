@@ -14,7 +14,8 @@ description of each — and of what it deliberately does *not* do — is in
 ## Features (macOS)
 
 - **Projects** — open a folder as a project (Cmd+Shift+O) and browse it as a
-  tree: create (with relative paths, `a/b/c.ts` in one step), rename, delete,
+  tree: create and rename inline on the row (a create takes relative paths,
+  `a/b/c.ts` in one step), delete,
   and move by dragging a row onto a folder (or onto the project root); external
   changes (Finder, a console `git checkout`, the embedded terminal) show up on
   their own via FSEvents.

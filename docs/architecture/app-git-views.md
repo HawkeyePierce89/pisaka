@@ -24,9 +24,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     false`, wrapping non-scrollable cell, `maximumNumberOfLines = 0`,
     `preferredMaxLayoutWidth` set — all of which a plain `NSTextField()` already
     does, stated explicitly because multiline input is the point of the field), so
-    even a deep pasted path
-    (`backend/src/dialogs/dialogs.service.ts`) is visible in full rather than
-    scrolled out of a narrow one-line field; a private
+    even a long pasted string is visible in full rather than
+    scrolled out of a narrow one-line field (the tree's relative-path create was
+    the original motivation; a long branch name is what reaches it today); a private
     `promptFieldHeight(of:)` measures the wrapped content and drives a height
     constraint (clamped to 1…6 lines) that the delegate updates — re-laying out the
     alert only when the height actually changed — so the dialog grows with the
@@ -57,16 +57,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `PromptNameDelegate.revalidate(text:)` — blank/whitespace-only input disables
     OK but shows **no** reason (incomplete input, not an error) — everything else
     just displays what the validator returned and sets `alert.buttons[0].isEnabled`.
+    Both mechanisms are dormant rather than dead: no surviving call site passes a
+    reasoned validator (see the branch dialogs below), and the rules they once
+    displayed now reach the user through the tree's inline draft instead
+    (`app-window.md`), which re-implements the wrapping/height idea in
+    `NSViewRepresentable` shape and deliberately shares only the six-line clamp.
     The private `PromptNameDelegate` (an `NSTextFieldDelegate` retained by
     `promptName` for the lifetime of the modal, since `NSTextField.delegate` is
     weak) re-validates on `controlTextDidChange`, and `promptName` calls
     `revalidate(text: defaultValue)` once *before* `runModal()` so the initial
-    state is right (a pre-filled Rename opens with OK enabled, an empty create with
-    OK disabled). `revalidate` and the field-resize step each report whether they
+    state is right (the retired tree prompts opened a pre-filled Rename with OK
+    enabled and an empty create with OK disabled; the two surviving branch prompts
+    pass no validator, so their initial state comes from the blank-input branch
+    alone — pre-filled ⇒ enabled, empty ⇒ disabled). `revalidate` and the field-resize step each report whether they
     changed anything and `controlTextDidChange` calls `alert.layout()` when either
     did — the reason line is a *wrapping* label, so a message that needs two lines
-    (the rename `.separatorInName` text does) grows the accessory view, and without
-    an explicit re-layout the alert keeps its old height and clips the second line.
+    (the retired tree rename's `.separatorInName` text did) grows the accessory
+    view, and without an explicit re-layout the alert keeps its old height and
+    clips the second line.
     Because the field is multiline, every line-break-inserting command would
     otherwise put a newline in the name:
     `control(_:textView:doCommandBy:)` intercepts `insertNewline:`,

@@ -155,17 +155,27 @@ enum ZoomHitTest {
     ///   panels and the terminal's inactive tabs stay in the hierarchy while
     ///   hidden, and a hidden terminal under the pointer would otherwise claim
     ///   every gesture aimed at whatever replaced it.
-    /// - **`visibleRect`, not `bounds`.** It is the part of the view its
-    ///   superviews have not clipped away, so a text view scrolled far past the
-    ///   pointer — or one inside a collapsed split pane — contains the point in
-    ///   its own coordinates yet is not under the pointer at all.
+    /// - **`bounds` intersected with `visibleRect`, not either alone.**
+    ///   `visibleRect` is the part the superviews have not clipped away, so a
+    ///   text view scrolled far past the pointer — or one inside a collapsed
+    ///   split pane — contains the point in its own `bounds` yet is not under
+    ///   the pointer at all. The intersection is not redundant: AppKit returns
+    ///   that region in the receiver's coordinates *without* intersecting the
+    ///   receiver's own rectangle, so a view whose superviews clip nothing gets
+    ///   back the whole content area (a 50×50 view in a 400×400 window measures
+    ///   `visibleRect (-100, -100, 400, 432)`). Unintersected, every unclipped
+    ///   surface — the terminal, the minimap, the rulers — would claim every
+    ///   pointer location, and `ZoomZone.resolve`'s deepest-candidate rule would
+    ///   then pick whichever surface sits deepest in the view tree rather than
+    ///   the one under the pointer.
     ///
     /// Siblings are visited in `subviews` order, which is what
     /// `ZoomZone.resolve`'s documented tie-break means by "scan order".
     static func candidates(under point: NSPoint, in view: NSView, depth: Int) -> [ZoomSurfaceCandidate] {
         guard !view.isHidden else { return [] }
         var found: [ZoomSurfaceCandidate] = []
-        if let surface = view as? ZoomSurfaceProviding, view.visibleRect.contains(point) {
+        if let surface = view as? ZoomSurfaceProviding,
+           view.bounds.intersection(view.visibleRect).contains(point) {
             found.append(ZoomSurfaceCandidate(kind: surface.zoomSurfaceKind, depth: depth))
         }
         for subview in view.subviews {

@@ -47,9 +47,9 @@ final class CrossPlatformAuditTests: XCTestCase {
         XCTAssertNotEqual(FileIcon(for: pkg).color, FileIcon(for: unknown).color)
     }
 
-    /// `MinimapGeometry` is the one Core type backed by CoreGraphics (`CGFloat`),
-    /// which is available on both platforms; its math must produce identical
-    /// results everywhere.
+    /// `MinimapGeometry` and `TreeDraftDismissRule` are the two Core types backed
+    /// by CoreGraphics (`CGFloat`, `CGPoint`/`CGRect`), which is available on both
+    /// platforms; their math must produce identical results everywhere.
     func testMinimapGeometryMathIsStable() {
         let geo = MinimapGeometry(
             documentHeight: 1000,
@@ -59,6 +59,30 @@ final class CrossPlatformAuditTests: XCTestCase {
         )
         XCTAssertEqual(geo.maxScrollOffset, 800, accuracy: 0.0001)
         XCTAssertEqual(geo.documentToMinimap, 0.3, accuracy: 0.0001)
+    }
+
+    /// The other CoreGraphics-backed Core type: `CGRect.contains` is half-open on
+    /// every platform, and an empty rectangle contains nothing.
+    func testTreeDraftDismissRuleGeometryIsStable() {
+        let bounds = CGRect(x: 10, y: 20, width: 100, height: 30)
+        XCTAssertEqual(
+            TreeDraftDismissRule.decision(clickedWindowIsDraftWindow: true,
+                                          clickedInsideWindowContent: true,
+                                          point: CGPoint(x: 10, y: 20),
+                                          draftBounds: bounds),
+            .ignore)
+        XCTAssertEqual(
+            TreeDraftDismissRule.decision(clickedWindowIsDraftWindow: true,
+                                          clickedInsideWindowContent: true,
+                                          point: CGPoint(x: 110, y: 50),
+                                          draftBounds: bounds),
+            .cancel)
+        XCTAssertEqual(
+            TreeDraftDismissRule.decision(clickedWindowIsDraftWindow: true,
+                                          clickedInsideWindowContent: true,
+                                          point: CGPoint(x: 10, y: 20),
+                                          draftBounds: .zero),
+            .cancel)
     }
 
     /// `SyntaxTokenKind(captureName:)` longest-prefix matching is pure Foundation

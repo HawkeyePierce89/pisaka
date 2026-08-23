@@ -37,9 +37,15 @@ user sees it.
   then alphabetically. Right-click anywhere on a row — the same rectangle that
   highlights and that a left click acts on — for a context menu, which never
   changes a folder's expansion: directories offer New
-  File…, New Folder…, Rename…, and Delete; files offer Rename… and Delete, plus a
+  File, New Folder, Rename, and Delete; files offer Rename and Delete, plus a
   "Run" item for runnable file types and a "Run Test" item for test files; the
-  project root offers the two create actions. New File… and New Folder… accept a
+  project root offers the two create actions. None of the three names carries an
+  ellipsis, because none of them opens a dialog: naming happens **inline, on the
+  row itself**. A create swaps in a draft row (drawing the icon its future row
+  will have, and expanding a collapsed folder to show it) while a rename swaps
+  the row's label for a field pre-filled with the current name, its extension
+  left out of the selection so one keystroke replaces the stem and `.swift`
+  survives. New File and New Folder accept a
   *relative path*, not just a name: entering
   `centrifugo/config.json` creates the `centrifugo` folder and the file inside it
   in one step. Missing intermediate folders are created and existing ones reused,
@@ -47,17 +53,28 @@ user sees it.
   overwritten — and if something on the path already exists as a *file*, nothing
   is created and the alert names it (`"centrifugo" already exists and is not a
   folder.`). If a later step fails, any intermediate folders already created stay
-  on disk (as with `mkdir -p`) and show up in the tree. The New File… / New
-  Folder… / Rename… dialog shows the *whole* input: the field is wide and wraps
-  onto as many lines as it needs (up to six), so a long pasted path stays visible
-  instead of
+  on disk (as with `mkdir -p`) and show up in the tree. The draft field shows the
+  *whole* input: it wraps onto as many lines as it needs (up to six) and the row
+  grows to fit, so a long pasted path stays visible instead of
   scrolling out of sight. It also validates as you type — the reason a name or
-  path cannot be used appears in red under the field (an empty part of the path,
+  path cannot be used appears in red under the field, and the text turns red with
+  it (an empty part of the path,
   a `.` or `..`, a line break pasted into a name, a reserved `.git`/`.DS_Store`, a
   slash in a rename, which takes a
-  single name and not a path) and OK stays disabled until the input is valid.
-  Empty input simply disables OK without complaining. Enter confirms when OK is
-  enabled and does nothing otherwise, so it never inserts a line break. A new file opens in a tab, a rename
+  single name and not a path, or a name a sibling in that folder already has).
+  An invalid draft still stays open and editable: Enter refuses it with a beep
+  rather than closing it, and never inserts a line break. Empty input is not an
+  error — it shows no reason at all, and Enter simply refuses. Esc cancels.
+  Clicking anywhere outside the draft — another row, a tab, the editor, the
+  bottom bar — cancels it silently *and* still does what that click would
+  normally do (the folder toggles, the file opens, the right-clicked row gets its
+  menu — every row but the one being named, which has no menu while its draft is
+  open, so that click only cancels and the menu is back on the next one), the way
+  an inline rename behaves in Finder; clicking the field, a create
+  draft's icon or the reason line does not cancel, and neither does the window's
+  title bar or ⌘Tabbing to another app and ⌘Tabbing back, which leaves the draft
+  and its text untouched. (Coming back by *clicking* the window is an ordinary
+  click and cancels the draft if it lands outside it.) A new file opens in a tab, a rename
   retargets any open tab (a renamed folder follows all its nested tabs), and a
   delete closes the affected tabs; the tree refreshes in place without reopening
   the folder. On macOS it also keeps up with changes made *outside* the app: the

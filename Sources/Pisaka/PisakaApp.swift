@@ -2888,25 +2888,30 @@ struct PisakaApp: App {
 
     // MARK: - Project tree file operations
 
-    /// Create a new file inside `directory`: prompt for a *relative path* (VS
-    /// Code-style — `centrifugo/config.json`, not just a single name), validate
-    /// it, create any missing intermediate folders, create the file on disk, open
-    /// it in a tab, then bump `treeRevision` so the tree re-reads the directory.
+    /// Create a new file inside `directory` at the *relative path* `rawName` (VS
+    /// Code-style — `centrifugo/config.json`, not just a single name): create any
+    /// missing intermediate folders, create the file on disk, open it in a tab,
+    /// then bump `treeRevision` so the tree re-reads the directory.
     ///
-    /// The dialog validates *live* through `validateRelativeEntryPath(_:)`, whose
-    /// `EntryPathIssue.message` is shown under the field and keeps OK disabled
-    /// while the input is invalid — so an invalid path normally cannot be
-    /// confirmed at all. The post-OK `parseRelativeEntryPath(_:)` guard below is
-    /// kept anyway as defense-in-depth (both share one Core rule, and a
-    /// programmatic path could reach here without the dialog); a `nil` result is
-    /// reported through `reportInvalidName`, which explains the per-component
-    /// rule. Existing intermediate folders are reused (`ensureDirectory`,
-    /// `mkdir -p` semantics), but the *final* entry is never clobbered — an
-    /// existing one fails with `.alreadyExists`. Any disk failure (collision, a
-    /// file sitting on the path, missing/unwritable parent, write error) is
-    /// surfaced non-fatally — and because `ensureDirectory` does not roll back,
-    /// a multi-component failure still bumps `treeRevision` so intermediates it
-    /// already created are visible instead of leaving the tree contradicting disk.
+    /// **There is no prompt and no OK button.** The name arrives already typed
+    /// and already accepted: the tree draws an inline draft field
+    /// (`ProjectTreeDraftField.swift`) that validates *live* through
+    /// `validateRelativeEntryPath(_:)`, shows the resulting
+    /// `EntryPathIssue.message` under the field, and refuses to commit an invalid
+    /// or blank input at all — Enter beeps and the draft stays open. So an
+    /// invalid path normally never reaches this method. The
+    /// `parseRelativeEntryPath(_:)` guard below is *post-commit*
+    /// defense-in-depth behind that live validation, over the same one Core rule
+    /// the field asked (`FileName`), for the paths the field does not stand in
+    /// front of; a `nil` result is reported through `reportInvalidName`, which
+    /// explains the per-component rule. Existing intermediate folders are reused
+    /// (`ensureDirectory`, `mkdir -p` semantics), but the *final* entry is never
+    /// clobbered — an existing one fails with `.alreadyExists`. Any disk failure
+    /// (collision, a file sitting on the path, missing/unwritable parent, write
+    /// error) is surfaced non-fatally — and because `ensureDirectory` does not
+    /// roll back, a multi-component failure still bumps `treeRevision` so
+    /// intermediates it already created are visible instead of leaving the tree
+    /// contradicting disk.
     private func newFile(in directory: URL, name rawName: String) {
         guard !revertInFlight() else { return }
         guard let components = parseRelativeEntryPath(rawName) else {
@@ -2927,13 +2932,14 @@ struct PisakaApp: App {
         }
     }
 
-    /// Create a new folder inside `directory`, mirroring `newFile(in:)` — the
-    /// prompt likewise accepts a relative path of any depth, missing
-    /// intermediates are created and existing ones reused, and the final
-    /// component is never clobbered. No tab is opened for a directory. A failure
-    /// refreshes the tree for the same no-rollback reason as `newFile(in:)`. The
-    /// dialog likewise validates live through `validateRelativeEntryPath(_:)`,
-    /// with the post-OK parse kept as defense-in-depth.
+    /// Create a new folder inside `directory`, mirroring `newFile(in:name:)` —
+    /// `rawName` is likewise a relative path of any depth, missing intermediates
+    /// are created and existing ones reused, and the final component is never
+    /// clobbered. No tab is opened for a directory. A failure refreshes the tree
+    /// for the same no-rollback reason as `newFile(in:name:)`. The inline draft
+    /// likewise validated live through `validateRelativeEntryPath(_:)` and
+    /// refused to commit anything invalid, so the parse below is the same
+    /// post-commit defense-in-depth over the same Core rule.
     private func newFolder(in directory: URL, name rawName: String) {
         guard !revertInFlight() else { return }
         guard let components = parseRelativeEntryPath(rawName) else {
@@ -2967,17 +2973,20 @@ struct PisakaApp: App {
         model.bumpTreeRevision()
     }
 
-    /// Rename the file or folder at `url`: prompt pre-filled with the current
-    /// name, validate, move on disk, retarget any affected open tabs via
-    /// `renamePath(from:to:)`, then bump `treeRevision`. A no-op when the entered
-    /// name is unchanged.
+    /// Rename the file or folder at `url` to `rawName`: move on disk, retarget
+    /// any affected open tabs via `renamePath(from:to:)`, then bump
+    /// `treeRevision`. A no-op when the accepted name is unchanged.
     ///
-    /// The dialog validates *live* through `validateSingleEntryName(_:)` (the
-    /// single-name grammar — a `/` is rejected as "a name, not a path" — with the
-    /// *exact-match* reserved semantics the post-OK guard uses, so the two can
-    /// never disagree), keeping OK disabled while the input is invalid. The
-    /// `isValidFileName` + `isExcludedEntryName` guards below are kept as
-    /// defense-in-depth over the same Core rule.
+    /// **There is no prompt and no OK button**, as with the two creates: the row
+    /// swaps its label for an inline draft field pre-filled with the current name
+    /// (its stem preselected, `initialRenameSelection(in:isDirectory:)`) which
+    /// validates *live* through `validateSingleEntryName(_:)` — the single-name
+    /// grammar, where a `/` is rejected as "a name, not a path", with the
+    /// *exact-match* reserved semantics the guards below use, so the two can
+    /// never disagree — and refuses to commit while the input is invalid,
+    /// beeping instead. The `isValidFileName` + `isExcludedEntryName` guards
+    /// below are therefore post-commit defense-in-depth behind that live
+    /// validation, over the same one Core rule the field asked.
     ///
     /// Everything past the accepted name is `performMove(from:to:)` — the body a
     /// rename shares with a drag-and-drop move, which is where the
@@ -2996,13 +3005,14 @@ struct PisakaApp: App {
     /// Move the entry at `source` to `destination` on disk and carry everything
     /// that names it along: the open tabs, the symbol index and the tree.
     ///
-    /// The one body both project-tree moves share — the rename dialog
-    /// (`renameItem(at:)`, a move within one folder) and the drag-and-drop move
-    /// (`moveItem(at:into:)`, a move across folders). Each caller owns only its
-    /// own admission rules (prompt and name validation there, `MoveDropRule`
-    /// here); the *ordering* below is delicate enough that a second copy of it
-    /// would be a second thing to get wrong, and the two differ in nothing but
-    /// how `destination` was arrived at.
+    /// The one body both project-tree moves share — the rename
+    /// (`renameItem(at:newName:)`, a move within one folder) and the
+    /// drag-and-drop move (`moveItem(at:into:)`, a move across folders). Each
+    /// caller owns only its own admission rules (the inline draft's live
+    /// validation and that method's re-run guards there, `MoveDropRule` here);
+    /// the *ordering* below is delicate enough that a second copy of it would be
+    /// a second thing to get wrong, and the two differ in nothing but how
+    /// `destination` was arrived at.
     ///
     /// Callers must have passed the writer gate (`revertInFlight()`) before
     /// calling: this writes to the working tree.
@@ -3133,12 +3143,14 @@ struct PisakaApp: App {
 
     /// Surface a rejected name the same non-fatal way as a disk failure.
     ///
-    /// The two call sites have different grammars, so the text does too. The
-    /// create dialogs (`isPath: true`) treat a slash as a path separator, so the
-    /// message explains the *per-component* rule. Rename (`isPath: false`) still
-    /// takes a single name and rejects any slash outright — a path there would be
-    /// a move, a separate feature — so it must not be told that slashes separate
-    /// folders.
+    /// Both call sites are now post-*commit* reporters — the inline draft has
+    /// already accepted the name against the same Core rule — and the two have
+    /// different grammars, so the text does too. The create paths
+    /// (`newFile(in:name:)`/`newFolder(in:name:)`, `isPath: true`) treat a slash
+    /// as a path separator, so the message explains the *per-component* rule.
+    /// Rename (`isPath: false`) still takes a single name and rejects any slash
+    /// outright — a path there would be a move, a separate feature — so it must
+    /// not be told that slashes separate folders.
     private func reportInvalidName(_ name: String, isPath: Bool = true) {
         PlatformFeedback.warning()
         let alert = NSAlert()

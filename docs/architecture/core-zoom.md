@@ -309,10 +309,15 @@ items, and applies the three scales to views.
     (the three bottom panels and the terminal's inactive tabs stay in the
     hierarchy while hidden, and a hidden terminal under the pointer would
     otherwise claim every gesture aimed at whatever replaced it), and
-    **`visibleRect`, not `bounds`** (it is the part a superview has not clipped
-    away, so a text view scrolled far past the pointer — or one in a collapsed
-    split pane — contains the point in its own coordinates yet is not under the
-    pointer at all). Siblings are visited in `subviews` order, which is what
+    **`bounds.intersection(visibleRect)`, not either alone** (`visibleRect` is
+    the part a superview has not clipped away, so a text view scrolled far past
+    the pointer — or one in a collapsed split pane — contains the point in its own
+    `bounds` yet is not under the pointer at all; and AppKit returns that region
+    in the receiver's coordinates *without* intersecting the receiver's own
+    rectangle, so unintersected it is routinely larger than `bounds` and every
+    unclipped surface would claim every pointer location, handing the
+    deepest-candidate rule the deepest surface in the tree instead of the one
+    under the pointer). Siblings are visited in `subviews` order, which is what
     Core's documented tie-break means by "scan order".
     `focusedSurfaceKind()` walks *up* the responder chain from the key window's
     first responder, so a focused text view answers for itself and a focused

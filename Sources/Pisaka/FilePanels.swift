@@ -94,10 +94,20 @@ enum FilePanels {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    /// Prompt for a file/folder name (or a relative path) via an `NSAlert`
-    /// hosting a wide, wrapping multiline `NSTextField` accessory. Returns the
-    /// entered string on OK (pre-filled with `defaultValue` — empty for New, the
-    /// current name for Rename), or `nil` on Cancel.
+    /// Prompt for a single-line name via an `NSAlert` hosting a wide, wrapping
+    /// multiline `NSTextField` accessory. Returns the entered string on OK
+    /// (pre-filled with `defaultValue`), or `nil` on Cancel.
+    ///
+    /// **Its two callers are now the branch prompts** — "New Branch…" and
+    /// "New Branch from Remote" (`PisakaApp`) — which pass `{ _ in nil }` and let
+    /// the post-OK `GitRefName.isValid` guard in `createBranch` report instead.
+    /// The project tree's New File / New Folder / Rename prompts, which this was
+    /// written for, moved into the tree itself as the inline naming draft
+    /// (`ProjectTreeDraftField`, `docs/architecture/app-window.md`); the
+    /// relative-path and single-name rules they validated against still live in
+    /// `PisakaCore` (`validateRelativeEntryPath` / `validateSingleEntryName`) and
+    /// are asked there now. So the reasoned-validator machinery below is
+    /// *dormant* rather than dead: it works, no current caller uses it.
     ///
     /// The field wraps instead of scrolling, so even a deep path
     /// (`backend/src/dialogs/dialogs.service.ts`) is visible in full and the
@@ -105,10 +115,9 @@ enum FilePanels {
     /// once before the dialog is shown: it returns `nil` for a valid input or the
     /// reason text to display, which drives a red reason line under the field and
     /// the enabled state of OK. It is *required* — every call site must state its
-    /// validation intent, so a new one cannot silently forget it. All the rules and
-    /// their wording live in `PisakaCore` (`validateRelativeEntryPath` /
-    /// `validateSingleEntryName`); the only decision made here is that blank input
-    /// disables OK *without* showing a reason (incomplete input, not an error).
+    /// validation intent, so a new one cannot silently forget it. The only
+    /// decision made here is that blank input disables OK *without* showing a
+    /// reason (incomplete input, not an error).
     ///
     /// Enter never inserts a line break: it clicks OK when OK is enabled and is
     /// swallowed otherwise.
@@ -176,8 +185,10 @@ enum FilePanels {
             validator: validator
         )
         field.delegate = delegate
-        // Get the initial state right before the dialog is shown: a pre-filled
-        // Rename opens with OK enabled, an empty create with OK disabled. Run it
+        // Get the initial state right before the dialog is shown: of the two
+        // surviving callers, "New Branch from Remote" opens pre-filled with OK
+        // enabled and "New Branch…" opens empty with OK disabled — both through
+        // the blank-input branch alone, since neither passes a validator. Run it
         // before the frame is sized so a reason shown from the start is included.
         delegate.revalidate(text: defaultValue)
 

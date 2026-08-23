@@ -562,24 +562,26 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     Every path surfaces a failure non-fatally: `reportFileOperationFailure` beeps and
     shows an `NSAlert(error:)`, `reportInvalidName`/`reportReservedName` beep and
     explain the rejected name. `reportInvalidName` takes an `isPath` flag because the
-    two call sites have different grammars — the create dialogs get the
+    two call sites have different grammars — the create paths get the
     per-component path rule, while rename gets "a name must not contain a slash"
     (telling a rejected rename that slashes separate folders would describe a rule
     the entered name satisfies, leaving the real reason unstated).
-    Each `promptName` call site passes the validator matching its own post-OK
-    guard, so the dialog gates OK on exactly the rule that would otherwise reject
-    the input afterwards: `newFile(in:)`/`newFolder(in:)` pass
-    `{ validateRelativeEntryPath($0)?.message }`, `renameItem(at:)` passes
-    `{ validateSingleEntryName($0)?.message }`, and the two branch dialogs
-    (`newBranch`/`createBranchFromRemote`) pass an explicit `{ _ in nil }` — no
-    live reason, `GitRefName.isValid` stays the only reporter (deliberate minimal
-    scope; see `FilePanels.swift`). The post-OK guards themselves
-    (`parseRelativeEntryPath`, `isValidFileName` + `isExcludedEntryName`,
-    `GitRefName.isValid`) and `reportInvalidName`/`reportReservedName` are **kept
-    exactly as they were**: live validation gates the *dialog*, but these paths are
-    also reachable programmatically (and the branch dialogs have no live
-    validation at all), so the guards remain the defense-in-depth backstop rather
-    than dead code. (`deleteItem` handles a file and a directory tree uniformly via
+    **None of the three takes a name from a dialog any more.** `newFile(in:name:)`,
+    `newFolder(in:name:)` and `renameItem(at:newName:)` are handed a name the
+    project tree's inline draft has *already* accepted against the same Core rule
+    (`ProjectTreeDraftField` + `TreeNameFieldView`, `app-window.md`), so the
+    reason line the user reads is the draft's, live, and these guards
+    (`parseRelativeEntryPath`, `isValidFileName` + `isExcludedEntryName`) run
+    post-*commit*, behind the writer gate, as defense-in-depth for a rule the
+    draft could not have re-checked at the moment of the write (a sibling that
+    appeared since) and for the paths reachable programmatically. They and
+    `reportInvalidName`/`reportReservedName` are therefore **kept exactly as they
+    were** rather than deleted as dead code. The only surviving `promptName`
+    callers are the two branch prompts (`newBranch`/`createBranchFromRemote`),
+    which pass an explicit `{ _ in nil }` — no live reason, `GitRefName.isValid`
+    after OK stays the only reporter (deliberate minimal scope; see
+    `FilePanels.swift` and `app-git-views.md`).
+    (`deleteItem` handles a file and a directory tree uniformly via
     `removeItem`/`tabIDs(under:)`/`closeFiles(ids:)`, so it takes no item-type
     flag.)
     `PisakaApp` also owns `private let projectWatcher = ProjectWatcher()` (next to

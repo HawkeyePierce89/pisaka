@@ -14,6 +14,15 @@ import PisakaCore
 /// and bumps `model.treeRevision` so the affected directory re-reads its cached
 /// children.
 ///
+/// Creating and renaming happen **inline, not in a dialog**: choosing New File,
+/// New Folder or Rename opens a draft on the row itself
+/// (`TreeEditDraft` + `TreeNameFieldView`, `ProjectTreeDraftField.swift`), which
+/// validates live and commits on Enter. That is why the three callbacks are
+/// `(URL, String)` and not `(URL)`: they carry the text the field already
+/// accepted — the target directory or entry, plus the name — where the retired
+/// prompts collected it themselves. Delete, Run and Run Test have nothing to
+/// type and stay parameterless.
+///
 /// `model.treeRevision` — the one re-read trigger `DirectoryNodeView` observes —
 /// now has three sources: the app's own operations (the callbacks above, plus
 /// Save As and a branch checkout), the FSEvents `ProjectWatcher` (external
@@ -254,7 +263,11 @@ private struct DirectoryNodeView: View {
             if case .create(let parent, let isFolder) = draft, parent == url {
                 Group {
                     TreeNameFieldView(
-                        draft: draft!,
+                        // Rebuilt from the payload the `if case` just bound, not
+                        // re-read out of the optional: the binding is the proof
+                        // the draft is a create for *this* folder, so nothing
+                        // here can be nil and no force-unwrap is needed to say so.
+                        draft: .create(parent: parent, isFolder: isFolder),
                         siblings: children?.map(\.name) ?? [],
                         onCommit: { newName in
                             if isFolder {
@@ -337,7 +350,9 @@ private struct DirectoryNodeView: View {
                     .accessibilityHidden(true)
                 if case .rename(let draftedEntry) = draft, draftedEntry.url == url {
                     TreeNameFieldView(
-                        draft: draft!,
+                        // The bound entry, not the optional re-read: see the
+                        // create row above.
+                        draft: .rename(entry: draftedEntry),
                         siblings: siblings,
                         onCommit: { newName in
                             onRename(url, newName)
@@ -393,12 +408,16 @@ private struct DirectoryNodeView: View {
                 }
             }
         )
+        // Collapsing takes this node's whole subtree out of the hierarchy, not
+        // just its direct children — so a draft anywhere *below* this folder
+        // loses the view that renders it. It has to be dropped here, or it
+        // survives with nothing drawing it: no field to press Esc in, no
+        // mouse-down monitor (the region view went away with the row), and a
+        // later re-expansion would revive an editable field that steals focus
+        // for a rename the user believes they ended by collapsing the folder.
         .onChange(of: isExpanded) { expanded in
             if !expanded {
-                if case .create(let parent, _) = draft, parent == url {
-                    draft = nil
-                } else if case .rename(let draftedEntry) = draft,
-                          draftedEntry.url.deletingLastPathComponent().standardizedFileURL.path == url.standardizedFileURL.path {
+                if draftIsBelow(url) {
                     draft = nil
                 }
             } else if children == nil {
@@ -448,28 +467,104 @@ private struct DirectoryNodeView: View {
     /// themselves performed is noise, not information.
     private func loadChildren() {
         do {
-            children = try model.children(of: url)
+            let listing = try model.children(of: url)
+            children = listing
 
-            // Parent node drops the draft when a reload loses the drafted entry's url
-            if case .rename(let draftedEntry) = draft,
-               let currentChildren = children,
-               !currentChildren.contains(where: { $0.url == draftedEntry.url }) {
-                // To safely determine if this node is the parent, we can check if the drafted entry's URL is a direct child
-                if draftedEntry.url.deletingLastPathComponent().standardizedFileURL.path == url.standardizedFileURL.path {
-                    draft = nil
-                }
+            // A successful reload can lose the draft just as thoroughly as a
+            // collapse or an `ENOENT` does — the entry the draft is drawn at, or
+            // the child folder its subtree hangs from, is simply no longer
+            // listed (an external delete, rename or move). That row is gone from
+            // the hierarchy with nothing left to draw the field, so the draft is
+            // dropped here for the reason recorded on the collapse above.
+            if let expected = draftedChild(),
+               !listing.contains(where: { $0.name == expected.name && (!expected.mustBeDirectory || $0.isDirectory) }) {
+                draft = nil
             }
         } catch {
             if !Self.isMissingFileError(error) {
                 PlatformFeedback.warning()
-            } else if case .create(let parent, _) = draft, parent == url {
-                draft = nil
-            } else if case .rename(let draftedEntry) = draft,
-                      draftedEntry.url.deletingLastPathComponent().standardizedFileURL.path == url.standardizedFileURL.path {
+            } else if draftIsBelow(url) {
+                // This directory is gone, so everything under it is too — the
+                // same reach as a collapse, for the same reason.
                 draft = nil
             }
             children = nil
         }
+    }
+
+    /// Whether the open draft is anchored anywhere inside `directory` — which is
+    /// exactly the set of drafts that stop being rendered when `directory`
+    /// collapses or disappears.
+    ///
+    /// Both draft kinds are asked about the folder they would *write* into: a
+    /// create's target parent, and a rename's containing directory. Asking about
+    /// the containing directory rather than the entry itself is what keeps a
+    /// folder's own rename draft alive when that folder collapses — that draft is
+    /// drawn in the folder's label row, which stays on screen, and its containing
+    /// directory is the folder's parent, outside `directory`.
+    ///
+    /// The containment test is `ScopedFileAccess.path(_:isWithin:)` over
+    /// `standardizedFileURL` alone — deliberately **not** the symlink-resolving
+    /// transform `PisakaApp.isInsideProject(_:root:)` applies, which asks a
+    /// different question. That one asks "is this file the same file as one
+    /// inside the project", where two spellings of one file must agree; this one
+    /// asks "does this row hang off that row", which is a question about the
+    /// *tree*. The tree is built by appending components to the opened root and
+    /// to each listing, so both sides here are already spelled the same way, and
+    /// resolving would answer about the filesystem instead: a project containing
+    /// `link -> deep/real` would drop a draft rendered under `link` when the
+    /// unrelated `deep` collapses, and would keep one alive unrendered when
+    /// `link` points outside the collapsed directory. `standardizedFileURL` is
+    /// still applied on both sides — it removes `.`/`..` and trailing slashes
+    /// without touching symlinks.
+    private func draftIsBelow(_ directory: URL) -> Bool {
+        guard let draft else { return false }
+        let anchor: URL
+        switch draft {
+        case .create(let parent, _): anchor = parent
+        case .rename(let draftedEntry): anchor = draftedEntry.url.deletingLastPathComponent()
+        }
+        return ScopedFileAccess.path(
+            anchor.standardizedFileURL.path,
+            isWithin: directory.standardizedFileURL.path
+        )
+    }
+
+    /// The child of *this* directory that the open draft depends on: the row the
+    /// draft is drawn at when it is anchored here, or the folder its subtree
+    /// hangs from when it is anchored deeper. `nil` when no draft is anchored
+    /// below this directory, or when the draft is drawn by this node's own row
+    /// (a create in this very folder — this folder exists, we just read it).
+    ///
+    /// This is the reload half of `draftIsBelow(_:)`, and deliberately the same
+    /// reach: a listing that no longer offers the way down to the drafted row has
+    /// taken that row out of the hierarchy exactly as a collapse would. A
+    /// directory is additionally *required to still be one* when the draft lives
+    /// further down, because a folder replaced by a file of the same name (an
+    /// external `rm -rf src && touch src`) stops rendering its subtree without
+    /// ever losing the name.
+    private func draftedChild() -> (name: String, mustBeDirectory: Bool)? {
+        guard let draft, draftIsBelow(url) else { return nil }
+        let anchor: URL
+        switch draft {
+        case .create(let parent, _): anchor = parent
+        case .rename(let draftedEntry): anchor = draftedEntry.url.deletingLastPathComponent()
+        }
+        // Unresolved, for `draftIsBelow(_:)`'s reason and one more of its own:
+        // the name taken out of these components is compared against the names
+        // in *this* directory's listing, which are what the filesystem spells,
+        // not what they point at.
+        let anchorComponents = anchor.standardizedFileURL.pathComponents
+        let selfComponents = url.standardizedFileURL.pathComponents
+        if anchorComponents.count > selfComponents.count {
+            return (anchorComponents[selfComponents.count], true)
+        }
+        // Anchored in this very directory: a rename's row is the drafted entry
+        // itself (of either kind), a create's row is this folder's own.
+        if case .rename(let draftedEntry) = draft {
+            return (draftedEntry.url.lastPathComponent, false)
+        }
+        return nil
     }
 
     /// Whether `error` is "this path is gone" — the node is about to disappear from
@@ -608,11 +703,10 @@ private struct FolderDisclosureRow<Menu: View>: View {
         // not need.
         .onTapGesture { if !isDrafted { configuration.isExpanded.toggle() } }
         .onHover { isHovering = $0 }
-        .contextMenu {
-            if !isDrafted {
-                menu()
-            }
-        }
+        // Not `.contextMenu { if !isDrafted { menu() } }`: that installs the
+        // modifier either way, so right-clicking the drafted row opens an empty
+        // panel and flashes it shut. The helper omits the modifier instead.
+        .projectTreeContextMenu(isEnabled: !isDrafted, menuItems: menu)
         // Every folder row is a drop target, the root included: that is how an
         // entry is moved back to the top of the project.
         .onDrop(
@@ -657,6 +751,13 @@ private struct FolderDisclosureRow<Menu: View>: View {
 /// them from here: duplicated as literals, a change to one row kind would
 /// silently desynchronize the other. Each is scaled through
 /// `\.interfaceMetrics` at its use site, like every other size in the tree.
+///
+/// Internal rather than `private` for the same reason `color(for:)` is: the
+/// draft field in `ProjectTreeDraftField.swift` is a third reader, and it is one
+/// by necessity — an inline draft occupies the row it stands in, so it must be
+/// padded and gutter-inset with these very numbers or the tree would visibly
+/// shift as a draft opens and closes. Both readers are project-tree view files;
+/// the type is not part of any wider view vocabulary.
 enum TreeRowLayout {
     /// The row's horizontal padding, inside the hover highlight.
     static let horizontalPadding: Double = 6
@@ -726,7 +827,9 @@ private struct FileRowView: View {
                 .foregroundStyle(color(for: icon.color))
             if case .rename(let draftedEntry) = draft, draftedEntry.url == entry.url {
                 TreeNameFieldView(
-                    draft: draft!,
+                    // The bound entry, not the optional re-read, exactly as the
+                    // folder row does it.
+                    draft: .rename(entry: draftedEntry),
                     siblings: siblings,
                     onCommit: onRename,
                     onCancel: onRenameCancel
@@ -756,29 +859,29 @@ private struct FileRowView: View {
         .projectTreeDragSource(isEnabled: !isDraftedRow, url: entry.url, session: dragSession)
         .onTapGesture { if !isDraftedRow { onOpen() } }
         .onHover { isHovering = $0 }
-        .contextMenu {
-            if !isDraftedRow {
-                if RunCommand.canRun(fileName: entry.name) {
-                    Button {
-                        onRun()
-                    } label: {
-                        Label("Run", systemImage: "play.fill")
-                    }
+        // Through the same helper the folder row uses, for the same reason: a
+        // drafted row must have no menu at all, not an empty one.
+        .projectTreeContextMenu(isEnabled: !isDraftedRow) {
+            if RunCommand.canRun(fileName: entry.name) {
+                Button {
+                    onRun()
+                } label: {
+                    Label("Run", systemImage: "play.fill")
                 }
-                if TestCommand.isTestFile(fileName: entry.name) {
-                    Button {
-                        onRunTest()
-                    } label: {
-                        Label("Run Test", systemImage: "checkmark.diamond")
-                    }
-                }
-                if RunCommand.canRun(fileName: entry.name)
-                    || TestCommand.isTestFile(fileName: entry.name) {
-                    Divider()
-                }
-                Button("Rename") { onBeginRename() }
-                Button("Delete") { onDelete() }
             }
+            if TestCommand.isTestFile(fileName: entry.name) {
+                Button {
+                    onRunTest()
+                } label: {
+                    Label("Run Test", systemImage: "checkmark.diamond")
+                }
+            }
+            if RunCommand.canRun(fileName: entry.name)
+                || TestCommand.isTestFile(fileName: entry.name) {
+                Divider()
+            }
+            Button("Rename") { onBeginRename() }
+            Button("Delete") { onDelete() }
         }
     }
 
@@ -814,13 +917,42 @@ private enum ProjectTreeDrag {
 }
 
 private extension View {
+    /// Gives this row the right-click menu `menuItems` builds — or leaves the
+    /// row exactly as it is, which is what a *drafted* row wants.
+    ///
+    /// Deliberately a `@ViewBuilder` branch rather than an empty menu body:
+    /// `.contextMenu` installed with nothing in it still opens on a right-click,
+    /// so the drafted row answered with an empty panel that flashed shut.
+    /// Omitting the modifier leaves AppKit no menu to open at all — the click
+    /// then only cancels the draft (`TreeDraftDismissRegion`), which is the whole
+    /// intent.
+    ///
+    /// The branch changes the row's view identity, and that costs nothing here:
+    /// the flag flips at most twice per draft (opened, then committed or
+    /// cancelled), and the row is being rebuilt at both those moments anyway —
+    /// the same bound `projectTreeDragSource(isEnabled:url:session:)`'s flag
+    /// carries, since both are driven by the row's drafted-ness.
+    @ViewBuilder
+    func projectTreeContextMenu<MenuItems: View>(
+        isEnabled: Bool,
+        @ViewBuilder menuItems: () -> MenuItems
+    ) -> some View {
+        if isEnabled {
+            contextMenu(menuItems: menuItems)
+        } else {
+            self
+        }
+    }
+
     /// Makes this row the source of a project-tree drag for `url` — or leaves it
     /// exactly as it is, which is how the project root row opts out.
     ///
     /// The opt-out is a `@ViewBuilder` branch rather than an `.onDrag` returning
     /// an empty item provider: a provider with nothing registered still begins a
-    /// drag AppKit renders and no target can ever accept. `isEnabled` is fixed
-    /// for a row's lifetime, so the branch costs no identity churn.
+    /// drag AppKit renders and no target can ever accept. `isEnabled` flips only
+    /// with the row's drafted-ness — at most twice per draft, when the row is
+    /// being rebuilt anyway — so the branch's identity churn is bounded, the same
+    /// argument `projectTreeContextMenu(isEnabled:menuItems:)` records.
     @ViewBuilder
     func projectTreeDragSource(
         isEnabled: Bool = true,
@@ -978,6 +1110,16 @@ private struct TreeDropDelegate: DropDelegate {
 }
 
 /// Maps a semantic `FileIconColor` token to a concrete SwiftUI `Color`.
+///
+/// Belongs to the project tree's view layer, and is internal rather than
+/// `private` on purpose: it has two readers, both of them files of this tree —
+/// this one (the folder row's and the file row's icons) and
+/// `ProjectTreeDraftField.swift` (the draft's icon column, which must resolve
+/// the icon the same way or a drafted row would not read like the row it
+/// replaces). The tidier-looking alternative, a `FileIconColor -> Color`
+/// extension in Core, is barred: `PisakaCore` is Foundation-only and must never
+/// import SwiftUI, so the mapping from the semantic token to a concrete color is
+/// exactly the part of `FileIcon` that has to live up here.
 func color(for token: FileIconColor) -> Color {
     switch token {
     case .orange: return .orange
