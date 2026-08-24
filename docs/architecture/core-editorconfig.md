@@ -162,9 +162,17 @@ newly typed text is affected.
     charged to the budget**, because it copies up to the whole compiled pattern
     per attempt, which a flat one-step-per-attempt count would under-report by
     the pattern's length (a 1 008-character alternation-heavy name spent ~0.6 s
-    before it was); a numeric range tries
+    before it was) — *plus a flat step per attempt on top of the copy*, since an
+    empty branch in front of an empty remainder copies nothing and would
+    otherwise be free (`{,,,}` closing a pattern was ~0.5 s of uncharged work);
+    a numeric range tries
     the longest digit run first and then shorter ones, so `{1..2}0` matches `10`
-    while a bare `{1..2}` refuses it. `EditorConfigGlobCompiler` is the
+    while a bare `{1..2}` refuses it — **and each candidate is charged for the
+    digits it copies and parses**, because a candidate falling outside the bounds
+    never reaches the recursive step that would charge for it, which multiplied
+    the whole ceiling by the path's digit-run length (13 s at 200 digits).
+    The rule the three share: *every* loop that can iterate without recursing
+    charges, or the ceiling is not a ceiling. `EditorConfigGlobCompiler` is the
     source-characters-in, tokens-out half: `\` escapes the next character (a
     trailing lone backslash is a literal backslash), an unclosed `[` is a
     literal, a brace group that never closes — or that holds neither a top-level
@@ -370,7 +378,14 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     a self-write the watcher never sees. That last one is narrow on purpose — it
     fires only when a written url *is* a `.editorconfig` — since an ordinary save
     is the app's most frequent write and clearing on each would put a resolution
-    walk on the next keystroke after every autosave burst.
+    walk on the next keystroke after every autosave burst. Both platforms ask
+    `EditorConfigResolver.isFileName(_:)`, which **folds case**, because the
+    resolver's own lookup does not compare at all: it appends the name to a
+    directory and lets the filesystem answer, and default APFS answers with a
+    `.EditorConfig` a Windows-authored repository carries. An exact comparison
+    would read such a file and never notice a write to it — the stale cache these
+    helpers exist to prevent — so the rule lives in Core beside the name rather
+    than being restated per platform.
   - **The macOS Tab handler.** `doCommandBy` intercepts
     `#selector(NSResponder.insertTab(_:))` and returns **`false` whenever the
     rule answers a tab**, so AppKit's own `insertTab` runs and the key behaves
@@ -459,12 +474,14 @@ over in-memory trees (no committed `.editorconfig`):
     literal brace groups, nested braces, numeric ranges (negatives included, a
     non-integer refused), escapes, the 1024-character boundary accepted at the
     limit and ignored beyond it, and the "no slash ⇒ any depth" vs. "slash ⇒
-    anchored" split. Plus the budget from all four sides, each asserted on a wall
+    anchored" split. Plus the budget from six sides, each asserted on a wall
     clock because a bound on work is the only honest way to state one: the
     wildcard-heavy pathological name, the alternation-heavy one (the shape a flat
-    step count under-reports), fifty copies of it in one file (the per-pair-vs-
-    per-resolution scope), and a 200-section but honest config spending under half
-    the ceiling while every matching section still answers.
+    step count under-reports), a name ending in empty alternation branches and a
+    numeric range against a long digit run (the two shapes a *length*-derived
+    charge under-reports), fifty copies of one of them in a single file (the
+    per-pair-vs-per-resolution scope), and a 200-section but honest config
+    spending under half the ceiling while every matching section still answers.
   - `EditorConfigFileTests` — whole-line `#` and `;` comments (leading
     whitespace included), a `;`/`#` kept verbatim inside a value (the spec's own
     `foo = a ;)`), whitespace around keys and values, a value containing `=`, the

@@ -3548,8 +3548,12 @@ struct PisakaApp: App {
     /// ordinary save of an ordinary file is the most frequent write the app makes,
     /// and throwing the cache away on each one would put a resolution walk on the
     /// next keystroke after every autosave burst.
+    /// The name test folds case (`EditorConfigResolver.isFileName(_:)`) because
+    /// the resolver reads the file through a case-insensitive filesystem: an
+    /// exact comparison would serve a `.EditorConfig` from cache long after it
+    /// was edited here.
     private func noteEditorConfigWrites(_ urls: [URL]) {
-        guard urls.contains(where: { $0.lastPathComponent == EditorConfigResolver.fileName }) else { return }
+        guard urls.contains(where: { EditorConfigResolver.isFileName($0.lastPathComponent) }) else { return }
         editorConfig.noteProjectFilesChanged()
     }
 }

@@ -1264,8 +1264,9 @@ struct RootView_iOS: View {
     /// way anyone changes one, so without this the pre-edit properties would be
     /// served for the rest of the session. Narrow for the same reason as the
     /// macOS peer: an ordinary save must not throw the cache away.
+    /// The name test folds case for the reason the macOS peer states.
     private func noteEditorConfigWrite(_ url: URL?) {
-        guard url?.lastPathComponent == EditorConfigResolver.fileName else { return }
+        guard let url, EditorConfigResolver.isFileName(url.lastPathComponent) else { return }
         editorConfig.noteProjectFilesChanged()
     }
 

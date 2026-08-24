@@ -276,6 +276,35 @@ final class EditorConfigGlobTests: XCTestCase {
         XCTAssertLessThan(-started.timeIntervalSinceNow, 1.0)
     }
 
+    func testASectionNameEndingInEmptyAlternationBranchesAnswersQuickly() {
+        // The third pathological shape, and the one a length-derived charge alone
+        // misses: an empty branch spliced in front of an empty remainder copies
+        // nothing, so `branch.count + rest.count` charged zero and a trailing run
+        // of `,`s bought hundreds of free iterations at every backtracking state
+        // the budget did allow. Measured at ~0.5 s inside a keystroke before the
+        // per-attempt step, and it scales with both the comma count and the path.
+        let pattern = String(repeating: "*a", count: 10)
+            + "{" + String(repeating: ",", count: 460) + "}"
+        XCTAssertLessThan(pattern.count, EditorConfigGlob.maximumSectionNameLength)
+        let path = String(repeating: "a", count: 60) + "z"
+        let started = Date()
+        XCTAssertFalse(matches(pattern, path))
+        XCTAssertLessThan(-started.timeIntervalSinceNow, 1.0)
+    }
+
+    func testANumericRangeAgainstALongDigitRunAnswersQuickly() {
+        // The fourth: `matchNumericRange` tries every candidate length longest
+        // first, and a candidate whose value falls outside the bounds never
+        // reaches the recursive `match` that charges. Uncharged, the ceiling was
+        // multiplied by the path's digit-run length — this pair measured 13 s.
+        let pattern = String(repeating: "*1", count: 10) + "{0..0}"
+        XCTAssertLessThan(pattern.count, EditorConfigGlob.maximumSectionNameLength)
+        let path = String(repeating: "1", count: 200) + "zzz"
+        let started = Date()
+        XCTAssertFalse(matches(pattern, path))
+        XCTAssertLessThan(-started.timeIntervalSinceNow, 1.0)
+    }
+
     func testTheBudgetBoundsAWholeResolutionRatherThanOneSection() {
         // Nothing caps how many sections a `.editorconfig` declares, so a
         // per-section budget multiplies by the section count: fifty copies of the

@@ -326,4 +326,21 @@ final class EditorConfigResolverTests: XCTestCase {
         XCTAssertTrue(tree.removedPaths.isEmpty)
         XCTAssertTrue(tree.moves.isEmpty)
     }
+
+    // MARK: - The file-name test
+
+    func testTheFileNameTestFoldsCaseBecauseTheLookupDoes() {
+        // `resolve` never compares names — it appends `fileName` to a directory and
+        // lets the filesystem answer, and default APFS answers `.editorconfig` with
+        // a file named `.EditorConfig` (Windows-authored repositories carry those).
+        // The app's cache-invalidation hooks are the ones that *do* compare, so the
+        // rule they need lives here rather than being restated per platform.
+        XCTAssertTrue(EditorConfigResolver.isFileName(".editorconfig"))
+        XCTAssertTrue(EditorConfigResolver.isFileName(".EditorConfig"))
+        XCTAssertTrue(EditorConfigResolver.isFileName(".EDITORCONFIG"))
+        XCTAssertFalse(EditorConfigResolver.isFileName("editorconfig"))
+        XCTAssertFalse(EditorConfigResolver.isFileName(".editorconfig.bak"))
+        XCTAssertFalse(EditorConfigResolver.isFileName(""))
+    }
+
 }

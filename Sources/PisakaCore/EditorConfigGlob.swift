@@ -307,7 +307,16 @@ public struct EditorConfigGlob: Equatable {
             // ceiling a ceiling: `{a,aa}`×18 followed by 900 literals otherwise
             // spends 0.6 s inside a keystroke while staying well under the
             // length cap.
-            budget -= branch.count + rest.count
+            //
+            // The leading `1` is what keeps an *empty* attempt costing something:
+            // a branch and a remainder that are both empty — `{,,,}` closing a
+            // pattern — copy nothing and recurse into a token list that returns
+            // before the charging loop runs, so a length-derived charge alone is
+            // zero. A name ending in a run of such branches then buys itself
+            // hundreds of free iterations at every backtracking state the budget
+            // does allow, which is exactly the multiplication the ceiling exists
+            // to refuse.
+            budget -= 1 + branch.count + rest.count
             guard budget > 0 else { return false }
             if match(branch + rest, from: 0, characters, from: characterIndex, budget: &budget) { return true }
             guard budget > 0 else { return false }
@@ -334,6 +343,16 @@ public struct EditorConfigGlob: Equatable {
 
         var length = end
         while length > digitsStart {
+            // Charged like `matchAlternation`'s splice, and for the same reason:
+            // each candidate copies its digits into a `String` and parses them, so
+            // the attempt is not constant-cost — and a candidate whose value falls
+            // outside the bounds never reaches the recursive `match` that would
+            // otherwise charge for it. Uncharged, this loop multiplies the whole
+            // ceiling by the path's digit-run length: `*1*1…{0..0}` against a
+            // 200-digit path spends tens of seconds inside a keystroke while
+            // staying under every cap.
+            budget -= length - characterIndex
+            guard budget > 0 else { return false }
             if let value = Int(String(characters[characterIndex..<length])),
                value >= lower, value <= upper,
                match(tokens, from: tokenIndex + 1, characters, from: length, budget: &budget) {

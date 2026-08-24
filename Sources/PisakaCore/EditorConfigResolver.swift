@@ -36,6 +36,19 @@ public enum EditorConfigResolver {
     /// The one file name this layer looks for.
     public static let fileName = ".editorconfig"
 
+    /// Whether `name` names a `.editorconfig`, folding case.
+    ///
+    /// The comparison is case-insensitive because `resolve` does not compare at
+    /// all: it appends `fileName` to a directory and hands the url to the
+    /// filesystem, and the default APFS volume answers that with a file actually
+    /// named `.EditorConfig` (which repositories authored on Windows carry). The
+    /// app's cache-invalidation hooks *do* compare — they are told which urls a
+    /// save just wrote — so the rule they need is this one, stated here beside
+    /// the name rather than restated per platform.
+    public static func isFileName(_ name: String) -> Bool {
+        name.caseInsensitiveCompare(fileName) == .orderedSame
+    }
+
     /// The largest `.editorconfig` that is read at all.
     ///
     /// Three orders of magnitude above anything the spec's own acceptance floors
