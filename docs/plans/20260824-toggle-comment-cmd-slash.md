@@ -129,23 +129,23 @@ implementation has no forks:
 - Create: `Sources/PisakaCore/CommentStyle.swift`
 - Create: `Tests/PisakaCoreTests/CommentStyleTests.swift`
 
-- [ ] Add `public enum CommentStyle: Equatable` with `case line(String)` and
+- [x] Add `public enum CommentStyle: Equatable` with `case line(String)` and
       `case block(open: String, close: String)`, doc-commented in the house
       style (why one style per language, why the absence is recorded
       explicitly).
-- [ ] Add `public static func style(for language: SyntaxLanguage) ->
+- [x] Add `public static func style(for language: SyntaxLanguage) ->
       CommentStyle?` covering the switch exhaustively: `//` for
       swift/javascript/typescript/go/rust, `#` for
       python/yaml/dockerfile/dotenv/gitignore, `--` for sql, `/* */` for css,
       `<!-- -->` for html, `nil` for json/markdown.
-- [ ] Add `public static let languagesWithoutComments: Set<SyntaxLanguage> =
+- [x] Add `public static let languagesWithoutComments: Set<SyntaxLanguage> =
       [.json, .markdown]` with the stated reason (no comment syntax to toggle),
       mirroring `LanguageKeywords.languagesWithoutKeywords`.
-- [ ] Write `CommentStyleTests`: set-equality closure over
+- [x] Write `CommentStyleTests`: set-equality closure over
       `SyntaxLanguage.allCases` (styled ∪ without == allCases, and the two
       disjoint), the exact token/pair for every language, and that no token or
       delimiter is empty.
-- [ ] Run `swift test` — must pass before Task 2.
+- [x] Run `swift test` — must pass before Task 2.
 
 ### Task 2: The engine — line-comment mode
 
