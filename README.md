@@ -235,6 +235,7 @@ never on a pull request.
 | Cmd+Option+F| Replace in the current file (opens the bar with the replace row) |
 | Cmd+Shift+F | Find in Files (project-wide search window) |
 | Ctrl+Cmd+J  | Go to Definition of the identifier at the caret (Cmd+click does the same for the identifier under the pointer) |
+| Middle-drag | Select a vertical column of text (rectangular selection); Option-drag does the same |
 | Ctrl+Space  | Complete the word being typed, or the members after a `.` (AppKit's stock Option+Esc and F5 work too) |
 | Cmd+K       | Commit… (opens the commit dialog for the open project) |
 | Cmd+R       | Run the active file in a new terminal session |

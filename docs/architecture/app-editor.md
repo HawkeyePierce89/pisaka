@@ -111,6 +111,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     guarded `insertText("", replacementRange:)` (`return true`); otherwise
     `return false` for the default delete (the `insertNewline(_:)` interception is
     unchanged).
+    Column selection via middle-mouse drag follows the pure-engine + thin-glue
+    split, via `PisakaCore.ColumnSelectionEngine` and three `EditorTextView` overrides:
+    `otherMouseDown`/`otherMouseDragged`/`otherMouseUp` over a stored anchor point.
+    Because `NSTextView` ignores `otherMouseDown`, no modal tracking loop is needed —
+    AppKit delivers the drag/up events natively. Dragging past the view edges calls
+    `autoscroll(with:)`, which does not disturb the view-coordinate anchor; dragging
+    past `Self.clickSlop` (2 pt) starts a live selection via `setSelectedRanges`
+    with `stillSelecting: true` (which AppKit requires for a drag in progress), and
+    the release finalizes it with `stillSelecting: false`. A middle click without
+    meaningful movement collapses to a single caret at the anchor (via
+    `characterIndexForInsertion(at:)`) and focuses the editor if unfocused.
+    The native Option-drag and ⌘⌥-drag rectangular selections, plain click/drag
+    selection, and the ⌘-click go-to-definition gesture are untouched.
     Duplicate line/selection (Cmd+D) follows the same pure-engine + thin-glue
     split, via `PisakaCore.DuplicateEngine`. The `EditorTextView` subclass carries
     an `onDuplicate: ((NSTextView) -> Bool)?` callback (an optional closure the

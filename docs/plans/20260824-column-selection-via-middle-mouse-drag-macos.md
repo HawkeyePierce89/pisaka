@@ -187,28 +187,28 @@ selection reports.
 - Modify: `CLAUDE.md`, `docs/architecture/core-editor.md`,
   `docs/architecture/app-editor.md`, `docs/FEATURES.md`, `README.md`
 
-- [ ] `CLAUDE.md`: add one index line for `ColumnSelectionEngine.swift` in the
+- [x] `CLAUDE.md`: add one index line for `ColumnSelectionEngine.swift` in the
       `core-editor.md` list — the middle-drag column-selection rule
-- [ ] `docs/architecture/core-editor.md`: add the full entry — the two entry
+- [x] `docs/architecture/core-editor.md`: add the full entry — the two entry
       points and their types, why the split between "normalize the rectangle"
       (Core) and "resolve x to an offset" (view layout), why the line range is
       supplied rather than inferred from an offset, the terminator trimming
       including the CRLF pair, the zero-width multi-caret case, the ordering /
       de-duplication contract `selectedRanges` requires, and the empty-document
       behavior
-- [ ] `docs/architecture/app-editor.md`: extend the `CodeEditorView.swift` entry
+- [x] `docs/architecture/app-editor.md`: extend the `CodeEditorView.swift` entry
       with the middle-button wiring — the three overrides and their state, the
       shared `clickSlop`, autoscroll during the drag, `stillSelecting` live vs.
       final, focus-on-press, and the note that the native Option-drag and the
       ⌘-click gesture are untouched
-- [ ] `docs/FEATURES.md`: add the gesture to the editor's macOS feature list next
+- [x] `docs/FEATURES.md`: add the gesture to the editor's macOS feature list next
       to the existing selection/definition gestures — middle-button drag selects
       a column, a purely vertical drag gives multiple insertion points, a plain
       middle click just places the caret, and the wheel still scrolls
-- [ ] `README.md`: add a row to the shortcut table for the middle-button drag
+- [x] `README.md`: add a row to the shortcut table for the middle-button drag
       (alongside the existing gesture rows) and, if it reads naturally, mention
       column selection in the editor feature bullet
-- [ ] run `swift test` and `swiftlint --strict` — both must pass before Task 4
+- [x] run `swift test` and `swiftlint --strict` — both must pass before Task 4
 
 ### Task 4: Verify acceptance criteria
 

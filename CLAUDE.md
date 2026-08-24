@@ -79,6 +79,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `TreeDraftDismissRule.swift` — the project tree's inline-naming draft: does this mouse-down cancel it?
 
 `docs/architecture/core-editor.md` — editor engines (pure, `NSString` + UTF-16 offsets):
+- `ColumnSelectionEngine.swift` — the middle-drag column-selection rule.
 - `DuplicateEngine.swift` — ⌘D duplicate (JetBrains semantics).
 - `CommentStyle.swift` — language-to-comment-syntax mapping.
 - `ToggleCommentEngine.swift` — ⌘/ toggle comment computation.
