@@ -18,6 +18,14 @@ import PisakaCore
 /// to the thickness and the gutter is byte-identical to a build without the
 /// feature.
 ///
+/// It also hosts a narrow fixed-width **diagnostic severity marker** column,
+/// between the blame column and the numbers: one dot per line that carries a
+/// diagnostic, in `SyntaxTheme`'s severity color. Unlike the blame column its
+/// width is *constant* whether or not anything is ever reported — see
+/// ``diagnosticColumnWidth`` for that trade — and each dot's size derives from
+/// `rulerFont`, so it scales with the code zoom exactly like the numbers it
+/// sits beside (`zoomSurfaceKind == .code` covers the whole gutter).
+///
 /// This is a pure view concern (no domain logic — the parsing lives in
 /// `BlameParser` and the edit-driven shift in `BlameShift`), so it lives in the
 /// `Pisaka` executable target rather than `PisakaCore`.
@@ -80,6 +88,14 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// without needing `editorFontChanged()` to remember to invalidate anything.
     private var annotationWidth: (fontSize: CGFloat, width: CGFloat)?
 
+    /// The rendered width of the widest displayed line number, remembered by
+    /// `updateThickness()` alongside the thickness it sizes. A drawing input
+    /// only — the marker column hangs off the numbers' left edge — and never a
+    /// second measurement: `updateThickness()` already measures it on every
+    /// call, so this just keeps the value the draw loop would otherwise have to
+    /// re-derive per visible line.
+    private var numberBandWidth: CGFloat = 0
+
     /// Whether the annotation column is shown for the displayed file. Driven by
     /// `setAnnotations(_:)` / `clearAnnotations()`; it also picks the context
     /// menu's title.
@@ -96,6 +112,34 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// retain-cycle reason documented on `EditorTextView.onDuplicate`): the ruler
     /// is retained by the scroll view, which the coordinator's collaborators reach.
     var onToggleAnnotate: (() -> Void)?
+
+    /// One character edit landed in the buffer, reported with the two line-start
+    /// tables this class maintains anyway (`previousLineStarts` pre-edit,
+    /// `newLineStarts` post-edit) plus the text storage's edited range and length
+    /// delta. The diagnostics channel consumes exactly this arithmetic —
+    /// ``DiagnosticShift.updated`` is `BlameShift.updated`'s shape — so handing it
+    /// over here means the shift never re-derives line geometry a second time.
+    ///
+    /// The owner captures itself **weakly** when installing this, for the same
+    /// retain-cycle reason as `onToggleAnnotate` above.
+    var onEdit: ((_ previousLineStarts: [Int], _ newLineStarts: [Int], _ editedRange: NSRange, _ changeInLength: Int) -> Void)?
+
+    /// The worst diagnostic severity for every displayed line, in line order,
+    /// `nil` where the line is clean — fed wholesale by the coordinator out of
+    /// `DiagnosticsModel.worstSeverityPerLine(url:lineCount:lineStarts:)` on
+    /// every model change, edit and tab switch, and cleared with everything
+    /// else when a buffer is swapped. Kept at exactly `lineCount` entries — the
+    /// store's query returns precisely the requested count, and the setter
+    /// below refuses anything else rather than padding it into a lie — so the
+    /// draw loop reads it by line number: the blame array's invariant,
+    /// established at the setter instead of hoped for downstream.
+    private var diagnosticSeverities: [DiagnosticSeverity?] = []
+
+    /// Horizontal gap between the marker column and whatever sits beside it.
+    /// Smaller than `annotationGap` on purpose: this column is always present,
+    /// so every point of it is paid by every document, even a plain-text one no
+    /// server will ever diagnose.
+    private let diagnosticGap: CGFloat = 6
 
     /// Parses ``BlameLine/date``'s raw ISO-8601 string. One formatter, reused —
     /// a label is built once per *commit*, not per line, but the memo is rebuilt
@@ -132,6 +176,13 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
     /// model, which is `.empty` for plain/unsupported files and briefly stale on a
     /// tab switch.
     var lineCount: Int { lineStartOffsets.count }
+
+    /// The cached UTF-16 line-start offsets, read-only: the coordinator passes
+    /// them straight to `DiagnosticsModel.worstSeverityPerLine` when it feeds
+    /// the marker column, so the store maps a span's end onto a line with the
+    /// exact table this class draws by — never a second, possibly divergent,
+    /// copy.
+    var lineStarts: [Int] { lineStartOffsets }
 
     init(scrollView: NSScrollView, textView: NSTextView) {
         self.textView = textView
@@ -282,6 +333,24 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         needsDisplay = true
     }
 
+    /// Install the per-line worst severities for the displayed document and
+    /// redraw. The array arrives exactly ``lineCount`` long — the caller passes
+    /// this ruler's own count and line starts to the store's query, which
+    /// returns precisely that many entries; anything else would be a caller
+    /// bug, and is refused rather than padded into a lie (the draw loop bounds
+    /// -checks its index regardless).
+    ///
+    /// Thickness is deliberately *not* touched: the column's width does not
+    /// depend on its contents (see ``diagnosticColumnWidth``), so only a redraw
+    /// is needed. An unchanged array is a no-op — this runs on every
+    /// diagnostics-model mutation and every keystroke-driven repaint.
+    func setDiagnosticSeverities(_ severities: [DiagnosticSeverity?]) {
+        guard severities.count == lineStartOffsets.count else { return }
+        guard severities != diagnosticSeverities else { return }
+        diagnosticSeverities = severities
+        needsDisplay = true
+    }
+
     /// Build the `hash → label` memo for the distinct commits in `lines`.
     ///
     /// The label is `"<author> <short date>"`. Uncommitted lines are skipped: they
@@ -359,21 +428,59 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
                 changeInLength: textStorage.changeInLength
             )
         }
+        // The diagnostics shift consumes the same tables (see `onEdit`). Fired
+        // for every character edit, including the full-range edit a wholesale
+        // buffer swap posts — the coordinator ignores that one edit (a plain
+        // tab switch keeps the outgoing document's set; a genuine replacement
+        // has nothing left to shift), so the shift never sees swap geometry.
+        onEdit?(previousLineStarts, lineStartOffsets, textStorage.editedRange, textStorage.changeInLength)
         updateThickness()
         needsDisplay = true
     }
 
     /// Size the gutter to fit the widest line number (the total line count) plus
-    /// the annotation column and padding on both sides.
+    /// the annotation column, the diagnostic-marker column, and padding on both
+    /// sides.
     private func updateThickness() {
         let lineCount = max(1, lineStartOffsets.count)
         let widest = "\(lineCount)" as NSString
         let font = rulerFont
         let width = widest.size(withAttributes: [.font: font]).width
-        let thickness = ceil(width) + annotationColumnWidth(font: font) + horizontalPadding * 2
+        numberBandWidth = ceil(width)
+        let thickness = ceil(width)
+            + annotationColumnWidth(font: font)
+            + diagnosticColumnWidth
+            + horizontalPadding * 2
         if ruleThickness != thickness {
             ruleThickness = thickness
         }
+    }
+
+    /// The marker column's contribution to the gutter: one marker cell plus its
+    /// gap. **Constant for a given font size** — deliberately independent of
+    /// whether any diagnostic exists.
+    ///
+    /// The trade is worth spelling out: the alternative — contributing 0 while
+    /// the document has no diagnostics, like the blame column does — would make
+    /// the whole editor text jump horizontally the moment a language server
+    /// first reports (and again when it goes all-clear), on every server start,
+    /// stop, and re-diagnosis. A few points of permanent gutter for everyone
+    /// buys a gutter that never moves under the pointer. The blame column could
+    /// stay conditional because *the user* turns it on and off; diagnostics
+    /// arrive on their own schedule and must not move the page when they do.
+    ///
+    /// Both inputs derive from `rulerFont`, so the column scales with the code
+    /// zoom exactly like the numbers beside it and is re-measured by the same
+    /// `editorFontChanged()` path.
+    private var diagnosticColumnWidth: CGFloat {
+        diagnosticMarkerSide + diagnosticGap
+    }
+
+    /// Side of the dot drawn for a line carrying a diagnostic. Derived from the
+    /// ruler font rather than fixed in points so it tracks the code zoom; never
+    /// an absolute pixel size.
+    private var diagnosticMarkerSide: CGFloat {
+        ceil(rulerFont.pointSize * 0.5)
     }
 
     /// Width of the annotation column at `font` — the widest memoized label plus
@@ -503,6 +610,12 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
                 relativePoint: relativePoint,
                 attributes: attributes
             )
+            drawDiagnosticMarker(
+                forLine: lineNumber,
+                fragmentRect: fragmentRect,
+                textOrigin: textOrigin,
+                relativePoint: relativePoint
+            )
 
             lineNumber += 1
             index = NSMaxRange(lineRange)
@@ -527,6 +640,12 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
                     textOrigin: textOrigin,
                     relativePoint: relativePoint,
                     attributes: attributes
+                )
+                drawDiagnosticMarker(
+                    forLine: lineNumber,
+                    fragmentRect: extraRect,
+                    textOrigin: textOrigin,
+                    relativePoint: relativePoint
                 )
             }
         }
@@ -570,6 +689,33 @@ final class LineNumberRulerView: NSRulerView, ZoomSurfaceProviding {
         let y = relativePoint.y + textOrigin.y + fragmentRect.minY
             + (fragmentRect.height - labelSize.height) / 2
         text.draw(at: NSPoint(x: horizontalPadding, y: y), withAttributes: attributes)
+    }
+
+    /// Draw one line's severity marker, centered in the fixed marker column
+    /// beside its line fragment. A line without a diagnostic draws nothing —
+    /// the column is blank, not absent, which is what keeps the gutter's width
+    /// independent of whether a server has reported yet. Overlapping
+    /// diagnostics on one line were already resolved to the worst severity by
+    /// the store's per-line query, so one dot answers for the line.
+    private func drawDiagnosticMarker(
+        forLine number: Int,
+        fragmentRect: NSRect,
+        textOrigin: NSPoint,
+        relativePoint: NSPoint
+    ) {
+        let index = number - 1
+        guard index >= 0, index < diagnosticSeverities.count,
+              let severity = diagnosticSeverities[index]
+        else { return }
+        let side = diagnosticMarkerSide
+        // The column hangs off the numbers' left edge: right-aligned numbers
+        // end at `ruleThickness - padding`, their band is `numberBandWidth`
+        // wide, and the gap separates the two columns.
+        let x = ruleThickness - horizontalPadding - numberBandWidth - diagnosticGap - side
+        let y = relativePoint.y + textOrigin.y + fragmentRect.minY
+            + (fragmentRect.height - side) / 2
+        SyntaxTheme.shared.nsDiagnosticColor(for: severity).setFill()
+        NSBezierPath(ovalIn: NSRect(x: x, y: y, width: side, height: side)).fill()
     }
 
     // MARK: - Context menu

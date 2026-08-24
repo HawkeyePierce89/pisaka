@@ -98,9 +98,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
   - `BottomPanel.swift` — pure, testable VS Code-style bottom-dock-panel state
     (Foundation-free — semantic enum only, the `FileIconColor`/`LogFilter`
     precedent). A `public enum BottomPanel: Equatable { case terminal, log,
-    changes }` (which panel, if any, sits in the bottom dock above the
+    changes, problems }` (which panel, if any, sits in the bottom dock above the
     always-visible bar; a `BottomPanel?` of `nil` = hidden — Terminal, Git Log,
-    and Local Changes share the one dock) plus the only stateful logic, the pure
+    Local Changes, and Problems share the one dock) plus the only stateful logic, the pure
     `static func toggled(_ current: BottomPanel?, selecting target: BottomPanel)
     -> BottomPanel?`: re-selecting the shown panel collapses it (`nil`), otherwise
     the `target` is shown — so a bottom-bar button and its matching View-menu

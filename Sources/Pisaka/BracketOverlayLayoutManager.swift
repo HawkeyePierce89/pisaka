@@ -1,11 +1,13 @@
 #if os(macOS)
 import AppKit
+import PisakaCore
 
 /// The editor's layout manager, extended with the overlays drawn on top of
 /// Neon's syntax colors: the rainbow-by-depth bracket foregrounds
 /// (`BracketDepthScanner`), the background behind the caret's matched pair
-/// (`BracketMatchEngine`), and the search-bar match backgrounds
-/// (`TextSearchEngine`, pushed by `EditorSearchController`).
+/// (`BracketMatchEngine`), the search-bar match backgrounds (`TextSearchEngine`,
+/// pushed by `EditorSearchController`), and the diagnostic squiggle underlines
+/// (pushed by `CodeEditorView.Coordinator` out of `DiagnosticsModel`).
 ///
 /// **Why temporary attributes.** Both overlays are drawing state, not document
 /// content: temporary attributes live on the layout manager rather than in the
@@ -47,6 +49,28 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
     /// that order). Sortedness is what lets `paintBackgrounds` binary-search the
     /// slice intersecting a write instead of scanning every match in the file.
     private var searchRanges: [NSRange] = []
+
+    /// Every diagnostic underline currently shown, sorted ascending by
+    /// `range.location` and **non-overlapping** — `setDiagnosticRuns` merges the
+    /// incoming set so every character is covered by exactly one span carrying
+    /// the worst severity that covers it (the rule `drawUnderline` also applies
+    /// when a fragment straddles two adjacent merged runs). Sortedness and non-overlap
+    /// are what let both paint paths binary-search the cache the way they search
+    /// the rainbow runs.
+    private var diagnosticRuns: [DiagnosticRun] = []
+
+    /// Set when `clearDiagnostics` drops cached runs whose underline attributes
+    /// may outlive them, and consumed by the next `setDiagnosticRuns`.
+    ///
+    /// Truncating the cache removes the *cache* entries, not the temporary
+    /// attributes over them: TextKit shifts attributes across an edit like any
+    /// other state, so the surviving tail of a dropped run stays painted even
+    /// though nothing in the store will repaint or describe it (`drawUnderline`
+    /// draws nothing on a cache miss, but the attribute is still there for any
+    /// future reader). The next wholesale push must therefore clear from the
+    /// first dropped character onward — not merely over what the truncated
+    /// cache says was painted, which is exactly the bookkeeping that was lost.
+    private var stalePaintStart: Int?
 
     /// The match the search bar considers current (⌘G's cursor), painted on top of
     /// its own `searchRanges` entry in a distinct color. `nil` while the bar is
@@ -193,6 +217,146 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
         invalidateDisplay(forCharacterRange: clampedRange)
     }
 
+    // MARK: - Diagnostics
+
+    /// The underline style a diagnostic is painted with. `[.single, .patternDot]`
+    /// is a **marker**, not a look: nothing else in this editor sets a temporary
+    /// `.underlineStyle` (spelling, grammar and text substitution are off in the
+    /// editor; Neon writes colors only), so the dotted pattern doubles as an
+    /// unambiguous "this underline is ours" bit that `drawUnderline` tests before
+    /// drawing its wave — AppKit would otherwise have rendered it as a dotted
+    /// straight line.
+    static let diagnosticUnderlineStyle: NSUnderlineStyle = [.single, .patternDot]
+
+    /// Forget what the cache believes is painted, ahead of a wholesale buffer
+    /// replacement.
+    ///
+    /// Replacing the text view's whole `string` makes TextKit drop every
+    /// temporary attribute over the replaced characters, so *nothing* is
+    /// painted afterwards — but the cache still describes the outgoing
+    /// document, and `setDiagnosticRuns` returns early when the incoming
+    /// document's merged runs happen to equal it. Two files with the same error
+    /// at the same offset (the same bad `import` on line 1, say) are exactly
+    /// that case, and the switch would land on an unpainted buffer whose gutter
+    /// still shows the severity dots — the ruler draws from its own array, which
+    /// the swap does not wipe.
+    ///
+    /// Called on **every** content replacement, including the plain tab switch
+    /// where the outgoing document's *store entry* deliberately survives: what
+    /// survives there is the model's set, not this view's paint, and the
+    /// repaint that follows the swap restores it.
+    ///
+    /// No attribute is removed here — the swap has already removed them all —
+    /// so `stalePaintStart` is cleared with the cache rather than widened.
+    func invalidateDiagnosticPaint() {
+        diagnosticRuns = []
+        stalePaintStart = nil
+    }
+
+    /// Replace the diagnostic underlines wholesale and repaint them.
+    ///
+    /// The incoming runs may overlap freely (a server can publish nested spans);
+    /// `DiagnosticRun.merged(_:)` — Core's, with the whole algorithm and its
+    /// zero-length rule — puts them into the cache's canonical non-overlapping
+    /// form: sorted by location, each overlapping stretch carrying the *worst* of
+    /// the severities that touched it (`DiagnosticSeverity` orders by
+    /// seriousness). Resolving at the single write boundary means every later
+    /// reader — the per-write repaint below, and the zigzag in `drawUnderline`
+    /// when a fragment straddles two adjacent merged runs — sees one severity per
+    /// character and cannot disagree about which color wins.
+    ///
+    /// An unchanged set is a no-op: this runs on every diagnostics-model change
+    /// and every keystroke-driven shift re-push, while a repaint costs one clear
+    /// span plus one write per run.
+    ///
+    /// Unlike the rainbow setter this one *removes* the old underline attributes
+    /// first, over the bounding span of what was painted before: the diagnostic
+    /// cache covers the whole document rather than the visible slice, so there is
+    /// no Neon revalidation guaranteed to sweep a run that just went away. The
+    /// removal is safe because this class is the only writer of the marker style
+    /// (see `diagnosticUnderlineStyle`). When `clearDiagnostics` truncated the
+    /// cache since the last push, the clear widens to everything from the first
+    /// dropped character onward (`stalePaintStart`) — the truncated cache no
+    /// longer knows what was painted past it.
+    func setDiagnosticRuns(_ runs: [DiagnosticRun]) {
+        let merged = DiagnosticRun.merged(runs)
+        guard merged != diagnosticRuns || stalePaintStart != nil else { return }
+        let previous = diagnosticRanges()
+        diagnosticRuns = merged
+
+        let length = storageLength
+        let previousSpan = boundingRange(previous, clampingTo: length)
+        var clearedSpan = previousSpan
+        if let staleStart = stalePaintStart {
+            stalePaintStart = nil
+            // The residue sits anywhere from `stalePaintStart` to the end of
+            // the (post-edit) buffer — TextKit shifted it across the edit, and
+            // `clearDiagnostics` floored the recorded value at the edit's own
+            // location so a deletion's leftward shift stays inside the span.
+            // One removal over that whole span costs no more than the
+            // bounding-span clear it replaces, and over-clearing is safe: this
+            // class is the sole writer of these keys, and the paint below
+            // restores every survivor immediately.
+            let start = previousSpan.length > 0 ? min(previousSpan.location, staleStart) : staleStart
+            clearedSpan = start < length ? NSRange(location: start, length: length - start) : clearedSpan
+        }
+        withOverlayWrites {
+            if clearedSpan.length > 0 {
+                removeTemporaryAttribute(.underlineStyle, forCharacterRange: clearedSpan)
+                removeTemporaryAttribute(.underlineColor, forCharacterRange: clearedSpan)
+            }
+            paintDiagnosticUnderlines(clippedTo: NSRange(location: 0, length: length), clampingTo: length)
+        }
+        let paintedSpan = boundingRange(diagnosticRanges(), clampingTo: length)
+        let dirty = union(clearedSpan, paintedSpan)
+        if dirty.length > 0 {
+            invalidateDisplay(forCharacterRange: dirty)
+        }
+    }
+
+    /// Drop the diagnostic coloring over an edited range, ahead of the deferred
+    /// re-push from the store.
+    ///
+    /// The cached runs are dropped from the edit point *onward*, like
+    /// `clearRainbow`'s: an insertion/deletion shifts every later location, so
+    /// the tail of the cache no longer describes the buffer. What survives is
+    /// repainted by the coordinator's next push, which rebuilds the cache from
+    /// `DiagnosticsModel` — where ``DiagnosticShift.updated`` has already applied
+    /// exactly the same shift-and-drop arithmetic to the stored set — and that
+    /// push also clears what this truncation strands: a dropped run's attribute
+    /// survives the edit (shifted with its characters) but not in any cache, so
+    /// the first dropped run's start is handed to `setDiagnosticRuns` through
+    /// `stalePaintStart`.
+    ///
+    /// `range` and `storageLength` must both be in **pre-edit** coordinates, for
+    /// the reason spelled out on `clearBackgrounds(storageLength:)` — this runs
+    /// inside `didProcessEditingNotification`, where the temporary attributes
+    /// have not yet been shifted by the edit.
+    func clearDiagnostics(in range: NSRange, storageLength: Int) {
+        if let firstDropped = diagnosticRuns.first(where: { NSMaxRange($0.range) > range.location })?.range.location {
+            // Floored at the edit's own location, which is the one offset both
+            // coordinate systems agree on. `firstDropped` is a *pre-edit* start
+            // and the residue is read back in *post-edit* space: a deletion
+            // shifts the surviving tail of a dropped run left, to below that
+            // start, so recording it alone would clear from above the residue
+            // and leave the squiggle painted under text that no longer carries a
+            // diagnostic. Nothing can shift below `range.location` — everything
+            // from there to the edit's end is cleared outright here — so the
+            // floor is exact, not merely safe. The `min` with `firstDropped`
+            // still matters for a run straddling the edit's start, whose head
+            // survives *unmoved* at a lower offset than the edit.
+            stalePaintStart = min(stalePaintStart ?? Int.max, min(firstDropped, range.location))
+        }
+        diagnosticRuns.removeAll { NSMaxRange($0.range) > range.location }
+        let clampedRange = clamped(range, to: storageLength)
+        guard clampedRange.length > 0 else { return }
+        withOverlayWrites {
+            removeTemporaryAttribute(.underlineStyle, forCharacterRange: clampedRange)
+            removeTemporaryAttribute(.underlineColor, forCharacterRange: clampedRange)
+        }
+        invalidateDisplay(forCharacterRange: clampedRange)
+    }
+
     // MARK: - Painting
 
     /// Paint every cached overlay intersecting `charRange`.
@@ -201,7 +365,7 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
         let length = storageLength
         let range = clamped(charRange, to: length)
         guard range.length > 0 else { return }
-        guard !rainbowRuns.isEmpty || hasBackgroundOverlays else { return }
+        guard !rainbowRuns.isEmpty || !diagnosticRuns.isEmpty || hasBackgroundOverlays else { return }
 
         let end = NSMaxRange(range)
         withOverlayWrites {
@@ -216,8 +380,162 @@ final class BracketOverlayLayoutManager: NSLayoutManager {
                 }
                 index += 1
             }
+            paintDiagnosticUnderlines(clippedTo: range, clampingTo: length)
             paintBackgrounds(clippedTo: range, clampingTo: length)
         }
+    }
+
+    /// Paint the diagnostic underlines intersecting `clipRange` — the fourth
+    /// overlay cache's writer, called from both paint paths (`applyOverlays` for
+    /// Neon's per-write repaint and `setDiagnosticRuns` after a state change) so
+    /// a squiggle cannot vanish because Neon revalidated its characters.
+    ///
+    /// The underline lives on `.underlineStyle`/`.underlineColor`, keys neither
+    /// Neon nor any other editor component writes, so this cannot fight the
+    /// foreground/background writers and the class's "sole writer of
+    /// `.backgroundColor`" rule is untouched. The color resolves at write time
+    /// through `SyntaxTheme`'s dynamic colors, so an appearance switch re-renders
+    /// without a re-push.
+    private func paintDiagnosticUnderlines(clippedTo clipRange: NSRange, clampingTo length: Int) {
+        guard !diagnosticRuns.isEmpty else { return }
+        let clip = clamped(clipRange, to: length)
+        guard clip.length > 0 else { return }
+        let theme = SyntaxTheme.shared
+        let end = NSMaxRange(clip)
+        var index = firstDiagnosticIndex(endingAfter: clip.location)
+        while index < diagnosticRuns.count, diagnosticRuns[index].range.location < end {
+            let intersection = NSIntersectionRange(diagnosticRuns[index].range, clip)
+            if intersection.length > 0 {
+                addTemporaryAttributes(
+                    [
+                        .underlineStyle: Self.diagnosticUnderlineStyle.rawValue,
+                        .underlineColor: theme.nsDiagnosticColor(for: diagnosticRuns[index].severity),
+                    ],
+                    forCharacterRange: intersection
+                )
+            }
+            index += 1
+        }
+    }
+
+    /// Every range the diagnostic cache currently describes — what a wholesale
+    /// replacement has to clear before it repaints.
+    private func diagnosticRanges() -> [NSRange] {
+        diagnosticRuns.map(\.range)
+    }
+
+    /// `firstRunIndex(endingAfter:)` for the diagnostic runs, which are sorted
+    /// the same way — one binary search per styled span rather than a scan of
+    /// every squiggle in the file.
+    private func firstDiagnosticIndex(endingAfter location: Int) -> Int {
+        var low = 0
+        var high = diagnosticRuns.count
+        while low < high {
+            let mid = (low + high) / 2
+            if NSMaxRange(diagnosticRuns[mid].range) <= location {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low
+    }
+
+    /// The worst severity among cached runs covering `charRange` — what
+    /// `drawUnderline` paints a fragment straddling two adjacent merged runs
+    /// with. Overlapping diagnostics within one stretch were already resolved by
+    /// `setDiagnosticRuns`' merge; this answers the same question across a
+    /// boundary.
+    private func worstSeverity(in charRange: NSRange) -> DiagnosticSeverity? {
+        guard charRange.length > 0 else { return nil }
+        let end = NSMaxRange(charRange)
+        var index = firstDiagnosticIndex(endingAfter: charRange.location)
+        var worst: DiagnosticSeverity?
+        while index < diagnosticRuns.count, diagnosticRuns[index].range.location < end {
+            if NSIntersectionRange(diagnosticRuns[index].range, charRange).length > 0 {
+                worst = max(worst ?? diagnosticRuns[index].severity, diagnosticRuns[index].severity)
+            }
+            index += 1
+        }
+        return worst
+    }
+
+    /// Draw a diagnostic's underline as a **zigzag** along the fragment's
+    /// baseline instead of AppKit's straight line.
+    ///
+    /// **Why an override at all:** AppKit has no wavy underline pattern —
+    /// `NSUnderlineStyle` offers only solid/dash/dot patterns, so the wave has
+    /// to be stroked here. When the style carries our marker bit
+    /// (`diagnosticUnderlineStyle`, whose dotted pattern nothing else in this
+    /// text view ever sets) we replace the straight line; anything else falls
+    /// through to `super`.
+    ///
+    /// **Which severity wins:** overlapping diagnostics were already coalesced
+    /// per character by `setDiagnosticRuns`, so a single run answers for most
+    /// fragments; when one glyph fragment straddles two adjacent runs,
+    /// `worstSeverity(in:)` picks the more serious of the two — the same rule
+    /// the merge applies inside a stretch, extended across its edge. A fragment
+    /// under no cached run draws nothing (the attribute was written by someone
+    /// else or the cache moved on; both self-correct on the next push).
+    ///
+    /// Geometry: `boundingRect(forGlyphRange:)` gives the x extent in *container*
+    /// coordinates; the drawing context here is the text view's, so the wave is
+    /// translated by the `containerOrigin` the call hands over (the same
+    /// convention `drawBackground(at:)` documents). The wave rides just above
+    /// the line fragment's bottom, where the descent ends, so it sits under the
+    /// glyphs like AppKit's own underline.
+    override func drawUnderline(
+        forGlyphRange glyphRange: NSRange,
+        underlineType underlineVal: NSUnderlineStyle,
+        baselineOffset: CGFloat,
+        lineFragmentRect lineRect: NSRect,
+        lineFragmentGlyphRange lineGlyphRange: NSRange,
+        containerOrigin containerOrigin: NSPoint
+    ) {
+        guard underlineVal.contains(Self.diagnosticUnderlineStyle) else {
+            super.drawUnderline(
+                forGlyphRange: glyphRange,
+                underlineType: underlineVal,
+                baselineOffset: baselineOffset,
+                lineFragmentRect: lineRect,
+                lineFragmentGlyphRange: lineGlyphRange,
+                containerOrigin: containerOrigin
+            )
+            return
+        }
+        let charRange = characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+        guard let severity = worstSeverity(in: charRange) else { return }
+        // One container per editor (`makeNSView`'s TextKit 1 construction swaps
+        // in exactly one), so "the container this fragment belongs to" is the
+        // first one.
+        guard let container = textContainers.first else { return }
+        let bounds = boundingRect(forGlyphRange: glyphRange, in: container)
+        guard bounds.width > 0 else { return }
+
+        // Wave parameters tuned against the code font at default zoom: small
+        // enough to read as decoration over dense text, deep enough to tell a
+        // warning from a hint at arm's length.
+        let amplitude: CGFloat = 1.5
+        let wavelength: CGFloat = 4
+        let lineWidth: CGFloat = 1
+        let baselineY = max(lineRect.minY, min(lineRect.maxY - amplitude - lineWidth, lineRect.maxY))
+            + containerOrigin.y
+
+        let path = NSBezierPath()
+        path.lineWidth = lineWidth
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        var x = bounds.minX + containerOrigin.x
+        let maxX = bounds.maxX + containerOrigin.x
+        var up = true
+        path.move(to: NSPoint(x: x, y: baselineY))
+        while x < maxX {
+            x = min(x + wavelength / 2, maxX)
+            path.line(to: NSPoint(x: x, y: up ? baselineY - amplitude : baselineY + amplitude))
+            up.toggle()
+        }
+        SyntaxTheme.shared.nsDiagnosticColor(for: severity).setStroke()
+        path.stroke()
     }
 
     /// **The only place in this class that adds a temporary `.backgroundColor`.**

@@ -85,6 +85,85 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     pair by the selection-change notification that follows, the search highlight
     by `EditorSearchController`'s re-run on the same edit (deferred one main-loop
     turn — see its `setNeedsRefresh()`).
+    Diagnostics are the **fourth cache**, `diagnosticRuns:
+    [(range: NSRange, severity: DiagnosticSeverity)]`, and they deliberately do
+    not join the background family: squiggles paint through the
+    `.underlineStyle`/`.underlineColor` temporary keys instead, so they cannot
+    fight any of the three `.backgroundColor` writers or the rainbow's
+    `.foregroundColor` — the class's "sole writer of `.backgroundColor`" rule
+    stays intact with no new exception to remember, and Neon's per-write clear of
+    styled ranges cannot erase them either because `applyOverlays(in:)`
+    repaints them from the cache in the same pass it repaints everything else.
+    The style itself is a marker as well as an attribute:
+    `diagnosticUnderlineStyle = [.single, .patternDot]`, whose dotted pattern
+    nothing else in this text view ever sets, is the unambiguous "this underline
+    is ours" bit `drawUnderline` tests before replacing AppKit's straight line.
+    `setDiagnosticRuns(_:)` replaces wholesale and repaints; its input goes
+    through **Core's** `DiagnosticRun.merged(_:)` (`core-lsp.md`, `Diagnostic.swift`),
+    which resolves overlaps *per character*
+    into non-overlapping segments each carrying the most serious severity covering
+    it (an error inside a warning makes its own stretch red without repainting the
+    rest) and coalesces adjacent equal-severity segments back together. Resolved at
+    this single write boundary
+    rather than at draw time because the cache is what every later intersection
+    binary-searches, and a small sorted non-overlapping array keeps those searches
+    exact (`firstDiagnosticIndex(endingAfter:)`, the rainbow runs' device); the
+    algorithm itself lives in Core because it is pure and this repository keeps pure
+    decisions where `swift test` can see them — the view half only strokes what it
+    is handed. A **zero-length** run widens to one unit there rather than vanishing:
+    servers emit empty ranges, and every other surface shows them (the gutter marks
+    the line, hover's `diagnostics(at:)` rule is written for exactly that shape, the
+    panel lists it), so dropping them here alone would leave a line flagged in the
+    gutter with nothing under it.
+    `invalidateDiagnosticPaint()` is the third mutator and the one a *swap*
+    needs: assigning the text view's whole `string` makes TextKit drop every
+    temporary attribute over the replaced characters, so nothing is painted
+    afterwards — but the cache still describes the outgoing document, and
+    `setDiagnosticRuns` treats an unchanged set as a no-op. Two files carrying
+    the same error at the same offset (the same bad `import` on line 1) merge to
+    byte-identical runs, and the switch would land on an unpainted buffer whose
+    gutter still shows the severity dots, since the ruler draws from its own
+    array which the swap does not wipe. `updateNSView` therefore calls it on
+    **every** content replacement — including the plain tab switch where the
+    outgoing document's *store entry* deliberately survives, because what
+    survives there is the model's set, not this view's paint. It removes no
+    attribute (the swap already removed them all), so it clears the cache and
+    `stalePaintStart` together rather than widening anything.
+    `clearDiagnostics(in:storageLength:)` follows `clearRainbow`'s pre-edit-
+    coordinate contract exactly — the storage posts its edit notification before
+    notifying layout managers, so the cached ranges are still pre-edit while
+    `storageLength` already is not, and the extent is therefore a parameter — but
+    it *drops* rather than shifts: the coordinator has already run Core's
+    `DiagnosticShift.updated(...)` over the same edit by the time this fires, so
+    shifting here too would apply the rule twice to whatever survives. Dropping a
+    cache entry does not drop its attribute — TextKit shifts the underline along
+    with the characters — so the truncation records where it cut (`stalePaintStart`)
+    and the next `setDiagnosticRuns` widens its clear from that character to the
+    end of the buffer, removing what no cache entry any longer describes. What it
+    records is floored at **the edit's own location**, and that floor is the whole
+    correctness of the scheme: the dropped run's start is a *pre-edit* offset while
+    the clear is measured in *post-edit* space, so a deletion — which shifts the
+    surviving tail of a dropped run left, below that start — would otherwise clear
+    from above the residue and leave the squiggle painted under undiagnosed text,
+    with the recorded value already consumed and no later push computing a span
+    that covers it. Nothing can shift below the edit's location, because everything
+    from there to the edit's end is cleared outright, so the floor is exact rather
+    than merely generous; the `min` against the dropped start still matters for a
+    run straddling the edit, whose head survives *unmoved* at a lower offset. Without
+    this, an edit intersecting a squiggle would leave an orphaned dotted underline
+    attribute in the storage for the rest of the session (invisible today —
+    `drawUnderline` draws nothing on a cache miss — but a lie waiting for a future
+    reader of those keys).
+    The zigzag is drawn by overriding `drawUnderline(forGlyphRange:...)`: AppKit
+    has no wavy pattern (`NSUnderlineStyle` offers solid/dash/dot only), so when
+    the passed style carries our marker bit the override strokes a small sine-ish
+    polyline along the fragment's descent in the run's `SyntaxTheme` color instead
+    of calling `super`, and anything else falls through untouched. A glyph
+    fragment straddling two adjacent merged runs asks `worstSeverity(in:)` — the
+    same worst-wins rule the merge applies inside a stretch, extended across its
+    edge — and a fragment under no cached run draws nothing (the attribute came
+    from someone else, or the cache moved on; both self-correct on the next
+    push).
   - `BracketHighlightController.swift` — the macOS `@MainActor` owner of the
     bracket overlays: it holds the cached `[BracketToken]` for the current buffer
     behind a (`fileID`, text length, edit epoch) cache key with a ~100 ms debounce
@@ -336,6 +415,35 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     already-enabled branch and turned annotate *off*. Nothing is drawn any earlier
     (the memo is still empty, so the column contributes no width and
     `drawAnnotation` finds no entry); only the reported state moves.
+    The ruler also hosts a narrow fixed-width **diagnostic severity marker**
+    column, drawn between the blame column and the numbers in the same
+    `drawHashMarksAndLabels` pass. `setDiagnosticSeverities(_:)` takes
+    `DiagnosticsModel.worstSeverityPerLine(url:lineCount:lineStarts:)`'s array
+    wholesale and keeps the blame column's `count == lineCount` invariant at the
+    setter — an array of any other length is **refused outright**, never padded or
+    truncated into a lie about which lines are clean (the store already sizes the
+    answer, so a mismatch means the geometry moved under the read, and the column
+    already on screen is the better of the two wrong answers) — so the
+    draw loop indexes it by line number with no bounds arithmetic of its own; an
+    unchanged array is a no-op (this fires on every diagnostics-model mutation
+    and every keystroke-driven repaint), and thickness is deliberately *not*
+    touched because the column's width does not depend on its contents. That
+    constancy is the entry's one trade, spelled out where it is decided:
+    `diagnosticColumnWidth` contributes a **constant** cell plus gap for a given
+    font size whether or not any diagnostic exists, because the alternative —
+    width 0 while clean, like blame's — would make the whole editor text jump
+    horizontally the moment a server first reports and again when it goes
+    all-clear. Blame could stay conditional because *the user* turns it on and
+    off; diagnostics arrive on their own schedule and must not move the page when
+    they do. Both inputs derive from `rulerFont`, so markers scale with code zoom
+    like the numbers beside them (`zoomSurfaceKind == .code` unchanged), and are
+    re-measured by the same `editorFontChanged()` path. A line carrying the worst
+    severity draws one dot in that severity's `SyntaxTheme` color; clean lines
+    draw nothing. The same edit notification feeds Core's shift through the new
+    `onEdit` closure — previous/post line-start tables, edited range and length
+    delta, exactly `DiagnosticShift.updated`'s inputs, so the diagnostics channel
+    never re-derives geometry this class already computed — captured **weakly**
+    per the file's retain-cycle rule alongside `onToggleAnnotate`.
   - `MinimapTokenizer.swift` — produces a `MinimapModel` (from `PisakaCore`) by
     parsing the *whole* text with SwiftTreeSitter into a per-UTF-16-unit
     `[SyntaxTokenKind]` (mapping each highlight capture through
@@ -445,3 +553,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `nsColor(for:)` for the temporary-attribute call sites. Being dynamic colors,
     a light/dark or forced-theme switch recolors the brackets and the search
     highlight at draw time for free.
+    The diagnostics work adds four severity colors to the same table —
+    `diagnosticError/warning/information/hint`, all through
+    `PlatformColor.dynamic(light:dark:)`, with `diagnosticColor(for:)` and an
+    `nsDiagnosticColor(for:)` accessor mirroring the bracket set's shape — because
+    three surfaces (squiggle, gutter dot, panel icon) must draw one severity
+    identically and Core stays color-free by rule. The values are chosen against
+    the existing palette rather than picked: error is a rose-leaning red
+    (`#C01C5A`/`#FF7B85`) deliberately distinct from both `unmatchedBracketColor`
+    and the `.string` red, so a red string and a red squiggle are never confused;
+    warning amber (`#A05E00`/`#E2B03C`) stays far from `searchMatchBackground`'s
+    warm yellow, so a match sitting on a warning underline still reads as two
+    separate marks; information (`#45718B`/`#79B8DA`) and hint
+    (`#77808C`/`#6E7681`) are muted on purpose — present, legible, and
+    unmistakably not complaints. Being dynamic like everything else in this file,
+    they recolor at draw time on appearance change for free.

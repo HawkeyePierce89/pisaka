@@ -1,4 +1,5 @@
 #if os(macOS)
+import Combine
 import SwiftUI
 import AppKit
 import Neon
@@ -51,6 +52,13 @@ struct CodeEditorView: NSViewRepresentable {
     /// the column when it differs. Defaults to `0` so a default-constructed view
     /// compiles.
     var diskRevision: Int = 0
+
+    /// The workspace's project root, or `nil` while no folder is open. A change
+    /// under an unchanged buffer means every earlier sync of that buffer answered
+    /// against a different root — or against none, where a sync could not run at
+    /// all — so it joins the retarget test in `updateNSView`. Defaults to `nil`
+    /// so a default-constructed view compiles.
+    var projectRoot: URL?
 
     /// The editor contents. Edits are written back through this binding.
     @Binding var text: String
@@ -113,6 +121,24 @@ struct CodeEditorView: NSViewRepresentable {
     /// Defaults to a controller over a fresh, never-walked index so a
     /// default-constructed view (previews/tests) still compiles.
     var symbolIndex: SymbolIndexController = SymbolIndexController(model: SymbolIndexModel())
+
+    /// Schedules the diagnostics channel's push sync (D30) beside the index
+    /// re-index above, from the *same* three triggers — so both readers of a
+    /// buffer are told about every change in the same order and can never
+    /// disagree about which buffer is current. Owned by `PisakaApp`; not observed
+    /// (it publishes nothing); optional so a default-constructed view
+    /// (previews/tests) compiles and simply syncs nothing.
+    var lspSync: LSPDocumentSyncController?
+
+    /// The diagnostics channel's observable model: the store the squiggles are
+    /// painted from. Owned by `PisakaApp` like `symbolIndex`; held as a plain
+    /// value here and **observed by the coordinator, not by this view** — a
+    /// model change must repaint underlines inside the existing AppKit view
+    /// without a SwiftUI re-render of the editor (`completionEnabled`'s note on
+    /// why this view must not gain a per-keystroke invalidation path; a
+    /// diagnostics shift lands on exactly those keystrokes). Defaults to `nil`
+    /// so a default-constructed view (previews/tests) compiles.
+    var diagnostics: DiagnosticsModel?
 
     /// Open the file a chosen definition lives in and select the declaration's
     /// name range. Wired to the very `PisakaApp.activateSearchMatch(url:range:)`
@@ -287,6 +313,19 @@ struct CodeEditorView: NSViewRepresentable {
         ruler.onToggleAnnotate = { [weak coordinator = context.coordinator] in
             coordinator?.toggleBlame()
         }
+        // The diagnostics shift consumes the ruler's pre/post line-start tables.
+        // Captured *weakly* for the same retain-cycle reason as `onToggleAnnotate`
+        // above: the ruler is owned by the scroll view, which the coordinator is
+        // reachable from (through Neon's highlighter), so a strong capture here
+        // would keep the whole editor alive past teardown.
+        ruler.onEdit = { [weak coordinator = context.coordinator] previous, new, edited, delta in
+            coordinator?.bufferEdited(
+                previousLineStarts: previous,
+                newLineStarts: new,
+                editedRange: edited,
+                changeInLength: delta
+            )
+        }
 
         let minimap = MinimapView()
         let container = EditorContainerView(scrollView: scrollView, minimap: minimap)
@@ -364,13 +403,23 @@ struct CodeEditorView: NSViewRepresentable {
         // the disk walk may not have reached this file yet (or may be gone
         // entirely, for a file outside the opened folder).
         context.coordinator.symbolIndex = symbolIndex
+        context.coordinator.lspSync = lspSync
+        // Bind the diagnostics store and start observing it (one subscription for
+        // the coordinator's lifetime; re-attachment is an identity-checked no-op).
+        context.coordinator.attachDiagnostics(model: diagnostics)
         context.coordinator.navigateToDefinition = onGoToDefinition
         context.coordinator.viewDefinitionOutsideProject = onViewDefinitionOutsideProject
+        // Seed the retarget comparison so the first update after creation does
+        // not read as one: the immediate sync below already happened here.
+        context.coordinator.syncedProjectRoot = projectRoot
         context.coordinator.reindexSymbols(
             text: text,
             language: language,
             immediate: true
         )
+        // Seed the underlines from whatever the store already holds (a fresh
+        // sync has nothing yet, so this is usually a no-op).
+        context.coordinator.refreshDiagnosticOverlays()
         return container
     }
 
@@ -427,6 +476,25 @@ struct CodeEditorView: NSViewRepresentable {
         let switchedFile = previousFileID != fileID
         context.coordinator.fileID = fileID
 
+        // Same tab, new coordinates. Two retargets keep the file id and the text
+        // while invalidating every sync the buffer ever did:
+        //
+        // - A **URL change** — Save As (an untitled buffer's first path) or a
+        //   project-tree rename/move (`applyRenamePlan`). The rename path has
+        //   already `didClose`d the old URL (`forgetIndexedBuffer`, which also
+        //   cleared that document's diagnostics via D33), and nothing else would
+        //   ever tell the server about the new one: a push-only server sits
+        //   silent until asked, and the push channel's triggers are exactly the
+        //   ones this branch funnels.
+        // - A **root change** — the first Open Folder of a run carrying tabs.
+        //   Those buffers were never synced at all (every earlier trigger ran
+        //   with no root, where `prepare` answers `nil` by design), their views
+        //   persist unchanged across the open, and neither of the two triggers
+        //   above fires for them.
+        let retargetedBuffer = context.coordinator.fileURL != fileURL
+            || context.coordinator.syncedProjectRoot != projectRoot
+        context.coordinator.syncedProjectRoot = projectRoot
+
         // Remember where the *outgoing* tab was sitting. Ordering is load-bearing
         // twice over, which is why this is the first thing a switch does:
         //
@@ -475,6 +543,26 @@ struct CodeEditorView: NSViewRepresentable {
         // undone onto another's contents.
         let contentReplaced = switchedFile || textView.string != text
         if contentReplaced {
+            // A *plain tab switch* (the incoming file's own text, untouched while
+            // it sat off screen) is not D32's wholesale replacement: the store is
+            // keyed by URL precisely so a background document's set survives the
+            // view swap, and the set is still true text-for-text — nothing was
+            // typed into that buffer while it sat off screen, so there is
+            // nothing to shift and nothing to clear. Dropping it here would
+            // blank the file for as long as it takes the switch-back sync to be
+            // answered, and for a server that answers a re-published identical
+            // document with nothing at all, for as long as it takes someone to
+            // edit it again. The swap below still posts one full-range
+            // edit — suppressed in *every* case via `isSwappingBuffer`: shifting
+            // either document's set across swap geometry would drop entries, and
+            // the recorded URL still names the *outgoing* file here, so the
+            // shift would target the wrong document outright. A genuine
+            // replacement — the displayed buffer swapped, or this file rewritten
+            // off screen by Replace All / reload / merge apply (what
+            // `externallyReplaced` reports) — clears as D32 says.
+            let diagnosticsSurvive = switchedFile && !externallyReplaced
+            context.coordinator.isSwappingBuffer = true
+            defer { context.coordinator.isSwappingBuffer = false }
             // Detach the active highlighter *before* swapping the buffer. Neon
             // installs itself as the text storage's delegate and schedules
             // highlighting asynchronously; if the outgoing grammar observed this
@@ -489,6 +577,25 @@ struct CodeEditorView: NSViewRepresentable {
             // whole-document replacement. The `syncBlame` after this block reloads
             // for the incoming contents.
             context.coordinator.beginBlameBufferSwap()
+            // Drop the replaced document's diagnostics ahead of a wholesale
+            // replacement, at the same point as the blame column's (D32).
+            // Skipped for the plain-switch case above. The cleared document is
+            // the one whose *text* was replaced — the view's `fileURL` names
+            // exactly that: the incoming file on a switch (rewritten off screen
+            // by Replace All / reload / merge apply; the recorded URL still
+            // names the outgoing one until `syncBlame` re-records), and this
+            // file itself when it is displayed.
+            if !diagnosticsSurvive {
+                context.coordinator.beginDiagnosticsBufferSwap(clearing: fileURL)
+            }
+            // Whatever the *store* does with the outgoing set, the *paint* does
+            // not survive the assignment below — TextKit drops every temporary
+            // attribute over the replaced characters — so the overlay's cache
+            // has to stop claiming it does. Unconditional, unlike the clear
+            // above: without it the incoming document renders unpainted
+            // whenever its merged runs happen to equal the outgoing document's,
+            // because `setDiagnosticRuns` treats an unchanged set as a no-op.
+            context.coordinator.invalidateDiagnosticPaint()
             // Assigning `string` replaces the whole buffer, which the text storage
             // posts as a single `didProcessEditingNotification` (edited range = the
             // full new length). The line-number ruler observes that notification
@@ -586,18 +693,24 @@ struct CodeEditorView: NSViewRepresentable {
             contentReplaced: contentReplaced
         )
 
-        // Re-index the shown file's symbols. Only on a tab switch or a wholesale
-        // buffer swap, and then immediately: ordinary keystrokes are covered by
-        // `textDidChange` (debounced), so scheduling here as well would re-parse
-        // the file twice per settled burst of typing.
+        // Re-index the shown file's symbols. On a tab switch, a wholesale
+        // buffer swap, or a retarget (new URL or new root under an unchanged
+        // buffer — see `retargetedBuffer`), and then immediately: ordinary
+        // keystrokes are covered by `textDidChange` (debounced), so scheduling
+        // here as well would re-parse the file twice per settled burst of
+        // typing.
         context.coordinator.symbolIndex = symbolIndex
+        context.coordinator.lspSync = lspSync
+        // Keep the diagnostics binding current (an identity-checked no-op when
+        // unchanged, like `updateHighlighter`'s language comparison).
+        context.coordinator.attachDiagnostics(model: diagnostics)
         // Keep the navigation closure current: it captures `PisakaApp`'s state, so
         // a stale one from a previous update would open tabs through a torn-down
         // scene's workspace. The out-of-root destination is kept current for the
         // same reason.
         context.coordinator.navigateToDefinition = onGoToDefinition
         context.coordinator.viewDefinitionOutsideProject = onViewDefinitionOutsideProject
-        if switchedFile || contentReplaced {
+        if switchedFile || contentReplaced || retargetedBuffer {
             context.coordinator.reindexSymbols(
                 text: textView.string,
                 language: language,
@@ -609,6 +722,11 @@ struct CodeEditorView: NSViewRepresentable {
             // ...and so does a popover: it describes an offset in a buffer this
             // very update has replaced.
             context.coordinator.dismissHover()
+            // Paint the incoming document's squiggles at once (the model
+            // observation covers ordinary changes; a switch must not wait for
+            // one). Deliberately after `syncBlame` above, so the coordinator's
+            // URL already names the incoming file.
+            context.coordinator.refreshDiagnosticOverlays()
         }
 
         // Put the incoming tab back where it was last left. Deliberately last, and
@@ -650,6 +768,13 @@ struct CodeEditorView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
         var fileID: UUID?
+
+        /// The workspace root the buffer's last immediate sync ran against
+        /// (`nil` = none yet / no folder). Owned here — unlike `fileURL`, which
+        /// `syncBlame` records for the blame column — because its only reader is
+        /// `updateNSView`'s retarget test, and seeding it in `makeNSView` is
+        /// what keeps a freshly created view from re-reading as one.
+        var syncedProjectRoot: URL?
 
         /// The language whose highlighter is currently attached (`nil` = plain
         /// text, no highlighter). Used to decide when to rebuild on tab switch,
@@ -715,10 +840,18 @@ struct CodeEditorView: NSViewRepresentable {
         /// re-index, which is the same graceful nothing a preview gets.
         weak var symbolIndex: SymbolIndexController?
 
+        /// Schedules the diagnostics channel's push sync for the shown file
+        /// (`reindexSymbols` forwards to it beside the index calls). Held
+        /// weakly for `symbolIndex`'s exact reason.
+        weak var lspSync: LSPDocumentSyncController?
+
         /// The displayed file's URL, as last seen by `syncBlame`. Kept so the
         /// gutter's context-menu action (which passes nothing) knows *what* to
-        /// blame; `nil` for an untitled buffer.
-        private var fileURL: URL?
+        /// blame, and so `updateNSView`'s retarget test can see a Save As or a
+        /// project-tree rename/move (same tab, new path); `nil` for an untitled
+        /// buffer. Readable within the type because both readers live here;
+        /// still only ever *written* by `syncBlame`.
+        var fileURL: URL?
 
         /// Fixed minimap row height per document line, in points. The proportional
         /// minimap multiplies this by the line count for `contentHeight`; the
@@ -955,7 +1088,14 @@ struct CodeEditorView: NSViewRepresentable {
                 return HoverController.Source(
                     provider: symbolIndex.provider,
                     fileURL: self.fileURL,
-                    rootGeneration: symbolIndex.currentRootGeneration
+                    rootGeneration: symbolIndex.currentRootGeneration,
+                    diagnosticsAtOffset: { [weak self] url, offset in
+                        // D34's lookup: the same store the squiggles and the
+                        // gutter read, queried at the moment the hover asks.
+                        // Empty for an undiagnosed document, which leaves the
+                        // controller's dwell rule exactly as it was.
+                        self?.diagnosticsModel?.diagnostics(at: offset, in: url) ?? []
+                    }
                 )
             }
         }
@@ -991,12 +1131,19 @@ struct CodeEditorView: NSViewRepresentable {
         /// so there is nothing to file it under. The language gate lives in the
         /// controller, so a plain-text or unindexable file costs one call and no
         /// task.
+        ///
+        /// The diagnostics sync (D30) rides the exact same two calls — the three
+        /// call sites above this method are its whole trigger surface, and riding
+        /// here rather than beside them is what guarantees the index and the LSP
+        /// server are always told about the same buffer in the same order.
         func reindexSymbols(text: String, language: SyntaxLanguage?, immediate: Bool) {
             guard let symbolIndex, let fileURL else { return }
             if immediate {
                 symbolIndex.noteBufferOpened(url: fileURL, text: text, language: language)
+                lspSync?.noteBufferOpened(url: fileURL, text: text, language: language)
             } else {
                 symbolIndex.noteBufferChanged(url: fileURL, text: text, language: language)
+                lspSync?.noteBufferChanged(url: fileURL, text: text, language: language)
             }
         }
 
@@ -1242,6 +1389,188 @@ struct CodeEditorView: NSViewRepresentable {
         /// does not shift annotations across a full-document edit.
         func beginBlameBufferSwap() {
             blame.beginBufferSwap()
+        }
+
+        // MARK: - Diagnostics underlines
+
+        /// The diagnostics channel's observable model, held *weakly* like
+        /// `symbolIndex`: the app owns it for its whole lifetime, and the
+        /// coordinator only reads the displayed file's entry out of its store.
+        weak var diagnosticsModel: DiagnosticsModel?
+
+        /// Up while `updateNSView` replaces the text view's whole buffer: the
+        /// full-range edit that assignment posts must not reach
+        /// `bufferEdited`'s shift (a plain tab switch keeps the outgoing
+        /// document's set; a genuine replacement has nothing left to shift).
+        /// Set and cleared synchronously inside the content-replaced branch.
+        var isSwappingBuffer = false
+
+        /// The store observation (one for the coordinator's lifetime). The model
+        /// is mutated from several directions — accepted pushes, teardown clears,
+        /// the edit-driven shift, wholesale-replacement drops — and every one of
+        /// them must repaint the underlines; subscribing to the published store
+        /// once is what makes that true by construction instead of by a checklist
+        /// of call sites.
+        private var diagnosticsSubscription: AnyCancellable?
+
+        /// Coalesces repaint requests onto one main-loop turn: a keystroke fires
+        /// both the shift's mutation and this handler's explicit schedule, and
+        /// TextKit needs to have finished shifting temporary attributes before
+        /// new ones are written at post-edit coordinates (the same turn-deferral
+        /// `searchController.setNeedsRefresh()` exists for). Cancelling-and-
+        /// rescheduling makes any number of same-turn triggers one repaint.
+        private var pendingDiagnosticRepaint: DispatchWorkItem?
+
+        /// Bind the diagnostics model and start observing it. Re-attachment with
+        /// the same instance (every SwiftUI update) is a no-op, so exactly one
+        /// subscription exists per coordinator.
+        ///
+        /// The subscription defers to the next main-loop turn before reading:
+        /// `objectWillChange` fires *before* the store's value lands, so a
+        /// synchronous read would paint the previous state.
+        func attachDiagnostics(model: DiagnosticsModel?) {
+            guard diagnosticsModel !== model else { return }
+            diagnosticsSubscription?.cancel()
+            diagnosticsSubscription = nil
+            diagnosticsModel = model
+            guard let model else { return }
+            diagnosticsSubscription = model.objectWillChange.sink { [weak self] _ in
+                self?.scheduleDiagnosticOverlaysRefresh()
+            }
+        }
+
+        /// Repaint the squiggles for the displayed document from the store.
+        ///
+        /// Runs on the next main-loop turn after any model change (and
+        /// immediately on a tab switch, where `updateNSView` calls it directly):
+        /// it reads the whole entry — ranges and severities, already in buffer
+        /// offsets — and hands them to the layout manager, which merges overlaps
+        /// into worst-severity spans and strokes the waves itself. The gutter's
+        /// severity markers are fed from the same read. An untitled buffer names
+        /// no document and clears both surfaces.
+        func refreshDiagnosticOverlays() {
+            pendingDiagnosticRepaint?.cancel()
+            pendingDiagnosticRepaint = nil
+            guard let textView,
+                  let layoutManager = textView.layoutManager as? BracketOverlayLayoutManager
+            else { return }
+            refreshGutterMarkers()
+            guard let url = fileURL else {
+                layoutManager.setDiagnosticRuns([])
+                return
+            }
+            let runs = (diagnosticsModel?.diagnostics(in: url) ?? []).map {
+                DiagnosticRun(range: $0.range, severity: $0.severity)
+            }
+            layoutManager.setDiagnosticRuns(runs)
+        }
+
+        /// Feed the ruler's diagnostic-marker column from the same model read
+        /// the squiggles come out of: worst severity per displayed line, indexed
+        /// by the ruler's own line geometry (`lineCount` + `lineStarts`, so a
+        /// multi-line span marks every line it crosses). This one method covers
+        /// all three feeds the column needs — every model change (the
+        /// subscription defers here), every edit (`bufferEdited` schedules the
+        /// same repaint), and every tab switch / buffer replacement
+        /// (`updateNSView` calls `refreshDiagnosticOverlays` directly) — because
+        /// each feed must show the *incoming* file's column from whatever its
+        /// store entry now holds (all-`nil` when a genuine replacement just
+        /// cleared it, the retained set after a plain switch to a diagnosed
+        /// background file).
+        private func refreshGutterMarkers() {
+            guard let ruler = lineNumberRuler else { return }
+            let severities: [DiagnosticSeverity?]
+            if let url = fileURL {
+                severities = diagnosticsModel?.worstSeverityPerLine(
+                    url: url,
+                    lineCount: ruler.lineCount,
+                    lineStarts: ruler.lineStarts
+                ) ?? Array(repeating: nil, count: ruler.lineCount)
+            } else {
+                severities = Array(repeating: nil, count: ruler.lineCount)
+            }
+            ruler.setDiagnosticSeverities(severities)
+        }
+
+        /// Queue `refreshDiagnosticOverlays` onto the next main-loop turn,
+        /// superseding anything queued earlier.
+        private func scheduleDiagnosticOverlaysRefresh() {
+            pendingDiagnosticRepaint?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                self?.refreshDiagnosticOverlays()
+            }
+            pendingDiagnosticRepaint = work
+            DispatchQueue.main.async(execute: work)
+        }
+
+        /// One character edit landed (via the ruler's `onEdit`, which hands over
+        /// the pre/post line-start tables it maintained anyway): shift the stored
+        /// set across the edit — dropping what it touched (D32) — and clear the
+        /// stale underline attributes now, while the temporary-attribute space is
+        /// still in **pre-edit** coordinates (`didProcessEditingNotification`
+        /// precedes the layout managers' own notification; the mirror of
+        /// `bracketHighlight.noteEdit`). The repaint itself is deferred: painting
+        /// here would write post-edit coordinates that TextKit then shifts again.
+        func bufferEdited(
+            previousLineStarts: [Int],
+            newLineStarts: [Int],
+            editedRange: NSRange,
+            changeInLength delta: Int
+        ) {
+            guard editedRange.location != NSNotFound else { return }
+            // The one full-range edit a buffer swap posts is *not* an edit to
+            // shift across: for a plain tab switch the outgoing document's set
+            // deliberately survives (`updateNSView`'s content-replaced branch),
+            // and shifting it here would drop every entry; for a genuine
+            // replacement the store entry is already gone, so there is nothing
+            // to do either way.
+            guard !isSwappingBuffer else { return }
+            if let url = fileURL {
+                diagnosticsModel?.noteEdit(
+                    url: url,
+                    previousLineStarts: previousLineStarts,
+                    newLineStarts: newLineStarts,
+                    editedRange: editedRange,
+                    changeInLength: delta
+                )
+            }
+            // Back the edited span and the valid extent out of the storage's
+            // post-edit report into the pre-edit coordinates the attributes are
+            // still in (`BracketHighlightController.noteEdit`'s arithmetic).
+            let postEditLength = textView?.textStorage?.length ?? 0
+            let preEditLength = max(0, postEditLength - delta)
+            let preEditRange = NSRange(
+                location: editedRange.location,
+                length: max(0, editedRange.length - delta)
+            )
+            (textView?.layoutManager as? BracketOverlayLayoutManager)?
+                .clearDiagnostics(in: preEditRange, storageLength: preEditLength)
+            // The model's mutation schedules a repaint through the subscription;
+            // scheduling here as well keeps the contract explicit and coalesces
+            // into the same single turn.
+            scheduleDiagnosticOverlaysRefresh()
+        }
+
+        /// Drop the overlay's belief about what is painted, ahead of the
+        /// wholesale replacement that wipes the attributes themselves. Beside
+        /// `beginDiagnosticsBufferSwap` in `updateNSView`, but on *every*
+        /// content replacement rather than only a genuine one — see
+        /// `BracketOverlayLayoutManager.invalidateDiagnosticPaint()`.
+        func invalidateDiagnosticPaint() {
+            (textView?.layoutManager as? BracketOverlayLayoutManager)?
+                .invalidateDiagnosticPaint()
+        }
+
+        /// Drop one document's diagnostics ahead of a wholesale buffer
+        /// replacement (`updateNSView`'s content-replaced branch, beside
+        /// `beginBlameBufferSwap`). The URL is handed in rather than read from
+        /// `fileURL` because on a tab switch the recorded URL still names the
+        /// *outgoing* file at that point — `syncBlame` has not re-recorded yet —
+        /// while the replaced document is the incoming one.
+        func beginDiagnosticsBufferSwap(clearing url: URL?) {
+            guard let url else { return }
+            diagnosticsModel?.noteBufferReplaced(url: url)
+            scheduleDiagnosticOverlaysRefresh()
         }
 
         // MARK: - Find bar
@@ -1770,6 +2099,13 @@ struct CodeEditorView: NSViewRepresentable {
             // per-tab annotate state wholesale (see `BlameController.enabledFileIDs`
             // on why nothing prunes it before this point).
             blame.reset()
+            // Ends the store observation and cancels a queued repaint, so a
+            // torn-down tab can neither repaint squiggles for a closed file nor
+            // keep the app's diagnostics model alive through the subscription.
+            diagnosticsSubscription?.cancel()
+            diagnosticsSubscription = nil
+            pendingDiagnosticRepaint?.cancel()
+            pendingDiagnosticRepaint = nil
         }
 
         /// The undo manager NSTextView should use for the currently shown file.

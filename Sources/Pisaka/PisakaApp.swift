@@ -113,6 +113,28 @@ struct PisakaApp: App {
     /// same reason.
     private let lspWorkspace: LSPWorkspace
 
+    /// Every language server's published diagnostics, with the sync/revision
+    /// bookkeeping that decides which pushes may land (D31/D32): what the
+    /// editor's overlays, the gutter and the Problems panel read. A plain
+    /// stored reference like every model above — this scene's `body` reads
+    /// nothing published on it, so observing it would only put `ContentView`
+    /// back on the republish path for value nothing in this scene shows; the
+    /// surfaces that show diagnostics observe it themselves.
+    private let diagnostics: DiagnosticsModel
+
+    /// Schedules the push channel's sync (D30): every open buffer of a served
+    /// language is flushed to its server behind a 400 ms debounce, and
+    /// immediately on a tab open/switch, so the server re-diagnoses without
+    /// being asked. A plain stored reference like `symbolIndexController`, for
+    /// the same reason: it publishes nothing and must outlive individual
+    /// editor views.
+    ///
+    /// **A reader**, exactly like everything else in the LSP layer: it raises
+    /// no `autosave.suspend()`/`localChanges.beginRevert()` and is gated by
+    /// none — a flush landing mid-revert sends one extra whole-file
+    /// notification whose late pushes the acceptance gate drops.
+    private let lspDocumentSync: LSPDocumentSyncController
+
     /// Downloads, verifies and installs the language servers this app can provision
     /// itself (phase 2b). A plain stored reference like `lspWorkspace`, and for the
     /// same reason: the `@main` App is created once, and the engine's in-flight
@@ -284,6 +306,22 @@ struct PisakaApp: App {
                 fallback: symbolIndex.provider
             )
         )
+        // The diagnostics channel (D29–D32), composed beside the routing above:
+        // the workspace's push sink feeds the model — clears included, so every
+        // teardown path blanks the three surfaces synchronously — and the sync
+        // controller is what makes pushes come at all. Captured directly rather
+        // than through `self` for the registry closures' reason below: this runs
+        // during `init`, and the sink must outlive it holding the model.
+        let diagnostics = DiagnosticsModel()
+        self.diagnostics = diagnostics
+        lspWorkspace.onDiagnostics = { [diagnostics] event in
+            diagnostics.receive(event)
+        }
+        let lspDocumentSync = LSPDocumentSyncController(
+            model: diagnostics,
+            workspace: lspWorkspace
+        )
+        self.lspDocumentSync = lspDocumentSync
         // Resolve `sourcekit-lsp` off the main thread now, so the first ⌘-click in a
         // cold project does not pay for an `xcrun` inside the launch turn. Purely an
         // optimisation — the lookup is cached either way (see `LSPToolchain`).
@@ -353,10 +391,27 @@ struct PisakaApp: App {
         // `lspWorkspace` and the models are captured directly rather than through
         // `self`: this runs during `init`, and the closures must outlive it holding
         // those objects, not a half-built `PisakaApp` value.
+        //
+        // Each callback ends by re-syncing the open buffers (D30). Diagnostics
+        // are the one push-only channel here: every other LSP surface is
+        // request-driven and recovers on the next completion/hover/⌘-click,
+        // while the sync controller's whole trigger surface is tab open/switch
+        // and a settled keystroke — all of which gate on `canServe`, which was
+        // *false* for the language a moment ago. Without this, consenting to a
+        // server (or gopls/rust-analyzer discovery finishing after launch, which
+        // is the ordinary cold-start order) leaves the file on screen with no
+        // squiggles, no gutter markers and no Problems rows until the user types
+        // a character — precisely the "diagnosed before they finish reading it"
+        // moment the channel exists for.
+        let resyncDiagnostics: @MainActor () -> Void = { [weak workspace, lspDocumentSync] in
+            guard let workspace else { return }
+            PisakaApp.syncOpenBuffersForDiagnostics(of: workspace, through: lspDocumentSync)
+        }
         provisioning.onRegistryChange = { @MainActor [lspWorkspace, gopls, rust] registry in
             await lspWorkspace.updateRegistry(
                 LSPServerRegistry(registry.descriptions + gopls.descriptions + rust.descriptions)
             )
+            resyncDiagnostics()
         }
         gopls.onDescriptionsChange = { @MainActor [lspWorkspace, provisioning, rust] descriptions in
             await lspWorkspace.updateRegistry(
@@ -364,6 +419,7 @@ struct PisakaApp: App {
                     provisioning.registry.descriptions + descriptions + rust.descriptions
                 )
             )
+            resyncDiagnostics()
         }
         rust.onDescriptionsChange = { @MainActor [lspWorkspace, provisioning, gopls] descriptions in
             await lspWorkspace.updateRegistry(
@@ -371,6 +427,7 @@ struct PisakaApp: App {
                     provisioning.registry.descriptions + gopls.descriptions + descriptions
                 )
             )
+            resyncDiagnostics()
         }
         self.lspProvisioning = provisioning
 
@@ -681,6 +738,8 @@ struct PisakaApp: App {
                 search: search,
                 reveal: reveal,
                 symbolIndex: symbolIndexController,
+                lspSync: lspDocumentSync,
+                diagnostics: diagnostics,
                 provisioning: lspProvisioning,
                 gopls: lspGopls,
                 rust: lspRust,
@@ -691,6 +750,7 @@ struct PisakaApp: App {
                 },
                 bottomPanel: $bottomPanel,
                 onTogglePanel: { togglePanel($0) },
+                onActivateProblem: { url, range in activateSearchMatch(url: url, range: range) },
                 onClose: { closeFile(id: $0) },
                 onOpenFile: { openFile(url: $0) },
                 onOpenFolder: { openFolder() },
@@ -1014,6 +1074,15 @@ struct PisakaApp: App {
                     togglePanel(.changes)
                 }
                 .keyboardShortcut("c", modifiers: [.command, .shift])
+
+                // Toggle the Problems bottom dock panel (the language servers'
+                // published diagnostics). Same handler as the bottom bar's
+                // Problems button; the panel itself renders whatever the servers
+                // currently report, so it needs no on-appear fetch.
+                Button(bottomPanel == .problems ? "Hide Problems" : "Show Problems") {
+                    togglePanel(.problems)
+                }
+                .keyboardShortcut("m", modifiers: [.command, .shift])
             }
 
             CommandMenu("Find") {
@@ -1794,7 +1863,42 @@ struct PisakaApp: App {
         // next request to count as a crash.
         let lspGenerationBefore = lspWorkspace.currentRequestGeneration
         if lspWorkspace.prepareForFolderChange(root: url) != lspGenerationBefore {
-            Task { await lspWorkspace.shutdownAll() }
+            Task { @MainActor [lspDocumentSync, lspWorkspace, model] in
+                await lspWorkspace.shutdownAll()
+                // Diagnose the tabs this open just installed — *every* one of
+                // them, not only the one the editor happens to display (D30).
+                // A restored session's background tabs have no `CodeEditorView`
+                // behind them, so the tab-switch trigger that is the sync's
+                // whole steady-state supply never fires for them and the server
+                // is never told they exist: the Problems panel would cover
+                // "files visited since launch" rather than the open ones.
+                //
+                // After the teardown rather than beside it, deliberately: a
+                // sync issued in the same turn as the switch would launch a
+                // server for the new root that `shutdownAll()` then stops,
+                // costing the launch and stranding the didOpen with it. The
+                // displayed tab's own sync is unaffected — it rides the
+                // editor's update and this call is idempotent (`prepare` sends
+                // nothing for text the server already holds).
+                PisakaApp.syncOpenBuffersForDiagnostics(of: model, through: lspDocumentSync)
+            }
+        }
+
+        // Register the switch with the diagnostics channel in this same turn,
+        // for the same reason one step removed: the model's cleared sync
+        // bookkeeping means no push routed from an old project's server can
+        // land, and the pending debounced flushes are dropped rather than
+        // flushing new-folder text at an old project's still-live server. The
+        // next tab open/switch or settled keystroke re-syncs against whatever
+        // serves the new root.
+        //
+        // Only on a *switch*, like the LSP teardown just above: re-opening the
+        // folder already open leaves every tab in place, so no re-sync would
+        // follow — wiping the store there would blank all three surfaces with
+        // nothing to repopulate them until the next keystroke or tab switch.
+        if isSwitch {
+            diagnostics.prepareForFolderChange()
+            lspDocumentSync.reset()
         }
     }
 
@@ -3224,6 +3328,36 @@ struct PisakaApp: App {
         }
     }
 
+    /// Flush every open buffer of a served language to its language server, so
+    /// the push-only diagnostics channel has something to answer for all of
+    /// them (D30) — not only for the tab an editor view happens to display.
+    ///
+    /// The steady-state triggers are per-buffer and view-driven (a tab
+    /// open/switch through `CodeEditorView`, a settled keystroke), which leaves
+    /// two moments where a whole *set* of buffers becomes the server's business
+    /// at once and no view says so: a session restored into several tabs, and a
+    /// registry change that makes a language servable that was not a moment ago.
+    /// Both call this. Idempotent — `LSPWorkspace.prepare` sends nothing for
+    /// text the server already holds — and silent for an unserved language,
+    /// which the controller drops before it costs a task.
+    ///
+    /// Static so the `init`-time closure can reach it without capturing a
+    /// half-built `self`, and so both callers run one implementation.
+    @MainActor
+    private static func syncOpenBuffersForDiagnostics(
+        of workspace: WorkspaceModel,
+        through sync: LSPDocumentSyncController
+    ) {
+        for file in workspace.openFiles {
+            guard let url = file.url else { continue }
+            sync.noteBufferOpened(
+                url: url,
+                text: file.text,
+                language: SyntaxLanguage(forFileName: url.lastPathComponent)
+            )
+        }
+    }
+
     /// Tell the symbol index that `url` no longer has an editor buffer behind it,
     /// so it re-extracts the file from disk instead of keeping the text the closed
     /// tab held.
@@ -3243,6 +3377,20 @@ struct PisakaApp: App {
     private func forgetIndexedBuffer(_ url: URL?) {
         guard let url, model.fileID(forURL: url) == nil else { return }
         symbolIndexController.noteBufferClosed(url: url)
+        // The sync controller rides the same guard: a closed tab's pending
+        // debounced flush is cancelled, so nothing pushes a buffer no editor
+        // holds. The server-side goodbye is the `didClose` below, which also
+        // emits the document clear (D33) the model routes into its store.
+        lspDocumentSync.noteBufferClosed(url: url)
+        // ...and the model is told here rather than only through that clear,
+        // because the workspace emits it solely for a URI it still holds: every
+        // teardown path wipes its document table first, so a crash-then-close
+        // leaves the sync record and the buffer revision behind, and a file no
+        // server ever served has no document table entry to begin with. This
+        // call is the one that fires for *every* close, which is what keeps the
+        // model's maps bounded by the open tabs; the workspace's clear remains
+        // for the closes it does see, and arriving twice is a no-op.
+        diagnostics.noteDocumentClosed(url: url)
         Task { await lspWorkspace.didClose(url: url) }
     }
 
@@ -3267,11 +3415,21 @@ struct PisakaApp: App {
     /// harmless — the second scheduling supersedes the first under the same key.
     private func reindexReloadedBuffer(id: UUID, url: URL) {
         guard let text = model.text(for: id) else { return }
-        symbolIndexController.noteBufferOpened(
-            url: url,
-            text: text,
-            language: SyntaxLanguage(forFileName: url.lastPathComponent)
-        )
+        // The replacement is wholesale for the diagnostics channel too (D32):
+        // the document's set is dropped outright and its sync record with it,
+        // so a push computed against the pre-replacement text can no longer
+        // pass the acceptance gate. A background tab has no editor view whose
+        // content-replaced path would say this — this funnel is the only place
+        // that sees every rewritten tab (Replace All's buffer writes and the
+        // worktree resyncs alike). Clearing *before* the immediate re-sync
+        // below lets its push land against the fresh record.
+        diagnostics.noteBufferReplaced(url: url)
+        let language = SyntaxLanguage(forFileName: url.lastPathComponent)
+        symbolIndexController.noteBufferOpened(url: url, text: text, language: language)
+        // The push channel rides the same immediate trigger: the server must be
+        // told the replacement before it can re-diagnose the file (D30), and a
+        // resync touches a bounded set of files, not a burst.
+        lspDocumentSync.noteBufferOpened(url: url, text: text, language: language)
     }
 
     /// Tell the symbol index that the project's files changed on disk — the

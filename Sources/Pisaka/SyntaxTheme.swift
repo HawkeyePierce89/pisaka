@@ -93,6 +93,51 @@ struct SyntaxTheme {
     /// unmistakably the highlighted one at a glance.
     var currentSearchMatchBackground: PlatformColor { SyntaxTheme.currentSearchBackground }
 
+    // MARK: - Diagnostics
+
+    /// The squiggle color for an ``DiagnosticSeverity/error`` — a rose-leaning
+    /// red, deliberately *not* `unmatchedBracketColor` (an orange-leaning
+    /// scarlet) and not `.string`: an editor page can show three reds at once,
+    /// and each names a different fact, so this one moves toward magenta where
+    /// the other two stay warm.
+    var diagnosticErrorColor: PlatformColor { SyntaxTheme.diagnosticError }
+
+    /// The squiggle color for a ``DiagnosticSeverity/warning`` — a saturated
+    /// amber, far from `searchMatchBackground`'s pale wash (a warning must not
+    /// be readable as "this text is selected by ⌘F") and deeper than
+    /// `currentSearchMatchBackground`'s bright highlight orange.
+    var diagnosticWarningColor: PlatformColor { SyntaxTheme.diagnosticWarning }
+
+    /// The squiggle color for an ``DiagnosticSeverity/information`` — a muted
+    /// steel blue, quiet by design: information never blocks, so it must not
+    /// compete with the error red or the amber for attention.
+    var diagnosticInformationColor: PlatformColor { SyntaxTheme.diagnosticInformation }
+
+    /// The squiggle color for a ``DiagnosticSeverity/hint`` — the quietest
+    /// entry in the palette, a gray sitting between the comment gray and the
+    /// secondary label: present on request (hover), invisible in a glance.
+    var diagnosticHintColor: PlatformColor { SyntaxTheme.diagnosticHint }
+
+    /// Severity → squiggle color. Total over the closed severity set, so the
+    /// overlay painter never falls back.
+    func diagnosticColor(for severity: DiagnosticSeverity) -> PlatformColor {
+        switch severity {
+        case .error: return diagnosticErrorColor
+        case .warning: return diagnosticWarningColor
+        case .information: return diagnosticInformationColor
+        case .hint: return diagnosticHintColor
+        }
+    }
+
+    #if os(macOS)
+    /// The appearance-aware `NSColor` for a diagnostic severity — the
+    /// temporary-attribute form the underline writer in
+    /// `BracketOverlayLayoutManager` installs, mirroring `nsColor(for:)`.
+    func nsDiagnosticColor(for severity: DiagnosticSeverity) -> NSColor {
+        diagnosticColor(for: severity)
+    }
+    #endif
+
     #if os(macOS)
     /// `NSColor` wrappers for the AppKit editor, mirroring `nsColor(for:)`. On
     /// macOS `PlatformColor` *is* `NSColor`, so these only spell the type out for
@@ -126,6 +171,14 @@ struct SyntaxTheme {
     private static let searchBackground: PlatformColor = .dynamic(light: 0xF3E39B, dark: 0x5C4F1E)
 
     private static let currentSearchBackground: PlatformColor = .dynamic(light: 0xFFB454, dark: 0x9A6218)
+
+    private static let diagnosticError: PlatformColor = .dynamic(light: 0xC01C5A, dark: 0xFF7B85)
+
+    private static let diagnosticWarning: PlatformColor = .dynamic(light: 0xA05E00, dark: 0xE2B03C)
+
+    private static let diagnosticInformation: PlatformColor = .dynamic(light: 0x45718B, dark: 0x79B8DA)
+
+    private static let diagnosticHint: PlatformColor = .dynamic(light: 0x77808C, dark: 0x6E7681)
 
     /// Token kind → appearance-aware color. Tones loosely follow Xcode's default
     /// light/dark presentation themes. Built through the cross-platform

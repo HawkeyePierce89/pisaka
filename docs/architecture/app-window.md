@@ -111,8 +111,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     open" branch is deliberately left bare (no bar without a file). The window
     body is a
     `VStack(spacing: 0) { mainArea; Divider(); bottomBar }`: an always-visible
-    VS Code-style `bottomBar` of three toggle buttons (Terminal / Git / Changes,
-    the active one highlighted, `arrow.triangle.pull` for Changes) sits flush at
+    VS Code-style `bottomBar` of four toggle buttons (Terminal / Git / Changes /
+    Problems, the active one highlighted, `arrow.triangle.pull` for Changes,
+    `exclamationmark.triangle` for Problems) sits flush at
     the bottom, and `mainArea` is the three-column `editorSplit` alone, or — when a
     `BottomPanel` is shown — `editorSplit` over the panel. The bottom bar also hosts
     the `BranchSwitcherView` (JetBrains status-bar convention) showing the current
@@ -155,10 +156,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (an existing terminal keeps its start directory — only `newSession` reads the
     current root), `.log` → `CommitLogView(model: commitLog, projectRoot:,
     onOpenCommitDiff:)` (modest `minHeight`, no full-width `minWidth`/`minHeight`
-    that would over-expand the shorter panel), and `.changes` →
+    that would over-expand the shorter panel), `.changes` →
     `LocalChangesView(model: localChanges, projectRoot:, onRevert:, onOpenDiff:)`
     rendered as the file list only (the diff opens in a separate window on
-    double-click via `onOpenDiff`). A bottom-bar button click routes through
+    double-click via `onOpenDiff`), and `.problems` → `ProblemsPanelView(model:
+    diagnostics, projectRoot:, onActivate:)` — full entry below. The diagnostics
+    model is optional here (`nil` in previews/tests), and a throwaway default
+    would both allocate per body evaluation and never update, so the nil branch
+    renders the same empty state a real model shows before any server has
+    reported. A bottom-bar button click routes through
     `onTogglePanel` (shared with the View menu, owned by `PisakaApp`) so a button
     and its matching command behave identically. Empty-gap fix: the `.terminal`
     panel renders only while `terminalSessions.sessions` is non-empty (a private
@@ -233,6 +239,30 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     bottom bar's paddings and icon fonts, the bottom panels' minimum heights and
     the panel-height floor, so a 200% terminal tab strip still leaves room for the
     panel's content.
+  - `ProblemsPanelView.swift` (macOS) — the Problems panel: every diagnostic the
+    language servers currently hold, grouped by file. It observes `DiagnosticsModel`
+    (`@ObservedObject` — this view is *for* that state and nothing else renders it)
+    and holds no domain logic: a header carries the error/warning counts from
+    `model.counts` (information/hint deliberately absent — "how much is broken",
+    not "how much was said"; each badge hidden at zero so an all-clear header reads
+    as just "Problems"), below it one group per diagnosed file in
+    `store.rows(relativeTo:)`'s stable order — file icon, relative path components,
+    then rows of severity icon, message (two-line limited) and a one-based line
+    number. Rows key their `ForEach` by rendered content (`Row`'s `Hashable`), so
+    an insertion above must not shift identity onto another message — sound only
+    because `rows(relativeTo:)` collapses byte-identical rows first, which is why
+    two diagnostics differing in nothing the panel shows list once. The one-based
+    display is the store's zero-based buffer geometry plus
+    one, because the number beside a message must read as what the gutter shows;
+    severity colors come from `SyntaxTheme.diagnosticColor(for:)` — three surfaces,
+    one palette — and every size runs through `\.interfaceMetrics` like its sibling
+    panels. Activating a row calls back with `(url, range)`; the app wires that
+    straight to `activateSearchMatch(url:range:)` (`app-shell.md`), which already
+    opens-or-reselects the tab and reveals the range for Find in Files and Go to
+    Definition — the panel is that entry point's third caller, and inventing a
+    second open-and-reveal path for it would be how the two stop agreeing. An empty
+    list draws a centered "No problems" placeholder rather than collapsing, so the
+    dock height does not jump when the last squiggle clears.
   - `DiffWindowContent.swift` — the SwiftUI content of a separate diff window
     (opened on double-click of a Local Changes row or a commit's file). Independent
     of the main window's selection: it takes `fileID`, `fileName`, a model-

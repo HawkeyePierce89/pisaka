@@ -454,7 +454,34 @@ user sees it.
   `count` would be worse than nothing — so on a machine with no Xcode, in a
   language with no server, or while a server is still starting, nothing appears.
   Nothing is ever reported: no server, no answer, a slow answer and a failure all
-  look the same, which is no popover at all.
+  look the same, which is no popover at all. Flagged code extends the same
+  popover: resting the pointer on an underlined span shows each of its diagnostic
+  messages above the type answer (prefixed "error: …", "warning: …"), and it does
+  so even when the span is punctuation rather than an identifier — or with no
+  type answer at all beneath it.
+- **Diagnostics** (macOS): with a language server running, its errors and warnings
+  appear in three places while you work — a wavy underline under the offending
+  code, a small severity dot in the gutter beside each affected line, and a
+  **Problems** panel in the bottom dock listing every open file's findings. The
+  panel toggles with "Show/Hide Problems" in the View menu, the ⚠ button on the
+  bottom bar, or Cmd+Shift+M, and shares that one dock with Terminal, Git Log,
+  and Local Changes. Its header counts errors and warnings across all files; rows
+  are grouped by file (path relative to the opened folder) showing severity icon,
+  message and line number, ordered top-to-bottom through each file with the most
+  serious finding first where several share a position. Clicking a row opens (or
+  re-selects) that file and reveals the exact range — the same path Find in Files
+  and Go to Definition use — and resting the pointer on an underlined span shows
+  its message in the hover popover ("error: …"), above the type answer when there
+  is one. Everything tracks your typing: fixing the flagged code removes its
+  underline on the first keystroke while findings elsewhere stay anchored to
+  their lines, and the server's next report (a fraction of a second after you
+  pause) replaces the whole picture — including clearing everything on an
+  all-clear. Closing a file drops its rows; quitting or crashing a server clears
+  everything it reported. Because the reports arrive unasked, opening a file of a
+  served language is itself what starts its server (where available or consented)
+  — before diagnostics existed, a server started only when you asked for
+  completion, Go to Definition or hover. Diagnostics need a server: files of languages without
+  one show none of this, silently, exactly like hover.
 - A minimap to the right of the editor: a scaled-down,
   syntax-colored overview of the file with a draggable viewport rectangle.
   Click or drag the rectangle to scroll the editor, or scroll the mouse wheel
@@ -649,8 +676,8 @@ user sees it.
   restarts a running shell. Shells are terminated when you close their tab and
   when you quit, so no processes leak. Closing the last terminal tab collapses the
   panel (no empty gap), and a repeat click / Cmd+Shift+T reopens it. The Terminal,
-  Git Log, and Local Changes panels share one bottom dock — opening one replaces
-  whichever was shown. The terminal follows the app theme — the system light/dark
+  Git Log, Local Changes, and Problems panels share one bottom dock — opening one
+  replaces whichever was shown. The terminal follows the app theme — the system light/dark
   appearance, or a theme forced in Settings — and recolors live, without restarting
   the shell or losing scrollback; every open tab is recolored, including inactive
   ones.
@@ -898,8 +925,8 @@ and iPhone. The feature scope landed so far:
   revision", no jump from an annotation into the Git Log, and the date format is
   fixed (not a setting).
 - The semantic Swift intelligence is macOS-only and needs Xcode, and it covers
-  Go to Definition, completion and hover types only — there is still no Find
-  Usages, no rename, no signature help and no diagnostics, and nothing about the
+  Go to Definition, completion, hover types and diagnostics only — there is still no Find
+  Usages, no rename and no signature help, and nothing about the
   server is configurable or visible: no status indicator, no "restart server", no
   log. It answers for projects `sourcekit-lsp` can build (a `Package.swift`, a
   `compile_commands.json`, an `.xcodeproj` through the build server protocol); a
@@ -916,7 +943,7 @@ and iPhone. The feature scope landed so far:
   differs and no server line number is ever shown. On iOS there is no language
   server at all (iOS has no subprocesses), so the next item applies there in full.
 - The downloadable TypeScript/JavaScript, Python and YAML servers are macOS-only
-  and cover the same Go to Definition, completion and hover types — no diagnostics,
+  and cover the same Go to Definition, completion, hover types and diagnostics —
   no rename, no status indicator and no log, and nothing about them is
   configurable: no per-project server, no extra options or arguments, and no
   version picker (the versions are pinned in the app and change only when you
@@ -942,7 +969,7 @@ and iPhone. The feature scope landed so far:
   quietly falls back to what the buffer contains, which looks like a server that
   has stopped knowing things rather than like a failed download.
 - The Go server (`gopls`) is macOS-only and covers the same Go to Definition,
-  completion and hover types, with the same absence of diagnostics, rename, status
+  completion, hover types and diagnostics, with the same absence of rename, status
   indicator and log. It needs a Go toolchain — there is no offer without one, and
   a `go` that cannot answer `go env` counts as none. A `gopls` you already have
   is used **at whatever version it is**: none is read, required or shown, and it
@@ -955,7 +982,7 @@ and iPhone. The feature scope landed so far:
   Go toolchain installed while Pisaka is running is found at the next launch. The
   version is pinned in the app and there is no version picker.
 - The Rust server (`rust-analyzer`) is macOS-only and covers the same Go to
-  Definition, completion and hover types, with the same absence of diagnostics,
+  Definition, completion, hover types and diagnostics, with the same absence of
   rename, status indicator and log. It needs a **Rust toolchain** — there is no
   offer and no server without one, and a `cargo` that cannot answer
   `cargo --version` counts as none. The same applies to a `rust-analyzer` it

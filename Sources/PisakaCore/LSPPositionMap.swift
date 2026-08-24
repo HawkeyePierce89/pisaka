@@ -155,7 +155,13 @@ public enum LSPPositionMap {
     }
 
     /// Binary search for the line whose start is the greatest one `<= offset`.
-    private static func lineIndex(containing offset: Int, lineStarts: [Int]) -> Int {
+    ///
+    /// Internal — not `private` — because the diagnostics layer reuses it in
+    /// exactly this shape (`Diagnostic.make`, `DiagnosticShift.updated`,
+    /// `DiagnosticStore.worstSeverityPerLine`): one table, one rule for turning
+    /// an offset back into a line, never four copies that can drift. An empty
+    /// table (which `lineStarts(in:)` never produces) reads as one line at 0.
+    static func lineIndex(containing offset: Int, lineStarts: [Int]) -> Int {
         var low = 0
         var high = lineStarts.count - 1
         while low < high {

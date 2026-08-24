@@ -66,6 +66,30 @@ normalizes to nothing is `nil` rather than an empty popover. The view half — t
 dwell, the tracking area and the pass-through panel — is macOS-only and lives in
 `docs/architecture/app-editor.md`.
 
+**What diagnostics added, and why it is a channel rather than a fourth question.**
+Everything above this paragraph is *asked*: a request goes out because a keystroke,
+a ⌘-click or a resting pointer wanted something now. `textDocument/publishDiagnostics`
+is the one thing servers say unasked — errors and warnings pushed whenever they
+re-diagnose a document they hold — and surfacing it (squiggly underlines in the
+editor, severity markers in the gutter, a Problems panel in the bottom dock) needed
+three structural additions rather than one more seam method. `LSPSession` had to stop
+discarding server-initiated notifications, so they travel out on a stream with one
+consumer (D29); D2's request-driven sync never re-diagnoses anything, so every open
+buffer of a served language is flushed on a 400 ms debounce beside the symbol index's
+own (D30); and a push describes text the buffer may have moved past, so it is mapped
+against what the *server was told*, gated on version and revision, shifted across
+each edit and dropped where the edit touched (D31–D32). Every teardown path clears
+what its server reported (D33), and hover carries the messages so there is no second
+popover surface (D34). Four Core files carry all of it — `Diagnostic.swift`,
+`DiagnosticShift.swift`, `DiagnosticStore.swift` and `DiagnosticsModel.swift`, with
+entries in their own section below — plus wire types in `LSPProtocolTypes.swift`, the
+stream in `LSPSession.swift` and routing/clears in `LSPWorkspace.swift`; the app half
+(the debounced sync controller, the squiggle/marker/panel surfaces) is documented in
+`app-editor.md`, `app-editor-overlays.md` and `app-window.md`. There is no setting,
+no consent surface and no iOS UI: diagnostics are what a registered server already
+computes for a document it already holds, so absence of a server remains the one way
+to have none.
+
 **Where the platform boundary is.** All of it is in `PisakaCore` except one
 thing: the `Process` and its three pipes, which live macOS-gated in
 `Sources/Pisaka/LSPProcessTransport.swift` behind the `LSPTransport` protocol.
@@ -97,7 +121,10 @@ root, when to give up) → `LSPIntelligenceProvider` (protocol answers as seam
 values) → `RoutingIntelligenceProvider` (LSP first, tree-sitter otherwise).
 `CompletionEditPlan` and `HoverContent` hang off the side of the last two: the
 pure rule the editor applies an auto-import with, and the pure normalization a
-hover answer is drawn from.
+hover answer is drawn from. Beside them, not below anything, runs the push
+channel: `Diagnostic`/`DiagnosticShift`/`DiagnosticStore` are the pure half of
+it, `DiagnosticsModel` its one observable, fed by `LSPWorkspace.onDiagnostics`
+and read by three macOS surfaces.
 
 The decisions D1–D10 the ticket delegated are written out at the end of this
 document, together with the limits they carry.
@@ -226,6 +253,22 @@ document, together with the limits they carry.
     it so a server with no markdown renderer answers instead of declining. That is
     the closed tree's own rule applied to a new node: what is advertised is what
     there is code for, and there is code for exactly these two.
+    The diagnostics wire shape (D29–D31) follows both file rules. **Decode
+    leniently**: `LSPDiagnostic` requires only `range`/`message` — the spec types
+    everything else optional — and each optional reads through a failure-tolerant
+    path, so an unknown `severity` number or an opaque `code` decodes to its
+    presence rather than failing the push; one malformed entry of a
+    `diagnostics` array is dropped while its siblings survive,
+    `LSPHoverResponse`'s per-element rule; and
+    `LSPPublishDiagnosticsParams.version`, absent or unreadable on most servers,
+    stays `nil` — D31 then accepts the push against revision alone rather than
+    inventing a version to compare. **Encode exactly** barely applies, because
+    the whole shape is decode-only: the server initiates this conversation and
+    Pisaka never sends it. The closed capability tree gains its honest node:
+    `textDocument.publishDiagnostics` with `relatedInformation: false` (no
+    surface for the related spans exists) and `versionSupport: true` (the
+    workspace does read `params.version`) — advertised because there is code
+    behind it, which is the tree's whole rule.
     `LSPInitializeParams` sends the project root **twice** — as `rootUri` and as
     the spec-deprecated `rootPath` — and the redundancy is load-bearing rather
     than belt-and-braces. Phase 2a sent only `rootUri`, which is what
@@ -307,6 +350,11 @@ document, together with the limits they carry.
     the line's content end, and
     `LSPPositionMapTests.testAnOffsetInsideACRLFPairIsNotAnAddressablePosition`
     states it outright instead of the round-trip assertion being quietly weakened.
+    `lineIndex(containing:lineStarts:)` is internal — not `private` — for the
+    same one-rule reason the rest of the file exists: the diagnostics layer
+    (`Diagnostic.make`, `DiagnosticShift.updated`,
+    `DiagnosticStore.worstSeverityPerLine`) reuses exactly this offset→line
+    search against this table rather than growing copies that could drift.
 
   - `LSPTransport.swift` — the whole macOS/Core boundary, and deliberately tiny:
     bytes out (`send`), bytes in (`incomingBytes`), stop (`terminate`). The
@@ -374,9 +422,26 @@ document, together with the limits they carry.
     `null`, "no setting", where it does not (D27) — and anything else gets
     `MethodNotFound`. For the five servers whose description carries no
     configuration that is one `null` per item, byte-for-byte the answer this file
-    gave before D27 existed. Notifications are
-    ignored — diagnostics, logs and progress are all noise here, and ignoring an
-    unknown one is what the spec asks for anyway.
+    gave before D27 existed. **Notifications are forwarded, never interpreted**
+    (D29): since the diagnostics work, `handle(_:)`'s `.notification` case yields
+    an `LSPServerNotification` (method + params, nothing session-shaped attached)
+    into `notifications: AsyncStream<LSPServerNotification>` instead of dropping
+    it. The stream is built in `init` around a single continuation with
+    unbounded buffering, because its one consumer (`LSPWorkspace`, attached once
+    the handshake has succeeded and the session is filed under its key) always
+    drains it: the buffer is what makes attaching *after* `start` safe — anything
+    the peer says during the handshake waits rather than being dropped — and a
+    burst of pushes between two hops of that consumer must not strand anything
+    either — a callback would have let two
+    pushes reorder across two independent `Task` hops and leave stale errors on
+    screen for the life of the session, which is the whole reason this is a
+    stream (D29). Finishing is exactly once and exactly terminal: `close(reason:)`
+    is already the single transition every ending funnels through, so it is where
+    the continuation finishes, and D33 reads that finish as the externally-killed-
+    server signal without this file learning anything about diagnostics. What a
+    notification *means* — route a push, ignore a log — is the consumer's
+    business; this layer guarantees only wire order and delivery, which is why
+    an unrecognised method is ignored there rather than here.
     **A framing error is terminal, a bad *payload* is not.** `ingest` distinguishes
     the two: unreadable framing closes the session (there is no way to find where
     the next message starts), while a correctly framed payload that is not a
@@ -479,7 +544,14 @@ document, together with the limits they carry.
     pushed on a keystroke, and every request calls `prepare(url:language:text:)`
     first, which sends a `didOpen` (or a `didChange` with a bumped version) exactly
     when the text differs from what *this* server was last given, and nothing at all
-    when it does not. A document is never opened against a root it does not live
+    when it does not. The one caller that declines that no-op is the diagnostics
+    sync, through `prepare`'s defaulted `forceFlush`: a push-only server publishes
+    only when a notification arrives, so when another flusher (a completion at its
+    shorter debounce, a hover) has already delivered the settling sync's exact text
+    — its publish then dying at the model's gate, version past the record — the
+    sync must still leave one version-bumping full-text `didChange` behind, or the
+    burst ends with no accepted push anywhere (D30/D32). A document is never opened
+    against a root it does not live
     under: a server initialized for one project has no business being told about a
     file from another, and the answers it gave would be about the wrong build.
     **The flush is serialised per document**, through the `flushes` table (the
@@ -765,12 +837,73 @@ document, together with the limits they carry.
     `testAQuitWhileARemovedServerIsShuttingDownStillKillsIt` and
     `testTerminateNowKillsAServerAFolderSwitchIsStillShuttingDown` stage a quit
     inside each of the four windows.
+    **The withdrawn launch's consumer is cancelled with it, in the same branch.**
+    The up-front cancellation this method makes for every dead key runs *before*
+    the handshake returns, and a launch it did not stop files itself and attaches
+    a consumer afterwards — so the in-flight teardown cancels `notificationTasks`
+    beside `sessions` and `documents`, in the same synchronous prefix, under the
+    identity the branch already established (a consumer exists only beside a filed
+    session, so `sessions[key] === orphan` is exactly the condition under which the
+    entry is this launch's). Left attached it would outlive its session and speak
+    the stream-finish clear for a key this same call already cleared;
+    `testAWithdrawnInFlightLaunchClearsItsKeyExactlyOnce` pins the count.
     Neither generation moves either: a registry update is
     not a folder change, and a request in flight for a server that survived is
     still a request about the folder it was asked under. Every map a `prepare`
     reads is emptied *before* the first hop, `shutdownAll()`'s ordering applied to
     a subset — `transports` excepted, for the reason above, and harmlessly so
     since no reader consults it. An equal registry returns immediately.
+    **The push channel** (D29/D31/D33) is this file's third ownership beside
+    sessions and documents: one `@MainActor` consumer task per session, filed in
+    `notificationTasks` beside it and cancelled with every teardown, iterating
+    `session.notifications` from the moment the session is filed under its key —
+    before the first request goes out, because a real server may push diagnostics
+    for the `didOpen` well before the flush that carried it returns. `route(_:from:)`
+    applies D31's gates as a conjunction, **cheapest first**: the URI
+    must be a document **this**
+    `(server, root)` currently holds (a closed file, another server's file, or an
+    unopened one is noise), then the push must name the folder this
+    workspace currently serves — a straggler from an old project's server in the
+    window between `prepareForFolderChange` and the `shutdownAll()` it schedules
+    would otherwise be routed, and, finding the model's bookkeeping cleared,
+    *held*, onto whatever same-path file the next project syncs — and a present
+    `version` must equal the version last
+    flushed for it. A URI that does not parse as a `URL` is dropped first, at the
+    one boundary where the round-trip happens — and the parse comes first for a
+    reason: this is the only place a **server-supplied** URI meets a key we
+    generated, so the lookup tries the server's own spelling and then *ours* for
+    the same parsed URL (`documentURI(for:)`, the very function that minted the
+    keys). A server is free to re-spell what it was handed — a different but
+    equivalent percent-encoding is the ordinary case — and a raw string compare
+    alone would drop every diagnostic for that file, silently, for the whole
+    session, with nothing to notice it by. That ordering is about **cost**, not
+    meaning: a server finishing a workspace-wide check publishes one notification
+    per file it knows, nearly all of them for files no tab holds, and the two
+    gates that used to run before the membership test are the expensive pair —
+    `rootKey(for:)` resolves symlinks on the file system and `decoded(as:)`
+    re-encodes and re-parses the whole diagnostics array, both on the main actor
+    the editor types on. So the URI is read straight off the raw parameters
+    (`params["uri"]`) and the body is decoded only once the push is known to name
+    a document we hold. A push passing every gate is mapped
+    against `documents[uri].text` —
+    the text the *server was told*, not the live buffer; reconciling the editor's
+    later edits is `DiagnosticShift`'s job downstream, never a remap here — one
+    line-start scan per push, and the survivors go to the sink as an
+    `LSPDiagnosticEvent.published`. Every other notification is dropped exactly
+    as before. The output side is `var onDiagnostics: ((LSPDiagnosticEvent) ->
+    Void)?`, whose cases are `published(url:serverID:root:version:diagnostics:)`
+    and the clears — because a stale squiggle is only half the failure mode; the
+    other half is diagnostics outliving their server. So **every teardown path
+    emits its key's clear** (D33): `noteDeath`, `shutdownAll()`,
+    `terminateNow()`, `updateRegistry(_:)`'s removal branch on both its halves,
+    each `unavailable.insert` site, `didClose(url:)` per document, and — the one
+    case no deliberate path covers — the consumer task's own exit when the stream
+    finishes under it, which is how an externally killed server is noticed without
+    touching D7's counters (`prepare` still owns crash *detection*). The
+    stream-finish clear checks that no replacement session already owns the key,
+    so a restarted server's fresh pushes are not wiped by their dead predecessor's
+    goodbye. The sink is called synchronously on the main actor; what accepts or
+    drops the event next is `DiagnosticsModel`'s gate, below.
     **A reader, never a writer** (D10).
 
   - `CompletionEditPlan.swift` — the pure rule auto-import is applied by, so the
@@ -1749,6 +1882,238 @@ what the registry gets.
     (D23). Full entry in `app-editor.md`, beside `LSPGoToolchainService.swift`
     whose search order and discipline it follows.
 
+### Diagnostics (D29–D34)
+
+Four Core files — three pure value/engine types and one observable model — that
+turn `publishDiagnostics` pushes into state three macOS surfaces can share. They
+sit *beside* the request stack rather than under it: nothing above reads them to
+answer a question the editor asked, and the only thing they consume is the
+workspace's sink. The app-side half of the feature is documented where it lives:
+`LSPDocumentSyncController.swift` and the coordinator wiring in `app-editor.md`,
+the overlay cache, the ruler's marker column and `SyntaxTheme`'s colors in
+`app-editor-overlays.md`, and `ProblemsPanelView.swift` in `app-window.md`.
+
+  - `Diagnostic.swift` — the buffer-anchored value type, its severity vocabulary,
+    the wire→buffer mapping, the panel's ordering key, and hover's merged content.
+    Everything downstream of the mapping works in UTF-16 offsets and never sees an
+    LSP position again; `line` counts lines by `LSPPositionMap.lineStarts(in:)`'s
+    separators, so it can differ from the gutter's numbering only by D1's bounded
+    NEL/LS/PS divergence, which no surface ever prints raw.
+    `DiagnosticSeverity` is the **closed** set the three surfaces switch over
+    (`error`/`warning`/`information`/`hint`) beside the wire's open
+    `LSPDiagnosticSeverity`, and the conversion between them carries the feature's
+    one client-side judgement call: **an absent or unknown wire severity becomes
+    `.error`**, which is what the spec's "the client decides" has to mean for an
+    editor that must not hide a failure — an unrecognised number is more plausibly
+    a server naming something serious than something trivial, so the benefit of the
+    doubt goes to red. `Comparable` orders by seriousness with `.error` greatest
+    (deliberately the reverse of the wire integers, hence a written-out `<`),
+    because both per-line folding and the ordering key ask "which of these wins"
+    and `max` should be the answer.
+    `make(from:in:lineStarts:url:)` maps one wire diagnostic through
+    `LSPPositionMap.range(for:in:lineStarts:)` against the text the server was told
+    (D31), taking the caller's precomputed line starts so a push of N entries scans
+    the buffer once. Out-of-range positions clamp rather than reject — a push
+    computed against slightly stale text still points somewhere honest — and the
+    one placement that cannot be clamped returns `nil`: unreachable through
+    today's clamping rules, kept as a gate so a future change to them cannot hand
+    TextKit an `NSRange` it traps on.
+    `OrderingKey` (path, then start offset, then most severe first at one
+    start — severity outranks every remaining field, so the worst complaint at a
+    position is always read first — then shorter span, then message and source
+    lexicographically among equals, absent source before any present one) is a **total**
+    order decided here rather than in the view, because two surfaces — the
+    Problems list and hover's merged messages — must agree on reading order
+    without consulting each other, and a stable sort needs a key with no ties
+    unless the diagnostics are equal. The tie-break fields are what make that
+    claim true rather than aspirational: real servers do emit two complaints at
+    one position with one severity, and Swift's sort is not guaranteed stable,
+    so without them the reading order would depend on the push's arrival order.
+    `sortedByOrderingKey(_:)` is how every one of those sorts is spelled, and the
+    reason is measured rather than stylistic: `orderingKey` is computed, and
+    building one standardizes a `URL` and allocates its path, so the naive
+    `sorted { $0.orderingKey < $1.orderingKey }` pays that twice per *comparison*.
+    Both call sites sit on a per-keystroke path — the panel's rows and counts
+    re-evaluate on every `@Published` store mutation — and n is the findings in one
+    file, which one unresolved import makes three digits. Decorate-sort-undecorate
+    builds each key once.
+    `DiagnosticRun` + `merged(_:)` is the editor overlay's value and its whole
+    algorithm, in Core for the ordinary reason (pure, therefore unit-tested):
+    freely-overlapping runs become the ascending non-overlapping form, each span
+    carrying the worst severity covering it, adjacent equal severities coalesced. A
+    **zero-length run widens to one unit** rather than being dropped — servers emit
+    empty ranges, and the gutter, hover and the panel all show them, so silently
+    skipping only the squiggle would flag a line with nothing under it; one at the
+    very end of the buffer widens past it and the paint side clamps it away, which
+    is the same "nothing to draw" a drop produced without also losing the drawable
+    ones.
+    `hoverContent(for:merging:)` is D34's builder: each message as a
+    severity-labelled prose segment ("error: …" — the label is what keeps a bare
+    message from reading as documentation), in `orderingKey` order, above the type
+    answer's segments when there is one and alone when there is not. It goes
+    through `HoverContent`'s checking initializer, so D26's length caps run exactly
+    once; cutting to a drawn line count stays the renderer's call, as for any other
+    answer. An empty set falls through to the type answer unchanged — segments and
+    truncation mark alike — and an empty set with no type answer is `nil`: there is
+    no empty popover (D25).
+    Foundation-only, like everything here.
+
+  - `DiagnosticShift.swift` — the pure incremental rule that keeps a stored set
+    pointing at its code across edits (D32), in ``BlameShift.updated``'s exact
+    shape: arithmetic over the pre-edit and post-edit line-start arrays the caller
+    already holds at `NSTextStorage.didProcessEditing` time, with no text and no
+    re-scan. The rule is deliberately three-way: a diagnostic entirely before the
+    edited span is untouched, one entirely after is shifted by `changeInLength`
+    and renumbered from `newLineStarts`, and one intersecting the touched span is
+    **dropped** — so the error being fixed loses its underline on the first
+    keystroke while errors elsewhere stay anchored, rather than drifting (no
+    shift) or blinking off wholesale (a blanket clear). Both edge comparisons are
+    half-open and load-bearing at both edges: a diagnostic ending exactly at the
+    insertion point survives (dropping it would blink on ordinary typing at the
+    caret), and so does one starting exactly at a deletion's start. A survivor's
+    `line` is recomputed only when it actually moved — re-deriving an untouched
+    one could launder a divergence between the two separator sets, not fix it.
+    Inconsistent input returns `[]`, the honest "unknown": tables not anchored at
+    zero, negative ranges, overflow anywhere in the span arithmetic (checked with
+    the reporting overflows, since `Int.max`-sized garbage must fall to the
+    fallback rather than trap), and one bad entry poisons the whole answer on
+    purpose — callers re-sync on the next typing pause, and a partially-shifted
+    array looks exactly like truth. What is deliberately *not* checked is spelled
+    out too: an edit past the old buffer's end or a survivor past the new one
+    cannot be seen from line-start tables alone, and yielding a shifted set there
+    beats inventing a parameter for input `NSTextStorage` cannot produce. D32
+    rejects replaying an edit queue onto a late push as exact but heavy; this is
+    the cheap half of that bargain, correct for every edit *after* the accepted
+    push and self-correcting for anything before it because the model refuses such
+    pushes outright.
+
+  - `DiagnosticStore.swift` — the value type keyed by document URL that both the
+    model holds and the surfaces read, carrying provenance per entry (*which*
+    `(serverID, root)` reported a document's set) because two
+    clearing rules are keyed by that pair (D33). The push's wire version is
+    deliberately *not* stored — the acceptance gate reads it off the model's own
+    sync records, so an entry copy would be write-only state. The server key mirrors the workspace's `(server, root)` as its own
+    public type rather than exposing workspace internals; URLs are standardized at
+    the boundary, with the canonical probe left to `CanonicalPath` where display
+    paths need it — same-file identity is decided once, not re-derived under every
+    key. Mutations are wholesale or scoped: `replace(url:serverKey:
+    diagnostics:)` is LSP semantics including the empty push (an "all clear" lands
+    as an empty entry so provenance survives for the next comparison),
+    `clear(url:)`, `clear(serverKey:)` (D33's teardown clears),
+    `clearAll()` (the folder changed), and `apply(shift:to:)` installing a shifted
+    set while keeping its provenance — refusing to mint an entry for a document
+    nothing was ever pushed about, because fabricated provenance is precisely what
+    the gate below would then trust.
+    Queries, all pure: `diagnostics(at:in:)` for hover (half-open containment,
+    with the one exception that a zero-length diagnostic contains exactly its own
+    offset); `worstSeverityPerLine(url:lineCount:lineStarts:)` returning exactly
+    `lineCount` entries — the ruler indexes the result by line, so the
+    `BlameShift` invariant is applied here rather than hoped for downstream —
+    marking every line a multi-line diagnostic spans, which is why it grew the
+    `lineStarts:` parameter the plan did not name: line geometry is the one thing
+    a store of offsets deliberately does not keep, and the caller already holds
+    the table. **Both ends of the marked band come from that table**, never from
+    the stored `Diagnostic.line` — that number counts by LSP's separator set
+    (D1) and is only ever *printed* (the panel's `:N`), so reading it as geometry
+    here would mix two numberings and, in a file delimited by NEL/LS/PS, paint a
+    one-line diagnostic as a band as tall as every exotic separator above it.
+    A diagnostic starting outside the requested window is skipped rather than
+    clamped onto line 0, and inconsistent geometry degrades to all-`nil` at the
+    requested count, never a crash indexing past the array; `rows(relativeTo:)` grouping by file in
+    `orderingKey` order with relative path components via `CanonicalPath`/
+    `DisplayPath`'s two-probe order (absolute components for a file outside the
+    root — the panel invents no `~` story the breadcrumb would disagree with) and
+    collapsing byte-identical rows, a *rendering* rule the view's content-keyed
+    `ForEach` rides on: rows are keyed by their flattened fields (`Row`'s note),
+    where duplicate ids are undefined behavior rather than a merge, while the
+    entry itself keeps every diagnostic so hover, the overlay and `counts` still
+    see both;
+    and `counts`, errors and warnings only, because the header answers "how much
+    is broken", not "how much was said".
+
+  - `DiagnosticsModel.swift` — the `@MainActor ObservableObject`
+    (`SymbolIndexModel`'s precedent) that owns a store plus the sync/revision
+    bookkeeping deciding which pushes may land, republished wholesale on every
+    mutation so the squiggle overlay, the gutter column and the panel observe one
+    truth. **A reader** (D10): it never raises `autosave.suspend()`/
+    `localChanges.beginRevert()` and is never gated by them — diagnostics only
+    look at buffers, and a set landing mid-revert costs at worst one wrong
+    squiggle the next 400 ms sync's push corrects.
+    The acceptance gate is D32 stated as code: a `published` event is applied only
+    when its version matches the version recorded at the document's last reported
+    sync (`noteSynced(url:version:revision:)`; absent-on-push means unversioned,
+    and then revision alone speaks) **and** the buffer revision pinned at that sync
+    still equals the document's current revision — i.e. nothing was typed between
+    the sync and the push. A push computed against moved-past text is dropped
+    outright, never replayed against an edit log; the last keystroke has already
+    scheduled one more sync whose push will have no edits after it, which is what
+    makes dropping self-correcting. Edits after an *accepted* push go through
+    `noteEdit(...)` → `DiagnosticShift.updated` (shift + revision bump — and it
+    reads the entry before touching the store, so a document with *nothing to shift*
+    costs no `objectWillChange` at all: `apply(shift:to:)` already no-ops there, but
+    calling it is still a mutating access to a `@Published` value, which would wake
+    the panel's rows and the editor's whole-document gutter pass once per keystroke.
+    The skip covers both shapes of "nothing" — no entry at all (every plain-text
+    file) and an **empty** entry, which is what an all-clear push installs and so
+    the steady state of every file that currently compiles; shifting an empty set
+    can only produce an empty set), a
+    wholesale buffer replacement (a `reloadFromDisk`, Replace All or merge apply,
+    on-screen or reported off-screen) through `noteBufferReplaced(url:)` (clear +
+    bump + drop the sync record — the server no longer holds text anyone mapped a
+    push against); a plain tab switch is deliberately *not* one of these, so a
+    background document's set and sync record survive the view swap and its
+    squiggles repaint from the store on switching back.
+    **The hold-and-reconcile step** closes the one hole dropping leaves: the
+    workspace commits a flushed version several main-actor hops before the
+    controller's report lands, and a fast server's publish can be routed inside
+    that window — where "rejected" would strand the document blank until the next
+    interaction, on exactly the first-diagnosis moment the feature exists for
+    (`attachNotificationConsumer`'s own comment concedes a real server pushes
+    "well before the flush that carried it returns"). So a push that finds no
+    record, or a record pinned to a revision the buffer has moved past — either
+    signature of a report still in flight — is **held** (one per document, newest
+    wins, the event alone with no revision beside it) and judged when the next record lands:
+    admitted only if that sync itself is current and the versions match (absent
+    passes), because the hold's survival plus the landing record together pin it
+    to exactly that sync's text. Every invalidating event drops holds — `noteEdit`,
+    `noteBufferReplaced`, both clears (scoped: a server clear takes only that
+    server's), and the folder change — so a hold can never resurrect anything a
+    teardown or a keystroke condemned — and is why no hold-time revision is stored
+    at all: nothing that bumps a revision leaves a hold behind, so the hold's mere
+    survival is already the proof a stored copy would have re-checked.
+    A version mismatch against a *current* record is held too, not dropped:
+    with no keystroke to point at, it is either a late replay — which the
+    reconcile's version half then discards unreplayed — or the settling flush's
+    own publish beating its report home, which it admits; dropping would strand
+    the document blank until the next interaction, the exact failure the hold
+    exists to prevent.
+    One honest trade: a held unversioned push may rarely describe the previous
+    flush's text; accepting it draws at worst one briefly-wrong set for the
+    instant before the settling answer replaces it — D32's own trade, made once,
+    here. `noteDocumentClosed(url:)` — the last tab on the file closed — takes the
+    document's *whole* record with it: the set, the hold, the sync record and the
+    revision. The two maps are then bounded by the open tabs rather than by every
+    file the session ever opened, and a file reopened later is gated from zero
+    instead of against the numbers of its previous life. It is reached **two ways
+    and needs both**: `receive(.cleared(.document))`, which the workspace emits only
+    for a URI it still *held* — every teardown wipes its document table first, so a
+    crash-then-close emits nothing — and a direct call from the app's own "no tab
+    shows this file any more" guard (`forgetIndexedBuffer`, beside the `didClose`),
+    which is the one that fires for *every* close and so also bounds the revision
+    map for files no server ever served (`noteEdit` mints a revision for any buffer
+    that is typed in, served or not). Idempotent, so arriving both ways costs
+    nothing. `prepareForFolderChange()`
+    clears bookkeeping along with the
+    store in the same main-actor turn as the workspace's own token, so no push
+    from an old project's server can pass — and only fires when the root actually
+    changed, since re-opening the open folder leaves every tab in place with
+    nothing that would repopulate an emptied store. `currentRevision(for:)`
+    exists for
+    exactly one caller: the sync controller pinning it synchronously before its
+    hop — the generation-token rule, one layer up from the models it usually
+    guards. The read-only queries forward to the store unchanged; the views hold
+    no logic to be thin about.
+
 ## Decisions
 
 **D1 — Position mapping and line separators.** `LSPPositionMap` scans line starts
@@ -2178,6 +2543,136 @@ never its schema, so `ser` in a fresh `docker-compose.yml` could only ever be
 answered from luck. Un-consented, removed, or failed, YAML falls back to that path
 exactly as every other language does (D7), silently and per request.
 
+**D29 — Notifications arrive on a stream.** `LSPSession` used to drop every
+server-initiated notification on the floor; diagnostics are the first thing this
+client needs to *hear*. It exposes `notifications: AsyncStream<LSPServerNotification>`,
+built at init with one continuation, consumed by `LSPWorkspace` in one main-actor
+task per session, attached once `start`'s handshake has succeeded and the session
+is filed under its key — the unbounded buffer is what makes that ordering safe,
+holding anything the peer says during the handshake until the consumer arrives. A stream rather than a callback because
+ordering is the whole point: two pushes for one document ("2 errors", then "all
+clear") delivered through two independent `Task { @MainActor }` hops can arrive
+backwards, and a callback that published straight into UI state would strand stale
+errors under corrected code for the life of the session — a stream is FIFO by
+construction, and the single consumer drains it in send order. Buffering is
+unbounded because the owner always consumes; finishing the stream is the
+crash/exit signal D33's clearing rule reads.
+
+**D30 — The sync is the one thing this layer says unasked.** D2's flush is
+request-driven: nothing reaches the server until completion, hover or definition
+asks. Diagnostics are push-only, so without an unprompted sync the server would
+never re-diagnose anything after its first look at a file. Every open buffer of a
+served language is therefore flushed 400 ms after typing stops (per-URL debounce,
+superseded by the next keystroke for the same file) and immediately on tab
+    open/switch — or when the displayed buffer's *coordinates* change under an
+    unchanged id and text: a Save As or a project-tree rename/move (the old URL
+    was `didClose`d by the rename's `forgetIndexedBuffer`, and nothing else would
+    ever introduce the new one), or a folder change under it, which is the shape
+    of the first Open Folder of a run carrying tabs (those buffers were never
+    synced at all — every earlier trigger ran with no root, where `prepare`
+    answers `nil`). Background tabs stay lazy in every case: they sync on their
+    first switch, like every other background buffer, through exactly one
+    `LSPWorkspace.prepare(url:language:text:)`
+    call with no follow-up request — the whole of D2's machinery (launch coalescing,
+    root check, unavailability gate, didOpen/didChange/no-op) already lives inside
+    it, so this adds a *trigger*, not a second code path. The sync alone passes
+    that call's `forceFlush` flag, and the reason is supply, not politeness: a
+    push-only server answers *notifications*, and any other flusher landing first
+    (a completion at 150 ms, a hover) has already delivered the same text without
+    leaving an accepted push behind — its version moved past the model's record,
+    so the gate rejected the publish it provoked. An unforced settling sync would
+    then find nothing to send and nothing coming, freezing all three surfaces at
+    the pre-typing state; one redundant full-text `didChange` (bytes identical,
+    version bumped) is what makes the burst always end in a notification the
+    server must answer and the gate can accept. The cost is one extra whole-file
+    `didChange` only in exactly those bursts — the ordinary settle still sends
+    one. One consequence is stated rather than hidden:
+    opening a served file now launches its server, where before a completion or a
+    ⌘-click was needed — that is what "diagnostics on open" means, and consent-gated
+    servers still sit outside the registry until consented, so nothing new starts
+    without the same gates every other launch has.
+
+**D31 — Diagnostics are anchored to the text the server was told.** A push is
+mapped through `LSPPositionMap` against `documents[uri].text` at receipt, accepted
+only when the pushing key's root is the folder this workspace **currently** serves,
+the URI names a document that `(server, root)` currently holds, **and**
+its `version`, when present, equals the version last flushed for it; a push for a
+URI nobody holds open is ignored (the surfaces cover open documents only), and so
+is one whose URI does not parse as a URL — the round-trip to `URL` happens once,
+here at the boundary, because everything downstream speaks `URL`. The
+live buffer is deliberately *not* consulted: the editor may already have moved on,
+and remapping against it here would guess. What happens instead is D32.
+
+**D32 — Stale means shifted, and what the edit touched is dropped.** Between the
+push that produced a set and the next one, each edit runs `DiagnosticShift`:
+entirely before the edit — unchanged; entirely after — shifted and renumbered;
+intersecting the touched span — dropped. The error being fixed loses its underline
+on the first keystroke while errors elsewhere stay anchored, rather than drifting
+(no shift) or blinking off on every keystroke (a blanket clear). A wholesale
+*replacement* of one document's buffer (`reloadFromDisk`, project Replace All,
+merge apply — including the off-screen case, which `externalTextRevision` reports
+at the next switch) drops that document's set outright. A **plain tab switch is
+not a replacement**: the store is keyed by URL precisely so background documents'
+sets survive the view swap — dropping them would strand them, because the
+switch-back sync takes D2's identical-text fast path and a push-only server never
+re-publishes unasked. The swap's full-range edit is kept out of the shift for the
+same reason (the coordinator ignores it while it is in flight). On the receive
+side the model refuses a push whose document was edited since the sync that
+produced it: the buffer revision pinned synchronously at each sync must still be
+current, so a push computed against moved-
+past text is dropped, never replayed against an edit log — with one carve-out,
+the **hold-and-reconcile step**: the workspace commits a flushed version several
+main-actor hops before the controller's report lands, and a fast server's answer
+can be routed inside that window, where dropping would strand the document blank
+until the next interaction. A push that finds no record, or a record pinned to a
+moved-past revision, is held (one per document, newest wins) and judged by the
+next report; everything that invalidates state — edits, replacements, clears,
+folder changes — drops holds too. A version mismatch against a *current* record
+is **held as well**, not dropped: with no keystroke to condemn it the push is
+either a late replay, which the reconcile's version half then discards, or the
+settling flush's own publish arriving ahead of its report, which the reconcile
+admits. Holding costs nothing, because only the version the record actually lands
+with is ever accepted. **Rejected:** the exact
+alternative — queueing edits and replaying them onto a late-arriving push — needs a
+bounded per-document edit log and a revision↔version map; dropping is simpler,
+self-correcting (the last keystroke always schedules one more sync whose push has
+no edits after it — and that sync *forces* its notification past D2's no-op, so
+the correction does not silently depend on nobody else having flushed first), and
+matches the preference for briefly missing over misplaced.
+
+**D33 — A server's diagnostics die with it.** Clearing is keyed by `(server, root)`
+and emitted on every teardown path — `noteDeath`, `shutdownAll`,
+`terminateNow`, `updateRegistry`'s removals, and both sites that retire a key into
+`unavailable` (a spent D7 budget, and a server disqualified for not speaking UTF-16,
+which never counts a failure at all) — plus per-document on `didClose(url:)`.
+Clearing is **at-least-once and idempotent**, never exactly-once: one crash can emit
+up to three clears for the same key (`noteDeath`, the fourth-failure retirement, and
+the consumer walking out of a finished stream), which is deliberate — every sink
+must absorb a duplicate, and a clear that finds nothing to clear is the cheap half
+of never leaving a dead server's squiggles on screen. The externally-killed server has no
+deliberate path, so it is covered by the *stream's* termination: the session's read
+task hits EOF, `close(reason:)` finishes the notification stream, the workspace's
+consumer task walks out of its loop and emits the key's clear on the way out. That
+path tears no session down and touches no D7 counter — noticing a crash stays
+`prepare`'s job — but it must not clear a *replacement* server's fresh pushes
+either, so the consumer checks that no newer session owns the key before clearing.
+Without all of this, a dead or removed server's squiggles would sit on screen until
+the file was edited — the one state in this layer that outlives its author.
+
+**D34 — Hover carries the diagnostic message; there is no second surface.** A
+pointer resting inside a diagnostic wants the message, and building a second
+popover type for it would duplicate the dwell, the panel, the dismissal set and
+the cap machinery for no new information. So the existing pipeline shows them:
+`Diagnostic.hoverContent(for:merging:)` renders the messages as severity-labelled
+prose above the type answer when there is one and alone when there is not, through
+the same checking initializer so D26's caps apply once. Two changes follow, both in
+the view layer (`app-editor.md`): the dwell fires inside a diagnostic range even
+when the pointer is not over an identifier (a diagnostic can cover punctuation),
+and the anchor becomes the union of the diagnostics hit rather than the identifier,
+so jitter within diagnosed text neither re-asks nor dismisses. D25 is untouched —
+a diagnostic comes from a server, so this is still "a server or nobody" — and D26's
+pass-through-chrome rule still governs the popover itself.
+
 ## Known limits
 
 - **NEL / U+2028 / U+2029 line separators.** In a file delimited by those, the
@@ -2308,6 +2803,27 @@ exactly as every other language does (D7), silently and per request.
   has a project-level runner and no file-level one, so ⌘U works and the terminal
   panel is the answer for ⌘R. Pinned by `RunCommandTests` rather than left as an
   omission; the reasoning is in `core-services.md`.
+- **Diagnostics cover open documents only, and only what a server said last.**
+  A push for a URI no server holds is dropped (D31), so a file closed mid-typing
+  loses its squiggles until reopened; there is no project-wide problems list of
+  things no server was ever asked about. Between pushes the shown state is
+  maintained by shift-and-drop (D32), which is exact for edits outside a
+  diagnostic and deliberately silent about the one it intersects — an underline
+  vanishing under the caret until the next 400 ms sync's push lands is the design,
+  not a bug. A document whose pushes are all rejected while its buffer keeps
+  moving shows nothing rather than something stale; the next settled typing pause
+  re-syncs and repopulates.
+- **Diagnostics have no setting and no iOS surface.** Like hover (D25), they are
+  either answered by a registered server or absent, and absence is expressed by
+  un-registration or consent, never by a second flag. The three surfaces —
+  squiggles, gutter markers, the Problems panel — are macOS-only; iOS has neither
+  servers nor a bottom dock.
+- **A diagnostic's line number can disagree with the gutter by D1's amount** in a
+  file delimited by NEL/LS/PS: the stored `line` counts LSP separators, the ruler
+  numbers the editor's wider set. Nothing prints the two side by side without
+  going through the ruler's own geometry, so the divergence stays invisible; the
+  panel's `:N` suffix reads the store's zero-based line plus one, which in such a
+  file may differ from the gutter's number on the same row.
 
 ## Test fixtures
 
@@ -2333,4 +2849,9 @@ and stream closures, with no real process anywhere. `onSend(_:)` is its one
 thread, so a test that blocks in it holds the writer inside a notification while
 the main actor is free to run something else. That is the only way to stage the
 window `flush`/`didClose` claim a document against deterministically (`Gate`'s
-principle, one layer down).
+principle, one layer down). Since D29 it also speaks *unprompted*: `push(method:
+params:)` makes the fake server emit a server-initiated notification at any
+moment, and `pushAfter(delay:method:params:)` delays one so two pushes can be
+ordered against other traffic without depending on scheduler luck — which is how
+the notification stream's ordering, finishing and malformed-payload tests are
+written.
