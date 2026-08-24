@@ -153,27 +153,27 @@ implementation has no forks:
 - Create: `Sources/PisakaCore/ToggleCommentEngine.swift`
 - Create: `Tests/PisakaCoreTests/ToggleCommentEngineTests.swift`
 
-- [ ] Add `public struct CommentToggleEdit: Equatable { replacementRange, text,
+- [x] Add `public struct CommentToggleEdit: Equatable { replacementRange, text,
       selectedRange }` and `public enum ToggleCommentEngine` with
       `toggle(text:selectedRange:language:)` returning `CommentToggleEdit?`,
       doc-commented with the whole contract (including that `nil` is the silent
       no-op and means no edit *and* no caret move).
-- [ ] Implement the shared front half: clamp the selection to the buffer,
+- [x] Implement the shared front half: clamp the selection to the buffer,
       resolve the style (return `nil` for a `nil` language or a no-comment
       language), compute the touched whole-line span with
       `getLineStart(_:end:contentsEnd:for:)` — including the "selection ending
       at a line start does not touch that line" rule — and split the span into
       lines carrying their own verbatim terminators.
-- [ ] Implement line mode: skip blank/whitespace-only lines in both directions;
+- [x] Implement line mode: skip blank/whitespace-only lines in both directions;
       if every non-blank touched line begins after leading whitespace with the
       token, remove one token plus at most one following space per line,
       otherwise insert the token at column 0 of every non-blank line; return
       `nil` when no non-blank line exists.
-- [ ] Implement the resulting selection/caret per decisions 5 and 6 above
+- [x] Implement the resulting selection/caret per decisions 5 and 6 above
       (caret to the following line preserving column, clamped; on the last line
       the caret stays, shifted by the token delta; a selection becomes the
       touched lines' post-edit whole-line span).
-- [ ] Write `ToggleCommentEngineTests` for line mode: caret on an uncommented
+- [x] Write `ToggleCommentEngineTests` for line mode: caret on an uncommented
       and on an already-commented line; caret column preservation and the
       last-line case; selection over uncommented, fully commented and mixed
       lines; blank lines inside a selection; first and last line of the
@@ -182,7 +182,7 @@ implementation has no forks:
       spellings; `#` and `--` languages; empty document; a blank caret line
       (asserting `nil` — no edit and no caret move); json/markdown; `nil`
       language; an out-of-range/`NSNotFound` selection.
-- [ ] Run `swift test` — must pass before Task 3.
+- [x] Run `swift test` — must pass before Task 3.
 
 ### Task 3: The engine — block-comment mode
 
