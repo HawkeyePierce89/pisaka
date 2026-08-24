@@ -90,13 +90,13 @@ is a compiled-token matcher like `GitignoreMatcher`.
 **Files:**
   - Create: `Sources/PisakaCore/EditorConfigGlob.swift`
   - Create: `Tests/PisakaCoreTests/EditorConfigGlobTests.swift`
-  - [ ] Implement `public struct EditorConfigGlob` compiling a section pattern
+  - [x] Implement `public struct EditorConfigGlob` compiling a section pattern
         once into tokens and answering `matches(relativePath: String) -> Bool`,
         where the path is `/`-separated and relative to the directory holding
         the `.editorconfig`. Pattern preprocessing follows the spec: a pattern
         with no unescaped `/` matches at any depth (as if written `**/pattern`);
         otherwise it is anchored to that directory and a leading `/` is dropped.
-  - [ ] Implement the token vocabulary and the recursive, backtracking match:
+  - [x] Implement the token vocabulary and the recursive, backtracking match:
         `*` (any run except `/`), `**` (any run *including* `/`, and — unlike
         `GitignoreMatcher` — not required to be a whole path component), `?`
         (one character, `/` excluded), `[abc]`/`[a-z]`/`[!abc]` classes (an
@@ -106,17 +106,17 @@ is a compiled-token matcher like `GitignoreMatcher`.
         in range including negative bounds and a matched leading `-`, and `\`
         escaping the next character. Document, on the type, that `?` excluding
         `/` is a deliberate choice where the reference implementations disagree.
-  - [ ] Enforce the spec's size floor as the cap: a core must accept section
+  - [x] Enforce the spec's size floor as the cap: a core must accept section
         names up to and including 1024 characters, so a longer section name
         never matches.
-  - [ ] Write `EditorConfigGlobTests` covering each construct separately,
+  - [x] Write `EditorConfigGlobTests` covering each construct separately,
         mirroring the official core suite's glob cases: star vs. slash, `**`
         across directories, `?`, classes and negated classes, literal brace
         groups, nested braces, numeric ranges (including negatives and a
         non-integer that must not match), escapes, the 1024-character boundary
         (accepted at the limit, ignored beyond it), and the "no slash ⇒ any
         depth" vs. "slash ⇒ anchored" split.
-  - [ ] Run `swift test` — must pass before Task 2.
+  - [x] Run `swift test` — must pass before Task 2.
 
 ### Task 2: The file format parser and the property map
 
