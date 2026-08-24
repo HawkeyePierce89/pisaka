@@ -2665,15 +2665,31 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
         }
         columnDragAnchor = convert(event.locationInWindow, from: nil)
         columnDragMoved = false
+        NSEvent.startPeriodicEvents(afterDelay: 0.1, withPeriod: 0.05)
     }
 
     override func otherMouseDragged(with event: NSEvent) {
-        guard let anchor = columnDragAnchor else {
+        guard event.buttonNumber == 2, let anchor = columnDragAnchor else {
             return super.otherMouseDragged(with: event)
         }
         autoscroll(with: event)
         let point = convert(event.locationInWindow, from: nil)
 
+        updateColumnSelection(anchor: anchor, point: point, stillSelecting: true)
+    }
+
+    override func periodicEvent(with event: NSEvent) {
+        guard let anchor = columnDragAnchor else {
+            return super.periodicEvent(with: event)
+        }
+        autoscroll(with: event)
+        if let window = self.window {
+            let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            updateColumnSelection(anchor: anchor, point: point, stillSelecting: true)
+        }
+    }
+
+    private func updateColumnSelection(anchor: CGPoint, point: CGPoint, stillSelecting: Bool) {
         if !columnDragMoved {
             let moved = hypot(point.x - anchor.x, point.y - anchor.y)
             if moved > Self.clickSlop {
@@ -2684,20 +2700,19 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
         }
 
         if let ranges = columnSelectionRanges(anchor: anchor, head: point), !ranges.isEmpty {
-            setSelectedRanges(ranges.map { NSValue(range: $0) }, affinity: .downstream, stillSelecting: true)
+            setSelectedRanges(ranges.map { NSValue(range: $0) }, affinity: .downstream, stillSelecting: stillSelecting)
         }
     }
 
     override func otherMouseUp(with event: NSEvent) {
-        guard let anchor = columnDragAnchor else {
+        guard event.buttonNumber == 2, let anchor = columnDragAnchor else {
             return super.otherMouseUp(with: event)
         }
+        NSEvent.stopPeriodicEvents()
 
         if columnDragMoved {
             let point = convert(event.locationInWindow, from: nil)
-            if let ranges = columnSelectionRanges(anchor: anchor, head: point), !ranges.isEmpty {
-                setSelectedRanges(ranges.map { NSValue(range: $0) }, affinity: .downstream, stillSelecting: false)
-            }
+            updateColumnSelection(anchor: anchor, point: point, stillSelecting: false)
         } else {
             let offset = characterIndexForInsertion(at: anchor)
             setSelectedRange(NSRange(location: offset, length: 0))
@@ -2727,11 +2742,12 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
         guard let layoutManager = layoutManager, let textContainer = textContainer,
               let string = textStorage?.string else { return nil }
 
-        let bounds = ColumnSelectionEngine.bounds(anchor: anchor, head: head)
+        let minX = min(anchor.x, head.x)
+        let maxX = max(anchor.x, head.x)
+        let minY = min(anchor.y, head.y)
+        let maxY = max(anchor.y, head.y)
 
-        var probeRect = bounds.rect
-        probeRect.origin.x = 0
-        probeRect.size.width = textContainer.size.width
+        var probeRect = CGRect(x: 0, y: minY - textContainerOrigin.y, width: textContainer.size.width, height: maxY - minY)
         if probeRect.size.width < 1 { probeRect.size.width = 1 }
         if probeRect.size.height < 1 { probeRect.size.height = 1 }
 
@@ -2740,9 +2756,9 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
 
         var lines = [ColumnSelectionLine]()
         layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { rect, _, _, fragmentRange, _ in
-            let y = rect.midY
-            let leftPoint = CGPoint(x: bounds.left, y: y)
-            let rightPoint = CGPoint(x: bounds.right, y: y)
+            let y = rect.midY + self.textContainerOrigin.y
+            let leftPoint = CGPoint(x: minX, y: y)
+            let rightPoint = CGPoint(x: maxX, y: y)
             let leftOffset = self.characterIndexForInsertion(at: leftPoint)
             let rightOffset = self.characterIndexForInsertion(at: rightPoint)
             let lineRange = layoutManager.characterRange(forGlyphRange: fragmentRange, actualGlyphRange: nil)

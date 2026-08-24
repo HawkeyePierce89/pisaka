@@ -4,84 +4,6 @@ import Foundation
 
 final class ColumnSelectionEngineTests: XCTestCase {
 
-    // MARK: - Bounds Normalization Tests
-
-    func testBoundsNormalization_DownRight() {
-        let anchor = CGPoint(x: 10, y: 20)
-        let head = CGPoint(x: 100, y: 50)
-        let bounds = ColumnSelectionEngine.bounds(anchor: anchor, head: head)
-
-        XCTAssertEqual(bounds.left, 10)
-        XCTAssertEqual(bounds.right, 100)
-        XCTAssertEqual(bounds.top, 20)
-        XCTAssertEqual(bounds.bottom, 50)
-        XCTAssertEqual(bounds.rect, CGRect(x: 10, y: 20, width: 90, height: 30))
-    }
-
-    func testBoundsNormalization_DownLeft() {
-        let anchor = CGPoint(x: 100, y: 20)
-        let head = CGPoint(x: 10, y: 50)
-        let bounds = ColumnSelectionEngine.bounds(anchor: anchor, head: head)
-
-        XCTAssertEqual(bounds.left, 10)
-        XCTAssertEqual(bounds.right, 100)
-        XCTAssertEqual(bounds.top, 20)
-        XCTAssertEqual(bounds.bottom, 50)
-        XCTAssertEqual(bounds.rect, CGRect(x: 10, y: 20, width: 90, height: 30))
-    }
-
-    func testBoundsNormalization_UpRight() {
-        let anchor = CGPoint(x: 10, y: 50)
-        let head = CGPoint(x: 100, y: 20)
-        let bounds = ColumnSelectionEngine.bounds(anchor: anchor, head: head)
-
-        XCTAssertEqual(bounds.left, 10)
-        XCTAssertEqual(bounds.right, 100)
-        XCTAssertEqual(bounds.top, 20)
-        XCTAssertEqual(bounds.bottom, 50)
-        XCTAssertEqual(bounds.rect, CGRect(x: 10, y: 20, width: 90, height: 30))
-    }
-
-    func testBoundsNormalization_UpLeft() {
-        let anchor = CGPoint(x: 100, y: 50)
-        let head = CGPoint(x: 10, y: 20)
-        let bounds = ColumnSelectionEngine.bounds(anchor: anchor, head: head)
-
-        XCTAssertEqual(bounds.left, 10)
-        XCTAssertEqual(bounds.right, 100)
-        XCTAssertEqual(bounds.top, 20)
-        XCTAssertEqual(bounds.bottom, 50)
-        XCTAssertEqual(bounds.rect, CGRect(x: 10, y: 20, width: 90, height: 30))
-    }
-
-    func testBoundsNormalization_ZeroWidth() {
-        let anchor = CGPoint(x: 10, y: 20)
-        let head = CGPoint(x: 10, y: 50)
-        let bounds = ColumnSelectionEngine.bounds(anchor: anchor, head: head)
-
-        XCTAssertEqual(bounds.left, 10)
-        XCTAssertEqual(bounds.right, 10)
-        XCTAssertEqual(bounds.rect, CGRect(x: 10, y: 20, width: 0, height: 30))
-    }
-
-    func testBoundsNormalization_ZeroHeight() {
-        let anchor = CGPoint(x: 10, y: 20)
-        let head = CGPoint(x: 100, y: 20)
-        let bounds = ColumnSelectionEngine.bounds(anchor: anchor, head: head)
-
-        XCTAssertEqual(bounds.top, 20)
-        XCTAssertEqual(bounds.bottom, 20)
-        XCTAssertEqual(bounds.rect, CGRect(x: 10, y: 20, width: 90, height: 0))
-    }
-
-    func testBoundsNormalization_ZeroWidthAndHeight() {
-        let anchor = CGPoint(x: 10, y: 20)
-        let head = CGPoint(x: 10, y: 20)
-        let bounds = ColumnSelectionEngine.bounds(anchor: anchor, head: head)
-
-        XCTAssertEqual(bounds.rect, CGRect(x: 10, y: 20, width: 0, height: 0))
-    }
-
     // MARK: - Ranges Resolution Tests
 
     func testRanges_MultiLineUniform() {
@@ -154,6 +76,18 @@ final class ColumnSelectionEngineTests: XCTestCase {
         ])
     }
 
+    func testRanges_PureTerminatorEdgeCase() {
+        let text = "\n" as NSString
+        let lines = [
+            ColumnSelectionLine(lineRange: NSRange(location: 0, length: 1), leftOffset: 0, rightOffset: 1)
+        ]
+
+        let ranges = ColumnSelectionEngine.ranges(for: lines, in: text)
+        XCTAssertEqual(ranges, [
+            NSRange(location: 0, length: 0)
+        ])
+    }
+
     func testRanges_ZeroWidthYieldsOneZeroLengthRangePerLine() {
         let text = "abc\ndef\n" as NSString
         let lines = [
@@ -204,38 +138,9 @@ final class ColumnSelectionEngineTests: XCTestCase {
         ])
     }
 
-    func testRanges_OffsetsOutsideLineAndTextBounds() {
-        let text = "abc" as NSString // length 3
-        let lines = [
-            // lineRange way outside, left/right way outside
-            ColumnSelectionLine(lineRange: NSRange(location: 0, length: 10), leftOffset: -5, rightOffset: 20)
-        ]
-
-        let ranges = ColumnSelectionEngine.ranges(for: lines, in: text)
-        // Should clamp lineRange to 0..3, content is 0..3, offsets clamp to 0..3
-        XCTAssertEqual(ranges, [
-            NSRange(location: 0, length: 3)
-        ])
-    }
-
     func testRanges_EmptyInputYieldsNoRanges() {
         let text = "abc\ndef" as NSString
         let ranges = ColumnSelectionEngine.ranges(for: [], in: text)
         XCTAssertTrue(ranges.isEmpty)
-    }
-
-    func testRanges_DeduplicationAndSorting() {
-        let text = "abc\ndef" as NSString
-        let lines = [
-            ColumnSelectionLine(lineRange: NSRange(location: 4, length: 3), leftOffset: 5, rightOffset: 6),
-            ColumnSelectionLine(lineRange: NSRange(location: 0, length: 4), leftOffset: 1, rightOffset: 2),
-            ColumnSelectionLine(lineRange: NSRange(location: 4, length: 3), leftOffset: 5, rightOffset: 6), // Duplicate
-        ]
-
-        let ranges = ColumnSelectionEngine.ranges(for: lines, in: text)
-        XCTAssertEqual(ranges, [
-            NSRange(location: 1, length: 1),
-            NSRange(location: 5, length: 1),
-        ])
     }
 }

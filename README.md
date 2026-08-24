@@ -21,7 +21,8 @@ description of each — and of what it deliberately does *not* do — is in
   their own via FSEvents.
 - **Editor** — NSTextView-based, monospaced, with a line-number gutter,
   auto-indent, auto-closing brackets/quotes, matched-pair and rainbow bracket
-  highlighting, Cmd+D duplicate line/selection, Cmd+/ toggle comment, a minimap, and per-tab position
+  highlighting, Cmd+D duplicate line/selection, Cmd+/ toggle comment,
+  middle-mouse drag column selection, a minimap, and per-tab position
   memory: switch away and back and the tab returns to the caret and scroll
   position you left it at (for the app run; not persisted across launches).
 - **Syntax highlighting** (tree-sitter via Neon) for Swift, JavaScript,
