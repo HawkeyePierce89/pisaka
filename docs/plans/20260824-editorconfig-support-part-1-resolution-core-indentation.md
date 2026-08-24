@@ -194,26 +194,26 @@ is a compiled-token matcher like `GitignoreMatcher`.
 **Files:**
   - Create: `Sources/PisakaCore/EditorConfigModel.swift`
   - Create: `Tests/PisakaCoreTests/EditorConfigModelTests.swift`
-  - [ ] Implement `@MainActor public final class EditorConfigModel`, holding the
+  - [x] Implement `@MainActor public final class EditorConfigModel`, holding the
         `FileServicing` seam, the current project root and a per-file cache of
         resolved properties. `properties(for fileURL: URL?) ->
         EditorConfigProperties` answers synchronously (the Enter/Tab handlers
         are synchronous) and resolves on a miss.
-  - [ ] Implement the two invalidation entry points as the pure Core rule:
+  - [x] Implement the two invalidation entry points as the pure Core rule:
         `noteProjectRoot(_:)` — a different root (including `nil`) clears the
         whole cache before anything can be served, so a config from a previously
         open project is never returned — and `noteProjectFilesChanged()`, which
         clears the cache wholesale (a resolution is a handful of small reads; a
         per-path filter would be more machinery than the work it saves).
-  - [ ] Document on the type that this layer is a **reader**, like the symbol
+  - [x] Document on the type that this layer is a **reader**, like the symbol
         index: it never takes the disk-writer gate and is never gated by it.
-  - [ ] Write `EditorConfigModelTests`: a resolved answer served from cache
+  - [x] Write `EditorConfigModelTests`: a resolved answer served from cache
         without a second read (assert against `StubFileTree`'s read log), an
         edited `.editorconfig` picked up after `noteProjectFilesChanged()`, a
         root switch clearing entries from the previous project, a `nil` root
         answering empty, and repeated queries for different files under one
         root.
-  - [ ] Run `swift test` — must pass before Task 5.
+  - [x] Run `swift test` — must pass before Task 5.
 
 ### Task 5: The indentation rules
 
