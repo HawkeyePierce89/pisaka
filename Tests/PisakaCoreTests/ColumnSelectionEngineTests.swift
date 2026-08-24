@@ -11,11 +11,11 @@ final class ColumnSelectionEngineTests: XCTestCase {
             anchor: CGPoint(x: 100, y: 200),
             head: CGPoint(x: 50, y: 150)
         )
-        XCTAssertEqual(bounds.left, 50)
-        XCTAssertEqual(bounds.right, 100)
-        XCTAssertEqual(bounds.top, 150)
-        XCTAssertEqual(bounds.bottom, 200)
-        XCTAssertEqual(bounds.rect, CGRect(x: 50, y: 150, width: 50, height: 50))
+        XCTAssertEqual(bounds.minX, 50)
+        XCTAssertEqual(bounds.maxX, 100)
+        XCTAssertEqual(bounds.minY, 150)
+        XCTAssertEqual(bounds.maxY, 200)
+        XCTAssertEqual(bounds, CGRect(x: 50, y: 150, width: 50, height: 50))
     }
 
     // MARK: - Ranges Resolution Tests

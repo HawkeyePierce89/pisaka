@@ -2731,7 +2731,6 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
 
         let bounds = ColumnSelectionEngine.bounds(anchor: anchor, head: head)
 
-        var probeRect = CGRect(x: 0, y: bounds.top - textContainerOrigin.y, width: textContainer.size.width, height: bounds.rect.height)
         if probeRect.size.width < 1 { probeRect.size.width = 1 }
         if probeRect.size.height < 1 { probeRect.size.height = 1 }
 
@@ -2741,8 +2740,8 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
         var lines = [ColumnSelectionLine]()
         layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { rect, _, _, fragmentRange, _ in
             let y = rect.midY + self.textContainerOrigin.y
-            let leftPoint = CGPoint(x: bounds.left, y: y)
-            let rightPoint = CGPoint(x: bounds.right, y: y)
+            let leftPoint = CGPoint(x: bounds.minX, y: y)
+            let rightPoint = CGPoint(x: bounds.maxX, y: y)
             let leftOffset = self.characterIndexForInsertion(at: leftPoint)
             let rightOffset = self.characterIndexForInsertion(at: rightPoint)
             let lineRange = layoutManager.characterRange(forGlyphRange: fragmentRange, actualGlyphRange: nil)
@@ -2750,6 +2749,7 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
         }
 
         return ColumnSelectionEngine.ranges(for: lines, in: string as NSString)
+    }
     }
 
     /// Esc with the find bar open closes it (and drops the match highlight);
