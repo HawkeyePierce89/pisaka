@@ -86,8 +86,8 @@ public enum ColumnSelectionEngine {
         for r in result {
             if let last = deduplicated.last {
                 let lastMax = NSMaxRange(last)
-                // If it overlaps or is contiguous and we need to merge
-                // But AppKit crashes on overlapping. Let's merge overlapping ranges.
+                // `setSelectedRanges` requires ordered, non-overlapping ranges, so
+                // anything overlapping or contiguous is merged into its predecessor.
                 if r.location <= lastMax {
                     let rMax = NSMaxRange(r)
                     if rMax > lastMax {

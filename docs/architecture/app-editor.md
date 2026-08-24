@@ -122,6 +122,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the release finalizes it with `stillSelecting: false`. A middle click without
     meaningful movement collapses to a single caret at the anchor (via
     `characterIndexForInsertion(at:)`) and focuses the editor if unfocused.
+    The probe rect handed to `glyphRange(forBoundingRect:in:)` is widened to the
+    container and inflated out of degeneracy (at least 1 pt each dimension) —
+    load-bearing, because a purely horizontal single-line drag has zero height
+    and a purely vertical drag zero width, and a degenerate rect can enumerate
+    no fragments at all, silently freezing the selection behind the non-empty
+    guard; the left/right edge offsets are still probed from the *un-inflated*
+    bounds, so the inflation never widens the selected columns.
     The native Option-drag and ⌘⌥-drag rectangular selections, plain click/drag
     selection, and the ⌘-click go-to-definition gesture are untouched.
     Duplicate line/selection (Cmd+D) follows the same pure-engine + thin-glue

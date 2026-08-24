@@ -70,6 +70,23 @@ point to the right of a short line can resolve to an offset past that line's
 content, and inferring the line from that offset would attach the range to the
 *next* line and collide with that line's own entry.
 
+**Degenerate probe rects are inflated before the layout manager sees them.** The
+bounds rectangle is what the view hands to `glyphRange(forBoundingRect:in:)` to
+learn which line fragments the drag touched, and two ordinary gestures produce a
+degenerate rectangle: a purely horizontal single-line drag has zero height, and
+a purely vertical drag has zero width. `glyphRange(forBoundingRect:)` may
+enumerate *nothing* for such a rect, which would leave the engine with no lines,
+produce no ranges, and — behind the "apply only a non-empty result" guard —
+silently freeze the selection. Both gestures are in the acceptance criteria, and
+the engine's own tests cannot see this because they are handed the per-line
+inputs the view failed to produce. The view therefore gives the probe rect a
+minimal non-zero extent (at least one point of height, and at least one point of
+width where the rect is not already widened to the container) before asking the
+layout manager, so a single-line horizontal drag and a zero-width vertical drag
+always enumerate the fragments they touch. Inflation affects only the *probe*:
+the left/right edge offsets are still resolved from the un-inflated bounds, so
+the selected columns are unchanged.
+
 **No modal event loop.** Unlike the ⌘-click case — where `super.mouseDown` runs
 its own tracking loop and forced the `nextEvent` peek — `NSTextView` ignores
 `otherMouseDown` entirely, so AppKit delivers `otherMouseDragged` /
@@ -198,9 +215,10 @@ selection reports.
       behavior
 - [x] `docs/architecture/app-editor.md`: extend the `CodeEditorView.swift` entry
       with the middle-button wiring — the three overrides and their state, the
-      shared `clickSlop`, autoscroll during the drag, `stillSelecting` live vs.
-      final, focus-on-press, and the note that the native Option-drag and the
-      ⌘-click gesture are untouched
+      shared `clickSlop`, the degenerate-probe-rect inflation and why it is
+      load-bearing for single-line and purely vertical drags, autoscroll during
+      the drag, `stillSelecting` live vs. final, focus-on-press, and the note
+      that the native Option-drag and the ⌘-click gesture are untouched
 - [x] `docs/FEATURES.md`: add the gesture to the editor's macOS feature list next
       to the existing selection/definition gestures — middle-button drag selects
       a column, a purely vertical drag gives multiple insertion points, a plain

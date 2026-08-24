@@ -18,6 +18,34 @@ final class ColumnSelectionEngineTests: XCTestCase {
         XCTAssertEqual(bounds.rect, CGRect(x: 50, y: 150, width: 50, height: 50))
     }
 
+    /// All four corner orders normalize to the same rectangle.
+    func testBounds_AllFourCornerOrders() {
+        let expected = ColumnSelectionEngine.bounds(
+            anchor: CGPoint(x: 10, y: 20), head: CGPoint(x: 30, y: 40)) // down-right
+        let downLeft = ColumnSelectionEngine.bounds(
+            anchor: CGPoint(x: 30, y: 20), head: CGPoint(x: 10, y: 40))
+        let upRight = ColumnSelectionEngine.bounds(
+            anchor: CGPoint(x: 10, y: 40), head: CGPoint(x: 30, y: 20))
+        let upLeft = ColumnSelectionEngine.bounds(
+            anchor: CGPoint(x: 30, y: 40), head: CGPoint(x: 10, y: 20))
+        XCTAssertEqual(expected.rect, CGRect(x: 10, y: 20, width: 20, height: 20))
+        XCTAssertEqual(downLeft, expected)
+        XCTAssertEqual(upRight, expected)
+        XCTAssertEqual(upLeft, expected)
+    }
+
+    /// A purely vertical drag yields a zero-width rectangle, a purely horizontal
+    /// one a zero-height rectangle — neither is normalized away.
+    func testBounds_DegenerateDrags() {
+        let vertical = ColumnSelectionEngine.bounds(
+            anchor: CGPoint(x: 10, y: 40), head: CGPoint(x: 10, y: 20))
+        XCTAssertEqual(vertical.rect, CGRect(x: 10, y: 20, width: 0, height: 20))
+
+        let horizontal = ColumnSelectionEngine.bounds(
+            anchor: CGPoint(x: 30, y: 20), head: CGPoint(x: 10, y: 20))
+        XCTAssertEqual(horizontal.rect, CGRect(x: 10, y: 20, width: 20, height: 0))
+    }
+
     // MARK: - Ranges Resolution Tests
     func testRanges_MultiLineUniform() {
         let text = "abc\ndef\nghi" as NSString
@@ -155,6 +183,35 @@ final class ColumnSelectionEngineTests: XCTestCase {
         let text = "abc\ndef" as NSString
         let ranges = ColumnSelectionEngine.ranges(for: [], in: text)
         XCTAssertTrue(ranges.isEmpty)
+    }
+
+    /// Offsets far outside the line and the text — negative or past the end —
+    /// clamp into the line's content instead of trapping.
+    func testRanges_OffsetsOutsideTextBoundsAreClamped() {
+        let text = "abc\ndef" as NSString
+        let lines = [
+            ColumnSelectionLine(lineRange: NSRange(location: 0, length: 4), leftOffset: -5, rightOffset: 100),
+            ColumnSelectionLine(lineRange: NSRange(location: 4, length: 3), leftOffset: -1, rightOffset: 999),
+        ]
+
+        let ranges = ColumnSelectionEngine.ranges(for: lines, in: text)
+        XCTAssertEqual(ranges, [
+            NSRange(location: 0, length: 3), // "abc" — clamped to [0, contentEnd 3]
+            NSRange(location: 4, length: 3), // "def" — clamped to [4, contentEnd 7]
+        ])
+    }
+
+    /// A line range lying outside the text (a stale layout answer) is skipped
+    /// rather than trapping.
+    func testRanges_LineRangeOutsideTextIsSkipped() {
+        let text = "abc" as NSString
+        let lines = [
+            ColumnSelectionLine(lineRange: NSRange(location: 10, length: 4), leftOffset: 10, rightOffset: 12),
+            ColumnSelectionLine(lineRange: NSRange(location: 0, length: 3), leftOffset: 1, rightOffset: 2),
+        ]
+
+        let ranges = ColumnSelectionEngine.ranges(for: lines, in: text)
+        XCTAssertEqual(ranges, [NSRange(location: 1, length: 1)])
     }
 
     func testRanges_DeduplicatesExactMatches() {
