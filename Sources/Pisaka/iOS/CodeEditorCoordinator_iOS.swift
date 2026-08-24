@@ -57,6 +57,14 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// same reason as `symbolIndex` — the root outlives every editor it shows.
     weak var definitionRoute: DefinitionRoute_iOS?
 
+    /// Answers what `.editorconfig` says about the shown file, for the two
+    /// synchronous key handlers below. Held *weakly*, like `symbolIndex`: the app
+    /// owns it for its whole lifetime and this only ever asks it a question. A
+    /// deallocated one means empty properties, which is exactly the "no
+    /// configuration applies" answer — so the editor degrades to the content
+    /// inference rather than misbehaving.
+    weak var editorConfig: EditorConfigModel?
+
     /// The active Neon highlighter. It installs itself as the text storage's
     /// delegate; replacing it (or setting it to `nil`) detaches the old one.
     private var highlighter: TextViewHighlighter?
@@ -622,6 +630,15 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
             return !insertIndentedNewline(in: textView, range: range)
         }
 
+        // Tab → the configured spaces, when (and only when) the configuration asks
+        // for them outright. `IndentUnitRule.tabInsertion` answers a literal tab in
+        // every other case, and this lets that answer through untouched, so a
+        // project with no `.editorconfig` keeps inserting exactly the tab it does
+        // today.
+        if replacementText == "\t" {
+            return !insertConfiguredTab(in: textView, range: range)
+        }
+
         // Backspace of a single character → delete an empty auto-inserted pair
         // whole, if the caret sits between one.
         if replacementText.isEmpty, range.length == 1 {
@@ -639,11 +656,61 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
 
     // MARK: - Auto-indent
 
+    /// What `.editorconfig` says about the shown file, or nothing at all when no
+    /// configuration applies (and when the app's model is gone, which is the same
+    /// answer).
+    private func editorConfigProperties() -> EditorConfigProperties {
+        editorConfig?.properties(for: fileURL) ?? EditorConfigProperties()
+    }
+
+    /// One indentation level for the shown buffer: what `.editorconfig` says,
+    /// falling back per half to what the content itself looks like.
+    ///
+    /// The single place Enter asks, so it and Tab can never disagree about the
+    /// unit — they differ only in *whether* the unit is used, which is
+    /// `IndentUnitRule`'s own distinction. The macOS coordinator holds the
+    /// identical pair.
+    private func indentUnit(text nsText: NSString) -> String {
+        IndentUnitRule.unit(
+            config: editorConfigProperties(),
+            inferred: IndentEngine.inferIndentUnit(text: nsText)
+        )
+    }
+
+    /// Insert the configured indentation for a Tab press. Returns `true` when it
+    /// applied the edit, and `false` — letting `UITextView` insert its own literal
+    /// tab — whenever the rule does not ask for spaces outright.
+    ///
+    /// The single range goes through `IndentUnitRule.tabInsertionPlan` even though
+    /// `UITextView` has exactly one `selectedRange` and needs no fan-out: it is the
+    /// same rule the macOS editor applies to its several insertion points, so the
+    /// arithmetic that decides what replaces the selection and where the caret
+    /// lands is asked once, in Core, rather than restated here.
+    private func insertConfiguredTab(in textView: UITextView, range: NSRange) -> Bool {
+        let nsText = textView.text as NSString
+        let insertion = IndentUnitRule.tabInsertion(
+            config: editorConfigProperties(),
+            inferred: IndentEngine.inferIndentUnit(text: nsText)
+        )
+        guard insertion != "\t" else { return false }
+        let plan = IndentUnitRule.tabInsertionPlan(ranges: [range], insertion: insertion)
+        guard let replacement = plan.replacements.first, let caret = plan.carets.first else {
+            return false
+        }
+        applyEdit(
+            in: textView,
+            range: replacement.range,
+            replacement: replacement.replacement,
+            selecting: caret
+        )
+        return true
+    }
+
     /// Replace the selection (or caret) with a computed newline+indent via
     /// `IndentEngine`. Returns `true` when it applied the edit.
     private func insertIndentedNewline(in textView: UITextView, range: NSRange) -> Bool {
         let nsText = textView.text as NSString
-        let unit = IndentEngine.inferIndentUnit(text: nsText)
+        let unit = indentUnit(text: nsText)
         let edit = IndentEngine.newlineIndentation(
             text: nsText,
             location: range.location,

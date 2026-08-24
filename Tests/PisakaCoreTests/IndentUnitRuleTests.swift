@@ -310,4 +310,52 @@ final class IndentUnitRuleTests: XCTestCase {
         XCTAssertEqual(plan.replacements.count, 2)
         XCTAssertEqual(apply(plan, to: "abcd"), "--cd")
     }
+
+    // MARK: - The touch editor's single range
+
+    // The `UITextView` editor has exactly one insertion point, so its handler
+    // hands the plan one range and applies the single replacement through the
+    // same `applyEdit` every other programmatic edit uses. It goes through the
+    // rule anyway so both platforms share one arithmetic — which is only worth
+    // anything if a one-range plan really is one replacement and one caret.
+
+    func testASingleRangeAnswersExactlyOneReplacementAndOneCaret() {
+        let text = "func f() {\n    let x = 1\n}"
+        let cases = [
+            // A caret, mid-line: the ordinary Tab press.
+            NSRange(location: 15, length: 0),
+            // A non-empty selection, which the key *replaces* — the behavior the
+            // touch editor inherits from the same rule rather than restating.
+            NSRange(location: 11, length: 4),
+            // A caret at the very end of the buffer.
+            NSRange(location: (text as NSString).length, length: 0),
+        ]
+        for range in cases {
+            let plan = IndentUnitRule.tabInsertionPlan(ranges: [range], insertion: "  ")
+
+            XCTAssertEqual(plan.replacements.count, 1)
+            XCTAssertEqual(plan.carets.count, 1)
+            XCTAssertEqual(plan.replacements.first?.range, range)
+            XCTAssertEqual(plan.replacements.first?.replacement, "  ")
+            // What `applyEdit(in:range:replacement:selecting:)` installs.
+            XCTAssertEqual(plan.carets.first, NSRange(location: range.location + 2, length: 0))
+
+            let native = NSMutableString(string: text)
+            native.replaceCharacters(in: range, with: "  ")
+            XCTAssertEqual(apply(plan, to: text), native as String)
+        }
+    }
+
+    func testATabAnsweredByTheRuleIsWhatLetsTheKeyThroughUntouched() {
+        // Both editors suppress their platform's own Tab insertion *only* when the
+        // rule answers something other than a tab. With no configuration it never
+        // does — whatever the file looks like — which is what makes the key
+        // byte-for-byte what it was before this layer existed.
+        for inferred in ["\t", "  ", "    "] {
+            XCTAssertEqual(
+                IndentUnitRule.tabInsertion(config: EditorConfigProperties(), inferred: inferred),
+                "\t"
+            )
+        }
+    }
 }

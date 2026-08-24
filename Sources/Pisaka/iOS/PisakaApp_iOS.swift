@@ -51,6 +51,25 @@ struct PisakaApp_iOS: App {
     private let symbolIndex: SymbolIndexModel
     private let symbolIndexController: SymbolIndexController
 
+    /// What `.editorconfig` says about the file being edited — the cache behind
+    /// Enter's indentation unit and the Tab key, and the iOS peer of the macOS
+    /// `PisakaApp.editorConfig`.
+    ///
+    /// A plain stored property for the reason the two above record: it publishes
+    /// nothing, so observing it would put this scene's `body` — and with it the
+    /// whole root view — on an update path for a value no view shows. It is
+    /// threaded straight through `RootView_iOS` to the editor, which is the only
+    /// thing that asks it anything.
+    ///
+    /// **A reader**, like the index: it opens files and writes none, so it neither
+    /// raises the disk-writer gate nor is gated by it. And like the index it has
+    /// no file-system watcher to lean on, so its cache is dropped from the
+    /// boundaries this platform *does* know about — the root switch and the
+    /// worktree rewrites the app performs itself (`RootView_iOS`). An out-of-band
+    /// edit to a `.editorconfig` (Files.app, a share extension) stays a stated
+    /// limit, exactly as it is for the index.
+    private let editorConfig: EditorConfigModel
+
     /// Who is signed in to LeetCode, the open-problem operation, and the statement
     /// for the active tab.
     ///
@@ -159,6 +178,11 @@ struct PisakaApp_iOS: App {
         )
         self.symbolIndex = symbolIndex
         self.symbolIndexController = SymbolIndexController(model: symbolIndex)
+        // Over the *scoped* service like every other reader here, so its
+        // `.editorconfig` reads run under the opened folder's security-scope grant.
+        // No root yet: both folder paths — a picker open and the launch-time
+        // bookmark restore — publish `projectRoot`, which is where it is recorded.
+        self.editorConfig = EditorConfigModel(fileService: scopedService)
     }
 
     var body: some Scene {
@@ -176,7 +200,8 @@ struct PisakaApp_iOS: App {
                 credentialStore: credentialStore,
                 leetCode: leetCode,
                 symbolIndex: symbolIndex,
-                symbolIndexController: symbolIndexController
+                symbolIndexController: symbolIndexController,
+                editorConfig: editorConfig
             )
         }
     }

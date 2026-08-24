@@ -301,26 +301,26 @@ is a compiled-token matcher like `GitignoreMatcher`.
   - Modify: `Sources/Pisaka/iOS/RootView_iOS.swift`
   - Modify: `Sources/Pisaka/iOS/CodeEditorView_iOS.swift`
   - Modify: `Sources/Pisaka/iOS/CodeEditorCoordinator_iOS.swift`
-  - [ ] Build the `EditorConfigModel` over the existing
+  - [x] Build the `EditorConfigModel` over the existing
         `SecurityScopedFileService` in `PisakaApp_iOS`, hand it to
         `RootView_iOS`, and pass it into `CodeEditorView_iOS` (which also starts
         receiving `projectRoot`, as the macOS editor already does) and on to the
         coordinator.
-  - [ ] Invalidate on the natural boundaries iOS already has, mirroring how the
+  - [x] Invalidate on the natural boundaries iOS already has, mirroring how the
         symbol index compensates for the missing watcher: the root switch in
         `.onChange(of: model.projectRoot)` beside
         `synchronizeSymbolIndex(forRoot:)`, and
         `notifyIndexOfProjectFileChanges()` for the in-process worktree
         rewrites. An out-of-band edit stays a stated limit.
-  - [ ] Feed the coordinator's `insertIndentedNewline` the same rule-derived
+  - [x] Feed the coordinator's `insertIndentedNewline` the same rule-derived
         unit as macOS.
-  - [ ] Handle a `"\t"` replacement in `shouldChangeTextIn`: apply the rule's
+  - [x] Handle a `"\t"` replacement in `shouldChangeTextIn`: apply the rule's
         spaces through the existing `applyEdit` and suppress the default when
         the rule says spaces; let it through unchanged when it says a tab.
         `UITextView` has a single `selectedRange`, so no fan-out is needed here
         — the one range still goes through `tabInsertionPlan` so both platforms
         share the rule.
-  - [ ] Run `swift test` — must pass before Task 8.
+  - [x] Run `swift test` — must pass before Task 8.
 
 ### Task 8: Verify acceptance criteria
 
