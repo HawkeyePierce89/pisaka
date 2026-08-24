@@ -190,23 +190,23 @@ implementation has no forks:
 - Modify: `Sources/PisakaCore/ToggleCommentEngine.swift`
 - Modify: `Tests/PisakaCoreTests/ToggleCommentEngineTests.swift`
 
-- [ ] Implement block mode over the same touched-line span: unwrap when the
+- [x] Implement block mode over the same touched-line span: unwrap when the
       first non-blank line begins after leading whitespace with the opener and
       the last non-blank line ends before trailing whitespace with the closer
       (removing one pair plus at most one space inside each delimiter);
       otherwise wrap, inserting the bare opener before the first non-blank
       line's first non-whitespace character and the bare closer at the end of
       the last non-blank line's contents.
-- [ ] Return `nil` for a wholly blank target; reuse the same caret/selection
+- [x] Return `nil` for a wholly blank target; reuse the same caret/selection
       placement rules as line mode.
-- [ ] Extend the tests: CSS and HTML wrap and unwrap of a single caret line and
+- [x] Extend the tests: CSS and HTML wrap and unwrap of a single caret line and
       of a multi-line selection; an indented opener; `/*x*/` and `/* x */`
       removal spellings; trailing whitespace after the closer; a target that
       already contains a delimiter inside it (wrapped verbatim, nothing escaped
       or rebalanced); blank lines at the edges of the selection; a wholly blank
       target (asserting `nil`); caret advance after a single-line wrap; a
       wrap→unwrap round-trip restoring the original text exactly.
-- [ ] Run `swift test` — must pass before Task 4.
+- [x] Run `swift test` — must pass before Task 4.
 
 ### Task 4: macOS wiring
 
