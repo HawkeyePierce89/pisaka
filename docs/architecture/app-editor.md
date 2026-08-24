@@ -87,7 +87,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     carrying `textView.typingAttributes`, since the raw storage path this fan-out
     needs would otherwise inherit the adjacent text's attributes (and, with no
     adjacent text, no font at all) where every other programmatic edit here gets
-    them for free from `insertText(_:replacementRange:)`.
+    them for free from `insertText(_:replacementRange:)`. That same raw-storage
+    path is why the handler **bails on `hasMarkedText()`** before it asks
+    anything: `insertText(_:replacementRange:)` commits or discards an in-flight
+    IME composition and tells the input context about it, while
+    `replaceCharacters` moves the composition's characters out from under a
+    `markedRange` that is left pointing at them — so the next composition update
+    writes at an offset that no longer describes anything. Returning `false`
+    hands the key to AppKit's own `insertTab`, which is what Tab did before the
+    feature existed; it is the guard `handleCompletionKey` already takes, for the
+    same reason.
     The existing `isApplyingProgrammaticEdit` guard wraps
     the *whole* bracket rather than just the storage mutation, because the
     single-range case reaches the single-range delegate callback where the

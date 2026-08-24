@@ -85,17 +85,33 @@ public enum EditorConfigResolver {
             if file.isRoot { break }
         }
 
-        var properties = EditorConfigProperties()
         // One match budget for the whole answer. Nothing caps how many sections a
         // `.editorconfig` declares or how many configs the walk reads, so a
         // per-section budget would multiply by both and a keystroke could still
         // stall for tens of seconds on content from a cloned repository; see
         // `EditorConfigGlob.maximumMatchSteps`.
+        //
+        // Matching is therefore separated from merging, because the two want
+        // *opposite* orders and only one of them is negotiable. Merging must run
+        // outermost-first, since that is what "a closer file wins" means. Draining
+        // the shared budget in that same order would make exhaustion fall on the
+        // **closest** file — the one whose answer outranks every other — so a
+        // hostile or merely quadratic root config could silently starve the
+        // `src/foo/.editorconfig` sitting beside the edited file, and the walk
+        // would degrade in precisely the wrong direction. Matching runs
+        // innermost-first so the budget is spent on the most specific rules first;
+        // the merge below then replays the results outermost-first, unchanged.
         var budget = EditorConfigGlob.maximumMatchSteps
+        var matched: [[EditorConfigSection]] = []
+        for entry in applicable {
+            matched.append(entry.file.sections(matching: entry.relativePath, budget: &budget))
+        }
+
+        var properties = EditorConfigProperties()
         // Outermost first: every closer file overwrites what an outer one said,
         // property by property.
-        for entry in applicable.reversed() {
-            for section in entry.file.sections(matching: entry.relativePath, budget: &budget) {
+        for sections in matched.reversed() {
+            for section in sections {
                 for pair in section.pairs { properties.apply(pair) }
             }
         }

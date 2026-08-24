@@ -128,6 +128,15 @@ newly typed text is affected.
     a single keystroke. `EditorConfigResolver.resolve` allocates it and threads
     it through `EditorConfigFile.sections(matching:budget:)` into every glob; the
     pair-level `matches(relativePath:)` keeps its own for one-off callers.
+    Because it is shared, some config has to be the one that runs out of it, and
+    **which one is not left to fall out of the merge loop**: matching runs
+    *innermost-first* and the merge replays the results *outermost-first*. The
+    two orders are opposite on purpose. Merging outermost-first is what "a closer
+    file wins" means and is not negotiable; draining in that same order would put
+    exhaustion on the **closest** file — the one whose answer outranks every
+    other — so a quadratic (or merely large) root `.editorconfig` could silently
+    starve the `src/foo/.editorconfig` beside the edited file and the walk would
+    degrade in exactly the wrong direction, with no diagnostic.
     **Compilation carries a second budget**, `maximumCompileSteps` (8 × the
     length cap), because the length cap bounds it no better than it bounds
     matching: the compiler scans *forward* for each group's closing `}` and each

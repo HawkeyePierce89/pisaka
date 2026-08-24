@@ -1788,6 +1788,18 @@ struct CodeEditorView: NSViewRepresentable {
         /// bracket, which is what makes it a single undoable step and a single
         /// change notification. `insertBacktab` is untouched.
         private func insertConfiguredTab(in textView: NSTextView) -> Bool {
+            // Never mid-composition. This is the one programmatic edit here that
+            // mutates `textStorage` directly instead of going through
+            // `insertText(_:replacementRange:)`, and that is exactly the
+            // bookkeeping `insertText` does for us: it commits or discards the
+            // marked text and tells the input context about it. A raw
+            // `replaceCharacters` moves the composition's characters out from
+            // under a `markedRange` that is left pointing at them, so the next
+            // composition update writes at an offset that no longer describes
+            // anything. `false` hands the key back to AppKit's own `insertTab:`,
+            // which is what this key did before the feature existed — the same
+            // guard `handleCompletionKey` above takes, for the same reason.
+            guard !textView.hasMarkedText() else { return false }
             // The rule is asked, never restated: whether the key inserts spaces at
             // all is `IndentUnitRule.tabInsertion`'s decision, and this reads only
             // its answer. Pre-checking `indent_style` here would put half of that

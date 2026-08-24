@@ -286,6 +286,33 @@ final class EditorConfigResolverTests: XCTestCase {
         XCTAssertTrue(properties.isEmpty)
     }
 
+    // MARK: - The shared match budget
+
+    func testAStarvingOuterConfigDoesNotStarveTheClosestOne() {
+        // One budget is shared by every file the walk reads, so some config has to
+        // be the one that runs out of it. *Which* one is the whole point: the
+        // closest file outranks every other, so it must be the one the budget is
+        // spent on, not the one that goes hungry. Matching therefore drains
+        // innermost-first even though the merge replays outermost-first.
+        //
+        // The root config is fifty copies of the alternation-heavy section name
+        // `EditorConfigGlobTests` measures — between them they exhaust the ceiling.
+        // The `src` config beside the edited file is one ordinary `[*]`, and
+        // whether it still answers is the assertion: drained outermost-first its
+        // glob is handed a spent budget and matches nothing, so the file it
+        // governs falls back to inference with no diagnostic.
+        let hostile = "src/" + String(repeating: "{a,aa}", count: 18) + String(repeating: "b", count: 900)
+        let path = "src/" + String(repeating: "a", count: 26)
+        let tree = tree([
+            ".editorconfig": String(repeating: "[\(hostile)]\nindent_size = 2\n", count: 50),
+            "src/.editorconfig": "[*]\nindent_style = space\nindent_size = 4\n",
+            path: "",
+        ])
+        let properties = resolve(path, in: tree)
+        XCTAssertEqual(properties.indentStyle, .space)
+        XCTAssertEqual(properties.indentWidth, 4)
+    }
+
     // MARK: - Reader, never a writer
 
     func testTheWalkWritesNothing() {
