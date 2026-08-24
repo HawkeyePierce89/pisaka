@@ -212,16 +212,16 @@ selection reports.
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] run `swift test` — the full `PisakaCore` suite must pass
-- [ ] run `swiftlint --strict` from the repository root — must be clean, with no
+- [x] run `swift test` — the full `PisakaCore` suite must pass
+- [x] run `swiftlint --strict` from the repository root — must be clean, with no
       new in-file disables
-- [ ] run `xcodegen generate` and
+- [x] run `xcodegen generate` and
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
       — must succeed
-- [ ] run the iOS build
+- [x] run the iOS build
       (`-destination 'platform=iOS Simulator,name=iPhone 17 Pro'`) to confirm the
       new Core file stays iOS-compatible and no macOS API leaked into Core
-- [ ] confirm by inspection that the new engine imports only Foundation and
+- [x] confirm by inspection that the new engine imports only Foundation and
       CoreGraphics, and that no view-layer file outside `CodeEditorView.swift`
       changed
 
