@@ -21,7 +21,8 @@ description of each — and of what it deliberately does *not* do — is in
   their own via FSEvents.
 - **Editor** — NSTextView-based, monospaced, with a line-number gutter,
   auto-indent, auto-closing brackets/quotes, matched-pair and rainbow bracket
-  highlighting, Cmd+D duplicate line/selection, Cmd+/ toggle comment, a minimap, and per-tab position
+  highlighting, Cmd+D duplicate line/selection, Cmd+/ toggle comment,
+  middle-mouse drag column selection, a minimap, and per-tab position
   memory: switch away and back and the tab returns to the caret and scroll
   position you left it at (for the app run; not persisted across launches).
 - **Syntax highlighting** (tree-sitter via Neon) for Swift, JavaScript,
@@ -235,6 +236,7 @@ never on a pull request.
 | Cmd+Option+F| Replace in the current file (opens the bar with the replace row) |
 | Cmd+Shift+F | Find in Files (project-wide search window) |
 | Ctrl+Cmd+J  | Go to Definition of the identifier at the caret (Cmd+click does the same for the identifier under the pointer) |
+| Middle-drag | Select a vertical column of text (rectangular selection); Option-drag does the same |
 | Ctrl+Space  | Complete the word being typed, or the members after a `.` (AppKit's stock Option+Esc and F5 work too) |
 | Cmd+K       | Commit… (opens the commit dialog for the open project) |
 | Cmd+R       | Run the active file in a new terminal session |

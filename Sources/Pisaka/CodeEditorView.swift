@@ -2647,6 +2647,158 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// tolerated wobble can never resolve a different word than the one clicked.
     private static let clickSlop: CGFloat = 2
 
+    /// The start of the current middle-button drag in view coordinates, or `nil`
+    /// if no such drag is in flight. Stored in view coordinates so autoscrolling
+    /// does not shift the anchor away from the document point it started at.
+    private var columnDragAnchor: CGPoint?
+
+    /// Whether the current middle-button drag has moved further than `clickSlop`.
+    /// Until it does, a release is a plain click (one caret, no movement).
+    private var columnDragMoved = false
+
+    /// The timer that fires to continue autoscrolling when the pointer is held
+    /// still outside the view during a middle-button drag.
+    private var columnDragAutoscrollTimer: Timer?
+    private var columnDragLastEvent: NSEvent?
+
+    private func stopColumnDragAutoscroll() {
+        columnDragAutoscrollTimer?.invalidate()
+        columnDragAutoscrollTimer = nil
+        columnDragLastEvent = nil
+    }
+
+    deinit {
+        columnDragAutoscrollTimer?.invalidate()
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil {
+            columnDragAnchor = nil
+            columnDragMoved = false
+            stopColumnDragAutoscroll()
+        }
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 2, isSelectable else {
+            return super.otherMouseDown(with: event)
+        }
+        if window?.firstResponder !== self {
+            window?.makeFirstResponder(self)
+        }
+        columnDragAnchor = convert(event.locationInWindow, from: nil)
+        columnDragMoved = false
+        stopColumnDragAutoscroll()
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        guard event.buttonNumber == 2, let anchor = columnDragAnchor else {
+            return super.otherMouseDragged(with: event)
+        }
+
+        columnDragLastEvent = event
+        if columnDragAutoscrollTimer == nil {
+            columnDragAutoscrollTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] timer in
+                guard let self = self, let anchor = self.columnDragAnchor, let event = self.columnDragLastEvent else {
+                    timer.invalidate()
+                    self?.columnDragAutoscrollTimer = nil
+                    self?.columnDragLastEvent = nil
+                    return
+                }
+                if self.autoscroll(with: event) {
+                    let point = self.convert(event.locationInWindow, from: nil)
+                    self.updateColumnSelection(anchor: anchor, point: point, stillSelecting: true)
+                }
+            }
+        }
+
+        autoscroll(with: event)
+        let point = convert(event.locationInWindow, from: nil)
+
+        updateColumnSelection(anchor: anchor, point: point, stillSelecting: true)
+    }
+
+    private func updateColumnSelection(anchor: CGPoint, point: CGPoint, stillSelecting: Bool) {
+        if !columnDragMoved {
+            let moved = hypot(point.x - anchor.x, point.y - anchor.y)
+            if moved > Self.clickSlop {
+                columnDragMoved = true
+            } else {
+                return
+            }
+        }
+
+        if let ranges = columnSelectionRanges(anchor: anchor, head: point), !ranges.isEmpty {
+            setSelectedRanges(ranges.map { NSValue(range: $0) }, affinity: .downstream, stillSelecting: stillSelecting)
+        }
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard event.buttonNumber == 2, let anchor = columnDragAnchor else {
+            return super.otherMouseUp(with: event)
+        }
+
+        if columnDragMoved {
+            let point = convert(event.locationInWindow, from: nil)
+            updateColumnSelection(anchor: anchor, point: point, stillSelecting: false)
+        } else {
+            let offset = characterIndexForInsertion(at: anchor)
+            setSelectedRange(NSRange(location: offset, length: 0))
+        }
+
+        columnDragAnchor = nil
+        columnDragMoved = false
+        stopColumnDragAutoscroll()
+    }
+
+    /// Evaluates the middle-button drag bounds into the per-line `selectedRanges`.
+    ///
+    /// The bounds are first widened to the container horizontally and inflated
+    /// out of degeneracy (given at least 1pt of width and height if needed)
+    /// before they reach the layout manager. This inflation is necessary because
+    /// `glyphRange(forBoundingRect:in:)` can otherwise enumerate no fragments at
+    /// all for a zero-height single-line drag or a purely vertical zero-width
+    /// drag. The edge offsets themselves are still taken from the *un-inflated*
+    /// bounds, probed on the fragment's vertical centre, so the inflation never
+    /// widens the actual selected columns.
+    ///
+    /// The gesture never edits the document, and because `NSTextView` ignores
+    /// `otherMouseDown`, no modal event loop is needed — AppKit delivers the
+    /// dragged and up events to this view normally. The probe is per line
+    /// fragment because visual columns mean horizontal edges must be resolved
+    /// by the glyph layout per line (one fragment per line with soft wrap off).
+    private func columnSelectionRanges(anchor: CGPoint, head: CGPoint) -> [NSRange]? {
+        guard let layoutManager = layoutManager, let textContainer = textContainer,
+              let string = textStorage?.string else { return nil }
+
+        let bounds = ColumnSelectionEngine.bounds(anchor: anchor, head: head)
+
+        var probeRect = bounds.rect
+        probeRect.origin.x = 0
+        probeRect.size.width = textContainer.size.width
+        probeRect.origin.y -= self.textContainerOrigin.y
+
+        if probeRect.size.width < 1 { probeRect.size.width = 1 }
+        if probeRect.size.height < 1 { probeRect.size.height = 1 }
+
+        layoutManager.ensureLayout(forBoundingRect: probeRect, in: textContainer)
+        let glyphRange = layoutManager.glyphRange(forBoundingRect: probeRect, in: textContainer)
+
+        var lines = [ColumnSelectionLine]()
+        layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { rect, _, _, fragmentRange, _ in
+            let y = rect.midY + self.textContainerOrigin.y
+            let leftPoint = CGPoint(x: bounds.left, y: y)
+            let rightPoint = CGPoint(x: bounds.right, y: y)
+            let leftOffset = self.characterIndexForInsertion(at: leftPoint)
+            let rightOffset = self.characterIndexForInsertion(at: rightPoint)
+            let lineRange = layoutManager.characterRange(forGlyphRange: fragmentRange, actualGlyphRange: nil)
+            lines.append(ColumnSelectionLine(lineRange: lineRange, leftOffset: leftOffset, rightOffset: rightOffset))
+        }
+
+        return ColumnSelectionEngine.ranges(for: lines, in: string as NSString)
+    }
+
     /// Esc with the find bar open closes it (and drops the match highlight);
     /// otherwise the key falls through to the stock behavior.
     ///
