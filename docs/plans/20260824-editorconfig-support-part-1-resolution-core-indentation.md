@@ -220,18 +220,18 @@ is a compiled-token matcher like `GitignoreMatcher`.
 **Files:**
   - Create: `Sources/PisakaCore/IndentUnitRule.swift`
   - Create: `Tests/PisakaCoreTests/IndentUnitRuleTests.swift`
-  - [ ] Implement `public enum IndentUnitRule` with `unit(config:inferred:) ->
+  - [x] Implement `public enum IndentUnitRule` with `unit(config:inferred:) ->
         String`, the hybrid rule: `indent_style = tab` → a tab; `indent_style =
         space` → spaces of the configured width, falling back to the inferred
         width when the config gives none and to four spaces when the inference
         itself yields a tab; no `indent_style` → a configured width re-widens a
         space inference and leaves a tab inference a tab; no applicable property
         at all → `inferred`, returned unchanged.
-  - [ ] Implement `tabInsertion(config:inferred:) -> String`: the effective unit
+  - [x] Implement `tabInsertion(config:inferred:) -> String`: the effective unit
         only when the config says `indent_style = space`, a literal tab in every
         other case — so a project with no config keeps inserting a tab exactly
         as today, and the content inference alone never turns Tab into spaces.
-  - [ ] Implement the multi-insertion-point arithmetic as a pure rule too, so
+  - [x] Implement the multi-insertion-point arithmetic as a pure rule too, so
         the view stays wiring: `tabInsertionPlan(ranges:insertion:)` takes the
         selection's ranges (each a caret or a range, as the column-selection
         gesture leaves them) and the insertion string, and returns the ordered
@@ -239,9 +239,9 @@ is a compiled-token matcher like `GitignoreMatcher`.
         insertion, each resulting caret at the end of its own insertion, shifted
         by the net length change of every earlier range. Overlapping or
         unordered input is normalized (sorted, empty input answers no edits).
-  - [ ] Leave `IndentEngine` untouched: it keeps taking `unit` as a parameter
+  - [x] Leave `IndentEngine` untouched: it keeps taking `unit` as a parameter
         and its existing tests keep passing unmodified.
-  - [ ] Write `IndentUnitRuleTests` for the full matrix — both styles, width
+  - [x] Write `IndentUnitRuleTests` for the full matrix — both styles, width
         from `indent_size`, width from `tab_width`, `indent_size = tab` with and
         without `tab_width`, each half-specified case against both a
         tab-inferred and a space-inferred file, and empty properties returning
@@ -249,7 +249,7 @@ is a compiled-token matcher like `GitignoreMatcher`.
         caret, one non-empty range, several carets on consecutive lines (the
         column-selection shape), several non-empty ranges, and the resulting
         caret offsets checked against a text the test applies the plan to.
-  - [ ] Run `swift test` — must pass before Task 6.
+  - [x] Run `swift test` — must pass before Task 6.
 
 ### Task 6: macOS wiring
 
