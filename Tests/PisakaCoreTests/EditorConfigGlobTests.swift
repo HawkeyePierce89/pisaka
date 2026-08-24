@@ -39,6 +39,12 @@ final class EditorConfigGlobTests: XCTestCase {
 
     func testEscapedSlashDoesNotAnchor() {
         XCTAssertFalse(EditorConfigGlob(pattern: "a\\/b").anchored)
+        // Behavior, not just the flag: the escape makes the `/` an ordinary
+        // literal, so the pattern still matches at any depth and the escape is
+        // not left in the token stream as a backslash of its own.
+        XCTAssertTrue(matches("a\\/b", "a/b"))
+        XCTAssertTrue(matches("a\\/b", "x/a/b"))
+        XCTAssertFalse(matches("a\\/b", "ab"))
     }
 
     // MARK: - Star
@@ -76,6 +82,21 @@ final class EditorConfigGlobTests: XCTestCase {
         XCTAssertTrue(matches("b/**/z.c", "b/x/z.c"))
         XCTAssertTrue(matches("b/**/z.c", "b/x/y/z.c"))
         XCTAssertFalse(matches("b/**/z.c", "c/x/z.c"))
+    }
+
+    func testDoubleStarBetweenSlashesAlsoStandsForZeroDirectories() {
+        // The reference core translates the whole `/**/` sequence to
+        // `(\/|\/.*\/)`, so the two commonest section names in the wild reach
+        // the level the author meant: `[src/**/*.ts]` governs `src/index.ts` and
+        // `[**/*.md]` governs a top-level `README.md`.
+        XCTAssertTrue(matches("b/**/z.c", "b/z.c"))
+        XCTAssertTrue(matches("src/**/*.ts", "src/index.ts"))
+        XCTAssertTrue(matches("**/*.md", "README.md"))
+        XCTAssertTrue(matches("/**/foo", "foo"))
+        // Only where the pattern really spells `/**/`: a `**` glued to the end of
+        // a component still needs the separator that follows it.
+        XCTAssertFalse(matches("a**/z.c", "az.c"))
+        XCTAssertFalse(matches("b/**/z.c", "b/z.cc"))
     }
 
     // MARK: - Question mark
@@ -223,6 +244,31 @@ final class EditorConfigGlobTests: XCTestCase {
         let glob = EditorConfigGlob(pattern: name)
         XCTAssertTrue(glob.exceedsLengthLimit)
         XCTAssertFalse(glob.matches(relativePath: name))
+    }
+
+    // MARK: - The match budget
+
+    func testAPathologicalSectionNameAnswersQuicklyInsteadOfHanging() {
+        // The length cap above does *not* bound the backtracking match — its cost
+        // is exponential in the number of wildcards. This 24-character section
+        // name against a 42-character path took ~34 s before the step budget
+        // existed, on the main thread, inside the Enter and Tab key handlers. The
+        // budget is what makes the bound real; a wall clock is the only honest
+        // way to assert it.
+        let pattern = String(repeating: "*a", count: 11) + "*b.c"
+        XCTAssertLessThan(pattern.count, EditorConfigGlob.maximumSectionNameLength)
+        let path = String(repeating: "a", count: 40) + ".x"
+        let started = Date()
+        XCTAssertFalse(matches(pattern, path))
+        XCTAssertLessThan(-started.timeIntervalSinceNow, 1.0)
+    }
+
+    func testAnOrdinaryPatternIsNowhereNearTheBudget() {
+        // The ceiling must not cost a real section name its answer: a deep path
+        // under the commonest shapes still resolves, and resolves as a match.
+        let deep = (0..<12).map { "very-long-directory-name-segment-\($0)" }.joined(separator: "/")
+        XCTAssertTrue(matches("**/*.{js,jsx,ts,tsx}", deep + "/SomeReallyLongFileName.tsx"))
+        XCTAssertTrue(matches("**/*.md", deep + "/README.md"))
     }
 
     // MARK: - Identity

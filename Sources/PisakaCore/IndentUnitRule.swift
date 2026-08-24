@@ -54,6 +54,16 @@ public enum IndentUnitRule {
     /// Four matches `IndentEngine.inferIndentUnit`'s own fallback.
     static let defaultSpaceWidth = 4
 
+    /// The widest indentation level that is honored.
+    ///
+    /// `indent_size` is any positive integer as far as the parser is concerned,
+    /// and the unit it produces is *built as a string on the main thread* for
+    /// every Enter and every Tab. An untrusted `indent_size = 2000000000` would
+    /// allocate two gigabytes per keystroke, and an ordinary typo
+    /// (`indent_size = 44444`) a 44 KB indent per level. Clamping rather than
+    /// rejecting keeps a merely-large width behaving like a large width.
+    static let maximumSpaceWidth = 64
+
     /// One indentation level for this file: what Enter's auto-indent appends.
     ///
     /// - `indent_style = tab` → a tab, whatever the file's own content looks
@@ -139,9 +149,11 @@ public enum IndentUnitRule {
             }
             // Touching-but-not-overlapping ranges stay separate: a caret at the
             // end of a selection is a second insertion point, not the same one.
-            // Two carets at the *same* location are one, though.
-            let overlaps = range.location < NSMaxRange(last)
-                || (range.location == last.location && range.length == last.length)
+            // Anything starting where `last` starts is the same insertion point,
+            // though — two identical carets, and equally a caret sitting at the
+            // *start* of a selection, whose `NSMaxRange` is its own location and
+            // so is not caught by the strict `<` above.
+            let overlaps = range.location < NSMaxRange(last) || range.location == last.location
             if overlaps {
                 merged[merged.count - 1] = NSUnionRange(last, range)
             } else {
@@ -152,7 +164,7 @@ public enum IndentUnitRule {
     }
 
     private static func spaces(_ width: Int) -> String {
-        String(repeating: " ", count: max(1, width))
+        String(repeating: " ", count: min(max(1, width), maximumSpaceWidth))
     }
 
     /// The inferred unit's width when it is spaces, `nil` when it is a tab (or

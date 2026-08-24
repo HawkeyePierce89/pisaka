@@ -138,8 +138,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     is unconditional: a re-open of the same root is a no-op inside the model, which
     compares the roots canonically itself. Like the index it is a **reader** — it
     opens files and writes none — so it neither raises `autosave.suspend()` /
-    `localChanges.beginRevert()` nor is gated by them, and those two invalidation
-    calls are its whole lifecycle here (`core-editorconfig.md`).
+    `localChanges.beginRevert()` nor is gated by them. Two more invalidation calls
+    complete its lifecycle here, both filling holes `IgnoreSelf` leaves in the
+    watcher: `notifyIndexOfProjectFileChanges()` drops the cache too (ahead of its
+    root guard — unlike the index, this one needs no root to be told anything), so
+    the app's own worktree rewrites are covered; and `noteEditorConfigWrites(_:)`
+    drops it when a *written* url is a `.editorconfig`, called from `save(id:)`
+    and from the autosave's `onSaved` — whose signature gained the urls it wrote
+    for exactly this — because editing a `.editorconfig` in Pisaka itself is a
+    self-write the watcher never reports and is the likeliest way anyone changes
+    one. Narrow on purpose: an ordinary save is the app's most frequent write, and
+    clearing on every one would put a resolution walk on the first keystroke after
+    each autosave burst (`core-editorconfig.md`).
     **The LSP layer hangs off exactly those points and nowhere else** (phase 2a; the
     layer itself is `core-lsp.md`). `init()` builds one `LSPWorkspace` with
     `LSPProcessTransport.make(for:root:)` as its transport factory — the *only* thing
@@ -732,8 +742,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (`FileManager.fileExists`) and bumps after a successful
     `model.save(for:)`, while `AutosaveController` collects the missing dirty titled
     paths (`missingDirtyPaths(in:)`, so a nothing-to-save re-fire costs no syscall)
-    and reports `createdFile` through its `onSaved: (Bool) -> Void` callback, which
-    `PisakaApp` turns into the bump next to `refreshLocalChanges()`. An ordinary
+    and reports `createdFile` through its `onSaved: ([URL], Bool) -> Void` callback,
+    which `PisakaApp` turns into the bump next to `refreshLocalChanges()`. An ordinary
     overwrite is deliberately *not* bumped: it leaves every listing identical, and
     that frequent case is exactly the self-noise `IgnoreSelf` exists to drop. The
     quit-time `flushNow` has no `onSaved` and so no probe — there is no tree left to
@@ -1299,12 +1309,18 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     counters return to zero. `performAutosave` calls `onSaved` only when `saveAllDirty()` returned a
     non-empty list, and beeps at most once (non-modal, latched via
     `didBeepForFailure`) if a dirty titled file remained after a write failure.
-    `onSaved` is `(_ createdFile: Bool) -> Void`: before the write `performAutosave`
+    `onSaved` is `(_ saved: [URL], _ createdFile: Bool) -> Void`: before the write
+    `performAutosave`
     collects the dirty *titled* buffers whose file is missing on disk
     (`missingDirtyPaths(in:)` — only dirty titled buffers are probed, so a
     nothing-to-save re-fire costs no syscall) and reports whether any saved url was
     among them, so `PisakaApp` can bump `treeRevision` for an autosave that recreated
-    an externally deleted file (which the watcher's `IgnoreSelf` hides).
+    an externally deleted file (which the watcher's `IgnoreSelf` hides). It also
+    hands over the urls it actually wrote, for a second consequence of that same
+    `IgnoreSelf`: the `.editorconfig` cache has no watcher behind it either, so
+    `PisakaApp.noteEditorConfigWrites(_:)` needs to be told which files this tick
+    wrote or an autosaved `.editorconfig` would go unnoticed
+    (`core-editorconfig.md`).
     `flushNow(reportingSaves:)` skips both the callback and the probe **by
     default**, which is right for its original caller and wrong for its second one:
     on the quit path there is no tree left to bump and no panel left to refresh,

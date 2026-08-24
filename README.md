@@ -21,8 +21,10 @@ description of each — and of what it deliberately does *not* do — is in
   their own via FSEvents.
 - **Editor** — NSTextView-based, monospaced, with a line-number gutter,
   auto-indent (honoring a project's `.editorconfig` for `indent_style`,
-  `indent_size` and `tab_width` — other properties are read but not applied yet,
-  the search stops at the opened folder, and existing content is never
+  `indent_size` and `tab_width` — which also decides what the **Tab** key
+  inserts: the configured spaces when a config says `indent_style = space`
+  outright, a literal tab otherwise; other properties are read but not applied
+  yet, the search stops at the opened folder, and existing content is never
   reformatted), auto-closing brackets/quotes, matched-pair and rainbow bracket
   highlighting, Cmd+D duplicate line/selection, Cmd+/ toggle comment,
   middle-mouse drag column selection, a minimap, and per-tab position
@@ -234,6 +236,7 @@ never on a pull request.
 | Cmd+W       | Close the active tab (confirms if unsaved) |
 | Cmd+D       | Duplicate the current line (or the selection), with the editor focused |
 | Cmd+/       | Toggle comment on the current line or selection, with the editor focused |
+| Tab         | Insert one indentation level — the configured spaces under `.editorconfig`'s `indent_style = space`, a literal tab otherwise (commits the selected row when the completion popup is open) |
 | Cmd+F       | Find in the current file (opens the search bar; a repeat press re-focuses it) |
 | Cmd+G       | Find Next (while the search bar is open)   |
 | Cmd+Shift+G | Find Previous (while the search bar is open) |

@@ -857,9 +857,13 @@ struct PisakaApp: App {
                 // *recreated* a file that had been deleted out of band — the watcher
                 // ignores our own writes, so nothing else would put it back in the
                 // listing (the same reason `saveAs` bumps explicitly).
-                autosave.start(model: model, onSaved: { createdFile in
+                autosave.start(model: model, onSaved: { saved, createdFile in
                     refreshLocalChanges()
                     if createdFile { model.bumpTreeRevision() }
+                    // An autosaved `.editorconfig` is a self-write the watcher
+                    // never reports, so this is the only thing that can drop the
+                    // cache for it.
+                    noteEditorConfigWrites(saved)
                 })
 
                 // Start watching for zoom gestures. Idempotent by contract, for
@@ -2454,6 +2458,7 @@ struct PisakaApp: App {
                 return saveAs(id: id)
             }
             if recreatesFile { model.bumpTreeRevision() }
+            noteEditorConfigWrites([model.openFiles.first { $0.id == id }?.url].compactMap { $0 })
             refreshLocalChanges()
             return true
         } catch {
@@ -3516,8 +3521,32 @@ struct PisakaApp: App {
     /// the autosave's recreating save rewrite a file a tab still owns, and a
     /// buffer-sourced entry is exactly what a refresh declines to touch.
     private func notifyIndexOfProjectFileChanges() {
+        // The `.editorconfig` cache rides along, for the same reason and with the
+        // same coverage hole to fill: `kFSEventStreamCreateFlagIgnoreSelf` drops
+        // every event this process causes, so the watcher callback that is
+        // otherwise this cache's whole lifecycle never sees the app's *own*
+        // worktree rewrites — a branch switch, a revert, a merge apply, a
+        // project-wide Replace All, a rename or a delete of a `.editorconfig`.
+        // Dropped wholesale and unconditionally, ahead of the root guard: clearing
+        // a dictionary costs nothing and, unlike the index, it needs no root to be
+        // told anything. The iOS peer says the same thing in `RootView_iOS`.
+        editorConfig.noteProjectFilesChanged()
         guard let root = model.projectRoot else { return }
         symbolIndexController.noteProjectFilesChanged(root: root)
+    }
+
+    /// Drop the `.editorconfig` cache when a write just landed on one.
+    ///
+    /// The watcher cannot cover this: an ordinary save is a *self*-generated event
+    /// and `IgnoreSelf` drops it, so editing a `.editorconfig` in Pisaka itself —
+    /// the likeliest way anyone changes one — would otherwise keep serving the
+    /// pre-edit properties for the rest of the session. Narrow on purpose: an
+    /// ordinary save of an ordinary file is the most frequent write the app makes,
+    /// and throwing the cache away on each one would put a resolution walk on the
+    /// next keystroke after every autosave burst.
+    private func noteEditorConfigWrites(_ urls: [URL]) {
+        guard urls.contains(where: { $0.lastPathComponent == EditorConfigResolver.fileName }) else { return }
+        editorConfig.noteProjectFilesChanged()
     }
 }
 

@@ -1788,9 +1788,21 @@ struct CodeEditorView: NSViewRepresentable {
         /// bracket, which is what makes it a single undoable step and a single
         /// change notification. `insertBacktab` is untouched.
         private func insertConfiguredTab(in textView: NSTextView) -> Bool {
+            // Ask the cheap question first. `IndentUnitRule.tabInsertion` answers a
+            // literal tab unless the configuration says `indent_style = space`
+            // outright, and it is the *only* case that needs the inference — so
+            // deciding this before touching the buffer keeps the no-configuration
+            // case (the overwhelmingly common one) exactly as cheap as it was
+            // before this layer existed. `textView.string` bridges a mutable
+            // `NSTextStorage`, so reading it copies the whole buffer, and
+            // `inferIndentUnit` then walks every line of the copy: paying both on
+            // every Tab press to compute a value that is discarded is precisely the
+            // main-thread cost `textDidChange` above is careful to avoid.
+            let config = editorConfigProperties()
+            guard config.indentStyle == .space else { return false }
             let nsText = textView.string as NSString
             let insertion = IndentUnitRule.tabInsertion(
-                config: editorConfigProperties(),
+                config: config,
                 inferred: IndentEngine.inferIndentUnit(text: nsText)
             )
             guard insertion != "\t" else { return false }
@@ -1809,15 +1821,24 @@ struct CodeEditorView: NSViewRepresentable {
             defer { isApplyingProgrammaticEdit = false }
             let editedRanges = plan.replacements.map { NSValue(range: $0.range) }
             let replacements = plan.replacements.map(\.replacement)
+            // A refusal is *not* "handled": returning `true` would eat the key and
+            // do nothing, where `false` hands it back to the responder chain, the
+            // same as the literal-tab answer above.
             guard textView.shouldChangeText(
                 inRanges: editedRanges,
                 replacementStrings: replacements
-            ) else { return true }
+            ) else { return false }
+            // The spaces carry `typingAttributes` explicitly. Every other
+            // programmatic edit here goes through `insertText(_:replacementRange:)`,
+            // which applies them; the raw storage path (which the multi-range
+            // fan-out needs) would otherwise inherit whatever the adjacent text
+            // has — and in a buffer with no adjacent text, no font at all.
+            let attributes = textView.typingAttributes
             textStorage.beginEditing()
             for replacement in plan.replacements.reversed() {
                 textStorage.replaceCharacters(
                     in: replacement.range,
-                    with: replacement.replacement
+                    with: NSAttributedString(string: replacement.replacement, attributes: attributes)
                 )
             }
             textStorage.endEditing()

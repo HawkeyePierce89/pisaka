@@ -90,6 +90,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     exactly the per-update cost `PathBarView.equatable()` and the non-observed
     `commitDialog` exist to keep off this view; both default (to a controller over a
     fresh, never-walked index, and a no-op) so previews compile.
+    A fourth passes straight through for **indentation**: `editorConfig:
+    EditorConfigModel`, owned by `PisakaApp` and read only by `CodeEditorView`'s
+    Enter and Tab handlers. Like `symbolIndex` it is deliberately not
+    `@ObservedObject` (it publishes nothing) but, unlike every other model here, it
+    is **undefaulted**, so it joins `model` as a second required argument: the model
+    is main-actor-isolated and takes a `FileServicing`, and any default worth
+    writing would be a second *live disk reader* built for a view nobody constructs
+    (`core-editorconfig.md`, `app-editor.md`).
     The private `PathBarView` is the VS Code-style
     breadcrumb: a `.caption`/`.secondary` `Text` of
     `DisplayPath.components(fileURL:projectRoot:home:
@@ -206,8 +214,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `.constant(false)` / no-ops, and `commitDialog` to a real, `Process`-backed
     model, so a default-constructed view (previews/tests) still compiles.
     `bottomPanel`/`onTogglePanel`/`terminalSessions` default to `.constant(nil)` /
-    a no-op / a fresh model so a default-constructed `ContentView` (previews/tests)
-    compiles. It also takes the shared `settings: SettingsStore` (defaulted to a
+    a no-op / a fresh model so a `ContentView` built for a preview or a test needs
+    to supply only the two undefaulted arguments, `model` and `editorConfig`. It also takes the shared `settings: SettingsStore` (defaulted to a
     fresh store for previews) and applies two of its preferences: a private
     `ThemePreference.colorScheme` mapping (`.system → nil`, `.light → .light`,
     `.dark → .dark`, kept in the view layer) feeds `.preferredColorScheme(

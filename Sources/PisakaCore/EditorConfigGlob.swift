@@ -71,6 +71,20 @@ public struct EditorConfigGlob: Equatable {
     /// The longest section name that is honored (the spec's acceptance floor).
     public static let maximumSectionNameLength = 1024
 
+    /// The most match steps one `(section name, path)` pair may take before the
+    /// answer degrades to "does not match".
+    ///
+    /// The length cap above does **not** bound the backtracking match: its cost
+    /// is exponential in the *number of wildcards*, not linear in the pattern's
+    /// length, and a 24-character section name like `*a*a*a*a*a*a*a*a*a*a*b.c`
+    /// against a 42-character path takes tens of seconds. `properties(for:)` is
+    /// synchronous and is asked from inside the Enter and Tab key handlers, and
+    /// a `.editorconfig` is untrusted content from a cloned repository — so the
+    /// bound has to be a real budget rather than a claim about lengths. Bailing
+    /// out to "no match" is the same degradation an over-long section name
+    /// already gets, and the ceiling is far above what any honest pattern costs.
+    static let maximumMatchSteps = 200_000
+
     /// The section name exactly as it was written between `[` and `]`.
     public let pattern: String
     /// The pattern named a `/`, so it is relative to the `.editorconfig`'s own
@@ -104,13 +118,18 @@ public struct EditorConfigGlob: Equatable {
         if path.hasPrefix("/") { path.removeFirst() }
         let characters = Array(path)
 
-        if EditorConfigGlob.match(tokens, from: 0, characters, from: 0) { return true }
+        // One budget for the whole question, so a pattern cannot buy itself more
+        // work by having many component starts to try.
+        var budget = EditorConfigGlob.maximumMatchSteps
+        if EditorConfigGlob.match(tokens, from: 0, characters, from: 0, budget: &budget) { return true }
         guard !anchored else { return false }
         // Unanchored ⇒ "at any depth": the pattern may start at the beginning of
         // any component. An unanchored pattern names no `/`, so trying each
         // component start is exactly what a leading `**/` would express.
         for index in characters.indices where characters[index] == "/" {
-            if EditorConfigGlob.match(tokens, from: 0, characters, from: index + 1) { return true }
+            if EditorConfigGlob.match(tokens, from: 0, characters, from: index + 1, budget: &budget) {
+                return true
+            }
         }
         return false
     }
@@ -140,17 +159,21 @@ public struct EditorConfigGlob: Equatable {
     ///
     /// Backtracking rather than the gitignore matcher's dynamic-programming walk
     /// because nested alternation and integer ranges make the state space a tree
-    /// rather than a grid; section names are bounded at 1024 characters, so the
-    /// worst case is bounded with them.
+    /// rather than a grid. That tree is *not* bounded by the section-name length
+    /// cap, so `budget` bounds it instead: every token step spends one, and an
+    /// exhausted budget answers "does not match" (see `maximumMatchSteps`).
     static func match(
         _ tokens: [EditorConfigGlobToken],
         from tokenIndex: Int,
         _ characters: [Character],
-        from characterIndex: Int
+        from characterIndex: Int,
+        budget: inout Int
     ) -> Bool {
         var tokenIndex = tokenIndex
         var characterIndex = characterIndex
         while tokenIndex < tokens.count {
+            guard budget > 0 else { return false }
+            budget -= 1
             switch tokens[tokenIndex] {
             case .literal(let expected):
                 guard characterIndex < characters.count, characters[characterIndex] == expected else { return false }
@@ -161,16 +184,33 @@ public struct EditorConfigGlob: Equatable {
                       characterClass.contains(characters[characterIndex]) else { return false }
             case .star, .doubleStar:
                 let crossesSeparators = tokens[tokenIndex] == .doubleStar
+                // `/**/` may stand for *zero* directories, which the reference
+                // core spells by translating that whole sequence to `(\/|\/.*\/)`.
+                // The wildcard below always consumes the trailing `/`, so without
+                // this the two commonest section names in the wild — `[**/*.md]`
+                // and `[src/**/*.ts]` — would silently refuse `README.md` and
+                // `src/index.ts`. Skipping both the `**` and the `/` after it is
+                // exactly the "zero directories" branch; it applies only where the
+                // pattern really spells `/**/` (or opens with `**/`, where the
+                // directory holding the `.editorconfig` plays the leading `/`).
+                if crossesSeparators,
+                   tokenIndex + 1 < tokens.count, tokens[tokenIndex + 1] == .literal("/"),
+                   tokenIndex == 0 || tokens[tokenIndex - 1] == .literal("/"),
+                   match(tokens, from: tokenIndex + 2, characters, from: characterIndex, budget: &budget) {
+                    return true
+                }
                 return matchWildcard(
                     tokens, after: tokenIndex, characters, from: characterIndex,
-                    crossesSeparators: crossesSeparators
+                    crossesSeparators: crossesSeparators, budget: &budget
                 )
             case .alternation(let branches):
-                return matchAlternation(branches, tokens, after: tokenIndex, characters, from: characterIndex)
+                return matchAlternation(
+                    branches, tokens, after: tokenIndex, characters, from: characterIndex, budget: &budget
+                )
             case .numericRange(let lower, let upper):
                 return matchNumericRange(
                     lower: lower, upper: upper,
-                    tokens, after: tokenIndex, characters, from: characterIndex
+                    tokens, after: tokenIndex, characters, from: characterIndex, budget: &budget
                 )
             }
             tokenIndex += 1
@@ -186,12 +226,13 @@ public struct EditorConfigGlob: Equatable {
         after tokenIndex: Int,
         _ characters: [Character],
         from characterIndex: Int,
-        crossesSeparators: Bool
+        crossesSeparators: Bool,
+        budget: inout Int
     ) -> Bool {
         var end = characterIndex
         while true {
-            if match(tokens, from: tokenIndex + 1, characters, from: end) { return true }
-            guard end < characters.count else { return false }
+            if match(tokens, from: tokenIndex + 1, characters, from: end, budget: &budget) { return true }
+            guard end < characters.count, budget > 0 else { return false }
             if !crossesSeparators, characters[end] == "/" { return false }
             end += 1
         }
@@ -205,10 +246,15 @@ public struct EditorConfigGlob: Equatable {
         _ tokens: [EditorConfigGlobToken],
         after tokenIndex: Int,
         _ characters: [Character],
-        from characterIndex: Int
+        from characterIndex: Int,
+        budget: inout Int
     ) -> Bool {
         let rest = Array(tokens[(tokenIndex + 1)...])
-        return branches.contains { match($0 + rest, from: 0, characters, from: characterIndex) }
+        for branch in branches {
+            if match(branch + rest, from: 0, characters, from: characterIndex, budget: &budget) { return true }
+            guard budget > 0 else { return false }
+        }
+        return false
     }
 
     /// `{num1..num2}`: an optional `-` and a run of digits whose value falls
@@ -220,7 +266,8 @@ public struct EditorConfigGlob: Equatable {
         _ tokens: [EditorConfigGlobToken],
         after tokenIndex: Int,
         _ characters: [Character],
-        from characterIndex: Int
+        from characterIndex: Int,
+        budget: inout Int
     ) -> Bool {
         var digitsStart = characterIndex
         if digitsStart < characters.count, characters[digitsStart] == "-" { digitsStart += 1 }
@@ -231,9 +278,10 @@ public struct EditorConfigGlob: Equatable {
         while length > digitsStart {
             if let value = Int(String(characters[characterIndex..<length])),
                value >= lower, value <= upper,
-               match(tokens, from: tokenIndex + 1, characters, from: length) {
+               match(tokens, from: tokenIndex + 1, characters, from: length, budget: &budget) {
                 return true
             }
+            guard budget > 0 else { return false }
             length -= 1
         }
         return false

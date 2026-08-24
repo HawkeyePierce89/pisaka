@@ -62,7 +62,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `indent_style = space` outright. On that answer the handler returns
     **`false`**, so AppKit's own `insertTab` runs and the key behaves
     byte-for-byte as it did before the config layer existed — every insertion
-    point, stock undo grouping, stock field-editor semantics. On the spaces
+    point, stock undo grouping, stock field-editor semantics. The completion popup
+    wins ahead of all of this: `keyDown` routes Tab through `onCompletionKey` and
+    returns *before* `super.keyDown`, so with the popup open Tab commits the
+    selected row and never reaches `doCommandBy` at all. The stricter question —
+    `indentStyle == .space` — is also asked **before the buffer is touched**:
+    `textView.string` bridges a mutable `NSTextStorage` and so copies the whole
+    buffer, and `IndentEngine.inferIndentUnit` then walks every line of that copy,
+    which is the same per-keystroke main-thread cost `textDidChange` reads the
+    buffer once to avoid — and in the no-configuration case the stricter rule
+    throws the result away. On the spaces
     answer it fans out: *all* of `textView.selectedRanges` (not just
     `selectedRange()` — the middle-drag column selection makes several
     zero-width carets a first-class state, and replacing only one would silently
@@ -72,7 +81,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `shouldChangeText(inRanges:replacementStrings:)` /
     `textStorage.beginEditing()` … `endEditing()` / `didChangeText()` bracket
     (one undoable step, one change notification), followed by `setSelectedRanges`
-    with the plan's carets. The existing `isApplyingProgrammaticEdit` guard wraps
+    with the plan's carets. A `shouldChangeText` **refusal** returns `false`, not
+    `true` — a refused edit is not a handled key, and eating it would leave Tab
+    doing nothing at all — and the spaces are written as an `NSAttributedString`
+    carrying `textView.typingAttributes`, since the raw storage path this fan-out
+    needs would otherwise inherit the adjacent text's attributes (and, with no
+    adjacent text, no font at all) where every other programmatic edit here gets
+    them for free from `insertText(_:replacementRange:)`.
+    The existing `isApplyingProgrammaticEdit` guard wraps
     the *whole* bracket rather than just the storage mutation, because the
     single-range case reaches the single-range delegate callback where the
     auto-pair interceptor acts on one-character insertions. `insertBacktab` is

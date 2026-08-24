@@ -99,6 +99,20 @@ final class IndentUnitRuleTests: XCTestCase {
         }
     }
 
+    func testAnAbsurdWidthIsClampedRatherThanAllocated() {
+        // `indent_size` is any positive integer to the parser, and the unit is
+        // built as a string on the main thread for every Enter and every Tab. An
+        // untrusted config asking for two billion columns must not allocate two
+        // gigabytes per keystroke; a merely-large width still behaves large.
+        let huge = IndentUnitRule.unit(config: config(["indent_style": "space", "indent_size": "2000000000"]),
+                                       inferred: "  ")
+        XCTAssertEqual(huge.count, IndentUnitRule.maximumSpaceWidth)
+        XCTAssertEqual(
+            IndentUnitRule.unit(config: config(["indent_style": "space", "indent_size": "8"]), inferred: "  "),
+            String(repeating: " ", count: 8)
+        )
+    }
+
     // MARK: - The unit: nothing applicable
 
     func testEmptyPropertiesReturnTheInferenceUnchanged() {
@@ -311,6 +325,24 @@ final class IndentUnitRuleTests: XCTestCase {
         XCTAssertEqual(apply(plan, to: "abcd"), "--cd")
     }
 
+    func testACaretAtTheStartOfASelectionIsTheSameInsertionPoint() {
+        // The mirror of the case above, and the one shape the union rule used to
+        // miss: a zero-length range's `NSMaxRange` *is* its location, so a strict
+        // `<` reads a caret at a selection's start as disjoint from it. Emitting
+        // both would insert twice at the same offset and break the plan's own
+        // "replacements never overlap" contract, which is what lets the view
+        // apply them back-to-front.
+        let plan = IndentUnitRule.tabInsertionPlan(
+            ranges: [NSRange(location: 0, length: 0), NSRange(location: 0, length: 5)],
+            insertion: "  "
+        )
+
+        XCTAssertEqual(plan.replacements.count, 1)
+        XCTAssertEqual(plan.replacements[0].range, NSRange(location: 0, length: 5))
+        XCTAssertEqual(plan.carets, [NSRange(location: 2, length: 0)])
+        XCTAssertEqual(apply(plan, to: "abcdefg"), "  fg")
+    }
+
     // MARK: - The touch editor's single range
 
     // The `UITextView` editor has exactly one insertion point, so its handler
@@ -357,5 +389,28 @@ final class IndentUnitRuleTests: XCTestCase {
                 "\t"
             )
         }
+    }
+
+    // MARK: - Composed with the engine that consumes the unit
+
+    func testTheConfiguredUnitIsWhatEnterAppendsAndExistingIndentationIsKept() {
+        // The two halves the feature is actually made of: `IndentUnitRule.unit`
+        // decides the unit and `IndentEngine.newlineIndentation` appends it. The
+        // composed answer is worth pinning because it is not what a reader would
+        // guess — the engine copies the current line's leading whitespace
+        // *verbatim*, so a space configuration on a tab-indented file produces
+        // `"\t" + "  "` rather than reformatting the line. That is the stated
+        // "nothing already in the file is ever reformatted" rule, not a bug.
+        let text = "\tif (x) {" as NSString
+        let unit = IndentUnitRule.unit(config: config(["indent_style": "space", "indent_size": "2"]),
+                                       inferred: "\t")
+        let edit = IndentEngine.newlineIndentation(text: text, location: text.length, unit: unit)
+        XCTAssertEqual(edit.text, "\n\t  ")
+
+        // And with no configuration at all, byte-for-byte what the inference
+        // alone produced before this layer existed.
+        let plainUnit = IndentUnitRule.unit(config: config([:]), inferred: "\t")
+        let plain = IndentEngine.newlineIndentation(text: text, location: text.length, unit: plainUnit)
+        XCTAssertEqual(plain.text, "\n\t\t")
     }
 }

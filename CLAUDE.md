@@ -422,7 +422,7 @@ ci.yml's `lint` job, and the version-bump procedure.
 - **Indentation is EditorConfig-first, inference-second.** The unit Enter
   appends comes from `IndentUnitRule`, never from `IndentEngine
   .inferIndentUnit(text:)` alone: `indent_style` decides tabs vs. spaces,
-  `indent_size`/`tab_width` the width, and each half no applicable
+  `indent_size`/`tab_width` the width, and each half that no applicable
   `.editorconfig` states falls back to the inference — so a project without one
   behaves byte-for-byte as before. **Tab is stricter**: it inserts spaces only
   when a config says `indent_style = space` outright, so the inference alone can

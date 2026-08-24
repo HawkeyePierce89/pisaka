@@ -687,9 +687,16 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// arithmetic that decides what replaces the selection and where the caret
     /// lands is asked once, in Core, rather than restated here.
     private func insertConfiguredTab(in textView: UITextView, range: NSRange) -> Bool {
+        // The cheap question first, exactly as the macOS coordinator asks it: the
+        // rule answers a literal tab unless `indent_style = space` is stated
+        // outright, and only that case needs the inference — so a project without
+        // an applicable configuration never pays for a whole-buffer copy plus a
+        // full-file scan on a keystroke.
+        let config = editorConfigProperties()
+        guard config.indentStyle == .space else { return false }
         let nsText = textView.text as NSString
         let insertion = IndentUnitRule.tabInsertion(
-            config: editorConfigProperties(),
+            config: config,
             inferred: IndentEngine.inferIndentUnit(text: nsText)
         )
         guard insertion != "\t" else { return false }

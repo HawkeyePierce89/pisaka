@@ -164,7 +164,9 @@ user sees it.
   width, or both. Two things change: the unit Enter's auto-indent appends, and
   what the Tab key inserts. **Tab is deliberately stricter** — it inserts spaces
   only when a config says `indent_style = space` outright, so with no
-  `.editorconfig` the key keeps inserting a literal tab exactly as before.
+  `.editorconfig` the key keeps inserting a literal tab exactly as before (and
+  with the completion popup open, Tab still commits the selected row — it reaches
+  the indentation handler only when no popup is showing).
   The usual rules apply: files closer to the edited file win, later sections win
   inside one file, `root = true` stops the search, and `unset` clears an
   inherited property. Section globs are the full EditorConfig dialect (`*`,
@@ -176,7 +178,9 @@ user sees it.
   stops at the folder you opened, so a `.editorconfig` in a parent directory
   above it is not read (the same on both platforms, because iOS can only read
   inside the folder you granted); nothing already in the file is ever
-  reformatted — only newly typed indentation is affected; and on macOS an edit to
+  reformatted — only newly typed indentation is affected (so pressing Enter on a
+  tab-indented line under `indent_style = space` keeps that line's own tabs and
+  appends the configured spaces); and on macOS an edit to
   a `.editorconfig` takes effect on the next keystroke, while on iOS (which has
   no file-system watcher) it is picked up on a folder switch or after the app's
   own working-tree rewrites, not on an out-of-band edit.

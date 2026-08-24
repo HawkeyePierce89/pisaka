@@ -388,7 +388,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     existing `applyEdit` and the default is suppressed, and when it answers a tab
     (every case but an explicit `indent_style = space`) the replacement is let
     through untouched, so a project with no `.editorconfig` inserts exactly the tab
-    it does today. `UITextView` has a single `selectedRange`, so there is no
+    it does today — a decision taken from the configuration alone, *before* the
+    buffer is read, so that common case never pays for a whole-buffer copy plus a
+    full-file inference scan on a keystroke (the macOS coordinator asks in the same
+    order). `UITextView` has a single `selectedRange`, so there is no
     multi-caret fan-out to do — but the one range still goes through
     `IndentUnitRule.tabInsertionPlan`, so the arithmetic deciding what replaces the
     selection and where the caret lands is asked once, in Core, rather than restated

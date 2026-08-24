@@ -55,8 +55,9 @@ newly typed text is affected.
 - **The spec's required acceptance floors are taken as the cap**: a section name
   longer than 1024 characters, a key longer than 1024, or a value longer than
   4096 is ignored rather than truncated. A core must *accept* up to those
-  lengths; refusing beyond them is conforming, and bounding the matcher's input
-  is what keeps the backtracking match's worst case bounded with it.
+  lengths; refusing beyond them is conforming. It does **not** bound the
+  matcher — that is `EditorConfigGlob.maximumMatchSteps`' job, for the reason
+  recorded on it.
 - **The unit rule is hybrid, and the Tab rule is stricter.** Two questions with
   deliberately different answers, because they carry different risks — see
   `IndentUnitRule` below.
@@ -105,12 +106,24 @@ newly typed text is affected.
     anchored to that directory and a leading `/` is dropped before compiling.
     "Any depth" is a flag rather than an injected `**/` token because the `**/`
     may stand for zero directories; `matches` tries the whole path first and then
-    each component start. Equality is by `pattern` alone, since the tokens are
-    derived from it. **Matching** is recursive backtracking rather than the
-    gitignore matcher's dynamic-programming walk: nested alternation and integer
-    ranges make the state space a tree rather than a grid, and the 1024-character
-    cap bounds the worst case. `*`/`**` try every run length from the shortest
-    up, stopping at a `/` unless allowed to cross one; an alternation splices
+    each component start. A `**/` the pattern actually *spells* stands for zero
+    directories too — the reference core translates the whole `/**/` sequence to
+    `(\/|\/.*\/)`, so `[src/**/*.ts]` governs `src/index.ts` and `[**/*.md]`
+    governs a top-level `README.md`; matching skips the `**` and the `/` after it
+    as one alternative, and only where the pattern really spells `/**/` (or opens
+    with `**/`, where the config's own directory plays the leading `/`), so
+    `a**/z.c` still needs its separator. Equality is by `pattern` alone, since the
+    tokens are derived from it. **Matching** is recursive backtracking rather than
+    the gitignore matcher's dynamic-programming walk: nested alternation and
+    integer ranges make the state space a tree rather than a grid. That tree is
+    **not** bounded by the 1024-character cap — the cost is exponential in the
+    *number of wildcards*, and a 24-character section name against a 42-character
+    path measured ~34 s on the main thread — so `maximumMatchSteps` (200 000)
+    bounds it instead: every token step spends one, and an exhausted budget
+    answers "does not match", the same degradation an over-long section name
+    already gets. Realistic patterns cost microseconds and are nowhere near it,
+    which `EditorConfigGlobTests` asserts from both sides. `*`/`**` try every run
+    length from the shortest up, stopping at a `/` unless allowed to cross one; an alternation splices
     each branch in front of what follows the group, so a branch that matches but
     leaves the rest unmatchable falls through to the next; a numeric range tries
     the longest digit run first and then shorter ones, so `{1..2}0` matches `10`
@@ -227,7 +240,10 @@ newly typed text is affected.
     back to the inferred unit's width when *that* is spaces and to
     `defaultSpaceWidth` (4, matching `IndentEngine.inferIndentUnit`'s own
     fallback) when the inference says tab, since there is no width to carry over
-    from a tab; **no `indent_style`** → the inference decides tabs vs. spaces and
+    from a tab, and clamped at `maximumSpaceWidth` (64) because the unit is built
+    as a *string on the main thread* for every Enter and every Tab — an untrusted
+    `indent_size = 2000000000` would otherwise allocate two gigabytes per
+    keystroke; **no `indent_style`** → the inference decides tabs vs. spaces and
     a configured width re-widens a space inference, while a tab inference stays a
     tab (a width alone never converts a file); nothing applicable → `inferred`,
     returned unchanged. `tabInsertion(config:inferred:)` is **stricter on
@@ -245,7 +261,10 @@ newly typed text is affected.
     ranges are sorted and overlapping ones unioned, so the replacements can be
     applied back-to-front without one edit invalidating the next; touching-but-
     not-overlapping ranges stay separate (a caret at the end of a selection is a
-    second insertion point), two carets at the *same* location are one, and an
+    second insertion point), while anything *starting* where the previous range
+    starts is the same insertion point — two identical carets, and equally a
+    caret at a selection's start, whose `NSMaxRange` is its own location and so
+    would slip a strict `<` overlap test — and an
     empty list answers `.empty`, which the view treats as "let the responder
     chain have the key". `IndentEngine` is **untouched** by all of this: it keeps
     taking `unit` as a parameter and its existing tests pass unmodified.
@@ -268,12 +287,26 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     second live disk reader built for a view nobody constructs), and the
     coordinator holds it **weakly**, like `symbolIndex` — a deallocated one means
     empty properties, which is exactly the "no configuration applies" answer.
-    Invalidation happens in the two places that already exist:
-    `noteProjectRoot(_:)` in `openFolder(url:)`, synchronously, before anything
-    can ask a question; and `noteProjectFilesChanged()` inside the
-    `projectWatcher.start(root:onChange:)` callback beside the tree bump and the
-    index refresh — which is what makes a live `.editorconfig` edit take effect
-    without reopening the project.
+    Invalidation hangs off `noteProjectRoot(_:)` in `openFolder(url:)`,
+    synchronously, before anything can ask a question — plus **three**
+    `noteProjectFilesChanged()` sites, which together are what makes a live
+    `.editorconfig` edit take effect without reopening the project. The watcher
+    callback (`projectWatcher.start(root:onChange:)`, beside the tree bump and
+    the index refresh) covers only *other* processes' writes:
+    `kFSEventStreamCreateFlagIgnoreSelf` drops every event this app causes, so on
+    its own it would miss both of the paths that matter most. So
+    `notifyIndexOfProjectFileChanges()` invalidates too — ahead of its root guard,
+    since unlike the index this cache needs no root to be told anything — covering
+    the app's own worktree rewrites (branch switch, revert, merge apply,
+    project-wide Replace All, a tree rename or delete), exactly as the iOS peer in
+    `RootView_iOS` does; and `noteEditorConfigWrites(_:)` covers the *save* paths
+    that funnel deliberately does not (`save(id:)` and the autosave's `onSaved`,
+    which was widened to report the urls it wrote), because editing a
+    `.editorconfig` in Pisaka itself is the likeliest way anyone changes one and is
+    a self-write the watcher never sees. That last one is narrow on purpose — it
+    fires only when a written url *is* a `.editorconfig` — since an ordinary save
+    is the app's most frequent write and clearing on each would put a resolution
+    walk on the next keystroke after every autosave burst.
   - **The macOS Tab handler.** `doCommandBy` intercepts
     `#selector(NSResponder.insertTab(_:))` and returns **`false` whenever the
     rule answers a tab**, so AppKit's own `insertTab` runs and the key behaves
@@ -284,7 +317,20 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     inside one `shouldChangeText(inRanges:replacementStrings:)` /
     `textStorage.beginEditing()` … `endEditing()` / `didChangeText()` bracket
     (one undoable step, one change notification), followed by
-    `setSelectedRanges` with the plan's carets. The existing
+    `setSelectedRanges` with the plan's carets. A `shouldChangeText` *refusal*
+    returns `false`, not `true`: a refused edit is not a handled key, and eating
+    it would leave Tab doing nothing at all. The spaces are written as an
+    `NSAttributedString` carrying `textView.typingAttributes`, because the raw
+    storage path (which the multi-range fan-out needs) would otherwise inherit
+    whatever the adjacent text has — and in a buffer with no adjacent text, no
+    font at all; every *other* programmatic edit here goes through
+    `insertText(_:replacementRange:)`, which applies them for free. The handler
+    also asks the **cheap question first** — `indentStyle == .space`, before
+    touching the buffer — because `textView.string` bridges a mutable
+    `NSTextStorage` and copies the whole buffer, and `inferIndentUnit` then walks
+    every line of that copy: paying both on every Tab press to compute a value the
+    stricter rule discards is precisely the main-thread cost `textDidChange` is
+    careful to avoid. The iOS coordinator asks it in the same order. The existing
     `isApplyingProgrammaticEdit` guard covers the *whole* bracket, not just the
     storage mutation, because the single-range case reaches the single-range
     delegate callback where the auto-pair interceptor lives. `insertBacktab` is
