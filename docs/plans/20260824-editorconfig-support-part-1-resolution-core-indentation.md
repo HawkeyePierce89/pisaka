@@ -324,15 +324,15 @@ is a compiled-token matcher like `GitignoreMatcher`.
 
 ### Task 8: Verify acceptance criteria
 
-  - [ ] `swift test` — the whole suite green, with the pre-existing
+  - [x] `swift test` — the whole suite green, with the pre-existing
         `IndentEngineTests` unmodified.
-  - [ ] `swiftlint --strict` from the repository root — clean, with
+  - [x] `swiftlint --strict` from the repository root — clean, with
         `.swiftlint.yml` unchanged.
-  - [ ] `xcodegen generate` then `xcodebuild -project Pisaka.xcodeproj -scheme
+  - [x] `xcodegen generate` then `xcodebuild -project Pisaka.xcodeproj -scheme
         Pisaka -destination 'platform=macOS' build`.
-  - [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+  - [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
         'platform=iOS Simulator,name=iPhone 17 Pro' build`.
-  - [ ] Confirm by test inventory that each acceptance case has a named test:
+  - [x] Confirm by test inventory that each acceptance case has a named test:
         the glob dialect construct by construct, hierarchy precedence with
         `root` and `unset`, parser edge cases (comments line-only, the size
         floors), a `indent_style = space` / `indent_size = 2` config beating a
