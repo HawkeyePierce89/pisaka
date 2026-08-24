@@ -1,0 +1,12 @@
+ CLAUDE.md                                          |   2 +
+ README.md                                          |   3 +-
+ Sources/Pisaka/CodeEditorView.swift                |  32 ++
+ Sources/Pisaka/PisakaApp.swift                     |  21 +
+ Sources/PisakaCore/CommentStyle.swift              |  49 +++
+ Sources/PisakaCore/ToggleCommentEngine.swift       | 435 +++++++++++++++++++++
+ Tests/PisakaCoreTests/CommentStyleTests.swift      |  40 ++
+ .../PisakaCoreTests/ToggleCommentEngineTests.swift | 401 +++++++++++++++++++
+ docs/FEATURES.md                                   |  11 +
+ docs/architecture/core-editor.md                   |  42 ++
+ docs/plans/20260824-toggle-comment-cmd-slash.md    | 281 +++++++++++++
+ 11 files changed, 1316 insertions(+), 1 deletion(-)

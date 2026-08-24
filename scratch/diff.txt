@@ -1,0 +1,1448 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 5c0207f..4b1b93e 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -80,6 +80,8 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
+ 
+ `docs/architecture/core-editor.md` — editor engines (pure, `NSString` + UTF-16 offsets):
+ - `DuplicateEngine.swift` — ⌘D duplicate (JetBrains semantics).
++- `CommentStyle.swift` — language-to-comment-syntax mapping.
++- `ToggleCommentEngine.swift` — ⌘/ toggle comment computation.
+ - `TreeRefreshFilter.swift` — FSEvents batch filter; root must arrive canonical.
+ - `FileIcon.swift` — entry → icon symbol + color.
+ - `SyntaxLanguage.swift` — file name → language.
+diff --git a/README.md b/README.md
+index 7f160c1..787e050 100644
+--- a/README.md
++++ b/README.md
+@@ -21,7 +21,7 @@ description of each — and of what it deliberately does *not* do — is in
+   their own via FSEvents.
+ - **Editor** — NSTextView-based, monospaced, with a line-number gutter,
+   auto-indent, auto-closing brackets/quotes, matched-pair and rainbow bracket
+-  highlighting, Cmd+D duplicate line/selection, a minimap, and per-tab position
++  highlighting, Cmd+D duplicate line/selection, Cmd+/ toggle comment, a minimap, and per-tab position
+   memory: switch away and back and the tab returns to the caret and scroll
+   position you left it at (for the app run; not persisted across launches).
+ - **Syntax highlighting** (tree-sitter via Neon) for Swift, JavaScript,
+@@ -228,6 +228,7 @@ never on a pull request.
+ | Cmd+S       | Save (prompts with Save As for "Untitled") |
+ | Cmd+W       | Close the active tab (confirms if unsaved) |
+ | Cmd+D       | Duplicate the current line (or the selection), with the editor focused |
++| Cmd+/       | Toggle comment on the current line or selection, with the editor focused |
+ | Cmd+F       | Find in the current file (opens the search bar; a repeat press re-focuses it) |
+ | Cmd+G       | Find Next (while the search bar is open)   |
+ | Cmd+Shift+G | Find Previous (while the search bar is open) |
+diff --git a/Sources/Pisaka/CodeEditorView.swift b/Sources/Pisaka/CodeEditorView.swift
+index 7b54b6d..f4b5863 100644
+--- a/Sources/Pisaka/CodeEditorView.swift
++++ b/Sources/Pisaka/CodeEditorView.swift
+@@ -207,6 +207,11 @@ struct CodeEditorView: NSViewRepresentable {
+         textView.onDuplicate = { [weak coordinator = context.coordinator] tv in
+             coordinator?.duplicateSelection(in: tv) ?? false
+         }
++        // Cmd+/ → the coordinator's toggle-comment handler. Weakly captured for
++        // the same retain-cycle reason as the closures above.
++        textView.onToggleComment = { [weak coordinator = context.coordinator] tv in
++            coordinator?.toggleComment(in: tv)
++        }
+         // Esc → close an open search bar. Captured weakly for the same
+         // retain-cycle reason as `onDuplicate` above; a deallocated coordinator
+         // (or a bar that isn't open) yields `false`, which `cancelOperation`
+@@ -1807,6 +1812,21 @@ struct CodeEditorView: NSViewRepresentable {
+             return true
+         }
+ 
++        func toggleComment(in textView: NSTextView) {
++            guard let edit = ToggleCommentEngine.toggle(
++                text: textView.string as NSString,
++                selectedRange: textView.selectedRange(),
++                language: language
++            ) else { return }
++            isApplyingProgrammaticEdit = true
++            textView.insertText(
++                edit.text,
++                replacementRange: edit.replacementRange
++            )
++            isApplyingProgrammaticEdit = false
++            textView.setSelectedRange(edit.selectedRange)
++        }
++
+         /// Intercept single-character input for auto-close brackets/quotes and,
+         /// for a closing bracket that doesn't auto-pair, the dedent-on-closing
+         /// rewrite.
+@@ -2472,6 +2492,11 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
+     /// `goToDefinition(in:at:)`; `nil` until then.
+     var onGoToDefinition: ((NSTextView, Int) -> Void)?
+ 
++    /// Toggles the comment state of the selected lines on Cmd+/. Set by
++    /// `CodeEditorView.makeNSView` to the coordinator's
++    /// `toggleComment(in:)`; `nil` until then.
++    var onToggleComment: ((NSTextView) -> Void)?
++
+     /// Recomputes the completion candidates immediately and opens the popup over
+     /// them. Set by `CodeEditorView.makeNSView` to the coordinator's
+     /// `requestCompletions()`; `nil` until then.
+@@ -2563,6 +2588,13 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
+         onGoToDefinition?(self, selectedRange().location)
+     }
+ 
++    /// Toggles comments for the current selection or line — the Edit menu's
++    /// "Toggle Comment" entry point, which reaches this view as the key window's
++    /// first responder.
++    func toggleCommentAtSelection() {
++        onToggleComment?(self)
++    }
++
+     /// A Command-held click navigates to the clicked identifier's declaration;
+     /// every other click keeps the stock behavior.
+     ///
+diff --git a/Sources/Pisaka/PisakaApp.swift b/Sources/Pisaka/PisakaApp.swift
+index e55273f..539c973 100644
+--- a/Sources/Pisaka/PisakaApp.swift
++++ b/Sources/Pisaka/PisakaApp.swift
+@@ -1014,6 +1014,12 @@ struct PisakaApp: App {
+                     .disabled(model.selectedID == nil)
+             }
+ 
++            CommandGroup(after: .pasteboard) {
++                Button("Toggle Comment") { toggleCommentAtCaret() }
++                    .keyboardShortcut("/", modifiers: .command)
++                    .disabled(model.selectedID == nil)
++            }
++
+             CommandMenu("View") {
+                 // The three zoom items. Each resolves the zone from the pointer
+                 // **at invocation time**, exactly as a scroll or a pinch does — a
+@@ -2278,6 +2284,21 @@ struct PisakaApp: App {
+         editor.goToDefinitionAtCaret()
+     }
+ 
++    /// The Edit menu's "Toggle Comment": ask the focused editor to toggle comments
++    /// for its selection or line.
++    ///
++    /// Routed through the first responder for the same reason as
++    /// `goToDefinitionAtCaret()` — the command carries no state. This app-wide
++    /// key equivalent (Cmd+/) takes the shortcut from the terminal and the project
++    /// tree, so with either focused it beeps rather than editing.
++    private func toggleCommentAtCaret() {
++        guard let editor = NSApp.keyWindow?.firstResponder as? EditorTextView else {
++            PlatformFeedback.warning()
++            return
++        }
++        editor.toggleCommentAtSelection()
++    }
++
+     // MARK: - Completion
+ 
+     /// The Find menu's "Complete": ask the focused editor to offer completions for
+diff --git a/Sources/PisakaCore/CommentStyle.swift b/Sources/PisakaCore/CommentStyle.swift
+new file mode 100644
+index 0000000..5532c79
+--- /dev/null
++++ b/Sources/PisakaCore/CommentStyle.swift
+@@ -0,0 +1,49 @@
++import Foundation
++
++/// The syntactic shape of a comment in a programming language.
++///
++/// One style is assigned per language. The set of languages is closed, and
++/// every language must either explicitly carry a style or explicitly declare
++/// it has none (via `languagesWithoutComments`), so a new language added to
++/// `SyntaxLanguage` forces a deliberate decision.
++public enum CommentStyle: Equatable {
++    /// A comment that runs from the token to the end of the line.
++    case line(String)
++
++    /// A comment that wraps a span of text in opening and closing delimiters.
++    case block(open: String, close: String)
++
++    /// Returns the comment style for the given language, or `nil` if the
++    /// language has no comment syntax.
++    public static func style(for language: SyntaxLanguage) -> CommentStyle? {
++        if languagesWithoutComments.contains(language) {
++            return nil
++        }
++
++        switch language {
++        case .swift, .javascript, .typescript, .go, .rust:
++            return .line("//")
++        case .python, .yaml, .dockerfile, .dotenv, .gitignore:
++            return .line("#")
++        case .sql:
++            return .line("--")
++        case .css:
++            return .block(open: "/*", close: "*/")
++        case .html:
++            return .block(open: "<!--", close: "-->")
++        case .json, .markdown:
++            // Handled by languagesWithoutComments above, but the compiler
++            // requires the switch to be exhaustive.
++            return nil
++        }
++    }
++
++    /// The languages that have no comment syntax to toggle.
++    ///
++    /// Toggling a comment in these languages is a silent no-op. The absence
++    /// is recorded explicitly so the union of this set and the styled languages
++    /// exactly covers `SyntaxLanguage.allCases`.
++    public static let languagesWithoutComments: Set<SyntaxLanguage> = [
++        .json, .markdown
++    ]
++}
+diff --git a/Sources/PisakaCore/ToggleCommentEngine.swift b/Sources/PisakaCore/ToggleCommentEngine.swift
+new file mode 100644
+index 0000000..bc6297d
+--- /dev/null
++++ b/Sources/PisakaCore/ToggleCommentEngine.swift
+@@ -0,0 +1,435 @@
++import Foundation
++
++/// The text to splice in for one toggle comment edit plus where the selection should
++/// land afterward.
++public struct CommentToggleEdit: Equatable {
++    public let replacementRange: NSRange
++    public let text: String
++    public let selectedRange: NSRange
++
++    public init(replacementRange: NSRange, text: String, selectedRange: NSRange) {
++        self.replacementRange = replacementRange
++        self.text = text
++        self.selectedRange = selectedRange
++    }
++}
++
++public enum ToggleCommentEngine {
++    /// Compute the comment toggle for `selectedRange` in `text` under `language`.
++    ///
++    /// Returns `nil` if `language` is `nil`, the language has no comment syntax,
++    /// or the target contains no non-blank lines. A `nil` return is a silent no-op
++    /// and means no edit *and* no caret move.
++    public static func toggle(text: NSString, selectedRange: NSRange, language: SyntaxLanguage?) -> CommentToggleEdit? {
++        guard let language = language, let style = CommentStyle.style(for: language) else {
++            return nil
++        }
++
++        let range = clamped(selectedRange, length: text.length)
++        let touchedSpan = computeTouchedSpan(text: text, range: range)
++
++        // Split the span into lines
++        var lines: [LineInfo] = []
++        var currentIndex = touchedSpan.location
++        while currentIndex < NSMaxRange(touchedSpan) {
++            var lineStart = 0
++            var lineEnd = 0
++            var contentsEnd = 0
++            text.getLineStart(&lineStart, end: &lineEnd, contentsEnd: &contentsEnd, for: NSRange(location: currentIndex, length: 0))
++
++            let lineRange = NSRange(location: lineStart, length: lineEnd - lineStart)
++            lines.append(LineInfo(
++                start: lineStart,
++                end: lineEnd,
++                contentsEnd: contentsEnd,
++                content: text.substring(with: lineRange),
++                isCaretLine: range.length == 0 && range.location >= lineStart && range.location <= lineEnd
++            ))
++            currentIndex = lineEnd
++        }
++
++        switch style {
++        case .line(let token):
++            return toggleLineComment(text: text, lines: lines, token: token, range: range, touchedSpan: touchedSpan)
++        case .block(let open, let close):
++            return toggleBlockComment(text: text, lines: lines, open: open, close: close, range: range, touchedSpan: touchedSpan)
++        }
++    }
++
++    private static func toggleLineComment(
++        text: NSString,
++        lines: [LineInfo],
++        token: String,
++        range: NSRange,
++        touchedSpan: NSRange
++    ) -> CommentToggleEdit? {
++        // Skip blank lines
++        let nonBlankLines = lines.filter { !$0.isBlank }
++        if nonBlankLines.isEmpty {
++            return nil
++        }
++
++        // Check if all non-blank lines are commented
++        let allCommented = nonBlankLines.allSatisfy { $0.isCommented(token: token) }
++
++        var newText = ""
++        var caretDeltaForLastLine = 0
++
++        for line in lines {
++            if line.isBlank {
++                newText += line.content
++                continue
++            }
++            if allCommented {
++                // Uncomment
++                let uncommented = line.uncommented(token: token)
++                newText += uncommented
++                if line.isCaretLine {
++                    caretDeltaForLastLine = uncommented.utf16.count - line.content.utf16.count
++                }
++            } else {
++                // Comment
++                let commented = token + line.content
++                newText += commented
++                if line.isCaretLine {
++                    caretDeltaForLastLine = token.utf16.count
++                }
++            }
++        }
++
++        let isSelection = range.length > 0
++        let newSelectedRange: NSRange
++
++        if isSelection {
++            let newLength = newText.utf16.count
++            // selection is post-edit whole-line span (terminator excluded for end?)
++            // "selection placement, selection case — the post-edit whole-line span of
++            // the touched lines: from the first touched line's start to the last touched
++            // line's contents end (its terminator excluded)."
++
++            // Wait, we need to find the new contentsEnd of the last line.
++            // The last line's original terminator length is unchanged.
++            let lastLine = lines.last!
++            let terminatorLength = lastLine.end - lastLine.contentsEnd
++            let newSpanLength = newLength - terminatorLength
++            newSelectedRange = NSRange(location: touchedSpan.location, length: newSpanLength)
++        } else {
++            let line = lines[0]
++            let originalColumn = range.location - line.start
++            let isLastLine = line.end == text.length && line.end == line.contentsEnd
++
++            if isLastLine {
++                let delta = caretDeltaForLastLine
++                // the new content length of this line (excluding terminator which is 0 anyway)
++                // Actually newLength = newText.utf16.count
++                let newContentLength = newText.utf16.count
++                let newColumn = min(max(originalColumn + delta, 0), newContentLength)
++                newSelectedRange = NSRange(location: touchedSpan.location + newColumn, length: 0)
++            } else {
++                // Find next line's start and contents length
++                var nextLineStart = 0
++                var nextLineEnd = 0
++                var nextLineContentsEnd = 0
++                text.getLineStart(
++                    &nextLineStart,
++                    end: &nextLineEnd,
++                    contentsEnd: &nextLineContentsEnd,
++                    for: NSRange(location: line.end, length: 0)
++                )
++
++                let nextLineContentLength = nextLineContentsEnd - nextLineStart
++                let newColumn = min(originalColumn, nextLineContentLength)
++                // post-edit coordinates!
++                // touchedSpan.location + newText.length gives the exact start of the next line.
++                let nextLineNewStart = touchedSpan.location + newText.utf16.count
++                newSelectedRange = NSRange(location: nextLineNewStart + newColumn, length: 0)
++            }
++        }
++
++        return CommentToggleEdit(
++            replacementRange: touchedSpan,
++            text: newText,
++            selectedRange: newSelectedRange
++        )
++    }
++
++    private static func computeTouchedSpan(text: NSString, range: NSRange) -> NSRange {
++        var startLineStart = 0
++        text.getLineStart(&startLineStart, end: nil, contentsEnd: nil, for: NSRange(location: range.location, length: 0))
++
++        if range.length == 0 {
++            var lineEnd = 0
++            text.getLineStart(nil, end: &lineEnd, contentsEnd: nil, for: NSRange(location: range.location, length: 0))
++            return NSRange(location: startLineStart, length: lineEnd - startLineStart)
++        }
++
++        // Selection ending exactly at a line start does not touch that line (if length > 0)
++        let endLocation = NSMaxRange(range)
++        var endLineStart = 0
++        var endLineEnd = 0
++        text.getLineStart(&endLineStart, end: &endLineEnd, contentsEnd: nil, for: NSRange(location: endLocation, length: 0))
++
++        let actualEndLocation = (endLocation == endLineStart && endLocation > range.location) ? endLocation - 1 : endLocation
++        text.getLineStart(nil, end: &endLineEnd, contentsEnd: nil, for: NSRange(location: actualEndLocation, length: 0))
++
++        return NSRange(location: startLineStart, length: endLineEnd - startLineStart)
++    }
++
++    private static func clamped(_ range: NSRange, length: Int) -> NSRange {
++        let location = min(max(range.location, 0), length)
++        let maxLength = length - location
++        return NSRange(location: location, length: min(max(range.length, 0), maxLength))
++    }
++
++    private static func toggleBlockComment(
++        text: NSString,
++        lines: [LineInfo],
++        open: String,
++        close: String,
++        range: NSRange,
++        touchedSpan: NSRange
++    ) -> CommentToggleEdit? {
++        let nonBlankIndices = lines.enumerated().filter { !$0.element.isBlank }.map { $0.offset }
++        guard let firstIdx = nonBlankIndices.first, let lastIdx = nonBlankIndices.last else { return nil }
++
++        let firstLine = lines[firstIdx]
++        let lastLine = lines[lastIdx]
++
++        let firstContentStr = (firstLine.content as NSString).substring(to: firstLine.contentsEnd - firstLine.start)
++        let lastContentStr = (lastLine.content as NSString).substring(to: lastLine.contentsEnd - lastLine.start)
++
++        let firstTrimmed = firstContentStr.trimmingCharacters(in: .whitespaces)
++        let lastTrimmed = lastContentStr.trimmingCharacters(in: .whitespaces)
++
++        let shouldUnwrap: Bool
++        if firstIdx == lastIdx {
++            let hasDelims = firstTrimmed.hasPrefix(open) && lastTrimmed.hasSuffix(close)
++            shouldUnwrap = hasDelims && firstTrimmed.count >= open.count + close.count
++        } else {
++            shouldUnwrap = firstTrimmed.hasPrefix(open) && lastTrimmed.hasSuffix(close)
++        }
++
++        let (newLines, caretDelta) = shouldUnwrap
++            ? unwrapBlock(lines: lines, firstIdx: firstIdx, lastIdx: lastIdx, open: open, close: close)
++            : wrapBlock(lines: lines, firstIdx: firstIdx, lastIdx: lastIdx, open: open, close: close)
++
++        return buildBlockEdit(newLines: newLines, caretDelta: caretDelta, text: text,
++                              lines: lines, range: range, touchedSpan: touchedSpan)
++    }
++
++    private static func unwrapBlock(
++        lines: [LineInfo], firstIdx: Int, lastIdx: Int, open: String, close: String
++    ) -> ([LineInfo], Int) {
++        var newLines = lines
++        var caretDelta = 0
++        let firstLine = lines[firstIdx]
++        let firstNs = firstLine.content as NSString
++        let firstTermLength = firstLine.end - firstLine.contentsEnd
++        let firstStr = firstNs.substring(to: firstNs.length - firstTermLength)
++
++        var leadingSpacesFirst = "", contentAfterFirst = ""
++        if let rangeOfOpen = firstStr.range(of: open) {
++            let startIdx = firstStr.distance(from: firstStr.startIndex, to: rangeOfOpen.lowerBound)
++            leadingSpacesFirst = String(firstStr.prefix(startIdx))
++            var rest = String(firstStr[rangeOfOpen.upperBound...])
++            if rest.hasPrefix(" ") { rest.removeFirst() }
++            contentAfterFirst = rest
++        }
++        let newFirstContent = leadingSpacesFirst + contentAfterFirst
++
++        if firstIdx == lastIdx {
++            var trailingSpacesLast = "", contentBeforeLast = ""
++            if let rangeOfClose = contentAfterFirst.range(of: close, options: .backwards) {
++                let endIdx = contentAfterFirst.distance(
++                    from: contentAfterFirst.startIndex, to: rangeOfClose.upperBound
++                )
++                trailingSpacesLast = String(contentAfterFirst.suffix(contentAfterFirst.count - endIdx))
++                var rest = String(contentAfterFirst[..<rangeOfClose.lowerBound])
++                if rest.hasSuffix(" ") { rest.removeLast() }
++                contentBeforeLast = rest
++            }
++            let term = firstNs.substring(from: firstLine.contentsEnd - firstLine.start)
++            let newLineContent = leadingSpacesFirst + contentBeforeLast + trailingSpacesLast + term
++            newLines[firstIdx] = LineInfo(
++                start: firstLine.start, end: firstLine.end,
++                contentsEnd: firstLine.contentsEnd,
++                content: newLineContent, isCaretLine: firstLine.isCaretLine
++            )
++            if firstLine.isCaretLine {
++                caretDelta = leadingSpacesFirst.utf16.count + contentAfterFirst.utf16.count - firstStr.utf16.count
++            }
++        } else {
++            let firstTerm = firstNs.substring(from: firstLine.contentsEnd - firstLine.start)
++            newLines[firstIdx] = LineInfo(
++                start: firstLine.start, end: firstLine.end,
++                contentsEnd: firstLine.contentsEnd,
++                content: newFirstContent + firstTerm, isCaretLine: firstLine.isCaretLine
++            )
++
++            let lastLine = lines[lastIdx]
++            let lastNs = lastLine.content as NSString
++            let lastTermLength = lastLine.end - lastLine.contentsEnd
++            let lastStr = lastNs.substring(to: lastNs.length - lastTermLength)
++
++            var trailingSpacesLast = "", contentBeforeLast = ""
++            if let rangeOfClose = lastStr.range(of: close, options: .backwards) {
++                let endIdx = lastStr.distance(from: lastStr.startIndex, to: rangeOfClose.upperBound)
++                trailingSpacesLast = String(lastStr.suffix(lastStr.count - endIdx))
++                var rest = String(lastStr[..<rangeOfClose.lowerBound])
++                if rest.hasSuffix(" ") { rest.removeLast() }
++                contentBeforeLast = rest
++            }
++            let lastTerm = lastNs.substring(from: lastLine.contentsEnd - lastLine.start)
++            newLines[lastIdx] = LineInfo(
++                start: lastLine.start, end: lastLine.end,
++                contentsEnd: lastLine.contentsEnd,
++                content: contentBeforeLast + trailingSpacesLast + lastTerm, isCaretLine: lastLine.isCaretLine
++            )
++            if lastLine.isCaretLine { caretDelta = 0 }
++        }
++        return (newLines, caretDelta)
++    }
++
++    private static func wrapBlock(
++        lines: [LineInfo], firstIdx: Int, lastIdx: Int, open: String, close: String
++    ) -> ([LineInfo], Int) {
++        var newLines = lines
++        var caretDelta = 0
++        let firstLine = lines[firstIdx]
++        let firstNs = firstLine.content as NSString
++        let firstTermLength = firstLine.end - firstLine.contentsEnd
++
++        var firstNonSpaceIdx = 0
++        while firstNonSpaceIdx < firstNs.length - firstTermLength {
++            let unichar = firstNs.character(at: firstNonSpaceIdx)
++            if let scalar = Unicode.Scalar(unichar), CharacterSet.whitespaces.contains(scalar) {
++                firstNonSpaceIdx += 1
++            } else { break }
++        }
++
++        let leadingFirst = firstNs.substring(to: firstNonSpaceIdx)
++        let restLength = firstNs.length - firstTermLength - firstNonSpaceIdx
++        let restFirst = firstNs.substring(with: NSRange(location: firstNonSpaceIdx, length: restLength))
++        let newFirstContent = leadingFirst + open + restFirst
++
++        if firstIdx == lastIdx {
++            let term = firstNs.substring(from: firstLine.contentsEnd - firstLine.start)
++            newLines[firstIdx] = LineInfo(
++                start: firstLine.start, end: firstLine.end,
++                contentsEnd: firstLine.contentsEnd,
++                content: newFirstContent + close + term, isCaretLine: firstLine.isCaretLine
++            )
++            if firstLine.isCaretLine { caretDelta = open.utf16.count }
++        } else {
++            let firstTerm = firstNs.substring(from: firstLine.contentsEnd - firstLine.start)
++            newLines[firstIdx] = LineInfo(
++                start: firstLine.start, end: firstLine.end,
++                contentsEnd: firstLine.contentsEnd,
++                content: newFirstContent + firstTerm, isCaretLine: firstLine.isCaretLine
++            )
++
++            let lastLine = lines[lastIdx]
++            let lastNs = lastLine.content as NSString
++            let lastTermLength = lastLine.end - lastLine.contentsEnd
++            let lastStr = lastNs.substring(to: lastNs.length - lastTermLength)
++            let lastTerm = lastNs.substring(from: lastLine.contentsEnd - lastLine.start)
++            newLines[lastIdx] = LineInfo(
++                start: lastLine.start, end: lastLine.end,
++                contentsEnd: lastLine.contentsEnd,
++                content: lastStr + close + lastTerm, isCaretLine: lastLine.isCaretLine
++            )
++            if lastLine.isCaretLine { caretDelta = 0 }
++        }
++        return (newLines, caretDelta)
++    }
++
++    private static func buildBlockEdit(
++        newLines: [LineInfo], caretDelta: Int, text: NSString, lines: [LineInfo],
++        range: NSRange, touchedSpan: NSRange
++    ) -> CommentToggleEdit {
++        let newText = newLines.map { $0.content }.joined()
++        let isSelection = range.length > 0
++        let newSelectedRange: NSRange
++
++        if isSelection {
++            let newLength = newText.utf16.count
++            let originalLastLine = lines.last!
++            let originalTerminatorLength = originalLastLine.end - originalLastLine.contentsEnd
++            let newSpanLength = newLength - originalTerminatorLength
++            newSelectedRange = NSRange(location: touchedSpan.location, length: newSpanLength)
++        } else {
++            let line = lines[0]
++            let originalColumn = range.location - line.start
++            let isLastLine = line.end == text.length && line.end == line.contentsEnd
++
++            if isLastLine {
++                let newContentLength = newText.utf16.count
++                let newColumn = min(max(originalColumn + caretDelta, 0), newContentLength)
++                newSelectedRange = NSRange(location: touchedSpan.location + newColumn, length: 0)
++            } else {
++                var nextLineStart = 0, nextLineEnd = 0, nextLineContentsEnd = 0
++                text.getLineStart(&nextLineStart, end: &nextLineEnd, contentsEnd: &nextLineContentsEnd,
++                                  for: NSRange(location: line.end, length: 0))
++                let nextLineContentLength = nextLineContentsEnd - nextLineStart
++                let newColumn = min(originalColumn, nextLineContentLength)
++                let nextLineNewStart = touchedSpan.location + newText.utf16.count
++                newSelectedRange = NSRange(location: nextLineNewStart + newColumn, length: 0)
++            }
++        }
++
++        return CommentToggleEdit(replacementRange: touchedSpan, text: newText, selectedRange: newSelectedRange)
++    }
++
++}
++
++private struct LineInfo {
++    let start: Int
++    let end: Int
++    let contentsEnd: Int
++    let content: String
++    let isCaretLine: Bool
++
++    var isBlank: Bool {
++        let nsString = content as NSString
++        let contentsLength = contentsEnd - start
++        let stringContent = nsString.substring(to: contentsLength)
++        return stringContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
++    }
++
++    func isCommented(token: String) -> Bool {
++        let nsString = content as NSString
++        let contentsLength = contentsEnd - start
++        let stringContent = nsString.substring(to: contentsLength)
++        let trimmed = stringContent.trimmingCharacters(in: .whitespaces)
++        return trimmed.hasPrefix(token)
++    }
++
++    func uncommented(token: String) -> String {
++        let nsString = content as NSString
++        let contentsLength = contentsEnd - start
++
++        let terminator = nsString.substring(from: contentsLength)
++
++        var i = 0
++        while i < contentsLength {
++            let unichar = nsString.character(at: i)
++            if let scalar = Unicode.Scalar(unichar), CharacterSet.whitespaces.contains(scalar) {
++                i += 1
++            } else {
++                break
++            }
++        }
++
++        let leadingSpaces = nsString.substring(with: NSRange(location: 0, length: i))
++        var rest = nsString.substring(with: NSRange(location: i, length: contentsLength - i))
++
++        if rest.hasPrefix(token) {
++            rest.removeFirst(token.count)
++            if rest.hasPrefix(" ") {
++                rest.removeFirst()
++            }
++        }
++
++        return leadingSpaces + rest + terminator
++    }
++}
+diff --git a/Tests/PisakaCoreTests/CommentStyleTests.swift b/Tests/PisakaCoreTests/CommentStyleTests.swift
+new file mode 100644
+index 0000000..2120ff9
+--- /dev/null
++++ b/Tests/PisakaCoreTests/CommentStyleTests.swift
+@@ -0,0 +1,40 @@
++import XCTest
++@testable import PisakaCore
++
++final class CommentStyleTests: XCTestCase {
++
++    func testEveryLanguageEitherHasAStyleOrIsExcluded() {
++        let withStyle = Set(SyntaxLanguage.allCases.filter { CommentStyle.style(for: $0) != nil })
++        let excluded = CommentStyle.languagesWithoutComments
++
++        XCTAssertEqual(withStyle.union(excluded), Set(SyntaxLanguage.allCases))
++        XCTAssertTrue(withStyle.isDisjoint(with: excluded))
++    }
++
++    func testExcludedLanguagesReturnNil() {
++        for language in CommentStyle.languagesWithoutComments {
++            XCTAssertNil(CommentStyle.style(for: language), "\(language.rawValue)")
++        }
++    }
++
++    func testStylesAreCorrectAndNotEmpty() {
++        for language in SyntaxLanguage.allCases {
++            guard let style = CommentStyle.style(for: language) else { continue }
++
++            switch style {
++            case .line(let token):
++                XCTAssertFalse(token.isEmpty, "\(language.rawValue) line comment token should not be empty")
++            case .block(let open, let close):
++                XCTAssertFalse(open.isEmpty, "\(language.rawValue) block comment open should not be empty")
++                XCTAssertFalse(close.isEmpty, "\(language.rawValue) block comment close should not be empty")
++            }
++        }
++
++        // Exact spelling checks for the major families
++        XCTAssertEqual(CommentStyle.style(for: .swift), .line("//"))
++        XCTAssertEqual(CommentStyle.style(for: .python), .line("#"))
++        XCTAssertEqual(CommentStyle.style(for: .sql), .line("--"))
++        XCTAssertEqual(CommentStyle.style(for: .css), .block(open: "/*", close: "*/"))
++        XCTAssertEqual(CommentStyle.style(for: .html), .block(open: "<!--", close: "-->"))
++    }
++}
+diff --git a/Tests/PisakaCoreTests/ToggleCommentEngineTests.swift b/Tests/PisakaCoreTests/ToggleCommentEngineTests.swift
+new file mode 100644
+index 0000000..0783ad9
+--- /dev/null
++++ b/Tests/PisakaCoreTests/ToggleCommentEngineTests.swift
+@@ -0,0 +1,401 @@
++import XCTest
++@testable import PisakaCore
++
++final class ToggleCommentEngineTests: XCTestCase {
++
++    private func assertToggle(
++        _ text: String,
++        selectedRange: NSRange,
++        language: SyntaxLanguage? = .swift,
++        expectedEdit: CommentToggleEdit?,
++        file: StaticString = #filePath,
++        line: UInt = #line
++    ) {
++        let nsText = text as NSString
++        let edit = ToggleCommentEngine.toggle(text: nsText, selectedRange: selectedRange, language: language)
++        XCTAssertEqual(edit, expectedEdit, file: file, line: line)
++    }
++
++    func testCaretOnUncommentedLine() {
++        let text = "let x = 1\nlet y = 2"
++        assertToggle(
++            text,
++            selectedRange: NSRange(location: 4, length: 0),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 10),
++                text: "//let x = 1\n",
++                selectedRange: NSRange(location: 16, length: 0)
++            )
++        )
++    }
++
++    func testCaretOnAlreadyCommentedLine() {
++        let text = "//let x = 1\nlet y = 2"
++        assertToggle(
++            text,
++            selectedRange: NSRange(location: 6, length: 0),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 12),
++                text: "let x = 1\n",
++                selectedRange: NSRange(location: 16, length: 0) // next line begins at 10. column was 6. 10 + 6 = 16
++            )
++        )
++    }
++
++    func testCaretColumnPreservationAndLastLine() {
++        // Last line case. "abc" length 3. Caret at 2. Add "//" -> 5. Caret should be at 4.
++        let text = "abc"
++        assertToggle(
++            text,
++            selectedRange: NSRange(location: 2, length: 0),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 3),
++                text: "//abc",
++                selectedRange: NSRange(location: 4, length: 0) // 2 + 2 = 4
++            )
++        )
++
++        let textUncomment = "//abc"
++        assertToggle(
++            textUncomment,
++            selectedRange: NSRange(location: 4, length: 0),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 5),
++                text: "abc",
++                selectedRange: NSRange(location: 2, length: 0) // 4 - 2 = 2
++            )
++        )
++    }
++
++    func testSelectionOverUncommentedLines() {
++        // "a\nb\nc" length 5. select "a\nb" (range 0..3). lines a, b touched.
++        let text = "a\nb\nc"
++        assertToggle(
++            text,
++            selectedRange: NSRange(location: 0, length: 3),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 4),
++                text: "//a\n//b\n",
++                selectedRange: NSRange(location: 0, length: 7) // text: "//a\n//b\n", newLength = 8, terminator is 1, so length 7
++            )
++        )
++    }
++
++    func testSelectionOverFullyCommentedLines() {
++        let text = "//a\n//b\nc"
++        assertToggle(
++            text,
++            selectedRange: NSRange(location: 0, length: 7),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 8),
++                text: "a\nb\n",
++                selectedRange: NSRange(location: 0, length: 3) // text: "a\nb\n", newLength = 4, terminator is 1, so length 3
++            )
++        )
++    }
++
++    func testSelectionOverMixedLines() {
++        // Mixed should comment all.
++        let text = "//a\nb\nc"
++        assertToggle(
++            text,
++            selectedRange: NSRange(location: 0, length: 5),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 6),
++                text: "////a\n//b\n",
++                selectedRange: NSRange(location: 0, length: 9)
++            )
++        )
++    }
++
++    func testBlankLinesInsideSelection() {
++        let text = "a\n\nb" // length 4
++        assertToggle(
++            text,
++            selectedRange: NSRange(location: 0, length: 4),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 4),
++                text: "//a\n\n//b",
++                selectedRange: NSRange(location: 0, length: 8)
++            )
++        )
++    }
++
++    func testFirstAndLastLineOfDocument() {
++        let text = "a\nb"
++        // Caret on first line
++        assertToggle(text, selectedRange: NSRange(location: 0, length: 0),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 2),
++                text: "//a\n",
++                selectedRange: NSRange(location: 4, length: 0)
++            )
++        )
++
++        // Caret on last line
++        assertToggle(text, selectedRange: NSRange(location: 3, length: 0),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 2, length: 1),
++                text: "//b",
++                selectedRange: NSRange(location: 5, length: 0)
++            )
++        )
++    }
++
++    func testSelectionEndingExactlyAtLineStart() {
++        // "a\nb\n"
++        // selection from 0 to 2 ("a\n") ends exactly at start of "b\n". Should not touch "b\n"
++        let text = "a\nb\n"
++        assertToggle(
++            text,
++            selectedRange: NSRange(location: 0, length: 2),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 2),
++                text: "//a\n",
++                selectedRange: NSRange(location: 0, length: 3)
++            )
++        )
++    }
++
++    func testCRLFCRNELLineSeparators() {
++        let textCRLF = "a\r\nb"
++        assertToggle(
++            textCRLF,
++            selectedRange: NSRange(location: 0, length: 0),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 3),
++                text: "//a\r\n",
++                selectedRange: NSRange(location: 5, length: 0)
++            )
++        )
++
++        let textCR = "a\rb"
++        assertToggle(
++            textCR,
++            selectedRange: NSRange(location: 0, length: 0),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 2),
++                text: "//a\r",
++                selectedRange: NSRange(location: 4, length: 0)
++            )
++        )
++
++        let textNEL = "a\u{0085}b"
++        assertToggle(
++            textNEL,
++            selectedRange: NSRange(location: 0, length: 0),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 2),
++                text: "//a\u{0085}",
++                selectedRange: NSRange(location: 4, length: 0)
++            )
++        )
++    }
++
++    func testIndentedTokens() {
++        let text = "  // a"
++        assertToggle(
++            text,
++            selectedRange: NSRange(location: 0, length: 0),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 6),
++                text: "  a",
++                selectedRange: NSRange(location: 0, length: 0)
++            )
++        )
++    }
++
++    func testBothRemovalSpellings() {
++        // "//x" and "// x"
++        let text1 = "//x"
++        assertToggle(text1, selectedRange: NSRange(location: 1, length: 0),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 3),
++                text: "x",
++                selectedRange: NSRange(location: 0, length: 0)
++            )
++        ) // 1 - 2 = 0
++
++        let text2 = "// x"
++        assertToggle(text2, selectedRange: NSRange(location: 1, length: 0),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 4),
++                text: "x",
++                selectedRange: NSRange(location: 0, length: 0)
++            )
++        ) // 1 - 3 = 0
++    }
++
++    func testOtherLanguages() {
++        let text = "a"
++        assertToggle(text, selectedRange: NSRange(location: 0, length: 0), language: .python,
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 1),
++                text: "#a",
++                selectedRange: NSRange(location: 1, length: 0)
++            )
++        )
++        assertToggle(text, selectedRange: NSRange(location: 0, length: 0), language: .sql,
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 1),
++                text: "--a",
++                selectedRange: NSRange(location: 2, length: 0)
++            )
++        )
++    }
++
++    func testEmptyDocument() {
++        let text = ""
++        assertToggle(text, selectedRange: NSRange(location: 0, length: 0), expectedEdit: nil)
++    }
++
++    func testBlankCaretLine() {
++        let text = "   \n"
++        assertToggle(text, selectedRange: NSRange(location: 0, length: 0), expectedEdit: nil)
++    }
++
++    func testJsonMarkdownNilLanguage() {
++        let text = "a"
++        assertToggle(text, selectedRange: NSRange(location: 0, length: 0), language: .json, expectedEdit: nil)
++        assertToggle(text, selectedRange: NSRange(location: 0, length: 0), language: .markdown, expectedEdit: nil)
++        assertToggle(text, selectedRange: NSRange(location: 0, length: 0), language: nil, expectedEdit: nil)
++    }
++
++    func testOutOfRangeSelection() {
++        let text = "a"
++        assertToggle(text, selectedRange: NSRange(location: 10, length: 10),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 1),
++                text: "//a",
++                selectedRange: NSRange(location: 3, length: 0)
++            )
++        )
++        assertToggle(text, selectedRange: NSRange(location: NSNotFound, length: 0),
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 1),
++                text: "//a",
++                selectedRange: NSRange(location: 3, length: 0)
++            )
++        )
++    }
++    // MARK: - Block Mode Tests
++
++    func testBlockWrapSingleCaretLine() {
++        let text = "color: red;"
++        assertToggle(
++            text,
++            selectedRange: NSRange(location: 0, length: 0),
++            language: .css,
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 11),
++                text: "/*color: red;*/",
++                selectedRange: NSRange(location: 2, length: 0)
++            )
++        )
++    }
++
++    func testBlockUnwrapSingleCaretLine() {
++        let text = "/* color: red; */"
++        assertToggle(
++            text,
++            selectedRange: NSRange(location: 4, length: 0),
++            language: .css,
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 17),
++                text: "color: red;",
++                selectedRange: NSRange(location: 1, length: 0) // removed "/* ", delta is -3
++            )
++        )
++    }
++
++    func testBlockWrapMultiLineSelection() {
++        let text = "<div>\n  <p>a</p>\n</div>"
++        // Select "<p>a</p>" (line 1)
++        assertToggle(
++            text,
++            selectedRange: NSRange(location: 6, length: 10), // length of "  <p>a</p>" is 10
++            language: .html,
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 6, length: 11),
++                text: "  <!--<p>a</p>-->\n",
++                selectedRange: NSRange(location: 6, length: 17)
++            )
++        )
++    }
++
++    func testBlockIndentedOpener() {
++        let text = "  /* a */"
++        assertToggle(
++            text,
++            selectedRange: NSRange(location: 3, length: 0),
++            language: .css,
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 9),
++                text: "  a",
++                selectedRange: NSRange(location: 0, length: 0) // 3 - 3 = 0
++            )
++        )
++    }
++
++    func testBlockBothRemovalSpellings() {
++        assertToggle("/*x*/", selectedRange: NSRange(location: 2, length: 0), language: .css,
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 5),
++                text: "x",
++                selectedRange: NSRange(location: 0, length: 0)
++            )
++        )
++        assertToggle("/* x */", selectedRange: NSRange(location: 3, length: 0), language: .css,
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 7),
++                text: "x",
++                selectedRange: NSRange(location: 0, length: 0)
++            )
++        )
++    }
++
++    func testBlockTrailingWhitespaceAfterCloser() {
++        let text = "/* a */  \n"
++        assertToggle(text, selectedRange: NSRange(location: 0, length: 0), language: .css,
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 10),
++                text: "a  \n",
++                selectedRange: NSRange(location: 4, length: 0)
++            )
++        )
++    }
++
++    func testBlockTargetAlreadyContainsDelimiter() {
++        let text = "a /* b */ c"
++        assertToggle(text, selectedRange: NSRange(location: 0, length: 0), language: .css,
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 11),
++                text: "/*a /* b */ c*/",
++                selectedRange: NSRange(location: 2, length: 0)
++            )
++        )
++    }
++
++    func testBlockBlankLinesAtEdges() {
++        // " \n a \n "
++        let text = " \n a \n "
++        assertToggle(text, selectedRange: NSRange(location: 0, length: 7), language: .css,
++            expectedEdit: CommentToggleEdit(
++                replacementRange: NSRange(location: 0, length: 7),
++                text: " \n /*a */\n ",
++                selectedRange: NSRange(location: 0, length: 11)
++            )
++        )
++    }
++
++    func testBlockWhollyBlankTarget() {
++        assertToggle("   \n  ", selectedRange: NSRange(location: 0, length: 6), language: .css, expectedEdit: nil)
++    }
++
++    func testBlockWrapUnwrapRoundTrip() {
++        let original = "  a\n  b"
++        let edit1 = ToggleCommentEngine.toggle(text: original as NSString, selectedRange: NSRange(location: 0, length: 7), language: .css)!
++        let edit2 = ToggleCommentEngine.toggle(text: edit1.text as NSString, selectedRange: edit1.selectedRange, language: .css)!
++        XCTAssertEqual(edit2.text, original)
++    }
++}
+diff --git a/docs/FEATURES.md b/docs/FEATURES.md
+index 797a963..079fc5f 100644
+--- a/docs/FEATURES.md
++++ b/docs/FEATURES.md
+@@ -189,6 +189,17 @@ user sees it.
+   terminal or the project tree. macOS only for now — an iOS
+   variant for an external keyboard and an Edit > Duplicate Line menu item are
+   out of scope.
++- Toggle comment (Cmd+/): comments or uncomments the selected lines using the
++  language's comment syntax. With no selection, it toggles the caret's line
++  without moving the caret. Each toggle is a single undo step. Line-comment
++  languages (Swift, JS, Python, Go, Rust, YAML, SQL) insert or remove `//`, `#`,
++  or `--` at the start of the line; block-comment languages (HTML, CSS) wrap the
++  non-blank edges of the selection in `<!-- -->` or `/* */`, or unwrap them if
++  already present. A wholly blank target is a silent no-op, leaving the caret
++  and text exactly where they are. JSON, Markdown, and files with an unknown
++  language also ignore the command silently, as they have no comment syntax to
++  toggle. A menu item (Edit > Toggle Comment) exists, so the command works from
++  the keyboard (Cmd+/) or the menu. macOS only for now — no iOS wiring.
+ - Find and replace in a file (macOS): Cmd+F opens a search bar
+   above the editor with `Aa` (match case), `ab` (whole word), and `.*` (regular
+   expression) toggles, a `3/17` match counter, and ▲/▼ to step through the
+diff --git a/docs/architecture/core-editor.md b/docs/architecture/core-editor.md
+index 6e1bf2c..83fc86e 100644
+--- a/docs/architecture/core-editor.md
++++ b/docs/architecture/core-editor.md
+@@ -46,6 +46,48 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
+     Unit-tested in `DuplicateEngineTests`. **Out of scope** (follow-ups): an iOS
+     variant via `UIKeyCommand` for an external keyboard over this same engine, and
+     an Edit → Duplicate Line menu item.
++  - `CommentStyle.swift` — pure, testable mapping from a language to its comment
++    syntax (Foundation only). `public enum CommentStyle: Equatable { case
++    line(String); case block(open: String, close: String) }`, plus
++    `CommentStyle.style(for: SyntaxLanguage) -> CommentStyle?`. It defines
++    `public static let languagesWithoutComments: Set<SyntaxLanguage> = [.json,
++    .markdown]`, keeping an explicit set for languages with no comment syntax to
++    toggle (mirroring `LanguageKeywords`). The tests assert that the set of
++    styled languages and the set of no-comment languages are disjoint and
++    exhaustively cover `SyntaxLanguage.allCases`, so adding a language requires
++    deliberately resolving its comment style. Unit-tested in
++    `CommentStyleTests`.
++  - `ToggleCommentEngine.swift` — pure, testable toggle-comment computation for
++    the editor's Cmd+/ (Foundation only). `public struct CommentToggleEdit: Equatable`
++    carries `replacementRange`, `text`, and `selectedRange` (the resulting
++    selection in post-edit coordinates). `public enum ToggleCommentEngine { static func
++    toggle(text: NSString, selectedRange: NSRange, language: SyntaxLanguage?) ->
++    CommentToggleEdit? }`. Returning `nil` is the silent no-op: it means no edit
++    and no caret move (for no language, a no-comment language, or a wholly blank
++    target). The engine clamps the selection to buffer bounds first, like
++    `DuplicateEngine`. Touched lines are computed as the whole-line span from
++    the first touched line's start to the last touched line's end (a selection
++    ending exactly at a line start does not touch that line). Line separators are
++    split via `getLineStart(_:end:contentsEnd:for:)` to preserve terminators
++    identically to `DuplicateEngine`.
++    A blank caret line is a complete no-op with the caret left where it is. This
++    is the deliberate choice against the common alternative of inserting a marker
++    on an empty line. Caret placement: if a following line exists, the caret
++    lands at that line's start plus the original column (clamped); on the last
++    line, it stays on its own line, shifted by the inserted/removed token delta.
++    Selection placement becomes the touched lines' post-edit whole-line span
++    (from the first touched line's start to the last's contents end).
++    Line mode skips blank/whitespace-only lines in both directions. It inserts
++    the token at column 0 with no space after. When removing, it accepts both
++    the token alone (`//x`) or with at most one immediately following space
++    (`// x`), allowing leading whitespace before the token.
++    Block mode normalizes the "first/last touched line" to the first and last
++    **non-blank** touched line. Wrap inserts the bare opener before the first
++    non-blank line's first non-whitespace character, and the closer at the end
++    of the last non-blank line's contents. Unwrap tolerates one space inside
++    each delimiter and trailing whitespace after the closer. Delimiters already
++    inside the target are left exactly as they are without rebalancing.
++    Unit-tested in `ToggleCommentEngineTests`.
+   - `TreeRefreshFilter.swift` — pure, Foundation-only decision for the macOS
+     project-tree filesystem watcher: `public enum TreeRefreshFilter { static func
+     shouldRefresh(changedPaths: [String], root: URL) -> Bool }` answers "is this
+diff --git a/docs/plans/20260824-toggle-comment-cmd-slash.md b/docs/plans/20260824-toggle-comment-cmd-slash.md
+new file mode 100644
+index 0000000..6d7de5c
+--- /dev/null
++++ b/docs/plans/20260824-toggle-comment-cmd-slash.md
+@@ -0,0 +1,281 @@
++# Toggle Comment (Cmd+/)
++
++## Overview
++
++Add a Cmd+/ comment toggle to the macOS editor, built as a pure `PisakaCore`
++engine plus thin AppKit glue — the same shape as Cmd+D / `DuplicateEngine`.
++Two new Core files: a per-language comment-style table (`CommentStyle.swift`,
++modelled on `LanguageKeywords`) and the engine (`ToggleCommentEngine.swift`)
++that turns (text, selection, language) into one replacement range + replacement
++string + resulting selection. The app layer reads the live buffer and the
++language the coordinator already tracks, applies the edit with a single
++`insertText(_:replacementRange:)` (one undo step, ordinary edit for overlays /
++diagnostics shift / LSP sync), and exposes the command as an Edit-menu item
++routed through the first responder.
++
++## Context
++
++- Files involved:
++  - Create: `Sources/PisakaCore/CommentStyle.swift`,
++    `Sources/PisakaCore/ToggleCommentEngine.swift`
++  - Create: `Tests/PisakaCoreTests/CommentStyleTests.swift`,
++    `Tests/PisakaCoreTests/ToggleCommentEngineTests.swift`
++  - Modify: `Sources/Pisaka/CodeEditorView.swift` (coordinator handler,
++    `EditorTextView` hook, `makeNSView` wiring)
++  - Modify: `Sources/Pisaka/PisakaApp.swift` (Edit-menu item +
++    first-responder routing)
++  - Modify: `docs/architecture/core-editor.md`, `CLAUDE.md`, `README.md`,
++    `docs/FEATURES.md`
++- Related patterns:
++  - `DuplicateEngine.swift` / `DuplicateEngineTests.swift` — engine value type
++    + `NSString`/UTF-16 arithmetic;
++    `getLineStart(_:end:contentsEnd:for:)` for the editor-wide separator set
++    (LF/CR/CRLF/NEL/LS/PS).
++  - `LanguageKeywords.swift` + `LanguageKeywordsTests` — per-language table
++    with an explicit "this language has none" set, closed by set equality
++    against `SyntaxLanguage.allCases`.
++  - `CodeEditorView.swift:1795 duplicateSelection(in:)` — reads buffer +
++    selection, brackets the edit with `isApplyingProgrammaticEdit`, applies one
++    `insertText`, sets the selection. `coordinator.language` (line 782) already
++    holds the attached `SyntaxLanguage?`.
++  - `CodeEditorView.swift:2562 goToDefinitionAtCaret()` +
++    `PisakaApp.swift:2273 goToDefinitionAtCaret()` — the menu-item →
++    first-responder → `EditorTextView` hop, beeping via
++    `PlatformFeedback.warning()` when the focused view is not an editor.
++- Dependencies: none new. Core stays Foundation-only.
++
++## Design decisions made from the ticket
++
++These are the readings the ticket leaves open; they are decided here so
++implementation has no forks:
++
++1. **Comment-style table** — `public enum CommentStyle: Equatable { case
++   line(String); case block(open: String, close: String) }`, plus
++   `CommentStyle.style(for: SyntaxLanguage) -> CommentStyle?` and
++   `public static let languagesWithoutComments: Set<SyntaxLanguage> = [.json,
++   .markdown]` (the `languagesWithoutKeywords` shape). The test asserts
++   `styled ∪ languagesWithoutComments == Set(SyntaxLanguage.allCases)` and that
++   the two sets are disjoint, so a new language fails `swift test` until someone
++   decides which it is.
++2. **Engine API** — `public struct CommentToggleEdit: Equatable {
++   replacementRange: NSRange; text: String; selectedRange: NSRange }` and
++   `public enum ToggleCommentEngine { static func toggle(text: NSString,
++   selectedRange: NSRange, language: SyntaxLanguage?) -> CommentToggleEdit? }`.
++   `nil` means "do nothing, silently": no language, a no-comment language, or a
++   wholly blank target. `selectedRange` is in post-edit coordinates. The
++   selection is clamped to the buffer bounds first, as `DuplicateEngine` does,
++   so an out-of-range or `NSNotFound` range cannot trap.
++3. **Touched lines** — the whole-line span from the first touched line's start
++   to the last touched line's end. A selection of length > 0 whose end sits
++   exactly at a line start does *not* touch that line (selecting whole lines
++   including the trailing newline comments the lines you see selected, not one
++   more).
++4. **A blank caret line is a complete no-op — the caret does not move.** The
++   ticket states blank lines are skipped in both directions for line mode and
++   that a wholly blank block target is a no-op; the caret case follows the same
++   rule, so `toggle` returns `nil`, and `nil` means the app layer does nothing
++   at all — no text change and no caret move. (Some mainstream editors instead
++   insert a marker on an empty line; here the complete no-op is the deliberate
++   choice, and it is the one place the ticket's stated rule departs from that
++   common behavior.)
++5. **Caret placement, no-selection case** (both modes) — if a following line
++   exists, the caret lands at that line's start plus `min(originalColumn,
++   thatLine'sContentLength)` in post-edit coordinates; on the last line it stays
++   on its own line at `originalColumn + delta`, clamped to
++   `[0, newContentLength]`, where `delta` is the token length inserted or
++   removed before it, so the caret keeps its position relative to the text.
++6. **Selection placement, selection case** — the post-edit whole-line span of
++   the touched lines: from the first touched line's start to the last touched
++   line's contents end (its terminator excluded).
++7. **Line mode** — insert at column 0 with no space after; remove one token
++   plus at most one immediately following space, allowing any leading whitespace
++   before the token. The all-commented test runs over non-blank touched lines
++   only; no non-blank line at all → `nil`.
++8. **Block mode** — "first/last touched line" is normalized to "first/last
++   **non-blank** touched line" for both the wrap and the unwrap test (a blank
++   line has no non-whitespace character to insert before). Wrap inserts the bare
++   delimiters with no added inner spaces, matching the line-token rule: the
++   opener before the first non-blank line's first non-whitespace character, the
++   closer at the end of the last non-blank line's contents. Unwrap tolerates one
++   space inside each delimiter and any trailing whitespace after the closer, so
++   a wrap/unwrap round-trips and files delimited elsewhere do too. Delimiters
++   already inside the target are left exactly as they are.
++9. **Menu placement** — `CommandGroup(after: .pasteboard)` puts "Toggle
++   Comment" in the stock Edit menu; the item is disabled with no tab open.
++   Consequence, accepted: a menu key equivalent is claimed app-wide, so Cmd+/ is
++   taken from the embedded terminal and the project tree — with either focused,
++   the command beeps (the `goToDefinitionAtCaret()` precedent) rather than
++   editing. A language with no comment style is the ticket's *silent* no-op and
++   does not beep.
++
++## Development Approach
++
++- **Testing approach**: Regular (code first, then tests) — each Core task
++  writes its tests before the task is considered done and `swift test` must be
++  green before the next task starts.
++- All decisions live in Core and are unit-tested; the macOS glue stays thin and
++  untested, per the repo's pure-engine + thin-glue invariant.
++- Doc comments carry the reasoning (the house style);
++  `docs/architecture/core-editor.md` is updated in the same change as the
++  behavior.
++- **CRITICAL: every task ships new/updated tests.**
++- **CRITICAL: all tests must pass before starting the next task.**
++
++## Implementation Steps
++
++### Task 1: The per-language comment-style table
++
++**Files:**
++- Create: `Sources/PisakaCore/CommentStyle.swift`
++- Create: `Tests/PisakaCoreTests/CommentStyleTests.swift`
++
++- [x] Add `public enum CommentStyle: Equatable` with `case line(String)` and
++      `case block(open: String, close: String)`, doc-commented in the house
++      style (why one style per language, why the absence is recorded
++      explicitly).
++- [x] Add `public static func style(for language: SyntaxLanguage) ->
++      CommentStyle?` covering the switch exhaustively: `//` for
++      swift/javascript/typescript/go/rust, `#` for
++      python/yaml/dockerfile/dotenv/gitignore, `--` for sql, `/* */` for css,
++      `<!-- -->` for html, `nil` for json/markdown.
++- [x] Add `public static let languagesWithoutComments: Set<SyntaxLanguage> =
++      [.json, .markdown]` with the stated reason (no comment syntax to toggle),
++      mirroring `LanguageKeywords.languagesWithoutKeywords`.
++- [x] Write `CommentStyleTests`: set-equality closure over
++      `SyntaxLanguage.allCases` (styled ∪ without == allCases, and the two
++      disjoint), the exact token/pair for every language, and that no token or
++      delimiter is empty.
++- [x] Run `swift test` — must pass before Task 2.
++
++### Task 2: The engine — line-comment mode
++
++**Files:**
++- Create: `Sources/PisakaCore/ToggleCommentEngine.swift`
++- Create: `Tests/PisakaCoreTests/ToggleCommentEngineTests.swift`
++
++- [x] Add `public struct CommentToggleEdit: Equatable { replacementRange, text,
++      selectedRange }` and `public enum ToggleCommentEngine` with
++      `toggle(text:selectedRange:language:)` returning `CommentToggleEdit?`,
++      doc-commented with the whole contract (including that `nil` is the silent
++      no-op and means no edit *and* no caret move).
++- [x] Implement the shared front half: clamp the selection to the buffer,
++      resolve the style (return `nil` for a `nil` language or a no-comment
++      language), compute the touched whole-line span with
++      `getLineStart(_:end:contentsEnd:for:)` — including the "selection ending
++      at a line start does not touch that line" rule — and split the span into
++      lines carrying their own verbatim terminators.
++- [x] Implement line mode: skip blank/whitespace-only lines in both directions;
++      if every non-blank touched line begins after leading whitespace with the
++      token, remove one token plus at most one following space per line,
++      otherwise insert the token at column 0 of every non-blank line; return
++      `nil` when no non-blank line exists.
++- [x] Implement the resulting selection/caret per decisions 5 and 6 above
++      (caret to the following line preserving column, clamped; on the last line
++      the caret stays, shifted by the token delta; a selection becomes the
++      touched lines' post-edit whole-line span).
++- [x] Write `ToggleCommentEngineTests` for line mode: caret on an uncommented
++      and on an already-commented line; caret column preservation and the
++      last-line case; selection over uncommented, fully commented and mixed
++      lines; blank lines inside a selection; first and last line of the
++      document; a selection ending exactly at a line start; CRLF, CR, NEL,
++      U+2028/U+2029 buffers; indented tokens; both `//x` and `// x` removal
++      spellings; `#` and `--` languages; empty document; a blank caret line
++      (asserting `nil` — no edit and no caret move); json/markdown; `nil`
++      language; an out-of-range/`NSNotFound` selection.
++- [x] Run `swift test` — must pass before Task 3.
++
++### Task 3: The engine — block-comment mode
++
++**Files:**
++- Modify: `Sources/PisakaCore/ToggleCommentEngine.swift`
++- Modify: `Tests/PisakaCoreTests/ToggleCommentEngineTests.swift`
++
++- [x] Implement block mode over the same touched-line span: unwrap when the
++      first non-blank line begins after leading whitespace with the opener and
++      the last non-blank line ends before trailing whitespace with the closer
++      (removing one pair plus at most one space inside each delimiter);
++      otherwise wrap, inserting the bare opener before the first non-blank
++      line's first non-whitespace character and the bare closer at the end of
++      the last non-blank line's contents.
++- [x] Return `nil` for a wholly blank target; reuse the same caret/selection
++      placement rules as line mode.
++- [x] Extend the tests: CSS and HTML wrap and unwrap of a single caret line and
++      of a multi-line selection; an indented opener; `/*x*/` and `/* x */`
++      removal spellings; trailing whitespace after the closer; a target that
++      already contains a delimiter inside it (wrapped verbatim, nothing escaped
++      or rebalanced); blank lines at the edges of the selection; a wholly blank
++      target (asserting `nil`); caret advance after a single-line wrap; a
++      wrap→unwrap round-trip restoring the original text exactly.
++- [x] Run `swift test` — must pass before Task 4.
++
++### Task 4: macOS wiring
++
++**Files:**
++- Modify: `Sources/Pisaka/CodeEditorView.swift`
++- Modify: `Sources/Pisaka/PisakaApp.swift`
++
++- [x] Add `Coordinator.toggleComment(in textView: NSTextView)`: read the live
++      buffer, selection and `self.language`, call the engine, return silently on
++      `nil` (no text change, no caret move), otherwise apply the edit with one
++      `insertText(_:replacementRange:)` bracketed by
++      `isApplyingProgrammaticEdit` (mandatory, not defensive — a one-character
++      replacement would otherwise fall into the auto-pair interceptor), then
++      install `edit.selectedRange`.
++- [x] Add `EditorTextView.onToggleComment: ((NSTextView) -> Void)?` and
++      `func toggleCommentAtSelection()` forwarding to it, mirroring
++      `onGoToDefinition` / `goToDefinitionAtCaret()`, and wire it in
++      `makeNSView` with the weak-coordinator capture the file's retain-cycle
++      rule requires.
++- [x] Add the Edit-menu item in `PisakaApp.swift`: `CommandGroup(after:
++      .pasteboard)` with a "Toggle Comment" button, `.keyboardShortcut("/",
++      modifiers: .command)`, disabled when `model.selectedID == nil`.
++- [x] Add the private `toggleCommentAtCaret()` routing through
++      `NSApp.keyWindow?.firstResponder as? EditorTextView`, beeping with
++      `PlatformFeedback.warning()` otherwise — documenting why this command is
++      responder-routed (it carries no state) and that the app-wide key
++      equivalent takes Cmd+/ from the terminal and the project tree.
++- [x] Build both destinations: `xcodegen generate` if needed, then the macOS and
++      iOS `xcodebuild` commands from `CLAUDE.md` — both must succeed (Core must
++      stay iOS-clean).
++
++### Task 5: Documentation
++
++**Files:**
++- Modify: `docs/architecture/core-editor.md`, `CLAUDE.md`, `README.md`,
++  `docs/FEATURES.md`
++
++- [x] Add full entries for `CommentStyle.swift` and `ToggleCommentEngine.swift`
++      to `docs/architecture/core-editor.md` in the `DuplicateEngine` style: the
++      contract, the separator handling, every decision listed above
++      (touched-line rule, blank-line skipping — including that a blank caret
++      line is a complete no-op with the caret left where it is, stated as the
++      deliberate choice against the common alternative of inserting a marker on
++      an empty line, and naming no other product — caret/selection placement,
++      both uncomment spellings, block-mode normalization to non-blank edges, no
++      delimiter rebalancing), what `nil` means, and the named test suites.
++- [x] Add one index line per new file to the `core-editor.md` list in
++      `CLAUDE.md` — index only, no essay.
++- [x] Add the `Cmd+/` row to the README keyboard-shortcut table and mention the
++      toggle in the README feature paragraph beside Cmd+D.
++- [x] Add the feature to `docs/FEATURES.md` next to the Cmd+D entry, including
++      the CSS/HTML block behavior, the silent no-op for JSON/Markdown and
++      unknown file types, the single-undo-step guarantee, and that it is
++      macOS-only (no iOS wiring).
++
++### Task 6: Verify acceptance criteria
++
++- [x] Run `swift test` — the full suite green, including the new
++      `CommentStyleTests` and `ToggleCommentEngineTests`.
++- [x] Run `swiftlint --strict` from the repository root — clean, with no new
++      in-file disables.
++- [x] Build macOS (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
++      -destination 'platform=macOS' build`) and iOS Simulator — both succeed.
++- [x] Re-read the doc entries against the shipped code so the architecture doc,
++      `CLAUDE.md`, `README.md` and `docs/FEATURES.md` describe the behavior
++      actually implemented.
++
++## Post-Completion (manual, by the user)
++
++- In a DEBUG build: Cmd+/ on a Swift line, on a mixed multi-line selection, on a
++  CSS rule and an HTML block; confirm one Cmd+Z reverts each toggle whole, and
++  that Cmd+/ in a JSON file does nothing without a beep.

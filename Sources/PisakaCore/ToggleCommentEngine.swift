@@ -90,10 +90,21 @@ public enum ToggleCommentEngine {
                 }
             } else {
                 // Comment
-                let commented = token + line.content
+                let nsLine = line.content as NSString
+                let contentsLength = line.contentsEnd - line.start
+                var i = 0
+                while i < contentsLength {
+                    let unichar = nsLine.character(at: i)
+                    if let scalar = Unicode.Scalar(unichar), CharacterSet.whitespaces.contains(scalar) {
+                        i += 1
+                    } else { break }
+                }
+                let leadingSpaces = nsLine.substring(with: NSRange(location: 0, length: i))
+                let rest = nsLine.substring(from: i)
+                let commented = leadingSpaces + token + rest
                 newText += commented
-                if line.isCaretLine { // originalColumn >= 0 is always true
-                    caretDeltaForLastLine = token.utf16.count
+                if line.isCaretLine {
+                    caretDeltaForLastLine = originalColumn >= i ? token.utf16.count : 0
                 }
             }
         }
