@@ -2296,7 +2296,7 @@ struct PisakaApp: App {
             PlatformFeedback.warning()
             return
         }
-        editor.onToggleComment?(editor)
+        editor.toggleCommentAtSelection()
     }
 
     // MARK: - Completion

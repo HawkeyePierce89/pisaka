@@ -2588,6 +2588,12 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
         onGoToDefinition?(self, selectedRange().location)
     }
 
+    /// Exposes the `onToggleComment` routing closure to the macOS first-responder
+    /// chain without requiring callers to reach into the closure property itself.
+    func toggleCommentAtSelection() {
+        onToggleComment?(self)
+    }
+
     /// A Command-held click navigates to the clicked identifier's declaration;
     /// every other click keeps the stock behavior.
     ///

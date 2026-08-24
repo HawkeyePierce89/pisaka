@@ -95,21 +95,10 @@ public enum ToggleCommentEngine {
                 }
             } else {
                 // Comment
-                let nsLine = line.content as NSString
-                let contentsLength = line.contentsEnd - line.start
-                var i = 0
-                while i < contentsLength {
-                    let unichar = nsLine.character(at: i)
-                    if let scalar = Unicode.Scalar(unichar), CharacterSet.whitespaces.contains(scalar) {
-                        i += 1
-                    } else { break }
-                }
-                let leadingSpaces = nsLine.substring(with: NSRange(location: 0, length: i))
-                let rest = nsLine.substring(from: i)
-                let commented = leadingSpaces + token + rest
+                let commented = token + line.content
                 newText += commented
                 if line.isCaretLine {
-                    caretDeltaForLastLine = originalColumn >= i ? token.utf16.count : 0
+                    caretDeltaForLastLine = token.utf16.count
                 }
             }
         }
@@ -279,8 +268,9 @@ public enum ToggleCommentEngine {
                 let fullDelta = (leadingSpacesFirst + contentBeforeLast + trailingSpacesLast).utf16.count - firstStr.utf16.count
                 let openDelta = newFirstContent.utf16.count - firstStr.utf16.count
                 if originalColumn > closeStartIdx16 {
-                    if originalColumn + fullDelta < closeStartIdx16 + openDelta {
-                        caretDelta = closeStartIdx16 + openDelta - originalColumn
+                    let newClosePos = (leadingSpacesFirst + contentBeforeLast).utf16.count
+                    if originalColumn + fullDelta < newClosePos {
+                        caretDelta = newClosePos - originalColumn
                     } else {
                         caretDelta = fullDelta
                     }
