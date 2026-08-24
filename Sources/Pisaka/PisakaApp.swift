@@ -2292,7 +2292,10 @@ struct PisakaApp: App {
     /// key equivalent (Cmd+/) takes the shortcut from the terminal and the project
     /// tree, so with either focused it beeps rather than editing.
     private func toggleCommentAtCaret() {
-        guard let editor = NSApp.keyWindow?.firstResponder as? EditorTextView else {
+        guard let editor = NSApp.keyWindow?.firstResponder as? EditorTextView,
+              editor.isEditable,
+              !editor.hasMarkedText()
+        else {
             PlatformFeedback.warning()
             return
         }

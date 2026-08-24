@@ -87,14 +87,14 @@ implementation has no forks:
 6. **Selection placement, selection case** — the post-edit whole-line span of
    the touched lines: from the first touched line's start to the last touched
    line's contents end (its terminator excluded).
-7. **Line mode** — insert at column 0 with no space after; remove one token
+7. **Line mode** — insert after leading indentation with one space after; remove one token
    plus at most one immediately following space, allowing any leading whitespace
    before the token. The all-commented test runs over non-blank touched lines
    only; no non-blank line at all → `nil`.
 8. **Block mode** — "first/last touched line" is normalized to "first/last
    **non-blank** touched line" for both the wrap and the unwrap test (a blank
-   line has no non-whitespace character to insert before). Wrap inserts the bare
-   delimiters with no added inner spaces, matching the line-token rule: the
+   line has no non-whitespace character to insert before). Wrap inserts the
+   delimiters with one space inside: the
    opener before the first non-blank line's first non-whitespace character, the
    closer at the end of the last non-blank line's contents. Unwrap tolerates one
    space inside each delimiter and any trailing whitespace after the closer, so
@@ -167,7 +167,7 @@ implementation has no forks:
 - [x] Implement line mode: skip blank/whitespace-only lines in both directions;
       if every non-blank touched line begins after leading whitespace with the
       token, remove one token plus at most one following space per line,
-      otherwise insert the token at column 0 of every non-blank line; return
+      otherwise insert the token after leading indentation of every non-blank line with one space after; return
       `nil` when no non-blank line exists.
 - [x] Implement the resulting selection/caret per decisions 5 and 6 above
       (caret to the following line preserving column, clamped; on the last line
@@ -194,9 +194,9 @@ implementation has no forks:
       first non-blank line begins after leading whitespace with the opener and
       the last non-blank line ends before trailing whitespace with the closer
       (removing one pair plus at most one space inside each delimiter);
-      otherwise wrap, inserting the bare opener before the first non-blank
-      line's first non-whitespace character and the bare closer at the end of
-      the last non-blank line's contents.
+      otherwise wrap, inserting the opener with a trailing space before the first non-blank
+      line's first non-whitespace character and the closer with a leading space at the end
+      of the last non-blank line's contents.
 - [x] Return `nil` for a wholly blank target; reuse the same caret/selection
       placement rules as line mode.
 - [x] Extend the tests: CSS and HTML wrap and unwrap of a single caret line and

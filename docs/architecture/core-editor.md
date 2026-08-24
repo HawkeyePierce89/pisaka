@@ -78,12 +78,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     Selection placement becomes the touched lines' post-edit whole-line span
     (from the first touched line's start to the last's contents end).
     Line mode skips blank/whitespace-only lines in both directions. It inserts
-    the token at column 0 with no space after. When removing, it accepts both
+    the token after leading indentation with one space after. When removing, it accepts both
     the token alone (`//x`) or with at most one immediately following space
     (`// x`), allowing leading whitespace before the token.
     Block mode normalizes the "first/last touched line" to the first and last
-    **non-blank** touched line. Wrap inserts the bare opener before the first
-    non-blank line's first non-whitespace character, and the closer at the end
+    **non-blank** touched line. Wrap inserts the opener with a trailing space before the first
+    non-blank line's first non-whitespace character, and the closer with a leading space at the end
     of the last non-blank line's contents. Unwrap tolerates one space inside
     each delimiter and trailing whitespace after the closer. Delimiters already
     inside the target are left exactly as they are without rebalancing.

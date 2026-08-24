@@ -190,10 +190,10 @@ user sees it.
   variant for an external keyboard and an Edit > Duplicate Line menu item are
   out of scope.
 - Toggle comment (Cmd+/): comments or uncomments the selected lines using the
-  language's comment syntax. With no selection, it toggles the caret's line
-  without moving the caret. Each toggle is a single undo step. Line-comment
+  language's comment syntax. With no selection, it toggles the caret's line,
+  moving the caret to the next line. Each toggle is a single undo step. Line-comment
   languages (Swift, JS, Python, Go, Rust, YAML, SQL) insert or remove `//`, `#`,
-  or `--` at the start of the line; block-comment languages (HTML, CSS) wrap the
+  or `--` after leading indentation; block-comment languages (HTML, CSS) wrap the
   non-blank edges of the selection in `<!-- -->` or `/* */`, or unwrap them if
   already present. A wholly blank target is a silent no-op, leaving the caret
   and text exactly where they are. JSON, Markdown, and files with an unknown
