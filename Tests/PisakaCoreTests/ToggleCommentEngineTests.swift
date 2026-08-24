@@ -332,7 +332,7 @@ final class ToggleCommentEngineTests: XCTestCase {
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 9),
                 text: "  a",
-                selectedRange: NSRange(location: 0, length: 0) // 3 - 3 = 0
+                selectedRange: NSRange(location: 2, length: 0) // clamped to start of comment
             )
         )
     }

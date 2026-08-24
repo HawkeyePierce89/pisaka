@@ -86,7 +86,12 @@ public enum ToggleCommentEngine {
                 let (uncommented, removedIdx) = line.uncommented(token: token)
                 newText += uncommented
                 if line.isCaretLine && originalColumn > removedIdx {
-                    caretDeltaForLastLine = uncommented.utf16.count - line.content.utf16.count
+                    let fullDelta = uncommented.utf16.count - line.content.utf16.count
+                    if originalColumn < removedIdx - fullDelta {
+                        caretDeltaForLastLine = removedIdx - originalColumn
+                    } else {
+                        caretDeltaForLastLine = fullDelta
+                    }
                 }
             } else {
                 // Comment
@@ -274,9 +279,17 @@ public enum ToggleCommentEngine {
                 let fullDelta = (leadingSpacesFirst + contentBeforeLast + trailingSpacesLast).utf16.count - firstStr.utf16.count
                 let openDelta = newFirstContent.utf16.count - firstStr.utf16.count
                 if originalColumn > closeStartIdx16 {
-                    caretDelta = fullDelta
+                    if originalColumn + fullDelta < closeStartIdx16 + openDelta {
+                        caretDelta = closeStartIdx16 + openDelta - originalColumn
+                    } else {
+                        caretDelta = fullDelta
+                    }
                 } else if originalColumn > openStartIdx16 {
-                    caretDelta = openDelta
+                    if originalColumn + openDelta < openStartIdx16 {
+                        caretDelta = openStartIdx16 - originalColumn
+                    } else {
+                        caretDelta = openDelta
+                    }
                 }
             }
         } else {
@@ -302,12 +315,6 @@ public enum ToggleCommentEngine {
             let newLastContent = contentBeforeLast + trailingSpacesLast
             modifiedContents[lastIdx] = newLastContent + lastTerm
 
-            if firstLine.isCaretLine && originalColumn > openStartIdx16 {
-                caretDelta = newFirstContent.utf16.count - firstStr.utf16.count
-            }
-            if lastLine.isCaretLine && originalColumn > closeStartIdx16 {
-                caretDelta = newLastContent.utf16.count - lastStr.utf16.count
-            }
         }
         return (modifiedContents.joined(), caretDelta)
     }
@@ -351,10 +358,6 @@ public enum ToggleCommentEngine {
             let lastTerm = lastNs.substring(from: lastLine.contentsEnd - lastLine.start)
             modifiedContents[lastIdx] = lastStr + close + lastTerm
 
-            if firstLine.isCaretLine && originalColumn >= firstNonSpaceIdx {
-                caretDelta = open.utf16.count
-            }
-            if lastLine.isCaretLine { caretDelta = 0 }
         }
         return (modifiedContents.joined(), caretDelta)
     }
