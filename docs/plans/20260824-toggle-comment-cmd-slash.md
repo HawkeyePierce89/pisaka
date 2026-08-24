@@ -214,27 +214,27 @@ implementation has no forks:
 - Modify: `Sources/Pisaka/CodeEditorView.swift`
 - Modify: `Sources/Pisaka/PisakaApp.swift`
 
-- [ ] Add `Coordinator.toggleComment(in textView: NSTextView)`: read the live
+- [x] Add `Coordinator.toggleComment(in textView: NSTextView)`: read the live
       buffer, selection and `self.language`, call the engine, return silently on
       `nil` (no text change, no caret move), otherwise apply the edit with one
       `insertText(_:replacementRange:)` bracketed by
       `isApplyingProgrammaticEdit` (mandatory, not defensive — a one-character
       replacement would otherwise fall into the auto-pair interceptor), then
       install `edit.selectedRange`.
-- [ ] Add `EditorTextView.onToggleComment: ((NSTextView) -> Void)?` and
+- [x] Add `EditorTextView.onToggleComment: ((NSTextView) -> Void)?` and
       `func toggleCommentAtSelection()` forwarding to it, mirroring
       `onGoToDefinition` / `goToDefinitionAtCaret()`, and wire it in
       `makeNSView` with the weak-coordinator capture the file's retain-cycle
       rule requires.
-- [ ] Add the Edit-menu item in `PisakaApp.swift`: `CommandGroup(after:
+- [x] Add the Edit-menu item in `PisakaApp.swift`: `CommandGroup(after:
       .pasteboard)` with a "Toggle Comment" button, `.keyboardShortcut("/",
       modifiers: .command)`, disabled when `model.selectedID == nil`.
-- [ ] Add the private `toggleCommentAtCaret()` routing through
+- [x] Add the private `toggleCommentAtCaret()` routing through
       `NSApp.keyWindow?.firstResponder as? EditorTextView`, beeping with
       `PlatformFeedback.warning()` otherwise — documenting why this command is
       responder-routed (it carries no state) and that the app-wide key
       equivalent takes Cmd+/ from the terminal and the project tree.
-- [ ] Build both destinations: `xcodegen generate` if needed, then the macOS and
+- [x] Build both destinations: `xcodegen generate` if needed, then the macOS and
       iOS `xcodebuild` commands from `CLAUDE.md` — both must succeed (Core must
       stay iOS-clean).
 

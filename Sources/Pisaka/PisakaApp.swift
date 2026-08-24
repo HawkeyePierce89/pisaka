@@ -1014,6 +1014,12 @@ struct PisakaApp: App {
                     .disabled(model.selectedID == nil)
             }
 
+            CommandGroup(after: .pasteboard) {
+                Button("Toggle Comment") { toggleCommentAtCaret() }
+                    .keyboardShortcut("/", modifiers: .command)
+                    .disabled(model.selectedID == nil)
+            }
+
             CommandMenu("View") {
                 // The three zoom items. Each resolves the zone from the pointer
                 // **at invocation time**, exactly as a scroll or a pinch does — a
@@ -2276,6 +2282,21 @@ struct PisakaApp: App {
             return
         }
         editor.goToDefinitionAtCaret()
+    }
+
+    /// The Edit menu's "Toggle Comment": ask the focused editor to toggle comments
+    /// for its selection or line.
+    ///
+    /// Routed through the first responder for the same reason as
+    /// `goToDefinitionAtCaret()` — the command carries no state. This app-wide
+    /// key equivalent (Cmd+/) takes the shortcut from the terminal and the project
+    /// tree, so with either focused it beeps rather than editing.
+    private func toggleCommentAtCaret() {
+        guard let editor = NSApp.keyWindow?.firstResponder as? EditorTextView else {
+            PlatformFeedback.warning()
+            return
+        }
+        editor.toggleCommentAtSelection()
     }
 
     // MARK: - Completion
