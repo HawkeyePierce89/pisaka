@@ -189,6 +189,18 @@ user sees it.
   terminal or the project tree. macOS only for now — an iOS
   variant for an external keyboard and an Edit > Duplicate Line menu item are
   out of scope.
+- Toggle comment (Cmd+/): comments or uncomments the selected lines using the
+  language's comment syntax. With no selection, it toggles the caret's line,
+  moving the caret to the next line. Each toggle is a single undo step. Line-comment
+  languages (Swift, JS/TS, Python, Go, Rust, YAML, Dockerfile, dotenv,
+  gitignore, SQL) insert or remove `//`, `#`,
+  or `--` after leading indentation; block-comment languages (HTML, CSS) wrap the
+  non-blank edges of the selection in `<!-- -->` or `/* */`, or unwrap them if
+  already present. A wholly blank target is a silent no-op, leaving the caret
+  and text exactly where they are. JSON, Markdown, and files with an unknown
+  language also ignore the command silently, as they have no comment syntax to
+  toggle. A menu item (Edit > Toggle Comment) exists, so the command works from
+  the keyboard (Cmd+/) or the menu. macOS only for now — no iOS wiring.
 - Find and replace in a file (macOS): Cmd+F opens a search bar
   above the editor with `Aa` (match case), `ab` (whole word), and `.*` (regular
   expression) toggles, a `3/17` match counter, and ▲/▼ to step through the

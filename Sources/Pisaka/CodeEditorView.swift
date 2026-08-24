@@ -207,6 +207,11 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onDuplicate = { [weak coordinator = context.coordinator] tv in
             coordinator?.duplicateSelection(in: tv) ?? false
         }
+        // Cmd+/ → the coordinator's toggle-comment handler. Weakly captured for
+        // the same retain-cycle reason as the closures above.
+        textView.onToggleComment = { [weak coordinator = context.coordinator] tv in
+            coordinator?.toggleComment(in: tv)
+        }
         // Esc → close an open search bar. Captured weakly for the same
         // retain-cycle reason as `onDuplicate` above; a deallocated coordinator
         // (or a bar that isn't open) yields `false`, which `cancelOperation`
@@ -1807,6 +1812,21 @@ struct CodeEditorView: NSViewRepresentable {
             return true
         }
 
+        func toggleComment(in textView: NSTextView) {
+            guard let edit = ToggleCommentEngine.toggle(
+                text: textView.string as NSString,
+                selectedRange: textView.selectedRange(),
+                language: language
+            ) else { return }
+            isApplyingProgrammaticEdit = true
+            textView.insertText(
+                edit.text,
+                replacementRange: edit.replacementRange
+            )
+            isApplyingProgrammaticEdit = false
+            textView.setSelectedRange(edit.selectedRange)
+        }
+
         /// Intercept single-character input for auto-close brackets/quotes and,
         /// for a closing bracket that doesn't auto-pair, the dedent-on-closing
         /// rewrite.
@@ -2472,6 +2492,11 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// `goToDefinition(in:at:)`; `nil` until then.
     var onGoToDefinition: ((NSTextView, Int) -> Void)?
 
+    /// Toggles the comment state of the selected lines on Cmd+/. Set by
+    /// `CodeEditorView.makeNSView` to the coordinator's
+    /// `toggleComment(in:)`; `nil` until then.
+    var onToggleComment: ((NSTextView) -> Void)?
+
     /// Recomputes the completion candidates immediately and opens the popup over
     /// them. Set by `CodeEditorView.makeNSView` to the coordinator's
     /// `requestCompletions()`; `nil` until then.
@@ -2561,6 +2586,12 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// typing one.
     func goToDefinitionAtCaret() {
         onGoToDefinition?(self, selectedRange().location)
+    }
+
+    /// Exposes the `onToggleComment` routing closure to the macOS first-responder
+    /// chain without requiring callers to reach into the closure property itself.
+    func toggleCommentAtSelection() {
+        onToggleComment?(self)
     }
 
     /// A Command-held click navigates to the clicked identifier's declaration;

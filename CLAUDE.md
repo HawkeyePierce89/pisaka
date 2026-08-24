@@ -80,6 +80,8 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 
 `docs/architecture/core-editor.md` — editor engines (pure, `NSString` + UTF-16 offsets):
 - `DuplicateEngine.swift` — ⌘D duplicate (JetBrains semantics).
+- `CommentStyle.swift` — language-to-comment-syntax mapping.
+- `ToggleCommentEngine.swift` — ⌘/ toggle comment computation.
 - `TreeRefreshFilter.swift` — FSEvents batch filter; root must arrive canonical.
 - `FileIcon.swift` — entry → icon symbol + color.
 - `SyntaxLanguage.swift` — file name → language.
