@@ -2665,7 +2665,6 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
         }
         columnDragAnchor = convert(event.locationInWindow, from: nil)
         columnDragMoved = false
-        NSEvent.startPeriodicEvents(afterDelay: 0.1, withPeriod: 0.05)
     }
 
     override func otherMouseDragged(with event: NSEvent) {
@@ -2676,17 +2675,6 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
         let point = convert(event.locationInWindow, from: nil)
 
         updateColumnSelection(anchor: anchor, point: point, stillSelecting: true)
-    }
-
-    override func periodicEvent(with event: NSEvent) {
-        guard let anchor = columnDragAnchor else {
-            return super.periodicEvent(with: event)
-        }
-        autoscroll(with: event)
-        if let window = self.window {
-            let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-            updateColumnSelection(anchor: anchor, point: point, stillSelecting: true)
-        }
     }
 
     private func updateColumnSelection(anchor: CGPoint, point: CGPoint, stillSelecting: Bool) {
@@ -2708,7 +2696,6 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
         guard event.buttonNumber == 2, let anchor = columnDragAnchor else {
             return super.otherMouseUp(with: event)
         }
-        NSEvent.stopPeriodicEvents()
 
         if columnDragMoved {
             let point = convert(event.locationInWindow, from: nil)
@@ -2742,12 +2729,9 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
         guard let layoutManager = layoutManager, let textContainer = textContainer,
               let string = textStorage?.string else { return nil }
 
-        let minX = min(anchor.x, head.x)
-        let maxX = max(anchor.x, head.x)
-        let minY = min(anchor.y, head.y)
-        let maxY = max(anchor.y, head.y)
+        let bounds = ColumnSelectionEngine.bounds(anchor: anchor, head: head)
 
-        var probeRect = CGRect(x: 0, y: minY - textContainerOrigin.y, width: textContainer.size.width, height: maxY - minY)
+        var probeRect = CGRect(x: 0, y: bounds.top - textContainerOrigin.y, width: textContainer.size.width, height: bounds.rect.height)
         if probeRect.size.width < 1 { probeRect.size.width = 1 }
         if probeRect.size.height < 1 { probeRect.size.height = 1 }
 
@@ -2757,8 +2741,8 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
         var lines = [ColumnSelectionLine]()
         layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { rect, _, _, fragmentRange, _ in
             let y = rect.midY + self.textContainerOrigin.y
-            let leftPoint = CGPoint(x: minX, y: y)
-            let rightPoint = CGPoint(x: maxX, y: y)
+            let leftPoint = CGPoint(x: bounds.left, y: y)
+            let rightPoint = CGPoint(x: bounds.right, y: y)
             let leftOffset = self.characterIndexForInsertion(at: leftPoint)
             let rightOffset = self.characterIndexForInsertion(at: rightPoint)
             let lineRange = layoutManager.characterRange(forGlyphRange: fragmentRange, actualGlyphRange: nil)

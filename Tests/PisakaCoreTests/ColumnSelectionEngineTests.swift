@@ -4,8 +4,21 @@ import Foundation
 
 final class ColumnSelectionEngineTests: XCTestCase {
 
-    // MARK: - Ranges Resolution Tests
+    // MARK: - Bounds Tests
 
+    func testBounds_NormalizesCoordinates() {
+        let bounds = ColumnSelectionEngine.bounds(
+            anchor: CGPoint(x: 100, y: 200),
+            head: CGPoint(x: 50, y: 150)
+        )
+        XCTAssertEqual(bounds.left, 50)
+        XCTAssertEqual(bounds.right, 100)
+        XCTAssertEqual(bounds.top, 150)
+        XCTAssertEqual(bounds.bottom, 200)
+        XCTAssertEqual(bounds.rect, CGRect(x: 50, y: 150, width: 50, height: 50))
+    }
+
+    // MARK: - Ranges Resolution Tests
     func testRanges_MultiLineUniform() {
         let text = "abc\ndef\nghi" as NSString
         let lines = [
@@ -142,5 +155,17 @@ final class ColumnSelectionEngineTests: XCTestCase {
         let text = "abc\ndef" as NSString
         let ranges = ColumnSelectionEngine.ranges(for: [], in: text)
         XCTAssertTrue(ranges.isEmpty)
+    }
+
+    func testRanges_DeduplicatesExactMatches() {
+        let text = "abc\ndef" as NSString
+        let lines = [
+            ColumnSelectionLine(lineRange: NSRange(location: 0, length: 4), leftOffset: 4, rightOffset: 4),
+            ColumnSelectionLine(lineRange: NSRange(location: 0, length: 4), leftOffset: 4, rightOffset: 4),
+        ]
+        let ranges = ColumnSelectionEngine.ranges(for: lines, in: text)
+        XCTAssertEqual(ranges, [
+            NSRange(location: 3, length: 0) // Trims terminator, so 4 clamps to 3
+        ])
     }
 }
