@@ -230,9 +230,10 @@ public enum ToggleCommentEngine {
         let firstStr = firstNs.substring(to: firstNs.length - firstTermLength)
 
         var leadingSpacesFirst = "", contentAfterFirst = ""
-        var openStartIdx = 0
+        var openStartIdx16 = 0
         if let rangeOfOpen = firstStr.range(of: open) {
-            openStartIdx = firstStr.distance(from: firstStr.startIndex, to: rangeOfOpen.lowerBound)
+            openStartIdx16 = firstStr.utf16.distance(from: firstStr.utf16.startIndex, to: rangeOfOpen.lowerBound)
+            let openStartIdx = firstStr.distance(from: firstStr.startIndex, to: rangeOfOpen.lowerBound)
             leadingSpacesFirst = String(firstStr.prefix(openStartIdx))
             var rest = String(firstStr[rangeOfOpen.upperBound...])
             if rest.hasPrefix(" ") { rest.removeFirst() }
@@ -242,11 +243,10 @@ public enum ToggleCommentEngine {
 
         if firstIdx == lastIdx {
             var trailingSpacesLast = "", contentBeforeLast = ""
-            var closeStartIdx = firstStr.count // fallback
+            var closeStartIdx16 = firstStr.utf16.count // fallback
             if let rangeOfClose = contentAfterFirst.range(of: close, options: .backwards) {
-                // Actually need closeStartIdx relative to original line to know if caret is before it
                 if let origCloseRange = firstStr.range(of: close, options: .backwards) {
-                    closeStartIdx = firstStr.distance(from: firstStr.startIndex, to: origCloseRange.lowerBound)
+                    closeStartIdx16 = firstStr.utf16.distance(from: firstStr.utf16.startIndex, to: origCloseRange.lowerBound)
                 }
                 let endIdx = contentAfterFirst.distance(
                     from: contentAfterFirst.startIndex, to: rangeOfClose.upperBound
@@ -260,9 +260,12 @@ public enum ToggleCommentEngine {
             modifiedContents[firstIdx] = leadingSpacesFirst + contentBeforeLast + trailingSpacesLast + term
 
             if firstLine.isCaretLine {
-                let textDelta = leadingSpacesFirst.utf16.count + contentAfterFirst.utf16.count - firstStr.utf16.count
-                if originalColumn > openStartIdx {
-                    caretDelta = textDelta
+                let fullDelta = (leadingSpacesFirst + contentBeforeLast + trailingSpacesLast).utf16.count - firstStr.utf16.count
+                let openDelta = newFirstContent.utf16.count - firstStr.utf16.count
+                if originalColumn > closeStartIdx16 {
+                    caretDelta = fullDelta
+                } else if originalColumn > openStartIdx16 {
+                    caretDelta = openDelta
                 }
             }
         } else {
@@ -275,7 +278,9 @@ public enum ToggleCommentEngine {
             let lastStr = lastNs.substring(to: lastNs.length - lastTermLength)
 
             var trailingSpacesLast = "", contentBeforeLast = ""
+            var closeStartIdx16 = lastStr.utf16.count
             if let rangeOfClose = lastStr.range(of: close, options: .backwards) {
+                closeStartIdx16 = lastStr.utf16.distance(from: lastStr.utf16.startIndex, to: rangeOfClose.lowerBound)
                 let endIdx = lastStr.distance(from: lastStr.startIndex, to: rangeOfClose.upperBound)
                 trailingSpacesLast = String(lastStr.suffix(lastStr.count - endIdx))
                 var rest = String(lastStr[..<rangeOfClose.lowerBound])
@@ -283,14 +288,15 @@ public enum ToggleCommentEngine {
                 contentBeforeLast = rest
             }
             let lastTerm = lastNs.substring(from: lastLine.contentsEnd - lastLine.start)
-            modifiedContents[lastIdx] = contentBeforeLast + trailingSpacesLast + lastTerm
+            let newLastContent = contentBeforeLast + trailingSpacesLast
+            modifiedContents[lastIdx] = newLastContent + lastTerm
 
-            // For first line caret
-            if firstLine.isCaretLine && originalColumn > openStartIdx {
+            if firstLine.isCaretLine && originalColumn > openStartIdx16 {
                 caretDelta = newFirstContent.utf16.count - firstStr.utf16.count
             }
-            if lastLine.isCaretLine { caretDelta = 0 }
-
+            if lastLine.isCaretLine && originalColumn > closeStartIdx16 {
+                caretDelta = newLastContent.utf16.count - lastStr.utf16.count
+            }
         }
         return (modifiedContents.joined(), caretDelta)
     }
