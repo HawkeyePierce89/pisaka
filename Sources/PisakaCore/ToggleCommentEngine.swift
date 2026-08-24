@@ -125,13 +125,10 @@ public enum ToggleCommentEngine {
 
         if isSelection {
             let newLength = newText.utf16.count
-            // selection is post-edit whole-line span (terminator excluded for end?)
-            // "selection placement, selection case — the post-edit whole-line span of
-            // the touched lines: from the first touched line's start to the last touched
-            // line's contents end (its terminator excluded)."
-
-            // Wait, we need to find the new contentsEnd of the last line.
-            // The last line's original terminator length is unchanged.
+            // The selection becomes the touched lines' post-edit whole-line span
+            // with the final terminator excluded; the edit never rewrites
+            // terminators, so the last line's original terminator length still
+            // holds post-edit.
             let lastLine = lines.last!
             let terminatorLength = lastLine.end - lastLine.contentsEnd
             let newSpanLength = newLength - terminatorLength
@@ -143,8 +140,7 @@ public enum ToggleCommentEngine {
 
             if isLastLine {
                 let delta = caretDeltaForLastLine
-                // the new content length of this line (excluding terminator which is 0 anyway)
-                // Actually newLength = newText.utf16.count
+                // A terminator-less last line, so newText is pure content.
                 let newContentLength = newText.utf16.count
                 let newColumn = min(max(originalColumn + delta, 0), newContentLength)
                 newSelectedRange = NSRange(location: touchedSpan.location + newColumn, length: 0)
@@ -162,8 +158,7 @@ public enum ToggleCommentEngine {
 
                 let nextLineContentLength = nextLineContentsEnd - nextLineStart
                 let newColumn = min(originalColumn, nextLineContentLength)
-                // post-edit coordinates!
-                // touchedSpan.location + newText.length gives the exact start of the next line.
+                // Post-edit, the next line starts right after the replacement.
                 let nextLineNewStart = touchedSpan.location + newText.utf16.count
                 newSelectedRange = NSRange(location: nextLineNewStart + newColumn, length: 0)
             }
@@ -309,9 +304,9 @@ public enum ToggleCommentEngine {
             let lastStr = lastNs.substring(to: lastNs.length - lastTermLength)
 
             var trailingSpacesLast = "", contentBeforeLast = ""
-            var closeStartIdx16 = lastStr.utf16.count
+            // No caret delta here: a caret target is always a single line, so
+            // the multi-line branch only ever serves a selection.
             if let rangeOfClose = lastStr.range(of: close, options: .backwards) {
-                closeStartIdx16 = lastStr.utf16.distance(from: lastStr.utf16.startIndex, to: rangeOfClose.lowerBound)
                 let endIdx = lastStr.distance(from: lastStr.startIndex, to: rangeOfClose.upperBound)
                 trailingSpacesLast = String(lastStr.suffix(lastStr.count - endIdx))
                 var rest = String(lastStr[..<rangeOfClose.lowerBound])

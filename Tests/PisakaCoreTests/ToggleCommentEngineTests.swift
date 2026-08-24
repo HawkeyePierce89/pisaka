@@ -43,7 +43,7 @@ final class ToggleCommentEngineTests: XCTestCase {
     }
 
     func testCaretColumnPreservationAndLastLine() {
-        // Last line case. "abc" length 3. Caret at 2. Add "//" -> 5. Caret should be at 4.
+        // Last line: the caret stays on its own line, shifted by "// " (+3).
         let text = "abc"
         assertToggle(
             text,
@@ -51,7 +51,7 @@ final class ToggleCommentEngineTests: XCTestCase {
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 3),
                 text: "// abc",
-                selectedRange: NSRange(location: 5, length: 0) // 2 + 2 = 4
+                selectedRange: NSRange(location: 5, length: 0) // 2 + 3 = 5
             )
         )
 
@@ -76,7 +76,7 @@ final class ToggleCommentEngineTests: XCTestCase {
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 4),
                 text: "// a\n// b\n",
-                selectedRange: NSRange(location: 0, length: 9) // text: "//a\n//b\n", newLength = 8, terminator is 1, so length 7
+                selectedRange: NSRange(location: 0, length: 9) // newLength 10 minus the final terminator
             )
         )
     }
@@ -89,7 +89,7 @@ final class ToggleCommentEngineTests: XCTestCase {
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 8),
                 text: "a\nb\n",
-                selectedRange: NSRange(location: 0, length: 3) // text: "a\nb\n", newLength = 4, terminator is 1, so length 3
+                selectedRange: NSRange(location: 0, length: 3) // newLength 4 minus the final terminator
             )
         )
     }
@@ -157,7 +157,7 @@ final class ToggleCommentEngineTests: XCTestCase {
         )
     }
 
-    func testCRLFCRNELLineSeparators() {
+    func testNonLFLineSeparators() {
         let textCRLF = "a\r\nb"
         assertToggle(
             textCRLF,
@@ -186,7 +186,29 @@ final class ToggleCommentEngineTests: XCTestCase {
             selectedRange: NSRange(location: 0, length: 0),
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 2),
-                text: "// a",
+                text: "// a\u{0085}",
+                selectedRange: NSRange(location: 5, length: 0)
+            )
+        )
+
+        let textLS = "a\u{2028}b"
+        assertToggle(
+            textLS,
+            selectedRange: NSRange(location: 0, length: 0),
+            expectedEdit: CommentToggleEdit(
+                replacementRange: NSRange(location: 0, length: 2),
+                text: "// a\u{2028}",
+                selectedRange: NSRange(location: 5, length: 0)
+            )
+        )
+
+        let textPS = "a\u{2029}b"
+        assertToggle(
+            textPS,
+            selectedRange: NSRange(location: 0, length: 0),
+            expectedEdit: CommentToggleEdit(
+                replacementRange: NSRange(location: 0, length: 2),
+                text: "// a\u{2029}",
                 selectedRange: NSRange(location: 5, length: 0)
             )
         )
@@ -214,7 +236,7 @@ final class ToggleCommentEngineTests: XCTestCase {
                 text: "x",
                 selectedRange: NSRange(location: 0, length: 0)
             )
-        ) // 1 - 2 = 0
+        ) // caret inside the removed token snaps to its start
 
         let text2 = "// x"
         assertToggle(text2, selectedRange: NSRange(location: 1, length: 0),
@@ -223,7 +245,7 @@ final class ToggleCommentEngineTests: XCTestCase {
                 text: "x",
                 selectedRange: NSRange(location: 0, length: 0)
             )
-        ) // 1 - 3 = 0
+        ) // caret inside the removed token snaps to its start
     }
 
     func testOtherLanguages() {

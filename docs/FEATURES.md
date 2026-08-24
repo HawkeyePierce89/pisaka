@@ -192,7 +192,8 @@ user sees it.
 - Toggle comment (Cmd+/): comments or uncomments the selected lines using the
   language's comment syntax. With no selection, it toggles the caret's line,
   moving the caret to the next line. Each toggle is a single undo step. Line-comment
-  languages (Swift, JS, Python, Go, Rust, YAML, SQL) insert or remove `//`, `#`,
+  languages (Swift, JS/TS, Python, Go, Rust, YAML, Dockerfile, dotenv,
+  gitignore, SQL) insert or remove `//`, `#`,
   or `--` after leading indentation; block-comment languages (HTML, CSS) wrap the
   non-blank edges of the selection in `<!-- -->` or `/* */`, or unwrap them if
   already present. A wholly blank target is a silent no-op, leaving the caret
