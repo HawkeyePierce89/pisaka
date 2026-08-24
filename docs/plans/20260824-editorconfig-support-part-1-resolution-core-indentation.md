@@ -163,7 +163,7 @@ is a compiled-token matcher like `GitignoreMatcher`.
 **Files:**
   - Create: `Sources/PisakaCore/EditorConfigResolver.swift`
   - Create: `Tests/PisakaCoreTests/EditorConfigResolverTests.swift`
-  - [ ] Implement `public enum EditorConfigResolver` with
+  - [x] Implement `public enum EditorConfigResolver` with
         `resolve(fileURL:projectRoot:fileService:) -> EditorConfigProperties`:
         establish that the file lives under the root (containment tested through
         `CanonicalPath`, the repository's "inside this dir?" rule), then build
@@ -171,23 +171,23 @@ is a compiled-token matcher like `GitignoreMatcher`.
         match the path as the user wrote it, and return empty properties for a
         `nil` root or a file outside it (an untitled buffer, an out-of-project
         definition window).
-  - [ ] Walk from the file's directory upward reading `.editorconfig` through
+  - [x] Walk from the file's directory upward reading `.editorconfig` through
         `FileServicing` (an unreadable or absent file is simply skipped),
         stopping after the first file declaring `root = true` — and never above
         the project root, whose own file is the last one considered whatever it
         declares.
-  - [ ] Merge outermost-first: within each file, every section whose glob
+  - [x] Merge outermost-first: within each file, every section whose glob
         matches applies in document order, overwriting per property, so closer
         files and later sections win. A value of `unset` (case-insensitive)
         removes the property instead of setting it.
-  - [ ] Write `EditorConfigResolverTests` over `StubFileTree`: nested configs
+  - [x] Write `EditorConfigResolverTests` over `StubFileTree`: nested configs
         overriding per property, `root = true` stopping the walk, a config above
         the project root never read, later-section-wins inside one file, `unset`
         clearing an inherited property, unknown properties surviving the merge,
         a file outside the root and a `nil` root both resolving to empty, and an
         unreadable `.editorconfig` degrading to "no properties from that file"
         rather than failing the walk.
-  - [ ] Run `swift test` — must pass before Task 4.
+  - [x] Run `swift test` — must pass before Task 4.
 
 ### Task 4: The cached, invalidatable model
 
