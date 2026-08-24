@@ -23,8 +23,8 @@ final class ToggleCommentEngineTests: XCTestCase {
             selectedRange: NSRange(location: 4, length: 0),
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 10),
-                text: "//let x = 1\n",
-                selectedRange: NSRange(location: 16, length: 0)
+                text: "// let x = 1\n",
+                selectedRange: NSRange(location: 17, length: 0)
             )
         )
     }
@@ -50,8 +50,8 @@ final class ToggleCommentEngineTests: XCTestCase {
             selectedRange: NSRange(location: 2, length: 0),
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 3),
-                text: "//abc",
-                selectedRange: NSRange(location: 4, length: 0) // 2 + 2 = 4
+                text: "// abc",
+                selectedRange: NSRange(location: 5, length: 0) // 2 + 2 = 4
             )
         )
 
@@ -75,8 +75,8 @@ final class ToggleCommentEngineTests: XCTestCase {
             selectedRange: NSRange(location: 0, length: 3),
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 4),
-                text: "//a\n//b\n",
-                selectedRange: NSRange(location: 0, length: 7) // text: "//a\n//b\n", newLength = 8, terminator is 1, so length 7
+                text: "// a\n// b\n",
+                selectedRange: NSRange(location: 0, length: 9) // text: "//a\n//b\n", newLength = 8, terminator is 1, so length 7
             )
         )
     }
@@ -102,8 +102,8 @@ final class ToggleCommentEngineTests: XCTestCase {
             selectedRange: NSRange(location: 0, length: 5),
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 6),
-                text: "////a\n//b\n",
-                selectedRange: NSRange(location: 0, length: 9)
+                text: "// //a\n// b\n",
+                selectedRange: NSRange(location: 0, length: 11)
             )
         )
     }
@@ -115,8 +115,8 @@ final class ToggleCommentEngineTests: XCTestCase {
             selectedRange: NSRange(location: 0, length: 4),
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 4),
-                text: "//a\n\n//b",
-                selectedRange: NSRange(location: 0, length: 8)
+                text: "// a\n\n// b",
+                selectedRange: NSRange(location: 0, length: 10)
             )
         )
     }
@@ -127,8 +127,8 @@ final class ToggleCommentEngineTests: XCTestCase {
         assertToggle(text, selectedRange: NSRange(location: 0, length: 0),
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 2),
-                text: "//a\n",
-                selectedRange: NSRange(location: 4, length: 0)
+                text: "// a\n",
+                selectedRange: NSRange(location: 5, length: 0)
             )
         )
 
@@ -136,8 +136,8 @@ final class ToggleCommentEngineTests: XCTestCase {
         assertToggle(text, selectedRange: NSRange(location: 3, length: 0),
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 2, length: 1),
-                text: "//b",
-                selectedRange: NSRange(location: 5, length: 0)
+                text: "// b",
+                selectedRange: NSRange(location: 6, length: 0)
             )
         )
     }
@@ -151,8 +151,8 @@ final class ToggleCommentEngineTests: XCTestCase {
             selectedRange: NSRange(location: 0, length: 2),
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 2),
-                text: "//a\n",
-                selectedRange: NSRange(location: 0, length: 3)
+                text: "// a\n",
+                selectedRange: NSRange(location: 0, length: 4)
             )
         )
     }
@@ -164,8 +164,8 @@ final class ToggleCommentEngineTests: XCTestCase {
             selectedRange: NSRange(location: 0, length: 0),
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 3),
-                text: "//a\r\n",
-                selectedRange: NSRange(location: 5, length: 0)
+                text: "// a\r\n",
+                selectedRange: NSRange(location: 6, length: 0)
             )
         )
 
@@ -175,8 +175,8 @@ final class ToggleCommentEngineTests: XCTestCase {
             selectedRange: NSRange(location: 0, length: 0),
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 2),
-                text: "//a\r",
-                selectedRange: NSRange(location: 4, length: 0)
+                text: "// a\r",
+                selectedRange: NSRange(location: 5, length: 0)
             )
         )
 
@@ -186,8 +186,8 @@ final class ToggleCommentEngineTests: XCTestCase {
             selectedRange: NSRange(location: 0, length: 0),
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 2),
-                text: "//a\u{0085}",
-                selectedRange: NSRange(location: 4, length: 0)
+                text: "// a",
+                selectedRange: NSRange(location: 5, length: 0)
             )
         )
     }
@@ -231,15 +231,15 @@ final class ToggleCommentEngineTests: XCTestCase {
         assertToggle(text, selectedRange: NSRange(location: 0, length: 0), language: .python,
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 1),
-                text: "#a",
-                selectedRange: NSRange(location: 1, length: 0)
+                text: "# a",
+                selectedRange: NSRange(location: 2, length: 0)
             )
         )
         assertToggle(text, selectedRange: NSRange(location: 0, length: 0), language: .sql,
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 1),
-                text: "--a",
-                selectedRange: NSRange(location: 2, length: 0)
+                text: "-- a",
+                selectedRange: NSRange(location: 3, length: 0)
             )
         )
     }
@@ -266,15 +266,15 @@ final class ToggleCommentEngineTests: XCTestCase {
         assertToggle(text, selectedRange: NSRange(location: 10, length: 10),
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 1),
-                text: "//a",
-                selectedRange: NSRange(location: 3, length: 0)
+                text: "// a",
+                selectedRange: NSRange(location: 4, length: 0)
             )
         )
         assertToggle(text, selectedRange: NSRange(location: NSNotFound, length: 0),
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 1),
-                text: "//a",
-                selectedRange: NSRange(location: 3, length: 0)
+                text: "// a",
+                selectedRange: NSRange(location: 4, length: 0)
             )
         )
     }
@@ -288,8 +288,8 @@ final class ToggleCommentEngineTests: XCTestCase {
             language: .css,
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 11),
-                text: "/*color: red;*/",
-                selectedRange: NSRange(location: 2, length: 0)
+                text: "/* color: red; */",
+                selectedRange: NSRange(location: 3, length: 0)
             )
         )
     }
@@ -317,8 +317,8 @@ final class ToggleCommentEngineTests: XCTestCase {
             language: .html,
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 6, length: 11),
-                text: "  <!--<p>a</p>-->\n",
-                selectedRange: NSRange(location: 6, length: 17)
+                text: "  <!-- <p>a</p> -->\n",
+                selectedRange: NSRange(location: 6, length: 19)
             )
         )
     }
@@ -370,8 +370,8 @@ final class ToggleCommentEngineTests: XCTestCase {
         assertToggle(text, selectedRange: NSRange(location: 0, length: 0), language: .css,
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 11),
-                text: "/*a /* b */ c*/",
-                selectedRange: NSRange(location: 2, length: 0)
+                text: "/* a /* b */ c */",
+                selectedRange: NSRange(location: 3, length: 0)
             )
         )
     }
@@ -382,8 +382,8 @@ final class ToggleCommentEngineTests: XCTestCase {
         assertToggle(text, selectedRange: NSRange(location: 0, length: 7), language: .css,
             expectedEdit: CommentToggleEdit(
                 replacementRange: NSRange(location: 0, length: 7),
-                text: " \n /*a */\n ",
-                selectedRange: NSRange(location: 0, length: 11)
+                text: " \n /* a  */\n ",
+                selectedRange: NSRange(location: 0, length: 13)
             )
         )
     }

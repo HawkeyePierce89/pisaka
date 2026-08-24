@@ -95,10 +95,27 @@ public enum ToggleCommentEngine {
                 }
             } else {
                 // Comment
-                let commented = token + line.content
+                let nsString = line.content as NSString
+                let contentsLength = line.contentsEnd - line.start
+                var i = 0
+                while i < contentsLength {
+                    let unichar = nsString.character(at: i)
+                    if let scalar = Unicode.Scalar(unichar), CharacterSet.whitespaces.contains(scalar) {
+                        i += 1
+                    } else {
+                        break
+                    }
+                }
+                let leadingSpaces = nsString.substring(with: NSRange(location: 0, length: i))
+                let rest = nsString.substring(from: i)
+                let commented = leadingSpaces + token + " " + rest
                 newText += commented
                 if line.isCaretLine {
-                    caretDeltaForLastLine = token.utf16.count
+                    if originalColumn >= i {
+                        caretDeltaForLastLine = token.utf16.count + 1
+                    } else {
+                        caretDeltaForLastLine = 0
+                    }
                 }
             }
         }
@@ -329,13 +346,13 @@ public enum ToggleCommentEngine {
         let leadingFirst = firstNs.substring(to: firstNonSpaceIdx)
         let restLength = firstNs.length - firstTermLength - firstNonSpaceIdx
         let restFirst = firstNs.substring(with: NSRange(location: firstNonSpaceIdx, length: restLength))
-        let newFirstContent = leadingFirst + open + restFirst
+        let newFirstContent = leadingFirst + open + " " + restFirst
 
         if firstIdx == lastIdx {
             let term = firstNs.substring(from: firstLine.contentsEnd - firstLine.start)
-            modifiedContents[firstIdx] = newFirstContent + close + term
+            modifiedContents[firstIdx] = newFirstContent + " " + close + term
             if firstLine.isCaretLine && originalColumn >= firstNonSpaceIdx {
-                caretDelta = open.utf16.count
+                caretDelta = open.utf16.count + 1
             }
         } else {
             let firstTerm = firstNs.substring(from: firstLine.contentsEnd - firstLine.start)
@@ -346,7 +363,7 @@ public enum ToggleCommentEngine {
             let lastTermLength = lastLine.end - lastLine.contentsEnd
             let lastStr = lastNs.substring(to: lastNs.length - lastTermLength)
             let lastTerm = lastNs.substring(from: lastLine.contentsEnd - lastLine.start)
-            modifiedContents[lastIdx] = lastStr + close + lastTerm
+            modifiedContents[lastIdx] = lastStr + " " + close + lastTerm
 
         }
         return (modifiedContents.joined(), caretDelta)
