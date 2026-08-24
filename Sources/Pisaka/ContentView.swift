@@ -69,6 +69,14 @@ struct ContentView: View {
     /// controller over a fresh, never-walked index so a default-constructed view
     /// (previews/tests) still compiles.
     var symbolIndex: SymbolIndexController = SymbolIndexController(model: SymbolIndexModel())
+    /// What `.editorconfig` says about the file being edited. Owned by `PisakaApp`
+    /// and threaded straight into `CodeEditorView`, which is the only thing that
+    /// asks it anything; deliberately **not** `@ObservedObject` for the
+    /// `symbolIndex` reasons above — it publishes nothing. Undefaulted, unlike its
+    /// neighbours: the model is main-actor-isolated and takes a `FileServicing`,
+    /// so there is no default worth writing that would not be a second, live disk
+    /// reader built for a view nobody constructs.
+    var editorConfig: EditorConfigModel
     /// Schedules the diagnostics channel's push sync (D30): the same three
     /// editor triggers — tab open/switch, wholesale buffer swap, settled typing
     /// — that drive the symbol index also flush the buffer to its language
@@ -675,6 +683,7 @@ struct ContentView: View {
                     search: search,
                     reveal: reveal,
                     symbolIndex: symbolIndex,
+                    editorConfig: editorConfig,
                     lspSync: lspSync,
                     diagnostics: diagnostics,
                     onGoToDefinition: onGoToDefinition,

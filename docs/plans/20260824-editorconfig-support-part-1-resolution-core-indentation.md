@@ -257,21 +257,21 @@ is a compiled-token matcher like `GitignoreMatcher`.
   - Modify: `Sources/Pisaka/PisakaApp.swift`
   - Modify: `Sources/Pisaka/ContentView.swift`
   - Modify: `Sources/Pisaka/CodeEditorView.swift`
-  - [ ] Own one `EditorConfigModel` in `PisakaApp` as a plain stored reference
+  - [x] Own one `EditorConfigModel` in `PisakaApp` as a plain stored reference
         (it publishes nothing — the `symbolIndexController` precedent), built
         over the existing `FileService()`, and pass it through `ContentView`
         into `CodeEditorView` as a plain, undefaulted property beside
         `symbolIndex`.
-  - [ ] Invalidate from the two places that already exist: `noteProjectRoot(_:)`
+  - [x] Invalidate from the two places that already exist: `noteProjectRoot(_:)`
         where the folder is opened/switched, and `noteProjectFilesChanged()` in
         the `projectWatcher.start(root:onChange:)` callback beside the tree bump
         and the index refresh — which is what makes a live `.editorconfig` edit
         take effect without reopening the project.
-  - [ ] Feed `insertIndentedNewline` the rule's unit:
+  - [x] Feed `insertIndentedNewline` the rule's unit:
         `IndentUnitRule.unit(config: editorConfig.properties(for: fileURL),
         inferred: IndentEngine.inferIndentUnit(text: nsText))`, leaving the rest
         of the handler and the dedent path untouched.
-  - [ ] Handle `#selector(NSResponder.insertTab(_:))` in `doCommandBy`,
+  - [x] Handle `#selector(NSResponder.insertTab(_:))` in `doCommandBy`,
         returning `false` whenever `IndentUnitRule.tabInsertion` says a tab so
         AppKit's own insertion keeps today's behavior exactly — including at
         every insertion point. When it says spaces, **keep multi-insertion-point
@@ -287,12 +287,12 @@ is a compiled-token matcher like `GitignoreMatcher`.
         bracket (one undoable step), install the plan's carets with
         `setSelectedRanges`, and keep the existing `isApplyingProgrammaticEdit`
         guard around the whole thing. `insertBacktab` stays untouched.
-  - [ ] Verify the parity claim by exercising it in a Core test rather than by
+  - [x] Verify the parity claim by exercising it in a Core test rather than by
         eyeballing the view: the plan's edits applied to a sample text
         reproduce, for the single-range case, exactly what one replacement would
         have produced, and, for the multi-caret case, one insertion per caret
         with all carets preserved.
-  - [ ] Run `swift test` — must pass before Task 7.
+  - [x] Run `swift test` — must pass before Task 7.
 
 ### Task 7: iOS wiring
 

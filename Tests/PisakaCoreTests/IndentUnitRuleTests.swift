@@ -254,6 +254,52 @@ final class IndentUnitRuleTests: XCTestCase {
         XCTAssertEqual(apply(plan, to: "abcd"), "ab  cd")
     }
 
+    // MARK: - The plan is what the Tab key does
+
+    // The macOS Tab handler applies the plan itself (back-to-front, inside one
+    // `shouldChangeText` bracket) instead of calling `insertText`, so the claim
+    // that it still does what the key always did is checked here, as arithmetic,
+    // rather than by eyeballing the view.
+
+    func testTheTabHandlerSingleRangePathMatchesOneNativeInsertion() {
+        // One insertion point — a caret or a selection — must come out exactly as
+        // a single `insertText(_:replacementRange:)` would have left it: the same
+        // text, and the caret after the insertion.
+        let text = "func f() {\n\tlet x = 1\n}"
+        for range in [NSRange(location: 11, length: 0), NSRange(location: 11, length: 1)] {
+            let plan = IndentUnitRule.tabInsertionPlan(ranges: [range], insertion: "  ")
+
+            let native = NSMutableString(string: text)
+            native.replaceCharacters(in: range, with: "  ")
+            XCTAssertEqual(apply(plan, to: text), native as String)
+            XCTAssertEqual(plan.replacements.count, 1)
+            XCTAssertEqual(plan.carets, [NSRange(location: range.location + 2, length: 0)])
+        }
+    }
+
+    func testTheTabHandlerMultiCaretPathInsertsOncePerCaretAndKeepsEveryCaret() {
+        // What the native key does at several insertion points, which is the
+        // state the column-selection gesture leaves behind: one insertion each,
+        // and every caret still there afterwards.
+        let text = "aaa\nbbb\nccc"
+        let carets = [
+            NSRange(location: 1, length: 0),
+            NSRange(location: 5, length: 0),
+            NSRange(location: 9, length: 0),
+        ]
+        let plan = IndentUnitRule.tabInsertionPlan(ranges: carets, insertion: "  ")
+
+        XCTAssertEqual(plan.replacements.count, carets.count)
+        XCTAssertEqual(plan.carets.count, carets.count)
+        let result = apply(plan, to: text)
+        XCTAssertEqual(result, "a  aa\nb  bb\nc  cc")
+        // Each caret sits right after its own insertion in the resulting text.
+        let resulting = result as NSString
+        for caret in plan.carets {
+            XCTAssertEqual(resulting.substring(with: NSRange(location: caret.location - 2, length: 2)), "  ")
+        }
+    }
+
     func testACaretAtTheEndOfASelectionStaysASecondInsertionPoint() {
         // Touching is not overlapping: the caret is its own insertion point.
         let plan = IndentUnitRule.tabInsertionPlan(

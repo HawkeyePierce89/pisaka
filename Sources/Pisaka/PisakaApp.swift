@@ -97,6 +97,19 @@ struct PisakaApp: App {
     /// controllers above.
     private let symbolIndexController: SymbolIndexController
 
+    /// What `.editorconfig` says about the file being edited — the cache behind
+    /// Enter's indentation unit and the Tab key. A plain stored reference like
+    /// `symbolIndexController`, and for its exact reason: it publishes nothing, so
+    /// observing it would put `ContentView` (and with it the project tree, the tab
+    /// list and `CodeEditorView.updateNSView`) on an update path for a value this
+    /// scene's `body` never shows. Threaded straight through to `CodeEditorView`,
+    /// which is the only thing that asks it anything.
+    ///
+    /// **A reader**, like the symbol index: it opens files and writes none, so it
+    /// neither raises `autosave.suspend()` / `localChanges.beginRevert()` nor is
+    /// gated by them. The two invalidation calls below are its whole lifecycle.
+    private let editorConfig: EditorConfigModel
+
     /// Which language servers are running, for which project, holding which
     /// documents open (phase 2a). A plain stored reference like the window
     /// controllers: the `@main` App is created once, and this owning reference is
@@ -281,6 +294,11 @@ struct PisakaApp: App {
         self.symbolIndex = symbolIndex
         let symbolIndexController = SymbolIndexController(model: symbolIndex)
         self.symbolIndexController = symbolIndexController
+
+        // Over the same stateless `FileService` every other disk reader here uses.
+        // No root yet: the launch-time session restore and every user-driven open
+        // both go through `openFolder(url:)`, which is where the root is recorded.
+        self.editorConfig = EditorConfigModel(fileService: FileService())
 
         // The LSP layer, composed once and then left alone. `LSPProcessTransport`
         // is the *only* thing handed over from the app side: the workspace decides
@@ -738,6 +756,7 @@ struct PisakaApp: App {
                 search: search,
                 reveal: reveal,
                 symbolIndex: symbolIndexController,
+                editorConfig: editorConfig,
                 lspSync: lspDocumentSync,
                 diagnostics: diagnostics,
                 provisioning: lspProvisioning,
@@ -1688,6 +1707,14 @@ struct PisakaApp: App {
 
         model.openFolder(url: url)
 
+        // Point the `.editorconfig` cache at the new root in this same synchronous
+        // turn, before anything can ask it a question: the model clears itself on a
+        // root change, so a configuration resolved under the folder the user just
+        // left can never be returned for a file in this one. Unconditional — a
+        // re-open of the same root is a no-op inside the model, which compares the
+        // roots itself.
+        editorConfig.noteProjectRoot(url)
+
         // Apply the incoming project's tabs, before the collaborators below are
         // pointed at the new root: a first open of this folder has no stored session
         // and gets an explicitly empty one, which empties the editor rather than
@@ -1751,9 +1778,16 @@ struct PisakaApp: App {
         // middle of a revert costs at worst one stale entry that the next refresh
         // corrects. `url` is captured rather than read from the model so the
         // refresh always names the root this subscription was started for.
+        // The same callback drops the `.editorconfig` cache, which is the whole
+        // reason a live edit to one takes effect without reopening the project. It
+        // is a reader too, so it is ungated for the same reason, and its
+        // invalidation is wholesale rather than debounced: clearing a dictionary
+        // costs nothing, and the re-resolution is paid for by the next keystroke in
+        // the front tab and by nothing else.
         projectWatcher.start(root: url, onChange: {
             model.bumpTreeRevision()
             symbolIndexController.noteProjectFilesChanged(root: url)
+            editorConfig.noteProjectFilesChanged()
         })
         // Record the folder switch *synchronously*, in this same main-actor turn,
         // before launching the async refresh. The model's revert guard keys off a
