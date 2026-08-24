@@ -7,24 +7,38 @@ public struct ColumnSelectionLine: Equatable {
     /// The full character range of the line, including any terminator.
     public var lineRange: NSRange
     /// The UTF-16 character offset for the left edge of the column rectangle on this line.
-    public var leftOffset: In
+    public var leftOffset: Int
     /// The UTF-16 character offset for the right edge of the column rectangle on this line.
-    public var rightOffset: In
+    public var rightOffset: Int
 
     public init(lineRange: NSRange, leftOffset: Int, rightOffset: Int) {
         self.lineRange = lineRange
-        self.leftOffset = leftOffse
-        self.rightOffset = rightOffse
+        self.leftOffset = leftOffset
+        self.rightOffset = rightOffset
     }
 }
 
+public struct ColumnSelectionBounds: Equatable {
+    public var left: CGFloat
+    public var right: CGFloat
+    public var top: CGFloat
+    public var bottom: CGFloat
+    public var rect: CGRect
+}
+
 public enum ColumnSelectionEngine {
-    public static func bounds(anchor: CGPoint, head: CGPoint) -> CGRect {
+    public static func bounds(anchor: CGPoint, head: CGPoint) -> ColumnSelectionBounds {
         let left = min(anchor.x, head.x)
         let right = max(anchor.x, head.x)
         let top = min(anchor.y, head.y)
         let bottom = max(anchor.y, head.y)
-        return CGRect(x: left, y: top, width: right - left, height: bottom - top)
+        return ColumnSelectionBounds(
+            left: left,
+            right: right,
+            top: top,
+            bottom: bottom,
+            rect: CGRect(x: left, y: top, width: right - left, height: bottom - top)
+        )
     }
 
     /// Turns the layout manager's per-line answers into the ordered `selectedRanges`.
