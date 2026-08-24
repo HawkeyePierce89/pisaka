@@ -75,6 +75,7 @@ public enum ToggleCommentEngine {
         var newText = ""
         var caretDeltaForLastLine = 0
 
+        let originalColumn = range.length == 0 ? range.location - lines[0].start : 0
         for line in lines {
             if line.isBlank {
                 newText += line.content
@@ -82,16 +83,16 @@ public enum ToggleCommentEngine {
             }
             if allCommented {
                 // Uncomment
-                let uncommented = line.uncommented(token: token)
+                let (uncommented, removedIdx) = line.uncommented(token: token)
                 newText += uncommented
-                if line.isCaretLine {
+                if line.isCaretLine && originalColumn > removedIdx {
                     caretDeltaForLastLine = uncommented.utf16.count - line.content.utf16.count
                 }
             } else {
                 // Comment
                 let commented = token + line.content
                 newText += commented
-                if line.isCaretLine {
+                if line.isCaretLine { // originalColumn >= 0 is always true
                     caretDeltaForLastLine = token.utf16.count
                 }
             }
@@ -209,18 +210,19 @@ public enum ToggleCommentEngine {
             shouldUnwrap = firstTrimmed.hasPrefix(open) && lastTrimmed.hasSuffix(close)
         }
 
-        let (newLines, caretDelta) = shouldUnwrap
-            ? unwrapBlock(lines: lines, firstIdx: firstIdx, lastIdx: lastIdx, open: open, close: close)
-            : wrapBlock(lines: lines, firstIdx: firstIdx, lastIdx: lastIdx, open: open, close: close)
+        let originalColumn = range.length == 0 ? range.location - lines[0].start : 0
+        let (newText, caretDelta) = shouldUnwrap
+            ? unwrapBlock(lines: lines, firstIdx: firstIdx, lastIdx: lastIdx, open: open, close: close, originalColumn: originalColumn)
+            : wrapBlock(lines: lines, firstIdx: firstIdx, lastIdx: lastIdx, open: open, close: close, originalColumn: originalColumn)
 
-        return buildBlockEdit(newLines: newLines, caretDelta: caretDelta, text: text,
+        return buildBlockEdit(newText: newText, caretDelta: caretDelta, text: text,
                               lines: lines, range: range, touchedSpan: touchedSpan)
     }
 
     private static func unwrapBlock(
-        lines: [LineInfo], firstIdx: Int, lastIdx: Int, open: String, close: String
-    ) -> ([LineInfo], Int) {
-        var newLines = lines
+        lines: [LineInfo], firstIdx: Int, lastIdx: Int, open: String, close: String, originalColumn: Int
+    ) -> (String, Int) {
+        var modifiedContents = lines.map { $0.content }
         var caretDelta = 0
         let firstLine = lines[firstIdx]
         let firstNs = firstLine.content as NSString
@@ -228,9 +230,10 @@ public enum ToggleCommentEngine {
         let firstStr = firstNs.substring(to: firstNs.length - firstTermLength)
 
         var leadingSpacesFirst = "", contentAfterFirst = ""
+        var openStartIdx = 0
         if let rangeOfOpen = firstStr.range(of: open) {
-            let startIdx = firstStr.distance(from: firstStr.startIndex, to: rangeOfOpen.lowerBound)
-            leadingSpacesFirst = String(firstStr.prefix(startIdx))
+            openStartIdx = firstStr.distance(from: firstStr.startIndex, to: rangeOfOpen.lowerBound)
+            leadingSpacesFirst = String(firstStr.prefix(openStartIdx))
             var rest = String(firstStr[rangeOfOpen.upperBound...])
             if rest.hasPrefix(" ") { rest.removeFirst() }
             contentAfterFirst = rest
@@ -239,7 +242,12 @@ public enum ToggleCommentEngine {
 
         if firstIdx == lastIdx {
             var trailingSpacesLast = "", contentBeforeLast = ""
+            var closeStartIdx = firstStr.count // fallback
             if let rangeOfClose = contentAfterFirst.range(of: close, options: .backwards) {
+                // Actually need closeStartIdx relative to original line to know if caret is before it
+                if let origCloseRange = firstStr.range(of: close, options: .backwards) {
+                    closeStartIdx = firstStr.distance(from: firstStr.startIndex, to: origCloseRange.lowerBound)
+                }
                 let endIdx = contentAfterFirst.distance(
                     from: contentAfterFirst.startIndex, to: rangeOfClose.upperBound
                 )
@@ -249,22 +257,17 @@ public enum ToggleCommentEngine {
                 contentBeforeLast = rest
             }
             let term = firstNs.substring(from: firstLine.contentsEnd - firstLine.start)
-            let newLineContent = leadingSpacesFirst + contentBeforeLast + trailingSpacesLast + term
-            newLines[firstIdx] = LineInfo(
-                start: firstLine.start, end: firstLine.end,
-                contentsEnd: firstLine.contentsEnd,
-                content: newLineContent, isCaretLine: firstLine.isCaretLine
-            )
+            modifiedContents[firstIdx] = leadingSpacesFirst + contentBeforeLast + trailingSpacesLast + term
+
             if firstLine.isCaretLine {
-                caretDelta = leadingSpacesFirst.utf16.count + contentAfterFirst.utf16.count - firstStr.utf16.count
+                let textDelta = leadingSpacesFirst.utf16.count + contentAfterFirst.utf16.count - firstStr.utf16.count
+                if originalColumn > openStartIdx {
+                    caretDelta = textDelta
+                }
             }
         } else {
             let firstTerm = firstNs.substring(from: firstLine.contentsEnd - firstLine.start)
-            newLines[firstIdx] = LineInfo(
-                start: firstLine.start, end: firstLine.end,
-                contentsEnd: firstLine.contentsEnd,
-                content: newFirstContent + firstTerm, isCaretLine: firstLine.isCaretLine
-            )
+            modifiedContents[firstIdx] = newFirstContent + firstTerm
 
             let lastLine = lines[lastIdx]
             let lastNs = lastLine.content as NSString
@@ -280,20 +283,22 @@ public enum ToggleCommentEngine {
                 contentBeforeLast = rest
             }
             let lastTerm = lastNs.substring(from: lastLine.contentsEnd - lastLine.start)
-            newLines[lastIdx] = LineInfo(
-                start: lastLine.start, end: lastLine.end,
-                contentsEnd: lastLine.contentsEnd,
-                content: contentBeforeLast + trailingSpacesLast + lastTerm, isCaretLine: lastLine.isCaretLine
-            )
+            modifiedContents[lastIdx] = contentBeforeLast + trailingSpacesLast + lastTerm
+
+            // For first line caret
+            if firstLine.isCaretLine && originalColumn > openStartIdx {
+                caretDelta = newFirstContent.utf16.count - firstStr.utf16.count
+            }
             if lastLine.isCaretLine { caretDelta = 0 }
+
         }
-        return (newLines, caretDelta)
+        return (modifiedContents.joined(), caretDelta)
     }
 
     private static func wrapBlock(
-        lines: [LineInfo], firstIdx: Int, lastIdx: Int, open: String, close: String
-    ) -> ([LineInfo], Int) {
-        var newLines = lines
+        lines: [LineInfo], firstIdx: Int, lastIdx: Int, open: String, close: String, originalColumn: Int
+    ) -> (String, Int) {
+        var modifiedContents = lines.map { $0.content }
         var caretDelta = 0
         let firstLine = lines[firstIdx]
         let firstNs = firstLine.content as NSString
@@ -314,40 +319,33 @@ public enum ToggleCommentEngine {
 
         if firstIdx == lastIdx {
             let term = firstNs.substring(from: firstLine.contentsEnd - firstLine.start)
-            newLines[firstIdx] = LineInfo(
-                start: firstLine.start, end: firstLine.end,
-                contentsEnd: firstLine.contentsEnd,
-                content: newFirstContent + close + term, isCaretLine: firstLine.isCaretLine
-            )
-            if firstLine.isCaretLine { caretDelta = open.utf16.count }
+            modifiedContents[firstIdx] = newFirstContent + close + term
+            if firstLine.isCaretLine && originalColumn >= firstNonSpaceIdx {
+                caretDelta = open.utf16.count
+            }
         } else {
             let firstTerm = firstNs.substring(from: firstLine.contentsEnd - firstLine.start)
-            newLines[firstIdx] = LineInfo(
-                start: firstLine.start, end: firstLine.end,
-                contentsEnd: firstLine.contentsEnd,
-                content: newFirstContent + firstTerm, isCaretLine: firstLine.isCaretLine
-            )
+            modifiedContents[firstIdx] = newFirstContent + firstTerm
 
             let lastLine = lines[lastIdx]
             let lastNs = lastLine.content as NSString
             let lastTermLength = lastLine.end - lastLine.contentsEnd
             let lastStr = lastNs.substring(to: lastNs.length - lastTermLength)
             let lastTerm = lastNs.substring(from: lastLine.contentsEnd - lastLine.start)
-            newLines[lastIdx] = LineInfo(
-                start: lastLine.start, end: lastLine.end,
-                contentsEnd: lastLine.contentsEnd,
-                content: lastStr + close + lastTerm, isCaretLine: lastLine.isCaretLine
-            )
+            modifiedContents[lastIdx] = lastStr + close + lastTerm
+
+            if firstLine.isCaretLine && originalColumn >= firstNonSpaceIdx {
+                caretDelta = open.utf16.count
+            }
             if lastLine.isCaretLine { caretDelta = 0 }
         }
-        return (newLines, caretDelta)
+        return (modifiedContents.joined(), caretDelta)
     }
 
     private static func buildBlockEdit(
-        newLines: [LineInfo], caretDelta: Int, text: NSString, lines: [LineInfo],
+        newText: String, caretDelta: Int, text: NSString, lines: [LineInfo],
         range: NSRange, touchedSpan: NSRange
     ) -> CommentToggleEdit {
-        let newText = newLines.map { $0.content }.joined()
         let isSelection = range.length > 0
         let newSelectedRange: NSRange
 
@@ -404,7 +402,7 @@ private struct LineInfo {
         return trimmed.hasPrefix(token)
     }
 
-    func uncommented(token: String) -> String {
+    func uncommented(token: String) -> (String, Int) {
         let nsString = content as NSString
         let contentsLength = contentsEnd - start
 
@@ -430,6 +428,6 @@ private struct LineInfo {
             }
         }
 
-        return leadingSpaces + rest + terminator
+        return (leadingSpaces + rest + terminator, i)
     }
 }

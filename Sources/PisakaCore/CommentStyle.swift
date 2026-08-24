@@ -16,10 +16,6 @@ public enum CommentStyle: Equatable {
     /// Returns the comment style for the given language, or `nil` if the
     /// language has no comment syntax.
     public static func style(for language: SyntaxLanguage) -> CommentStyle? {
-        if languagesWithoutComments.contains(language) {
-            return nil
-        }
-
         switch language {
         case .swift, .javascript, .typescript, .go, .rust:
             return .line("//")

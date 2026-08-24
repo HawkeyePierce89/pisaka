@@ -2588,13 +2588,6 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
         onGoToDefinition?(self, selectedRange().location)
     }
 
-    /// Toggles comments for the current selection or line — the Edit menu's
-    /// "Toggle Comment" entry point, which reaches this view as the key window's
-    /// first responder.
-    func toggleCommentAtSelection() {
-        onToggleComment?(self)
-    }
-
     /// A Command-held click navigates to the clicked identifier's declaration;
     /// every other click keeps the stock behavior.
     ///
