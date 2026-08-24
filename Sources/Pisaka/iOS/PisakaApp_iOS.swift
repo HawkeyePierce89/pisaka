@@ -64,10 +64,11 @@ struct PisakaApp_iOS: App {
     /// **A reader**, like the index: it opens files and writes none, so it neither
     /// raises the disk-writer gate nor is gated by it. And like the index it has
     /// no file-system watcher to lean on, so its cache is dropped from the
-    /// boundaries this platform *does* know about — the root switch and the
-    /// worktree rewrites the app performs itself (`RootView_iOS`). An out-of-band
-    /// edit to a `.editorconfig` (Files.app, a share extension) stays a stated
-    /// limit, exactly as it is for the index.
+    /// boundaries this platform *does* know about — the root switch, the worktree
+    /// rewrites the app performs itself, and the one save iOS has, which is the
+    /// likeliest way a `.editorconfig` changes at all (`RootView_iOS`). An
+    /// out-of-band edit to a `.editorconfig` (Files.app, a share extension) stays a
+    /// stated limit, exactly as it is for the index.
     private let editorConfig: EditorConfigModel
 
     /// Who is signed in to LeetCode, the open-problem operation, and the statement

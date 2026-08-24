@@ -109,7 +109,19 @@ public struct EditorConfigFile: Equatable {
 
     /// Every section matching `relativePath`, in document order.
     public func sections(matching relativePath: String) -> [EditorConfigSection] {
-        sections.filter { $0.glob.matches(relativePath: relativePath) }
+        var budget = EditorConfigGlob.maximumMatchSteps
+        return sections(matching: relativePath, budget: &budget)
+    }
+
+    /// The same list against a budget the caller owns, so the whole outward walk
+    /// — every section of every file it reads — shares one ceiling instead of
+    /// one per section (see `EditorConfigGlob.maximumMatchSteps`).
+    func sections(matching relativePath: String, budget: inout Int) -> [EditorConfigSection] {
+        var matching: [EditorConfigSection] = []
+        for section in sections where section.glob.matches(relativePath: relativePath, budget: &budget) {
+            matching.append(section)
+        }
+        return matching
     }
 
     // MARK: - Lines

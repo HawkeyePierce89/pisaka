@@ -1254,6 +1254,21 @@ struct RootView_iOS: View {
         symbolIndexController.noteProjectFilesChanged(root: root)
     }
 
+    /// Drop the `.editorconfig` cache when the app itself just wrote one — the
+    /// iOS peer of `PisakaApp.noteEditorConfigWrites(_:)`.
+    ///
+    /// iOS has no watcher at all (no FSEvents, and the sandboxed grant makes one
+    /// impractical), so `notifyIndexOfProjectFileChanges()` — the worktree-rewrite
+    /// funnel — is the *only* other invalidation. Saving a `.editorconfig` in
+    /// Pisaka never goes through it, and editing one in Pisaka is the likeliest
+    /// way anyone changes one, so without this the pre-edit properties would be
+    /// served for the rest of the session. Narrow for the same reason as the
+    /// macOS peer: an ordinary save must not throw the cache away.
+    private func noteEditorConfigWrite(_ url: URL?) {
+        guard url?.lastPathComponent == EditorConfigResolver.fileName else { return }
+        editorConfig.noteProjectFilesChanged()
+    }
+
     private var closeConfirmationBinding: Binding<Bool> {
         Binding(
             get: { pendingCloseID != nil },
@@ -1269,6 +1284,7 @@ struct RootView_iOS: View {
             Button("Save") {
                 do {
                     _ = try model.save(for: id)
+                    noteEditorConfigWrite(file.url)
                     model.close(id: id, force: true)
                     forgetIndexedBuffer(file.url)
                 } catch {

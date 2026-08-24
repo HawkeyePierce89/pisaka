@@ -182,8 +182,9 @@ user sees it.
   tab-indented line under `indent_style = space` keeps that line's own tabs and
   appends the configured spaces); and on macOS an edit to
   a `.editorconfig` takes effect on the next keystroke, while on iOS (which has
-  no file-system watcher) it is picked up on a folder switch or after the app's
-  own working-tree rewrites, not on an out-of-band edit.
+  no file-system watcher) it is picked up when you save the `.editorconfig` in
+  Pisaka, on a folder switch, or after the app's own working-tree rewrites — not
+  on an out-of-band edit made by another app.
 - Auto-closing brackets and quotes: typing an opener (`(`, `[`, `{`) or quote
   (`"`, `'`, `` ` ``) inserts its closer with the caret in between; typing the
   matching closer over an auto-inserted one steps past it instead of doubling;

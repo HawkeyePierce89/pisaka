@@ -36,6 +36,15 @@ public enum EditorConfigResolver {
     /// The one file name this layer looks for.
     public static let fileName = ".editorconfig"
 
+    /// The largest `.editorconfig` that is read at all.
+    ///
+    /// Three orders of magnitude above anything the spec's own acceptance floors
+    /// imply (a 1024-character section name, a 4096-character value) and above
+    /// any configuration a person writes, so no honest project meets it; what it
+    /// bounds is the decode-and-line-split that would otherwise happen on a
+    /// keystroke for a file a clone brought in.
+    static let maximumFileBytes = 1 << 20
+
     /// The merged properties that apply to `fileURL`, or an empty map when
     /// nothing does.
     ///
@@ -60,18 +69,33 @@ public enum EditorConfigResolver {
             let url = step.directory.appendingPathComponent(fileName)
             // An absent config is the common case and an unreadable one (a
             // permission, a lapsed security scope) degrades to the same thing:
-            // no properties from that directory, and the walk carries on.
-            guard let text = try? fileService.read(url: url) else { continue }
+            // no properties from that directory, and the walk carries on. Read
+            // through the capped reader for the third case: this runs
+            // synchronously inside the Enter and Tab key handlers over a file a
+            // clone brought in, so a multi-megabyte `.editorconfig` must not be
+            // decoded and line-split on the keystroke. Over the cap degrades to
+            // the same "no properties from that directory" the `try?` already
+            // spells — and being over it is itself the signal that the file is
+            // not a configuration anyone wrote by hand.
+            guard let text = try? fileService.readTextIfNotBinary(url: url, maxBytes: maximumFileBytes) else {
+                continue
+            }
             let file = EditorConfigFile(text: text)
             applicable.append((file, step.relativePath))
             if file.isRoot { break }
         }
 
         var properties = EditorConfigProperties()
+        // One match budget for the whole answer. Nothing caps how many sections a
+        // `.editorconfig` declares or how many configs the walk reads, so a
+        // per-section budget would multiply by both and a keystroke could still
+        // stall for tens of seconds on content from a cloned repository; see
+        // `EditorConfigGlob.maximumMatchSteps`.
+        var budget = EditorConfigGlob.maximumMatchSteps
         // Outermost first: every closer file overwrites what an outer one said,
         // property by property.
         for entry in applicable.reversed() {
-            for section in entry.file.sections(matching: entry.relativePath) {
+            for section in entry.file.sections(matching: entry.relativePath, budget: &budget) {
                 for pair in section.pairs { properties.apply(pair) }
             }
         }

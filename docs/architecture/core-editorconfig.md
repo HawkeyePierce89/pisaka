@@ -121,11 +121,23 @@ newly typed text is affected.
     path measured ~34 s on the main thread — so `maximumMatchSteps` (200 000)
     bounds it instead: every token step spends one, and an exhausted budget
     answers "does not match", the same degradation an over-long section name
-    already gets. Realistic patterns cost microseconds and are nowhere near it,
-    which `EditorConfigGlobTests` asserts from both sides. `*`/`**` try every run
+    already gets. The budget is **scoped to one whole resolution**, not to one
+    `(section, path)` pair: nothing caps how many sections a `.editorconfig`
+    declares or how many configs the outward walk reads, so a per-pair budget
+    multiplies by both — fifty copies of one pathological name measured ~30 s on
+    a single keystroke. `EditorConfigResolver.resolve` allocates it and threads
+    it through `EditorConfigFile.sections(matching:budget:)` into every glob; the
+    pair-level `matches(relativePath:)` keeps its own for one-off callers.
+    Realistic patterns cost microseconds and are nowhere near it — a
+    200-section config spends under 5% of the ceiling — which
+    `EditorConfigGlobTests` asserts from both sides. `*`/`**` try every run
     length from the shortest up, stopping at a `/` unless allowed to cross one; an alternation splices
     each branch in front of what follows the group, so a branch that matches but
-    leaves the rest unmatchable falls through to the next; a numeric range tries
+    leaves the rest unmatchable falls through to the next — and **that splice is
+    charged to the budget**, because it copies up to the whole compiled pattern
+    per attempt, which a flat one-step-per-attempt count would under-report by
+    the pattern's length (a 1 008-character alternation-heavy name spent ~0.6 s
+    before it was); a numeric range tries
     the longest digit run first and then shorter ones, so `{1..2}0` matches `10`
     while a bare `{1..2}` refuses it. `EditorConfigGlobCompiler` is the
     source-characters-in, tokens-out half: `\` escapes the next character (a
@@ -182,7 +194,13 @@ newly typed text is affected.
     (the deviation recorded above). An absent config is the common case and an
     unreadable one (a permission, a lapsed security scope) degrades to the same
     thing: no properties from that directory, and the walk carries on rather than
-    failing. The merge is **outermost-first**: within each file every section
+    failing. The read goes through `readTextIfNotBinary(url:maxBytes:)` with
+    `maximumFileBytes` (1 MiB) rather than the uncapped `read(url:)`: the walk
+    runs synchronously inside the Enter and Tab key handlers over content a clone
+    brought in, so a `.editorconfig` three orders of magnitude past the spec's
+    own acceptance floors must not be decoded and line-split on the keystroke —
+    and over the cap is a third way of spelling the same "no properties from that
+    directory", including its `root = true`. The merge is **outermost-first**: within each file every section
     whose glob matches applies in document order, overwriting property by
     property and never wholesale, so closer files and later sections win.
     **Empty properties** is the answer for a `nil` root, a `nil` url (an untitled
@@ -353,10 +371,15 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     call is idempotent for an unchanged root, so doing it every update costs a
     comparison and throws no cache away. `notifyIndexOfProjectFileChanges()`
     drops the cache alongside the index refresh, covering the worktree rewrites
-    the app performs itself (a branch switch, a revert, a merge apply). iOS has
-    **no file-system watcher**, so an out-of-band edit to a `.editorconfig`
-    (Files.app, another app's share extension) is not picked up until one of
-    those boundaries — a stated limit, exactly as it is for the symbol index.
+    the app performs itself (a branch switch, a revert, a merge apply), and
+    `noteEditorConfigWrite(_:)` — the peer of the macOS `noteEditorConfigWrites(_:)`,
+    narrow for the same reason — covers the one *save* iOS has, the close
+    confirmation's **Save** button, since that funnel deliberately does not and
+    editing a `.editorconfig` in Pisaka itself is the likeliest way anyone changes
+    one. iOS has **no file-system watcher**, so an out-of-band edit to a
+    `.editorconfig` (Files.app, another app's share extension) is not picked up
+    until one of those boundaries — a stated limit, exactly as it is for the
+    symbol index.
   - **The iOS Tab handler.** `shouldChangeTextIn` intercepts a `"\t"`
     replacement, applies the rule's spaces through the existing `applyEdit` and
     suppresses the default; when the rule answers a tab it lets `UITextView`
@@ -375,7 +398,12 @@ over in-memory trees (no committed `.editorconfig`):
     literal brace groups, nested braces, numeric ranges (negatives included, a
     non-integer refused), escapes, the 1024-character boundary accepted at the
     limit and ignored beyond it, and the "no slash ⇒ any depth" vs. "slash ⇒
-    anchored" split.
+    anchored" split. Plus the budget from all four sides, each asserted on a wall
+    clock because a bound on work is the only honest way to state one: the
+    wildcard-heavy pathological name, the alternation-heavy one (the shape a flat
+    step count under-reports), fifty copies of it in one file (the per-pair-vs-
+    per-resolution scope), and a 200-section but honest config spending under half
+    the ceiling while every matching section still answers.
   - `EditorConfigFileTests` — whole-line `#` and `;` comments (leading
     whitespace included), a `;`/`#` kept verbatim inside a value (the spec's own
     `foo = a ;)`), whitespace around keys and values, a value containing `=`, the
@@ -387,8 +415,9 @@ over in-memory trees (no committed `.editorconfig`):
     `root = true` stopping the walk, a config above the project root never read,
     later-section-wins inside one file, `unset` clearing an inherited property,
     unknown properties surviving the merge, a file outside the root and a `nil`
-    root both resolving to empty, and an unreadable `.editorconfig` degrading to
-    "no properties from that file" rather than failing the walk.
+    root both resolving to empty, and an unreadable — or oversize — `.editorconfig`
+    degrading to "no properties from that file" (its `root = true` included)
+    rather than failing the walk.
   - `EditorConfigModelTests` — a cached answer served without a second read
     (asserted against `StubFileTree`'s read log), an edited config picked up
     after `noteProjectFilesChanged()`, a root switch clearing the previous

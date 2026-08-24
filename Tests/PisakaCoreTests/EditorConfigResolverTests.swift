@@ -126,6 +126,24 @@ final class EditorConfigResolverTests: XCTestCase {
         XCTAssertEqual(properties.indentWidth, 2)
     }
 
+    func testAnOversizeConfigIsSkippedTheSameWayAnUnreadableOneIs() {
+        // The walk runs synchronously inside the Enter and Tab key handlers over
+        // a file a clone brought in, so a `.editorconfig` far past anything a
+        // person writes must not be decoded and line-split on the keystroke. Over
+        // the cap degrades to "no properties from that directory" — including its
+        // `root = true`, exactly as an unreadable one does.
+        let padding = String(repeating: "# padding\n", count: EditorConfigResolver.maximumFileBytes / 10 + 1)
+        let tree = tree([
+            ".editorconfig": "[*]\nindent_style = space\nindent_size = 2\n",
+            "src/.editorconfig": "root = true\n[*]\nindent_size = 8\n" + padding,
+            "src/a.swift": "",
+        ])
+        XCTAssertGreaterThan(tree.files["src/.editorconfig"]?.utf8.count ?? 0, EditorConfigResolver.maximumFileBytes)
+        let properties = resolve("src/a.swift", in: tree)
+        XCTAssertEqual(properties.indentStyle, .space)
+        XCTAssertEqual(properties.indentWidth, 2)
+    }
+
     // MARK: - Section matching and order
 
     func testALaterMatchingSectionWinsInsideOneFile() {

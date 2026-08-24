@@ -263,6 +263,51 @@ final class EditorConfigGlobTests: XCTestCase {
         XCTAssertLessThan(-started.timeIntervalSinceNow, 1.0)
     }
 
+    func testAnAlternationHeavySectionNameAnswersQuicklyInsteadOfHanging() {
+        // A second pathological shape, and the one the step count alone does not
+        // catch: `matchAlternation` splices each branch in front of everything
+        // that follows the group, so one "step" copies up to the whole compiled
+        // pattern. Charging only the step let this 1_008-character name — well
+        // inside the length cap — spend ~0.6 s inside a keystroke.
+        let pattern = String(repeating: "{a,aa}", count: 18) + String(repeating: "b", count: 900)
+        XCTAssertLessThan(pattern.count, EditorConfigGlob.maximumSectionNameLength)
+        let started = Date()
+        XCTAssertFalse(matches(pattern, String(repeating: "a", count: 26)))
+        XCTAssertLessThan(-started.timeIntervalSinceNow, 1.0)
+    }
+
+    func testTheBudgetBoundsAWholeResolutionRatherThanOneSection() {
+        // Nothing caps how many sections a `.editorconfig` declares, so a
+        // per-section budget multiplies by the section count: fifty copies of the
+        // pathological name above cost fifty times the ceiling on one keystroke
+        // (measured at ~30 s). One budget threaded through the file is the bound.
+        let pattern = String(repeating: "{a,aa}", count: 18) + String(repeating: "b", count: 900)
+        let text = String(repeating: "[\(pattern)]\nindent_size = 2\n", count: 50)
+        let file = EditorConfigFile(text: text)
+        XCTAssertEqual(file.sections.count, 50)
+        var budget = EditorConfigGlob.maximumMatchSteps
+        let started = Date()
+        XCTAssertTrue(file.sections(matching: String(repeating: "a", count: 26), budget: &budget).isEmpty)
+        XCTAssertLessThan(-started.timeIntervalSinceNow, 1.0)
+    }
+
+    func testAHonestlyLargeConfigStaysFarInsideTheSharedBudget() {
+        // The other side of the shared budget: sections must not starve each other
+        // in any config a person would write. Two hundred ordinary sections — an
+        // order of magnitude past the largest real one — spend a small fraction of
+        // the ceiling and every matching section still answers.
+        let names = [
+            "*", "*.{js,jsx,ts,tsx}", "**/*.md", "src/**/*.swift", "Makefile",
+            "{package,bower}.json", "lib/**.js", "[a-z]*.py", "docs/**/*.{md,txt}", "*.min.*",
+        ]
+        let text = (0..<200).map { "[\(names[$0 % names.count])]\nindent_size = 2\n" }.joined()
+        let file = EditorConfigFile(text: text)
+        var budget = EditorConfigGlob.maximumMatchSteps
+        let matching = file.sections(matching: "src/deep/nested/path/Component.tsx", budget: &budget)
+        XCTAssertEqual(matching.count, 40)
+        XCTAssertGreaterThan(budget, EditorConfigGlob.maximumMatchSteps / 2)
+    }
+
     func testAnOrdinaryPatternIsNowhereNearTheBudget() {
         // The ceiling must not cost a real section name its answer: a deep path
         // under the commonest shapes still resolves, and resolves as a match.

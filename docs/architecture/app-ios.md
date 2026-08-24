@@ -203,9 +203,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     reason above (it publishes nothing), handed to `RootView_iOS` and threaded on to
     the editor, which is the only thing that asks it anything. It is a **reader**
     like the index — no writer gate, and never gated by one — and it shares the
-    index's missing-watcher story exactly: its cache is dropped on the root switch
-    and on the worktree rewrites the app performs itself, while an out-of-band edit
-    to a `.editorconfig` stays a stated limit (`core-editorconfig.md`).
+    index's missing-watcher story exactly: its cache is dropped on the root switch,
+    on the worktree rewrites the app performs itself and on a save of a
+    `.editorconfig` in Pisaka itself, while an out-of-band edit to a `.editorconfig`
+    stays a stated limit (`core-editorconfig.md`).
     It also composes the **LeetCode** stack (LC-1; the layer's entry is in
     `core-leetcode.md`) inline rather than through a `makeLeetCode` factory —
     `ContentView`'s need for a default value has no iOS counterpart — but from the
@@ -292,7 +293,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     — because it is a reader with no watcher behind it for the identical reason, and
     these self-inflicted rewrites are the only thing that can tell it a
     `.editorconfig` was added, changed or removed by a branch switch, a revert or a
-    merge apply. The **root switch** is registered beside
+    merge apply. **The one save iOS has rides along too** —
+    `noteEditorConfigWrite(_:)`, called from the close confirmation's Save button,
+    the peer of the macOS `noteEditorConfigWrites(_:)` — because that save never
+    goes through the funnel above and editing a `.editorconfig` in Pisaka itself is
+    the likeliest way anyone changes one; narrow on purpose (it fires only when the
+    written url *is* a `.editorconfig`), since an ordinary save must not put a
+    resolution walk on the next keystroke. The **root switch** is registered beside
     `synchronizeSymbolIndex(forRoot:)` in `.onChange(of: model.projectRoot)`
     (`editorConfig.noteProjectRoot(newRoot)`): the one place both folder paths meet,
     so a configuration resolved under the folder the user just left can never be

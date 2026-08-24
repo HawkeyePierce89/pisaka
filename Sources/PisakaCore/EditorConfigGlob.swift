@@ -71,8 +71,8 @@ public struct EditorConfigGlob: Equatable {
     /// The longest section name that is honored (the spec's acceptance floor).
     public static let maximumSectionNameLength = 1024
 
-    /// The most match steps one `(section name, path)` pair may take before the
-    /// answer degrades to "does not match".
+    /// The most match steps **one whole resolution** may take before further
+    /// answers degrade to "does not match".
     ///
     /// The length cap above does **not** bound the backtracking match: its cost
     /// is exponential in the *number of wildcards*, not linear in the pattern's
@@ -83,6 +83,15 @@ public struct EditorConfigGlob: Equatable {
     /// bound has to be a real budget rather than a claim about lengths. Bailing
     /// out to "no match" is the same degradation an over-long section name
     /// already gets, and the ceiling is far above what any honest pattern costs.
+    ///
+    /// **Scoped to the resolution, not to the pair.** Nothing caps how many
+    /// sections a `.editorconfig` may declare, nor how many configs the outward
+    /// walk reads, so a per-pair budget multiplies by both: fifty copies of one
+    /// pathological section name cost fifty times the ceiling on a single
+    /// keystroke. `EditorConfigResolver.resolve` therefore allocates one budget
+    /// and threads it through every file and every section; the pair-level entry
+    /// point below keeps its own budget only for callers asking a single
+    /// question (tests, and any future one-off).
     static let maximumMatchSteps = 200_000
 
     /// The section name exactly as it was written between `[` and `]`.
@@ -113,6 +122,14 @@ public struct EditorConfigGlob: Equatable {
     /// Whether this section applies to `relativePath`, spelled with `/` and
     /// relative to the directory holding the `.editorconfig`.
     public func matches(relativePath: String) -> Bool {
+        var budget = EditorConfigGlob.maximumMatchSteps
+        return matches(relativePath: relativePath, budget: &budget)
+    }
+
+    /// The same question against a budget the *caller* owns, so one resolution —
+    /// every section of every `.editorconfig` on the walk — is bounded as a
+    /// whole rather than once per pair (see `maximumMatchSteps`).
+    func matches(relativePath: String, budget: inout Int) -> Bool {
         guard !exceedsLengthLimit else { return false }
         var path = relativePath
         if path.hasPrefix("/") { path.removeFirst() }
@@ -120,7 +137,6 @@ public struct EditorConfigGlob: Equatable {
 
         // One budget for the whole question, so a pattern cannot buy itself more
         // work by having many component starts to try.
-        var budget = EditorConfigGlob.maximumMatchSteps
         if EditorConfigGlob.match(tokens, from: 0, characters, from: 0, budget: &budget) { return true }
         guard !anchored else { return false }
         // Unanchored ⇒ "at any depth": the pattern may start at the beginning of
@@ -251,6 +267,16 @@ public struct EditorConfigGlob: Equatable {
     ) -> Bool {
         let rest = Array(tokens[(tokenIndex + 1)...])
         for branch in branches {
+            // The splice is the one place where a "step" is not constant-cost:
+            // building `branch + rest` copies up to the whole compiled pattern —
+            // with ARC traffic for the nested payloads — on *every* attempt, so a
+            // budget that charged one step per attempt would under-count the real
+            // work by the pattern's length. Charging the copy is what keeps the
+            // ceiling a ceiling: `{a,aa}`×18 followed by 900 literals otherwise
+            // spends 0.6 s inside a keystroke while staying well under the
+            // length cap.
+            budget -= branch.count + rest.count
+            guard budget > 0 else { return false }
             if match(branch + rest, from: 0, characters, from: characterIndex, budget: &budget) { return true }
             guard budget > 0 else { return false }
         }
