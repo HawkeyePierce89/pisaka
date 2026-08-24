@@ -199,7 +199,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and every
 push to `master`: first `swift test`, then — only once tests are green — an
 unsigned macOS build and an unsigned iOS build (device arch, including libgit2
 linking) in parallel. A fourth, independent `lint` job runs alongside them from
-the start: the pinned SwiftLint 0.65.0 (digest-verified download) over the whole
+the start: the pinned SwiftLint 0.65.1 (digest-verified download) over the whole
 first-party tree with `--strict` — the same check the pre-commit hook enforces
 locally, so a pull request that fails style is refused even when the hook was
 bypassed. No signing, secrets, or simulator are involved. The macOS

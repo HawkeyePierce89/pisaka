@@ -17,13 +17,13 @@ One time per clone:
 # and answering yes would overwrite Pisaka's license with SwiftLint's.
 tmp=$(mktemp -d)
 curl -fsSL --retry 3 -o "$tmp/swiftlint.zip" \
-  https://github.com/realm/SwiftLint/releases/download/0.65.0/portable_swiftlint.zip
+  https://github.com/realm/SwiftLint/releases/download/0.65.1/portable_swiftlint.zip
 unzip -q "$tmp/swiftlint.zip" swiftlint -d "$tmp"
 install -m 755 "$tmp/swiftlint" /usr/local/bin/   # or any directory on your PATH
 rm -rf "$tmp"
 
 brew install swiftlint    # alternative; whatever it serves, the check below decides
-swiftlint version         # MUST print 0.65.0 — any other binary is refused
+swiftlint version         # MUST print 0.65.1 — any other binary is refused
 
 make setup                # wires the hooks and confirms the linter is present
 ```

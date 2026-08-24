@@ -9,7 +9,7 @@
 # The pin. NOTE: SwiftLint only WARNS on a version mismatch (it prints
 # `warning: Currently running SwiftLint …` and does not fail), which is why the
 # pre-commit hook and CI enforce the pin themselves instead of trusting this.
-swiftlint_version: 0.65.0
+swiftlint_version: 0.65.1
 
 included:
   - Sources

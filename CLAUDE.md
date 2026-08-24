@@ -523,7 +523,7 @@ CI (`.github/workflows/ci.yml`) runs these same gates on every pull request and
 push to `master`: `swift test` first, then — only when it is green — an unsigned
 macOS build and an unsigned iOS build (device arch, `generic/platform=iOS`,
 covering libgit2 linking) in parallel, plus an independent `lint` job
-(pinned SwiftLint 0.65.0, `--strict`, no `needs:`) that refuses style
+(pinned SwiftLint 0.65.1, `--strict`, no `needs:`) that refuses style
 violations even when the pre-commit hook was bypassed or never installed. No
 signing, secrets, or simulator. The
 **macOS build is `-configuration Release`, the iOS one Debug**, on purpose: the
