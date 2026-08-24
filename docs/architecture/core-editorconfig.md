@@ -128,6 +128,22 @@ newly typed text is affected.
     a single keystroke. `EditorConfigResolver.resolve` allocates it and threads
     it through `EditorConfigFile.sections(matching:budget:)` into every glob; the
     pair-level `matches(relativePath:)` keeps its own for one-off callers.
+    **Compilation carries a second budget**, `maximumCompileSteps` (8 × the
+    length cap), because the length cap bounds it no better than it bounds
+    matching: the compiler scans *forward* for each group's closing `}` and each
+    class's closing `]`, so a section name of nested openers (`{{{{…`, `[[[[…`)
+    is quadratic — ~500 000 character steps for one 1024-character name, and the
+    1 MB read cap admits a thousand of them in one file (~0.9 s of main-thread
+    work per resolution, and the model caches *resolved properties* rather than
+    parsed files, so a watcher callback makes the next keystroke pay it again).
+    An over-spend sets `exceedsCompileBudget` and the section matches nothing,
+    the same degradation the other two limits give. Per **section** rather than
+    per resolution — compilation happens in `init`, which the file parser calls
+    with no budget to thread, and the quadratic lives inside one section, so
+    bounding each bounds a file at (sections × ceiling) — and every scan is
+    charged what it *actually* costs rather than its worst case, since charging
+    the worst case would refuse an honest full-length name carrying many sibling
+    groups, none of which scans past its own `}`.
     Realistic patterns cost microseconds and are nowhere near it — a
     200-section config spends under 5% of the ceiling — which
     `EditorConfigGlobTests` asserts from both sides. `*`/`**` try every run
@@ -236,7 +252,10 @@ newly typed text is affected.
     compared canonically **by `path`**, so a trailing slash or a
     `/tmp`-vs-`/private/tmp` re-spelling is not mistaken for a folder switch (two
     urls naming one folder still differ as values when one carries a directory
-    hint). `noteProjectFilesChanged()` clears the cache wholesale rather than
+    hint) — behind a lexical `standardizedFileURL.path` fast path, because the
+    iOS editor re-states the root from `updateUIView`, i.e. on every keystroke,
+    and `CanonicalPath.canonical` is a `readlink` per path component run twice
+    per call; only a genuinely different spelling reaches the filesystem. `noteProjectFilesChanged()` clears the cache wholesale rather than
     filtering by path: deciding which cached files a given `.editorconfig` edit
     could have affected means re-walking each of their hierarchies, which is the
     very work the filter would be saving — wholesale, the next keystroke in the
@@ -271,7 +290,14 @@ newly typed text is affected.
     config refine it changes only which whitespace an already-automatic insertion
     uses; the Tab key is what the *user pressed*, and turning it into spaces on a
     file the content inference merely *guessed* was space-indented would silently
-    rewrite what typing does. `tabInsertionPlan(ranges:insertion:)` replaces
+    rewrite what typing does. Both take `inferred` as an **autoclosure**,
+    evaluated only when the answer depends on it: producing it means
+    `IndentEngine.inferIndentUnit(text:)` over a copy of the whole buffer, on the
+    main thread, inside a key handler, and a configuration stating both halves
+    (`indent_style = tab`, or `space` with an `indent_size`) — the shape this
+    feature exists for — needs no inference at all. Tab is where it matters
+    most: a key that cost nothing before this layer must not start scanning the
+    file to compute a value it discards. `tabInsertionPlan(ranges:insertion:)` replaces
     every range — a bare caret or a non-empty selection alike, which is what the
     native Tab does at each insertion point — with `insertion`, placing each
     resulting caret at the end of its own insertion shifted by the net length
@@ -315,9 +341,13 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     its own it would miss both of the paths that matter most. So
     `notifyIndexOfProjectFileChanges()` invalidates too — ahead of its root guard,
     since unlike the index this cache needs no root to be told anything — covering
-    the app's own worktree rewrites (branch switch, revert, merge apply,
-    project-wide Replace All, a tree rename or delete), exactly as the iOS peer in
-    `RootView_iOS` does; and `noteEditorConfigWrites(_:)` covers the *save* paths
+    the app's own worktree rewrites (a revert's in-process `unlinkat`, merge
+    apply, project-wide Replace All, a tree rename or delete). A **branch switch
+    is not among them on macOS**: `git` runs there as a subprocess, so
+    `IgnoreSelf` does not drop its events and the watcher is what covers it —
+    which is why `finishBranchOperation` calls nothing. The iOS peer in
+    `RootView_iOS` makes the same call for the same reasons *and* has to cover
+    the branch switch, since libgit2 runs in-process; and `noteEditorConfigWrites(_:)` covers the *save* paths
     that funnel deliberately does not (`save(id:)` and the autosave's `onSaved`,
     which was widened to report the urls it wrote), because editing a
     `.editorconfig` in Pisaka itself is the likeliest way anyone changes one and is
@@ -348,7 +378,16 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     `NSTextStorage` and copies the whole buffer, and `inferIndentUnit` then walks
     every line of that copy: paying both on every Tab press to compute a value the
     stricter rule discards is precisely the main-thread cost `textDidChange` is
-    careful to avoid. The iOS coordinator asks it in the same order. The existing
+    careful to avoid — and the rule's `inferred:` autoclosure extends that to the
+    *configured* case, which is the common one and equally needs no buffer. The
+    iOS coordinator asks it in the same order. `scrollRangeToVisible` is called
+    explicitly on the first caret afterwards: it is the one thing
+    `insertText(_:replacementRange:)` does for every other programmatic edit here
+    that neither `setSelectedRanges` nor `didChangeText()` does, and without it
+    Tab under `indent_style = space` would type into a scrolled-away caret while
+    a literal tab — the same key, one property apart — jumps back to it. The
+    first caret is what `selectedRange()` reports for a multi-range selection,
+    and so what the native key scrolls to. The existing
     `isApplyingProgrammaticEdit` guard covers the *whole* bracket, not just the
     storage mutation, because the single-range case reaches the single-range
     delegate callback where the auto-pair interceptor lives. `insertBacktab` is
@@ -368,8 +407,10 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     there would leave a window in which the editor already shows the new
     project's file while the model still holds the previous root, and one Enter
     pressed inside it would be indented by the folder the user just left. The
-    call is idempotent for an unchanged root, so doing it every update costs a
-    comparison and throws no cache away. `notifyIndexOfProjectFileChanges()`
+    call is idempotent for an unchanged root, so doing it every update throws no
+    cache away — and costs a *string* comparison, not a canonicalization, which
+    is what `EditorConfigModel.isSameRoot`'s lexical fast path is there for: this
+    is the per-keystroke caller. `notifyIndexOfProjectFileChanges()`
     drops the cache alongside the index refresh, covering the worktree rewrites
     the app performs itself (a branch switch, a revert, a merge apply), and
     `noteEditorConfigWrite(_:)` — the peer of the macOS `noteEditorConfigWrites(_:)`,

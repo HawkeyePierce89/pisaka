@@ -77,15 +77,28 @@ public enum IndentUnitRule {
     ///   configured width re-widens it when it is spaces. A tab inference stays
     ///   a tab: a width alone never converts a file.
     /// - nothing applicable → `inferred`, returned unchanged.
-    public static func unit(config: EditorConfigProperties, inferred: String) -> String {
+    ///
+    /// `inferred` is an **autoclosure, evaluated only when the answer depends on
+    /// it** — which a fully-stated configuration (`indent_style = tab`, or
+    /// `space` with an `indent_size`) never does. Producing it means
+    /// `IndentEngine.inferIndentUnit(text:)` over a copy of the whole buffer, on
+    /// the main thread, inside a key handler; the case this feature exists for
+    /// must not pay for a value it would discard.
+    public static func unit(config: EditorConfigProperties, inferred: @autoclosure () -> String) -> String {
         let configuredWidth = config.indentWidth
         switch config.indentStyle {
         case .tab:
             return "\t"
         case .space:
-            return spaces(configuredWidth ?? inferredWidth(of: inferred) ?? defaultSpaceWidth)
+            // `??` takes its right side as an autoclosure of its own, so a stated
+            // width answers without ever asking the inference.
+            return spaces(configuredWidth ?? inferredWidth(of: inferred()) ?? defaultSpaceWidth)
         case nil:
-            guard let width = configuredWidth, inferredWidth(of: inferred) != nil else { return inferred }
+            // Asked exactly once on this path, and only when there is a width that
+            // could re-widen it.
+            guard let width = configuredWidth else { return inferred() }
+            let unit = inferred()
+            guard inferredWidth(of: unit) != nil else { return unit }
             return spaces(width)
         }
     }
@@ -99,9 +112,14 @@ public enum IndentUnitRule {
     /// tab — so the content inference on its own can never turn a keystroke into
     /// spaces; and `indent_style = tab`, or a bare `indent_size` with no style,
     /// leaves it a tab too.
-    public static func tabInsertion(config: EditorConfigProperties, inferred: String) -> String {
+    ///
+    /// `inferred` is an autoclosure for the reason `unit` gives, and it matters
+    /// most here: Tab is a keystroke that used to cost nothing at all, and the
+    /// configuration this rule is looking for (`indent_style = space` with an
+    /// `indent_size`) is precisely the one that needs no inference.
+    public static func tabInsertion(config: EditorConfigProperties, inferred: @autoclosure () -> String) -> String {
         guard config.indentStyle == .space else { return "\t" }
-        return unit(config: config, inferred: inferred)
+        return unit(config: config, inferred: inferred())
     }
 
     /// The edits and carets for inserting `insertion` at every one of the

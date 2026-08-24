@@ -93,6 +93,15 @@ public final class EditorConfigModel {
         // same folder still differ as values when one carries a directory hint
         // the other does not, and a folder is not re-opened by a trailing slash.
         case let (lhs?, rhs?):
+            // The identical spelling is answered without touching the disk. iOS
+            // re-states the root from `updateUIView`, which SwiftUI runs on every
+            // keystroke, and `CanonicalPath.canonical` is
+            // `resolvingSymlinksInPath()` — a `readlink` per path component,
+            // twice per call — for a question that is almost always "the same
+            // string as last time". `standardizedFileURL` is purely lexical, so
+            // this fast path also absorbs the trailing-slash re-spelling; only a
+            // genuinely different spelling reaches the filesystem.
+            if lhs.standardizedFileURL.path == rhs.standardizedFileURL.path { return true }
             return CanonicalPath.canonical(lhs).path == CanonicalPath.canonical(rhs).path
         default: return false
         }

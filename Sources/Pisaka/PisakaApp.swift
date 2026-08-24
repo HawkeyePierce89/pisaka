@@ -3525,8 +3525,12 @@ struct PisakaApp: App {
         // same coverage hole to fill: `kFSEventStreamCreateFlagIgnoreSelf` drops
         // every event this process causes, so the watcher callback that is
         // otherwise this cache's whole lifecycle never sees the app's *own*
-        // worktree rewrites — a branch switch, a revert, a merge apply, a
+        // worktree rewrites — a revert's in-process `unlinkat`, a merge apply, a
         // project-wide Replace All, a rename or a delete of a `.editorconfig`.
+        // Not a branch switch: `git` runs as a *subprocess* there, so `IgnoreSelf`
+        // does not drop its events and the watcher callback is what covers it —
+        // which is why `finishBranchOperation` calls nothing here. (The iOS peer
+        // does have to cover it: libgit2 runs in-process.)
         // Dropped wholesale and unconditionally, ahead of the root guard: clearing
         // a dictionary costs nothing and, unlike the index, it needs no root to be
         // told anything. The iOS peer says the same thing in `RootView_iOS`.

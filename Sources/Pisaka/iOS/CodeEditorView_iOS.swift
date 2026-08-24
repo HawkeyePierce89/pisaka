@@ -266,7 +266,11 @@ struct CodeEditorView_iOS: UIViewRepresentable {
     /// project's file while the model still holds the previous root, and one Enter
     /// pressed inside it would be indented by the folder the user just left. The
     /// call is idempotent for an unchanged root (the model compares them itself),
-    /// so doing it on every update costs a comparison and throws no cache away.
+    /// so doing it on every update throws no cache away. `updateUIView` runs on
+    /// every keystroke, so what it costs matters: `EditorConfigModel.isSameRoot`
+    /// answers the identical spelling lexically and reaches
+    /// `CanonicalPath.canonical` — a `readlink` per path component — only when
+    /// the two spellings actually differ, which this caller's never do.
     private func applyEditorConfig(to coordinator: CodeEditorCoordinator_iOS) {
         editorConfig.noteProjectRoot(projectRoot)
         coordinator.editorConfig = editorConfig

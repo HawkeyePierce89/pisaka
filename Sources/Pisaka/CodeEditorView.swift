@@ -1798,12 +1798,17 @@ struct CodeEditorView: NSViewRepresentable {
             // `inferIndentUnit` then walks every line of the copy: paying both on
             // every Tab press to compute a value that is discarded is precisely the
             // main-thread cost `textDidChange` above is careful to avoid.
+            //
+            // The `inferred:` argument is an autoclosure, so the same is true of
+            // the *configured* case: `indent_style = space` with an `indent_size`
+            // — the shape this feature exists for — answers from the properties
+            // alone and never touches the buffer either. Only spaces of an
+            // unstated width read it, to carry the file's own width over.
             let config = editorConfigProperties()
             guard config.indentStyle == .space else { return false }
-            let nsText = textView.string as NSString
             let insertion = IndentUnitRule.tabInsertion(
                 config: config,
-                inferred: IndentEngine.inferIndentUnit(text: nsText)
+                inferred: IndentEngine.inferIndentUnit(text: textView.string as NSString)
             )
             guard insertion != "\t" else { return false }
             guard let textStorage = textView.textStorage else { return false }
@@ -1848,6 +1853,16 @@ struct CodeEditorView: NSViewRepresentable {
                 affinity: .downstream,
                 stillSelecting: false
             )
+            // The one thing the raw-storage path does not inherit. Every other
+            // programmatic edit here goes through `insertText(_:replacementRange:)`,
+            // which scrolls the insertion point into view; `setSelectedRanges` and
+            // `didChangeText()` do not, and neither does
+            // `textViewDidChangeSelection`. Without this, Tab under
+            // `indent_style = space` would type into a scrolled-away caret while a
+            // literal tab — the same key, one property apart — jumps back to it.
+            // The *first* caret, which is what `selectedRange()` reports for a
+            // multi-range selection and therefore what the native key scrolls to.
+            if let caret = plan.carets.first { textView.scrollRangeToVisible(caret) }
             return true
         }
 

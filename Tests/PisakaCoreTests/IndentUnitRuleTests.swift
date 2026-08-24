@@ -153,6 +153,54 @@ final class IndentUnitRuleTests: XCTestCase {
         )
     }
 
+    // MARK: - When the inference is asked for at all
+
+    func testAFullyStatedConfigurationNeverAsksForTheInference() {
+        // `inferred` is an autoclosure because producing it means scanning a copy
+        // of the whole buffer on the main thread inside a key handler. A
+        // configuration that states both halves answers without it — and that is
+        // the shape this feature exists for, so it must not pay for a value it
+        // discards. Asserted here rather than in the untested view layer.
+        var asked = 0
+        func inference() -> String {
+            asked += 1
+            return "        "
+        }
+        XCTAssertEqual(IndentUnitRule.unit(config: config(["indent_style": "tab"]), inferred: inference()), "\t")
+        XCTAssertEqual(
+            IndentUnitRule.unit(
+                config: config(["indent_style": "space", "indent_size": "2"]),
+                inferred: inference()
+            ),
+            "  "
+        )
+        XCTAssertEqual(
+            IndentUnitRule.tabInsertion(
+                config: config(["indent_style": "space", "indent_size": "2"]),
+                inferred: inference()
+            ),
+            "  "
+        )
+        // …and Tab's stricter rule refuses before the inference is reachable at
+        // all, which is the no-configuration case: the commonest of the lot.
+        XCTAssertEqual(IndentUnitRule.tabInsertion(config: config([:]), inferred: inference()), "\t")
+        XCTAssertEqual(asked, 0)
+    }
+
+    func testAHalfStatedConfigurationAsksForTheInferenceExactlyOnce() {
+        // The other side: the halves the configuration leaves out do need it —
+        // once, never twice, since each ask is a full-file scan.
+        for values in [["indent_style": "space"], ["indent_size": "2"], [:]] {
+            var asked = 0
+            func inference() -> String {
+                asked += 1
+                return "   "
+            }
+            _ = IndentUnitRule.unit(config: config(values), inferred: inference())
+            XCTAssertEqual(asked, 1, "\(values)")
+        }
+    }
+
     // MARK: - The insertion plan
 
     func testAnEmptySelectionListAnswersNoEdits() {

@@ -316,6 +316,63 @@ final class EditorConfigGlobTests: XCTestCase {
         XCTAssertTrue(matches("**/*.md", deep + "/README.md"))
     }
 
+    // MARK: - The compile budget
+
+    func testANestedBraceSectionNameCompilesInsteadOfStalling() {
+        // Compilation is the *other* unbounded cost, and the match budget cannot
+        // see it: the compiler scans forward for each group's closing `}`, so a
+        // name of nested openers is quadratic — 1_023 of them cost ~500k character
+        // steps for one section, before a single path has been matched against it.
+        let pattern = String(repeating: "{", count: 1023)
+        XCTAssertLessThanOrEqual(pattern.count, EditorConfigGlob.maximumSectionNameLength)
+        let started = Date()
+        let glob = EditorConfigGlob(pattern: pattern)
+        XCTAssertLessThan(-started.timeIntervalSinceNow, 0.1)
+        // Degrades exactly as an over-long name does: it answers "no" to everything.
+        XCTAssertTrue(glob.exceedsCompileBudget)
+        XCTAssertFalse(glob.matches(relativePath: pattern))
+        XCTAssertFalse(glob.matches(relativePath: "a.txt"))
+    }
+
+    func testANestedCharacterClassSectionNameCompilesInsteadOfStalling() {
+        // The same shape through the other forward scan: an unclosed `[` is read to
+        // the end of the pattern before it degrades to a literal, so a run of them
+        // is quadratic too.
+        let pattern = String(repeating: "[", count: 1024)
+        let started = Date()
+        let glob = EditorConfigGlob(pattern: pattern)
+        XCTAssertLessThan(-started.timeIntervalSinceNow, 0.1)
+        XCTAssertTrue(glob.exceedsCompileBudget)
+        XCTAssertFalse(glob.matches(relativePath: "a.txt"))
+    }
+
+    func testAWholeFileOfPathologicalSectionNamesParsesInsideAKeystroke() {
+        // The budget is per section, so what a whole file costs is (sections ×
+        // ceiling) — and the 1 MB read cap holds a file of 1_024-character section
+        // names to about a thousand of them. Un-budgeted this measured ~0.9 s of
+        // main-thread work per resolution, repaid on every cache invalidation.
+        let pattern = String(repeating: "{", count: 1023)
+        let text = String(repeating: "[\(pattern)]\nindent_size = 2\n", count: 900)
+        let started = Date()
+        let file = EditorConfigFile(text: text)
+        XCTAssertEqual(file.sections.count, 900)
+        XCTAssertLessThan(-started.timeIntervalSinceNow, 1.0)
+        var budget = EditorConfigGlob.maximumMatchSteps
+        XCTAssertTrue(file.sections(matching: "a.txt", budget: &budget).isEmpty)
+    }
+
+    func testAnHonestSectionNameIsNowhereNearTheCompileBudget() {
+        // The other side of it: a full-length name carrying many *sibling* groups
+        // — none of which scans past its own `}` — must still compile and match.
+        // Charging each scan its worst case rather than its real cost would refuse
+        // exactly this pattern.
+        let pattern = String(repeating: "{a,b}", count: 200) + "*.txt"
+        XCTAssertLessThanOrEqual(pattern.count, EditorConfigGlob.maximumSectionNameLength)
+        let glob = EditorConfigGlob(pattern: pattern)
+        XCTAssertFalse(glob.exceedsCompileBudget)
+        XCTAssertTrue(glob.matches(relativePath: String(repeating: "a", count: 200) + "name.txt"))
+    }
+
     // MARK: - Identity
 
     func testEqualityIsTheSourceSpelling() {

@@ -94,6 +94,29 @@ public struct EditorConfigGlob: Equatable {
     /// question (tests, and any future one-off).
     static let maximumMatchSteps = 200_000
 
+    /// The most compile steps **one section name** may take before it degrades
+    /// to "does not match".
+    ///
+    /// The length cap bounds compilation no better than it bounds matching, and
+    /// for the same reason: cost is not linear in the pattern's length. The
+    /// compiler scans *forward* to find each group's closing `}` and each
+    /// class's closing `]`, so a name built of nested openers — `{{{{…` or
+    /// `[[[[…` — costs O(n²): at the 1024-character cap that is ~500k character
+    /// steps for one section, and the 1 MB read cap admits a thousand such
+    /// sections in a single file (~0.9 s of main-thread work, measured). The
+    /// model caches *resolved properties*, not parsed files, and the watcher
+    /// drops that cache on any project write, so the cost is paid again on the
+    /// next keystroke rather than once per session.
+    ///
+    /// Scoped per **section**, unlike `maximumMatchSteps`'s per-resolution
+    /// budget: compilation happens in `init`, which the file parser calls for
+    /// each section with no budget to thread through, and the quadratic lives
+    /// *inside* one section — so bounding each one bounds a whole file at
+    /// (sections × this), which the read cap already holds to ~1000. The ceiling
+    /// is eight times the length cap: far above the ~4n an honest pattern
+    /// spends, far below the n² a crafted one wants.
+    static let maximumCompileSteps = 8 * maximumSectionNameLength
+
     /// The section name exactly as it was written between `[` and `]`.
     public let pattern: String
     /// The pattern named a `/`, so it is relative to the `.editorconfig`'s own
@@ -102,6 +125,10 @@ public struct EditorConfigGlob: Equatable {
     /// `true` when the section name is longer than the honored cap; such a glob
     /// matches nothing.
     public let exceedsLengthLimit: Bool
+
+    /// `true` when compiling the section name ran out of `maximumCompileSteps`;
+    /// such a glob matches nothing, exactly as an over-long one does.
+    let exceedsCompileBudget: Bool
 
     /// The match-ready form.
     let tokens: [EditorConfigGlobToken]
@@ -116,7 +143,12 @@ public struct EditorConfigGlob: Equatable {
         let anchored = EditorConfigGlob.containsUnescapedSlash(characters)
         if anchored, characters.first == "/" { characters.removeFirst() }
         self.anchored = anchored
-        self.tokens = exceedsLengthLimit ? [] : EditorConfigGlobCompiler.compile(characters)
+        // The budget is spent, not merely watched: a step is charged before it is
+        // taken, so a name that finishes on the last one lands at exactly zero and
+        // only an *over*-spend (below zero) degrades the section.
+        var budget = EditorConfigGlob.maximumCompileSteps
+        self.tokens = exceedsLengthLimit ? [] : EditorConfigGlobCompiler.compile(characters, budget: &budget)
+        self.exceedsCompileBudget = budget < 0
     }
 
     /// Whether this section applies to `relativePath`, spelled with `/` and
@@ -130,7 +162,7 @@ public struct EditorConfigGlob: Equatable {
     /// every section of every `.editorconfig` on the walk — is bounded as a
     /// whole rather than once per pair (see `maximumMatchSteps`).
     func matches(relativePath: String, budget: inout Int) -> Bool {
-        guard !exceedsLengthLimit else { return false }
+        guard !exceedsLengthLimit, !exceedsCompileBudget else { return false }
         var path = relativePath
         if path.hasPrefix("/") { path.removeFirst() }
         let characters = Array(path)
@@ -317,10 +349,25 @@ public struct EditorConfigGlob: Equatable {
 /// The section-name compiler: source characters in, `EditorConfigGlobToken`s
 /// out, once per section rather than once per path.
 enum EditorConfigGlobCompiler {
+    /// Spends `steps` of the compile budget, answering `false` once it is gone.
+    ///
+    /// Every forward scan the compiler makes is charged for what it actually
+    /// costs — the alternative, charging the *worst case* before each scan,
+    /// would refuse an honest pattern carrying many sibling groups, none of
+    /// which scans past its own `}` (see `maximumCompileSteps`).
+    private static func spend(_ budget: inout Int, _ steps: Int = 1) -> Bool {
+        budget -= steps
+        return budget >= 0
+    }
+
     /// Compiles a whole (already de-anchored) section name.
-    static func compile(_ characters: [Character]) -> [EditorConfigGlobToken] {
+    ///
+    /// A budget over-spend abandons the parse where it stands; the caller reads
+    /// the exhaustion off `budget` and makes the whole section match nothing, so
+    /// the half-built token list it gets back here is never consulted.
+    static func compile(_ characters: [Character], budget: inout Int) -> [EditorConfigGlobToken] {
         var index = 0
-        return parse(characters, from: &index, insideBraces: false)
+        return parse(characters, from: &index, insideBraces: false, budget: &budget)
     }
 
     /// Parses a token sequence, stopping at a `,` or `}` when it is the body of
@@ -328,10 +375,12 @@ enum EditorConfigGlobCompiler {
     static func parse(
         _ characters: [Character],
         from index: inout Int,
-        insideBraces: Bool
+        insideBraces: Bool,
+        budget: inout Int
     ) -> [EditorConfigGlobToken] {
         var tokens: [EditorConfigGlobToken] = []
         while index < characters.count {
+            guard spend(&budget) else { return tokens }
             let character = characters[index]
             if insideBraces, character == "," || character == "}" { break }
             switch character {
@@ -355,7 +404,7 @@ enum EditorConfigGlobCompiler {
                 tokens.append(.anyOne)
                 index += 1
             case "[":
-                if let (characterClass, next) = parseCharacterClass(characters, from: index) {
+                if let (characterClass, next) = parseCharacterClass(characters, from: index, budget: &budget) {
                     tokens.append(.characterClass(characterClass))
                     index = next
                 } else {
@@ -364,7 +413,7 @@ enum EditorConfigGlobCompiler {
                     index += 1
                 }
             case "{":
-                tokens.append(contentsOf: parseBraceGroup(characters, from: &index))
+                tokens.append(contentsOf: parseBraceGroup(characters, from: &index, budget: &budget))
             default:
                 tokens.append(.literal(character))
                 index += 1
@@ -380,19 +429,33 @@ enum EditorConfigGlobCompiler {
     /// comma nor a `..` — is literal text, braces included.
     private static func parseBraceGroup(
         _ characters: [Character],
-        from index: inout Int
+        from index: inout Int,
+        budget: inout Int
     ) -> [EditorConfigGlobToken] {
-        guard let close = matchingBrace(characters, from: index) else {
+        guard let close = matchingBrace(characters, from: index, budget: &budget) else {
             index += 1
             return [.literal("{")]
         }
         let body = Array(characters[(index + 1)..<close])
+        // One charge covers the body copy above and the three single-pass reads
+        // of it below (`containsTopLevelComma`, `numericRange`, `literalTokens`),
+        // none of which can exceed the body's own length; that they are not
+        // charged individually understates the cost by a small constant factor,
+        // which the ceiling absorbs. Without this, nesting alone — every level
+        // copying and re-reading the level below — is quadratic.
+        guard spend(&budget, body.count) else {
+            index = characters.count
+            return []
+        }
         if containsTopLevelComma(body) {
             var cursor = index + 1
             var branches: [[EditorConfigGlobToken]] = []
             while cursor <= close {
-                branches.append(parse(characters, from: &cursor, insideBraces: true))
-                guard cursor < close else { break }
+                branches.append(parse(characters, from: &cursor, insideBraces: true, budget: &budget))
+                // An exhausted budget stops the walk here rather than stepping the
+                // cursor over every remaining character for branches that will each
+                // return empty: the answer is already "matches nothing".
+                guard cursor < close, budget >= 0 else { break }
                 cursor += 1 // step over the `,`
             }
             index = close + 1
@@ -408,10 +471,11 @@ enum EditorConfigGlobCompiler {
 
     /// The index of the `}` closing the `{` at `start`, honoring nesting and
     /// backslash escapes, or `nil` when the group never closes.
-    private static func matchingBrace(_ characters: [Character], from start: Int) -> Int? {
+    private static func matchingBrace(_ characters: [Character], from start: Int, budget: inout Int) -> Int? {
         var depth = 0
         var index = start
         while index < characters.count {
+            guard spend(&budget) else { return nil }
             switch characters[index] {
             case "\\":
                 index += 1
@@ -491,7 +555,8 @@ enum EditorConfigGlobCompiler {
     /// the index just past the closing `]`, or `nil` when it never closes.
     private static func parseCharacterClass(
         _ characters: [Character],
-        from start: Int
+        from start: Int,
+        budget: inout Int
     ) -> (EditorConfigCharacterClass, Int)? {
         var index = start + 1
         var negated = false
@@ -504,6 +569,7 @@ enum EditorConfigGlobCompiler {
         // A `]` in the first member position is a literal, not the terminator.
         var isFirst = true
         while index < characters.count {
+            guard spend(&budget) else { return nil }
             let character = characters[index]
             if character == "]", !isFirst {
                 return (EditorConfigCharacterClass(negated: negated, singles: singles, ranges: ranges), index + 1)

@@ -691,13 +691,15 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         // rule answers a literal tab unless `indent_style = space` is stated
         // outright, and only that case needs the inference — so a project without
         // an applicable configuration never pays for a whole-buffer copy plus a
-        // full-file scan on a keystroke.
+        // full-file scan on a keystroke. `inferred:` is an autoclosure, so a
+        // configuration stating both halves (`indent_style = space` +
+        // `indent_size`) does not pay for them either — only spaces of an unstated
+        // width read the buffer, to carry the file's own width over.
         let config = editorConfigProperties()
         guard config.indentStyle == .space else { return false }
-        let nsText = textView.text as NSString
         let insertion = IndentUnitRule.tabInsertion(
             config: config,
-            inferred: IndentEngine.inferIndentUnit(text: nsText)
+            inferred: IndentEngine.inferIndentUnit(text: textView.text as NSString)
         )
         guard insertion != "\t" else { return false }
         let plan = IndentUnitRule.tabInsertionPlan(ranges: [range], insertion: insertion)
