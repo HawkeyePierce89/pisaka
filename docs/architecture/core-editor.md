@@ -46,6 +46,48 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     Unit-tested in `DuplicateEngineTests`. **Out of scope** (follow-ups): an iOS
     variant via `UIKeyCommand` for an external keyboard over this same engine, and
     an Edit → Duplicate Line menu item.
+  - `CommentStyle.swift` — pure, testable mapping from a language to its comment
+    syntax (Foundation only). `public enum CommentStyle: Equatable { case
+    line(String); case block(open: String, close: String) }`, plus
+    `CommentStyle.style(for: SyntaxLanguage) -> CommentStyle?`. It defines
+    `public static let languagesWithoutComments: Set<SyntaxLanguage> = [.json,
+    .markdown]`, keeping an explicit set for languages with no comment syntax to
+    toggle (mirroring `LanguageKeywords`). The tests assert that the set of
+    styled languages and the set of no-comment languages are disjoint and
+    exhaustively cover `SyntaxLanguage.allCases`, so adding a language requires
+    deliberately resolving its comment style. Unit-tested in
+    `CommentStyleTests`.
+  - `ToggleCommentEngine.swift` — pure, testable toggle-comment computation for
+    the editor's Cmd+/ (Foundation only). `public struct CommentToggleEdit: Equatable`
+    carries `replacementRange`, `text`, and `selectedRange` (the resulting
+    selection in post-edit coordinates). `public enum ToggleCommentEngine { static func
+    toggle(text: NSString, selectedRange: NSRange, language: SyntaxLanguage?) ->
+    CommentToggleEdit? }`. Returning `nil` is the silent no-op: it means no edit
+    and no caret move (for no language, a no-comment language, or a wholly blank
+    target). The engine clamps the selection to buffer bounds first, like
+    `DuplicateEngine`. Touched lines are computed as the whole-line span from
+    the first touched line's start to the last touched line's end (a selection
+    ending exactly at a line start does not touch that line). Line separators are
+    split via `getLineStart(_:end:contentsEnd:for:)` to preserve terminators
+    identically to `DuplicateEngine`.
+    A blank caret line is a complete no-op with the caret left where it is. This
+    is the deliberate choice against the common alternative of inserting a marker
+    on an empty line. Caret placement: if a following line exists, the caret
+    lands at that line's start plus the original column (clamped); on the last
+    line, it stays on its own line, shifted by the inserted/removed token delta.
+    Selection placement becomes the touched lines' post-edit whole-line span
+    (from the first touched line's start to the last's contents end).
+    Line mode skips blank/whitespace-only lines in both directions. It inserts
+    the token at column 0 with no space after. When removing, it accepts both
+    the token alone (`//x`) or with at most one immediately following space
+    (`// x`), allowing leading whitespace before the token.
+    Block mode normalizes the "first/last touched line" to the first and last
+    **non-blank** touched line. Wrap inserts the bare opener before the first
+    non-blank line's first non-whitespace character, and the closer at the end
+    of the last non-blank line's contents. Unwrap tolerates one space inside
+    each delimiter and trailing whitespace after the closer. Delimiters already
+    inside the target are left exactly as they are without rebalancing.
+    Unit-tested in `ToggleCommentEngineTests`.
   - `TreeRefreshFilter.swift` — pure, Foundation-only decision for the macOS
     project-tree filesystem watcher: `public enum TreeRefreshFilter { static func
     shouldRefresh(changedPaths: [String], root: URL) -> Bool }` answers "is this

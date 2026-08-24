@@ -244,7 +244,7 @@ implementation has no forks:
 - Modify: `docs/architecture/core-editor.md`, `CLAUDE.md`, `README.md`,
   `docs/FEATURES.md`
 
-- [ ] Add full entries for `CommentStyle.swift` and `ToggleCommentEngine.swift`
+- [x] Add full entries for `CommentStyle.swift` and `ToggleCommentEngine.swift`
       to `docs/architecture/core-editor.md` in the `DuplicateEngine` style: the
       contract, the separator handling, every decision listed above
       (touched-line rule, blank-line skipping — including that a blank caret
@@ -253,11 +253,11 @@ implementation has no forks:
       an empty line, and naming no other product — caret/selection placement,
       both uncomment spellings, block-mode normalization to non-blank edges, no
       delimiter rebalancing), what `nil` means, and the named test suites.
-- [ ] Add one index line per new file to the `core-editor.md` list in
+- [x] Add one index line per new file to the `core-editor.md` list in
       `CLAUDE.md` — index only, no essay.
-- [ ] Add the `Cmd+/` row to the README keyboard-shortcut table and mention the
+- [x] Add the `Cmd+/` row to the README keyboard-shortcut table and mention the
       toggle in the README feature paragraph beside Cmd+D.
-- [ ] Add the feature to `docs/FEATURES.md` next to the Cmd+D entry, including
+- [x] Add the feature to `docs/FEATURES.md` next to the Cmd+D entry, including
       the CSS/HTML block behavior, the silent no-op for JSON/Markdown and
       unknown file types, the single-undo-step guarantee, and that it is
       macOS-only (no iOS wiring).

@@ -21,7 +21,7 @@ description of each — and of what it deliberately does *not* do — is in
   their own via FSEvents.
 - **Editor** — NSTextView-based, monospaced, with a line-number gutter,
   auto-indent, auto-closing brackets/quotes, matched-pair and rainbow bracket
-  highlighting, Cmd+D duplicate line/selection, a minimap, and per-tab position
+  highlighting, Cmd+D duplicate line/selection, Cmd+/ toggle comment, a minimap, and per-tab position
   memory: switch away and back and the tab returns to the caret and scroll
   position you left it at (for the app run; not persisted across launches).
 - **Syntax highlighting** (tree-sitter via Neon) for Swift, JavaScript,
@@ -228,6 +228,7 @@ never on a pull request.
 | Cmd+S       | Save (prompts with Save As for "Untitled") |
 | Cmd+W       | Close the active tab (confirms if unsaved) |
 | Cmd+D       | Duplicate the current line (or the selection), with the editor focused |
+| Cmd+/       | Toggle comment on the current line or selection, with the editor focused |
 | Cmd+F       | Find in the current file (opens the search bar; a repeat press re-focuses it) |
 | Cmd+G       | Find Next (while the search bar is open)   |
 | Cmd+Shift+G | Find Previous (while the search bar is open) |
