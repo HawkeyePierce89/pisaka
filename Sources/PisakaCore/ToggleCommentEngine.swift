@@ -181,8 +181,6 @@ public enum ToggleCommentEngine {
         return NSRange(location: location, length: min(max(range.length, 0), maxLength))
     }
 
-
-
     private static func toggleBlockComment(
         text: NSString,
         lines: [LineInfo],
@@ -192,22 +190,17 @@ public enum ToggleCommentEngine {
         touchedSpan: NSRange
     ) -> CommentToggleEdit? {
         let nonBlankIndices = lines.enumerated().filter { !$0.element.isBlank }.map { $0.offset }
-        if nonBlankIndices.isEmpty {
-            return nil
-        }
-        
-        let firstIdx = nonBlankIndices.first!
-        let lastIdx = nonBlankIndices.last!
-        
+        guard let firstIdx = nonBlankIndices.first, let lastIdx = nonBlankIndices.last else { return nil }
+
         let firstLine = lines[firstIdx]
         let lastLine = lines[lastIdx]
-        
+
         let firstContentStr = (firstLine.content as NSString).substring(to: firstLine.contentsEnd - firstLine.start)
         let lastContentStr = (lastLine.content as NSString).substring(to: lastLine.contentsEnd - lastLine.start)
-        
+
         let firstTrimmed = firstContentStr.trimmingCharacters(in: .whitespaces)
         let lastTrimmed = lastContentStr.trimmingCharacters(in: .whitespaces)
-        
+
         let shouldUnwrap: Bool
         if firstIdx == lastIdx {
             let hasDelims = firstTrimmed.hasPrefix(open) && lastTrimmed.hasSuffix(close)
@@ -215,172 +208,146 @@ public enum ToggleCommentEngine {
         } else {
             shouldUnwrap = firstTrimmed.hasPrefix(open) && lastTrimmed.hasSuffix(close)
         }
-        
+
+        let (newLines, caretDelta) = shouldUnwrap
+            ? unwrapBlock(lines: lines, firstIdx: firstIdx, lastIdx: lastIdx, open: open, close: close)
+            : wrapBlock(lines: lines, firstIdx: firstIdx, lastIdx: lastIdx, open: open, close: close)
+
+        return buildBlockEdit(newLines: newLines, caretDelta: caretDelta, text: text,
+                              lines: lines, range: range, touchedSpan: touchedSpan)
+    }
+
+    private static func unwrapBlock(
+        lines: [LineInfo], firstIdx: Int, lastIdx: Int, open: String, close: String
+    ) -> ([LineInfo], Int) {
         var newLines = lines
-        var caretDeltaForLastLine = 0
-        
-        if shouldUnwrap {
-            let firstNs = firstLine.content as NSString
-            let firstTerminatorLength = firstLine.end - firstLine.contentsEnd
-            let firstStr = firstNs.substring(to: firstNs.length - firstTerminatorLength)
-            
-            var leadingSpacesFirst = ""
-            var contentAfterFirst = ""
-            if let rangeOfOpen = firstStr.range(of: open) {
-                let startIdx = firstStr.distance(from: firstStr.startIndex, to: rangeOfOpen.lowerBound)
-                leadingSpacesFirst = String(firstStr.prefix(startIdx))
-                var rest = String(firstStr[rangeOfOpen.upperBound...])
-                if rest.hasPrefix(" ") {
-                    rest.removeFirst()
-                }
-                contentAfterFirst = rest
-            }
-            
-            let newFirstContent = leadingSpacesFirst + contentAfterFirst
-            
-            if firstIdx == lastIdx {
-                let lastStr = contentAfterFirst
-                var trailingSpacesLast = ""
-                var contentBeforeLast = ""
-                if let rangeOfClose = lastStr.range(of: close, options: .backwards) {
-                    let endIdx = lastStr.distance(from: lastStr.startIndex, to: rangeOfClose.upperBound)
-                    trailingSpacesLast = String(lastStr.suffix(lastStr.count - endIdx))
-                    var rest = String(lastStr[..<rangeOfClose.lowerBound])
-                    if rest.hasSuffix(" ") {
-                        rest.removeLast()
-                    }
-                    contentBeforeLast = rest
-                }
-                
-                let term = (firstLine.content as NSString).substring(from: firstLine.contentsEnd - firstLine.start)
-                let newLineContent = leadingSpacesFirst + contentBeforeLast + trailingSpacesLast + term
-                newLines[firstIdx] = LineInfo(
-                    start: firstLine.start,
-                    end: firstLine.end,
-                    contentsEnd: firstLine.contentsEnd,
-                    content: newLineContent,
-                    isCaretLine: firstLine.isCaretLine
-                )
-                
-                if firstLine.isCaretLine {
-                    caretDeltaForLastLine = leadingSpacesFirst.utf16.count + contentAfterFirst.utf16.count
-                    caretDeltaForLastLine -= firstStr.utf16.count
-                }
-            } else {
-                let firstTerm = firstNs.substring(from: firstLine.contentsEnd - firstLine.start)
-                let newFirstLineContent = newFirstContent + firstTerm
-                newLines[firstIdx] = LineInfo(
-                    start: firstLine.start,
-                    end: firstLine.end,
-                    contentsEnd: firstLine.contentsEnd,
-                    content: newFirstLineContent,
-                    isCaretLine: firstLine.isCaretLine
-                )
-                
-                let lastNs = lastLine.content as NSString
-                let lastTerminatorLength = lastLine.end - lastLine.contentsEnd
-                let lastStr = lastNs.substring(to: lastNs.length - lastTerminatorLength)
-                
-                var trailingSpacesLast = ""
-                var contentBeforeLast = ""
-                if let rangeOfClose = lastStr.range(of: close, options: .backwards) {
-                    let endIdx = lastStr.distance(from: lastStr.startIndex, to: rangeOfClose.upperBound)
-                    trailingSpacesLast = String(lastStr.suffix(lastStr.count - endIdx))
-                    var rest = String(lastStr[..<rangeOfClose.lowerBound])
-                    if rest.hasSuffix(" ") {
-                        rest.removeLast()
-                    }
-                    contentBeforeLast = rest
-                }
-                
-                let lastTerm = lastNs.substring(from: lastLine.contentsEnd - lastLine.start)
-                let newLastLineContent = contentBeforeLast + trailingSpacesLast + lastTerm
-                newLines[lastIdx] = LineInfo(
-                    start: lastLine.start,
-                    end: lastLine.end,
-                    contentsEnd: lastLine.contentsEnd,
-                    content: newLastLineContent,
-                    isCaretLine: lastLine.isCaretLine
-                )
-                
-                if lastLine.isCaretLine {
-                    // Caret is on the last line (but not first). For unwrap, we removed close and space before it.
-                    // The length difference is what happened at the end of the line. Wait, does that shift the caret?
-                    // "delta is the token length inserted or removed before it"
-                    // If caret is on the last line, and we removed at the end of the line, the caret shouldn't move if it's before the removed token!
-                    // Let's just assume delta is 0 for the last line if we are unwrapping, or let's be precise:
-                    // If caret was before the closer, it doesn't move. If it was after, it moves.
-                    // But in line mode, delta is a single constant. The test cases might not be so strict. Let's just use 0.
-                    caretDeltaForLastLine = 0
-                }
-            }
-            
-        } else {
-            let firstNs = firstLine.content as NSString
-            let firstTerminatorLength = firstLine.end - firstLine.contentsEnd
-            let firstStr = firstNs.substring(to: firstNs.length - firstTerminatorLength)
-            
-            var firstNonSpaceIdx = 0
-            while firstNonSpaceIdx < firstNs.length - firstTerminatorLength {
-                let unichar = firstNs.character(at: firstNonSpaceIdx)
-                if let scalar = Unicode.Scalar(unichar), CharacterSet.whitespaces.contains(scalar) {
-                    firstNonSpaceIdx += 1
-                } else {
-                    break
-                }
-            }
-            
-            let leadingFirst = firstNs.substring(to: firstNonSpaceIdx)
-            let restLength = firstNs.length - firstTerminatorLength - firstNonSpaceIdx
-            let restFirst = firstNs.substring(with: NSRange(location: firstNonSpaceIdx, length: restLength))
-            
-            let newFirstContent = leadingFirst + open + restFirst
-            
-            if firstIdx == lastIdx {
-                let firstTerm = firstNs.substring(from: firstLine.contentsEnd - firstLine.start)
-                let newLineContent = newFirstContent + close + firstTerm
-                newLines[firstIdx] = LineInfo(
-                    start: firstLine.start,
-                    end: firstLine.end,
-                    contentsEnd: firstLine.contentsEnd,
-                    content: newLineContent,
-                    isCaretLine: firstLine.isCaretLine
-                )
-                if firstLine.isCaretLine {
-                    caretDeltaForLastLine = open.utf16.count
-                }
-            } else {
-                let firstTerm = firstNs.substring(from: firstLine.contentsEnd - firstLine.start)
-                let newFirstLineContent = newFirstContent + firstTerm
-                newLines[firstIdx] = LineInfo(
-                    start: firstLine.start,
-                    end: firstLine.end,
-                    contentsEnd: firstLine.contentsEnd,
-                    content: newFirstLineContent,
-                    isCaretLine: firstLine.isCaretLine
-                )
-                
-                let lastNs = lastLine.content as NSString
-                let lastTerminatorLength = lastLine.end - lastLine.contentsEnd
-                let lastStr = lastNs.substring(to: lastNs.length - lastTerminatorLength)
-                
-                let lastTerm = lastNs.substring(from: lastLine.contentsEnd - lastLine.start)
-                let newLastLineContent = lastStr + close + lastTerm
-                newLines[lastIdx] = LineInfo(
-                    start: lastLine.start,
-                    end: lastLine.end,
-                    contentsEnd: lastLine.contentsEnd,
-                    content: newLastLineContent,
-                    isCaretLine: lastLine.isCaretLine
-                )
-                if lastLine.isCaretLine {
-                    caretDeltaForLastLine = 0 // Closer is added at the end, so it doesn't shift caret before it.
-                }
-            }
+        var caretDelta = 0
+        let firstLine = lines[firstIdx]
+        let firstNs = firstLine.content as NSString
+        let firstTermLength = firstLine.end - firstLine.contentsEnd
+        let firstStr = firstNs.substring(to: firstNs.length - firstTermLength)
+
+        var leadingSpacesFirst = "", contentAfterFirst = ""
+        if let rangeOfOpen = firstStr.range(of: open) {
+            let startIdx = firstStr.distance(from: firstStr.startIndex, to: rangeOfOpen.lowerBound)
+            leadingSpacesFirst = String(firstStr.prefix(startIdx))
+            var rest = String(firstStr[rangeOfOpen.upperBound...])
+            if rest.hasPrefix(" ") { rest.removeFirst() }
+            contentAfterFirst = rest
         }
-        
+        let newFirstContent = leadingSpacesFirst + contentAfterFirst
+
+        if firstIdx == lastIdx {
+            var trailingSpacesLast = "", contentBeforeLast = ""
+            if let rangeOfClose = contentAfterFirst.range(of: close, options: .backwards) {
+                let endIdx = contentAfterFirst.distance(
+                    from: contentAfterFirst.startIndex, to: rangeOfClose.upperBound
+                )
+                trailingSpacesLast = String(contentAfterFirst.suffix(contentAfterFirst.count - endIdx))
+                var rest = String(contentAfterFirst[..<rangeOfClose.lowerBound])
+                if rest.hasSuffix(" ") { rest.removeLast() }
+                contentBeforeLast = rest
+            }
+            let term = firstNs.substring(from: firstLine.contentsEnd - firstLine.start)
+            let newLineContent = leadingSpacesFirst + contentBeforeLast + trailingSpacesLast + term
+            newLines[firstIdx] = LineInfo(
+                start: firstLine.start, end: firstLine.end,
+                contentsEnd: firstLine.contentsEnd,
+                content: newLineContent, isCaretLine: firstLine.isCaretLine
+            )
+            if firstLine.isCaretLine {
+                caretDelta = leadingSpacesFirst.utf16.count + contentAfterFirst.utf16.count - firstStr.utf16.count
+            }
+        } else {
+            let firstTerm = firstNs.substring(from: firstLine.contentsEnd - firstLine.start)
+            newLines[firstIdx] = LineInfo(
+                start: firstLine.start, end: firstLine.end,
+                contentsEnd: firstLine.contentsEnd,
+                content: newFirstContent + firstTerm, isCaretLine: firstLine.isCaretLine
+            )
+
+            let lastLine = lines[lastIdx]
+            let lastNs = lastLine.content as NSString
+            let lastTermLength = lastLine.end - lastLine.contentsEnd
+            let lastStr = lastNs.substring(to: lastNs.length - lastTermLength)
+
+            var trailingSpacesLast = "", contentBeforeLast = ""
+            if let rangeOfClose = lastStr.range(of: close, options: .backwards) {
+                let endIdx = lastStr.distance(from: lastStr.startIndex, to: rangeOfClose.upperBound)
+                trailingSpacesLast = String(lastStr.suffix(lastStr.count - endIdx))
+                var rest = String(lastStr[..<rangeOfClose.lowerBound])
+                if rest.hasSuffix(" ") { rest.removeLast() }
+                contentBeforeLast = rest
+            }
+            let lastTerm = lastNs.substring(from: lastLine.contentsEnd - lastLine.start)
+            newLines[lastIdx] = LineInfo(
+                start: lastLine.start, end: lastLine.end,
+                contentsEnd: lastLine.contentsEnd,
+                content: contentBeforeLast + trailingSpacesLast + lastTerm, isCaretLine: lastLine.isCaretLine
+            )
+            if lastLine.isCaretLine { caretDelta = 0 }
+        }
+        return (newLines, caretDelta)
+    }
+
+    private static func wrapBlock(
+        lines: [LineInfo], firstIdx: Int, lastIdx: Int, open: String, close: String
+    ) -> ([LineInfo], Int) {
+        var newLines = lines
+        var caretDelta = 0
+        let firstLine = lines[firstIdx]
+        let firstNs = firstLine.content as NSString
+        let firstTermLength = firstLine.end - firstLine.contentsEnd
+
+        var firstNonSpaceIdx = 0
+        while firstNonSpaceIdx < firstNs.length - firstTermLength {
+            let unichar = firstNs.character(at: firstNonSpaceIdx)
+            if let scalar = Unicode.Scalar(unichar), CharacterSet.whitespaces.contains(scalar) {
+                firstNonSpaceIdx += 1
+            } else { break }
+        }
+
+        let leadingFirst = firstNs.substring(to: firstNonSpaceIdx)
+        let restLength = firstNs.length - firstTermLength - firstNonSpaceIdx
+        let restFirst = firstNs.substring(with: NSRange(location: firstNonSpaceIdx, length: restLength))
+        let newFirstContent = leadingFirst + open + restFirst
+
+        if firstIdx == lastIdx {
+            let term = firstNs.substring(from: firstLine.contentsEnd - firstLine.start)
+            newLines[firstIdx] = LineInfo(
+                start: firstLine.start, end: firstLine.end,
+                contentsEnd: firstLine.contentsEnd,
+                content: newFirstContent + close + term, isCaretLine: firstLine.isCaretLine
+            )
+            if firstLine.isCaretLine { caretDelta = open.utf16.count }
+        } else {
+            let firstTerm = firstNs.substring(from: firstLine.contentsEnd - firstLine.start)
+            newLines[firstIdx] = LineInfo(
+                start: firstLine.start, end: firstLine.end,
+                contentsEnd: firstLine.contentsEnd,
+                content: newFirstContent + firstTerm, isCaretLine: firstLine.isCaretLine
+            )
+
+            let lastLine = lines[lastIdx]
+            let lastNs = lastLine.content as NSString
+            let lastTermLength = lastLine.end - lastLine.contentsEnd
+            let lastStr = lastNs.substring(to: lastNs.length - lastTermLength)
+            let lastTerm = lastNs.substring(from: lastLine.contentsEnd - lastLine.start)
+            newLines[lastIdx] = LineInfo(
+                start: lastLine.start, end: lastLine.end,
+                contentsEnd: lastLine.contentsEnd,
+                content: lastStr + close + lastTerm, isCaretLine: lastLine.isCaretLine
+            )
+            if lastLine.isCaretLine { caretDelta = 0 }
+        }
+        return (newLines, caretDelta)
+    }
+
+    private static func buildBlockEdit(
+        newLines: [LineInfo], caretDelta: Int, text: NSString, lines: [LineInfo],
+        range: NSRange, touchedSpan: NSRange
+    ) -> CommentToggleEdit {
         let newText = newLines.map { $0.content }.joined()
-        
         let isSelection = range.length > 0
         let newSelectedRange: NSRange
 
@@ -396,21 +363,13 @@ public enum ToggleCommentEngine {
             let isLastLine = line.end == text.length && line.end == line.contentsEnd
 
             if isLastLine {
-                let delta = caretDeltaForLastLine
                 let newContentLength = newText.utf16.count
-                let newColumn = min(max(originalColumn + delta, 0), newContentLength)
+                let newColumn = min(max(originalColumn + caretDelta, 0), newContentLength)
                 newSelectedRange = NSRange(location: touchedSpan.location + newColumn, length: 0)
             } else {
-                var nextLineStart = 0
-                var nextLineEnd = 0
-                var nextLineContentsEnd = 0
-                text.getLineStart(
-                    &nextLineStart,
-                    end: &nextLineEnd,
-                    contentsEnd: &nextLineContentsEnd,
-                    for: NSRange(location: line.end, length: 0)
-                )
-
+                var nextLineStart = 0, nextLineEnd = 0, nextLineContentsEnd = 0
+                text.getLineStart(&nextLineStart, end: &nextLineEnd, contentsEnd: &nextLineContentsEnd,
+                                  for: NSRange(location: line.end, length: 0))
                 let nextLineContentLength = nextLineContentsEnd - nextLineStart
                 let newColumn = min(originalColumn, nextLineContentLength)
                 let nextLineNewStart = touchedSpan.location + newText.utf16.count
@@ -418,11 +377,7 @@ public enum ToggleCommentEngine {
             }
         }
 
-        return CommentToggleEdit(
-            replacementRange: touchedSpan,
-            text: newText,
-            selectedRange: newSelectedRange
-        )
+        return CommentToggleEdit(replacementRange: touchedSpan, text: newText, selectedRange: newSelectedRange)
     }
 
 }

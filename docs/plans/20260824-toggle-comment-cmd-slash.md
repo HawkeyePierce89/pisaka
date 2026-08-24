@@ -264,13 +264,13 @@ implementation has no forks:
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] Run `swift test` — the full suite green, including the new
+- [x] Run `swift test` — the full suite green, including the new
       `CommentStyleTests` and `ToggleCommentEngineTests`.
-- [ ] Run `swiftlint --strict` from the repository root — clean, with no new
+- [x] Run `swiftlint --strict` from the repository root — clean, with no new
       in-file disables.
-- [ ] Build macOS (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+- [x] Build macOS (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
       -destination 'platform=macOS' build`) and iOS Simulator — both succeed.
-- [ ] Re-read the doc entries against the shipped code so the architecture doc,
+- [x] Re-read the doc entries against the shipped code so the architecture doc,
       `CLAUDE.md`, `README.md` and `docs/FEATURES.md` describe the behavior
       actually implemented.
 
