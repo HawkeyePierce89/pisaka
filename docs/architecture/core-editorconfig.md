@@ -181,9 +181,16 @@ newly typed text is affected.
     compared case-insensitively (one written *under* a section is just another
     property of that section); a section header is the text between the leading
     `[` and the **last** `]` on the line, and a header that never closes is
-    skipped; a pair splits at its **first** `=`, so a value may hold as many more
-    as it likes; `maximumKeyLength = 1024` and `maximumValueLength = 4096` are
-    the caps. `sections(matching:)` returns every matching section in document
+    skipped *and* ends the section above it — the pairs below land nowhere rather
+    than in the previous section, so a typo'd `[*.py` cannot hand Python's rules
+    to whatever glob happened to be open (and a `root` below it is not a preamble
+    declaration either, because the preamble ends at the first `[` line whether
+    or not it parsed); a leading **UTF-8 BOM is stripped** before anything else,
+    since U+FEFF is not in `CharacterSet.whitespaces` and would otherwise make
+    the first line — usually `root = true` or `[*]` — parse as neither a header
+    nor a pair; a pair splits at its **first** `=`, so a value may hold as many
+    more as it likes; `maximumKeyLength = 1024` and `maximumValueLength = 4096`
+    are the caps. `sections(matching:)` returns every matching section in document
     order. `public struct EditorConfigProperties` is the merged map: `values`
     (keys already lowercased), `subscript(key:)`, `isEmpty`, and
     `apply(_ pair:)`, which for the value `unset` (case-insensitive) *removes*
@@ -373,14 +380,18 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     whatever the adjacent text has — and in a buffer with no adjacent text, no
     font at all; every *other* programmatic edit here goes through
     `insertText(_:replacementRange:)`, which applies them for free. The handler
-    also asks the **cheap question first** — `indentStyle == .space`, before
-    touching the buffer — because `textView.string` bridges a mutable
-    `NSTextStorage` and copies the whole buffer, and `inferIndentUnit` then walks
-    every line of that copy: paying both on every Tab press to compute a value the
-    stricter rule discards is precisely the main-thread cost `textDidChange` is
-    careful to avoid — and the rule's `inferred:` autoclosure extends that to the
-    *configured* case, which is the common one and equally needs no buffer. The
-    iOS coordinator asks it in the same order. `scrollRangeToVisible` is called
+    **asks the rule rather than restating it**: whether Tab inserts spaces at all
+    is `IndentUnitRule.tabInsertion`'s decision, and the handler reads only its
+    answer. Pre-checking `indentStyle == .space` in the view would put half of
+    that decision in the view layer and buy nothing, because the rule's
+    `inferred:` **autoclosure** already makes the answer free in every case but
+    one: `textView.string` bridges a mutable `NSTextStorage` and copies the whole
+    buffer, and `inferIndentUnit` then walks every line of that copy — the
+    main-thread cost `textDidChange` is careful to avoid — and neither the
+    no-configuration case nor a fully-stated `indent_style = space` +
+    `indent_size` ever evaluates it. Only spaces of an unstated width read the
+    buffer, to carry the file's own width over. The iOS coordinator asks it the
+    same way. `scrollRangeToVisible` is called
     explicitly on the first caret afterwards: it is the one thing
     `insertText(_:replacementRange:)` does for every other programmatic edit here
     that neither `setSelectedRanges` nor `didChangeText()` does, and without it

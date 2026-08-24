@@ -1788,26 +1788,21 @@ struct CodeEditorView: NSViewRepresentable {
         /// bracket, which is what makes it a single undoable step and a single
         /// change notification. `insertBacktab` is untouched.
         private func insertConfiguredTab(in textView: NSTextView) -> Bool {
-            // Ask the cheap question first. `IndentUnitRule.tabInsertion` answers a
-            // literal tab unless the configuration says `indent_style = space`
-            // outright, and it is the *only* case that needs the inference — so
-            // deciding this before touching the buffer keeps the no-configuration
-            // case (the overwhelmingly common one) exactly as cheap as it was
-            // before this layer existed. `textView.string` bridges a mutable
+            // The rule is asked, never restated: whether the key inserts spaces at
+            // all is `IndentUnitRule.tabInsertion`'s decision, and this reads only
+            // its answer. Pre-checking `indent_style` here would put half of that
+            // decision in the view layer and buy nothing, because the `inferred:`
+            // argument is an **autoclosure**: a configuration that answers a
+            // literal tab — the no-`.editorconfig` case, the overwhelmingly common
+            // one — never evaluates it, and neither does a fully-stated
+            // `indent_style = space` + `indent_size`. Only spaces of an unstated
+            // width read the buffer, to carry the file's own width over. That
+            // laziness is what matters: `textView.string` bridges a mutable
             // `NSTextStorage`, so reading it copies the whole buffer, and
-            // `inferIndentUnit` then walks every line of the copy: paying both on
-            // every Tab press to compute a value that is discarded is precisely the
+            // `inferIndentUnit` then walks every line of the copy — the very
             // main-thread cost `textDidChange` above is careful to avoid.
-            //
-            // The `inferred:` argument is an autoclosure, so the same is true of
-            // the *configured* case: `indent_style = space` with an `indent_size`
-            // — the shape this feature exists for — answers from the properties
-            // alone and never touches the buffer either. Only spaces of an
-            // unstated width read it, to carry the file's own width over.
-            let config = editorConfigProperties()
-            guard config.indentStyle == .space else { return false }
             let insertion = IndentUnitRule.tabInsertion(
-                config: config,
+                config: editorConfigProperties(),
                 inferred: IndentEngine.inferIndentUnit(text: textView.string as NSString)
             )
             guard insertion != "\t" else { return false }

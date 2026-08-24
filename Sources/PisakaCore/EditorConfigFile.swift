@@ -55,6 +55,14 @@ public struct EditorConfigSection: Equatable {
 /// - **The spec's required acceptance floors are taken as the cap**: a key
 ///   longer than 1024 characters or a value longer than 4096 is ignored, as is
 ///   a section name longer than 1024 (`EditorConfigGlob`'s own limit).
+/// - **A leading UTF-8 BOM is stripped.** `String` does not treat U+FEFF as
+///   whitespace, so a config written by an editor that BOMs its files (Visual
+///   Studio does by default) would otherwise lose its *first* line — usually
+///   either `root = true` or the `[*]` header — and lose it silently.
+/// - **A header that never closes stops the section it followed.** The line is
+///   still skipped, but every pair below it lands nowhere rather than in the
+///   previous section: a typo'd `[*.py` must not hand Python's rules to
+///   whatever glob happened to be open above it.
 public struct EditorConfigFile: Equatable {
     /// The longest key that is honored (the spec's acceptance floor).
     public static let maximumKeyLength = 1024
@@ -72,12 +80,22 @@ public struct EditorConfigFile: Equatable {
         var sections: [EditorConfigSection] = []
         var currentGlob: EditorConfigGlob?
         var currentPairs: [EditorConfigPair] = []
+        // The preamble ends at the first `[` line, parsable or not — a `root`
+        // written after a *broken* header is no more a preamble declaration than
+        // one written after a good one.
+        var sawSectionHeader = false
 
         func closeCurrentSection() {
             guard let glob = currentGlob else { return }
             sections.append(EditorConfigSection(glob: glob, pairs: currentPairs))
             currentPairs = []
         }
+
+        // U+FEFF is not in `CharacterSet.whitespaces`, so it would survive the
+        // per-line trim and make the first line parse as neither a header nor a
+        // pair. Dropped once, here, rather than guarded at each of those checks.
+        var text = text
+        if text.hasPrefix("\u{FEFF}") { text.removeFirst() }
 
         for rawLine in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
@@ -87,16 +105,21 @@ public struct EditorConfigFile: Equatable {
             if line.hasPrefix("#") || line.hasPrefix(";") { continue }
 
             if line.hasPrefix("[") {
-                guard let name = EditorConfigFile.sectionName(line) else { continue }
                 closeCurrentSection()
+                // Cleared before the header is even parsed: an unclosed one ends
+                // the previous section instead of silently extending it.
+                currentGlob = nil
+                sawSectionHeader = true
+                guard let name = EditorConfigFile.sectionName(line) else { continue }
                 currentGlob = EditorConfigGlob(pattern: name)
                 continue
             }
 
             guard let pair = EditorConfigFile.pair(line, lowercasingValue: currentGlob != nil) else { continue }
             if currentGlob == nil {
-                // The preamble carries exactly one meaningful declaration.
-                if pair.key == "root" { isRoot = pair.value.lowercased() == "true" }
+                // The preamble carries exactly one meaningful declaration; below a
+                // broken header there is no section to carry anything at all.
+                if !sawSectionHeader, pair.key == "root" { isRoot = pair.value.lowercased() == "true" }
                 continue
             }
             currentPairs.append(pair)

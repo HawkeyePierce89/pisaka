@@ -687,18 +687,16 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
     /// arithmetic that decides what replaces the selection and where the caret
     /// lands is asked once, in Core, rather than restated here.
     private func insertConfiguredTab(in textView: UITextView, range: NSRange) -> Bool {
-        // The cheap question first, exactly as the macOS coordinator asks it: the
-        // rule answers a literal tab unless `indent_style = space` is stated
-        // outright, and only that case needs the inference — so a project without
-        // an applicable configuration never pays for a whole-buffer copy plus a
-        // full-file scan on a keystroke. `inferred:` is an autoclosure, so a
-        // configuration stating both halves (`indent_style = space` +
-        // `indent_size`) does not pay for them either — only spaces of an unstated
-        // width read the buffer, to carry the file's own width over.
-        let config = editorConfigProperties()
-        guard config.indentStyle == .space else { return false }
+        // The rule is asked, never restated — exactly as the macOS coordinator asks
+        // it. `inferred:` is an autoclosure, so the answer costs nothing to reach
+        // in every case but one: a configuration answering a literal tab (the
+        // no-`.editorconfig` case) never evaluates it, nor does one stating both
+        // halves (`indent_style = space` + `indent_size`); only spaces of an
+        // unstated width read the buffer, to carry the file's own width over. So a
+        // project without an applicable configuration never pays for a whole-buffer
+        // copy plus a full-file scan on a keystroke.
         let insertion = IndentUnitRule.tabInsertion(
-            config: config,
+            config: editorConfigProperties(),
             inferred: IndentEngine.inferIndentUnit(text: textView.text as NSString)
         )
         guard insertion != "\t" else { return false }

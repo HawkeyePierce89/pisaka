@@ -78,6 +78,33 @@ final class EditorConfigFileTests: XCTestCase {
         XCTAssertEqual(file.sections.first?.value(for: "indent_size"), "4")
     }
 
+    /// A typo'd header must not hand its pairs to whatever section was open above
+    /// it: `indent_size = 8` below a broken `[*.py` is not a rule for `*.c`.
+    func testHeaderWithNoClosingBracketEndsThePrecedingSection() {
+        let file = EditorConfigFile(text: "[*.c]\nindent_size = 2\n[*.py\nindent_size = 8\n")
+        XCTAssertEqual(file.sections.map { $0.glob.pattern }, ["*.c"])
+        XCTAssertEqual(file.sections.first?.pairs.count, 1)
+        XCTAssertEqual(file.sections.first?.value(for: "indent_size"), "2")
+    }
+
+    /// The preamble ends at the first `[` line whether or not it parsed, so a
+    /// `root` below a broken header is not a preamble declaration.
+    func testRootBelowAnUnclosedHeaderIsNotHonored() {
+        XCTAssertFalse(EditorConfigFile(text: "[*.c\nroot = true\n").isRoot)
+    }
+
+    // MARK: - Byte-order mark
+
+    func testLeadingByteOrderMarkDoesNotHideTheFirstSection() {
+        let file = EditorConfigFile(text: "\u{FEFF}[*]\nindent_style = space\n")
+        XCTAssertEqual(file.sections.map { $0.glob.pattern }, ["*"])
+        XCTAssertEqual(file.sections.first?.value(for: "indent_style"), "space")
+    }
+
+    func testLeadingByteOrderMarkDoesNotHideRoot() {
+        XCTAssertTrue(EditorConfigFile(text: "\u{FEFF}root = true\n[*]\nindent_size = 2\n").isRoot)
+    }
+
     func testSectionsMatchingReturnsEveryMatchInDocumentOrder() {
         let file = EditorConfigFile(text: """
         [*]
