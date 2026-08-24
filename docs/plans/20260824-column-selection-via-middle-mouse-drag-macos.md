@@ -102,7 +102,7 @@ selection reports.
 - Create: `Sources/PisakaCore/ColumnSelectionEngine.swift`
 - Create: `Tests/PisakaCoreTests/ColumnSelectionEngineTests.swift`
 
-- [ ] write `ColumnSelectionEngineTests` first, covering: normalization from all
+- [x] write `ColumnSelectionEngineTests` first, covering: normalization from all
       four corner orders (down-right, down-left, up-right, up-left) plus the
       zero-width and zero-height drags; a multi-line rectangle over uniform
       lines; a line shorter than the rectangle clamping to its content end; the
@@ -112,7 +112,7 @@ selection reports.
       per-line pair handed over in reverse order; offsets outside the line's
       range and outside the text's bounds (clamped, never trapping); and empty
       input yielding no ranges
-- [ ] add `Sources/PisakaCore/ColumnSelectionEngine.swift` (Foundation +
+- [x] add `Sources/PisakaCore/ColumnSelectionEngine.swift` (Foundation +
       CoreGraphics only), with a file-header doc comment stating the contract,
       the coordinate convention and why the line range is supplied rather than
       inferred:
@@ -131,7 +131,7 @@ selection reports.
         clamps and orders each offset pair inside `[lineStart, contentEnd]`,
         and returns the ranges ascending by location with exact duplicates
         removed (AppKit requires ordered, non-overlapping ranges)
-- [ ] run `swift test` — must pass before Task 2
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: The middle-button gesture in `EditorTextView`
 
