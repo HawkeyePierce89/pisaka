@@ -20,7 +20,10 @@ description of each — and of what it deliberately does *not* do — is in
   changes (Finder, a console `git checkout`, the embedded terminal) show up on
   their own via FSEvents.
 - **Editor** — NSTextView-based, monospaced, with a line-number gutter,
-  auto-indent, auto-closing brackets/quotes, matched-pair and rainbow bracket
+  auto-indent (honoring a project's `.editorconfig` for `indent_style`,
+  `indent_size` and `tab_width` — other properties are read but not applied yet,
+  the search stops at the opened folder, and existing content is never
+  reformatted), auto-closing brackets/quotes, matched-pair and rainbow bracket
   highlighting, Cmd+D duplicate line/selection, Cmd+/ toggle comment,
   middle-mouse drag column selection, a minimap, and per-tab position
   memory: switch away and back and the tab returns to the caret and scroll
@@ -85,7 +88,8 @@ description of each — and of what it deliberately does *not* do — is in
 
 The same `PisakaCore` logic drives an adaptive SwiftUI/UIKit app: the document
 picker with security-scoped bookmarks for file access, a `UITextView` editor
-with the same highlighting/indent/auto-pair engines and pinch-to-zoom, the same
+with the same highlighting/indent/auto-pair engines (EditorConfig included,
+though without live pickup of an out-of-band edit) and pinch-to-zoom, the same
 index-based Go to Definition (edit menu) and completion (a QuickType-style strip
 above the keyboard), and the same git features **in-process via libgit2** (no
 `git` binary): Local Changes, diffs, revert, Git Log with graph, 3-pane conflict

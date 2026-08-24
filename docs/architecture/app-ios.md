@@ -197,6 +197,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     stated rather than worked around; the index moves forward on folder open, tab
     open, buffer edits, and the working-tree rewrites the app performs itself
     (`RootView_iOS.notifyIndexOfProjectFileChanges`).
+    It builds the **`.editorconfig` cache** the same way and over the same scoped
+    service, so its reads run under that grant too: `private let editorConfig =
+    EditorConfigModel(fileService: scopedService)`, a plain stored property for the
+    reason above (it publishes nothing), handed to `RootView_iOS` and threaded on to
+    the editor, which is the only thing that asks it anything. It is a **reader**
+    like the index — no writer gate, and never gated by one — and it shares the
+    index's missing-watcher story exactly: its cache is dropped on the root switch
+    and on the worktree rewrites the app performs itself, while an out-of-band edit
+    to a `.editorconfig` stays a stated limit (`core-editorconfig.md`).
     It also composes the **LeetCode** stack (LC-1; the layer's entry is in
     `core-leetcode.md`) inline rather than through a `makeLeetCode` factory —
     `ContentView`'s need for a default value has no iOS counterpart — but from the
@@ -277,7 +286,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     reopening the folder. These are the moments the app itself knows about, which is
     what lets them stand in for the watcher iOS lacks; the genuinely out-of-band edit
     (Files.app, another app's share extension) stays uncovered and stays a stated
-    Phase 1 limit. A `@StateObject
+    Phase 1 limit. **The `.editorconfig` cache rides along** in that same helper —
+    `editorConfig.noteProjectFilesChanged()`, dropped wholesale and unconditionally
+    (it needs no root to be told anything, and clearing a dictionary costs nothing)
+    — because it is a reader with no watcher behind it for the identical reason, and
+    these self-inflicted rewrites are the only thing that can tell it a
+    `.editorconfig` was added, changed or removed by a branch switch, a revert or a
+    merge apply. The **root switch** is registered beside
+    `synchronizeSymbolIndex(forRoot:)` in `.onChange(of: model.projectRoot)`
+    (`editorConfig.noteProjectRoot(newRoot)`): the one place both folder paths meet,
+    so a configuration resolved under the folder the user just left can never be
+    returned for a file in this one. The call is idempotent for an unchanged root,
+    which is what lets the editor repeat it at the point of use, where it cannot lag
+    a later update cycle (`core-editorconfig.md`). A `@StateObject
     DefinitionRoute_iOS` (rather than the plain `@State` a `MergeModel` gets, because
     this one is also *read* here) is given an `openFile` closure capturing only
     `model` — anything read from the view struct would be frozen at installation
@@ -344,6 +365,34 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     same programmatic-edit re-entry guard and single-undo discipline; pinch-to-
     zoom font stepping (the iOS analog of macOS Cmd+scroll). No gutter/minimap on
     iOS (deferred).
+    **`.editorconfig` is wired here exactly as on macOS** (the layer is
+    `core-editorconfig.md`): the representable takes an undefaulted `editorConfig:
+    EditorConfigModel` (any default worth writing would be a second live disk
+    reader for a view nobody constructs) plus `projectRoot`, which the macOS editor
+    already received and which this one now needs because the hierarchy walk stops
+    at the root. The coordinator holds the model **weakly**, like `symbolIndex`, so
+    a deallocated one answers empty properties — the "no configuration applies"
+    case, which degrades to the content inference. The root is (re-)registered **at
+    the point of use**, on every `makeUIView`/`updateUIView`, not only from
+    `RootView_iOS`'s `.onChange(of: model.projectRoot)`: that observer runs in a
+    *later* SwiftUI update cycle — the same lag the root view already fences against
+    for the branch widget and the index — so registering only there would leave a
+    window in which this editor already shows the new project's file while the model
+    still holds the previous root, and one Enter pressed inside it would be indented
+    by the folder the user just left. The call is idempotent for an unchanged root,
+    so repeating it costs a comparison and throws no cache away. Enter's
+    `insertIndentedNewline` takes its `unit` from `IndentUnitRule
+    .unit(config:inferred:)` instead of the bare inference, and **Tab** is
+    intercepted in `shouldChangeTextIn` as a `"\t"` replacement: when
+    `IndentUnitRule.tabInsertion` answers spaces they are applied through the
+    existing `applyEdit` and the default is suppressed, and when it answers a tab
+    (every case but an explicit `indent_style = space`) the replacement is let
+    through untouched, so a project with no `.editorconfig` inserts exactly the tab
+    it does today. `UITextView` has a single `selectedRange`, so there is no
+    multi-caret fan-out to do — but the one range still goes through
+    `IndentUnitRule.tabInsertionPlan`, so the arithmetic deciding what replaces the
+    selection and where the caret lands is asked once, in Core, rather than restated
+    per platform.
     It is also the iOS host of both **code-intelligence** surfaces, with the
     representable threading `fileURL`, the `SymbolIndexController`, the
     `DefinitionRoute_iOS` and the route's pending `reveal` into the coordinator

@@ -154,8 +154,32 @@ user sees it.
   indent step after an opening bracket (`{`/`(`/`[`), and splits a freshly
   indented line between a bracket pair; typing a closing bracket (`}`/`)`/`]`)
   on a blank line dedents it to match its opener. The indent unit (tabs or
-  spaces) is inferred from the file, defaulting to four spaces. Each auto-indent
+  spaces) comes from `.editorconfig` when one applies (see below) and is
+  otherwise inferred from the file, defaulting to four spaces. Each auto-indent
   is a single undo step.
+- EditorConfig: a project's `.editorconfig` files are read and honored for
+  indentation. `indent_style` decides tabs or spaces, `indent_size`/`tab_width`
+  the width, and whichever of the two a config leaves out falls back to what the
+  file's own content suggests — so a config can set just the style, just the
+  width, or both. Two things change: the unit Enter's auto-indent appends, and
+  what the Tab key inserts. **Tab is deliberately stricter** — it inserts spaces
+  only when a config says `indent_style = space` outright, so with no
+  `.editorconfig` the key keeps inserting a literal tab exactly as before.
+  The usual rules apply: files closer to the edited file win, later sections win
+  inside one file, `root = true` stops the search, and `unset` clears an
+  inherited property. Section globs are the full EditorConfig dialect (`*`,
+  `**`, `?`, `[abc]`/`[!abc]`, `{a,b}`, `{1..9}`, `\` escapes), and comments are
+  whole-line `#`/`;` only, per the format's own rules. Stated limits: only those
+  three properties are acted on today — everything else (`end_of_line`,
+  `charset`, `trim_trailing_whitespace`, `insert_final_newline`,
+  `max_line_length`, and unknown keys) is read but not applied yet; the search
+  stops at the folder you opened, so a `.editorconfig` in a parent directory
+  above it is not read (the same on both platforms, because iOS can only read
+  inside the folder you granted); nothing already in the file is ever
+  reformatted — only newly typed indentation is affected; and on macOS an edit to
+  a `.editorconfig` takes effect on the next keystroke, while on iOS (which has
+  no file-system watcher) it is picked up on a folder switch or after the app's
+  own working-tree rewrites, not on an out-of-band edit.
 - Auto-closing brackets and quotes: typing an opener (`(`, `[`, `{`) or quote
   (`"`, `'`, `` ` ``) inserts its closer with the caret in between; typing the
   matching closer over an auto-inserted one steps past it instead of doubling;
@@ -835,7 +859,11 @@ and iPhone. The feature scope landed so far:
   covering scope's `startAccessingSecurityScopedResource` (an operation with no
   registered covering scope falls through to the base service unbracketed).
 - A `UITextView`-backed code editor with the same tree-sitter syntax
-  highlighting (Neon), auto-indent (`IndentEngine`), and auto-close brackets/
+  highlighting (Neon), auto-indent (`IndentEngine`), EditorConfig-driven
+  indentation (`IndentUnitRule` — the same three properties, the same Enter and
+  Tab behavior; with no watcher on iOS, an edited `.editorconfig` is picked up on
+  a folder switch or after the app's own working-tree rewrites rather than
+  immediately), and auto-close brackets/
   quotes (`AutoPairEngine`) as macOS. Font size follows the shared
   `SettingsStore` preference; pinch-to-zoom steps it (the iOS analog of the macOS
   code zoom — iOS has no terminal or interface zone). The editor's line-number

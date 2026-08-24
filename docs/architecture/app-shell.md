@@ -125,6 +125,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the index has to exist before the user asks, since there is no window to open
     first. Because this is the sole place a folder switch is registered, the
     launch-time session restore builds the index exactly as a user-driven open does.
+    **`private let editorConfig = EditorConfigModel(fileService: FileService())`
+    rides the same two points** and is a plain stored reference for the identical
+    reason (it publishes nothing, and observing it would put `ContentView` and
+    `CodeEditorView.updateNSView` on an update path for a value this `body` never
+    shows); it is threaded through `ContentView` into `CodeEditorView`, the only
+    thing that asks it anything. `openFolder(url:)` calls
+    `editorConfig.noteProjectRoot(url)` **synchronously**, right after
+    `model.openFolder(url:)` and before any collaborator can ask a question — the
+    model clears its cache on a root change, so a configuration resolved under the
+    folder the user just left can never be returned for a file in this one. The call
+    is unconditional: a re-open of the same root is a no-op inside the model, which
+    compares the roots canonically itself. Like the index it is a **reader** — it
+    opens files and writes none — so it neither raises `autosave.suspend()` /
+    `localChanges.beginRevert()` nor is gated by them, and those two invalidation
+    calls are its whole lifecycle here (`core-editorconfig.md`).
     **The LSP layer hangs off exactly those points and nowhere else** (phase 2a; the
     layer itself is `core-lsp.md`). `init()` builds one `LSPWorkspace` with
     `LSPProcessTransport.make(for:root:)` as its transport factory — the *only* thing
@@ -661,6 +676,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     *subprocess*, so `IgnoreSelf` does not suppress them) are inert — the gates
     (`isReverting`, autosave suspension) exist for *disk writers*, which a re-read is
     not; the `.git` noise of those same git runs is dropped by the Core filter.
+    That same callback also calls `editorConfig.noteProjectFilesChanged()`, which is
+    the whole reason a live edit to a `.editorconfig` takes effect on the next
+    keystroke without reopening the project. It is ungated for the reason below
+    (another *reader*) and invalidates **wholesale** rather than by path or on a
+    debounce: clearing a dictionary costs nothing, and the re-resolution is paid for
+    by the next keystroke in the front tab and by nothing else
+    (`core-editorconfig.md`).
     That same callback additionally asks `symbolIndexController.noteProjectFilesChanged(
     root:)` for a **debounced symbol-index refresh** (a further 500 ms on top of the
     watcher's own 1 s coalescing, since a build or an `npm i` outlives that window).

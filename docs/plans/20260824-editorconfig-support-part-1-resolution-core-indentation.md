@@ -346,7 +346,7 @@ is a compiled-token matcher like `GitignoreMatcher`.
   - Modify: `CLAUDE.md`, `docs/architecture/core-editor.md`,
     `docs/architecture/app-editor.md`, `docs/architecture/app-shell.md`,
     `docs/architecture/app-ios.md`, `docs/FEATURES.md`, `README.md`
-  - [ ] Write `core-editorconfig.md` with a full entry per new file, recording
+  - [x] Write `core-editorconfig.md` with a full entry per new file, recording
         the decisions: the project-root stop as a deliberate spec deviation,
         uniform on both platforms, because iOS security-scoped access cannot
         read above the granted folder; why the dialect is separate from
@@ -358,23 +358,23 @@ is a compiled-token matcher like `GitignoreMatcher`.
         wholesale cache invalidation and the never-serve-a-previous-project
         guarantee; and that the layer is a reader that rewrites nothing — no
         reformatting on open, on save or on config change.
-  - [ ] Add one index line per new Core file to `CLAUDE.md` under a new
+  - [x] Add one index line per new Core file to `CLAUDE.md` under a new
         `docs/architecture/core-editorconfig.md` heading, plus a short
         cross-cutting note that the indentation unit is EditorConfig-first and
         inference-second and that the layer takes no writer gate.
-  - [ ] Update the changed files' existing entries: `IndentEngine` in
+  - [x] Update the changed files' existing entries: `IndentEngine` in
         `core-editor.md` (its `unit` parameter now comes from `IndentUnitRule`),
         `CodeEditorView` in `app-editor.md` (the new Tab handler, its
         multi-insertion-point fan-out, and the config lookup), `PisakaApp` in
         `app-shell.md` (ownership and the watcher-driven invalidation), and the
         iOS editor entries in `app-ios.md`.
-  - [ ] Update `docs/FEATURES.md` (the auto-indent bullet around line 153 and
+  - [x] Update `docs/FEATURES.md` (the auto-indent bullet around line 153 and
         the iOS section) and `README.md`'s one-line editor summary with
         EditorConfig support and its stated limits: which three properties are
         honored, that everything else is read but not acted on yet, the
         project-root stop, no reformatting of existing content, and no live
         pickup of edits on iOS.
-  - [ ] `swift test` and `swiftlint --strict` once more, since
+  - [x] `swift test` and `swiftlint --strict` once more, since
         `LintConfigurationTests`/`ReleaseMetadataTests`-style suites read
         repository files.
 
