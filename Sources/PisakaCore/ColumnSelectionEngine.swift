@@ -53,7 +53,7 @@ public enum ColumnSelectionEngine {
         var result = [NSRange]()
         for line in lines {
             let lineLoc = line.lineRange.location
-            guard lineLoc != NSNotFound, lineLoc >= 0, line.lineRange.length >= 0 else { continue }
+            guard lineLoc != NSNotFound, lineLoc >= 0, lineLoc <= textLength, line.lineRange.length >= 0 else { continue }
 
             let lineMax = NSMaxRange(line.lineRange)
             let clampedLineMax = min(textLength, lineMax)

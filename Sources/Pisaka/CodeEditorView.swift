@@ -2656,6 +2656,30 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
     /// Until it does, a release is a plain click (one caret, no movement).
     private var columnDragMoved = false
 
+    /// The timer that fires to continue autoscrolling when the pointer is held
+    /// still outside the view during a middle-button drag.
+    private var columnDragAutoscrollTimer: Timer?
+    private var columnDragLastEvent: NSEvent?
+
+    private func stopColumnDragAutoscroll() {
+        columnDragAutoscrollTimer?.invalidate()
+        columnDragAutoscrollTimer = nil
+        columnDragLastEvent = nil
+    }
+
+    deinit {
+        columnDragAutoscrollTimer?.invalidate()
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil {
+            columnDragAnchor = nil
+            columnDragMoved = false
+            stopColumnDragAutoscroll()
+        }
+    }
+
     override func otherMouseDown(with event: NSEvent) {
         guard event.buttonNumber == 2, isSelectable else {
             return super.otherMouseDown(with: event)
@@ -2665,12 +2689,30 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
         }
         columnDragAnchor = convert(event.locationInWindow, from: nil)
         columnDragMoved = false
+        stopColumnDragAutoscroll()
     }
 
     override func otherMouseDragged(with event: NSEvent) {
         guard event.buttonNumber == 2, let anchor = columnDragAnchor else {
             return super.otherMouseDragged(with: event)
         }
+
+        columnDragLastEvent = event
+        if columnDragAutoscrollTimer == nil {
+            columnDragAutoscrollTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] timer in
+                guard let self = self, let anchor = self.columnDragAnchor, let event = self.columnDragLastEvent else {
+                    timer.invalidate()
+                    self?.columnDragAutoscrollTimer = nil
+                    self?.columnDragLastEvent = nil
+                    return
+                }
+                if self.autoscroll(with: event) {
+                    let point = self.convert(event.locationInWindow, from: nil)
+                    self.updateColumnSelection(anchor: anchor, point: point, stillSelecting: true)
+                }
+            }
+        }
+
         autoscroll(with: event)
         let point = convert(event.locationInWindow, from: nil)
 
@@ -2707,6 +2749,7 @@ final class EditorTextView: NSTextView, ZoomSurfaceProviding {
 
         columnDragAnchor = nil
         columnDragMoved = false
+        stopColumnDragAutoscroll()
     }
 
     /// Evaluates the middle-button drag bounds into the per-line `selectedRanges`.
