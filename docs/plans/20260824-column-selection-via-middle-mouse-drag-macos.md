@@ -138,24 +138,24 @@ selection reports.
 **Files:**
 - Modify: `Sources/Pisaka/CodeEditorView.swift`
 
-- [ ] add two private stored properties to `EditorTextView`: the column-drag
+- [x] add two private stored properties to `EditorTextView`: the column-drag
       anchor point (view coordinates, `nil` when no middle drag is in flight) and
       a "passed the slop radius" flag
-- [ ] override `otherMouseDown(with:)`: for anything but the middle button
+- [x] override `otherMouseDown(with:)`: for anything but the middle button
       (`event.buttonNumber != 2`), or a non-selectable view, fall through to
       `super`; otherwise take first responder if the view does not already hold
       it, record the anchor, clear the moved flag, and consume the event
-- [ ] override `otherMouseDragged(with:)`: with no anchor recorded fall through
+- [x] override `otherMouseDragged(with:)`: with no anchor recorded fall through
       to `super`; otherwise call `autoscroll(with:)` first, then convert the
       event location *after* autoscroll, ignore movement still inside
       `Self.clickSlop`, and once past it set the moved flag and apply the
       selection with `stillSelecting: true`
-- [ ] override `otherMouseUp(with:)`: with no anchor fall through to `super`;
+- [x] override `otherMouseUp(with:)`: with no anchor fall through to `super`;
       with the moved flag set apply the selection once more with
       `stillSelecting: false`; otherwise collapse to a single caret at the
       anchor via `characterIndexForInsertion(at:)`; clear the drag state on
       every path
-- [ ] add the private helper that computes the ranges for an anchor/head pair:
+- [x] add the private helper that computes the ranges for an anchor/head pair:
       `ColumnSelectionEngine.bounds(anchor:head:)`, then build the **probe rect**
       from those bounds — widened to the container horizontally and, before it
       reaches the layout manager, inflated so that neither dimension is
@@ -171,14 +171,14 @@ selection reports.
       character range from the fragment's glyph range), then
       `ColumnSelectionEngine.ranges(for:in:)`; apply only a non-empty result, so
       a degenerate enumeration leaves the existing selection alone
-- [ ] document in doc comments: why the probe rect is inflated out of degeneracy
+- [x] document in doc comments: why the probe rect is inflated out of degeneracy
       before the layout manager sees it and why the edge offsets are still taken
       from the un-inflated bounds; why no modal event loop is needed here (unlike
       the ⌘-click path); why the anchor is stored in view coordinates
       (autoscroll-stable); why the probe is per line fragment (visual columns,
       one fragment per line with soft wrap off); and that the gesture never
       edits the document
-- [ ] run `swift test` (the Core suite must stay green) and
+- [x] run `swift test` (the Core suite must stay green) and
       `swiftlint --strict` — both must pass before Task 3
 
 ### Task 3: Documentation

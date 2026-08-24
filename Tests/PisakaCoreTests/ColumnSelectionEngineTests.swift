@@ -1,4 +1,4 @@
-import XCTes
+import XCTest
 import Foundation
 @testable import PisakaCore
 
