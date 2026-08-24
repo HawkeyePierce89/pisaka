@@ -123,7 +123,7 @@ is a compiled-token matcher like `GitignoreMatcher`.
 **Files:**
   - Create: `Sources/PisakaCore/EditorConfigFile.swift`
   - Create: `Tests/PisakaCoreTests/EditorConfigFileTests.swift`
-  - [ ] Implement `public struct EditorConfigFile` parsing one file's text into
+  - [x] Implement `public struct EditorConfigFile` parsing one file's text into
         `isRoot` plus an ordered `[Section]` (each a compiled `EditorConfigGlob`
         and its ordered key/value pairs). Rules: `root = true` honored only in
         the preamble before the first section and compared case-insensitively;
@@ -138,7 +138,7 @@ is a compiled-token matcher like `GitignoreMatcher`.
       value longer than 4096 characters is ignored (the spec's required
       acceptance floors are the cap); any malformed line is skipped without
       failing the rest of the file.
-  - [ ] Implement `public struct EditorConfigProperties`: the full merged map
+  - [x] Implement `public struct EditorConfigProperties`: the full merged map
         (unknown properties carried, never dropped), plus `subscript(key:)` and
         the typed accessors this ticket consumes — `indentStyle`
         (`.tab`/`.space`, `nil` when absent or unrecognized), `indentSize`
@@ -146,7 +146,7 @@ is a compiled-token matcher like `GitignoreMatcher`.
         else the numeric `indent_size` per the spec's default) and `indentWidth`
         (numeric `indent_size`; `indent_size = tab` → the explicit `tab_width`;
         no `indent_size` → `tab_width` when set; `nil` otherwise).
-  - [ ] Write `EditorConfigFileTests` for the parser edge cases from the
+  - [x] Write `EditorConfigFileTests` for the parser edge cases from the
         official suite — a whole-line `#` and `;` comment (with leading
         whitespace), a `;`/`#` inside a value being kept verbatim including the
         spec's own `foo = a ;)` case and a `#` with no preceding space,
@@ -156,7 +156,7 @@ is a compiled-token matcher like `GitignoreMatcher`.
         case-insensitivity of keys and of known values — and for every accessor,
         including the `indent_size = tab` → `tab_width` coupling and rejection
         of `0`/negative/non-numeric sizes.
-  - [ ] Run `swift test` — must pass before Task 3.
+  - [x] Run `swift test` — must pass before Task 3.
 
 ### Task 3: The hierarchy resolver
 
