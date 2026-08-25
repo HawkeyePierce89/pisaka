@@ -149,11 +149,11 @@ Rewrite the doc comment: it must describe the seam actually used and why `Gate`
 cannot hold this particular window, so "staged deterministically" becomes a true
 statement rather than a claim. Leave the sibling `Gate`-staged tests alone.
 
-- [ ] add the one-shot read hook to the suite's private `Clock` and use it to enqueue the sign-out
-- [ ] strengthen the assertions to pin publish-stood *and* nothing-written, plus that the hook fired
-- [ ] rewrite the test's doc comment (staging + why the fetch-side gate cannot stage this window)
-- [ ] run the test ≥100 times in a loop; all green
-- [ ] run the whole `LeetCodeCatalogTests` suite; green
+- [x] add the one-shot read hook to the suite's private `Clock` and use it to enqueue the sign-out
+- [x] strengthen the assertions to pin publish-stood *and* nothing-written, plus that the hook fired
+- [x] rewrite the test's doc comment (staging + why the fetch-side gate cannot stage this window)
+- [x] run the test ≥100 times in a loop; all green
+- [x] run the whole `LeetCodeCatalogTests` suite; green
 
 ### Task 3: Restage the LSP crash-noticed-by-the-next-request test and its two siblings
 

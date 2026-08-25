@@ -24,11 +24,19 @@ final class LeetCodeCatalogTests: XCTestCase {
     private final class Clock: @unchecked Sendable {
         private let lock = NSLock()
         private var value: Date
+        var onFirstRead: (() -> Void)?
 
         init(_ value: Date) { self.value = value }
 
         var now: Date {
-            get { lock.lock(); defer { lock.unlock() }; return value }
+            get {
+                lock.lock()
+                let hook = onFirstRead
+                onFirstRead = nil
+                defer { lock.unlock() }
+                hook?()
+                return value
+            }
             set { lock.lock(); value = newValue; lock.unlock() }
         }
     }
@@ -1321,27 +1329,36 @@ final class LeetCodeCatalogTests: XCTestCase {
     /// `catalog.json` is what carries the departing account's solved marks into the
     /// next launch and pins them under the next account's name for a day.
     ///
-    /// Staged deterministically: the fetch is released, and the actor is handed
-    /// back until the rows are published — the fetch's very next step is the
-    /// off-actor encode, and this test then holds the actor from the moment it
-    /// observes them through the `sessionDidChange` below without suspending, so
-    /// the write can only be attempted after it.
+    /// Staged deterministically on a causal rendezvous, not a timed one: the fetch's
+    /// last act before publishing is reading the clock, so giving that read a hook
+    /// enqueues the sign-out to run as soon as the actor becomes free, which is exactly
+    /// the encode's suspension. `Gate` cannot stage this window because it would block
+    /// the thread while the encode completes, deadlocking the actor and freezing the
+    /// sign-out.
     func testASessionReplacedWhileTheCacheIsEncodedIsNeverWritten() async throws {
         let tree = makeTree()
         let transport = ScriptedLeetCodeTransport()
         transport.serve(.problemList, json: problemListJSON([(1, "two-sum")], status: "ac"))
-        let gate = Gate()
-        transport.hold(.problemList, on: gate)
-        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+        let clock = Clock(now)
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: clock)
 
         catalog.sessionDidChange(to: credentials)
-        let refresh = Task { try await catalog.refresh(credentials: credentials) }
-        await gate.waitUntilReached()
-        gate.release()
-        while catalog.problems.isEmpty { await Task.yield() }
-        catalog.sessionDidChange(to: nil)
-        try await refresh.value
 
+        final class HookState: @unchecked Sendable { var fired = false }
+        let state = HookState()
+
+        clock.onFirstRead = {
+            state.fired = true
+            Task { @MainActor in
+                catalog.sessionDidChange(to: nil)
+            }
+        }
+
+        try await catalog.refresh(credentials: credentials)
+
+        XCTAssertTrue(state.fired, "The clock read hook must fire to trigger the sign-out")
+        XCTAssertEqual(catalog.problems.map(\.slug), ["two-sum"])
+        XCTAssertEqual(catalog.fetchedAt, now)
         XCTAssertEqual(transport.count(for: .problemList), 1)
         XCTAssertTrue(tree.writtenPaths.isEmpty)
         XCTAssertFalse(catalog.lastCacheWriteFailed)
