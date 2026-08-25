@@ -1829,6 +1829,19 @@ struct CodeEditorView: NSViewRepresentable {
             )
         }
 
+        /// The terminator a newly typed Return splices: the one `end_of_line`
+        /// names, and LF whenever it names none.
+        ///
+        /// `end_of_line` is consumed in full, so it decides what a *new*
+        /// terminator is as well as what the already-written ones become on save;
+        /// typing Enter in a CRLF project would otherwise write the one line the
+        /// save has to come back and fix. A project stating no `end_of_line` keeps
+        /// splicing LF byte for byte, which is `IndentEngine`'s own default. The
+        /// iOS coordinator holds the identical pair.
+        private func newlineTerminator() -> String {
+            editorConfigProperties().endOfLine?.terminator ?? "\n"
+        }
+
         /// Intercept Tab so `indent_style = space` inserts spaces.
         ///
         /// `IndentUnitRule.tabInsertion` is deliberately stricter than the unit
@@ -1965,7 +1978,8 @@ struct CodeEditorView: NSViewRepresentable {
                 text: nsText,
                 location: selectedRange.location,
                 unit: unit,
-                selectionLength: selectedRange.length
+                selectionLength: selectedRange.length,
+                terminator: newlineTerminator()
             )
             // Replace the selection (a bare caret has length 0) with the computed
             // newline+indent. `consumeAfter` extends the range to also delete

@@ -256,16 +256,16 @@ has exactly one save (the close-confirmation Save) and one Enter path.
 - Modify: `Sources/Pisaka/iOS/RootView_iOS.swift`
 - Modify: `Sources/Pisaka/iOS/CodeEditorCoordinator_iOS.swift`
 
-- [ ] Ask the engine before the iOS save and write what it answers, resolving
+- [x] Ask the engine before the iOS save and write what it answers, resolving
       properties through the `EditorConfigModel` that screen already holds.
-- [ ] Pass the configured terminator into `IndentEngine.newlineIndentation` from
+- [x] Pass the configured terminator into `IndentEngine.newlineIndentation` from
       the Return handler, beside the indent unit it already resolves — the
       dedent and auto-pair behavior otherwise untouched.
-- [ ] Extend the Task 4 behavioral suite with the iOS save's shape (the same
+- [x] Extend the Task 4 behavioral suite with the iOS save's shape (the same
       Core chain, no editor attached: a buffer with no protected positions is
       trimmed in full), since the iOS view layer itself is untested by
       convention.
-- [ ] Run `swift test` — must pass before Task 6.
+- [x] Run `swift test` — must pass before Task 6.
 
 ### Task 6: Documentation — state the amendment where the old rule is written
 

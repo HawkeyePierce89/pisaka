@@ -205,6 +205,85 @@ final class SaveTransformIntegrationTests: XCTestCase {
         XCTAssertFalse(model.isDirty(for: clean))
     }
 
+    // MARK: - The iOS save
+
+    func testTheIOSSaveTransformsTheClosingBufferAndWritesWhatTheConfigurationAsked() throws {
+        // iOS has exactly one save — the close confirmation — and it runs the same
+        // Core chain with no editor attached: no caret is handed over, because the
+        // buffer is on its way out. All three properties at once, so the composed
+        // plan is what reaches the disk.
+        let staged = try staged([
+            ".editorconfig": """
+            root = true
+            [*]
+            end_of_line = crlf
+            trim_trailing_whitespace = true
+            insert_final_newline = true
+            """,
+            "a.swift": "",
+        ], opening: "a.swift")
+        staged.model.updateText("let a = 1  \nlet b = 2\t", for: staged.id)
+
+        prepareForSave(staged.id, in: staged.model, editorConfig: staged.config)
+        XCTAssertEqual(try staged.model.save(for: staged.id), .saved)
+
+        let expected = "let a = 1\r\nlet b = 2\r\n"
+        XCTAssertEqual(staged.tree.files["a.swift"], expected)
+        XCTAssertEqual(staged.model.text(for: staged.id), expected)
+        XCTAssertFalse(
+            staged.model.isDirty(for: staged.id),
+            "the tab is clean, so closing it after this save prompts nothing further"
+        )
+    }
+
+    func testTheIOSSaveOfAProjectWithoutAConfigurationWritesTheBufferByteForByte() throws {
+        let staged = try staged(["a.swift": ""], opening: "a.swift")
+        let edited = "let a = 1  \r\nlet b = 2   "
+        staged.model.updateText(edited, for: staged.id)
+
+        XCTAssertTrue(prepareForSave(staged.id, in: staged.model, editorConfig: staged.config).isEmpty)
+        try staged.model.save(for: staged.id)
+        XCTAssertEqual(staged.tree.files["a.swift"], edited)
+    }
+
+    // MARK: - Enter and the save agree about the terminator
+
+    func testAReturnSplicedTerminatorSurvivesTheNextSaveUntouched() throws {
+        // The two halves of `end_of_line`, composed the way the coordinators
+        // compose them: the Return handler splices the configured terminator, and
+        // the save that follows therefore finds nothing to normalize. Enter writing
+        // LF into a CRLF project would instead leave the save to come back and fix
+        // the one line that was just typed.
+        let staged = try staged([
+            ".editorconfig": "root = true\n[*]\nend_of_line = crlf\n",
+            "a.swift": "",
+        ], opening: "a.swift")
+        staged.model.updateText("if x {\r\n}", for: staged.id)
+
+        let config = staged.config.properties(for: staged.tree.url("a.swift"))
+        let terminator = config.endOfLine?.terminator ?? "\n"
+        XCTAssertEqual(terminator, "\r\n")
+        // Return pressed just inside the brace, exactly as the coordinators call it.
+        let text = staged.model.text(for: staged.id) as NSString? ?? ""
+        let edit = IndentEngine.newlineIndentation(
+            text: text,
+            location: 6,
+            unit: "    ",
+            terminator: terminator
+        )
+        let typed = text.replacingCharacters(
+            in: NSRange(location: 6, length: edit.consumeAfter),
+            with: edit.text
+        )
+        staged.model.updateText(typed, for: staged.id)
+
+        let plan = prepareForSave(staged.id, in: staged.model, editorConfig: staged.config)
+        XCTAssertTrue(plan.isEmpty, "what Enter spliced is already what the configuration asked for")
+        try staged.model.save(for: staged.id)
+        XCTAssertEqual(staged.tree.files["a.swift"], typed)
+        XCTAssertTrue(typed.hasPrefix("if x {\r\n"), "the terminator Enter wrote is the configured one")
+    }
+
     // MARK: - A project without `.editorconfig` behaves exactly as before
 
     func testWithoutAConfigurationTheBytesAndEveryRevisionTokenAreUnchanged() throws {

@@ -1270,6 +1270,34 @@ struct RootView_iOS: View {
         editorConfig.noteProjectFilesChanged()
     }
 
+    /// Apply the on-save transform to a buffer that is about to be written — the
+    /// iOS half of the macOS `SaveTransformController`, and the whole of it,
+    /// because iOS has exactly one save.
+    ///
+    /// The same three-step chain: resolve the properties through the
+    /// `EditorConfigModel` this screen already holds, ask `SaveTransform` what
+    /// saving changes, and rewrite the buffer through
+    /// `WorkspaceModel.replaceText(_:for:)` so the buffer, the saved baseline and
+    /// the bytes on disk end up the same string. It decides nothing the engine
+    /// decides, and an empty plan — every project without an applicable
+    /// `.editorconfig` — returns having touched nothing at all.
+    ///
+    /// **No protected positions.** The macOS funnel spares the line the caret is
+    /// on because its autosave is aggressive enough to trim indentation out from
+    /// under someone mid-thought; iOS has no autosave, and its one save is the
+    /// close confirmation — the buffer is being closed, so there is no caret left
+    /// to protect and the file is trimmed in full.
+    ///
+    /// The tab is closed immediately afterwards, so the `replaceText` token bump
+    /// costs nothing here: there is no undo stack or remembered viewport left to
+    /// drop.
+    private func applySaveTransform(to id: UUID) {
+        guard let file = model.openFiles.first(where: { $0.id == id }), let url = file.url else { return }
+        let plan = SaveTransform.plan(text: file.text, config: editorConfig.properties(for: url))
+        guard !plan.isEmpty else { return }
+        model.replaceText(plan.text, for: id)
+    }
+
     private var closeConfirmationBinding: Binding<Bool> {
         Binding(
             get: { pendingCloseID != nil },
@@ -1284,6 +1312,10 @@ struct RootView_iOS: View {
         if let file = model.openFiles.first(where: { $0.id == id }), file.url != nil {
             Button("Save") {
                 do {
+                    // The one save iOS has, and therefore the one place the on-save
+                    // transform can ride: asked before the write, so what reaches the
+                    // disk is what `.editorconfig` asked for.
+                    applySaveTransform(to: id)
                     _ = try model.save(for: id)
                     noteEditorConfigWrite(file.url)
                     model.close(id: id, force: true)
