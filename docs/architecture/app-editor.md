@@ -110,7 +110,37 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     configuration applies" case, so the editor degrades to the content inference
     rather than misbehaving. Enter and Tab both read it through one private
     helper, so they can never disagree about the unit — they differ only in
-    *whether* it is used. All programmatic edits go through
+    *whether* it is used. Enter reads a **second** private helper of its own,
+    `newlineTerminator()` (`endOfLine?.terminator ?? "\n"`), the terminator it
+    splices: `end_of_line` is consumed in full, so a newly typed terminator and a
+    normalized one can never disagree, and a project stating no `end_of_line`
+    splices LF byte for byte as before (`core-editorconfig.md`). The iOS
+    coordinator holds the identical pair.
+    A third app-owned model arrives here for saves: `var saveTransform:
+    SaveTransformController?`. Unlike `editorConfig` it is **optional and
+    defaulted** — `nil` in previews and tests transforms nothing — and equally
+    not observed. The view only *attaches* it (`makeNSView`), handing over the
+    text view and the coordinator so a rewrite of the shown buffer can go through
+    the live view instead of behind it; with more than one window open the last
+    editor built wins, and a buffer shown in the other window is rewritten through
+    the model instead. The `Coordinator` conforms to `SaveTransformEditor` for
+    that: `displayedFileID` (read, never cached — the tab-switch autosave fires
+    from `$selectedID` *before* `updateNSView` swaps the buffer, so it still names
+    the outgoing file, which is exactly the one being saved), `scrollAnchorOffset`
+    / `scrollAnchor(to:)`, and the three-step bracket
+    `beginSaveTransformRewrite()` → `resetIncrementalReadersForSaveTransform()` →
+    `endSaveTransformRewrite()`. The split is load-bearing: the two guards go up
+    first because `shouldChangeText` re-invokes the auto-pair interceptor
+    synchronously, while the blame column and this document's diagnostics are
+    dropped only once that call has *permitted* the edit — `endEditing` coalesces
+    the small replacements into one edited range that can be the whole file, so
+    both readers take the buffer-swap treatment rather than the incremental
+    shift, but discarding them for a rewrite that never happened would leave the
+    gutter and the underlines empty with no change notification to re-publish
+    them. `invalidateDiagnosticPaint()` is deliberately **not** called, unlike on
+    a real buffer swap: no `textView.string` assignment happened, so the temporary
+    attributes over the untouched text are still there and forgetting the cache
+    would make the clearing repaint a no-op. All programmatic edits go through
     `insertText(_:replacementRange:)` so the per-file undo manager records them as
     ordinary single-step-undoable edits. The one edit that *cannot* go through it
     is `updateNSView`'s wholesale `textView.string = text` swap, which is why that
@@ -534,8 +564,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     answers a character index directly, and clamps rather than raising, so it needs
     no guard at all. `recordViewport(for:)`/`forgetViewport(for:)` write the memory,
     and `restoreViewport(for:)` reads it back clamped to the live
-    `textStorage.length`, applies `setSelectedRange` and scrolls through the
-    existing `scrollEditor(to:)` — which already clamps a document-space top offset
+    `textStorage.length`, applies `setSelectedRange` and hands the top offset to
+    `scrollAnchor(to:)` — its scroll half, split out because the save transform
+    needs exactly that and nothing else (it has already put the *remapped*
+    selection back through the text view, and must move the page only far enough
+    to keep the same character on the top line after an edit that may have deleted
+    characters above it). `scrollAnchor(to:)` owns the layout-manager/text-container
+    guard and its own `min(max(anchor, 0), length - 1)` clamp, so an offset that
+    outran a shrunken buffer resolves to the last line rather than to nothing, and
+    scrolls through the existing `scrollEditor(to:)` — which already clamps a document-space top offset
     to `max(0, textView.frame.height - clipView.bounds.height)`, so "never past the
     end of the document" is the final guard for free. That clamp needs one
     correction, though: the anchor's own `y` is exact (everything above it has just

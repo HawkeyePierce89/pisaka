@@ -233,13 +233,34 @@ final class SaveTransformTests: XCTestCase {
         assertPlan("a\nb   ", trim.merging(finalNewline) { _, new in new }, becomes: "a\nb\n")
     }
 
-    func testASparedLastLineIsStillTerminated() {
+    /// A last line the caret spared is *not* terminated when trimming would have
+    /// emptied it: the final-terminator decision reads the trim the configuration
+    /// asks for, not the one this caret position allowed.
+    ///
+    /// Otherwise sparing would stop being a deferral. Terminating "a\\n   " while
+    /// the caret sits on it gives "a\\n   \\n", the next save (caret moved away)
+    /// trims to "a\\n\\n", and that is a *fixed point* — a blank line nobody typed,
+    /// kept forever, on a buffer that reaches "a\\n" from any other caret position.
+    func testASparedLastLineTrimmingWouldEmptyIsNotTerminated() {
+        let both = trim.merging(finalNewline) { _, new in new }
         let text = "a\n   "
+        // Spared: the whitespace survives this save, and nothing is appended.
+        assertPlan(text, both, protecting: [(text as NSString).length], becomes: text)
+        // The caret moves away and the deferred trim happens — reaching exactly
+        // the same bytes the unspared save reaches in one step.
+        assertPlan(text, both, becomes: "a\n")
+    }
+
+    /// A spared last line that still holds content *is* terminated: trimming it
+    /// would leave "b", not nothing, so the file genuinely lacks a final
+    /// terminator either way.
+    func testASparedLastLineWithContentIsStillTerminated() {
+        let text = "a\nb   "
         assertPlan(
             text,
             trim.merging(finalNewline) { _, new in new },
             protecting: [(text as NSString).length],
-            becomes: "a\n   \n"
+            becomes: "a\nb   \n"
         )
     }
 
@@ -380,14 +401,14 @@ final class SaveTransformTests: XCTestCase {
         XCTAssertEqual(plan.remappedRange(NSRange(location: 5, length: 1)), NSRange(location: 2, length: 1))
     }
 
-    func testARemappedViewportCarriesBothTheSelectionAndTheAnchor() {
+    /// The pair the macOS funnel actually remaps for a viewport: every selected
+    /// range through `remappedRange`, the scroll anchor through `remappedOffset`.
+    /// There is deliberately no whole-`EditorViewport` convenience — the editor's
+    /// column selection is several ranges, which one viewport cannot carry.
+    func testASelectionAndAScrollAnchorRemapTogether() {
         let plan = SaveTransform.plan(text: "aa\r\nbb\r\ncc", config: config(["end_of_line": "lf"]))
-        let remapped = plan.remappedViewport(EditorViewport(
-            selection: NSRange(location: 4, length: 4),
-            topCharacterOffset: 8
-        ))
-        XCTAssertEqual(remapped.selection, NSRange(location: 3, length: 3))
-        XCTAssertEqual(remapped.topCharacterOffset, 6)
+        XCTAssertEqual(plan.remappedRange(NSRange(location: 4, length: 4)), NSRange(location: 3, length: 3))
+        XCTAssertEqual(plan.remappedOffset(8), 6)
     }
 
     func testAnAbsentSelectionIsNotInventedAPosition() {
@@ -402,6 +423,76 @@ final class SaveTransformTests: XCTestCase {
         for offset in 0...4 {
             XCTAssertEqual(plan.remappedOffset(offset), offset)
         }
+    }
+
+    // MARK: - The protected positions a selection contributes
+
+    func testABareCaretContributesItsOwnLocationOnly() {
+        XCTAssertEqual(
+            SaveTransform.protectedPositions(forSelectedRanges: [NSRange(location: 7, length: 0)]),
+            [7]
+        )
+    }
+
+    func testASelectionContributesBothOfItsEndpoints() {
+        XCTAssertEqual(
+            SaveTransform.protectedPositions(forSelectedRanges: [NSRange(location: 3, length: 5)]),
+            [3, 8]
+        )
+    }
+
+    func testEveryRangeOfAColumnSelectionContributes() {
+        // The middle-drag column selection: several carets at once, each of which
+        // an autosave must spare.
+        let ranges = [
+            NSRange(location: 2, length: 0),
+            NSRange(location: 9, length: 3),
+            NSRange(location: 20, length: 0),
+        ]
+        XCTAssertEqual(SaveTransform.protectedPositions(forSelectedRanges: ranges), [2, 9, 12, 20])
+    }
+
+    func testAnAbsentRangeContributesNothing() {
+        XCTAssertEqual(
+            SaveTransform.protectedPositions(forSelectedRanges: [NSRange(location: NSNotFound, length: 0)]),
+            []
+        )
+        XCTAssertEqual(SaveTransform.protectedPositions(forSelectedRanges: []), [])
+    }
+
+    func testAPositionNamingNoOffsetSparesNoLine() {
+        // `NSNotFound`, a negative and an offset past the end all name no
+        // position, so none of them may quietly spare a line: the buffer is
+        // trimmed exactly as it is with no protected positions at all.
+        let text = "a  \nb  "
+        assertPlan(text, trim, protecting: [NSNotFound], becomes: "a\nb")
+        assertPlan(text, trim, protecting: [-1], becomes: "a\nb")
+        // Past the end is the one that still resolves: it belongs to the last
+        // line, which is where a caret at end of file is.
+        assertPlan(text, trim, protecting: [(text as NSString).length + 5], becomes: "a\nb  ")
+    }
+
+    // MARK: - Characters outside the BMP
+
+    func testTheEngineCountsUTF16UnitsNotCharacters() {
+        // Every offset below is a UTF-16 offset, and each emoji is two units —
+        // the one input class that tells `NSString` arithmetic apart from
+        // `Character` arithmetic.
+        //  0 1 2 3 4  5 6 7  8 9
+        // "🙂 🙂 _ _ \r \n 🙃 🙃 \t"
+        let plan = assertPlan(
+            "🙂  \r\n🙃\t",
+            ["trim_trailing_whitespace": "true", "insert_final_newline": "true", "end_of_line": "lf"],
+            becomes: "🙂\n🙃\n"
+        )
+        // Before the first edit: unchanged. Between the surrogates of the second
+        // emoji: still between them, because nothing before it moved by an odd
+        // amount.
+        XCTAssertEqual(plan.remappedOffset(0), 0)
+        XCTAssertEqual(plan.remappedOffset(2), 2)
+        // After both the trimmed run and the CRLF→LF collapse: three units gone.
+        XCTAssertEqual(plan.remappedOffset(6), 3)
+        XCTAssertEqual(plan.remappedOffset(8), 5)
     }
 
     // MARK: - Idempotence

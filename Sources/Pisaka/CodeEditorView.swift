@@ -1629,7 +1629,19 @@ struct CodeEditorView: NSViewRepresentable {
         var scrollAnchorOffset: Int? { captureViewport()?.topCharacterOffset }
 
         /// `SaveTransformEditor`: raise both rewrite guards around a save
-        /// transform and re-seed the two readers that shift incrementally.
+        /// transform.
+        ///
+        /// Raised before `shouldChangeText`, which re-invokes the auto-pair
+        /// interceptor synchronously: a one-character replacement (the LF or CR a
+        /// terminator normalization emits) must pass through as the programmatic
+        /// edit it is rather than be inspected as a keystroke.
+        func beginSaveTransformRewrite() {
+            isApplyingProgrammaticEdit = true
+            isSwappingBuffer = true
+        }
+
+        /// `SaveTransformEditor`: drop the two readers that shift incrementally,
+        /// once the rewrite is known to be going ahead.
         ///
         /// The composed transform is applied as several small replacements, but
         /// `endEditing` coalesces them into **one** edited range — for a
@@ -1647,9 +1659,7 @@ struct CodeEditorView: NSViewRepresentable {
         /// the temporary attributes over the untouched text are still there, and
         /// forgetting the cache would make the clearing repaint a no-op and leave
         /// stale underlines painted.
-        func beginSaveTransformRewrite() {
-            isApplyingProgrammaticEdit = true
-            isSwappingBuffer = true
+        func resetIncrementalReadersForSaveTransform() {
             beginBlameBufferSwap()
             beginDiagnosticsBufferSwap(clearing: fileURL)
         }

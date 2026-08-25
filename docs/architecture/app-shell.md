@@ -150,6 +150,24 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     one. Narrow on purpose: an ordinary save is the app's most frequent write, and
     clearing on every one would put a resolution walk on the first keystroke after
     each autosave burst (`core-editorconfig.md`).
+    Beside it sits `private let saveTransform = SaveTransformController()`, the one
+    funnel every macOS save passes through before it writes (its full entry is in
+    `core-editorconfig.md`). Owned **here** rather than by the editor because the
+    saves it serves are menu commands and autosave ticks, not editor events: it has
+    to survive every tab switch and every window rebuild, so it is attached from
+    `CodeEditorView.makeNSView` and holds the editor weakly. Like `editorConfig` it
+    neither raises `autosave.suspend()` / `localChanges.beginRevert()` nor is gated
+    by them — it writes nothing itself; it only rewrites the buffer the save about
+    to run is going to write. Three call sites, and only these three: `save(id:)`
+    calls `prepareForSave(ids:)` **after** the writer-gate refusal and before the
+    write, deliberately unconditional on the dirty flag (⌘S writes the file either
+    way), which is how the close prompt's Save and the `runFile`/`testFile` pre-run
+    saves inherit it without a second call site; `saveAs(id:)` calls
+    `prepareForSaveAs(id:destination:)` once the panel is answered — the
+    configuration that applies is the *destination's* — and only after
+    `model.isDestinationOpenElsewhere(_:for:)` has cleared the one condition
+    `saveAs` refuses on, so a rejected Save As leaves the buffer as the user typed
+    it; and `AutosaveController`'s own triggers and both flush paths.
     **The LSP layer hangs off exactly those points and nowhere else** (phase 2a; the
     layer itself is `core-lsp.md`). `init()` builds one `LSPWorkspace` with
     `LSPProcessTransport.make(for:root:)` as its transport factory — the *only* thing
@@ -543,8 +561,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     unsaved-changes prompt and silently lose the edit — reconciling against the
     post-revert disk state makes it dirty. `PisakaApp` also owns an
     `AutosaveController` (started once from the window content's `.onAppear` with
-    `model` and an `onSaved` closure that calls `refreshLocalChanges()`, reusing
-    its generation-pinning rather than duplicating the git status refresh).
+    `model`, `saveTransform.prepareForSave(ids:)` and an `onSaved` closure that
+    calls `refreshLocalChanges()`, reusing
+    its generation-pinning rather than duplicating the git status refresh);
+    `saveTransform.start(model:editorConfig:)` is bound on the same line.
     `revertChanges` brackets its revert+resync `Task` with the controller:
     `autosave.suspend()` is called *synchronously* right after the confirm
     (where `originGeneration`/`preRevertText` are captured, before the `Task`
@@ -1273,9 +1293,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     lives in Core; this is trigger→action wiring only, untested like the rest of
     the view layer). A `final class` holding the Combine cancellables and
     notification observers, with a fixed `idleDelay` constant (`2.0` s, no
-    user-facing toggle or configurable delay) and `start(model:onSaved:)` (plus
+    user-facing toggle or configurable delay) and
+    `start(model:prepareForSave:onSaved:)` (plus
     `stop()`/`deinit` teardown; `start` is idempotent so a re-fired `.onAppear`
-    can't stack observers). Four triggers: **idle** —
+    can't stack observers). `prepareForSave` is the **on-save transform**, injected
+    rather than reached for so this controller keeps holding no policy: it knows
+    when a save happens and which buffers it is about to write, and nothing about
+    `.editorconfig`. It is handed `dirtyTitledIDs(in:)` — the ids `saveAllDirty()`
+    will actually write, dirty *and* titled — because transforming a clean
+    background tab would rewrite a file nobody edited into the next commit; and it
+    runs **before** `missingDirtyPaths(in:)`, because it rewrites buffers and the
+    probe reads which of them exist. Both `flushNow` paths transform too: the quit
+    flush is a buffer's last chance to be written correctly, and the commit
+    dialog's flush is what the dialog then reads off disk. `nil` (previews, tests)
+    leaves every write byte-identical. Four triggers: **idle** —
     `model.$openFiles.debounce(for: .seconds(idleDelay), …)` → `performAutosave`
     (a save advances `savedText`, republishing `$openFiles` and re-arming the
     debounce, but the re-fire is a no-op because `saveAllDirty()` is idempotent,

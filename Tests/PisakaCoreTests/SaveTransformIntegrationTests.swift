@@ -32,9 +32,15 @@ final class SaveTransformIntegrationTests: XCTestCase {
         _ id: UUID,
         in model: WorkspaceModel,
         editorConfig: EditorConfigModel,
-        protecting positions: [Int] = []
+        protecting positions: [Int] = [],
+        file testFile: StaticString = #filePath,
+        line: UInt = #line
     ) -> SaveTransformPlan {
+        // Never silently: an empty plan is what half the assertions below claim as
+        // their headline result, so mis-staged input must fail loudly instead of
+        // returning the very answer those tests are looking for.
         guard let file = model.openFiles.first(where: { $0.id == id }), let url = file.url else {
+            XCTFail("no open, titled buffer for \(id)", file: testFile, line: line)
             return SaveTransformPlan(replacements: [], text: "")
         }
         let plan = SaveTransform.plan(
@@ -120,23 +126,23 @@ final class SaveTransformIntegrationTests: XCTestCase {
         // "aa   \nbb   \ncc"  — two trailing runs, both before the positions below.
         staged.model.updateText("aa   \nbb   \ncc", for: staged.id)
         // The caret sits on the last line, which has no trailing run of its own,
-        // so nothing is spared and both runs are trimmed.
-        let viewport = EditorViewport(selection: NSRange(location: 13, length: 1), topCharacterOffset: 6)
+        // so nothing is spared and both runs are trimmed. The pair below is what
+        // the macOS funnel remaps: each selected range, and the scroll anchor.
+        let selection = NSRange(location: 13, length: 1)
+        let anchor = 6
 
         let plan = prepareForSave(
             staged.id,
             in: staged.model,
             editorConfig: staged.config,
-            protecting: [viewport.selection.location, NSMaxRange(viewport.selection)]
+            protecting: [selection.location, NSMaxRange(selection)]
         )
 
         XCTAssertEqual(staged.model.text(for: staged.id), "aa\nbb\ncc")
         // Six characters of whitespace vanished before the anchor and the caret:
         // three before offset 6, six before offset 13.
-        XCTAssertEqual(plan.remappedViewport(viewport), EditorViewport(
-            selection: NSRange(location: 7, length: 1),
-            topCharacterOffset: 3
-        ))
+        XCTAssertEqual(plan.remappedRange(selection), NSRange(location: 7, length: 1))
+        XCTAssertEqual(plan.remappedOffset(anchor), 3)
     }
 
     func testTheCaretLineSurvivesTheSaveAndIsTrimmedByTheNextOneAfterTheCaretMoves() throws {
@@ -337,6 +343,116 @@ final class SaveTransformIntegrationTests: XCTestCase {
         XCTAssertTrue(prepareForSave(staged.id, in: staged.model, editorConfig: staged.config).isEmpty)
         try staged.model.save(for: staged.id)
         XCTAssertEqual(staged.tree.files["a.swift"], edited)
+    }
+
+    // MARK: - Save As: the *destination's* configuration
+
+    /// The Core half of `SaveTransformController.prepareForSaveAs`: the same
+    /// chain, resolved against a path that does not exist on disk yet.
+    @discardableResult
+    private func prepareForSaveAs(
+        _ id: UUID,
+        destination: URL,
+        in model: WorkspaceModel,
+        editorConfig: EditorConfigModel
+    ) -> SaveTransformPlan {
+        guard let text = model.text(for: id) else {
+            XCTFail("no open buffer for \(id)")
+            return SaveTransformPlan(replacements: [], text: "")
+        }
+        let plan = SaveTransform.plan(text: text, config: editorConfig.properties(for: destination))
+        if !plan.isEmpty { model.replaceText(plan.text, for: id) }
+        return plan
+    }
+
+    func testSaveAsResolvesTheDestinationsConfigurationForAPathThatDoesNotExistYet() throws {
+        let tree = tree([
+            ".editorconfig": "root = true\n[*]\nend_of_line = crlf\ninsert_final_newline = true\n",
+        ])
+        let model = WorkspaceModel(fileService: tree)
+        let config = EditorConfigModel(fileService: tree, projectRoot: tree.root)
+        // An untitled buffer: no url at all until the panel is answered, which is
+        // why `prepareForSave` skips it and this is its only entry point.
+        let untitled = model.newFile()
+        model.updateText("let a = 1\nlet b = 2", for: untitled.id)
+
+        let destination = tree.url("new.swift")
+        XCTAssertFalse(tree.files.keys.contains("new.swift"), "the leaf must not exist when it is resolved")
+        prepareForSaveAs(untitled.id, destination: destination, in: model, editorConfig: config)
+        try model.saveAs(url: destination, for: untitled.id)
+
+        XCTAssertEqual(tree.files["new.swift"], "let a = 1\r\nlet b = 2\r\n")
+    }
+
+    func testSaveAsIntoAFolderWithoutAConfigurationWritesTheBufferByteForByte() throws {
+        // The same buffer, a destination the `root = true` config above does not
+        // cover: nothing is transformed. Which config applies is the destination's.
+        let tree = tree(["sub/.editorconfig": "root = true\n[*]\ntrim_trailing_whitespace = true\n"])
+        let model = WorkspaceModel(fileService: tree)
+        let config = EditorConfigModel(fileService: tree, projectRoot: tree.root)
+        let untitled = model.newFile()
+        let edited = "let a = 1   \nlet b = 2   "
+        model.updateText(edited, for: untitled.id)
+
+        let plan = prepareForSaveAs(
+            untitled.id,
+            destination: tree.url("top.swift"),
+            in: model,
+            editorConfig: config
+        )
+
+        XCTAssertTrue(plan.isEmpty, "no configuration applies to the destination, so nothing is rewritten")
+        try model.saveAs(url: tree.url("top.swift"), for: untitled.id)
+        XCTAssertEqual(tree.files["top.swift"], edited)
+    }
+
+    func testADestinationAnotherTabAlreadyOwnsIsRefusedBeforeAnythingIsRewritten() throws {
+        // `PisakaApp.saveAs` asks this *before* it transforms, because a rewrite is
+        // only a save's to make: a refused Save As must leave the buffer exactly as
+        // the user typed it rather than silently reformatted for a write that never
+        // happened.
+        let staged = try staged([
+            ".editorconfig": "root = true\n[*]\ntrim_trailing_whitespace = true\n",
+            "a.swift": "let a = 1\n",
+        ], opening: "a.swift")
+        let untitled = staged.model.newFile()
+        let edited = "let b = 2   "
+        staged.model.updateText(edited, for: untitled.id)
+
+        let destination = staged.tree.url("a.swift")
+        XCTAssertTrue(
+            staged.model.isDestinationOpenElsewhere(destination, for: untitled.id),
+            "the open tab already targets it, which is what `saveAs` refuses on"
+        )
+        XCTAssertThrowsError(try staged.model.saveAs(url: destination, for: untitled.id)) { error in
+            XCTAssertEqual(error as? WorkspaceModel.SaveAsError, .destinationAlreadyOpen)
+        }
+        // The buffer the app never transformed, and the file it never overwrote.
+        XCTAssertEqual(staged.model.text(for: untitled.id), edited)
+        XCTAssertEqual(staged.tree.files["a.swift"], "let a = 1\n")
+        // …and the same destination for the tab that already owns it is not
+        // "elsewhere", so an ordinary re-save of that tab is never refused.
+        XCTAssertFalse(staged.model.isDestinationOpenElsewhere(destination, for: staged.id))
+    }
+
+    // MARK: - The two callers choose their id sets differently
+
+    func testCommandSTransformsACleanUneditedBuffer() throws {
+        // `PisakaApp.save(id:)` is deliberately unconditional on the dirty flag:
+        // ⌘S writes this file either way, so it transforms either way. Opening a
+        // file with trailing whitespace and pressing ⌘S without editing is the
+        // shipping scenario, and the counterpart of the autosave assertion below.
+        let staged = try staged([
+            ".editorconfig": "root = true\n[*]\ntrim_trailing_whitespace = true\n",
+            "a.swift": "let a = 1   \n",
+        ], opening: "a.swift")
+        XCTAssertFalse(staged.model.isDirty(for: staged.id), "nothing was edited")
+
+        prepareForSave(staged.id, in: staged.model, editorConfig: staged.config)
+        try staged.model.save(for: staged.id)
+
+        XCTAssertEqual(staged.tree.files["a.swift"], "let a = 1\n")
+        XCTAssertFalse(staged.model.isDirty(for: staged.id), "and the tab is clean again afterwards")
     }
 
     // MARK: - The off-screen cost is real and bounded

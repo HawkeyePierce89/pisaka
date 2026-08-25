@@ -78,15 +78,6 @@ public struct SaveTransformPlan: Equatable {
         let end = remappedOffset(NSMaxRange(range))
         return NSRange(location: location, length: max(0, end - location))
     }
-
-    /// The selection and the scroll anchor of one tab, both remapped — what the
-    /// view restores after applying the plan.
-    public func remappedViewport(_ viewport: EditorViewport) -> EditorViewport {
-        EditorViewport(
-            selection: remappedRange(viewport.selection),
-            topCharacterOffset: remappedOffset(viewport.topCharacterOffset)
-        )
-    }
 }
 
 /// The one engine that decides what a save rewrites.
@@ -172,7 +163,6 @@ public enum SaveTransform {
 
         let spared = trims ? sparedLines(lines, positions: protectedPositions) : []
         var replacements: [IndentReplacement] = []
-        var trimmedFromLastLine = 0
         for (index, line) in lines.enumerated() {
             // Per line, the trim (inside the content) precedes the terminator
             // edit (immediately after it), so appending in line order already
@@ -181,7 +171,6 @@ public enum SaveTransform {
                 let run = trailingWhitespace(in: ns, content: line.content)
                 if run.length > 0 {
                     replacements.append(IndentReplacement(range: run, replacement: ""))
-                    if index == lines.count - 1 { trimmedFromLastLine = run.length }
                 }
             }
             if let target, let edit = terminatorEdit(for: line, target: target, in: ns) {
@@ -189,11 +178,16 @@ public enum SaveTransform {
             }
         }
 
+        // The last line's trailing run, measured whether or not sparing kept it
+        // *this* time — the final-terminator decision has to read the trim the
+        // configuration asks for, not the one this particular caret position
+        // allowed. See `finalTerminator`.
+        let lastLineTrimLength = trims ? trailingWhitespace(in: ns, content: lastLine.content).length : 0
         if appendsFinalNewline,
            let terminator = finalTerminator(
                lines: lines,
                lastLine: lastLine,
-               trimmedFromLastLine: trimmedFromLastLine,
+               lastLineTrimLength: lastLineTrimLength,
                target: target,
                in: ns
            ) {
@@ -204,11 +198,33 @@ public enum SaveTransform {
         }
 
         guard !replacements.isEmpty else { return SaveTransformPlan(replacements: [], text: text) }
-        let result = NSMutableString(string: text)
-        for edit in replacements.reversed() {
-            result.replaceCharacters(in: edit.range, with: edit.replacement)
+        return SaveTransformPlan(replacements: replacements, text: applied(replacements, to: ns))
+    }
+
+    /// The text `replacements` produce, built in **one forward pass**: the gap
+    /// before each edit, then that edit's replacement, then the tail.
+    ///
+    /// Deliberately not "copy the buffer and apply the edits into it". A whole-file
+    /// `end_of_line` normalization emits one edit *per line*, and every in-place
+    /// replacement on a mutable string shifts the rest of the buffer, so that
+    /// shape is quadratic in the file — seconds of a synchronous autosave tick on
+    /// a large file, for a string this function is only asked to produce once.
+    /// Appending is linear because the edits arrive ascending and non-overlapping,
+    /// which is exactly what the plan's contract already promises.
+    private static func applied(_ replacements: [IndentReplacement], to ns: NSString) -> String {
+        let result = NSMutableString(capacity: ns.length)
+        var cursor = 0
+        for edit in replacements {
+            if edit.range.location > cursor {
+                result.append(ns.substring(with: NSRange(location: cursor, length: edit.range.location - cursor)))
+            }
+            result.append(edit.replacement)
+            cursor = NSMaxRange(edit.range)
         }
-        return SaveTransformPlan(replacements: replacements, text: result as String)
+        if cursor < ns.length {
+            result.append(ns.substring(with: NSRange(location: cursor, length: ns.length - cursor)))
+        }
+        return result as String
     }
 
     // MARK: - The three transforms
@@ -248,6 +264,17 @@ public enum SaveTransform {
     /// leaves the whole buffer empty, since an empty buffer has no line to
     /// terminate.
     ///
+    /// `lastLineTrimLength` is the run trimming **would** delete from the last
+    /// line, measured whether or not the caret spared that line on this save.
+    /// Reading the spared answer instead would make the appended terminator
+    /// depend on where the caret happened to be at an autosave tick: a
+    /// whitespace-only last line under the caret would be terminated, the next
+    /// save (the caret now elsewhere) would trim the whitespace it just
+    /// terminated, and the file would keep a blank line nobody typed — a fixed
+    /// point *different* from the one the same buffer reaches with the caret
+    /// anywhere else. Sparing is a deferral of the trim, not a change of what the
+    /// file should end up being, so only the trim edit itself honours it.
+    ///
     /// Which terminator: the configured one when `end_of_line` states it,
     /// otherwise the file's own last terminator, otherwise LF. Reading the file's
     /// own answer rather than defaulting to LF is what keeps a CRLF file that
@@ -255,18 +282,33 @@ public enum SaveTransform {
     private static func finalTerminator(
         lines: [TerminatedLineRange],
         lastLine: TerminatedLineRange,
-        trimmedFromLastLine: Int,
+        lastLineTrimLength: Int,
         target: String?,
         in ns: NSString
     ) -> String? {
         guard lastLine.terminator.length == 0 else { return nil }
-        guard lastLine.content.length - trimmedFromLastLine > 0 else { return nil }
+        guard lastLine.content.length - lastLineTrimLength > 0 else { return nil }
         if let target { return target }
         let previous = lines.count >= 2 ? ns.substring(with: lines[lines.count - 2].terminator) : ""
         return previous.isEmpty ? defaultTerminator : previous
     }
 
     // MARK: - The spared lines
+
+    /// The protected positions a text view's selection state contributes: a bare
+    /// caret gives its location, a selection gives **both** of its endpoints.
+    ///
+    /// Stated here rather than at the call site because it is a decision, not a
+    /// conversion: the middle-drag column selection makes several carets a
+    /// first-class state, so the argument is the *whole* `selectedRanges` array
+    /// and an autosave landing on one of them spares every line it sits on, not
+    /// just the first. `NSNotFound` ranges (no selection) contribute nothing.
+    public static func protectedPositions(forSelectedRanges ranges: [NSRange]) -> [Int] {
+        ranges.flatMap { range -> [Int] in
+            guard range.location != NSNotFound, range.location >= 0 else { return [] }
+            return range.length == 0 ? [range.location] : [range.location, NSMaxRange(range)]
+        }
+    }
 
     /// The indices of the lines holding a protected position.
     ///
@@ -276,10 +318,15 @@ public enum SaveTransform {
     /// next one, while a caret at column zero spares only the line it is on. A
     /// position at (or past) the end of the text belongs to the last line, which
     /// is where the caret at end of file is.
+    ///
+    /// `NSNotFound` and negatives name no position and are dropped rather than
+    /// resolved into one, the same posture `remappedOffset` takes: inventing a
+    /// line for them would silently spare a line nobody is on.
     private static func sparedLines(_ lines: [TerminatedLineRange], positions: [Int]) -> Set<Int> {
         var spared: Set<Int> = []
         for position in positions {
-            guard position != NSNotFound, let index = lineIndex(containing: position, in: lines) else { continue }
+            guard position != NSNotFound, position >= 0,
+                  let index = lineIndex(containing: position, in: lines) else { continue }
             spared.insert(index)
         }
         return spared

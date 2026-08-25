@@ -183,7 +183,13 @@ user sees it.
   autosave, Save As, the close prompt's Save, and the saves before Run and Test —
   and on macOS the change arrives in the editor as one ordinary edit: a single
   Cmd+Z restores the buffer as it was before the save, and the scroll position
-  does not jump.
+  does not jump. Two details worth knowing: a **Save As** applies the
+  *destination's* configuration, not the one where the buffer came from (an
+  untitled buffer belongs to no folder until you pick one); and for a **background
+  tab** caught by an autosave there is no editor to route the change through, so
+  that tab loses its undo history and its remembered scroll position — the same
+  cost every other off-screen rewrite (project-wide Replace All, a revert, a merge
+  apply) already has.
   The usual rules apply: files closer to the edited file win, later sections win
   inside one file, `root = true` stops the search, and `unset` clears an
   inherited property. Section globs are the full EditorConfig dialect (`*`,
@@ -195,7 +201,9 @@ user sees it.
   above it is not read (the same on both platforms, because iOS can only read
   inside the folder you granted); `end_of_line` names LF, CR and CRLF only, so
   the three rarer separators the editor understands (NEL, U+2028, U+2029) are
-  left exactly as they are; **a save is the only thing that ever rewrites
+  left exactly as they are; a save that lands mid-composition (an input method's
+  marked text on screen) transforms nothing, and writes the untransformed bytes —
+  the next save, once the composition is committed, transforms them; **a save is the only thing that ever rewrites
   anything** — opening a file, closing it, switching tabs and editing the
   `.editorconfig` itself change nothing, indentation already in a file is never
   reformatted (so pressing Enter on a tab-indented line under `indent_style =

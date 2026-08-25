@@ -246,18 +246,18 @@ final class AutosaveController {
         }
     }
 
-    /// Paths of the dirty *titled* buffers that do not exist on disk right now — the
-    /// ones whose next write creates the file instead of overwriting it. Only dirty
-    /// titled buffers are probed (the rest are never written), so the common
-    /// nothing-to-save re-fire costs no syscall at all. A dangling symlink reads as
-    /// missing here (`fileExists` dereferences), which at worst yields one extra,
-    /// idempotent tree bump.
     /// The ids `saveAllDirty()` is about to write: dirty, and with a url. The set
     /// the on-save transform is offered, for the reason stated on `prepareForSave`.
     private func dirtyTitledIDs(in model: WorkspaceModel) -> [UUID] {
         model.openFiles.filter { $0.isDirty && $0.url != nil }.map(\.id)
     }
 
+    /// Paths of the dirty *titled* buffers that do not exist on disk right now — the
+    /// ones whose next write creates the file instead of overwriting it. Only dirty
+    /// titled buffers are probed (the rest are never written), so the common
+    /// nothing-to-save re-fire costs no syscall at all. A dangling symlink reads as
+    /// missing here (`fileExists` dereferences), which at worst yields one extra,
+    /// idempotent tree bump.
     private func missingDirtyPaths(in model: WorkspaceModel) -> Set<String> {
         var paths: Set<String> = []
         for file in model.openFiles where file.isDirty {

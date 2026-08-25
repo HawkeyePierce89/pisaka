@@ -30,12 +30,23 @@ protocol SaveTransformEditor: AnyObject {
     func scrollAnchor(to offset: Int)
 
     /// Raise the editor's two rewrite guards for the duration of a save
-    /// transform: the programmatic-edit flag (so the change notification is not
-    /// mistaken for typing) and the buffer-swap flag (so the incremental blame
-    /// and diagnostics shifters do not run across what can be a file-wide edit),
-    /// dropping the blame column and this document's diagnostics the way a
-    /// wholesale replacement does.
+    /// transform: the programmatic-edit flag (so neither `shouldChangeText` nor
+    /// the change notification is mistaken for typing) and the buffer-swap flag
+    /// (so the incremental blame and diagnostics shifters do not run across what
+    /// can be a file-wide edit).
+    ///
+    /// Raised *before* the edit is even proposed, because `shouldChangeText`
+    /// re-enters the delegate's own interceptors.
     func beginSaveTransformRewrite()
+
+    /// Drop the blame column and this document's diagnostics the way a wholesale
+    /// replacement does, because the coalesced edit can be file-wide.
+    ///
+    /// Separate from raising the guards, and called only once the edit is known
+    /// to be permitted: a refused `shouldChangeText` changes no text, and
+    /// discarding both readers for a rewrite that never happened would leave the
+    /// gutter and the underlines empty with no edit to re-publish them.
+    func resetIncrementalReadersForSaveTransform()
 
     /// Lower both guards. Called after `didChangeText()`, so every notification
     /// the rewrite fires is covered.
@@ -184,19 +195,17 @@ final class SaveTransformController {
         return textView
     }
 
-    /// The offsets whose lines trimming must spare: the caret, and both endpoints
-    /// of every selected range.
+    /// The offsets whose lines trimming must spare, read from `selectedRanges`
+    /// rather than `selectedRange()` — the middle-drag column selection makes
+    /// several carets a first-class state, and an autosave landing on one of them
+    /// must spare every line it sits on, not just the first.
     ///
-    /// Read from `selectedRanges` rather than `selectedRange()` because the
-    /// middle-drag column selection makes several carets a first-class state, and
-    /// an autosave landing on one of them must spare every line it sits on, not
-    /// just the first.
+    /// Which offsets a range contributes is `SaveTransform`'s decision, not this
+    /// class's: all that happens here is the unwrap of AppKit's `[NSValue]`.
     private func protectedPositions(in textView: NSTextView) -> [Int] {
-        (textView.selectedRanges as [NSValue]).flatMap { value -> [Int] in
-            let range = value.rangeValue
-            guard range.location != NSNotFound else { return [] }
-            return range.length == 0 ? [range.location] : [range.location, NSMaxRange(range)]
-        }
+        SaveTransform.protectedPositions(
+            forSelectedRanges: (textView.selectedRanges as [NSValue]).map(\.rangeValue)
+        )
     }
 
     /// Rewrite the shown buffer through the text view: one undoable step, one
@@ -219,7 +228,13 @@ final class SaveTransformController {
         let replacements = plan.replacements.map(\.replacement)
         editor?.beginSaveTransformRewrite()
         defer { editor?.endSaveTransformRewrite() }
+        // The guards go up first (this call re-enters the delegate's own
+        // interceptors), but the blame column and the diagnostics are dropped only
+        // once the edit is permitted: a refusal here rewrites nothing, and
+        // discarding both readers for a rewrite that never happened would leave
+        // them empty with no change notification to re-publish them.
         guard textView.shouldChangeText(inRanges: editedRanges, replacementStrings: replacements) else { return }
+        editor?.resetIncrementalReadersForSaveTransform()
         // The replacements carry `typingAttributes` explicitly: the raw storage
         // path would otherwise inherit whatever the adjacent text has, and in a
         // buffer with no adjacent text, no font at all (`insertConfiguredTab`).

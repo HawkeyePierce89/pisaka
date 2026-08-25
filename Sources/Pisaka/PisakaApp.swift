@@ -2513,7 +2513,15 @@ struct PisakaApp: App {
         guard let url = FilePanels.showSavePanel(suggestedName: suggested) else { return false }
         // Only now is there a path to resolve a configuration against, and it is
         // the *destination's*: an untitled buffer belongs to no folder until this
-        // panel is answered, so the transform runs after it and never before.
+        // panel is answered, so the transform runs after it and never before —
+        // but also never before the one condition `saveAs` refuses on. A rewrite
+        // is only a save's to make, so a destination another tab already owns is
+        // rejected here, before the buffer is touched, instead of letting the
+        // throw below leave a silently reformatted buffer that was never written.
+        guard !model.isDestinationOpenElsewhere(url, for: id) else {
+            PlatformFeedback.warning()
+            return false
+        }
         saveTransform.prepareForSaveAs(id: id, destination: url)
         do {
             try model.saveAs(url: url, for: id)

@@ -434,7 +434,15 @@ never rewritten, and there is no whole-project normalization command.
     or absent does nothing, an existing final terminator is never doubled and
     never removed, an empty buffer stays empty (there is no line to terminate),
     and a last line that trimming empties gains nothing either, because the line
-    above already terminates the text. The order is what step 3 *reads*, not the
+    above already terminates the text — **measured against the trim the
+    configuration asks for, not the one this caret position allowed**. Reading the
+    spared answer instead would make the appended terminator depend on where the
+    caret happened to be at an autosave tick: a whitespace-only last line under the
+    caret would be terminated, the next save (caret moved away) would trim the
+    whitespace it just terminated, and the file would keep a blank line nobody
+    typed — a fixed point *different* from the one the same buffer reaches with the
+    caret anywhere else. Sparing defers a trim; it never changes what the file
+    should end up being. The order is what step 3 *reads*, not the
     order edits are applied in: per line the trim (inside the content) precedes
     the terminator edit (immediately after it), so appending in line order already
     yields the ascending, non-overlapping list the contract promises.
@@ -460,9 +468,16 @@ never rewritten, and there is no whole-project normalization command.
     pair. `NSNotFound` and negatives are returned untouched: they name no
     position, and inventing one would turn "no selection" into a caret somewhere.
     `remappedRange` maps a range through its two ends, the only definition that
-    stays correct when an edit falls *inside* the selection, and
-    `remappedViewport` does the selection and the anchor together — which is
-    precisely what a view restores after applying the plan.
+    stays correct when an edit falls *inside* the selection. There is deliberately
+    no whole-`EditorViewport` convenience: the editor's column selection is
+    *several* ranges, which one viewport cannot carry, so the view remaps each
+    selected range through `remappedRange` and the scroll anchor through
+    `remappedOffset` — which is precisely what it restores after applying the plan.
+    Which offsets a selection *contributes* is this engine's decision too:
+    `protectedPositions(forSelectedRanges:)` takes the whole `selectedRanges`
+    array — a bare caret gives its location, a selection gives both endpoints,
+    every range of a column selection counts — leaving the view layer with nothing
+    but the unwrap of AppKit's `[NSValue]`.
     **Idempotence** falls out of the three rules and is asserted rather than
     assumed: the plan for an already-transformed text is empty, so a second save
     of an untouched buffer writes the same bytes and moves nothing.
@@ -740,8 +755,13 @@ over in-memory trees (no committed `.editorconfig`):
     value normalizing nothing, and NEL/LS/PS surviving every combination; the
     three composing in the stated order; the remap across shrinking and growing
     edits with offsets before, inside and after each site and at end of file,
-    ranges through their two ends, a whole viewport, an absent selection not
-    invented a position, and an empty plan mapping every position to itself; the
+    ranges through their two ends, the selection-and-anchor pair the funnel really
+    remaps, an absent selection not invented a position, an empty plan mapping
+    every position to itself, and a composed case whose every offset is an
+    astral-plane surrogate pair (the one input class that tells UTF-16 arithmetic
+    apart from `Character` arithmetic); what a caret, a selection and a column
+    selection each contribute as protected positions, and that `NSNotFound`, a
+    negative and an offset past the end spare no line they should not; the
     idempotence check (the plan for the transformed text is empty); and the
     no-configuration pins — an empty map, a map of only part 1's indentation
     properties, the three set to `false`/unrecognized, and an empty buffer — each
@@ -757,9 +777,14 @@ over in-memory trees (no committed `.editorconfig`):
     tick transforms and writes every dirty titled buffer; the iOS save writes what
     the configuration asked and, without one, the buffer byte for byte; a
     Return-spliced terminator survives the next save untouched; a file outside the
-    configured section is not transformed; and — the regression that matters most
-    — a project with no `.editorconfig` writes byte-identical bytes and moves
-    exactly the revision tokens it moved before this feature existed.
+    configured section is not transformed; ⌘S transforms a **clean, unedited**
+    buffer (the counterpart of the autosave case, which must not touch one); Save
+    As resolves the **destination's** configuration against a leaf that does not
+    exist on disk yet, writes the buffer byte for byte into a folder no
+    configuration covers, and refuses a destination another tab already owns
+    *before* anything is rewritten; and — the regression that matters most — a
+    project with no `.editorconfig` writes byte-identical bytes and moves exactly
+    the revision tokens it moved before this feature existed.
   - `EditorConfigFileTests` — whole-line `#` and `;` comments (leading
     whitespace included), a `;`/`#` kept verbatim inside a value (the spec's own
     `foo = a ;)`), whitespace around keys and values, a value containing `=`, the

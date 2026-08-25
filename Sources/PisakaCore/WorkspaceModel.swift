@@ -776,10 +776,19 @@ public final class WorkspaceModel: ObservableObject {
     /// matching `open(url:)`), the save is rejected with
     /// `SaveAsError.destinationAlreadyOpen` and nothing is written — this mirrors
     /// `open(url:)`'s guard against two buffers sharing one path.
+    /// Whether a *different* open tab already targets `url` — the one condition
+    /// `saveAs(url:for:)` refuses on, asked separately so a caller may find out
+    /// **before** it does anything a refused save would have to undo (the on-save
+    /// transform rewrites the buffer, and must not rewrite it for a write that is
+    /// then rejected).
+    public func isDestinationOpenElsewhere(_ url: URL, for id: UUID) -> Bool {
+        let canonical = canonicalURL(url)
+        return openFiles.contains { $0.id != id && canonicalURL(of: $0) == canonical }
+    }
+
     public func saveAs(url: URL, for id: UUID) throws {
         guard let index = indexOf(id) else { return }
-        let canonical = canonicalURL(url)
-        if openFiles.contains(where: { $0.id != id && canonicalURL(of: $0) == canonical }) {
+        if isDestinationOpenElsewhere(url, for: id) {
             throw SaveAsError.destinationAlreadyOpen
         }
         try fileService.write(openFiles[index].text, to: url)

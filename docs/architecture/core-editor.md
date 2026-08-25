@@ -294,11 +294,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     they pass in — a config's `indent_style` decides tabs vs. spaces and its
     `indent_size`/`tab_width` the width, with each half it leaves out falling
     back to this inference, and no applicable config at all returning it
-    unchanged (`core-editorconfig.md`). This engine is deliberately **untouched**
-    by that layer: it still takes `unit` as a parameter, knows nothing about
-    configuration, and its tests pass unmodified.
-    `newlineIndentation(text:location:unit:selectionLength:)` returns a
-    `NewlineEdit` for Enter:
+    unchanged (`core-editorconfig.md`). This engine still knows nothing about
+    configuration: what that layer decides reaches it only as **parameters** —
+    `unit`, and now `terminator` — so every rule below is stated once and read the
+    same way with or without an `.editorconfig`.
+    `newlineIndentation(text:location:unit:selectionLength:terminator:)` returns a
+    `NewlineEdit` for Enter. `terminator` is the separator to splice, defaulting
+    to LF so a caller that states nothing behaves byte for byte as before; both
+    coordinators pass `end_of_line`'s terminator, because `end_of_line` is
+    consumed in full — what `SaveTransform` normalizes an already-written
+    terminator to is what a newly typed one is, so the two can never disagree and
+    the save never has to come back and fix the line just typed. Its *real* UTF-16
+    length is measured everywhere it is counted (CRLF is two units), in the plain
+    branch and in the between-brackets split alike, so the caret lands in the same
+    logical place under every flavor. The edit itself:
     base = the current line's leading whitespace (inherited verbatim, tabs and
     spaces alike); +one `unit` when the current line, ignoring trailing
     whitespace, ends with an opener (`{`/`(`/`[`) — in which case whitespace just
