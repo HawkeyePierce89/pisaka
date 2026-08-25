@@ -179,11 +179,16 @@ user sees it.
   whitespace**: autosave runs on idle, tab switch, focus loss and quit, and
   trimming there would delete the indentation you just typed and were about to
   type into; the next save after you move away trims it (a selection protects the
-  lines its two ends are on the same way) — and that next save is guaranteed
-  rather than hoped for: the editor remembers which files it spared and offers
-  them again the next time that file is on screen, so a line kept once is not left
-  untrimmed on disk because you never touched that file again. Closing the file, switching project folder or quitting
-  trims it there and then: there is no caret left to protect. Every save path applies them — Cmd+S,
+  lines its two ends are on the same way) — and that next save is not merely
+  hoped for: the editor remembers which files it spared and offers them again the
+  next time that file is on screen, so a line kept once is not left untrimmed on
+  disk just because you stopped editing it. Saving on the way out trims it in
+  full, there and then, since there is no caret left to protect: the close
+  prompt's Save, switching project folder and quitting all do. The one case a
+  kept line survives on disk is closing a tab that is already **clean** — that
+  close writes nothing at all, by design (nothing is ever reformatted except by a
+  save), so the spared whitespace stays until the file is edited and saved again.
+  Every save path applies them — Cmd+S,
   autosave, Save As, the close prompt's Save, and the saves before Run and Test —
   and on macOS the change arrives in the editor as one ordinary edit: a single
   Cmd+Z restores the buffer as it was before the save, and the scroll position

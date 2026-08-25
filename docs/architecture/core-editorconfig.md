@@ -108,7 +108,11 @@ never rewritten, and there is no whole-project normalization command.
   strict superset of it. Folding a separator the property never named into one it
   did would be this engine inventing a rule the configuration did not state, so
   the three unnamed ones survive every combination. This is the feature's one
-  stated limit.
+  stated limit. It is a rule about the separators a file *already* has, not
+  licence to add one: `insert_final_newline` appends LF where the file's own last
+  terminator is one of the unnamed three, because appending an unnamed one would
+  leave the file with no final newline by every reckoning outside this editor's
+  splitter while making the property unsatisfiable ever after.
 - **The transform rides the live editor whenever there is one.** A buffer on
   screen is rewritten *through* the text view, in one `shouldChangeText` /
   `beginEditing`…`endEditing` / `didChangeText` bracket applied back-to-front, so
@@ -429,8 +433,9 @@ never rewritten, and there is no whole-project normalization command.
     *only* spaces and tabs, so a separator the property does not name is content
     as far as trimming is concerned. (3) `insert_final_newline = true`: a file not
     ending in a terminator gains exactly one — the configured `end_of_line` when
-    set, otherwise **the file's own last terminator** (which is what keeps a CRLF
-    file stating no `end_of_line` from gaining a lone LF), otherwise LF; `false`
+    set, otherwise **the file's own last terminator when that is one of the three
+    `end_of_line` names** (which is what keeps a CRLF file stating no
+    `end_of_line` from gaining a lone LF), otherwise LF; `false`
     or absent does nothing, an existing final terminator is never doubled and
     never removed, an empty buffer stays empty (there is no line to terminate),
     and a last line that trimming empties gains nothing either, because the line
@@ -681,9 +686,16 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     filtered to buffers a live view still holds: an owed buffer waits for a save
     that can reach it through its view (the user comes back and types) and stays
     owed meanwhile. **Abandonment settles it regardless** — the quit flush, the
-    folder-switch flush and the close prompt are about to destroy every undo stack
-    and every viewport there is, so nothing is left for waiting to protect and the
-    trim would otherwise never happen at all. **It decides nothing the engine decides**: properties come
+    folder switch's second (post-refusal) flush and the close prompt are about to
+    destroy every undo stack and every viewport there is, so nothing is left for
+    waiting to protect and the trim would otherwise never happen at all. **The one
+    place an owed trim is dropped rather than settled is closing a tab that is
+    already clean**: the spared write left it clean, so `WorkspaceModel.close`
+    takes the no-prompt branch and there is no save at all to settle it on — and
+    inventing one would be this feature writing a file outside a save, which is the
+    line it does not cross. The intersection with the open tabs then forgets the
+    id, and the run stands on disk until that file is edited and saved again. Said
+    in `docs/FEATURES.md` too, where the promise is made. **It decides nothing the engine decides**: properties come
     from the same `EditorConfigModel` Enter and Tab ask, the plan comes from
     `SaveTransform`, and this class owns only the AppKit half — which buffer is on
     screen, the undo-coalescing bracket, the selection and the scroll anchor.
@@ -868,7 +880,8 @@ over in-memory trees (no committed `.editorconfig`):
     selection, and the same buffer trimmed once the caret has moved away), that
     sparing is trimming's alone, and that no protected positions trims in full;
     the final newline in each terminator flavor, taken from the file's own when no
-    `end_of_line` states one, never doubled, never removed, absent under `false`
+    `end_of_line` states one and LF when the file's own is one of the unnamed
+    three, never doubled, never removed, absent under `false`
     and unset, an empty buffer untouched, and the two last-line interactions with
     trimming; each of the three `end_of_line` targets against pure-LF, pure-CRLF,
     pure-CR and mixed files, the CRLF pair as one terminator, an unrecognized

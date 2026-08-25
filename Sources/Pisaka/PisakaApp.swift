@@ -1690,7 +1690,14 @@ struct PisakaApp: App {
     ///    racing a `git checkout` must not be one of them.
     /// 2. It **flushes autosave** (`reportingSaves: true`, so the writes it makes
     ///    get the same follow-up an ordinary mid-session autosave gets: Local
-    ///    Changes re-queried, the tree bumped for a recreated file).
+    ///    Changes re-queried, the tree bumped for a recreated file) — **protecting
+    ///    carets**, because whether these buffers survive is not yet decided: step
+    ///    3's refusal is read off this very flush, and both a refusal and the
+    ///    carrying path leave every tab open and being edited. Once step 3 has been
+    ///    passed on the replacing path it flushes a *second* time with
+    ///    `abandoningBuffers: true`, which is where a spared trim is finally
+    ///    settled; that pass writes nothing at all unless one was spared, since
+    ///    `saveAllDirty()` is idempotent.
     /// 3. Because that flush is **best-effort** — `saveAllDirty()` swallows a
     ///    per-file write failure by design — it then **refuses and names the files**
     ///    if any dirty *titled* buffer is still unsaved. Force-closing a buffer whose
@@ -1737,9 +1744,14 @@ struct PisakaApp: App {
         let hadFolder = model.projectRoot != nil
         if isSwitch {
             guard !revertInFlight() else { return }
-            // The buffers do not survive this switch, so the transform trims their
-            // caret lines too: there is no next save left to defer a spared run to.
-            autosave.flushNow(reportingSaves: true, abandoningBuffers: true)
+            // This first flush **protects carets**, on every path: whether the
+            // buffers survive is not yet known here. The carrying path below keeps
+            // every tab open, and the refusal a few lines down — which is decided
+            // by what this very flush leaves unsaved — leaves them open *and being
+            // edited*. `flushNow`'s flag means "the buffers do not survive this
+            // flush", and asserting that before either question is answered would
+            // trim the line someone is still typing on.
+            autosave.flushNow(reportingSaves: true, abandoningBuffers: false)
             // Only the *replacing* path can lose that text, and so only it refuses:
             // the carrying path below force-closes nothing, so the buffer stays
             // open, dirty, exactly as it is now — refusing there would block the
@@ -1751,6 +1763,14 @@ struct PisakaApp: App {
                     reportUnsavedBeforeFolderSwitch(unsaved)
                     return
                 }
+                // Past the refusal the switch is going ahead and these tabs are
+                // about to be force-closed, so now the flag is true: no caret is
+                // left to protect and no next save to defer a spared trim to.
+                // Flushing twice is what `flushNow` already documents as harmless —
+                // `saveAllDirty()` is idempotent, so this second pass writes only
+                // the buffers whose spared runs it has just settled, and nothing at
+                // all in the ordinary case where none were spared.
+                autosave.flushNow(reportingSaves: true, abandoningBuffers: true)
             }
             sessionController.flushNow()
         }

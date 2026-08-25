@@ -174,7 +174,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `prepareForSaveAs(id:destination:protectingCaret:)` when the buffer is
     untitled, the one branch where the close prompt changes method — and the quit
     and folder-switch flushes pass `abandoningBuffers: true`, so the file is
-    trimmed in full — there
+    trimmed in full. The folder switch reaches that flag on a **second** flush,
+    taken only once the unsaved-buffer refusal has been passed: the first flush is
+    what decides that refusal, and a refused switch — like the carrying path, which
+    force-closes nothing — leaves every buffer open and being edited, so asserting
+    abandonment before either question is answered would trim the line someone is
+    still typing on. Two flushes cost nothing where nothing was spared, since
+    `saveAllDirty()` is idempotent. There
     is no caret left to protect and no next save to defer a spared run to, which is
     the answer iOS's one save already gives for the same button. The commit
     dialog's flush keeps protecting: editing continues after it.
@@ -1327,9 +1333,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the trims a spared caret line deferred, which were edited and whose rewrite was
     postponed rather than declined — and that union is its bookkeeping, made in
     `SaveTransformController.prepareForAutosave`, not here. The second argument,
-    `abandoningBuffers`, is the orthogonal axis: `true` on the quit and
-    folder-switch flushes, where the buffers do not survive the write, so the
-    transform stops protecting a caret that is about to cease to exist. Both
+    `abandoningBuffers`, is the orthogonal axis: `true` on the quit flush and on
+    the folder switch's second, post-refusal flush, where the buffers do not
+    survive the write, so the transform stops protecting a caret that is about to
+    cease to exist. Both
     `flushNow` paths transform too: the quit
     flush is a buffer's last chance to be written correctly, and the commit
     dialog's flush is what the dialog then reads off disk. `nil` (previews, tests)

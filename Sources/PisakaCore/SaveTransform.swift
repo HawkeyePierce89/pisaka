@@ -111,8 +111,14 @@ public struct SaveTransformPlan: Equatable {
     /// shifts the tail exactly once instead.
     ///
     /// Which is cheaper depends on the plan, so **both costs are measured and the
-    /// smaller wins**: a two-line trim at opposite ends of a big file stays two
-    /// edits, a dense or file-wide run collapses into one. Collapsing loses
+    /// smaller wins**, and the measure is the one thing that actually costs:
+    /// bytes shifted. Scattered, each edit shifts everything after it; collapsed,
+    /// the single span shifts everything after the *first* edit exactly once. So
+    /// what decides is where the edits are, not how many: a handful of trims near
+    /// the end of a big file stays scattered, while any plan reaching back near
+    /// the start — one file-wide run, or as few as two edits with one of them
+    /// early — collapses, because that first edit alone already shifts as much as
+    /// the whole span would. Collapsing loses
     /// nothing a caller depends on — the resulting bytes are identical, and the
     /// remap (what actually moves the caret, the selection and the anchor) is
     /// expressed against the original offsets and does not know how the bytes
@@ -380,6 +386,16 @@ public enum SaveTransform {
     /// otherwise the file's own last terminator, otherwise LF. Reading the file's
     /// own answer rather than defaulting to LF is what keeps a CRLF file that
     /// states no `end_of_line` from gaining a lone LF at the end.
+    ///
+    /// The file's own answer is taken **only when it is one of the three
+    /// `end_of_line` names**. A file whose last terminator is NEL, LS or PS is
+    /// terminated with LF instead: appending one of the unnamed three would not
+    /// end the file with a newline by any reckoning outside this editor's own
+    /// splitter — git and everything else would still report no final newline —
+    /// while the next save, seeing a non-empty terminator, would append nothing,
+    /// so the property could never be satisfied for that file again. Leaving the
+    /// unnamed three exactly as they are (the feature's stated limit) is about the
+    /// separators already in the file; it was never licence to *create* one.
     private static func finalTerminator(
         lines: [TerminatedLineRange],
         lastLine: TerminatedLineRange,
@@ -391,7 +407,7 @@ public enum SaveTransform {
         guard lastLine.content.length - lastLineTrimLength > 0 else { return nil }
         if let target { return target }
         let previous = lines.count >= 2 ? ns.substring(with: lines[lines.count - 2].terminator) : ""
-        return previous.isEmpty ? defaultTerminator : previous
+        return normalizableTerminators.contains(previous) ? previous : defaultTerminator
     }
 
     // MARK: - The spared lines

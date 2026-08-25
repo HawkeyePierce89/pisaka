@@ -212,8 +212,18 @@ final class SaveTransformTests: XCTestCase {
         assertPlan("a\nb", finalNewline, becomes: "a\nb\n")
         assertPlan("a\r\nb", finalNewline, becomes: "a\r\nb\r\n")
         assertPlan("a\rb", finalNewline, becomes: "a\rb\r")
-        // A separator `end_of_line` cannot name is still the file's own answer.
-        assertPlan("a\u{2028}b", finalNewline, becomes: "a\u{2028}b\u{2028}")
+    }
+
+    /// A separator `end_of_line` cannot name is *not* the file's own answer:
+    /// appending one would leave the file with no final newline by every
+    /// reckoning outside this editor's splitter, and the next save — seeing a
+    /// terminator — would append nothing, so the property would never be
+    /// satisfied for that file again. LF is the answer instead, and the unnamed
+    /// separators already in the text are still left exactly as they are.
+    func testAppendsLFRatherThanASeparatorEndOfLineCannotName() {
+        assertPlan("a\u{2028}b", finalNewline, becomes: "a\u{2028}b\n")
+        assertPlan("a\u{2029}b", finalNewline, becomes: "a\u{2029}b\n")
+        assertPlan("a\u{0085}b", finalNewline, becomes: "a\u{0085}b\n")
     }
 
     func testAppendsLFWhenTheFileHasNoTerminatorOfItsOwn() {
