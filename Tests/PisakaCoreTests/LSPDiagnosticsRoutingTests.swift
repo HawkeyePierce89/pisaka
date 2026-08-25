@@ -31,7 +31,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
 
     // MARK: - Harness
 
-    /// Same shape as `LSPWorkspaceTests.ServerHarness`: one scripted transpor
+    /// Same shape as `LSPWorkspaceTests.ServerHarness`: one scripted transport
     /// per launch, plus a record of who launched what.
     private final class ServerHarness {
         private(set) var launches: [(id: String, root: URL)] = []
@@ -96,7 +96,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     }
 
     override func tearDown() {
-        // Terminated before the reference is dropped: every test here launches a
+        // Terminated before the reference is dropped: every test here launches at
         // least one session, and a session left alive keeps a read task suspended
         // on a `ScriptedLSPTransport` stream nobody will ever close — one leaked
         // task per server per test, for the whole run.
@@ -146,6 +146,10 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         XCTFail("Timed out waiting for \(description)", file: file, line: line)
         struct TimeoutError: Error {}
         throw TimeoutError()
+    }
+
+    private func settle() async throws {
+        try await Task.sleep(nanoseconds: 150_000_000)
     }
 
     private func push(
@@ -251,7 +255,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
 
         harness.latest.push(method: "window/logMessage", params: .object(["message": .string("hi")]))
         let countBefore = publishedEvents().count
-        try await Task.sleep(nanoseconds: 150_000_000)
+        try await settle()
 
         XCTAssertEqual(publishedEvents().count, countBefore, "only publishDiagnostics is routed; the rest stay noise")
     }
@@ -282,7 +286,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             [(LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), nil, "impostor")]
         )
         let countBefore = publishedEvents().count
-        try await Task.sleep(nanoseconds: 150_000_000)
+        try await settle()
 
         XCTAssertEqual(publishedEvents().count, countBefore, "one server must not answer for another's document")
     }
@@ -306,7 +310,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             method: LSPMethod.publishDiagnostics,
             params: .object(["uri": .string("::not a uri::"), "diagnostics": .array([])])
         )
-        try await Task.sleep(nanoseconds: 150_000_000)
+        try await settle()
         XCTAssertTrue(publishedEvents().isEmpty, "none of the three malformed pushes may route")
 
         // A well-formed push still lands: the consumer is alive.
@@ -338,7 +342,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
 
         try pushToMainFile(version: prepared.version + 7, message: "m")
         let countBefore = publishedEvents().count
-        try await Task.sleep(nanoseconds: 150_000_000)
+        try await settle()
 
         XCTAssertEqual(publishedEvents().count, countBefore, "a push for a version the server does not hold is noise")
     }
@@ -355,7 +359,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             [(LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), nil, "m")]
         )
         let countBefore = publishedEvents().count
-        try await Task.sleep(nanoseconds: 150_000_000)
+        try await settle()
 
         XCTAssertEqual(
             publishedEvents().count,
@@ -467,7 +471,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         try push(to: harness.latest, uri: provider.uri, version: 2, [
             (LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 2), .warning, "mid"),
         ])
-        try await Task.sleep(nanoseconds: 150_000_000)
+        try await settle()
         XCTAssertFalse(
             publishedEntries(in: model).contains { $0.message == "mid" },
             "the provider-provoked push is stale against the record — rejected"
@@ -597,7 +601,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         try push(to: harness.latest, uri: prepared.uri, version: prepared.version, [
             (LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), nil, "straggler"),
         ])
-        try await Task.sleep(nanoseconds: 150_000_000)
+        try await settle()
 
         XCTAssertEqual(
             publishedEvents().count,
@@ -715,7 +719,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
 
         // The stream finishes under the orphan's consumer inside the teardown
         // above; the clear it would emit lands on a later main-actor turn.
-        try await Task.sleep(nanoseconds: 150_000_000)
+        try await settle()
         XCTAssertEqual(
             clearedServerIDs(),
             ["fake-pyls"],

@@ -1367,11 +1367,10 @@ final class LeetCodeCatalogTests: XCTestCase {
 
         catalog.sessionDidChange(to: credentials)
 
-        class Box { var fired = false }
-        let state = Box()
+        let hookFired = expectation(description: "hook fired")
 
         clock.onFirstRead = {
-            state.fired = true
+            hookFired.fulfill()
             Task { @MainActor in
                 catalog.sessionDidChange(to: nil)
             }
@@ -1379,7 +1378,7 @@ final class LeetCodeCatalogTests: XCTestCase {
 
         try await catalog.refresh(credentials: credentials)
 
-        XCTAssertTrue(state.fired, "The clock read hook must fire to trigger the sign-out")
+        await fulfillment(of: [hookFired], timeout: 1.0)
         XCTAssertEqual(catalog.problems.map(\.slug), ["two-sum"])
         XCTAssertEqual(catalog.fetchedAt, now)
         XCTAssertEqual(transport.count(for: .problemList), 1)
