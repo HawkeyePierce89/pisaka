@@ -618,7 +618,8 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     fires from `WorkspaceModel.$selectedID` *before* `updateNSView` swaps the
     buffer, so at that moment it still names the outgoing file — which is exactly
     the buffer being saved and the one the transform must reach through the view.
-    **Two application paths.** A buffer the editor still holds is rewritten
+    **Two application paths, and the model picks between them.** A buffer the
+    editor still holds *and whose text the view still agrees with* is rewritten
     through the text view, in `insertConfiguredTab`'s bracket — `shouldChangeText`
     / `beginEditing`…`endEditing` / `didChangeText`, edits applied back-to-front,
     replacements carrying `typingAttributes` explicitly (the raw storage path
@@ -652,10 +653,26 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     stale diagnostics would stand until that tab happened to be displayed again.
     Save As passes no url on purpose: an untitled buffer has never been indexed
     under any path, and `saveAs`'s own `notifyIndexOfProjectFileChanges()` picks
-    the written file up from disk.
+    the written file up from disk. **A shown buffer whose view has not caught up
+    takes the off-screen path too**, and that comparison is not defensive: a
+    model-side rewrite (Replace All, a revert, a merge apply, a reload) lands in
+    the model first and reaches the view on SwiftUI's next update pass, while
+    every one of those writers replays a deferred autosave *synchronously* from
+    its own `defer { autosave.resume() }` — inside that very window. Reading the
+    view there would transform text the model had already replaced and push it
+    back through `didChangeText`, silently undoing the rewrite in that tab and
+    then writing the undone result to disk. The model is authoritative whenever
+    the two differ, exactly as `updateNSView`'s content-replaced branch decides
+    it.
     **The two guards.** `beginSaveTransformRewrite()` raises
-    `isApplyingProgrammaticEdit` *and* `isSwappingBuffer`, drops the blame column
-    and clears this document's diagnostics. The reason is that `endEditing`
+    `isApplyingProgrammaticEdit` *and* `isSwappingBuffer` before the edit is even
+    proposed (`shouldChangeText` re-enters the delegate's own interceptors);
+    `resetIncrementalReadersForSaveTransform()` then drops the blame column and
+    clears this document's diagnostics, and is deliberately a *second* call made
+    only once the edit is known to be permitted — a refused `shouldChangeText`
+    changes no text, and discarding both readers for a rewrite that never
+    happened would leave the gutter and the underlines empty with no edit to
+    re-publish them. The reason they are dropped at all is that `endEditing`
     coalesces the several small replacements into **one** edited range — for a
     whole-file terminator normalization, the whole buffer — which is the
     buffer-swap case in everything but name, so it takes the buffer-swap treatment

@@ -72,14 +72,16 @@ protocol SaveTransformEditor: AnyObject {
 /// — costs one cache hit and returns without touching anything.
 ///
 /// **Two application paths, and the second one has a cost worth stating.** A
-/// buffer the editor still holds is rewritten *through the text view*, in one
+/// buffer the editor still holds — and whose view still agrees with the model —
+/// is rewritten *through the text view*, in one
 /// `shouldChangeText` / `beginEditing`…`endEditing` / `didChangeText` bracket
 /// applied back-to-front — `insertConfiguredTab`'s template — so the whole save is
 /// a single undoable step (one ⌘Z restores the pre-save buffer), a single change
 /// notification, and every observer (Neon, the gutter, the minimap, the brackets,
 /// the symbol index and, through `reindexSymbols`, the LSP push sync) sees an
 /// ordinary edit. A buffer the editor no longer holds — a background tab caught by
-/// an autosave — has no view to edit through, so it is rewritten through
+/// an autosave, or a shown tab whose view has not yet caught up with a model-side
+/// rewrite (see `prepare`) — has no view to edit through, so it is rewritten through
 /// `WorkspaceModel.replaceText(_:for:)`, which bumps that tab's text-replacement
 /// revision: **that tab's undo stack and remembered scroll position are dropped**
 /// when it is next displayed, exactly as they are for every other off-screen
@@ -190,13 +192,22 @@ final class SaveTransformController {
 
     private func prepare(id: UUID, configuredBy url: URL, resyncing resyncURL: URL?, in model: WorkspaceModel) {
         guard let config = editorConfig?.properties(for: url) else { return }
-        let live = liveTextView(for: id)
-        // The live view is authoritative for the buffer it is showing; the model
-        // is authoritative for every other tab. The two agree — the editor's
-        // binding writes each change straight into `updateText` — so this is a
-        // choice of the cheaper read, not of a different answer.
-        let text = live?.string ?? model.text(for: id)
-        guard let text else { return }
+        guard let text = model.text(for: id) else { return }
+        // The model is authoritative, always; the shown view is *also* the buffer
+        // — and the cheaper thing to rewrite — only while the two agree. They
+        // normally do, because the editor's binding writes every change straight
+        // into `updateText`. They disagree for exactly one window: a model-side
+        // rewrite (Replace All, a revert, a merge apply, a reload) lands in the
+        // model first and reaches the view on SwiftUI's next update pass, and
+        // those writers replay a deferred autosave *synchronously* from their own
+        // `defer { autosave.resume() }` — i.e. inside that window. Transforming
+        // the view's stale text there would push it straight back through
+        // `didChangeText` and silently undo the rewrite in that tab, then write
+        // the result to disk. When they disagree the model wins and the rewrite
+        // takes the off-screen path, exactly as `updateNSView`'s content-replaced
+        // branch already decides it.
+        let displayed = liveTextView(for: id)
+        let live = displayed?.string == text ? displayed : nil
         let plan = SaveTransform.plan(
             text: text,
             config: config,
