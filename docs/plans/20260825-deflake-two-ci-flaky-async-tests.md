@@ -119,9 +119,9 @@ requirement 5 says "where feasible" — but the attempt and its outcome must be
 recorded, because it is what distinguishes "the diagnosis was confirmed" from "the
 symptom stopped appearing".
 
-- [ ] run `swift test --filter testASessionReplacedWhileTheCacheIsEncodedIsNeverWritten` and `--filter testACrashNoticedByTheNextRequestClearsBeforeTheRestart` in a loop (≥50 iterations each), recording pass/fail counts
-- [ ] repeat both loops under CPU load and record whether either fails
-- [ ] write the counts and the load recipe into the progress notes so Task 5 can quote them
+- [x] run `swift test --filter testASessionReplacedWhileTheCacheIsEncodedIsNeverWritten` and `--filter testACrashNoticedByTheNextRequestClearsBeforeTheRestart` in a loop (≥50 iterations each), recording pass/fail counts
+- [x] repeat both loops under CPU load and record whether either fails
+- [x] write the counts and the load recipe into the progress notes so Task 5 can quote them
 
 ### Task 2: Restage the catalog's encode-window test
 
