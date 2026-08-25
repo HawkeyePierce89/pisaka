@@ -306,24 +306,24 @@ of captures == all `SymbolKind` captures) stays satisfied with no new kind.
 **Files:**
 - Modify: `Sources/Pisaka/SyntaxLanguageConfiguration.swift`
 
-- [ ] `import TreeSitterEditorconfig` beside the other grammar imports, with a
+- [x] `import TreeSitterEditorconfig` beside the other grammar imports, with a
       comment noting it is the fourth vendored one and pointing at its
       `VENDORED.md`
-- [ ] add the `case .editorconfig` arm returning
+- [x] add the `case .editorconfig` arm returning
       `LanguageConfiguration(tree_sitter_editorconfig(), name: "Editorconfig")` —
       the exhaustive switch already forces it; comment why the name is
       `"Editorconfig"` and not `"EditorConfig"` (the resource bundle is
       `TreeSitterEditorconfig_TreeSitterEditorconfig`)
-- [ ] `xcodegen generate`
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] `xcodegen generate`
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'platform=macOS' -configuration Release build`
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination
       'generic/platform=iOS' build` — the grammar must link on both
       destinations, like the existing ones
-- [ ] confirm `Package.resolved` is unchanged by the path dependency; if
+- [x] confirm `Package.resolved` is unchanged by the path dependency; if
       `xcodebuild -resolvePackageDependencies` rewrites it, regenerate rather
       than hand-edit and re-run `DependencyPinTests`
-- [ ] run `swift test`
+- [x] run `swift test`
 
 ### Task 5: Documentation
 

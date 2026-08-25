@@ -29,6 +29,9 @@ import TreeSitterGitignore
 // Vendored locally (`Vendor/TreeSitterSql`) — upstream ships no generated parser
 // and its manifest is a hard SwiftPM error; see that package's `VENDORED.md`.
 import TreeSitterSql
+// Vendored locally (`Vendor/TreeSitterEditorconfig`) — the fourth vendored grammar;
+// see that package's `VENDORED.md`.
+import TreeSitterEditorconfig
 
 /// Maps a semantic `SyntaxLanguage` (PisakaCore) to a concrete tree-sitter
 /// `LanguageConfiguration` (grammar parser + bundled highlight queries).
@@ -113,6 +116,11 @@ enum SyntaxLanguageConfiguration {
             // The SPM resource bundle is TreeSitterSql_TreeSitterSql, which
             // LanguageConfiguration derives from name: "Sql".
             return try LanguageConfiguration(tree_sitter_sql(), name: "Sql")
+        case .editorconfig:
+            // The SPM resource bundle is TreeSitterEditorconfig_TreeSitterEditorconfig,
+            // which LanguageConfiguration derives from name: "Editorconfig",
+            // not "EditorConfig".
+            return try LanguageConfiguration(tree_sitter_editorconfig(), name: "Editorconfig")
         }
     }
 
