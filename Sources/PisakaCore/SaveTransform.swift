@@ -23,10 +23,28 @@ public struct SaveTransformPlan: Equatable {
     /// The text those edits produce — the bytes that must reach the disk, the
     /// buffer and the saved baseline alike.
     public let text: String
+    /// Whether sparing left trailing whitespace this configuration asked to
+    /// trim — i.e. a protected line carried a run that trimming would otherwise
+    /// have deleted.
+    ///
+    /// This is what makes the spared line a **deferral** rather than a silent
+    /// exemption. Sparing promises "the next save after the caret leaves trims
+    /// it", and nothing else in the engine or the app could otherwise tell a
+    /// buffer that owes a trim from one that is already conforming: both answer
+    /// an empty plan. A caller that saves on its own schedule — the autosave —
+    /// re-offers exactly the buffers this flags, so the promise has something to
+    /// come true on even when the user never edits that file again.
+    ///
+    /// Deliberately *not* "there were protected positions": a caret sitting on a
+    /// line with nothing to trim owes nothing, and re-offering that buffer on
+    /// every tick would put a whole-file scan per open tab on the main thread
+    /// forever.
+    public let deferredTrim: Bool
 
-    public init(replacements: [IndentReplacement], text: String) {
+    public init(replacements: [IndentReplacement], text: String, deferredTrim: Bool = false) {
         self.replacements = replacements
         self.text = text
+        self.deferredTrim = deferredTrim
     }
 
     /// Nothing to do; `text` is the input, unchanged.
@@ -111,7 +129,14 @@ public struct SaveTransformPlan: Equatable {
 /// Every line holding a protected position — the caret, and each endpoint of a
 /// selection — therefore keeps its trailing whitespace; the very next save after
 /// the caret moves away trims it. A buffer with no protected positions (one not
-/// open in an editor) is trimmed in full.
+/// open in an editor, or one being abandoned) is trimmed in full.
+///
+/// Sparing is a **deferral, and the deferral is tracked**: a plan that spared a
+/// run says so through `SaveTransformPlan.deferredTrim`, so the caller can
+/// re-offer that buffer instead of leaving the promise resting on the user
+/// happening to edit the same file again. Without it the promise is simply false
+/// for the commonest flow there is — type, pause, let the idle autosave write,
+/// never touch the file again — and the run stays on disk for good.
 ///
 /// **The stated limit.** `end_of_line`'s vocabulary names LF, CR and CRLF and
 /// nothing else, while the editor splits lines on NEL, LS and PS too. Those
@@ -131,6 +156,26 @@ public enum SaveTransform {
     /// `end_of_line` and contains no terminator of its own.
     static let defaultTerminator = "\n"
 
+    /// Whether `config` asks a save to change anything at all.
+    ///
+    /// The three on-save properties, and only them. Stated once here — rather
+    /// than restated at each call site — because it is asked in two places for
+    /// two reasons: `plan` uses it to return the input untouched without a scan,
+    /// and a caller uses it to skip the work it would have to do *before* it can
+    /// even call `plan`. On macOS that work is reading `NSTextView.string`, which
+    /// materializes a fresh copy of the whole buffer; paying it on every autosave
+    /// tick of every project without an `.editorconfig` is exactly the cost this
+    /// feature promised not to add.
+    ///
+    /// Safe as a pre-filter: `protectedPositions` can only *remove* edits, so a
+    /// configuration stating none of the three yields an empty plan whatever the
+    /// caret is doing.
+    public static func rewrites(under config: EditorConfigProperties) -> Bool {
+        config.endOfLine != nil
+            || config.trimTrailingWhitespace == true
+            || config.insertFinalNewline == true
+    }
+
     /// What saving `text` under `config` changes.
     ///
     /// `protectedPositions` are UTF-16 offsets into `text` whose lines are
@@ -144,15 +189,15 @@ public enum SaveTransform {
         config: EditorConfigProperties,
         protectedPositions: [Int] = []
     ) -> SaveTransformPlan {
-        let target = config.endOfLine?.terminator
-        let trims = config.trimTrailingWhitespace == true
-        let appendsFinalNewline = config.insertFinalNewline == true
         // The case a project without `.editorconfig` takes, and the one a
         // configuration stating only part 1's indentation properties takes: no
         // scan, no allocation, the input returned as it arrived.
-        guard target != nil || trims || appendsFinalNewline else {
+        guard rewrites(under: config) else {
             return SaveTransformPlan(replacements: [], text: text)
         }
+        let target = config.endOfLine?.terminator
+        let trims = config.trimTrailingWhitespace == true
+        let appendsFinalNewline = config.insertFinalNewline == true
 
         let ns = text as NSString
         let lines = TerminatedLines.ranges(text)
@@ -163,14 +208,21 @@ public enum SaveTransform {
 
         let spared = trims ? sparedLines(lines, positions: protectedPositions) : []
         var replacements: [IndentReplacement] = []
+        // Set by a spared line that actually carried a run — the trim this save
+        // owes the next one. See `SaveTransformPlan.deferredTrim`.
+        var deferredTrim = false
         for (index, line) in lines.enumerated() {
             // Per line, the trim (inside the content) precedes the terminator
             // edit (immediately after it), so appending in line order already
             // yields the ascending, non-overlapping list the contract promises.
-            if trims, !spared.contains(index) {
+            if trims {
                 let run = trailingWhitespace(in: ns, content: line.content)
                 if run.length > 0 {
-                    replacements.append(IndentReplacement(range: run, replacement: ""))
+                    if spared.contains(index) {
+                        deferredTrim = true
+                    } else {
+                        replacements.append(IndentReplacement(range: run, replacement: ""))
+                    }
                 }
             }
             if let target, let edit = terminatorEdit(for: line, target: target, in: ns) {
@@ -197,8 +249,14 @@ public enum SaveTransform {
             ))
         }
 
-        guard !replacements.isEmpty else { return SaveTransformPlan(replacements: [], text: text) }
-        return SaveTransformPlan(replacements: replacements, text: applied(replacements, to: ns))
+        guard !replacements.isEmpty else {
+            return SaveTransformPlan(replacements: [], text: text, deferredTrim: deferredTrim)
+        }
+        return SaveTransformPlan(
+            replacements: replacements,
+            text: applied(replacements, to: ns),
+            deferredTrim: deferredTrim
+        )
     }
 
     /// The text `replacements` produce, built in **one forward pass**: the gap

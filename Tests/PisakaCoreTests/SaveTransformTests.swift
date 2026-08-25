@@ -425,6 +425,101 @@ final class SaveTransformTests: XCTestCase {
         }
     }
 
+    // MARK: - The deferred trim a spared line records
+
+    func testASparedRunIsReportedAsADeferredTrim() {
+        // The whole point of the flag: this plan is *empty*, so nothing but the
+        // flag can tell "already conforming" from "owes a trim".
+        let plan = SaveTransform.plan(text: "a  ", config: config(trim), protectedPositions: [0])
+        XCTAssertTrue(plan.isEmpty)
+        XCTAssertTrue(plan.deferredTrim)
+    }
+
+    func testASparedLineWithNothingToTrimDefersNothing() {
+        // A caret on a line that carries no trailing run owes nothing, and must
+        // not put its buffer on the re-offer list forever.
+        let plan = SaveTransform.plan(text: "a\nb  \n", config: config(trim), protectedPositions: [0])
+        XCTAssertEqual(plan.text, "a\nb\n")
+        XCTAssertFalse(plan.deferredTrim)
+    }
+
+    func testANonEmptyPlanStillReportsTheRunItSpared() {
+        // Other lines trimmed, the caret's line kept: both halves are true at once.
+        let plan = SaveTransform.plan(text: "a  \nb  \n", config: config(trim), protectedPositions: [0])
+        XCTAssertEqual(plan.text, "a  \nb\n")
+        XCTAssertTrue(plan.deferredTrim)
+    }
+
+    func testTheDeferredTrimClearsOnceTheCaretHasMovedAway() {
+        let first = SaveTransform.plan(text: "a  \nb\n", config: config(trim), protectedPositions: [0])
+        XCTAssertTrue(first.deferredTrim)
+        let second = SaveTransform.plan(text: first.text, config: config(trim), protectedPositions: [5])
+        XCTAssertEqual(second.text, "a\nb\n")
+        XCTAssertFalse(second.deferredTrim)
+    }
+
+    func testAConfigurationThatDoesNotTrimDefersNothing() {
+        let plan = SaveTransform.plan(
+            text: "a  \n",
+            config: config(["insert_final_newline": "true"]),
+            protectedPositions: [0]
+        )
+        XCTAssertFalse(plan.deferredTrim)
+    }
+
+    func testAnAbandonedBufferPassesNoPositionsAndDefersNothing() {
+        // What the quit flush, the folder switch and the close prompt do: no
+        // protected positions at all, so the file is trimmed in full and owes
+        // nothing afterwards.
+        let plan = SaveTransform.plan(text: "a  \nb  ", config: config(trim))
+        XCTAssertEqual(plan.text, "a\nb")
+        XCTAssertFalse(plan.deferredTrim)
+    }
+
+    // MARK: - `rewrites(under:)`, the pre-filter callers ask before doing work
+
+    func testRewritesIsFalseForAConfigurationStatingNoneOfTheThree() {
+        XCTAssertFalse(SaveTransform.rewrites(under: config([:])))
+        XCTAssertFalse(SaveTransform.rewrites(under: config(["indent_style": "space", "indent_size": "2"])))
+        // Explicit `false` is a stated answer, and the stated answer is "change
+        // nothing" — the same as absence, for this question.
+        XCTAssertFalse(SaveTransform.rewrites(under: config([
+            "trim_trailing_whitespace": "false",
+            "insert_final_newline": "false",
+        ])))
+    }
+
+    func testRewritesIsTrueForEachOfTheThreeOnItsOwn() {
+        XCTAssertTrue(SaveTransform.rewrites(under: config(["end_of_line": "lf"])))
+        XCTAssertTrue(SaveTransform.rewrites(under: config(trim)))
+        XCTAssertTrue(SaveTransform.rewrites(under: config(["insert_final_newline": "true"])))
+    }
+
+    func testRewritesAgreesWithThePlanItGuards() {
+        // The contract that makes it safe as a pre-filter: `false` here means an
+        // empty plan for *any* text and *any* caret, so a caller may skip the work
+        // it would have to do before it could call `plan` at all.
+        let texts = ["", "a", "a  \r\n b \rc  ", "\n\n", "a\r\n"]
+        let configurations: [[String: String]] = [
+            [:],
+            ["indent_style": "tab"],
+            ["trim_trailing_whitespace": "false", "insert_final_newline": "false", "indent_size": "4"],
+        ]
+        for values in configurations {
+            XCTAssertFalse(SaveTransform.rewrites(under: config(values)), "\(values)")
+            for text in texts {
+                let plan = SaveTransform.plan(
+                    text: text,
+                    config: config(values),
+                    protectedPositions: [0, (text as NSString).length]
+                )
+                XCTAssertTrue(plan.isEmpty, "\(String(reflecting: text)) under \(values)")
+                XCTAssertEqual(plan.text, text)
+                XCTAssertFalse(plan.deferredTrim)
+            }
+        }
+    }
+
     // MARK: - The protected positions a selection contributes
 
     func testABareCaretContributesItsOwnLocationOnly() {

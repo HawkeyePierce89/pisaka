@@ -167,7 +167,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     configuration that applies is the *destination's* — and only after
     `model.isDestinationOpenElsewhere(_:for:)` has cleared the one condition
     `saveAs` refuses on, so a rejected Save As leaves the buffer as the user typed
-    it; and `AutosaveController`'s own triggers and both flush paths.
+    it; and `AutosaveController`'s own triggers and both flush paths, through
+    `prepareForAutosave(ids:abandoningBuffers:)`. **Where the buffer is being
+    abandoned the caret is not protected**: the close prompt's Save passes
+    `abandoningBuffer: true` through `save(id:)`, and the quit and folder-switch
+    flushes pass `abandoningBuffers: true`, so the file is trimmed in full — there
+    is no caret left to protect and no next save to defer a spared run to, which is
+    the answer iOS's one save already gives for the same button. The commit
+    dialog's flush keeps protecting: editing continues after it.
     **The LSP layer hangs off exactly those points and nowhere else** (phase 2a; the
     layer itself is `core-lsp.md`). `init()` builds one `LSPWorkspace` with
     `LSPProcessTransport.make(for:root:)` as its transport factory — the *only* thing
@@ -561,7 +568,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     unsaved-changes prompt and silently lose the edit — reconciling against the
     post-revert disk state makes it dirty. `PisakaApp` also owns an
     `AutosaveController` (started once from the window content's `.onAppear` with
-    `model`, `saveTransform.prepareForSave(ids:)` and an `onSaved` closure that
+    `model`, `saveTransform.prepareForAutosave(ids:abandoningBuffers:)` and an
+    `onSaved` closure that
     calls `refreshLocalChanges()`, reusing
     its generation-pinning rather than duplicating the git status refresh);
     `saveTransform.start(model:editorConfig:onBufferReplaced:)` is bound just
@@ -1297,7 +1305,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the view layer). A `final class` holding the Combine cancellables and
     notification observers, with a fixed `idleDelay` constant (`2.0` s, no
     user-facing toggle or configurable delay) and
-    `start(model:prepareForSave:onSaved:)` (plus
+    `start(model:prepareForSave:onSaved:)` (whose `prepareForSave` takes
+    `(ids, abandoningBuffers)`; plus
     `stop()`/`deinit` teardown; `start` is idempotent so a re-fired `.onAppear`
     can't stack observers). `prepareForSave` is the **on-save transform**, injected
     rather than reached for so this controller keeps holding no policy: it knows
@@ -1306,7 +1315,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     will actually write, dirty *and* titled — because transforming a clean
     background tab would rewrite a file nobody edited into the next commit; and it
     runs **before** `missingDirtyPaths(in:)`, because it rewrites buffers and the
-    probe reads which of them exist. Both `flushNow` paths transform too: the quit
+    probe reads which of them exist. The transform may *add* buffers of its own —
+    the trims a spared caret line deferred, which were edited and whose rewrite was
+    postponed rather than declined — and that union is its bookkeeping, made in
+    `SaveTransformController.prepareForAutosave`, not here. The second argument,
+    `abandoningBuffers`, is the orthogonal axis: `true` on the quit and
+    folder-switch flushes, where the buffers do not survive the write, so the
+    transform stops protecting a caret that is about to cease to exist. Both
+    `flushNow` paths transform too: the quit
     flush is a buffer's last chance to be written correctly, and the commit
     dialog's flush is what the dialog then reads off disk. `nil` (previews, tests)
     leaves every write byte-identical. Four triggers: **idle** —

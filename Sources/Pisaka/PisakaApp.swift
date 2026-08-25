@@ -892,14 +892,18 @@ struct PisakaApp: App {
                 saveTransform.start(model: model, editorConfig: editorConfig, onBufferReplaced: { id, url in
                     reindexReloadedBuffer(id: id, url: url)
                 })
-                autosave.start(model: model, prepareForSave: saveTransform.prepareForSave(ids:), onSaved: { saved, createdFile in
-                    refreshLocalChanges()
-                    if createdFile { model.bumpTreeRevision() }
-                    // An autosaved `.editorconfig` is a self-write the watcher
-                    // never reports, so this is the only thing that can drop the
-                    // cache for it.
-                    noteEditorConfigWrites(saved)
-                })
+                autosave.start(
+                    model: model,
+                    prepareForSave: saveTransform.prepareForAutosave(ids:abandoningBuffers:),
+                    onSaved: { saved, createdFile in
+                        refreshLocalChanges()
+                        if createdFile { model.bumpTreeRevision() }
+                        // An autosaved `.editorconfig` is a self-write the watcher
+                        // never reports, so this is the only thing that can drop
+                        // the cache for it.
+                        noteEditorConfigWrites(saved)
+                    }
+                )
 
                 // Start watching for zoom gestures. Idempotent by contract, for
                 // the same reason `terminateAll()` below is: `.onAppear` can fire
@@ -1038,7 +1042,7 @@ struct PisakaApp: App {
                     // own termination observer; `flushNow()` is idempotent
                     // (`saveAllDirty()` writes nothing on a second run), so being
                     // called twice on the same quit is harmless.
-                    autosave.flushNow()
+                    autosave.flushNow(abandoningBuffers: true)
                     sessionController.flushNow()
                 }
             }
@@ -1728,7 +1732,9 @@ struct PisakaApp: App {
         let hadFolder = model.projectRoot != nil
         if isSwitch {
             guard !revertInFlight() else { return }
-            autosave.flushNow(reportingSaves: true)
+            // The buffers do not survive this switch, so the transform trims their
+            // caret lines too: there is no next save left to defer a spared run to.
+            autosave.flushNow(reportingSaves: true, abandoningBuffers: true)
             // Only the *replacing* path can lose that text, and so only it refuses:
             // the carrying path below force-closes nothing, so the buffer stays
             // open, dirty, exactly as it is now — refusing there would block the
@@ -2464,7 +2470,7 @@ struct PisakaApp: App {
     /// Save the file identified by `id`, prompting for a location when it has
     /// none. Returns `true` only when the file ends up saved (not dirty).
     @discardableResult
-    private func save(id: UUID) -> Bool {
+    private func save(id: UUID, abandoningBuffer: Bool = false) -> Bool {
         // A save is a disk write, so it is refused while one of the app's git
         // operations is mutating or reading the working tree (`revertInFlight()` —
         // raised by revert, merge apply, a branch checkout, Replace All and the
@@ -2486,7 +2492,7 @@ struct PisakaApp: App {
         // Deliberately unconditional on the dirty flag: ⌘S writes this file either
         // way, so the transform applies either way (autosave, which writes only
         // dirty buffers, passes only those — see its wiring).
-        saveTransform.prepareForSave(ids: [id])
+        saveTransform.prepareForSave(ids: [id], protectingCaret: !abandoningBuffer)
         // `FileService.write` creates a missing file, so saving a tab whose file was
         // deleted out of band (Finder, a console `rm`, a branch checkout) puts it
         // back on disk — the tree already dropped it via the watcher, and the watcher
@@ -3437,7 +3443,11 @@ struct PisakaApp: App {
         defer { autosave.resumeFromModal() }
         switch FilePanels.confirmClose(fileName: name) {
         case .save:
-            if save(id: id) {
+            // The tab closes the moment this write succeeds, so there is no caret
+            // left to protect and no next save to trim a spared line on: this write
+            // is the file's last word. iOS's one save already answers the same way
+            // for the same button.
+            if save(id: id, abandoningBuffer: true) {
                 model.close(id: id)
             }
         case .dontSave:

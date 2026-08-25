@@ -455,6 +455,30 @@ never rewritten, and there is no whole-project normalization command.
     own line, and a position at or past the end of the text belongs to the last
     line. The lookup is a binary search over those enclosing ranges, which tile
     the text with no gaps, so it needs no separator table of its own.
+    **Sparing is a deferral, and the deferral is reported.** A plan that left a
+    run standing on a spared line says so through `deferredTrim`, and that flag
+    is the only thing that can distinguish "already conforming" from "owes a
+    trim": both answer an empty plan. Without it the rule's own promise — *the
+    next save after the caret leaves trims it* — is false for the commonest flow
+    there is: type, pause, let the idle autosave write, never touch the file
+    again. The tab is clean after that write and moving the caret does not dirty
+    it, so `saveAllDirty()` never looks at it a second time and the run stays on
+    disk for good. Deliberately *not* "there were protected positions": a caret on
+    a line with nothing to trim owes nothing, and re-offering every such buffer
+    would put a whole-file scan per open tab on the main thread on every tick.
+    **A buffer being abandoned is trimmed in full**, because it passes no
+    protected positions at all: the close prompt's Save, the quit flush and the
+    folder-switch flush all write a file that has no next save to defer to. The
+    commit dialog's flush keeps protecting — editing continues after it, so the
+    caret still has a line to protect, and the owed set means the trim is not
+    lost.
+    **`rewrites(under:)`** is the same three-property question the plan's own
+    early-out asks, exposed because a caller has to ask it *before* it can call
+    `plan` at all: the macOS funnel's next step is reading `NSTextView.string`,
+    which materializes a copy of the whole buffer, and paying that on every ⌘S
+    and every autosave tick of every project without an `.editorconfig` is
+    precisely the cost this feature promised not to add. Safe as a pre-filter
+    because `protectedPositions` can only *remove* edits.
     **The remap arithmetic lives here and nowhere else**, so the caret, each
     selection endpoint and the scroll anchor all move by the same three rules:
     an offset at or before an edit's start is unchanged by it (at the start counts
@@ -606,8 +630,26 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     app's whole lifetime, `attach(textView:editor:)`ed from `CodeEditorView
     .makeNSView`, holding the text view and the editor seam **weakly** (a torn-down
     editor is the ordinary state of a background tab, not a degraded one), with
-    `start(model:editorConfig:)` binding the two models once so each call site
-    stays a single line. **It decides nothing the engine decides**: properties come
+    `start(model:editorConfig:onBufferReplaced:)` binding the two models once so
+    each call site stays a single line. **The three-property question is asked
+    before anything is read** (`SaveTransform.rewrites(under:)`), and that order is
+    load-bearing rather than tidy: the next step reads `NSTextView.string`, which
+    materializes a fresh copy of the whole buffer, so asking second would put two
+    full-buffer traversals on the main thread at every ⌘S and every autosave tick
+    of every project that states none of the three — the case this feature promised
+    to cost nothing. **It also carries the one piece of state the feature needs**:
+    `owedTrims`, the buffers whose last save left a run standing on a spared line.
+    `prepareForAutosave(ids:abandoningBuffers:)` re-offers exactly that set
+    alongside the dirty ids, which is what makes sparing a deferral rather than a
+    silent exemption — after the spared write the tab is clean and moving the caret
+    does not dirty it, so nothing else would ever offer that buffer a second save.
+    `prepareForSave(ids:)` deliberately does **not** union: ⌘S names one file and
+    must rewrite that file alone, since transforming a second tab would dirty a
+    buffer the keystroke is not going to write. The set is maintained on every
+    save — inserted on `plan.deferredTrim`, removed otherwise — so a buffer drops
+    out the moment it is trimmed, its configuration stops asking, or it is saved
+    with no caret to protect, and it is intersected with the open tabs so a closed
+    file leaves nothing behind. **It decides nothing the engine decides**: properties come
     from the same `EditorConfigModel` Enter and Tab ask, the plan comes from
     `SaveTransform`, and this class owns only the AppKit half — which buffer is on
     screen, the undo-coalescing bracket, the selection and the scroll anchor.

@@ -129,6 +129,22 @@ final class SaveTransformController {
     /// (Replace All, a revert, a merge apply, a checkout).
     private var onBufferReplaced: ((UUID, URL) -> Void)?
 
+    /// The buffers whose last save left trailing whitespace standing on a spared
+    /// line — the trims this controller owes.
+    ///
+    /// Sparing promises that "the next save after the caret leaves trims it", and
+    /// nothing else offers that next save: once autosave has written the buffer
+    /// it is clean, and moving the caret does not dirty it, so `saveAllDirty()`
+    /// never looks at it again. `prepareForAutosave` therefore re-offers exactly
+    /// this set alongside the dirty buffers; the transform dirties whichever of
+    /// them the caret has since left, and the same tick writes them.
+    ///
+    /// Maintained by `prepare` on every save: inserted when the plan reports a
+    /// deferred trim, removed otherwise — so a buffer drops out the moment it is
+    /// trimmed, its configuration stops asking for trimming, or it is saved with
+    /// no caret to protect.
+    private var owedTrims: Set<UUID> = []
+
     /// Bind the two models and the off-screen resync (`PisakaApp`'s `.onAppear`,
     /// beside `autosave.start`).
     ///
@@ -156,21 +172,50 @@ final class SaveTransformController {
     /// Apply the save transform to each of `ids` that has a url, ahead of the
     /// write that is about to happen.
     ///
-    /// The caller chooses the set, and the two callers choose differently on
+    /// The caller chooses the set, and the callers choose differently on
     /// purpose: `PisakaApp.save(id:)` passes the one file ⌘S names, dirty or not,
     /// because that keystroke writes it either way; `AutosaveController` passes
     /// only the buffers `saveAllDirty()` will actually write (dirty and titled),
     /// because transforming a clean background tab would make it dirty and put a
-    /// file nobody edited into the next commit.
+    /// file nobody edited into the next commit — plus, through
+    /// `prepareForAutosave`, the buffers this controller owes a spared trim,
+    /// which *were* edited and whose rewrite was deferred rather than declined.
+    ///
+    /// `protectingCaret` is `false` where the buffer is being abandoned (the
+    /// close prompt's Save, the quit and folder-switch flushes): there is no
+    /// caret to protect and no next save to defer to.
     ///
     /// Url-less (untitled) buffers are skipped: there is no path to resolve a
     /// configuration against yet. `prepareForSaveAs` is their entry point.
-    func prepareForSave(ids: [UUID]) {
+    func prepareForSave(ids: [UUID], protectingCaret: Bool = true) {
         guard let model else { return }
         for id in ids {
             guard let url = model.openFiles.first(where: { $0.id == id })?.url else { continue }
-            prepare(id: id, configuredBy: url, resyncing: url, in: model)
+            prepare(id: id, configuredBy: url, resyncing: url, in: model, protectingCaret: protectingCaret)
         }
+    }
+
+    /// The autosave's entry point: the buffers this tick will write, **plus the
+    /// trims sparing deferred** on earlier ticks.
+    ///
+    /// The union is made here rather than in `AutosaveController` because the
+    /// owed set is this class's bookkeeping — the autosave knows which buffers
+    /// are dirty, not which ones a caret spared. `prepareForSave` deliberately
+    /// does *not* union: ⌘S names one file and must rewrite that file alone,
+    /// since transforming a second tab would dirty a buffer the keystroke is not
+    /// going to write.
+    ///
+    /// `abandoningBuffers` is what the quit flush, the folder-switch flush and
+    /// the close prompt pass: there is no caret left to protect and no later save
+    /// to defer to, so the file is trimmed in full — the answer the iOS save
+    /// already gives for the same user action. The commit dialog's flush keeps
+    /// protecting: editing continues after it, so sparing still has its reason,
+    /// and the owed set means the trim is not lost.
+    func prepareForAutosave(ids: [UUID], abandoningBuffers: Bool = false) {
+        guard let model else { return }
+        let open = Set(model.openFiles.map(\.id))
+        owedTrims.formIntersection(open)
+        prepareForSave(ids: ids + owedTrims.subtracting(ids), protectingCaret: !abandoningBuffers)
     }
 
     /// Apply the save transform to an untitled buffer that is about to be written
@@ -190,8 +235,25 @@ final class SaveTransformController {
 
     // MARK: - Internals
 
-    private func prepare(id: UUID, configuredBy url: URL, resyncing resyncURL: URL?, in model: WorkspaceModel) {
+    private func prepare(
+        id: UUID,
+        configuredBy url: URL,
+        resyncing resyncURL: URL?,
+        in model: WorkspaceModel,
+        protectingCaret: Bool = true
+    ) {
         guard let config = editorConfig?.properties(for: url) else { return }
+        // Asked before anything is read, and that order is the point: the live
+        // text view's `string` materializes a fresh copy of the whole buffer, so
+        // reading it first would put two full-buffer traversals on the main
+        // thread at every ⌘S and every autosave tick of every project that states
+        // none of the three properties — the case this feature promised to cost
+        // nothing. `SaveTransform.plan`'s own early-out is reached too late to
+        // help, because the view read happens on the way to calling it.
+        guard SaveTransform.rewrites(under: config) else {
+            owedTrims.remove(id)
+            return
+        }
         guard let text = model.text(for: id) else { return }
         // The model is authoritative, always; the shown view is *also* the buffer
         // — and the cheaper thing to rewrite — only while the two agree. They
@@ -211,10 +273,18 @@ final class SaveTransformController {
         let plan = SaveTransform.plan(
             text: text,
             config: config,
-            protectedPositions: live.map(protectedPositions(in:)) ?? []
+            protectedPositions: protectingCaret ? (live.map(protectedPositions(in:)) ?? []) : []
         )
+        // Record — or clear — what sparing deferred, *before* the empty-plan
+        // return: a save whose every edit was spared answers an empty plan and is
+        // precisely the case the owed set exists for.
+        if plan.deferredTrim {
+            owedTrims.insert(id)
+        } else {
+            owedTrims.remove(id)
+        }
         // The overwhelmingly common answer, and the one that must cost nothing:
-        // no configuration, or a buffer that already satisfies it.
+        // a buffer that already satisfies its configuration.
         guard !plan.isEmpty else { return }
         if let live {
             apply(plan, in: live)

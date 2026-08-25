@@ -445,7 +445,12 @@ ci.yml's `lint` job, and the version-bump procedure.
   **line holding the caret (or a selection endpoint) is spared from trimming**,
   because autosave here is aggressive enough to delete indentation someone just
   typed — sparing is trimming's alone, and the next save after the caret leaves
-  trims it. **NEL/LS/PS are left alone**, the feature's one stated limit: the
+  trims it. **Sparing is a deferral the app owes back**: the plan reports the run
+  it spared, `SaveTransformController` remembers those buffers and the autosave
+  re-offers them (after the spared write the tab is clean, so nothing else ever
+  would), and a save that **abandons** the buffer — the close prompt's Save, the
+  quit flush, the folder-switch flush — protects no caret at all and trims in
+  full, which is the answer iOS's one save already gives. **NEL/LS/PS are left alone**, the feature's one stated limit: the
   property's vocabulary does not name them. `end_of_line` is also what Enter
   splices, so a written terminator and a typed one never disagree. On macOS every
   save funnels through `SaveTransformController`, which applies the plan **through

@@ -167,6 +167,58 @@ final class SaveTransformIntegrationTests: XCTestCase {
         XCTAssertEqual(staged.tree.files["a.swift"], "if x {\n\n}\n")
     }
 
+    func testTheSparedSaveOwesATrimAndSayingSoIsWhatMakesTheNextSaveHappen() throws {
+        // The gap the flag closes. After the spared save the tab is **clean**, and
+        // moving the caret does not dirty it — so nothing in the app would offer
+        // this buffer a second save, and "the next save trims it" would be a
+        // promise with no next save. `deferredTrim` is what puts it back on the
+        // autosave's list.
+        let staged = try staged([
+            ".editorconfig": "root = true\n[*]\ntrim_trailing_whitespace = true\n",
+            "a.swift": "",
+        ], opening: "a.swift")
+        staged.model.updateText("if x {\n    \n}\n", for: staged.id)
+
+        let spared = prepareForSave(
+            staged.id,
+            in: staged.model,
+            editorConfig: staged.config,
+            protecting: [11]
+        )
+        try staged.model.save(for: staged.id)
+        XCTAssertTrue(spared.isEmpty, "nothing was rewritten")
+        XCTAssertTrue(spared.deferredTrim, "but a trim is owed")
+        XCTAssertFalse(
+            staged.model.openFiles.first { $0.id == staged.id }?.isDirty ?? true,
+            "the tab is clean, which is exactly why the owed set has to exist"
+        )
+
+        // The owed buffer, re-offered with the caret since moved: the transform
+        // dirties it again and the same tick writes it.
+        let owed = prepareForSave(staged.id, in: staged.model, editorConfig: staged.config, protecting: [0])
+        XCTAssertFalse(owed.deferredTrim, "the debt is settled, not carried")
+        XCTAssertTrue(staged.model.openFiles.first { $0.id == staged.id }?.isDirty ?? false)
+        try staged.model.save(for: staged.id)
+        XCTAssertEqual(staged.tree.files["a.swift"], "if x {\n\n}\n")
+    }
+
+    func testAnAbandonedBufferIsTrimmedInFullEvenWithTheCaretOnTheRun() throws {
+        // The quit flush, the folder switch and the close prompt's Save: the
+        // buffer does not survive the write, so there is no caret to protect and
+        // no later save to defer to. The app passes no protected positions there,
+        // and this is the byte-level consequence.
+        let staged = try staged([
+            ".editorconfig": "root = true\n[*]\ntrim_trailing_whitespace = true\n",
+            "a.swift": "",
+        ], opening: "a.swift")
+        staged.model.updateText("if x {\n    \n}\n", for: staged.id)
+
+        let plan = prepareForSave(staged.id, in: staged.model, editorConfig: staged.config)
+        try staged.model.save(for: staged.id)
+        XCTAssertFalse(plan.deferredTrim)
+        XCTAssertEqual(staged.tree.files["a.swift"], "if x {\n\n}\n")
+    }
+
     func testABufferWithNoProtectedPositionsIsTrimmedInFull() throws {
         // The background tab an autosave catches, and the shape the iOS save has:
         // no editor hands over a caret, so no line is spared.
