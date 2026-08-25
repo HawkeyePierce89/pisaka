@@ -235,7 +235,7 @@ final class LicenseCoverageTests: XCTestCase {
 
     func testEveryVendoredEntryNamesARealLicenseSource() throws {
         let vendored = try loadManifest().notices.filter { $0.origin.hasPrefix("Vendor/") }
-        XCTAssertEqual(Set(vendored.map(\.id)), ["TreeSitterDotenv", "TreeSitterGitignore", "TreeSitterSql"],
+        XCTAssertEqual(Set(vendored.map(\.id)), ["TreeSitterDotenv", "TreeSitterGitignore", "TreeSitterSql", "TreeSitterEditorconfig"],
                        "the vendored grammars are the only path dependencies the app links")
 
         for notice in vendored {
@@ -344,6 +344,7 @@ final class LicenseCoverageTests: XCTestCase {
         "Rearrange": "Copyright (c) 2019, Chime Systems Inc.",
         "Sparkle": "Copyright (c) 2006-2013 Andy Matuschak.",
         "SwiftTerm": "Copyright (c) 2019-2022 Miguel de Icaza",
+        "TreeSitterEditorconfig": "Copyright (c) 2024 Omar Valdez",
         "SwiftTreeSitter": "Copyright (c) 2021, Chime",
         "tree-sitter": "Copyright (c) 2018-2024 Max Brunsfeld",
         "tree-sitter-css": "Copyright (c) 2018 Max Brunsfeld",

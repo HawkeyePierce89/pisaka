@@ -149,19 +149,19 @@ of captures == all `SymbolKind` captures) stays satisfied with no new kind.
 - Create: `Resources/Licenses/TreeSitterEditorconfig.txt`
 - Modify: `project.yml`, `Resources/Licenses/licenses.json`
 
-- [ ] clone upstream and check out tag `v2.0.0`; re-confirm the SHA, the commit
+- [x] clone upstream and check out tag `v2.0.0`; re-confirm the SHA, the commit
       date and that `src/parser.c`/`src/node-types.json` are unchanged versus
       `main` before pinning — record whatever is actually observed, do not copy
       the SHA from this plan blindly
-- [ ] copy **verbatim**: `src/parser.c`, `src/scanner.c`, `src/grammar.json`,
+- [x] copy **verbatim**: `src/parser.c`, `src/scanner.c`, `src/grammar.json`,
       `src/node-types.json`, `src/tree_sitter/{parser.h,array.h,alloc.h}`,
       `grammar.js` (kept for readability and as the `tree-sitter` CLI fallback),
       `LICENSE`. Do **not** copy upstream's `queries/`, `.editorconfig`,
       `bindings/`, `Cargo.*`, `package*.json`, `tree-sitter.json`, `test/`,
       `examples/`, `.github/`
-- [ ] author `bindings/swift/TreeSitterEditorconfig/editorconfig.h` declaring
+- [x] author `bindings/swift/TreeSitterEditorconfig/editorconfig.h` declaring
       `tree_sitter_editorconfig()`, modeled on `gitignore.h`
-- [ ] author `Package.swift` on the dotenv/SQL model: package and target both
+- [x] author `Package.swift` on the dotenv/SQL model: package and target both
       `TreeSitterEditorconfig` (so the resource bundle is
       `TreeSitterEditorconfig_TreeSitterEditorconfig`, which
       `LanguageConfiguration(name: "Editorconfig")` derives), `path: "."`,
@@ -169,7 +169,7 @@ of captures == all `SymbolKind` captures) stays satisfied with no new kind.
       `publicHeadersPath: "bindings/swift"`, `cSettings:
       [.headerSearchPath("src")]`, `cLanguageStandard: .c11`, no dependencies
       and no test target
-- [ ] write `VENDORED.md` on the gitignore model, covering: upstream
+- [x] write `VENDORED.md` on the gitignore model, covering: upstream
       URL/tag/SHA/commit date/vendored-on date/license; the vendoring reason (no
       SwiftPM manifest, no Swift binding); what is verbatim vs. authored here;
       that upstream's `queries/editorconfig/highlights.scm` exists and is
@@ -180,27 +180,27 @@ of captures == all `SymbolKind` captures) stays satisfied with no new kind.
       procedure; and the **mandatory verification recipe** with its two fixtures
       and expected capture table (recipe filled in during Task 3, once the query
       exists)
-- [ ] wire `project.yml`: a `TreeSitterEditorconfig: { path:
+- [x] wire `project.yml`: a `TreeSitterEditorconfig: { path:
       Vendor/TreeSitterEditorconfig }` package entry beside the three existing
       `path:` grammars with a comment stating its reason, and the matching target
       dependency
-- [ ] copy the verbatim `LICENSE` to
+- [x] copy the verbatim `LICENSE` to
       `Resources/Licenses/TreeSitterEditorconfig.txt`; check the upstream tree
       for third-party code needing an appended notice — `src/tree_sitter/*.h`
       are tree-sitter's own headers, already covered by the existing
       `tree-sitter` notice exactly as for dotenv/SQL, so no append is expected;
       record what was checked
-- [ ] add the `licenses.json` notice: id `TreeSitterEditorconfig`, name
+- [x] add the `licenses.json` notice: id `TreeSitterEditorconfig`, name
       `tree-sitter-editorconfig (vendored)`, origin
       `Vendor/TreeSitterEditorconfig`, `version` = the tag, `revision` = the
       40-hex SHA in `VENDORED.md`, `spdx: "MIT"`, `file:
       "TreeSitterEditorconfig.txt"`
-- [ ] confirm the scanner and parser reference no required-reason API (the
+- [x] confirm the scanner and parser reference no required-reason API (the
       `nm -u` audit in `docs/architecture/core-services.md`); no
       `PrivacyInfo.xcprivacy` change is expected — record the result
-- [ ] `swift build --package-path Vendor/TreeSitterEditorconfig` (builds in
+- [x] `swift build --package-path Vendor/TreeSitterEditorconfig` (builds in
       isolation)
-- [ ] run `swift test` — `LicenseCoverageTests` and `DependencyPinTests` must
+- [x] run `swift test` — `LicenseCoverageTests` and `DependencyPinTests` must
       pass with the new vendored package
 
 ### Task 2: Core language wiring — enum case, name mapping, icon, comment style, keywords, symbols query

@@ -1,0 +1,134 @@
+# Vendored: tree-sitter-editorconfig
+
+This directory is a **vendored** copy of a third-party tree-sitter grammar, plus
+three files written in this repository. It exists as a local SwiftPM package
+because upstream ships neither a SwiftPM manifest nor a Swift binding.
+
+## Upstream
+
+| | |
+|---|---|
+| URL | <https://github.com/ValdezFOmar/tree-sitter-editorconfig> |
+| Tag | `v2.0.0` |
+| Commit | `c4d5e725e1bbf683b223f4bebe83142cefe68da5` |
+| Commit date | 2026-02-23 |
+| Vendored on | 2026-08-26 |
+| License | MIT — `LICENSE`, copied verbatim (© 2024 Omar Valdez) |
+
+## What came from upstream, and what did not
+
+Copied **verbatim** from the tag above:
+
+- `src/parser.c`
+- `src/scanner.c`
+- `src/tree_sitter/parser.h`
+- `src/tree_sitter/array.h`
+- `src/tree_sitter/alloc.h`
+- `src/grammar.json`
+- `src/node-types.json`
+- `grammar.js` — not needed to build, kept deliberately: it documents the node
+  names in readable form and is what the `tree-sitter` CLI needs if the
+  verification below ever has to fall back to `tree-sitter query`.
+- `LICENSE`
+
+Written **in this repository**, not upstream:
+
+- `Package.swift` — the SwiftPM manifest, in the same shape as the remote
+  grammar packages this project already consumes.
+- `bindings/swift/TreeSitterEditorconfig/editorconfig.h` — the C entry-point
+  declaration (`tree_sitter_editorconfig()`).
+- `queries/highlights.scm` — the highlight query. Upstream's `queries/editorconfig/highlights.scm` exists but is **deliberately not adopted** for two reasons: (a) its capture names sit outside the vocabulary `SyntaxTokenKind` maps (`@character`, `@character.special` resolve to `.plain`, i.e. default-colored text — one of the two silent failure modes); (b) it uses `#lua-match?`, an editor-specific predicate this app's query pipeline does not implement. Its nested `queries/editorconfig/` path also does not match the `queries/highlights.scm` layout Neon's `LanguageConfiguration` reads out of the SPM resource bundle.
+- This file.
+
+## Why the hand-written query needs its own verification
+
+Both of its failure modes are **silent in the app**:
+
+- An unknown **node** name makes the query fail to compile, so
+  `LanguageConfiguration` throws, `SyntaxLanguageConfiguration.makeConfiguration`
+  returns `nil`, and a `.editorconfig` quietly falls back to plain text.
+- A mistyped **capture** name compiles fine and resolves to
+  `SyntaxTokenKind.plain`, i.e. default-colored text.
+
+Neither is caught by "the file looks highlighted". So the query is verified
+element by element against a fixture, and that verification **must be re-run
+after any grammar update** (see the update procedure below).
+
+## Verification
+
+Last run: [TBD], against the vendored grammar at the SHA in the Upstream
+table. Result: the query **compiles**, the tables below matched element for element,
+and **zero** non-newline characters of either fixture were left uncaptured.
+
+### Fixture A
+
+```editorconfig
+# fixture A
+```
+
+### Confirmed captures (fixture A)
+
+| Fixture element | Grammar node | Capture | `SyntaxTokenKind` |
+|---|---|---|---|
+| TBD | TBD | TBD | TBD |
+
+### Fixture B
+
+```editorconfig
+# fixture B
+```
+
+### Confirmed captures (fixture B)
+
+| Fixture element | Grammar node | Capture | `SyntaxTokenKind` |
+|---|---|---|---|
+| TBD | TBD | TBD | TBD |
+
+### How to re-run it
+
+**1. Static cross-check** (cheap, run it first — and now also automated): every node identifier and anonymous literal used in
+`queries/highlights.scm` must appear in `src/node-types.json` **under the
+matching `named` flag**.
+
+**2. The harness.** Stand up a throwaway SwiftPM package in a temp directory (do
+**not** commit it) with an executable target depending on:
+
+- `.package(path: "<repo>/Vendor/TreeSitterEditorconfig")` → product
+  `TreeSitterEditorconfig`
+- `.package(path: "<repo>/SourcePackages/checkouts/SwiftTreeSitter")` → product
+  `SwiftTreeSitter`
+- `.package(path: "<repo>/SourcePackages/checkouts/tree-sitter")` — declared but
+  unused.
+
+The program should: build `Language(language: tree_sitter_editorconfig())`, load
+`queries/highlights.scm` with `try Query(language:data:)` (a compile failure here
+is the loud version of the app's silent plain-text fallback — exit non-zero),
+`Parser().parse(fixture)`, run `query.execute(in: tree)` and print every
+`(capture.name, text of capture.range)` pair sorted by position, **and** print
+every non-newline UTF-16 offset of the fixture that no capture covers. Compare
+against the tables above; the uncovered count must be zero. Then run each
+observed capture name through `SyntaxTokenKind(captureName:)` and confirm the
+kinds are distinct.
+
+Delete the temp package afterwards.
+
+**3. The Core pin (automated — runs on every `swift test`).**
+`Tests/PisakaCoreTests/VendoredGrammarQueryTests.swift` reads this package's own
+files through `#filePath` and asserts two things:
+- every node name and anonymous literal `queries/highlights.scm` uses is declared
+  in `src/node-types.json` *under the matching `named` flag*.
+- the set of capture names it emits is explicitly verified.
+
+## Update procedure
+
+1. Clone upstream, check out the new tag/commit, and record its SHA and date.
+2. Re-copy **only** these: `src/parser.c`, `src/scanner.c`, `src/grammar.json`, `src/node-types.json`, `src/tree_sitter/{parser.h,array.h,alloc.h}`, `grammar.js`, `LICENSE`.
+3. **Keep** (do not overwrite): `Package.swift`,
+   `bindings/swift/TreeSitterEditorconfig/editorconfig.h`, `queries/highlights.scm`,
+   this file.
+4. Re-read `src/node-types.json` and reconcile `queries/highlights.scm` with it.
+5. Check the parser's ABI: `grep LANGUAGE_VERSION src/parser.c` is 15. The runtime's current ceiling is 15 — **a runtime downgrade, not an upgrade, is the hazard here**.
+6. `swift build --package-path Vendor/TreeSitterEditorconfig`.
+7. **Re-run the verification above.** This step is not optional.
+8. Update the Upstream table at the top of this file and any table row the reconciliation changed.
+9. `swift test` at the repo root, then the macOS and iOS builds.
