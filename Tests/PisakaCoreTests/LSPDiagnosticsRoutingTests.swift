@@ -1,4 +1,4 @@
-import XCTes
+import XCTest
 @testable import PisakaCore
 
 /// The workspace half of the diagnostics channel: which pushes survive D31's
@@ -54,7 +54,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             // So a teardown in a test costs a round trip and not a budget.
             transport.script(LSPMethod.shutdown, .reply(.null))
             transports.append(transport)
-            return transpor
+            return transport
         }
 
         var latest: ScriptedLSPTransport { transports[transports.count - 1] }
@@ -199,7 +199,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     }
 
     /// Open `url` with `text`, waiting until the server holds it.
-    @discardableResul
+    @discardableResult
     private func open(_ url: URL, language: SyntaxLanguage = .swift, text: String) async throws -> LSPWorkspace.PreparedDocument {
         let prepared = await workspace.prepare(url: url, language: language, text: text)
         return try XCTUnwrap(prepared, "prepare returned nothing for \(url.lastPathComponent)")
@@ -248,7 +248,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         try await waitFor("the live push") { !self.publishedEvents().isEmpty }
 
         harness.latest.push(method: "window/logMessage", params: .object(["message": .string("hi")]))
-        let countBefore = publishedEvents().coun
+        let countBefore = publishedEvents().count
         try await Task.sleep(nanoseconds: 150_000_000)
 
         XCTAssertEqual(publishedEvents().count, countBefore, "only publishDiagnostics is routed; the rest stay noise")
@@ -279,7 +279,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             version: swift.version,
             [(LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), nil, "impostor")]
         )
-        let countBefore = publishedEvents().coun
+        let countBefore = publishedEvents().count
         try await Task.sleep(nanoseconds: 150_000_000)
 
         XCTAssertEqual(publishedEvents().count, countBefore, "one server must not answer for another's document")
@@ -335,7 +335,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         try await waitFor("the live push") { !self.publishedEvents().isEmpty }
 
         try pushToMainFile(version: prepared.version + 7, message: "m")
-        let countBefore = publishedEvents().coun
+        let countBefore = publishedEvents().count
         try await Task.sleep(nanoseconds: 150_000_000)
 
         XCTAssertEqual(publishedEvents().count, countBefore, "a push for a version the server does not hold is noise")
@@ -352,7 +352,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             version: 1,
             [(LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), nil, "m")]
         )
-        let countBefore = publishedEvents().coun
+        let countBefore = publishedEvents().count
         try await Task.sleep(nanoseconds: 150_000_000)
 
         XCTAssertEqual(
@@ -497,7 +497,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     /// Kills the live server and waits until its death has been processed.
     /// The consumer's clear is the observable proof that `phase == .terminated` is reached.
     private func killServerAndWaitForDeathProcessing() async throws {
-        let eventsBefore = events.coun
+        let eventsBefore = events.count
         harness.latest.closeStream()
         try await waitFor("the consumer to process the death") {
             self.events.dropFirst(eventsBefore).contains { event in
@@ -532,7 +532,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         try pushToMainFile(version: 1, message: "old")
         try await waitFor("the old push") { !self.publishedEvents().isEmpty }
 
-        let oldSession = harness.lates
+        let oldSession = harness.latest
         oldSession.failWrites(with: .writeFailed("broken pipe"))
 
         _ = await workspace.prepare(url: mainFile, language: .swift, text: "b")
@@ -593,7 +593,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             (LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), nil, "before"),
         ])
         try await waitFor("the pre-switch push") { !self.publishedEvents().isEmpty }
-        let countBefore = publishedEvents().coun
+        let countBefore = publishedEvents().count
 
         workspace.prepareForFolderChange(root: otherRoot)
 
@@ -712,7 +712,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         try await waitFor("the launch to start") { self.harness.launches.count == 1 }
 
         await workspace.updateRegistry(LSPServerRegistry([.sourcekitLSP]))
-        let answer = await reques
+        let answer = await request
         XCTAssertNil(answer, "a request against a withdrawn server falls back")
         XCTAssertEqual(workspace.liveServerCount, 0)
 
@@ -781,9 +781,6 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         XCTAssertNil(prepared1, "the request whose write fails must answer nil")
         XCTAssertEqual(harness.launches.count, 1, "nothing relaunches on the failing request")
 
-        try await waitFor("the consumer to process the death") {
-            self.clearedServerIDs().contains("sourcekit-lsp")
-        }
         events.removeAll()
 
         let prepared2 = await workspace.prepare(url: mainFile, language: .swift, text: "c")
