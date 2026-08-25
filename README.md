@@ -23,9 +23,14 @@ description of each — and of what it deliberately does *not* do — is in
   auto-indent (honoring a project's `.editorconfig` for `indent_style`,
   `indent_size` and `tab_width` — which also decides what the **Tab** key
   inserts: the configured spaces when a config says `indent_style = space`
-  outright, a literal tab otherwise; other properties are read but not applied
-  yet, the search stops at the opened folder, and existing content is never
-  reformatted), auto-closing brackets/quotes, matched-pair and rainbow bracket
+  outright, a literal tab otherwise — plus three properties a **save** applies:
+  `trim_trailing_whitespace`, `insert_final_newline` and `end_of_line`, which is
+  also the terminator Enter inserts; the line the caret is on keeps its trailing
+  whitespace so autosave cannot trim what you just typed, `end_of_line` names
+  LF/CR/CRLF only, the search stops at the opened folder, other properties are
+  read but not applied, and a save is the only thing that ever rewrites anything
+  — existing indentation is never reformatted), auto-closing brackets/quotes,
+  matched-pair and rainbow bracket
   highlighting, Cmd+D duplicate line/selection, Cmd+/ toggle comment,
   middle-mouse drag column selection, a minimap, and per-tab position
   memory: switch away and back and the tab returns to the caret and scroll
@@ -232,7 +237,7 @@ never on a pull request.
 | Cmd+N       | New file (creates an "Untitled" tab)       |
 | Cmd+O       | Open an existing file from disk            |
 | Cmd+Shift+O | Open a folder as a project                 |
-| Cmd+S       | Save (prompts with Save As for "Untitled") |
+| Cmd+S       | Save (prompts with Save As for "Untitled"; applies the `.editorconfig` on-save transforms when the project asks for them) |
 | Cmd+W       | Close the active tab (confirms if unsaved) |
 | Cmd+D       | Duplicate the current line (or the selection), with the editor focused |
 | Cmd+/       | Toggle comment on the current line or selection, with the editor focused |

@@ -280,19 +280,19 @@ what single trigger, and what still never happens.
 - Modify: `docs/FEATURES.md`
 - Modify: `README.md`
 
-- [ ] Write the full entries in `core-editorconfig.md`: `SaveTransform` (the
+- [x] Write the full entries in `core-editorconfig.md`: `SaveTransform` (the
       composition order, the spared-line rule and why the aggressive autosave
       needs it, the NEL/LS/PS limit and why, the remap's exactness, idempotence),
       the property accessors, the range-carrying split and why it is a
       projection, and the app halves — the funnel, the through-the-editor rule,
       and the off-screen cost.
-- [ ] Amend the "never rewritten" paragraph there and the matching invariant in
+- [x] Amend the "never rewritten" paragraph there and the matching invariant in
       `CLAUDE.md`: the layer is still a reader that takes no writer gate and adds
       no write, still reformats nothing on open, on close, on tab switch or on a
       configuration change, and still rewrites no indentation — and now performs
       exactly three transforms, on a save, when the project asks. Add the index
       lines for the new files.
-- [ ] Update the user-facing docs (`docs/FEATURES.md` and `README.md`): the
+- [x] Update the user-facing docs (`docs/FEATURES.md` and `README.md`): the
       three new properties, the caret-line exemption and what it protects, the
       `end_of_line` normalization with its stated limit, that Enter splices the
       configured terminator, and that a save is the only thing that ever triggers

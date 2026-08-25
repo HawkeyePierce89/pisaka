@@ -96,12 +96,14 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `TextSearch.swift` — the find/replace engine shared by ⌘F and Find in Files.
 - `EditorViewport.swift` — per-tab caret + scroll anchor (a character offset) and the per-file memory.
 
-`docs/architecture/core-editorconfig.md` — `.editorconfig` (resolution + indentation) + its app wiring:
+`docs/architecture/core-editorconfig.md` — `.editorconfig` (resolution, indentation, on-save transforms) + its app wiring:
 - `EditorConfigGlob.swift` — the section-name dialect; deliberately not gitignore's.
 - `EditorConfigFile.swift` — text → `root` + ordered sections; the merged property map.
 - `EditorConfigResolver.swift` — the outward walk; the `root` and project-root stops.
 - `EditorConfigModel.swift` — the synchronous per-file cache; two wholesale invalidations.
 - `IndentUnitRule.swift` — the hybrid unit rule, the stricter Tab rule, the Tab plan.
+- `SaveTransform.swift` — the pure on-save engine: the three transforms, the spared line, the position remap.
+- `SaveTransformController.swift` (app, macOS) — the one save funnel; through the editor when it holds the buffer.
 
 `docs/architecture/core-search.md` — Find in Files:
 - `GitignoreMatcher.swift` — gitignore(5) matching; oracle-tested against `git check-ignore`.
@@ -180,7 +182,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `MergeDocument.swift` — editable merge state; marker-faithful `resolvedText`.
 - `MergeModel.swift` — merge editor over the `:1/:2/:3` index stages.
 - `LineDiff.swift` — side-by-side LCS line diff (capped matrix).
-- `TerminatedLines.swift` — the single line splitter (content + verbatim terminator).
+- `TerminatedLines.swift` — the single line splitter (content + verbatim terminator); `ranges(_:)` is the primitive, `split(_:)` its projection.
 - `ChangeTree.swift` — by-folder grouping of changed files.
 
 `docs/architecture/core-git-models.md` — Local Changes, Log & branch models:
@@ -427,11 +429,31 @@ ci.yml's `lint` job, and the version-bump procedure.
   behaves byte-for-byte as before. **Tab is stricter**: it inserts spaces only
   when a config says `indent_style = space` outright, so the inference alone can
   never change what a keystroke does. A **reader**, like the index: it takes no
-  writer gate and is not gated by one, it rewrites nothing (no reformatting on
-  open, on save or on config change), only three properties are acted on (the
-  rest are parsed and carried), and the walk stops at the project root on both
-  platforms because iOS cannot read above the granted folder
-  (`core-editorconfig.md`).
+  writer gate, is not gated by one and **adds no write of its own**, and the walk
+  stops at the project root on both platforms because iOS cannot read above the
+  granted folder. **Six properties are acted on**, the rest parsed and carried.
+- **A save is the one thing EditorConfig rewrites.** The three on-save
+  properties — `end_of_line`, `trim_trailing_whitespace`,
+  `insert_final_newline` — are the single deliberate exception to "existing
+  content is never reformatted", and `SaveTransform` is the one engine that
+  decides what they change: one ascending, non-overlapping edit list against the
+  original offsets, the resulting text, and the remap that moves the caret, each
+  selection endpoint and the scroll anchor. Nothing is rewritten on open, on
+  close, on a tab switch or on a configuration change; no indentation already in a
+  file is ever rewritten; the other worktree writers (Replace All, git) write what
+  they always wrote; and there is no whole-project normalization command. The
+  **line holding the caret (or a selection endpoint) is spared from trimming**,
+  because autosave here is aggressive enough to delete indentation someone just
+  typed — sparing is trimming's alone, and the next save after the caret leaves
+  trims it. **NEL/LS/PS are left alone**, the feature's one stated limit: the
+  property's vocabulary does not name them. `end_of_line` is also what Enter
+  splices, so a written terminator and a typed one never disagree. On macOS every
+  save funnels through `SaveTransformController`, which applies the plan **through
+  the live text view** (one undoable step, one change notification, blame and
+  diagnostics re-seeded because the coalesced edit can be file-wide) and only
+  falls back to `WorkspaceModel.replaceText(_:for:)` — dropping that tab's undo
+  stack and viewport — for a buffer no editor holds; iOS's one save does the same
+  three steps inline (`core-editorconfig.md`).
 - **Open-tab resync** after an operation rewrites the worktree: buffers are
   snapshotted before the hop; a clean, unchanged tab gets `reloadFromDisk`, an
   edited one `reconcileSavedBaseline` + beep, a deleted file force-closes

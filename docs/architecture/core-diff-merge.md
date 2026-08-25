@@ -127,7 +127,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     invariant everything else rests on: concatenating every `content +
     terminator` reproduces the input identically (so `"a\n"` and `"a"` both split
     to one line, differing only in its terminator, and a trailing separator adds
-    no phantom empty line).
+    no phantom empty line). The **same reasoning one level down** makes
+    `ranges(_:) -> [TerminatedLineRange]` — the split as offsets (`content`,
+    `terminator`, and `enclosing` for the two together, the CRLF pair still one
+    range) — the primitive, with `split(_:)` projecting it: the save transform
+    *edits* lines and would otherwise re-derive offsets by measuring the
+    substrings it was handed, which is a second definition of what a line is by
+    another name. There is exactly one traversal that decides where a line ends,
+    and `TerminatedLinesTests` fuzzes this projection too. Its consumer's
+    reasoning is in `core-editorconfig.md` (`SaveTransform`).
   - `ChangeTree.swift` — pure directory-tree grouping for the by-folder mode of
     the Local Changes view. `ChangeNode` (a uniform node: `name`, repo-relative
     `path` as identity, absolute `url` = `root` + `path` for the view's
