@@ -205,47 +205,47 @@ undoable edit rather than being replaced behind the editor's back.
 - Modify: `Sources/Pisaka/CodeEditorView.swift`
 - Create: `Tests/PisakaCoreTests/SaveTransformIntegrationTests.swift`
 
-- [ ] Add one app-side controller, shaped like `EditorSearchController`: owned
+- [x] Add one app-side controller, shaped like `EditorSearchController`: owned
       by `PisakaApp`, attached from the editor's `makeNSView`, holding the text
       view weakly, with a single entry point — "prepare these buffers for a
       save". It resolves properties through the existing `EditorConfigModel`,
       asks `SaveTransform` for the plan, and applies it. It decides nothing the
       engine decides.
-- [ ] Apply **through the text view** whenever the editor still holds that
+- [x] Apply **through the text view** whenever the editor still holds that
       buffer — which includes the tab-switch autosave, whose trigger fires
       before the view swaps — using the `insertConfiguredTab` bracket:
       `shouldChangeText`, `beginEditing`…`endEditing`, `didChangeText`, edits
       back-to-front, under the programmatic-edit guard. Restore the selection
       and the scroll anchor from the engine's remap; do not scroll the caret
       into view (a save must not move the reader's page).
-- [ ] Apply through the model for a buffer the editor no longer holds, which
+- [x] Apply through the model for a buffer the editor no longer holds, which
       necessarily invalidates that tab's undo stack and remembered viewport
       exactly as every other off-screen rewrite does. Say so in the doc comment
       as a known, bounded cost rather than leaving it to be discovered.
-- [ ] Because the composed edit can span the whole buffer, re-seed blame and
+- [x] Because the composed edit can span the whole buffer, re-seed blame and
       diagnostics for it rather than letting the incremental shifters run across
       a full-range replacement — the buffer-swap path's reasoning, applied to
       the one other edit that can be file-wide. The symbol index and the LSP push
       sync need nothing new: `textDidChange` already carries the post-transform
       text down that path.
-- [ ] Call the funnel from `PisakaApp.save(id:)` (after the writer-gate refusal,
+- [x] Call the funnel from `PisakaApp.save(id:)` (after the writer-gate refusal,
       before the write, so run/test and the close prompt inherit it), from
       `saveAs(id:)` once the destination is known (the configuration that
       applies is the destination's), and from `AutosaveController` ahead of
       `saveAllDirty()` on the regular triggers and on both flush paths — wired
       as an injected closure so the controller keeps holding no policy.
-- [ ] Confirm by inspection and by doc comment that nothing else calls it: not
+- [x] Confirm by inspection and by doc comment that nothing else calls it: not
       open, not close, not tab switch, not a configuration change, and not the
       worktree writers (Replace All, git operations) that keep writing exactly
       what they write today.
-- [ ] Write a Core-level behavioral suite over `WorkspaceModel` + `StubFileTree`
+- [x] Write a Core-level behavioral suite over `WorkspaceModel` + `StubFileTree`
       + `EditorConfigModel` staging a real `.editorconfig` tree: the transform
       applied to a dirty buffer and then saved leaves the tab **clean**, with the
       buffer, the saved baseline and the written bytes identical; the remapped
       selection and anchor match the engine; a second save writes nothing new;
       and a project with no `.editorconfig` writes byte-identical bytes and moves
       exactly the same revision tokens as it does today.
-- [ ] Run `swift test` — must pass before Task 5.
+- [x] Run `swift test` — must pass before Task 5.
 
 ### Task 5: iOS — the one save, and Enter
 

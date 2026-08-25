@@ -110,6 +110,29 @@ struct PisakaApp: App {
     /// gated by them. The two invalidation calls below are its whole lifecycle.
     private let editorConfig: EditorConfigModel
 
+    /// The one funnel every save on this platform passes through before it
+    /// writes: it asks `SaveTransform` what `.editorconfig` says saving each
+    /// buffer changes and applies the answer, so the bytes on disk, the open
+    /// buffer and the saved baseline agree.
+    ///
+    /// Owned here rather than by the editor because the saves it serves are menu
+    /// commands and autosave ticks, not editor events, and it must survive every
+    /// tab switch and window rebuild. It is attached to whichever editor is built
+    /// (`CodeEditorView.makeNSView`) and holds it weakly.
+    ///
+    /// **Called from exactly three places**, all of them a save: `save(id:)`
+    /// (⌘S, the close prompt's Save and the run/test pre-run saves, which all
+    /// funnel through it), `saveAs(id:)` once the destination is known, and the
+    /// closure handed to `AutosaveController`. Opening, closing, switching tabs,
+    /// editing an `.editorconfig` and every worktree writer (Replace All, the git
+    /// operations) deliberately do not go anywhere near it.
+    ///
+    /// It writes nothing itself — it rewrites *buffers*, and the caller's own
+    /// write follows — so like `editorConfig` it neither raises
+    /// `autosave.suspend()` / `localChanges.beginRevert()` nor is gated by them;
+    /// its callers are already on whichever side of that gate they belong.
+    private let saveTransform = SaveTransformController()
+
     /// Which language servers are running, for which project, holding which
     /// documents open (phase 2a). A plain stored reference like the window
     /// controllers: the `@main` App is created once, and this owning reference is
@@ -757,6 +780,7 @@ struct PisakaApp: App {
                 reveal: reveal,
                 symbolIndex: symbolIndexController,
                 editorConfig: editorConfig,
+                saveTransform: saveTransform,
                 lspSync: lspDocumentSync,
                 diagnostics: diagnostics,
                 provisioning: lspProvisioning,
@@ -857,7 +881,12 @@ struct PisakaApp: App {
                 // *recreated* a file that had been deleted out of band — the watcher
                 // ignores our own writes, so nothing else would put it back in the
                 // listing (the same reason `saveAs` bumps explicitly).
-                autosave.start(model: model, onSaved: { saved, createdFile in
+                // `prepareForSave` is the on-save transform, handed over as a
+                // closure so the controller keeps holding no policy: it decides
+                // *when* a save happens and which buffers it writes, and this
+                // decides what `.editorconfig` makes of them.
+                saveTransform.start(model: model, editorConfig: editorConfig)
+                autosave.start(model: model, prepareForSave: saveTransform.prepareForSave(ids:), onSaved: { saved, createdFile in
                     refreshLocalChanges()
                     if createdFile { model.bumpTreeRevision() }
                     // An autosaved `.editorconfig` is a self-write the watcher
@@ -2443,6 +2472,15 @@ struct PisakaApp: App {
         // own save for this reason; checking here covers ⌘S and the close prompt's
         // "Save" too, and their earlier guard simply returns first.
         guard !revertInFlight() else { return false }
+        // Ask `.editorconfig` what saving this buffer changes and apply it *here*,
+        // after the writer-gate refusal above and before the write below — so the
+        // close prompt's Save and the `runFile`/`testFile` pre-run saves, which all
+        // funnel through this method, inherit the transform without a second call
+        // site, and a save that the gate refuses rewrites nothing at all.
+        // Deliberately unconditional on the dirty flag: ⌘S writes this file either
+        // way, so the transform applies either way (autosave, which writes only
+        // dirty buffers, passes only those — see its wiring).
+        saveTransform.prepareForSave(ids: [id])
         // `FileService.write` creates a missing file, so saving a tab whose file was
         // deleted out of band (Finder, a console `rm`, a branch checkout) puts it
         // back on disk — the tree already dropped it via the watcher, and the watcher
@@ -2473,6 +2511,10 @@ struct PisakaApp: App {
     private func saveAs(id: UUID) -> Bool {
         let suggested = model.openFiles.first { $0.id == id }?.displayName ?? "Untitled"
         guard let url = FilePanels.showSavePanel(suggestedName: suggested) else { return false }
+        // Only now is there a path to resolve a configuration against, and it is
+        // the *destination's*: an untitled buffer belongs to no folder until this
+        // panel is answered, so the transform runs after it and never before.
+        saveTransform.prepareForSaveAs(id: id, destination: url)
         do {
             try model.saveAs(url: url, for: id)
             // Save As writes a *new* file, which changes tree membership when the
