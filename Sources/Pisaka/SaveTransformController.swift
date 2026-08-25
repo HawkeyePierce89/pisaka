@@ -82,9 +82,10 @@ protocol SaveTransformEditor: AnyObject {
 /// ordinary edit. A dense or file-wide run of edits is handed over as the single
 /// replacement covering it instead, because applying them one by one is quadratic
 /// in the file (`SaveTransformPlan.applicableReplacements(originalLength:)`). A
-/// buffer the editor no longer holds — a background tab caught by an autosave, or
-/// a shown tab whose view has not yet caught up with a model-side rewrite (see
-/// `prepare`) — has no view to edit through, so it is rewritten through
+/// buffer the editor no longer holds — a background tab caught by an autosave, a
+/// shown tab whose view has not yet caught up with a model-side rewrite (see
+/// `prepare`), or a buffer being *abandoned* whose view refused the rewrite —
+/// has no view to edit through, so it is rewritten through
 /// `WorkspaceModel.replaceText(_:for:)`, which bumps that tab's text-replacement
 /// revision: **that tab's undo stack and remembered scroll position are dropped**
 /// when it is next displayed, exactly as they are for every other off-screen
@@ -150,7 +151,9 @@ final class SaveTransformController {
     /// trimmed, its configuration stops asking for trimming, or it is saved with
     /// no caret to protect. Re-inserted, too, when the view refuses the rewrite
     /// (`apply` answering `false`), because a save that changed nothing still
-    /// owes everything it was going to change.
+    /// owes everything it was going to change — except on a save that is
+    /// abandoning the buffer, which has no later save to owe it to and settles
+    /// the refusal through the model instead (`prepare`).
     private var owedTrims: Set<UUID> = []
 
     /// Bind the two models and the off-screen resync (`PisakaApp`'s `.onAppear`,
@@ -333,21 +336,41 @@ final class SaveTransformController {
         // a buffer that already satisfies its configuration.
         guard !plan.isEmpty else { return }
         if let live {
-            // A rewrite the view could not make — mid-composition, or a delegate
-            // that declined the change — applied nothing, so the untransformed
-            // bytes are about to be written and everything this plan was going to
-            // do is still owed. Re-arm rather than let the record die with the
-            // attempt: without this, a save that spared a run (owed), followed by
-            // a save that refused (owed cleared, nothing written), leaves a clean
-            // tab, untrimmed bytes on disk and nothing tracking either.
-            if !apply(plan, in: live) { owedTrims.insert(id) }
-        } else {
-            model.replaceText(plan.text, for: id)
-            // The rewrite fired no change notification, so the readers that track
-            // this buffer are told the way every other off-screen rewrite tells
-            // them. See `onBufferReplaced`.
-            if let resyncURL { onBufferReplaced?(id, resyncURL) }
+            if apply(plan, in: live) { return }
+            // A rewrite the view could not make — mid-composition, or a delegate that
+            // declined the change — applied nothing, so the untransformed bytes are
+            // about to be written and everything this plan was going to do is still
+            // owed.
+            //
+            // **An ordinary save defers it; an abandoning one cannot.** Re-arming the
+            // owed set is the right answer while a later save can settle it: the
+            // buffer stays open, the user keeps typing, and the next save through the
+            // view does the rewrite with the undo stack intact. Without it, a save
+            // that spared a run (owed), followed by a save that refused (owed cleared,
+            // nothing written), would leave a clean tab, untrimmed bytes on disk and
+            // nothing tracking either.
+            //
+            // A save with `protectingCaret == false` has no later save to defer to —
+            // it is the close prompt's Save, the quit flush or the folder-switch
+            // flush, and the tab is gone by the next statement (the owed set is pruned
+            // to open files, so the record dies with it). Deferring there would write
+            // untransformed bytes as the file's last word, which is exactly what
+            // "a buffer being abandoned is trimmed in full" promises not to happen.
+            // So it settles through the model instead, the same path a background tab
+            // takes: it costs that tab its undo stack and its remembered viewport,
+            // which is nothing at all for a buffer about to be destroyed — the same
+            // reasoning by which abandonment settles an owed trim regardless of
+            // whether a view still holds it (`prepareForAutosave`).
+            if protectingCaret {
+                owedTrims.insert(id)
+                return
+            }
         }
+        model.replaceText(plan.text, for: id)
+        // The rewrite fired no change notification, so the readers that track this
+        // buffer are told the way every other off-screen rewrite tells them.
+        // See `onBufferReplaced`.
+        if let resyncURL { onBufferReplaced?(id, resyncURL) }
     }
 
     /// The attached text view when it is showing `id`, and `nil` otherwise — a

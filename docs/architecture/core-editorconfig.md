@@ -489,7 +489,15 @@ never rewritten, and there is no whole-project normalization command.
     and continues into `saveAs`, so `abandoningBuffer` is threaded through it into
     `prepareForSaveAs(id:destination:protectingCaret:)` — the tab closes on the
     next statement, and the owed set is pruned to open files, so a deferral made
-    there would have nowhere to come true. Both quit observers pass it too, for
+    there would have nowhere to come true. It holds on the branch that changes
+    *path*, too: when the live view refuses the rewrite (an IME composition in
+    flight, a declined `shouldChangeText`), an abandoning save does not re-arm the
+    owed set the way an ordinary one does — there is no later save to settle it —
+    but rewrites through `WorkspaceModel.replaceText(_:for:)` instead, the same
+    path a background tab takes, so the transformed bytes still reach disk. The
+    undo stack and viewport that costs belong to a buffer about to be destroyed,
+    which is the same reasoning by which abandonment settles an owed trim whether
+    or not a view still holds it. Both quit observers pass it too, for
     the same reason stated one level up in `app-shell.md`. The
     commit dialog's flush keeps protecting — editing continues after it, so the
     caret still has a line to protect, and the owed set means the trim is not
@@ -671,7 +679,10 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     save — inserted on `plan.deferredTrim`, removed otherwise, **and re-inserted
     when the view refuses the rewrite** (`apply` answering `false`: a composition
     in progress, a declined `shouldChangeText`), because a save that changed
-    nothing still owes everything it was going to change — so a buffer drops
+    nothing still owes everything it was going to change — with the one exception
+    of a save that is *abandoning* the buffer, which has no later save to owe it
+    to and therefore settles the refusal through the model on the spot — so a
+    buffer drops
     out the moment it is trimmed, its configuration stops asking, or it is saved
     with no caret to protect, and it is intersected with the open tabs so a closed
     file leaves nothing behind. **An owed trim is settled through the editor, or
