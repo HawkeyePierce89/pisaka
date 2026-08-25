@@ -24,7 +24,7 @@ final class AutosaveController {
     private let idleDelay: TimeInterval = 2.0
 
     private weak var model: WorkspaceModel?
-    private var onSaved: ((_ createdFile: Bool) -> Void)?
+    private var onSaved: ((_ saved: [URL], _ createdFile: Bool) -> Void)?
 
     private var cancellables: Set<AnyCancellable> = []
     private var observers: [NSObjectProtocol] = []
@@ -75,7 +75,12 @@ final class AutosaveController {
     /// so the caller can bump the project tree for it: the watcher drops our own
     /// events (`kFSEventStreamCreateFlagIgnoreSelf`), and an autosave that recreates
     /// a file deleted out of band changes tree membership.
-    func start(model: WorkspaceModel, onSaved: @escaping (_ createdFile: Bool) -> Void) {
+    ///
+    /// Its `saved` argument names the urls actually written, for the same
+    /// `IgnoreSelf` reason one level further on: the app's `.editorconfig` cache
+    /// has no watcher behind it either, so an autosave of a `.editorconfig` is
+    /// invisible unless the caller is told which files this tick wrote.
+    func start(model: WorkspaceModel, onSaved: @escaping (_ saved: [URL], _ createdFile: Bool) -> Void) {
         // Idempotent: `.onAppear` can fire more than once (e.g. a window reopened),
         // and re-subscribing would stack observers and double every autosave. Bail
         // if already wired.
@@ -204,7 +209,7 @@ final class AutosaveController {
         let missingBeforeWrite = missingDirtyPaths(in: model)
         let saved = model.saveAllDirty()
         if !saved.isEmpty {
-            onSaved?(saved.contains { missingBeforeWrite.contains($0.path) })
+            onSaved?(saved, saved.contains { missingBeforeWrite.contains($0.path) })
         }
         // A file that is still dirty *and* has a url means its write failed
         // (`saveAllDirty()` swallows per-file write errors). Beep once, non-modally
@@ -278,7 +283,7 @@ final class AutosaveController {
         let missingBeforeWrite = missingDirtyPaths(in: model)
         let saved = model.saveAllDirty()
         guard !saved.isEmpty else { return }
-        onSaved?(saved.contains { missingBeforeWrite.contains($0.path) })
+        onSaved?(saved, saved.contains { missingBeforeWrite.contains($0.path) })
     }
 }
 

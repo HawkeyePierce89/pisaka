@@ -77,6 +77,13 @@ struct RootView_iOS: View {
     let symbolIndex: SymbolIndexModel
     let symbolIndexController: SymbolIndexController
 
+    /// What `.editorconfig` says about the file being edited. A plain `let` for
+    /// the same reason as the two above — it publishes nothing and nothing here
+    /// shows it — held only to hand to the editor and to invalidate on the two
+    /// boundaries this view already knows about (the root switch below and
+    /// `notifyIndexOfProjectFileChanges`).
+    let editorConfig: EditorConfigModel
+
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     /// Which document picker (if any) is presented.
@@ -195,6 +202,13 @@ struct RootView_iOS: View {
                 // A repeat for the root the pick path already registered is a no-op
                 // — see the helper.
                 synchronizeSymbolIndex(forRoot: newRoot)
+                // Point the `.editorconfig` cache at the new root here for the same
+                // reason: this is the one place both folder paths meet, so a
+                // configuration resolved under the folder the user just left can
+                // never be returned for a file in this one. Idempotent — the model
+                // compares the roots itself — which is what lets the editor repeat
+                // it at the point of use, where it cannot lag a later update cycle.
+                editorConfig.noteProjectRoot(newRoot)
                 guard let newRoot else { return }
                 let request = branchSwitcher.prepareForRefresh(root: newRoot)
                 Task { await branchSwitcher.refresh(root: newRoot, request: request) }
@@ -463,8 +477,10 @@ struct RootView_iOS: View {
                 fontSize: settings.fontSize,
                 onStepFontSize: { settings.stepFontSize(by: $0) },
                 completionEnabled: settings.completionEnabled,
+                projectRoot: model.projectRoot,
                 symbolIndex: symbolIndexController,
                 definitionRoute: definitionRoute,
+                editorConfig: editorConfig,
                 reveal: definitionRoute.reveal
             )
         } else {
@@ -1209,8 +1225,10 @@ struct RootView_iOS: View {
         )
     }
 
-    /// Tell the symbol index that the project's files changed on disk — the iOS
-    /// peer of `PisakaApp.notifyIndexOfProjectFileChanges`.
+    /// Tell the project's disk readers — the symbol index and the `.editorconfig`
+    /// cache — that its files changed on disk. The iOS peer of
+    /// `PisakaApp.notifyIndexOfProjectFileChanges` and, for the second reader, of
+    /// the macOS `projectWatcher` callback that has no counterpart here.
     ///
     /// iOS has no file-system watcher, so *nothing* here is covered by one: the
     /// index would otherwise move forward only on folder open, tab open and buffer
@@ -1224,8 +1242,32 @@ struct RootView_iOS: View {
     /// out-of-band edit (Files.app, another app's share extension) remains
     /// uncovered, and stays a stated Phase 1 limit.
     private func notifyIndexOfProjectFileChanges() {
+        // The `.editorconfig` cache rides along, and for the identical reason: it
+        // is a reader with no watcher behind it, so these self-inflicted worktree
+        // rewrites are the only thing that can tell it a `.editorconfig` was
+        // added, changed or removed by a branch switch, a revert or a merge apply.
+        // Dropped wholesale and unconditionally — clearing a dictionary costs
+        // nothing, the re-resolution is paid for by the next keystroke in the front
+        // tab, and unlike the index it needs no root to be told anything.
+        editorConfig.noteProjectFilesChanged()
         guard let root = model.projectRoot else { return }
         symbolIndexController.noteProjectFilesChanged(root: root)
+    }
+
+    /// Drop the `.editorconfig` cache when the app itself just wrote one — the
+    /// iOS peer of `PisakaApp.noteEditorConfigWrites(_:)`.
+    ///
+    /// iOS has no watcher at all (no FSEvents, and the sandboxed grant makes one
+    /// impractical), so `notifyIndexOfProjectFileChanges()` — the worktree-rewrite
+    /// funnel — is the *only* other invalidation. Saving a `.editorconfig` in
+    /// Pisaka never goes through it, and editing one in Pisaka is the likeliest
+    /// way anyone changes one, so without this the pre-edit properties would be
+    /// served for the rest of the session. Narrow for the same reason as the
+    /// macOS peer: an ordinary save must not throw the cache away.
+    /// The name test folds case for the reason the macOS peer states.
+    private func noteEditorConfigWrite(_ url: URL?) {
+        guard let url, EditorConfigResolver.isFileName(url.lastPathComponent) else { return }
+        editorConfig.noteProjectFilesChanged()
     }
 
     private var closeConfirmationBinding: Binding<Bool> {
@@ -1243,6 +1285,7 @@ struct RootView_iOS: View {
             Button("Save") {
                 do {
                     _ = try model.save(for: id)
+                    noteEditorConfigWrite(file.url)
                     model.close(id: id, force: true)
                     forgetIndexedBuffer(file.url)
                 } catch {

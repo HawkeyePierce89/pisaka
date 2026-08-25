@@ -67,6 +67,16 @@ struct CodeEditorView_iOS: UIViewRepresentable {
     /// convention). Requiring it makes that a compile error.
     let completionEnabled: Bool
 
+    /// The opened folder, or `nil` when none is. Only the `.editorconfig` lookup
+    /// below reads it: the hierarchy walk stops at the project root, so the model
+    /// has to be pointed at the same folder the shown file belongs to *before* a
+    /// keystroke asks it anything.
+    ///
+    /// Passed as a value, like the macOS editor's own `projectRoot`, so a folder
+    /// switch travels with the update that shows the new project's first file
+    /// rather than in a later one.
+    var projectRoot: URL?
+
     /// Keeps the shown file's symbols current: an immediate re-index on tab open or
     /// switch, a debounced one while typing — the same controller and the same two
     /// triggers as macOS. Defaults to a controller over a fresh, never-walked index
@@ -78,6 +88,17 @@ struct CodeEditorView_iOS: UIViewRepresentable {
     /// unwired route so a default-constructed view (previews) still compiles — its
     /// `openFile` is `nil`, which makes a jump a no-op.
     var definitionRoute: DefinitionRoute_iOS = DefinitionRoute_iOS()
+
+    /// What `.editorconfig` says about the shown file: the configured half of the
+    /// indentation unit Enter appends and of what Tab inserts (`IndentUnitRule`
+    /// merges it with the content inference). Owned by `PisakaApp_iOS`; not
+    /// observed here, because it publishes nothing.
+    ///
+    /// Undefaulted, like `completionEnabled` and unlike the two conveniences
+    /// above: the model is main-actor-isolated and takes a `FileServicing`, so any
+    /// default worth writing would be a second live disk reader built for a view
+    /// nobody constructs.
+    var editorConfig: EditorConfigModel
 
     /// The pending "select this range" request the route published, applied once
     /// (by token) when it names the file this editor is showing. Passed as a value
@@ -151,6 +172,7 @@ struct CodeEditorView_iOS: UIViewRepresentable {
         context.coordinator.symbolIndex = symbolIndex
         context.coordinator.definitionRoute = definitionRoute
         context.coordinator.fileURL = fileURL
+        applyEditorConfig(to: context.coordinator)
         // ...and whether it may offer anything at all. Applied here as well as in
         // `updateUIView` so an editor built while the preference is already off
         // never asks the provider even once.
@@ -216,6 +238,7 @@ struct CodeEditorView_iOS: UIViewRepresentable {
         context.coordinator.symbolIndex = symbolIndex
         context.coordinator.definitionRoute = definitionRoute
         context.coordinator.fileURL = fileURL
+        applyEditorConfig(to: context.coordinator)
         if switchedFile || contentReplaced {
             context.coordinator.reindexSymbols(
                 text: textView.text,
@@ -230,6 +253,27 @@ struct CodeEditorView_iOS: UIViewRepresentable {
         // Apply a pending Go to Definition jump last, so it runs against the buffer
         // this update just installed rather than the one it replaced.
         context.coordinator.applyReveal(reveal, fileID: fileID)
+    }
+
+    /// Hand the `.editorconfig` cache to the coordinator and point it at the
+    /// project the shown file belongs to.
+    ///
+    /// The root is (re-)registered here, at the point of use, and not only from
+    /// `RootView_iOS`'s `.onChange(of: model.projectRoot)`: that observer runs in a
+    /// *later* SwiftUI update cycle — the hazard the root view already fences
+    /// against for the branch widget and the symbol index — so registering only
+    /// there would leave a window in which this editor is already showing the new
+    /// project's file while the model still holds the previous root, and one Enter
+    /// pressed inside it would be indented by the folder the user just left. The
+    /// call is idempotent for an unchanged root (the model compares them itself),
+    /// so doing it on every update throws no cache away. `updateUIView` runs on
+    /// every keystroke, so what it costs matters: `EditorConfigModel.isSameRoot`
+    /// answers the identical spelling lexically and reaches
+    /// `CanonicalPath.canonical` — a `readlink` per path component — only when
+    /// the two spellings actually differ, which this caller's never do.
+    private func applyEditorConfig(to coordinator: CodeEditorCoordinator_iOS) {
+        editorConfig.noteProjectRoot(projectRoot)
+        coordinator.editorConfig = editorConfig
     }
 
     /// Detach the highlighter and the completion strip when the view is torn down

@@ -97,6 +97,19 @@ struct PisakaApp: App {
     /// controllers above.
     private let symbolIndexController: SymbolIndexController
 
+    /// What `.editorconfig` says about the file being edited — the cache behind
+    /// Enter's indentation unit and the Tab key. A plain stored reference like
+    /// `symbolIndexController`, and for its exact reason: it publishes nothing, so
+    /// observing it would put `ContentView` (and with it the project tree, the tab
+    /// list and `CodeEditorView.updateNSView`) on an update path for a value this
+    /// scene's `body` never shows. Threaded straight through to `CodeEditorView`,
+    /// which is the only thing that asks it anything.
+    ///
+    /// **A reader**, like the symbol index: it opens files and writes none, so it
+    /// neither raises `autosave.suspend()` / `localChanges.beginRevert()` nor is
+    /// gated by them. The two invalidation calls below are its whole lifecycle.
+    private let editorConfig: EditorConfigModel
+
     /// Which language servers are running, for which project, holding which
     /// documents open (phase 2a). A plain stored reference like the window
     /// controllers: the `@main` App is created once, and this owning reference is
@@ -281,6 +294,11 @@ struct PisakaApp: App {
         self.symbolIndex = symbolIndex
         let symbolIndexController = SymbolIndexController(model: symbolIndex)
         self.symbolIndexController = symbolIndexController
+
+        // Over the same stateless `FileService` every other disk reader here uses.
+        // No root yet: the launch-time session restore and every user-driven open
+        // both go through `openFolder(url:)`, which is where the root is recorded.
+        self.editorConfig = EditorConfigModel(fileService: FileService())
 
         // The LSP layer, composed once and then left alone. `LSPProcessTransport`
         // is the *only* thing handed over from the app side: the workspace decides
@@ -738,6 +756,7 @@ struct PisakaApp: App {
                 search: search,
                 reveal: reveal,
                 symbolIndex: symbolIndexController,
+                editorConfig: editorConfig,
                 lspSync: lspDocumentSync,
                 diagnostics: diagnostics,
                 provisioning: lspProvisioning,
@@ -838,9 +857,13 @@ struct PisakaApp: App {
                 // *recreated* a file that had been deleted out of band — the watcher
                 // ignores our own writes, so nothing else would put it back in the
                 // listing (the same reason `saveAs` bumps explicitly).
-                autosave.start(model: model, onSaved: { createdFile in
+                autosave.start(model: model, onSaved: { saved, createdFile in
                     refreshLocalChanges()
                     if createdFile { model.bumpTreeRevision() }
+                    // An autosaved `.editorconfig` is a self-write the watcher
+                    // never reports, so this is the only thing that can drop the
+                    // cache for it.
+                    noteEditorConfigWrites(saved)
                 })
 
                 // Start watching for zoom gestures. Idempotent by contract, for
@@ -1688,6 +1711,14 @@ struct PisakaApp: App {
 
         model.openFolder(url: url)
 
+        // Point the `.editorconfig` cache at the new root in this same synchronous
+        // turn, before anything can ask it a question: the model clears itself on a
+        // root change, so a configuration resolved under the folder the user just
+        // left can never be returned for a file in this one. Unconditional — a
+        // re-open of the same root is a no-op inside the model, which compares the
+        // roots itself.
+        editorConfig.noteProjectRoot(url)
+
         // Apply the incoming project's tabs, before the collaborators below are
         // pointed at the new root: a first open of this folder has no stored session
         // and gets an explicitly empty one, which empties the editor rather than
@@ -1751,9 +1782,16 @@ struct PisakaApp: App {
         // middle of a revert costs at worst one stale entry that the next refresh
         // corrects. `url` is captured rather than read from the model so the
         // refresh always names the root this subscription was started for.
+        // The same callback drops the `.editorconfig` cache, which is the whole
+        // reason a live edit to one takes effect without reopening the project. It
+        // is a reader too, so it is ungated for the same reason, and its
+        // invalidation is wholesale rather than debounced: clearing a dictionary
+        // costs nothing, and the re-resolution is paid for by the next keystroke in
+        // the front tab and by nothing else.
         projectWatcher.start(root: url, onChange: {
             model.bumpTreeRevision()
             symbolIndexController.noteProjectFilesChanged(root: url)
+            editorConfig.noteProjectFilesChanged()
         })
         // Record the folder switch *synchronously*, in this same main-actor turn,
         // before launching the async refresh. The model's revert guard keys off a
@@ -2420,6 +2458,7 @@ struct PisakaApp: App {
                 return saveAs(id: id)
             }
             if recreatesFile { model.bumpTreeRevision() }
+            noteEditorConfigWrites([model.openFiles.first { $0.id == id }?.url].compactMap { $0 })
             refreshLocalChanges()
             return true
         } catch {
@@ -3482,8 +3521,40 @@ struct PisakaApp: App {
     /// the autosave's recreating save rewrite a file a tab still owns, and a
     /// buffer-sourced entry is exactly what a refresh declines to touch.
     private func notifyIndexOfProjectFileChanges() {
+        // The `.editorconfig` cache rides along, for the same reason and with the
+        // same coverage hole to fill: `kFSEventStreamCreateFlagIgnoreSelf` drops
+        // every event this process causes, so the watcher callback that is
+        // otherwise this cache's whole lifecycle never sees the app's *own*
+        // worktree rewrites — a revert's in-process `unlinkat`, a merge apply, a
+        // project-wide Replace All, a rename or a delete of a `.editorconfig`.
+        // Not a branch switch: `git` runs as a *subprocess* there, so `IgnoreSelf`
+        // does not drop its events and the watcher callback is what covers it —
+        // which is why `finishBranchOperation` calls nothing here. (The iOS peer
+        // does have to cover it: libgit2 runs in-process.)
+        // Dropped wholesale and unconditionally, ahead of the root guard: clearing
+        // a dictionary costs nothing and, unlike the index, it needs no root to be
+        // told anything. The iOS peer says the same thing in `RootView_iOS`.
+        editorConfig.noteProjectFilesChanged()
         guard let root = model.projectRoot else { return }
         symbolIndexController.noteProjectFilesChanged(root: root)
+    }
+
+    /// Drop the `.editorconfig` cache when a write just landed on one.
+    ///
+    /// The watcher cannot cover this: an ordinary save is a *self*-generated event
+    /// and `IgnoreSelf` drops it, so editing a `.editorconfig` in Pisaka itself —
+    /// the likeliest way anyone changes one — would otherwise keep serving the
+    /// pre-edit properties for the rest of the session. Narrow on purpose: an
+    /// ordinary save of an ordinary file is the most frequent write the app makes,
+    /// and throwing the cache away on each one would put a resolution walk on the
+    /// next keystroke after every autosave burst.
+    /// The name test folds case (`EditorConfigResolver.isFileName(_:)`) because
+    /// the resolver reads the file through a case-insensitive filesystem: an
+    /// exact comparison would serve a `.EditorConfig` from cache long after it
+    /// was edited here.
+    private func noteEditorConfigWrites(_ urls: [URL]) {
+        guard urls.contains(where: { EditorConfigResolver.isFileName($0.lastPathComponent) }) else { return }
+        editorConfig.noteProjectFilesChanged()
     }
 }
 

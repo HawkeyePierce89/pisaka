@@ -122,6 +122,19 @@ struct CodeEditorView: NSViewRepresentable {
     /// default-constructed view (previews/tests) still compiles.
     var symbolIndex: SymbolIndexController = SymbolIndexController(model: SymbolIndexModel())
 
+    /// What `.editorconfig` says about the shown file: the configured half of the
+    /// indentation unit Enter appends and of what Tab inserts (`IndentUnitRule`
+    /// merges it with the content inference). Owned by `PisakaApp`, which is also
+    /// the only thing that invalidates it; not observed here (it publishes
+    /// nothing).
+    ///
+    /// Undefaulted, unlike `symbolIndex` — a default would be a second live disk
+    /// reader for a view nobody constructs, and this property is a *plain value*
+    /// held for the coordinator's synchronous key handlers, not a second observed
+    /// object (`completionEnabled`'s note on keeping this view off any
+    /// per-keystroke update path).
+    var editorConfig: EditorConfigModel
+
     /// Schedules the diagnostics channel's push sync (D30) beside the index
     /// re-index above, from the *same* three triggers — so both readers of a
     /// buffer are told about every change in the same order and can never
@@ -408,6 +421,7 @@ struct CodeEditorView: NSViewRepresentable {
         // the disk walk may not have reached this file yet (or may be gone
         // entirely, for a file outside the opened folder).
         context.coordinator.symbolIndex = symbolIndex
+        context.coordinator.editorConfig = editorConfig
         context.coordinator.lspSync = lspSync
         // Bind the diagnostics store and start observing it (one subscription for
         // the coordinator's lifetime; re-attachment is an identity-checked no-op).
@@ -705,6 +719,7 @@ struct CodeEditorView: NSViewRepresentable {
         // here as well would re-parse the file twice per settled burst of
         // typing.
         context.coordinator.symbolIndex = symbolIndex
+        context.coordinator.editorConfig = editorConfig
         context.coordinator.lspSync = lspSync
         // Keep the diagnostics binding current (an identity-checked no-op when
         // unchanged, like `updateHighlighter`'s language comparison).
@@ -844,6 +859,14 @@ struct CodeEditorView: NSViewRepresentable {
         /// coordinator only asks it for work. A deallocated one simply means no
         /// re-index, which is the same graceful nothing a preview gets.
         weak var symbolIndex: SymbolIndexController?
+
+        /// Answers what `.editorconfig` says about the shown file, for the two
+        /// synchronous key handlers below. Held *weakly*, like `symbolIndex`: the
+        /// app owns it for its whole lifetime and this only ever asks it a
+        /// question. A deallocated one means empty properties, which is exactly
+        /// the "no configuration applies" answer — so the editor degrades to the
+        /// content inference rather than misbehaving.
+        weak var editorConfig: EditorConfigModel?
 
         /// Schedules the diagnostics channel's push sync for the shown file
         /// (`reindexSymbols` forwards to it beside the index calls). Held
@@ -1703,13 +1726,16 @@ struct CodeEditorView: NSViewRepresentable {
 
         // MARK: - Auto-indent
 
-        /// Intercept Enter so the new line lands at a sensible indent.
+        /// Intercept Enter so the new line lands at a sensible indent, and Tab so a
+        /// project that asks for spaces gets them.
         ///
-        /// All indent computation is pure and lives in `PisakaCore.IndentEngine`;
-        /// this only reads the live buffer + caret, applies the engine's result via
-        /// `insertText(_:replacementRange:)` (so the per-file undo manager records
-        /// it as one ordinary, single-step-undoable edit), repositions the caret,
-        /// and suppresses the default newline by returning `true`.
+        /// All indent computation is pure and lives in `PisakaCore` —
+        /// `IndentEngine` for the edit, `IndentUnitRule` for which whitespace one
+        /// level *is*; this only reads the live buffer + caret, applies the
+        /// engine's result via `insertText(_:replacementRange:)` (so the per-file
+        /// undo manager records it as one ordinary, single-step-undoable edit),
+        /// repositions the caret, and suppresses the default newline by returning
+        /// `true`.
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                 return insertIndentedNewline(in: textView)
@@ -1717,7 +1743,134 @@ struct CodeEditorView: NSViewRepresentable {
             if commandSelector == #selector(NSResponder.deleteBackward(_:)) {
                 return deleteAutoPair(in: textView)
             }
+            if commandSelector == #selector(NSResponder.insertTab(_:)) {
+                return insertConfiguredTab(in: textView)
+            }
             return false
+        }
+
+        /// What `.editorconfig` says about the shown file, or nothing at all when
+        /// no configuration applies (and when the app's model is gone, which is
+        /// the same answer).
+        private func editorConfigProperties() -> EditorConfigProperties {
+            editorConfig?.properties(for: fileURL) ?? EditorConfigProperties()
+        }
+
+        /// One indentation level for the shown buffer: what `.editorconfig` says,
+        /// falling back per half to what the content itself looks like.
+        ///
+        /// The single place Enter asks, so it and Tab can never disagree about the
+        /// unit — they differ only in *whether* the unit is used, which is
+        /// `IndentUnitRule`'s own distinction.
+        private func indentUnit(text nsText: NSString) -> String {
+            IndentUnitRule.unit(
+                config: editorConfigProperties(),
+                inferred: IndentEngine.inferIndentUnit(text: nsText)
+            )
+        }
+
+        /// Intercept Tab so `indent_style = space` inserts spaces.
+        ///
+        /// `IndentUnitRule.tabInsertion` is deliberately stricter than the unit
+        /// rule: it answers a literal tab unless the configuration says spaces
+        /// outright, and this returns `false` for that answer so **AppKit's own
+        /// `insertTab` runs** — the key then behaves byte-for-byte as it did
+        /// before this layer existed, at every insertion point, with the stock
+        /// undo grouping and the stock `NSTextView` field-editor semantics.
+        ///
+        /// When it does answer spaces, the fan-out matters: native `insertTab`
+        /// inserts at *all* of `selectedRanges`, and the middle-drag column
+        /// selection makes several zero-width carets a first-class state, so
+        /// replacing only `selectedRange()` would silently collapse the selection
+        /// to one caret. The whole plan is applied **back-to-front** (later ranges
+        /// first, so earlier offsets stay valid) inside one
+        /// `shouldChangeText` / `beginEditing` … `endEditing` / `didChangeText`
+        /// bracket, which is what makes it a single undoable step and a single
+        /// change notification. `insertBacktab` is untouched.
+        private func insertConfiguredTab(in textView: NSTextView) -> Bool {
+            // Never mid-composition. This is the one programmatic edit here that
+            // mutates `textStorage` directly instead of going through
+            // `insertText(_:replacementRange:)`, and that is exactly the
+            // bookkeeping `insertText` does for us: it commits or discards the
+            // marked text and tells the input context about it. A raw
+            // `replaceCharacters` moves the composition's characters out from
+            // under a `markedRange` that is left pointing at them, so the next
+            // composition update writes at an offset that no longer describes
+            // anything. `false` hands the key back to AppKit's own `insertTab:`,
+            // which is what this key did before the feature existed — the same
+            // guard `handleCompletionKey` above takes, for the same reason.
+            guard !textView.hasMarkedText() else { return false }
+            // The rule is asked, never restated: whether the key inserts spaces at
+            // all is `IndentUnitRule.tabInsertion`'s decision, and this reads only
+            // its answer. Pre-checking `indent_style` here would put half of that
+            // decision in the view layer and buy nothing, because the `inferred:`
+            // argument is an **autoclosure**: a configuration that answers a
+            // literal tab — the no-`.editorconfig` case, the overwhelmingly common
+            // one — never evaluates it, and neither does a fully-stated
+            // `indent_style = space` + `indent_size`. Only spaces of an unstated
+            // width read the buffer, to carry the file's own width over. That
+            // laziness is what matters: `textView.string` bridges a mutable
+            // `NSTextStorage`, so reading it copies the whole buffer, and
+            // `inferIndentUnit` then walks every line of the copy — the very
+            // main-thread cost `textDidChange` above is careful to avoid.
+            let insertion = IndentUnitRule.tabInsertion(
+                config: editorConfigProperties(),
+                inferred: IndentEngine.inferIndentUnit(text: textView.string as NSString)
+            )
+            guard insertion != "\t" else { return false }
+            guard let textStorage = textView.textStorage else { return false }
+
+            let ranges = (textView.selectedRanges as [NSValue]).map(\.rangeValue)
+            let plan = IndentUnitRule.tabInsertionPlan(ranges: ranges, insertion: insertion)
+            guard !plan.isEmpty else { return false }
+
+            // The guard covers the whole bracket, not just the storage mutation:
+            // `shouldChangeText(inRanges:replacementStrings:)` reaches the
+            // single-range delegate callback when there is exactly one range, and
+            // a one-character insertion there is precisely what the auto-pair
+            // interceptor acts on.
+            isApplyingProgrammaticEdit = true
+            defer { isApplyingProgrammaticEdit = false }
+            let editedRanges = plan.replacements.map { NSValue(range: $0.range) }
+            let replacements = plan.replacements.map(\.replacement)
+            // A refusal is *not* "handled": returning `true` would eat the key and
+            // do nothing, where `false` hands it back to the responder chain, the
+            // same as the literal-tab answer above.
+            guard textView.shouldChangeText(
+                inRanges: editedRanges,
+                replacementStrings: replacements
+            ) else { return false }
+            // The spaces carry `typingAttributes` explicitly. Every other
+            // programmatic edit here goes through `insertText(_:replacementRange:)`,
+            // which applies them; the raw storage path (which the multi-range
+            // fan-out needs) would otherwise inherit whatever the adjacent text
+            // has — and in a buffer with no adjacent text, no font at all.
+            let attributes = textView.typingAttributes
+            textStorage.beginEditing()
+            for replacement in plan.replacements.reversed() {
+                textStorage.replaceCharacters(
+                    in: replacement.range,
+                    with: NSAttributedString(string: replacement.replacement, attributes: attributes)
+                )
+            }
+            textStorage.endEditing()
+            textView.didChangeText()
+            textView.setSelectedRanges(
+                plan.carets.map { NSValue(range: $0) },
+                affinity: .downstream,
+                stillSelecting: false
+            )
+            // The one thing the raw-storage path does not inherit. Every other
+            // programmatic edit here goes through `insertText(_:replacementRange:)`,
+            // which scrolls the insertion point into view; `setSelectedRanges` and
+            // `didChangeText()` do not, and neither does
+            // `textViewDidChangeSelection`. Without this, Tab under
+            // `indent_style = space` would type into a scrolled-away caret while a
+            // literal tab — the same key, one property apart — jumps back to it.
+            // The *first* caret, which is what `selectedRange()` reports for a
+            // multi-range selection and therefore what the native key scrolls to.
+            if let caret = plan.carets.first { textView.scrollRangeToVisible(caret) }
+            return true
         }
 
         /// Intercept Backspace so an empty auto-inserted pair `(|)`, `"|"`, … is
@@ -1747,7 +1900,7 @@ struct CodeEditorView: NSViewRepresentable {
         private func insertIndentedNewline(in textView: NSTextView) -> Bool {
             let selectedRange = textView.selectedRange()
             let nsText = textView.string as NSString
-            let unit = IndentEngine.inferIndentUnit(text: nsText)
+            let unit = indentUnit(text: nsText)
             let edit = IndentEngine.newlineIndentation(
                 text: nsText,
                 location: selectedRange.location,

@@ -43,7 +43,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     indent math is pure and lives there; this is thin, untested view glue). On
     Enter, `textView(_:doCommandBySelector:)` intercepts `insertNewline:`, reads
     `textView.string` + the selected range, computes the `unit`
-    (`inferIndentUnit`) and the edit (`newlineIndentation`), inserts it via
+    (`IndentUnitRule.unit(config:inferred:)` over what the view's
+    `editorConfig` model says about `fileURL` and what `inferIndentUnit` says
+    about the buffer — the config's half wins, the inference fills the rest,
+    `core-editorconfig.md`) and the edit (`newlineIndentation`), inserts it via
     `insertText(_:replacementRange:)`, moves the caret to `location +
     cursorOffset`, and returns `true` to suppress the default. On a closing
     bracket, `textView(_:shouldChangeTextIn:replacementString:)` detects a single
@@ -51,7 +54,63 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     rewrites the leading-whitespace range and the bracket together in one
     `insertText(_:replacementRange:)` (one undoable edit), returning `false` to
     suppress the default insertion (mutating and returning `true` would proceed
-    against a now-stale `affectedCharRange`). All programmatic edits go through
+    against a now-stale `affectedCharRange`).
+    **Tab** is intercepted in the same `doCommandBy` switch
+    (`#selector(NSResponder.insertTab(_:))`) and asks
+    `IndentUnitRule.tabInsertion(config:inferred:)`, which is stricter than the
+    unit rule: it answers a literal tab unless `.editorconfig` says
+    `indent_style = space` outright. On that answer the handler returns
+    **`false`**, so AppKit's own `insertTab` runs and the key behaves
+    byte-for-byte as it did before the config layer existed — every insertion
+    point, stock undo grouping, stock field-editor semantics. The completion popup
+    wins ahead of all of this: `keyDown` routes Tab through `onCompletionKey` and
+    returns *before* `super.keyDown`, so with the popup open Tab commits the
+    selected row and never reaches `doCommandBy` at all. The stricter question —
+    `indentStyle == .space` — is also asked **before the buffer is touched**:
+    `textView.string` bridges a mutable `NSTextStorage` and so copies the whole
+    buffer, and `IndentEngine.inferIndentUnit` then walks every line of that copy,
+    which is the same per-keystroke main-thread cost `textDidChange` reads the
+    buffer once to avoid — and in the no-configuration case the stricter rule
+    throws the result away. On the spaces
+    answer it fans out: *all* of `textView.selectedRanges` (not just
+    `selectedRange()` — the middle-drag column selection makes several
+    zero-width carets a first-class state, and replacing only one would silently
+    collapse the selection) go through `IndentUnitRule.tabInsertionPlan`, whose
+    sorted, non-overlapping replacements are applied **back-to-front** — later
+    ranges first, so earlier offsets stay valid — inside one
+    `shouldChangeText(inRanges:replacementStrings:)` /
+    `textStorage.beginEditing()` … `endEditing()` / `didChangeText()` bracket
+    (one undoable step, one change notification), followed by `setSelectedRanges`
+    with the plan's carets. A `shouldChangeText` **refusal** returns `false`, not
+    `true` — a refused edit is not a handled key, and eating it would leave Tab
+    doing nothing at all — and the spaces are written as an `NSAttributedString`
+    carrying `textView.typingAttributes`, since the raw storage path this fan-out
+    needs would otherwise inherit the adjacent text's attributes (and, with no
+    adjacent text, no font at all) where every other programmatic edit here gets
+    them for free from `insertText(_:replacementRange:)`. That same raw-storage
+    path is why the handler **bails on `hasMarkedText()`** before it asks
+    anything: `insertText(_:replacementRange:)` commits or discards an in-flight
+    IME composition and tells the input context about it, while
+    `replaceCharacters` moves the composition's characters out from under a
+    `markedRange` that is left pointing at them — so the next composition update
+    writes at an offset that no longer describes anything. Returning `false`
+    hands the key to AppKit's own `insertTab`, which is what Tab did before the
+    feature existed; it is the guard `handleCompletionKey` already takes, for the
+    same reason.
+    The existing `isApplyingProgrammaticEdit` guard wraps
+    the *whole* bracket rather than just the storage mutation, because the
+    single-range case reaches the single-range delegate callback where the
+    auto-pair interceptor acts on one-character insertions. `insertBacktab` is
+    untouched. The config itself arrives as `var editorConfig:
+    EditorConfigModel` — a plain, **undefaulted** property beside `symbolIndex`
+    (a default would be a second live disk reader built for a view nobody
+    constructs), owned by `PisakaApp`, deliberately *not* observed because it
+    publishes nothing, and held **weakly** by the coordinator like `symbolIndex`:
+    a deallocated one answers empty properties, which is exactly the "no
+    configuration applies" case, so the editor degrades to the content inference
+    rather than misbehaving. Enter and Tab both read it through one private
+    helper, so they can never disagree about the unit — they differ only in
+    *whether* it is used. All programmatic edits go through
     `insertText(_:replacementRange:)` so the per-file undo manager records them as
     ordinary single-step-undoable edits. The one edit that *cannot* go through it
     is `updateNSView`'s wholesale `textView.string = text` swap, which is why that

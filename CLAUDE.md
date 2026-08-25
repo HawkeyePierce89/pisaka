@@ -96,6 +96,13 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `TextSearch.swift` — the find/replace engine shared by ⌘F and Find in Files.
 - `EditorViewport.swift` — per-tab caret + scroll anchor (a character offset) and the per-file memory.
 
+`docs/architecture/core-editorconfig.md` — `.editorconfig` (resolution + indentation) + its app wiring:
+- `EditorConfigGlob.swift` — the section-name dialect; deliberately not gitignore's.
+- `EditorConfigFile.swift` — text → `root` + ordered sections; the merged property map.
+- `EditorConfigResolver.swift` — the outward walk; the `root` and project-root stops.
+- `EditorConfigModel.swift` — the synchronous per-file cache; two wholesale invalidations.
+- `IndentUnitRule.swift` — the hybrid unit rule, the stricter Tab rule, the Tab plan.
+
 `docs/architecture/core-search.md` — Find in Files:
 - `GitignoreMatcher.swift` — gitignore(5) matching; oracle-tested against `git check-ignore`.
 - `ProjectSearchModel.swift` — project search / Replace All: streaming, caps, staleness re-checks, two generation tokens.
@@ -412,6 +419,19 @@ ci.yml's `lint` job, and the version-bump procedure.
   asked there rather than restated. The index, the walk and `definitions(for:)`
   are **untouched**: ⌃⌘J still lists what typing now refuses, which is the whole
   point (`core-intelligence.md`).
+- **Indentation is EditorConfig-first, inference-second.** The unit Enter
+  appends comes from `IndentUnitRule`, never from `IndentEngine
+  .inferIndentUnit(text:)` alone: `indent_style` decides tabs vs. spaces,
+  `indent_size`/`tab_width` the width, and each half that no applicable
+  `.editorconfig` states falls back to the inference — so a project without one
+  behaves byte-for-byte as before. **Tab is stricter**: it inserts spaces only
+  when a config says `indent_style = space` outright, so the inference alone can
+  never change what a keystroke does. A **reader**, like the index: it takes no
+  writer gate and is not gated by one, it rewrites nothing (no reformatting on
+  open, on save or on config change), only three properties are acted on (the
+  rest are parsed and carried), and the walk stops at the project root on both
+  platforms because iOS cannot read above the granted folder
+  (`core-editorconfig.md`).
 - **Open-tab resync** after an operation rewrites the worktree: buffers are
   snapshotted before the hop; a clean, unchanged tab gets `reloadFromDisk`, an
   edited one `reconcileSavedBaseline` + beep, a deleted file force-closes

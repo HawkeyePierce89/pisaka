@@ -288,7 +288,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     current line's leading whitespace + `replacement` indentation) — and three
     static functions. `inferIndentUnit(text:)` returns a single tab if any line
     indents with a tab, else the smallest run of leading spaces observed, falling
-    back to four spaces for an empty or unindented file.
+    back to four spaces for an empty or unindented file. It is the **fallback
+    half** of the unit, not the whole answer: since `.editorconfig` support
+    landed, the views ask `IndentUnitRule.unit(config:inferred:)` for the `unit`
+    they pass in — a config's `indent_style` decides tabs vs. spaces and its
+    `indent_size`/`tab_width` the width, with each half it leaves out falling
+    back to this inference, and no applicable config at all returning it
+    unchanged (`core-editorconfig.md`). This engine is deliberately **untouched**
+    by that layer: it still takes `unit` as a parameter, knows nothing about
+    configuration, and its tests pass unmodified.
     `newlineIndentation(text:location:unit:selectionLength:)` returns a
     `NewlineEdit` for Enter:
     base = the current line's leading whitespace (inherited verbatim, tabs and
