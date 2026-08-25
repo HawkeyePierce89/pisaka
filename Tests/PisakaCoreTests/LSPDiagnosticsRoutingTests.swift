@@ -144,6 +144,8 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             try await Task.sleep(nanoseconds: 1_000_000)
         }
         XCTFail("Timed out waiting for \(description)", file: file, line: line)
+        struct TimeoutError: Error {}
+        throw TimeoutError()
     }
 
     private func push(
@@ -532,10 +534,8 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         try pushToMainFile(version: 1, message: "old")
         try await waitFor("the old push") { !self.publishedEvents().isEmpty }
 
-        let oldSession = harness.latest
-        oldSession.failWrites(with: .writeFailed("broken pipe"))
+        try await killServerAndWaitForDeathProcessing()
 
-        _ = await workspace.prepare(url: mainFile, language: .swift, text: "b")
         _ = try await open(mainFile, text: "b")
         XCTAssertEqual(harness.launches.count, 2)
 
@@ -543,9 +543,6 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         try await waitFor("the new push") {
             self.publishedEvents().last?.diagnostics.first?.message == "new"
         }
-
-        oldSession.closeStream()
-        try await Task.sleep(nanoseconds: 150_000_000)
 
         // The dead consumer must not emit a clear after the replacement's publish.
         let lastPublishedIndex = events.lastIndex { event in

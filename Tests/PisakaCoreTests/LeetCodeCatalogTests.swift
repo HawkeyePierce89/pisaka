@@ -1367,15 +1367,8 @@ final class LeetCodeCatalogTests: XCTestCase {
 
         catalog.sessionDidChange(to: credentials)
 
-        final class HookState: @unchecked Sendable {
-            private let lock = NSLock()
-            private var _fired = false
-            var fired: Bool {
-                get { lock.lock(); defer { lock.unlock() }; return _fired }
-                set { lock.lock(); _fired = newValue; lock.unlock() }
-            }
-        }
-        let state = HookState()
+        class Box { var fired = false }
+        let state = Box()
 
         clock.onFirstRead = {
             state.fired = true

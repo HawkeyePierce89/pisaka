@@ -201,8 +201,15 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
             lock.unlock()
             throw error
         }
-        let payloads = try framing.append(data)
-        let messages = try payloads.map { try LSPIncomingMessage.decode($0) }
+        let payloads: [Data]
+        let messages: [LSPIncomingMessage]
+        do {
+            payloads = try framing.append(data)
+            messages = try payloads.map { try LSPIncomingMessage.decode($0) }
+        } catch {
+            lock.unlock()
+            throw error
+        }
         received.append(contentsOf: messages)
         let hook = onSend
         lock.unlock()
