@@ -728,8 +728,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     ///
     /// The other legal interleaving — where the next request acquires a session
     /// whose death has not been noticed — is idempotent by the product's own
-    /// at-least-once clear rule, and pinned by the write-failure test added
-    /// for the other interleaving.
+    /// at-least-once clear rule, and pinned by `testAWriteFailureLeavesTheSessionTerminalAndTheNextRequestRestartsIt`.
     func testACrashNoticedByTheNextRequestClearsBeforeTheRestart() async throws {
         _ = try await open(mainFile, text: "a")
         try pushToMainFile(version: 1, message: "m")
@@ -739,6 +738,44 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         events.removeAll()
         _ = try await open(mainFile, text: "b")
         XCTAssertEqual(harness.launches.count, 2, "the request that noticed the death restarted the server")
+
+        XCTAssertFalse(
+            clearedServerIDs().isEmpty,
+            "noteDeath's synchronous clear must precede the replacement"
+        )
+        XCTAssertTrue(
+            clearedServerIDs().allSatisfy { $0 == "sourcekit-lsp" },
+            "only the dead key's clear may fire"
+        )
+    }
+
+    /// The other interleaving of a crash: the pipe went away without an EOF, so
+    /// a request acquires a session whose death has not been noticed yet. Its write
+    /// fails, and it answers `nil` (the contract: "the session has already gone
+    /// terminal; the next request restarts it"). Nothing relaunches on that request.
+    ///
+    /// The *next* request restarts the server, emitting the dead key's clear
+    /// synchronously before it does.
+    ///
+    /// Together with `testACrashNoticedByTheNextRequestClearsBeforeTheRestart`
+    /// (which pins the stream-finish-first interleaving), this pair documents why
+    /// each interleaving is legal.
+    func testAWriteFailureLeavesTheSessionTerminalAndTheNextRequestRestartsIt() async throws {
+        _ = try await open(mainFile, text: "a")
+        try pushToMainFile(version: 1, message: "m")
+        await waitFor("the push") { !self.publishedEvents().isEmpty }
+
+        harness.latest.failWrites(with: .writeFailed("broken pipe"))
+
+        let prepared1 = await workspace.prepare(url: mainFile, language: .swift, text: "b")
+        XCTAssertNil(prepared1, "the request whose write fails must answer nil")
+        XCTAssertEqual(harness.launches.count, 1, "nothing relaunches on the failing request")
+
+        events.removeAll()
+
+        let prepared2 = await workspace.prepare(url: mainFile, language: .swift, text: "c")
+        XCTAssertNotNil(prepared2, "the *next* request restarts the server")
+        XCTAssertEqual(harness.launches.count, 2, "the next request must trigger the relaunch")
 
         XCTAssertFalse(
             clearedServerIDs().isEmpty,

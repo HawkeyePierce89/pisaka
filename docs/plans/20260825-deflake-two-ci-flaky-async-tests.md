@@ -212,10 +212,10 @@ each is legal.
 **If the observed behaviour contradicts the contract as documented in
 `LSPWorkspace.prepare`/`core-lsp.md`, stop and report — do not adjust the product.**
 
-- [ ] add the write-failure hook to `ScriptedLSPTransport` with a doc comment covering the `terminate()` distinction
-- [ ] add the test pinning: request answers nothing, no relaunch on it, next request restarts and clears first
-- [ ] cross-reference the two tests' doc comments so the pair reads as one contract
-- [ ] run the new test ≥100 times in a loop; all green
+- [x] add the write-failure hook to `ScriptedLSPTransport` with a doc comment covering the `terminate()` distinction
+- [x] add the test pinning: request answers nothing, no relaunch on it, next request restarts and clears first
+- [x] cross-reference the two tests' doc comments so the pair reads as one contract
+- [x] run the new test ≥100 times in a loop; all green
 
 ### Task 5: Verify acceptance criteria
 

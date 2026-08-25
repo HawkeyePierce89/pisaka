@@ -72,6 +72,7 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
     private var framing = LSPFraming.Decoder()
     private var streamIsFinished = false
     private var terminated = false
+    private var writeError: LSPTransportError?
 
     init() {
         var escaped: AsyncStream<Data>.Continuation!
@@ -99,6 +100,16 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
     func onSend(_ hook: (@Sendable (String) -> Void)?) {
         lock.lock()
         onSend = hook
+        lock.unlock()
+    }
+
+    /// The hook for staging a pipe that went away without an EOF.
+    /// When set, `send` throws this error while `incomingBytes` stays open. This is deliberately
+    /// different from `terminate()`, which closes the stream and therefore reintroduces the race
+    /// between the stream consumer noticing the EOF and a concurrent request noticing the write failure.
+    func failWrites(with error: LSPTransportError?) {
+        lock.lock()
+        writeError = error
         lock.unlock()
     }
 
@@ -185,6 +196,10 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
         if terminated {
             lock.unlock()
             throw LSPTransportError.notRunning
+        }
+        if let error = writeError {
+            lock.unlock()
+            throw error
         }
         let payloads = (try? framing.append(data)) ?? []
         let messages = payloads.compactMap { try? LSPIncomingMessage.decode($0) }
