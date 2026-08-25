@@ -14,6 +14,23 @@ import XCTest
 /// written by another version, or impossible to write at all, and none of those
 /// may fail the open the user actually asked for — the catalog is an
 /// optimisation, and a broken one costs a request rather than a feature.
+///
+/// **Staging Discipline**
+///
+/// A rendezvous is a wait on a signal that *must* arrive, never on a window
+/// that may already have closed.
+///
+/// Audit inventory of concurrency tests:
+/// - `testASessionReplacedWhileTheCacheIsEncodedIsNeverWritten`: restaged —
+///   uses a clock hook to prove the encode window.
+/// - The `Gate` + double-`Task.yield()` coalescing tests: already sound — the
+///   gate holds the fetch, and the joining task's first scheduling is enqueued
+///   before the test's yield; its join point is its first suspension.
+/// - `testThePreviousSessionsFetchLandingLastPublishesNothing`: already sound —
+///   two gates, released in order.
+/// - `testALookupDuringTheDiskReadWaitsForItInsteadOfRefetching`: already
+///   sound — both tasks are main-actor jobs and the second's join point precedes
+///   the first's resumption; `readGate` is *not* usable here (it blocks the actor).
 @MainActor
 final class LeetCodeCatalogTests: XCTestCase {
 
@@ -24,11 +41,25 @@ final class LeetCodeCatalogTests: XCTestCase {
     private final class Clock: @unchecked Sendable {
         private let lock = NSLock()
         private var value: Date
+        private var _onFirstRead: (() -> Void)?
+
+        var onFirstRead: (() -> Void)? {
+            get { lock.lock(); defer { lock.unlock() }; return _onFirstRead }
+            set { lock.lock(); _onFirstRead = newValue; lock.unlock() }
+        }
 
         init(_ value: Date) { self.value = value }
 
         var now: Date {
-            get { lock.lock(); defer { lock.unlock() }; return value }
+            get {
+                lock.lock()
+                let hook = _onFirstRead
+                _onFirstRead = nil
+                let currentValue = value
+                lock.unlock()
+                hook?()
+                return currentValue
+            }
             set { lock.lock(); value = newValue; lock.unlock() }
         }
     }
@@ -1321,27 +1352,38 @@ final class LeetCodeCatalogTests: XCTestCase {
     /// `catalog.json` is what carries the departing account's solved marks into the
     /// next launch and pins them under the next account's name for a day.
     ///
-    /// Staged deterministically: the fetch is released, and the actor is handed
-    /// back until the rows are published — the fetch's very next step is the
-    /// off-actor encode, and this test then holds the actor from the moment it
-    /// observes them through the `sessionDidChange` below without suspending, so
-    /// the write can only be attempted after it.
+    /// Staged empirically: the fetch's last act before publishing is reading the clock,
+    /// so giving that read a hook enqueues the sign-out to run as soon as the actor
+    /// becomes free, which is at the encode's suspension. While Swift's `await` is
+    /// a potential rather than guaranteed yield, the detachment of the encode task
+    /// reliably forces a suspension in practice. A perfect causal rendezvous is
+    /// impossible without changing `Sources/` to add a test seam, and `Gate` cannot
+    /// stage this window because it would block the actor and freeze the sign-out.
     func testASessionReplacedWhileTheCacheIsEncodedIsNeverWritten() async throws {
         let tree = makeTree()
         let transport = ScriptedLeetCodeTransport()
         transport.serve(.problemList, json: problemListJSON([(1, "two-sum")], status: "ac"))
-        let gate = Gate()
-        transport.hold(.problemList, on: gate)
-        let catalog = makeCatalog(tree: tree, transport: transport, clock: Clock(now))
+        let clock = Clock(now)
+        let catalog = makeCatalog(tree: tree, transport: transport, clock: clock)
 
         catalog.sessionDidChange(to: credentials)
-        let refresh = Task { try await catalog.refresh(credentials: credentials) }
-        await gate.waitUntilReached()
-        gate.release()
-        while catalog.problems.isEmpty { await Task.yield() }
-        catalog.sessionDidChange(to: nil)
-        try await refresh.value
 
+        let hookFired = expectation(description: "hook fired")
+
+        var signoutTask: Task<Void, Never>?
+        clock.onFirstRead = { [weak catalog] in
+            hookFired.fulfill()
+            signoutTask = Task { @MainActor in
+                catalog?.sessionDidChange(to: nil)
+            }
+        }
+
+        try await catalog.refresh(credentials: credentials)
+
+        await fulfillment(of: [hookFired], timeout: 1.0)
+        await signoutTask?.value
+        XCTAssertEqual(catalog.problems.map(\.slug), ["two-sum"])
+        XCTAssertEqual(catalog.fetchedAt, now)
         XCTAssertEqual(transport.count(for: .problemList), 1)
         XCTAssertTrue(tree.writtenPaths.isEmpty)
         XCTAssertFalse(catalog.lastCacheWriteFailed)

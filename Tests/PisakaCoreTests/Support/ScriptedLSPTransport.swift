@@ -72,6 +72,7 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
     private var framing = LSPFraming.Decoder()
     private var streamIsFinished = false
     private var terminated = false
+    private var writeError: LSPTransportError?
 
     init() {
         var escaped: AsyncStream<Data>.Continuation!
@@ -99,6 +100,16 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
     func onSend(_ hook: (@Sendable (String) -> Void)?) {
         lock.lock()
         onSend = hook
+        lock.unlock()
+    }
+
+    /// The hook for staging a pipe that went away without an EOF.
+    /// When set, `send` throws this error while `incomingBytes` stays open. This is deliberately
+    /// different from `terminate()`, which closes the stream and therefore reintroduces the race
+    /// between the stream consumer noticing the EOF and a concurrent request noticing the write failure.
+    func failWrites(with error: LSPTransportError?) {
+        lock.lock()
+        writeError = error
         lock.unlock()
     }
 
@@ -138,7 +149,7 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
     /// Push a message the client did not ask for — a server-initiated request, a
     /// notification, or a response to an id nobody is waiting on.
     func emit(_ message: LSPOutgoingMessage) {
-        guard let framed = try? LSPFraming.encode(message) else { return }
+        let framed = try! LSPFraming.encode(message)
         write(framed)
     }
 
@@ -154,7 +165,7 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
     func pushAfter(delay: TimeInterval, method: String, params: JSONValue? = nil) {
         let message = LSPNotificationMessage(method: method, params: params)
         Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(max(0, delay) * 1_000_000_000))
+            try await Task.sleep(nanoseconds: UInt64(max(0, delay) * 1_000_000_000))
             guard let self else { return }
             self.emit(.notification(message))
         }
@@ -186,8 +197,19 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
             lock.unlock()
             throw LSPTransportError.notRunning
         }
-        let payloads = (try? framing.append(data)) ?? []
-        let messages = payloads.compactMap { try? LSPIncomingMessage.decode($0) }
+        if let error = writeError {
+            lock.unlock()
+            throw error
+        }
+        let payloads: [Data]
+        let messages: [LSPIncomingMessage]
+        do {
+            payloads = try framing.append(data)
+            messages = try payloads.map { try LSPIncomingMessage.decode($0) }
+        } catch {
+            lock.unlock()
+            throw error
+        }
         received.append(contentsOf: messages)
         let hook = onSend
         lock.unlock()
@@ -258,7 +280,7 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
             return
         }
         Task {
-            try? await Task.sleep(nanoseconds: UInt64(step.delay * 1_000_000_000))
+            try await Task.sleep(nanoseconds: UInt64(step.delay * 1_000_000_000))
             work()
         }
     }

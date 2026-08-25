@@ -8,8 +8,24 @@ import XCTest
 ///
 /// Every case runs on `ScriptedLSPTransport`, so "the server crashed" is a
 /// deterministic unit test; the pushes travel through the session's read task,
-/// the notification stream and the main-actor consumer, and the assertions
-/// poll for the sink's record rather than assuming any particular hop count.
+/// the notification stream and the main-actor consumer.
+///
+/// **Staging Discipline**
+///
+/// A rendezvous is a wait on a signal that *must* arrive, never on a window
+/// that may already have closed. The assertions poll for the sink's record rather
+/// than assuming any particular hop count.
+///
+/// Audit inventory of `closeStream()` sites:
+/// - `testACrashMidSessionClearsThatKey`: already sound — waits for the clear.
+/// - `testAReplacementServersPushesSurviveThePredecessorsClear`: restaged —
+///   close-then-`open`.
+/// - `testACrashNoticedByTheNextRequestClearsBeforeTheRestart`: restaged —
+///   the named defect.
+/// - `testASpentCrashBudgetEmitsTheKeysClear` (loop): restaged —
+///   close-then-`open`, ×3.
+/// - `testASpentCrashBudgetEmitsTheKeysClear` (4th death): restaged —
+///   close-then-`prepare`.
 @MainActor
 final class LSPDiagnosticsRoutingTests: XCTestCase {
 
@@ -121,18 +137,19 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line,
         _ condition: () -> Bool
-    ) async {
+    ) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if condition() { return }
-            try? await Task.sleep(nanoseconds: 1_000_000)
+            try await Task.sleep(nanoseconds: 1_000_000)
         }
         XCTFail("Timed out waiting for \(description)", file: file, line: line)
+        struct TimeoutError: Error {}
+        throw TimeoutError()
     }
 
-    /// Let the pipeline drain, for asserting an absence.
-    private func settle() async {
-        try? await Task.sleep(nanoseconds: 150_000_000)
+    private func settle() async throws {
+        try await Task.sleep(nanoseconds: 150_000_000)
     }
 
     private func push(
@@ -208,7 +225,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             ]
         )
 
-        await waitFor("the mapped push") { !self.publishedEvents().isEmpty }
+        try await waitFor("the mapped push") { !self.publishedEvents().isEmpty }
 
         let received = publishedEvents().first!
         XCTAssertEqual(received.url, mainFile.standardizedFileURL)
@@ -234,11 +251,11 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     func testANotificationNobodyRoutesIsIgnored() async throws {
         _ = try await open(mainFile, text: "a")
         try pushToMainFile(version: 1, message: "live")
-        await waitFor("the live push") { !self.publishedEvents().isEmpty }
+        try await waitFor("the live push") { !self.publishedEvents().isEmpty }
 
         harness.latest.push(method: "window/logMessage", params: .object(["message": .string("hi")]))
         let countBefore = publishedEvents().count
-        await settle()
+        try await settle()
 
         XCTAssertEqual(publishedEvents().count, countBefore, "only publishDiagnostics is routed; the rest stay noise")
     }
@@ -269,7 +286,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             [(LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), nil, "impostor")]
         )
         let countBefore = publishedEvents().count
-        await settle()
+        try await settle()
 
         XCTAssertEqual(publishedEvents().count, countBefore, "one server must not answer for another's document")
     }
@@ -293,14 +310,14 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             method: LSPMethod.publishDiagnostics,
             params: .object(["uri": .string("::not a uri::"), "diagnostics": .array([])])
         )
-        await settle()
+        try await settle()
         XCTAssertTrue(publishedEvents().isEmpty, "none of the three malformed pushes may route")
 
         // A well-formed push still lands: the consumer is alive.
         try push(to: harness.latest, uri: prepared.uri, version: prepared.version, [
             (LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), nil, "alive")
         ])
-        await waitFor("the post-malformed push") {
+        try await waitFor("the post-malformed push") {
             self.publishedEvents().last?.diagnostics.first?.message == "alive"
         }
     }
@@ -309,7 +326,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         let prepared = try await open(mainFile, text: "a")
         try push(to: harness.latest, uri: prepared.uri, version: nil, [])
 
-        await waitFor("the unversioned push") { !self.publishedEvents().isEmpty }
+        try await waitFor("the unversioned push") { !self.publishedEvents().isEmpty }
 
         XCTAssertNil(publishedEvents().first?.version, "the wire value travels verbatim; gating is downstream")
     }
@@ -321,11 +338,11 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     func testAPushWithAStaleVersionIsDropped() async throws {
         let prepared = try await open(mainFile, text: "a")
         try pushToMainFile(version: prepared.version, message: "live")
-        await waitFor("the live push") { !self.publishedEvents().isEmpty }
+        try await waitFor("the live push") { !self.publishedEvents().isEmpty }
 
         try pushToMainFile(version: prepared.version + 7, message: "m")
         let countBefore = publishedEvents().count
-        await settle()
+        try await settle()
 
         XCTAssertEqual(publishedEvents().count, countBefore, "a push for a version the server does not hold is noise")
     }
@@ -333,7 +350,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     func testAPushForAnUnopenedURIIsDropped() async throws {
         _ = try await open(mainFile, text: "a")
         try pushToMainFile(version: 1, message: "live")
-        await waitFor("the live push") { !self.publishedEvents().isEmpty }
+        try await waitFor("the live push") { !self.publishedEvents().isEmpty }
 
         try push(
             to: harness.latest,
@@ -342,7 +359,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             [(LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), nil, "m")]
         )
         let countBefore = publishedEvents().count
-        await settle()
+        try await settle()
 
         XCTAssertEqual(
             publishedEvents().count,
@@ -371,7 +388,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             [(LSPPosition(line: 0, character: 4), LSPPosition(line: 0, character: 5), .error, "respelled")]
         )
 
-        await waitFor("the re-spelled push") { !self.publishedEvents().isEmpty }
+        try await waitFor("the re-spelled push") { !self.publishedEvents().isEmpty }
         let received = publishedEvents().first!
         XCTAssertEqual(received.url.standardizedFileURL, plusFile.standardizedFileURL)
         XCTAssertEqual(received.diagnostics.map(\.message), ["respelled"])
@@ -435,7 +452,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         try push(to: harness.latest, uri: first.uri, version: 1, [
             (LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), .error, "old"),
         ])
-        await waitFor("the first push") { !self.publishedEntries(in: model).isEmpty }
+        try await waitFor("the first push") { !self.publishedEntries(in: model).isEmpty }
 
         // The keystroke bumps the revision; the provider (unforced prepare)
         // delivers the new text…
@@ -454,7 +471,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         try push(to: harness.latest, uri: provider.uri, version: 2, [
             (LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 2), .warning, "mid"),
         ])
-        await settle()
+        try await settle()
         XCTAssertFalse(
             publishedEntries(in: model).contains { $0.message == "mid" },
             "the provider-provoked push is stale against the record — rejected"
@@ -474,7 +491,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         try push(to: harness.latest, uri: settled.uri, version: settled.version, [
             (LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 2), .warning, "new"),
         ])
-        await waitFor("the post-settle push") { self.publishedEntries(in: model).first?.message == "new" }
+        try await waitFor("the post-settle push") { self.publishedEntries(in: model).first?.message == "new" }
 
         // And the typed text genuinely travelled twice — the transport-level
         // fact a push-only server's next publish depends on.
@@ -483,13 +500,26 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
 
     // MARK: - Clears (D33)
 
+    /// Kills the live server and waits until its death has been processed.
+    /// The consumer's clear is the observable proof that `phase == .terminated` is reached.
+    private func killServerAndWaitForDeathProcessing() async throws {
+        let eventsBefore = events.count
+        harness.latest.closeStream()
+        try await waitFor("the consumer to process the death") {
+            self.events.dropFirst(eventsBefore).contains { event in
+                if case .cleared(.server) = event { return true }
+                return false
+            }
+        }
+    }
+
     func testACrashMidSessionClearsThatKey() async throws {
         _ = try await open(mainFile, text: "a")
         try pushToMainFile(version: 1, message: "m")
-        await waitFor("the push") { !self.publishedEvents().isEmpty }
+        try await waitFor("the push") { !self.publishedEvents().isEmpty }
 
         harness.latest.closeStream()
-        await waitFor("the consumer to see the stream finish") {
+        try await waitFor("the consumer to see the stream finish") {
             self.clearedServerIDs() == ["sourcekit-lsp"]
         }
 
@@ -501,30 +531,35 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     }
 
     /// A replacement session re-publishes under the same key; the dead
-    /// predecessor's consumer must not wipe those answers when its own stream
-    /// finally finishes under it.
-    func testAReplacementServersPushesSurviveTheDeadConsumersExit() async throws {
+    /// predecessor's clear (emitted when its stream finishes) must not wipe
+    /// those answers.
+    ///
+    /// Staged causally by waiting for the predecessor's clear *before* opening
+    /// the replacement document. The other interleaving (where the predecessor's
+    /// stream finishes *after* the replacement has started) exercises the
+    /// replacement guard in `attachNotificationConsumer`, but cannot be staged
+    /// deterministically without a sleep because the consumer emits no signal
+    /// when the guard prevents the clear.
+    func testAReplacementServersPushesSurviveThePredecessorsClear() async throws {
         _ = try await open(mainFile, text: "a")
         try pushToMainFile(version: 1, message: "old")
-        await waitFor("the old push") { !self.publishedEvents().isEmpty }
+        try await waitFor("the old push") { !self.publishedEvents().isEmpty }
 
-        // Crash, then let the next request notice the death and start over.
-        harness.latest.closeStream()
+        try await killServerAndWaitForDeathProcessing()
+
         _ = try await open(mainFile, text: "b")
         XCTAssertEqual(harness.launches.count, 2)
 
         try pushToMainFile(version: 1, message: "new")
-        await waitFor("the new push") {
+        try await waitFor("the new push") {
             self.publishedEvents().last?.diagnostics.first?.message == "new"
         }
-        await settle()
 
-        // Whatever clears the dead life earned arrived *before* the new push;
-        // nothing may land after it.
+        // The dead consumer must not emit a clear after the replacement's publish.
         let lastPublishedIndex = events.lastIndex { event in
             if case .published = event { return true }
             return false
-        } ?? 0
+        }!
         XCTAssertNil(
             events.dropFirst(lastPublishedIndex + 1).first { event in
                 if case .cleared = event { return true }
@@ -538,7 +573,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         _ = try await open(mainFile, text: "a")
         _ = try await open(utilFile, text: "b")
         try pushToMainFile(version: 1, message: "m")
-        await waitFor("the push") { !self.publishedEvents().isEmpty }
+        try await waitFor("the push") { !self.publishedEvents().isEmpty }
 
         workspace.prepareForFolderChange(root: otherRoot)
         await workspace.shutdownAll()
@@ -565,7 +600,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         try push(to: harness.latest, uri: prepared.uri, version: prepared.version, [
             (LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), nil, "before"),
         ])
-        await waitFor("the pre-switch push") { !self.publishedEvents().isEmpty }
+        try await waitFor("the pre-switch push") { !self.publishedEvents().isEmpty }
         let countBefore = publishedEvents().count
 
         workspace.prepareForFolderChange(root: otherRoot)
@@ -573,7 +608,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         try push(to: harness.latest, uri: prepared.uri, version: prepared.version, [
             (LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 1), nil, "straggler"),
         ])
-        await settle()
+        try await settle()
 
         XCTAssertEqual(
             publishedEvents().count,
@@ -634,7 +669,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             version: python.version,
             [(LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 5), nil, "python")]
         )
-        await waitFor("both pushes") { self.publishedEvents().count == 2 }
+        try await waitFor("both pushes") { self.publishedEvents().count == 2 }
 
         // Remove sourcekit-lsp from the registry; the fake python server survives.
         events.removeAll()
@@ -655,7 +690,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             version: python.version,
             [(LSPPosition(line: 0, character: 0), LSPPosition(line: 0, character: 6), nil, "again")]
         )
-        await waitFor("the survivor's push") { !self.publishedEvents().isEmpty }
+        try await waitFor("the survivor's push") { !self.publishedEvents().isEmpty }
         XCTAssertTrue(
             clearedServerIDs().isEmpty,
             "no clear may follow a surviving server's push"
@@ -682,7 +717,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         harness.initializeDelay = 0.2
 
         async let request = workspace.prepare(url: pythonFile, language: .python, text: "x = 1")
-        await waitFor("the launch to start") { self.harness.launches.count == 1 }
+        try await waitFor("the launch to start") { self.harness.launches.count == 1 }
 
         await workspace.updateRegistry(LSPServerRegistry([.sourcekitLSP]))
         let answer = await request
@@ -691,7 +726,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
 
         // The stream finishes under the orphan's consumer inside the teardown
         // above; the clear it would emit lands on a later main-actor turn.
-        await settle()
+        try await settle()
         XCTAssertEqual(
             clearedServerIDs(),
             ["fake-pyls"],
@@ -704,15 +739,61 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     /// A crash noticed by the *next request* (not by the stream's consumer)
     /// still clears synchronously inside `noteDeath`, before the restart — so
     /// by the time `open` returns, a clear for the dead life has landed.
+    ///
+    /// Staged causally, not timed: draining the events after waiting for the
+    /// dead life's clear ensures the remaining clear is unambiguously the
+    /// synchronous one emitted by `noteDeath` before the restart.
+    ///
+    /// The other legal interleaving — where the next request acquires a session
+    /// whose death has not been noticed — is idempotent by the product's own
+    /// at-least-once clear rule, and pinned by `testAWriteFailureLeavesTheSessionTerminalAndTheNextRequestRestartsIt`.
     func testACrashNoticedByTheNextRequestClearsBeforeTheRestart() async throws {
         _ = try await open(mainFile, text: "a")
         try pushToMainFile(version: 1, message: "m")
-        await waitFor("the push") { !self.publishedEvents().isEmpty }
+        try await waitFor("the push") { !self.publishedEvents().isEmpty }
 
+        try await killServerAndWaitForDeathProcessing()
         events.removeAll()
-        harness.latest.closeStream()
         _ = try await open(mainFile, text: "b")
         XCTAssertEqual(harness.launches.count, 2, "the request that noticed the death restarted the server")
+
+        XCTAssertFalse(
+            clearedServerIDs().isEmpty,
+            "noteDeath's synchronous clear must precede the replacement"
+        )
+        XCTAssertTrue(
+            clearedServerIDs().allSatisfy { $0 == "sourcekit-lsp" },
+            "only the dead key's clear may fire"
+        )
+    }
+
+    /// The other interleaving of a crash: the pipe went away without an EOF, so
+    /// a request acquires a session whose death has not been noticed yet. Its write
+    /// fails, and it answers `nil` (the contract: "the session has already gone
+    /// terminal; the next request restarts it"). Nothing relaunches on that request.
+    ///
+    /// The *next* request restarts the server, emitting the dead key's clear
+    /// synchronously before it does.
+    ///
+    /// Together with `testACrashNoticedByTheNextRequestClearsBeforeTheRestart`
+    /// (which pins the stream-finish-first interleaving), this pair documents why
+    /// each interleaving is legal.
+    func testAWriteFailureLeavesTheSessionTerminalAndTheNextRequestRestartsIt() async throws {
+        _ = try await open(mainFile, text: "a")
+        try pushToMainFile(version: 1, message: "m")
+        try await waitFor("the push") { !self.publishedEvents().isEmpty }
+
+        harness.latest.failWrites(with: .writeFailed("broken pipe"))
+
+        let prepared1 = await workspace.prepare(url: mainFile, language: .swift, text: "b")
+        XCTAssertNil(prepared1, "the request whose write fails must answer nil")
+        XCTAssertEqual(harness.launches.count, 1, "nothing relaunches on the failing request")
+
+        events.removeAll()
+
+        let prepared2 = await workspace.prepare(url: mainFile, language: .swift, text: "c")
+        XCTAssertNotNil(prepared2, "the *next* request restarts the server")
+        XCTAssertEqual(harness.launches.count, 2, "the next request must trigger the relaunch")
 
         XCTAssertFalse(
             clearedServerIDs().isEmpty,
@@ -727,12 +808,15 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     /// The spent-budget path (`noteFailure`'s fourth-failure unavailability) is
     /// a teardown site even though no session ever died there: a predecessor's
     /// answers may still be on screen when the key retires.
+    ///
+    /// Draining the consumer's clear before each request ensures the remaining
+    /// clears are provably the budget path's own (staged causally).
     func testASpentCrashBudgetEmitsTheKeysClear() async throws {
         // Three crashes are restarted from (D7's budget is three).
         for attempt in 1...3 {
             _ = try await open(mainFile, text: "a\(attempt)")
+            try await killServerAndWaitForDeathProcessing()
             events.removeAll()
-            harness.latest.closeStream()
             _ = try await open(mainFile, text: "a\(attempt + 1)")
             XCTAssertEqual(harness.launches.count, attempt + 1)
         }
@@ -740,8 +824,8 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
 
         // The fourth death spends the budget: the request that notices it
         // retires the key, answers nothing from then on, and emits its clear.
+        try await killServerAndWaitForDeathProcessing()
         events.removeAll()
-        harness.latest.closeStream()
         let prepared = await workspace.prepare(url: mainFile, language: .swift, text: "a5")
         XCTAssertNil(prepared, "the fourth failure must retire the key")
         XCTAssertEqual(harness.launches.count, 4, "nothing launches once the budget is spent")
@@ -803,7 +887,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             (LSPPosition(line: 0, character: 4), LSPPosition(line: 0, character: 5), .error, "e"),
             (LSPPosition(line: 1, character: 4), LSPPosition(line: 1, character: 5), .warning, "w"),
         ])
-        await waitFor("the push in the store") { !self.publishedEntries(in: model).isEmpty }
+        try await waitFor("the push in the store") { !self.publishedEntries(in: model).isEmpty }
 
         let entry = try XCTUnwrap(model.store.entry(for: mainFile))
         XCTAssertEqual(entry.serverKey.root, serverRoot, "the store keys by the canonical root, as the clears will")
@@ -834,7 +918,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         try push(to: harness.latest, uri: prepared.uri, version: prepared.version, [
             (LSPPosition(line: 0, character: 4), LSPPosition(line: 0, character: 5), .error, "early"),
         ])
-        await waitFor("the sink to see the early push") { !self.publishedEvents().isEmpty }
+        try await waitFor("the sink to see the early push") { !self.publishedEvents().isEmpty }
         XCTAssertTrue(
             publishedEntries(in: model).isEmpty,
             "routed before its report exists: nothing on the surfaces yet"
