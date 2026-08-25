@@ -721,6 +721,14 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     editor still holds *and whose text the view still agrees with* is rewritten
     through the text view, in `insertConfiguredTab`'s bracket — `shouldChangeText`
     / `beginEditing`…`endEditing` / `didChangeText`, edits applied back-to-front,
+    wrapped in a `breakUndoCoalescing()` on **each** side (a save is not typing:
+    `NSTextView` would otherwise register the rewrite into whichever typing action
+    is open, so an autosave inserting the final newline right after the user typed
+    at end of file would ride along in the typing action and the ⌘Z meant to
+    restore the pre-save buffer would take the typed run with it — the break
+    before is what starts the save's own action, the break after is what stops the
+    next keystroke joining it, and single-edit plans are exactly the ones that
+    need both, since a multi-range plan breaks coalescing incidentally),
     replacements carrying `typingAttributes` explicitly (the raw storage path
     would otherwise inherit whatever the adjacent text has, and in a buffer with no
     adjacent text, no font at all) — **or, when applying them one by one

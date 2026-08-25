@@ -428,6 +428,21 @@ final class SaveTransformController {
         let replacements = edits.map(\.replacement)
         editor?.beginSaveTransformRewrite()
         defer { editor?.endSaveTransformRewrite() }
+        // **The save is its own undo group, and that takes saying so.**
+        // `NSTextView` coalesces successive typing into one open undo action, and
+        // `shouldChangeText` below registers this rewrite into whichever action is
+        // open — so without this call an autosave firing two seconds after the
+        // user typed `foo` at the end of an unterminated file appends its
+        // `insert_final_newline` terminator *into the typing action*, and the ⌘Z
+        // that was supposed to restore the pre-save buffer takes `foo` with it.
+        // Single-edit plans are exactly the ones this bites: a multi-range plan
+        // usually breaks coalescing incidentally, one insertion adjacent to the
+        // caret never does. Called before `shouldChangeText` because that is where
+        // the undo action is registered, and again after `didChangeText` so the
+        // *next* keystroke opens a new action instead of coalescing into the
+        // save's — one break on each side is what makes the whole transform one
+        // undoable step rather than merely the start of one.
+        textView.breakUndoCoalescing()
         // The guards go up first (this call re-enters the delegate's own
         // interceptors), but the blame column and the diagnostics are dropped only
         // once the edit is permitted: a refusal here rewrites nothing, and
@@ -450,6 +465,7 @@ final class SaveTransformController {
         }
         textStorage.endEditing()
         textView.didChangeText()
+        textView.breakUndoCoalescing()
         textView.setSelectedRanges(
             selection.map { NSValue(range: $0) },
             affinity: .downstream,
