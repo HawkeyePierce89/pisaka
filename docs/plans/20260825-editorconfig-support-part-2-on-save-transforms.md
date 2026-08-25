@@ -126,12 +126,12 @@ are really about.
 - Create: `Sources/PisakaCore/SaveTransform.swift`
 - Create: `Tests/PisakaCoreTests/SaveTransformTests.swift`
 
-- [ ] Model the answer as a plan: an ordered, **non-overlapping** list of
+- [x] Model the answer as a plan: an ordered, **non-overlapping** list of
       `(range in the original text, replacement)` edits — reusing
       `IndentReplacement`, as `IndentUnitRule` already does — plus the resulting
       text and the position remap. An empty plan is the "this save changes
       nothing" answer every no-configuration case must produce.
-- [ ] Compose the three transforms into that one list, with a stated internal
+- [x] Compose the three transforms into that one list, with a stated internal
       order (terminator normalization, then trimming, then the final
       terminator), every edit expressed against the *original* offsets so the
       composition needs no intermediate buffers and the remap is exact:
@@ -150,12 +150,12 @@ are really about.
         file's own last terminator, otherwise LF. `false` or absent does
         nothing, and an existing final terminator is never removed nor doubled.
         An empty buffer stays empty (there is no line to terminate).
-- [ ] Own the remap arithmetic here and nowhere else: an offset before every
+- [x] Own the remap arithmetic here and nowhere else: an offset before every
       edit is unchanged; after an edit it shifts by that edit's net length; and
       an offset *inside* an edit is defined explicitly (clamped into the
       replacement) rather than left to chance. Ranges remap through their two
       ends.
-- [ ] Write the acceptance test list: trimming with spaces, tabs and mixed runs
+- [x] Write the acceptance test list: trimming with spaces, tabs and mixed runs
       (including a line that is only whitespace, and the last line);
       the spared line, then the same buffer trimmed once the protected position
       has moved; final newline in each terminator flavor, absent under
@@ -166,10 +166,10 @@ are really about.
       edits with positions before, inside and after each edit site and at
       end-of-file; and idempotence of the composed transform (the plan for the
       transformed text is empty).
-- [ ] Pin the no-configuration case: an empty property map, and a map carrying
+- [x] Pin the no-configuration case: an empty property map, and a map carrying
       only part 1's indentation properties, both produce an empty plan and a
       byte-identical text.
-- [ ] Run `swift test` — must pass before Task 3.
+- [x] Run `swift test` — must pass before Task 3.
 
 ### Task 3: Enter splices the configured terminator
 
