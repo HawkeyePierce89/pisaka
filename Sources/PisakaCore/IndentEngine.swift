@@ -128,9 +128,24 @@ public enum IndentEngine {
     /// measured from the *end* of the selection (`selEnd`): characters inside the
     /// selection are deleted by the replacement and must not be counted as
     /// surviving (doing so would push the caret past the end of the result).
-    public static func newlineIndentation(text: NSString, location: Int, unit: String, selectionLength: Int = 0) -> NewlineEdit {
+    ///
+    /// `terminator` is the line terminator to splice — LF by default, so a caller
+    /// that states nothing (and every project without an `end_of_line`) keeps
+    /// splicing exactly what it spliced before. `end_of_line` is consumed in full:
+    /// what `SaveTransform` normalizes already-written terminators to is what a
+    /// newly typed one is, so the two never disagree. The terminator's *real*
+    /// UTF-16 length is measured everywhere it is counted (CRLF is two units), so
+    /// the caret lands in the same logical place under every flavor.
+    public static func newlineIndentation(
+        text: NSString,
+        location: Int,
+        unit: String,
+        selectionLength: Int = 0,
+        terminator: String = "\n"
+    ) -> NewlineEdit {
         let loc = max(0, min(location, text.length))
         let selEnd = max(loc, min(loc + max(0, selectionLength), text.length))
+        let terminatorLength = (terminator as NSString).length
 
         // Start of the line containing `loc`.
         var lineStart = 0
@@ -169,8 +184,8 @@ public enum IndentEngine {
         if let before = charBefore, let after = charAfter,
            openers.contains(before), closingToOpening[after] == before {
             let middle = base + unit
-            let txt = "\n" + middle + "\n" + base
-            return NewlineEdit(text: txt, cursorOffset: 1 + (middle as NSString).length)
+            let txt = terminator + middle + terminator + base
+            return NewlineEdit(text: txt, cursorOffset: terminatorLength + (middle as NSString).length)
         }
 
         // Last non-whitespace character before the caret on the current line.
@@ -201,7 +216,7 @@ public enum IndentEngine {
 
         if let last = lastNonWS, openers.contains(last) {
             let indent = base + unit
-            let txt = "\n" + indent
+            let txt = terminator + indent
             // The surviving whitespace here is trailing junk between the opener and
             // the rest of the line, not indentation to inherit, so consuming it
             // keeps the new line at exactly `base + unit` instead of stacking the
@@ -226,7 +241,7 @@ public enum IndentEngine {
         // over it rather than the edit consuming it.
         let survivingIndent = (i == loc) ? survivingWhitespace : 0
 
-        let txt = "\n" + base
+        let txt = terminator + base
         return NewlineEdit(text: txt, cursorOffset: (txt as NSString).length + survivingIndent)
     }
 

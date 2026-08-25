@@ -182,15 +182,15 @@ byte.
 - Modify: `Sources/PisakaCore/IndentEngine.swift`
 - Modify: `Tests/PisakaCoreTests/IndentEngineTests.swift`
 
-- [ ] Parameterize `newlineIndentation` with the terminator to splice
+- [x] Parameterize `newlineIndentation` with the terminator to splice
       (defaulting to LF, so every existing caller and test is unaffected), and
       make the returned cursor offset and the between-brackets split measure the
       terminator's real UTF-16 length rather than assuming one unit.
-- [ ] Write tests: the plain inherit-indentation case, the opener case with its
+- [x] Write tests: the plain inherit-indentation case, the opener case with its
       consumed trailing whitespace, and the between-brackets split, each under a
       two-unit terminator, asserting the caret lands where it does under LF; and
       that the default argument reproduces today's output exactly.
-- [ ] Run `swift test` — must pass before Task 4.
+- [x] Run `swift test` — must pass before Task 4.
 
 ### Task 4: macOS — one funnel, every save path
 
