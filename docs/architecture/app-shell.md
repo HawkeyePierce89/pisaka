@@ -170,8 +170,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     it; and `AutosaveController`'s own triggers and both flush paths, through
     `prepareForAutosave(ids:abandoningBuffers:)`. **Where the buffer is being
     abandoned the caret is not protected**: the close prompt's Save passes
-    `abandoningBuffer: true` through `save(id:)`, and the quit and folder-switch
-    flushes pass `abandoningBuffers: true`, so the file is trimmed in full — there
+    `abandoningBuffer: true` through `save(id:)` — and on through `saveAs` into
+    `prepareForSaveAs(id:destination:protectingCaret:)` when the buffer is
+    untitled, the one branch where the close prompt changes method — and the quit
+    and folder-switch flushes pass `abandoningBuffers: true`, so the file is
+    trimmed in full — there
     is no caret left to protect and no next save to defer a spared run to, which is
     the answer iOS's one save already gives for the same button. The commit
     dialog's flush keeps protecting: editing continues after it.
@@ -910,7 +913,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     registration order, which nothing states or enforces — and it is why
     `AutosaveController.flushNow()` is internal; that controller keeps its own
     termination observer, and `flushNow()` is idempotent, so being called twice on
-    one quit is harmless.
+    one quit is harmless — **provided the two calls agree on
+    `abandoningBuffers`**, which is why that observer passes `true` as well. They
+    write the same bytes only if they do: a caret-protecting flush writes the
+    spared run and an abandoning one writes it trimmed, so two observers
+    disagreeing on the flag would make the quit's answer depend on exactly the
+    registration order this paragraph says nothing enforces.
     `PisakaApp` also owns the **commit dialog**: a `private let commitDialog =
     CommitDialogModel(gitService: GitCLIService())` alongside the
     other git models — a plain stored property (the
@@ -1385,7 +1393,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     of `SessionController.flushNow()`, so the two flushes are ordered from one
     visible place (see there). No behavior change — the controller keeps its own
     termination observer and `saveAllDirty()` is idempotent, so being called twice
-    on the same quit writes nothing the second time.
+    on the same quit writes nothing the second time. That observer passes
+    `abandoningBuffers: true`, matching `PisakaApp`'s call: the second flush writes
+    nothing only when the first one already wrote what the quit rule asks for.
   - `SessionController.swift` — the thin view-layer wiring that writes the editor
     session (the opened folder, the tabs, the selection, the text of Untitled
     buffers) to Core's `SessionStore`, so a launch can bring the last session back

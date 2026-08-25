@@ -1041,7 +1041,12 @@ struct PisakaApp: App {
                     // nothing states or enforces. `AutosaveController` still has its
                     // own termination observer; `flushNow()` is idempotent
                     // (`saveAllDirty()` writes nothing on a second run), so being
-                    // called twice on the same quit is harmless.
+                    // called twice on the same quit is harmless — provided the two
+                    // calls *agree*, which is why that observer passes
+                    // `abandoningBuffers: true` as well. A quit that trimmed the
+                    // spared line only when the observers happened to run in one
+                    // order would be exactly the order-dependence this comment
+                    // claims to have removed.
                     autosave.flushNow(abandoningBuffers: true)
                     sessionController.flushNow()
                 }
@@ -2505,7 +2510,12 @@ struct PisakaApp: App {
             .map { !FileManager.default.fileExists(atPath: $0.path) } ?? false
         do {
             if try model.save(for: id) == .needsSaveAs {
-                return saveAs(id: id)
+                // The untitled case, and it carries `abandoningBuffer` with it:
+                // the close prompt's Save reaches `saveAs` whenever the buffer has
+                // no path yet, and the transform decision is the same one this
+                // method just made — there is no caret to protect on a buffer whose
+                // tab closes as soon as the write returns.
+                return saveAs(id: id, abandoningBuffer: abandoningBuffer)
             }
             if recreatesFile { model.bumpTreeRevision() }
             noteEditorConfigWrites([model.openFiles.first { $0.id == id }?.url].compactMap { $0 })
@@ -2520,7 +2530,7 @@ struct PisakaApp: App {
     /// Prompt for a destination and save the file there. Returns `true` on a
     /// successful write, `false` if the user cancelled or the write failed.
     @discardableResult
-    private func saveAs(id: UUID) -> Bool {
+    private func saveAs(id: UUID, abandoningBuffer: Bool = false) -> Bool {
         let suggested = model.openFiles.first { $0.id == id }?.displayName ?? "Untitled"
         guard let url = FilePanels.showSavePanel(suggestedName: suggested) else { return false }
         // Only now is there a path to resolve a configuration against, and it is
@@ -2534,7 +2544,7 @@ struct PisakaApp: App {
             PlatformFeedback.warning()
             return false
         }
-        saveTransform.prepareForSaveAs(id: id, destination: url)
+        saveTransform.prepareForSaveAs(id: id, destination: url, protectingCaret: !abandoningBuffer)
         do {
             try model.saveAs(url: url, for: id)
             // Save As writes a *new* file, which changes tree membership when the

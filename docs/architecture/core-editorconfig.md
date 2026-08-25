@@ -451,10 +451,20 @@ never rewritten, and there is no whole-project normalization command.
     is open in an editor, nothing at all when it is not. A position sits on the
     line whose *enclosing* range (content and terminator together) contains it, so
     a caret parked at the end of a line's content — the case the rule exists for —
-    spares that line rather than the next, a caret at column zero spares only its
-    own line, and a position at or past the end of the text belongs to the last
-    line. The lookup is a binary search over those enclosing ranges, which tile
-    the text with no gaps, so it needs no separator table of its own.
+    spares that line rather than the next, and a caret at column zero spares only
+    its own line. **The end of the text is two different places**, and the last
+    terminator is what tells them apart: in an unterminated file the last line
+    *is* where that caret sits, so it is spared; in a file ending in a terminator
+    the caret is on the empty line *after* the last line `TerminatedLines` emits
+    (it emits no phantom final line), so nothing is spared at all. Sparing the
+    preceding line there would protect a run on a line the caret has already
+    left — and, worse, one the deferral below could never make good on, since the
+    caret never moves off a position it is already past: the buffer would owe that
+    trim on every autosave tick for as long as the caret rested there. The lookup
+    is a binary search over those enclosing ranges, which tile the text with no
+    gaps; the one offset they do not cover — the end — is answered ahead of the
+    search, because its two answers come from the terminator rather than from any
+    range comparison.
     **Sparing is a deferral, and the deferral is reported.** A plan that left a
     run standing on a spared line says so through `deferredTrim`, and that flag
     is the only thing that can distinguish "already conforming" from "owes a
@@ -468,7 +478,14 @@ never rewritten, and there is no whole-project normalization command.
     would put a whole-file scan per open tab on the main thread on every tick.
     **A buffer being abandoned is trimmed in full**, because it passes no
     protected positions at all: the close prompt's Save, the quit flush and the
-    folder-switch flush all write a file that has no next save to defer to. The
+    folder-switch flush all write a file that has no next save to defer to. That
+    holds on **every** branch of those paths, including the one that changes
+    method: the close prompt's Save on an *untitled* buffer answers `.needsSaveAs`
+    and continues into `saveAs`, so `abandoningBuffer` is threaded through it into
+    `prepareForSaveAs(id:destination:protectingCaret:)` — the tab closes on the
+    next statement, and the owed set is pruned to open files, so a deferral made
+    there would have nowhere to come true. Both quit observers pass it too, for
+    the same reason stated one level up in `app-shell.md`. The
     commit dialog's flush keeps protecting — editing continues after it, so the
     caret still has a line to protect, and the owed set means the trim is not
     lost.
@@ -811,8 +828,9 @@ over in-memory trees (no committed `.editorconfig`):
     spending under half the ceiling while every matching section still answers.
   - `SaveTransformTests` — the acceptance list, engine-level: trimming with
     spaces, tabs and mixed runs (a whitespace-only line, the unterminated last
-    line, a buffer trimmed on every line); the spared line from five sides (a
-    caret at end of content, at column zero, at end of file, both endpoints of a
+    line, a buffer trimmed on every line); the spared line from six sides (a
+    caret at end of content, at column zero, at end of an unterminated file, at
+    end of a *terminated* file — which spares nothing — both endpoints of a
     selection, and the same buffer trimmed once the caret has moved away), that
     sparing is trimming's alone, and that no protected positions trims in full;
     the final newline in each terminator flavor, taken from the file's own when no

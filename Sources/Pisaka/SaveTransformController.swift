@@ -228,9 +228,17 @@ final class SaveTransformController {
     /// so nothing has ever indexed it — under the destination path or any other —
     /// and the write that follows re-indexes it from disk
     /// (`PisakaApp.saveAs`'s `notifyIndexOfProjectFileChanges()`).
-    func prepareForSaveAs(id: UUID, destination: URL) {
+    ///
+    /// `protectingCaret` carries the same meaning it has on `prepareForSave`, and
+    /// it is a parameter here for one reason: the close prompt's Save reaches
+    /// *this* method whenever the buffer is untitled (`model.save` answers
+    /// `.needsSaveAs` and `PisakaApp.save` hands off to `saveAs`). Defaulting it
+    /// to `true` there would spare a line on a buffer whose tab closes on the next
+    /// statement — a deferral with nowhere to come true, since the owed set is
+    /// pruned to open files.
+    func prepareForSaveAs(id: UUID, destination: URL, protectingCaret: Bool = true) {
         guard let model else { return }
-        prepare(id: id, configuredBy: destination, resyncing: nil, in: model)
+        prepare(id: id, configuredBy: destination, resyncing: nil, in: model, protectingCaret: protectingCaret)
     }
 
     // MARK: - Internals

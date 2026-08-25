@@ -156,13 +156,25 @@ final class AutosaveController {
         // async hop) is both safe and the only thing guaranteed to complete before
         // the process dies. `flushNow()` skips `onSaved` — the app is quitting and
         // there is no Local Changes UI left to refresh.
+        //
+        // `abandoningBuffers: true`, the same argument `PisakaApp`'s own
+        // termination observer passes. Both observers fire on this one
+        // notification, and their *order* is only their registration order —
+        // which nothing states or enforces (the comment at `PisakaApp`'s call
+        // site says so). Two flushes that disagreed on this flag would make the
+        // quit's answer depend on that order: the caret-protecting one writes the
+        // spared run, the abandoning one writes it trimmed. Agreeing here is what
+        // makes "the quit flush protects no caret at all and trims in full" true
+        // of whichever runs first, instead of true only because `owedTrims`
+        // happens to carry the deferral into the second — at the cost of writing
+        // the same file twice on the way out.
         observers.append(
             center.addObserver(
                 forName: NSApplication.willTerminateNotification,
                 object: nil,
                 queue: nil
             ) { [weak self] _ in
-                self?.flushNow()
+                self?.flushNow(abandoningBuffers: true)
             }
         )
     }

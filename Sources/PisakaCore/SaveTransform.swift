@@ -373,9 +373,18 @@ public enum SaveTransform {
     /// A position sits on the line whose *enclosing* range (content and
     /// terminator together) contains it, so a caret parked at the end of a line's
     /// content — the case the rule exists for — spares that line rather than the
-    /// next one, while a caret at column zero spares only the line it is on. A
-    /// position at (or past) the end of the text belongs to the last line, which
-    /// is where the caret at end of file is.
+    /// next one, while a caret at column zero spares only the line it is on.
+    ///
+    /// **The end of the text is two different places** and the terminator is what
+    /// tells them apart. In an unterminated file the last line *is* where the
+    /// caret at end of file sits, so it is spared — that is the case the rule
+    /// exists for, someone still typing the last line. In a file ending in a
+    /// terminator the caret is on the empty line *after* the last one
+    /// `TerminatedLines` emits (it deliberately emits no phantom final line), so
+    /// there is nothing there to spare and nothing there to trim: sparing the
+    /// preceding line would protect a run on a line the caret has already left,
+    /// which the deferral could then never make good on — the buffer would owe
+    /// that trim on every autosave tick for as long as the caret rested there.
     ///
     /// `NSNotFound` and negatives name no position and are dropped rather than
     /// resolved into one, the same posture `remappedOffset` takes: inventing a
@@ -393,9 +402,19 @@ public enum SaveTransform {
     /// Binary search over the tiling `enclosing` ranges — they start where the
     /// previous one ended and the last ends at the text's end, which is what
     /// makes the search well-defined without a separator table of its own.
+    ///
+    /// The end of the text is the one offset no half-open range contains, and it
+    /// is answered before the search rather than after it, because the two
+    /// answers it has are decided by the last terminator and not by any range
+    /// comparison: `lines.count - 1` when that line is unterminated (the caret is
+    /// on it), `nil` when it is not (the caret is on the empty line past it,
+    /// which is not a line this split emits) — the reasoning is on `sparedLines`.
     private static func lineIndex(containing offset: Int, in lines: [TerminatedLineRange]) -> Int? {
         guard let last = lines.last else { return nil }
         let clamped = min(max(offset, 0), NSMaxRange(last.enclosing))
+        guard clamped < NSMaxRange(last.enclosing) else {
+            return last.terminator.length == 0 ? lines.count - 1 : nil
+        }
         var low = 0
         var high = lines.count - 1
         while low <= high {
@@ -409,8 +428,8 @@ public enum SaveTransform {
                 return middle
             }
         }
-        // Only reachable for an offset at the very end of the text, which no
-        // half-open range contains.
-        return lines.count - 1
+        // Unreachable: the ranges tile the text, and the one offset they do not
+        // cover — its end — returned above.
+        return nil
     }
 }

@@ -156,9 +156,30 @@ final class SaveTransformTests: XCTestCase {
         assertPlan("a  \nb  \n", trim, protecting: [4], becomes: "a\nb  \n")
     }
 
-    func testACaretAtEndOfFileSparesTheLastLine() {
+    func testACaretAtEndOfAnUnterminatedFileSparesTheLastLine() {
+        // The caret really is on `b  ` — there is no line after it — so this is
+        // the case the sparing rule exists for: someone still typing that line.
         let text = "a  \nb  "
         assertPlan(text, trim, protecting: [(text as NSString).length], becomes: "a\nb  ")
+    }
+
+    func testACaretAtEndOfATerminatedFileSparesNothing() {
+        // The other end of the text. `b  ` is terminated, so the caret sits on the
+        // empty line *after* it — a line `TerminatedLines` deliberately does not
+        // emit — and `b  ` is a line the caret has already left. Sparing it would
+        // protect a run nobody is typing, and (since the tab is written clean) owe
+        // a trim on every autosave tick for as long as the caret rested there.
+        let text = "a  \nb  \n"
+        let plan = assertPlan(text, trim, protecting: [(text as NSString).length], becomes: "a\nb\n")
+        XCTAssertFalse(plan.deferredTrim, "nothing was spared, so nothing is owed")
+    }
+
+    func testACaretOnTheLastLinesContentEndStillSparesItWhenTerminated() {
+        // One offset earlier than the case above, and the answer flips back: this
+        // caret *is* on `b  `, at the end of its content, which is precisely the
+        // position the rule protects.
+        let plan = assertPlan("a  \nb  \n", trim, protecting: [7], becomes: "a\nb  \n")
+        XCTAssertTrue(plan.deferredTrim)
     }
 
     func testBothSelectionEndpointsSpareTheirLines() {
