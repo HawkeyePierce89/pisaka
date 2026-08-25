@@ -97,22 +97,22 @@ lines *with ranges* without introducing a second definition of what a line is.
 - Modify: `Tests/PisakaCoreTests/EditorConfigFileTests.swift`
 - Modify: `Tests/PisakaCoreTests/TerminatedLinesTests.swift`
 
-- [ ] Add `EditorConfigProperties.EndOfLine` (`lf`, `cr`, `crlf`) with the
+- [x] Add `EditorConfigProperties.EndOfLine` (`lf`, `cr`, `crlf`) with the
       terminator string each names, and an `endOfLine` accessor answering `nil`
       for an absent or unrecognized value — the same "absent rather than an
       error" posture the existing accessors take for a bad `indent_size`.
-- [ ] Add `trimTrailingWhitespace` and `insertFinalNewline` accessors returning
+- [x] Add `trimTrailingWhitespace` and `insertFinalNewline` accessors returning
       `Bool?`: exactly the literals `true` / `false` (values of known keys are
       already lowercased by the parser), everything else `nil`.
-- [ ] Add a range-carrying split to `TerminatedLines` (content range +
+- [x] Add a range-carrying split to `TerminatedLines` (content range +
       terminator range per line, the CRLF pair never split), and make the
       existing `split(_:)` a **projection** of it, so the one-splitter invariant
       the file's doc comment rests on stays structural rather than coincidental.
-- [ ] Write tests: each `end_of_line` value and the unrecognized/absent cases;
+- [x] Write tests: each `end_of_line` value and the unrecognized/absent cases;
       both booleans including the `unset` inheritance case; the range split
       against every separator in the editor's set, an unterminated final line,
       an empty text, and a fuzz check that the projection equals `split(_:)`.
-- [ ] Run `swift test` — must pass before Task 2.
+- [x] Run `swift test` — must pass before Task 2.
 
 ### Task 2: `SaveTransform` — the pure engine
 

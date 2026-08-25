@@ -301,4 +301,78 @@ final class EditorConfigFileTests: XCTestCase {
     func testAnUnusableIndentSizeLeavesNoWidth() {
         XCTAssertNil(EditorConfigProperties(["indent_size": "0"]).indentWidth)
     }
+
+    // MARK: - end_of_line
+
+    func testEndOfLineReadsEveryNamedValueWithItsTerminator() {
+        XCTAssertEqual(EditorConfigProperties(["end_of_line": "lf"]).endOfLine, .lf)
+        XCTAssertEqual(EditorConfigProperties(["end_of_line": "cr"]).endOfLine, .cr)
+        XCTAssertEqual(EditorConfigProperties(["end_of_line": "crlf"]).endOfLine, .crlf)
+        XCTAssertEqual(EditorConfigProperties.EndOfLine.lf.terminator, "\n")
+        XCTAssertEqual(EditorConfigProperties.EndOfLine.cr.terminator, "\r")
+        XCTAssertEqual(EditorConfigProperties.EndOfLine.crlf.terminator, "\r\n")
+    }
+
+    /// An unrecognized value is absent, not an error — the posture the existing
+    /// accessors take for a bad `indent_size`. NEL/LS/PS are not in the
+    /// property's vocabulary, so naming one leaves the file unnormalized rather
+    /// than normalized to something the config never asked for.
+    func testEndOfLineIsNilWhenAbsentOrUnrecognized() {
+        XCTAssertNil(EditorConfigProperties().endOfLine)
+        XCTAssertNil(EditorConfigProperties(["end_of_line": "lfcr"]).endOfLine)
+        XCTAssertNil(EditorConfigProperties(["end_of_line": "nel"]).endOfLine)
+        XCTAssertNil(EditorConfigProperties(["end_of_line": ""]).endOfLine)
+    }
+
+    func testEndOfLineIsCaseInsensitiveThroughTheParser() {
+        XCTAssertEqual(properties("[*]\nend_of_line = CRLF\n").endOfLine, .crlf)
+    }
+
+    // MARK: - trim_trailing_whitespace and insert_final_newline
+
+    func testTheTwoBooleansReadExactlyTheirTwoLiterals() {
+        XCTAssertEqual(EditorConfigProperties(["trim_trailing_whitespace": "true"]).trimTrailingWhitespace, true)
+        XCTAssertEqual(EditorConfigProperties(["trim_trailing_whitespace": "false"]).trimTrailingWhitespace, false)
+        XCTAssertEqual(EditorConfigProperties(["insert_final_newline": "true"]).insertFinalNewline, true)
+        XCTAssertEqual(EditorConfigProperties(["insert_final_newline": "false"]).insertFinalNewline, false)
+    }
+
+    func testTheTwoBooleansAreNilWhenAbsentOrUnrecognized() {
+        XCTAssertNil(EditorConfigProperties().trimTrailingWhitespace)
+        XCTAssertNil(EditorConfigProperties().insertFinalNewline)
+        XCTAssertNil(EditorConfigProperties(["trim_trailing_whitespace": "yes"]).trimTrailingWhitespace)
+        XCTAssertNil(EditorConfigProperties(["trim_trailing_whitespace": "1"]).trimTrailingWhitespace)
+        XCTAssertNil(EditorConfigProperties(["insert_final_newline": "on"]).insertFinalNewline)
+        XCTAssertNil(EditorConfigProperties(["insert_final_newline": ""]).insertFinalNewline)
+    }
+
+    func testTheTwoBooleansAreCaseInsensitiveThroughTheParser() {
+        let properties = properties("[*]\ntrim_trailing_whitespace = True\ninsert_final_newline = FALSE\n")
+        XCTAssertEqual(properties.trimTrailingWhitespace, true)
+        XCTAssertEqual(properties.insertFinalNewline, false)
+    }
+
+    /// `unset` in a closer file undoes an inherited rule, which for these three
+    /// must read as "the project states nothing" rather than as `false`.
+    func testUnsetRestoresTheAbsentAnswerForAllThree() {
+        let properties = properties("""
+        [*]
+        end_of_line = lf
+        trim_trailing_whitespace = true
+        insert_final_newline = true
+        [*.md]
+        end_of_line = unset
+        trim_trailing_whitespace = unset
+        insert_final_newline = unset
+        """)
+        XCTAssertNil(properties.endOfLine)
+        XCTAssertNil(properties.trimTrailingWhitespace)
+        XCTAssertNil(properties.insertFinalNewline)
+    }
+
+    func testAnEmptyMapStatesNoneOfTheThreeOnSaveProperties() {
+        XCTAssertNil(EditorConfigProperties().endOfLine)
+        XCTAssertNil(EditorConfigProperties().trimTrailingWhitespace)
+        XCTAssertNil(EditorConfigProperties().insertFinalNewline)
+    }
 }
