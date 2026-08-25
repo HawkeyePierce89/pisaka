@@ -240,10 +240,10 @@ assuming any particular hop count"). Bring them in line: state the rule the suit
 now follow — a rendezvous is a wait on a signal that *must* arrive, never on a
 window that may already have closed — and carry the audit table's verdicts.
 
-- [ ] update both suite-level doc comments with the staging rule and the audit verdicts
-- [ ] grep the two architecture docs for any statement of the old staging as fact; update only if one exists
-- [ ] confirm no product or brand name appears in the new comments
-- [ ] re-run `swift test` and `swiftlint --strict`; both clean
+- [x] update both suite-level doc comments with the staging rule and the audit verdicts
+- [x] grep the two architecture docs for any statement of the old staging as fact; update only if one exists
+- [x] confirm no product or brand name appears in the new comments
+- [x] re-run `swift test` and `swiftlint --strict`; both clean
 
 ## Post-Completion
 

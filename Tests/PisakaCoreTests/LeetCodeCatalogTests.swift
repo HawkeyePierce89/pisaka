@@ -14,6 +14,23 @@ import XCTest
 /// written by another version, or impossible to write at all, and none of those
 /// may fail the open the user actually asked for — the catalog is an
 /// optimisation, and a broken one costs a request rather than a feature.
+///
+/// **Staging Discipline**
+///
+/// A rendezvous is a wait on a signal that *must* arrive, never on a window
+/// that may already have closed.
+///
+/// Audit inventory of concurrency tests:
+/// - `testASessionReplacedWhileTheCacheIsEncodedIsNeverWritten`: restaged —
+///   uses a clock hook to prove the encode window.
+/// - The `Gate` + double-`Task.yield()` coalescing tests: already sound — the
+///   gate holds the fetch, and the joining task's first scheduling is enqueued
+///   before the test's yield; its join point is its first suspension.
+/// - `testThePreviousSessionsFetchLandingLastPublishesNothing`: already sound —
+///   two gates, released in order.
+/// - `testALookupDuringTheDiskReadWaitsForItInsteadOfRefetching`: already
+///   sound — both tasks are main-actor jobs and the second's join point precedes
+///   the first's resumption; `readGate` is *not* usable here (it blocks the actor).
 @MainActor
 final class LeetCodeCatalogTests: XCTestCase {
 

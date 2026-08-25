@@ -8,8 +8,24 @@ import XCTest
 ///
 /// Every case runs on `ScriptedLSPTransport`, so "the server crashed" is a
 /// deterministic unit test; the pushes travel through the session's read task,
-/// the notification stream and the main-actor consumer, and the assertions
-/// poll for the sink's record rather than assuming any particular hop count.
+/// the notification stream and the main-actor consumer.
+///
+/// **Staging Discipline**
+///
+/// A rendezvous is a wait on a signal that *must* arrive, never on a window
+/// that may already have closed. The assertions poll for the sink's record rather
+/// than assuming any particular hop count.
+///
+/// Audit inventory of `closeStream()` sites:
+/// - `testACrashMidSessionClearsThatKey`: already sound — waits for the clear.
+/// - `testAReplacementServersPushesSurviveTheDeadConsumersExit`: restaged —
+///   close-then-`open`.
+/// - `testACrashNoticedByTheNextRequestClearsBeforeTheRestart`: restaged —
+///   the named defect.
+/// - `testASpentCrashBudgetEmitsTheKeysClear` (loop): restaged —
+///   close-then-`open`, ×3.
+/// - `testASpentCrashBudgetEmitsTheKeysClear` (4th death): restaged —
+///   close-then-`prepare`.
 @MainActor
 final class LSPDiagnosticsRoutingTests: XCTestCase {
 
