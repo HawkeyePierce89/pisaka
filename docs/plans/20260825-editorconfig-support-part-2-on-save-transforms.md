@@ -302,13 +302,13 @@ what single trigger, and what still never happens.
 
 ### Task 7: Verify acceptance criteria
 
-- [ ] `swift test` green.
-- [ ] `swiftlint --strict` clean from the repository root.
-- [ ] `xcodegen generate` and the macOS build
+- [x] `swift test` green.
+- [x] `swiftlint --strict` clean from the repository root.
+- [x] `xcodegen generate` and the macOS build
       (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`).
-- [ ] The iOS build
+- [x] The iOS build
       (`-destination 'platform=iOS Simulator,name=iPhone 17 Pro'`).
-- [ ] Re-read the acceptance list in the ticket against the test names and
+- [x] Re-read the acceptance list in the ticket against the test names and
       confirm each line has a test behind it.
 
 ## Post-Completion (manual, for the user)
