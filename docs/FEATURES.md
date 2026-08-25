@@ -259,7 +259,7 @@ user sees it.
   language's comment syntax. With no selection, it toggles the caret's line,
   moving the caret to the next line. Each toggle is a single undo step. Line-comment
   languages (Swift, JS/TS, Python, Go, Rust, YAML, Dockerfile, dotenv,
-  gitignore, SQL) insert or remove `//`, `#`,
+  gitignore, SQL, EditorConfig) insert or remove `//`, `#`,
   or `--` after leading indentation; block-comment languages (HTML, CSS) wrap the
   non-blank edges of the selection in `<!-- -->` or `/* */`, or unwrap them if
   already present. A wholly blank target is a silent no-op, leaving the caret
@@ -355,9 +355,9 @@ user sees it.
   TypeScript, Python, Go (the 25 reserved words plus the predeclared names no
   file can declare — `nil`, `error`, `len`, `make`, …), Rust (the 38 strict
   keywords plus the primitive type names `i32`, `usize`, `f64`, `bool`, `str`, …,
-  which likewise no crate declares) and Dockerfile (`FROM`,
+  which likewise no crate declares), Dockerfile (`FROM`,
   `HEALTHCHECK`, … in the uppercase
-  they are written in); the data formats, Markdown and `.gitignore` deliberately
+  they are written in), and EditorConfig (property names and value literals); the data formats, Markdown and `.gitignore` deliberately
   have no list, and HTML/CSS are left out until completion knows about position.
   Type a `.` after an identifier or a closing bracket and the list opens right
   there with that receiver's members — methods, properties and constants that
@@ -570,10 +570,10 @@ user sees it.
   panel; colors follow the system light/dark appearance.
 - Syntax highlighting (tree-sitter via ChimeHQ's Neon) for Swift, JavaScript,
   TypeScript, JSON, Markdown, Python, Go, Rust, HTML, CSS, YAML, Dockerfiles,
-  `.env` files, and dot-prefixed ignore files (`.gitignore`, `.dockerignore`,
+  `.env` files, `.editorconfig` files, and dot-prefixed ignore files (`.gitignore`, `.dockerignore`,
   `.npmignore`, `.eslintignore`, `.prettierignore`, …). The language is
   detected from the whole file name, not just its extension — so `Dockerfile`,
-  `Dockerfile.dev`, `.env.local` and any dot-file ending in `ignore` are
+  `Dockerfile.dev`, `.env.local`, `.editorconfig` and any dot-file ending in `ignore` are
   recognized even though they carry no extension. Colors follow the system
   light/dark appearance, and files with no detected language are shown as plain
   text.

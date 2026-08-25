@@ -19,11 +19,11 @@ The app target is built through the XcodeGen-generated Xcode project, *not*
 - `project.yml` (XcodeGen) declares one application target with
   `supportedDestinations: [macOS, iOS]` and pins every *remote* dependency to
   the exact version/revision the committed workspace `Package.resolved` records;
-  two tree-sitter grammars are instead local `path:` dependencies under
+  four tree-sitter grammars are instead local `path:` dependencies under
   `Vendor/` and so carry no pin (see Conventions). `xcodegen generate` produces
   `Pisaka.xcodeproj`; build with Xcode or `xcodebuild -scheme Pisaka …`.
-- `Vendor/` — two self-contained tree-sitter grammar SwiftPM packages
-  (`TreeSitterGitignore`, `TreeSitterDotenv`), each with a `VENDORED.md`
+- `Vendor/` — four self-contained tree-sitter grammar SwiftPM packages
+  (`TreeSitterGitignore`, `TreeSitterDotenv`, `TreeSitterSql`, `TreeSitterEditorConfig`), each with a `VENDORED.md`
   recording the upstream SHA, what is verbatim vs. authored here, and the
   by-hand update procedure. Each builds in isolation
   (`swift build --package-path Vendor/<name>`); the root `Package.swift` does
@@ -677,8 +677,8 @@ owed are documented in `docs/RELEASING.md`.
   `docs/architecture/core-services.md` (which carries the `nm -u` symbol check
   that catches the dependency half). `ReleaseMetadataTests` asserts the
   category/reason set by *set equality*.
-- Three tree-sitter grammars are **vendored** under `Vendor/` as local path
-  dependencies (the directory content is the pin), for three different reasons,
+- Four tree-sitter grammars are **vendored** under `Vendor/` as local path
+  dependencies (the directory content is the pin), for four different reasons,
   each recorded in full in its package's `VENDORED.md`: `TreeSitterGitignore`
   because upstream publishes no SwiftPM manifest, Swift binding header or
   highlight query — all three are authored in this repo, which is why its
@@ -689,7 +689,7 @@ owed are documented in `docs/RELEASING.md`.
   manifest omits its external scanner from `sources:` and therefore never links
   — the whole tree is verbatim and the one local change is that line;
   `TreeSitterSql` because upstream ships no generated parser and its manifest is
-  a hard SwiftPM error. The
+  a hard SwiftPM error; `TreeSitterEditorConfig` because upstream ships no SwiftPM manifest and no Swift binding, and its own query is unusable here. The
   *static* half of the query verification is automated by
   `VendoredGrammarQueryTests` (node names and anonymous literals against the
   grammar's own `node-types.json` under the matching `named` flag, the emitted

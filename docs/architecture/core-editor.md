@@ -56,7 +56,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     toggle (mirroring `LanguageKeywords`). The tests assert that the set of
     styled languages and the set of no-comment languages are disjoint and
     exhaustively cover `SyntaxLanguage.allCases`, so adding a language requires
-    deliberately resolving its comment style. Unit-tested in
+    deliberately resolving its comment style. `.editorconfig` uses `#` line comments; the format also accepts `;`, but ⌘/ deliberately writes the spec's primary `#`. Unit-tested in
     `CommentStyleTests`.
   - `ToggleCommentEngine.swift` — pure, testable toggle-comment computation for
     the editor's Cmd+/ (Foundation only). `public struct CommentToggleEdit: Equatable`
@@ -132,7 +132,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     icon: a `FileIcon` struct (`symbolName` + semantic `FileIconColor`) with
     `init(for: DirectoryEntry)`. Resolution order: directory → `folder`/`.accent`;
     special-cased file names (e.g. `Package.swift`, `LICENSE`, `.gitignore`,
-    `Makefile`, `Dockerfile`); lowercased extension lookup (e.g. `sql` → `cylinder.split.1x2`/`.blue`); fallback →
+    `.editorconfig`, `Makefile`, `Dockerfile`); lowercased extension lookup (e.g. `sql` → `cylinder.split.1x2`/`.blue`); fallback →
     `doc`/`.gray`. `FileIconColor` is a semantic enum so the library stays free
     of any SwiftUI/AppKit dependency.
   - `SyntaxLanguage.swift` — pure, testable
@@ -152,7 +152,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `backend/.env` silently would not. Every live call site passes a
     `lastPathComponent` already, but two of them derive it from `ChangedFile
     .path`, a repo-relative *path*, one dropped call away.) (1) *exact name*
-    covers `dockerfile` and `.env`;
+    covers `dockerfile`, `.env`, and `.editorconfig` (keyed off `EditorConfigResolver.fileName` so the two answers cannot drift);
     (2) *extension* is the ordinary path and the map gained `"dockerfile"` (so
     `web.dockerfile` resolves); (3) *prefix* covers the variant-suffixed forms
     whose trailing component is not a known extension (`dockerfile.` →

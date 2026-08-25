@@ -331,29 +331,29 @@ of captures == all `SymbolKind` captures) stays satisfied with no new kind.
 - Modify: `docs/architecture/core-editor.md`, `core-intelligence.md`,
   `core-editorconfig.md`, `CLAUDE.md`, `docs/FEATURES.md`
 
-- [ ] `core-editor.md`: extend the `SyntaxLanguage.swift` entry with the
+- [x] `core-editor.md`: extend the `SyntaxLanguage.swift` entry with the
       exact-name rule and why it borrows the resolver's own constant, the
       `FileIcon.swift` entry, and the `CommentStyle.swift` entry (`#`, with `;`
       accepted by the format but not written by ⌘/)
-- [ ] `core-intelligence.md`: extend the `LanguageKeywords.swift` entry with the
+- [x] `core-intelligence.md`: extend the `LanguageKeywords.swift` entry with the
       list's sourcing, the charset exclusion and the stated
       non-context-awareness; extend the symbols-query section with the
       section-header mapping and why `.heading` is the kind that keeps a header
       out of completion
-- [ ] `core-editorconfig.md`: one short paragraph noting the file is now a
+- [x] `core-editorconfig.md`: one short paragraph noting the file is now a
       first-class language, with a pointer to the
       `core-editor.md`/`core-intelligence.md` entries and an explicit statement
       that resolution, indentation and the on-save transforms are unchanged by it
-- [ ] `CLAUDE.md`: update the vendoring convention paragraph — "Three
+- [x] `CLAUDE.md`: update the vendoring convention paragraph — "Three
       tree-sitter grammars are vendored" becomes four, with this one's reason in
       one clause (upstream ships no SwiftPM manifest and no Swift binding, and
       its own query is unusable here) — and add the language to the index lines
       that enumerate languages, without growing either into an essay
-- [ ] `docs/FEATURES.md`: add the language to the lines that already enumerate
+- [x] `docs/FEATURES.md`: add the language to the lines that already enumerate
       languages — the comment-toggle list, the highlighting list, the file-name
       resolution list and the keyword-completion list — plus the one line this
       feature deserves
-- [ ] run `swift test`
+- [x] run `swift test`
 
 ### Task 6: Verify acceptance criteria
 
