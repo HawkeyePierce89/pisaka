@@ -148,7 +148,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     whenever the contents were replaced **without** a tab switch — a project-wide
     Replace All landing in an open tab (`ProjectSearchModel.replaceAll` →
     `applyBufferText` → `WorkspaceModel.replaceText`), a post-revert
-    `reloadFromDisk`, or a merge apply. Assigning `string` registers no undo action
+    `reloadFromDisk`, a merge apply, or an on-save transform applied to a buffer no
+    editor holds (`SaveTransformController`'s off-screen path — the fallback the
+    funnel takes when the file is not the displayed one, `core-editorconfig.md`).
+    Assigning `string` registers no undo action
     of its own, yet every action already recorded names a range in the *pre-swap*
     text, so a following ⌘Z would replay an unrelated older edit at coordinates the
     new contents no longer share: silently corrupting the buffer when the range
@@ -157,8 +160,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     incoming file's own manager is installed alongside its own contents, the very
     pairing the per-file managers exist to preserve — **unless that file's buffer
     was replaced while it sat off screen**, which is not a corner case but the
-    ordinary shape of all three replacements above: each reaches *every* matching
-    open tab, not just the displayed one, and a background tab gets no
+    ordinary shape of every replacement above: each reaches an open tab that is not
+    the displayed one — the first three reach *every* matching tab, the save
+    transform reaches whichever one is being written — and a background tab gets no
     `updateNSView` of its own, so by the time the user selects it the swap is
     indistinguishable from a plain tab switch and the `!switchedFile` test alone
     would let the stale stack survive (⌘Z on a Replace All'd background tab then
@@ -645,7 +649,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     that drops the undo stack, in the same branch and for the same reason: when
     `noteExternalTextRevision(_:for:)` reports this file's buffer was replaced while
     it sat off screen (a project Replace All, a post-revert `reloadFromDisk`, a merge
-    apply), the recorded selection and anchor name characters the incoming text
+    apply, an off-screen save transform), the recorded selection and anchor name
+    characters the incoming text
     never had, so `forgetViewport(for:)` runs and the restore finds nothing and
     writes the top-of-file state, exactly as on a first visit.
     `pruneUndoManagers(keeping:)` is renamed

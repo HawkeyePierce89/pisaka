@@ -1852,8 +1852,13 @@ struct PisakaApp: App {
         // reason a live edit to one takes effect without reopening the project. It
         // is a reader too, so it is ungated for the same reason, and its
         // invalidation is wholesale rather than debounced: clearing a dictionary
-        // costs nothing, and the re-resolution is paid for by the next keystroke in
-        // the front tab and by nothing else.
+        // costs nothing, and the re-resolution is paid for by the next question
+        // anyone asks of it — the next keystroke in the front tab, and the next
+        // save, which asks once per buffer it is about to write
+        // (`SaveTransformController.prepare`). Both are outward walks of a handful
+        // of directories on the main thread; what keeps that cheap is that the
+        // walk stops at the project root and that the answer is cached again on
+        // the way out, not that the cache is rarely dropped.
         projectWatcher.start(root: url, onChange: {
             model.bumpTreeRevision()
             symbolIndexController.noteProjectFilesChanged(root: url)

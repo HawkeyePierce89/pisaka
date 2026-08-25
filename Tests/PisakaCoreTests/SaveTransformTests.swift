@@ -276,7 +276,11 @@ final class SaveTransformTests: XCTestCase {
         let both = trim.merging(finalNewline) { _, new in new }
         let text = "a\n   "
         // Spared: the whitespace survives this save, and nothing is appended.
-        assertPlan(text, both, protecting: [(text as NSString).length], becomes: text)
+        let spared = assertPlan(text, both, protecting: [(text as NSString).length], becomes: text)
+        // The plan is *empty* and the tab is written clean, so `deferredTrim` is
+        // the only thing left that can bring this buffer back for the trim it
+        // still owes. Without it the run stays on disk behind a clean tab forever.
+        XCTAssertTrue(spared.deferredTrim, "an empty spared plan must still report the debt")
         // The caret moves away and the deferred trim happens — reaching exactly
         // the same bytes the unspared save reaches in one step.
         assertPlan(text, both, becomes: "a\n")
@@ -287,12 +291,16 @@ final class SaveTransformTests: XCTestCase {
     /// terminator either way.
     func testASparedLastLineWithContentIsStillTerminated() {
         let text = "a\nb   "
-        assertPlan(
+        let plan = assertPlan(
             text,
             trim.merging(finalNewline) { _, new in new },
             protecting: [(text as NSString).length],
             becomes: "a\nb   \n"
         )
+        // The terminator is appended, so this plan is *not* empty and the tab is
+        // written clean either way — which makes the debt the only record that
+        // "b   " still owes a trim.
+        XCTAssertTrue(plan.deferredTrim, "the spared run is still owed after the terminator is appended")
     }
 
     // MARK: - `end_of_line`
@@ -410,6 +418,31 @@ final class SaveTransformTests: XCTestCase {
         XCTAssertEqual(plan.remappedOffset(2), 2)
         XCTAssertEqual(plan.remappedOffset(3), 4)
         XCTAssertEqual(plan.remappedOffset(5), 6)
+    }
+
+    /// The growing counterpart of `testRangesRemapThroughTheirTwoEnds`: a
+    /// selection spanning `end_of_line = crlf` edits must *widen* by them, which
+    /// remapping the two ends separately is what produces.
+    func testRangesRemapAcrossAGrowingEdit() {
+        let plan = SaveTransform.plan(text: "aa\nbb\ncc", config: config(["end_of_line": "crlf"]))
+        XCTAssertEqual(plan.text, "aa\r\nbb\r\ncc")
+        // "bb" alone: one insertion before it, none inside — shifted, same length.
+        XCTAssertEqual(plan.remappedRange(NSRange(location: 3, length: 2)), NSRange(location: 4, length: 2))
+        // Spanning both terminators: one unit longer per terminator crossed.
+        XCTAssertEqual(plan.remappedRange(NSRange(location: 0, length: 8)), NSRange(location: 0, length: 10))
+    }
+
+    /// A scroll anchor recorded before the buffer shrank is the offset that
+    /// arrives here past the end of the original text. It is answered by the same
+    /// arithmetic as any other offset past the last edit — shifted by the plan's
+    /// net — and the *caller* clamps into the resulting text
+    /// (`Coordinator.scrollAnchor(to:)`), so nothing is invented here.
+    func testAnOffsetPastTheOriginalTextIsShiftedRatherThanRejected() {
+        let plan = SaveTransform.plan(text: "a   \nb  ", config: config(trim))
+        XCTAssertEqual(plan.text, "a\nb")
+        let length = ("a   \nb  " as NSString).length
+        XCTAssertEqual(plan.remappedOffset(length), 3)
+        XCTAssertEqual(plan.remappedOffset(length + 5), 8)
     }
 
     func testTheAppendedTerminatorLeavesTheCaretAtTheEndOfTheText() {

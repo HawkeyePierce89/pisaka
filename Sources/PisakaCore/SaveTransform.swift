@@ -470,8 +470,11 @@ public enum SaveTransform {
     /// which is not a line this split emits) — the reasoning is on `sparedLines`.
     private static func lineIndex(containing offset: Int, in lines: [TerminatedLineRange]) -> Int? {
         guard let last = lines.last else { return nil }
-        let clamped = min(max(offset, 0), NSMaxRange(last.enclosing))
-        guard clamped < NSMaxRange(last.enclosing) else {
+        // Not clamped on the way in: `sparedLines` has already dropped the two
+        // offsets that name no position (`NSNotFound` and negatives), and an
+        // offset *past* the end is answered by this same branch — clamping it to
+        // the end first would only reach the branch by a longer road.
+        guard offset < NSMaxRange(last.enclosing) else {
             return last.terminator.length == 0 ? lines.count - 1 : nil
         }
         var low = 0
@@ -479,9 +482,9 @@ public enum SaveTransform {
         while low <= high {
             let middle = (low + high) / 2
             let range = lines[middle].enclosing
-            if clamped < range.location {
+            if offset < range.location {
                 high = middle - 1
-            } else if clamped >= NSMaxRange(range) {
+            } else if offset >= NSMaxRange(range) {
                 low = middle + 1
             } else {
                 return middle

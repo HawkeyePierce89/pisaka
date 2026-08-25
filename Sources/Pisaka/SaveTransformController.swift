@@ -301,8 +301,21 @@ final class SaveTransformController {
         // the result to disk. When they disagree the model wins and the rewrite
         // takes the off-screen path, exactly as `updateNSView`'s content-replaced
         // branch already decides it.
+        //
+        // Compared as `NSString`, deliberately, and not with Swift's `==`: this
+        // guard's whole job is to establish that a plan measured in UTF-16
+        // offsets against `text` addresses the same code units the text storage
+        // holds, and Swift's `String` equality is *canonical equivalence* — it
+        // answers `true` for a decomposed and a precomposed spelling of the same
+        // characters, which have different `NSString` lengths. A model-side
+        // rewrite differing from the view only in Unicode normalization would
+        // pass a semantic comparison and then hand `replaceCharacters(in:)`
+        // ranges measured against a differently-lengthed string: misplaced edits,
+        // or an out-of-range exception on the main thread during an unattended
+        // autosave. `isEqual(to:)` compares the code units themselves, which is
+        // the property the offsets actually rest on.
         let displayed = liveTextView(for: id)
-        let live = displayed?.string == text ? displayed : nil
+        let live = (displayed?.string as NSString?)?.isEqual(to: text) == true ? displayed : nil
         let plan = SaveTransform.plan(
             text: text,
             config: config,

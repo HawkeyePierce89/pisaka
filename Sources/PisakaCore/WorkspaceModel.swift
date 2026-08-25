@@ -573,8 +573,11 @@ public final class WorkspaceModel: ObservableObject {
     /// editor, bumping its `textReplacementRevisions` token.
     ///
     /// The text-mutating counterpart of `updateText(_:for:)` for callers that are
-    /// not the user's own typing — currently the project-wide Replace All, which
-    /// applies to every matching open tab, including ones that are not on screen.
+    /// not the user's own typing: the project-wide Replace All, which applies to
+    /// every matching open tab including ones that are not on screen, and the
+    /// on-save transform's off-screen path — the macOS funnel's fallback for a
+    /// buffer no editor holds, and iOS's one save, which has no text view to
+    /// rewrite through at all (`core-editorconfig.md`).
     /// The bump is what lets the editor drop that file's now-invalid undo stack
     /// when the tab is next displayed. Returns `false` (and changes nothing) when
     /// no open tab has that id.

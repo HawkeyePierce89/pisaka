@@ -401,7 +401,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     by the folder the user just left. The call is idempotent for an unchanged root,
     so repeating it costs a comparison and throws no cache away. Enter's
     `insertIndentedNewline` takes its `unit` from `IndentUnitRule
-    .unit(config:inferred:)` instead of the bare inference, and **Tab** is
+    .unit(config:inferred:)` instead of the bare inference **and its `terminator:`
+    from the configuration too** (`newlineTerminator()`, the one-line
+    `endOfLine?.terminator ?? "\n"` the macOS coordinator holds identically), so a
+    project stating `end_of_line = crlf` types the terminator its saves normalize
+    to and a project stating nothing splices LF byte for byte — what you type and
+    what a save writes never disagree (`core-editorconfig.md`). **Tab** is
     intercepted in `shouldChangeTextIn` as a `"\t"` replacement: when
     `IndentUnitRule.tabInsertion` answers spaces they are applied through the
     existing `applyEdit` and the default is suppressed, and when it answers a tab
