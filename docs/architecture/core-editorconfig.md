@@ -663,10 +663,27 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     `prepareForSave(ids:)` deliberately does **not** union: ⌘S names one file and
     must rewrite that file alone, since transforming a second tab would dirty a
     buffer the keystroke is not going to write. The set is maintained on every
-    save — inserted on `plan.deferredTrim`, removed otherwise — so a buffer drops
+    save — inserted on `plan.deferredTrim`, removed otherwise, **and re-inserted
+    when the view refuses the rewrite** (`apply` answering `false`: a composition
+    in progress, a declined `shouldChangeText`), because a save that changed
+    nothing still owes everything it was going to change — so a buffer drops
     out the moment it is trimmed, its configuration stops asking, or it is saved
     with no caret to protect, and it is intersected with the open tabs so a closed
-    file leaves nothing behind. **It decides nothing the engine decides**: properties come
+    file leaves nothing behind. **An owed trim is settled through the editor, or
+    not yet.** The buffer that owes one is, overwhelmingly, the tab the user just
+    left — the tab-switch autosave spares the caret's line while that file is
+    still displayed, and `saveAllDirty()` republishes `$openFiles`, so the idle
+    tick two seconds later re-offers it with the *new* tab on screen. Settling it
+    then would take the through-the-model path below and cost that tab its undo
+    stack and its remembered scroll position, for a whitespace trim nobody asked
+    for; that cost is stated for a background tab an autosave happens to catch,
+    and paying it on every tab switch is a different thing. So the re-offer is
+    filtered to buffers a live view still holds: an owed buffer waits for a save
+    that can reach it through its view (the user comes back and types) and stays
+    owed meanwhile. **Abandonment settles it regardless** — the quit flush, the
+    folder-switch flush and the close prompt are about to destroy every undo stack
+    and every viewport there is, so nothing is left for waiting to protect and the
+    trim would otherwise never happen at all. **It decides nothing the engine decides**: properties come
     from the same `EditorConfigModel` Enter and Tab ask, the plan comes from
     `SaveTransform`, and this class owns only the AppKit half — which buffer is on
     screen, the undo-coalescing bracket, the selection and the scroll anchor.
@@ -683,7 +700,15 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     / `beginEditing`…`endEditing` / `didChangeText`, edits applied back-to-front,
     replacements carrying `typingAttributes` explicitly (the raw storage path
     would otherwise inherit whatever the adjacent text has, and in a buffer with no
-    adjacent text, no font at all) — so the whole save is one undoable step (a
+    adjacent text, no font at all) — **or, when applying them one by one
+    would cost more than replacing the span they cover, as the single replacement
+    covering it** (`applicableEdits(for:length:)`: every `replaceCharacters` shifts
+    everything after it, so one edit per line makes a whole-file `end_of_line`
+    normalization quadratic — a multi-second main-thread freeze on the first save
+    of a large CRLF buffer, the same shape `applied(_:to:)` refuses in Core; both
+    costs are measured and the smaller wins, so a two-line trim at opposite ends of
+    a big file stays two edits and `endEditing` coalesces the edited ranges into
+    one either way) — so the whole save is one undoable step (a
     single ⌘Z restores the pre-save buffer), one change notification, and every
     observer (Neon, the gutter, the minimap, the brackets, the symbol index and,
     through `reindexSymbols`, the LSP push sync) sees an ordinary edit. The

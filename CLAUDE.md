@@ -447,8 +447,10 @@ ci.yml's `lint` job, and the version-bump procedure.
   typed — sparing is trimming's alone, and the next save after the caret leaves
   trims it. **Sparing is a deferral the app owes back**: the plan reports the run
   it spared, `SaveTransformController` remembers those buffers and the autosave
-  re-offers them (after the spared write the tab is clean, so nothing else ever
-  would), and a save that **abandons** the buffer — the close prompt's Save, the
+  re-offers them while a view still holds them (after the spared write the tab is
+  clean, so nothing else ever would; settling an owed trim behind a tab the user
+  has left would cost that tab its undo stack for a rewrite nobody asked for),
+  and a save that **abandons** the buffer — the close prompt's Save, the
   quit flush, the folder-switch flush — protects no caret at all and trims in
   full, which is the answer iOS's one save already gives. **NEL/LS/PS are left alone**, the feature's one stated limit: the
   property's vocabulary does not name them. `end_of_line` is also what Enter

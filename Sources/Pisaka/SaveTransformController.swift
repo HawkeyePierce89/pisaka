@@ -79,7 +79,10 @@ protocol SaveTransformEditor: AnyObject {
 /// a single undoable step (one ⌘Z restores the pre-save buffer), a single change
 /// notification, and every observer (Neon, the gutter, the minimap, the brackets,
 /// the symbol index and, through `reindexSymbols`, the LSP push sync) sees an
-/// ordinary edit. A buffer the editor no longer holds — a background tab caught by
+/// ordinary edit. A dense or file-wide run of edits is handed over as the single
+/// replacement covering it instead, because applying them one by one is quadratic
+/// in the file (`applicableEdits(for:length:)`). A buffer the editor no longer
+/// holds — a background tab caught by
 /// an autosave, or a shown tab whose view has not yet caught up with a model-side
 /// rewrite (see `prepare`) — has no view to edit through, so it is rewritten through
 /// `WorkspaceModel.replaceText(_:for:)`, which bumps that tab's text-replacement
@@ -87,7 +90,10 @@ protocol SaveTransformEditor: AnyObject {
 /// when it is next displayed, exactly as they are for every other off-screen
 /// rewrite (Replace All, a revert, a merge apply). Known and bounded — it costs
 /// undo history for a tab nobody is looking at, on a save that only happens when
-/// the project's own configuration asked for the rewrite.
+/// the project's own configuration asked for the rewrite — and bounded is the
+/// operative word: an owed trim, which is re-offered on ticks of this controller's
+/// own choosing rather than because the user did anything, deliberately does
+/// **not** take this path (`prepareForAutosave`).
 ///
 /// **Only a save calls this.** Not open, not close, not a tab switch on its own,
 /// not an `.editorconfig` change, and not the worktree writers (project-wide
@@ -142,7 +148,9 @@ final class SaveTransformController {
     /// Maintained by `prepare` on every save: inserted when the plan reports a
     /// deferred trim, removed otherwise — so a buffer drops out the moment it is
     /// trimmed, its configuration stops asking for trimming, or it is saved with
-    /// no caret to protect.
+    /// no caret to protect. Re-inserted, too, when the view refuses the rewrite
+    /// (`apply` answering `false`), because a save that changed nothing still
+    /// owes everything it was going to change.
     private var owedTrims: Set<UUID> = []
 
     /// Bind the two models and the off-screen resync (`PisakaApp`'s `.onAppear`,
@@ -215,7 +223,24 @@ final class SaveTransformController {
         guard let model else { return }
         let open = Set(model.openFiles.map(\.id))
         owedTrims.formIntersection(open)
-        prepareForSave(ids: ids + owedTrims.subtracting(ids), protectingCaret: !abandoningBuffers)
+        // **An owed trim is settled through the editor, or not yet.** The buffer
+        // that owes one is, overwhelmingly, the tab the user just left: the
+        // tab-switch autosave spares the caret's line while that file is still
+        // displayed, and `saveAllDirty()` republishes `$openFiles`, so the idle
+        // tick two seconds later re-offers it — by which time the *new* tab is on
+        // screen and the old one would take the through-the-model path, dropping
+        // its undo stack and its remembered scroll position for a whitespace trim
+        // nobody asked for. That cost is stated for a background tab an autosave
+        // happens to catch; paying it on every tab switch is a different thing, so
+        // an owed buffer waits for a save that can reach it through its view
+        // (the user comes back and types) rather than being settled behind it.
+        // It stays owed meanwhile — nothing removes it but a save that runs.
+        // **Abandonment settles it regardless**: the quit flush, the folder-switch
+        // flush and the close prompt are about to destroy every undo stack and
+        // every viewport there is, so there is nothing left for waiting to protect
+        // and the trim would otherwise never happen at all.
+        let owed = owedTrims.subtracting(ids).filter { abandoningBuffers || liveTextView(for: $0) != nil }
+        prepareForSave(ids: ids + owed, protectingCaret: !abandoningBuffers)
     }
 
     /// Apply the save transform to an untitled buffer that is about to be written
@@ -295,7 +320,14 @@ final class SaveTransformController {
         // a buffer that already satisfies its configuration.
         guard !plan.isEmpty else { return }
         if let live {
-            apply(plan, in: live)
+            // A rewrite the view could not make — mid-composition, or a delegate
+            // that declined the change — applied nothing, so the untransformed
+            // bytes are about to be written and everything this plan was going to
+            // do is still owed. Re-arm rather than let the record die with the
+            // attempt: without this, a save that spared a run (owed), followed by
+            // a save that refused (owed cleared, nothing written), leaves a clean
+            // tab, untrimmed bytes on disk and nothing tracking either.
+            if !apply(plan, in: live) { owedTrims.insert(id) }
         } else {
             model.replaceText(plan.text, for: id)
             // The rewrite fired no change notification, so the readers that track
@@ -326,10 +358,53 @@ final class SaveTransformController {
         )
     }
 
+    /// The edits to hand the text storage: either the plan's own, or the single
+    /// replacement covering all of them.
+    ///
+    /// **Every `replaceCharacters` shifts everything after it**, so applying N
+    /// edits costs the bytes following each one — and an `end_of_line`
+    /// normalization emits one edit *per line*, which makes that quadratic in the
+    /// file: the first save of a large CRLF buffer under `end_of_line = lf` would
+    /// be a multi-second freeze on the main thread, on a keystroke or, worse, on
+    /// an unattended autosave tick. `SaveTransform.applied(_:to:)` refuses the
+    /// same shape in Core for the same reason. Replacing the one span the edits
+    /// cover shifts the tail exactly once instead.
+    ///
+    /// Which is cheaper depends on the plan, so **both costs are measured and the
+    /// smaller wins**: a two-line trim at opposite ends of a big file stays two
+    /// edits, a dense or file-wide run collapses into one. Collapsing loses
+    /// nothing the callers depend on — `endEditing` already coalesces the edited
+    /// ranges into a single one, so the highlighter, the gutter and the minimap
+    /// see the same edit either way, and the plan's remap (what actually moves
+    /// the caret, the selection and the anchor) is expressed against the original
+    /// offsets and does not know how the bytes arrived. Its one cost is that the
+    /// untouched text inside the span is re-attributed to `typingAttributes`
+    /// until the highlighter repaints — which it is about to do regardless,
+    /// precisely because the coalesced edited range already spans it.
+    private func applicableEdits(for plan: SaveTransformPlan, length: Int) -> [IndentReplacement] {
+        guard let first = plan.replacements.first, let last = plan.replacements.last else { return [] }
+        let start = first.range.location
+        let end = NSMaxRange(last.range)
+        let scattered = plan.replacements.reduce(0) { $0 + length - NSMaxRange($1.range) }
+        guard scattered > length - start else { return plan.replacements }
+        // `start` is the first edit's location, so the remap leaves it where it
+        // is; `end` is the last edit's end, so the remap carries every edit's net
+        // length into it. The span between the two in `plan.text` is therefore
+        // exactly what the whole run produces.
+        let replacement = (plan.text as NSString).substring(
+            with: NSRange(location: start, length: plan.remappedOffset(end) - start)
+        )
+        return [IndentReplacement(range: NSRange(location: start, length: end - start), replacement: replacement)]
+    }
+
     /// Rewrite the shown buffer through the text view: one undoable step, one
     /// change notification, the selection and the scroll anchor remapped by the
     /// engine.
-    private func apply(_ plan: SaveTransformPlan, in textView: NSTextView) {
+    ///
+    /// Answers whether the rewrite actually happened: a composition in progress
+    /// and a refused `shouldChangeText` both leave the buffer untouched, and the
+    /// caller has bookkeeping that must not record a save that did not occur.
+    private func apply(_ plan: SaveTransformPlan, in textView: NSTextView) -> Bool {
         // Never mid-composition. This path mutates `textStorage` directly rather
         // than going through `insertText(_:replacementRange:)`, which is exactly
         // the bookkeeping a marked range depends on: moving characters out from
@@ -337,13 +412,14 @@ final class SaveTransformController {
         // describes nothing (`insertConfiguredTab`'s guard, for its reason). The
         // save then writes the untransformed bytes and the next one — a keystroke
         // later, the composition long committed — transforms them.
-        guard !textView.hasMarkedText(), let textStorage = textView.textStorage else { return }
+        guard !textView.hasMarkedText(), let textStorage = textView.textStorage else { return false }
 
         let selection = (textView.selectedRanges as [NSValue]).map { plan.remappedRange($0.rangeValue) }
         let anchor = editor?.scrollAnchorOffset.map(plan.remappedOffset)
 
-        let editedRanges = plan.replacements.map { NSValue(range: $0.range) }
-        let replacements = plan.replacements.map(\.replacement)
+        let edits = applicableEdits(for: plan, length: textStorage.length)
+        let editedRanges = edits.map { NSValue(range: $0.range) }
+        let replacements = edits.map(\.replacement)
         editor?.beginSaveTransformRewrite()
         defer { editor?.endSaveTransformRewrite() }
         // The guards go up first (this call re-enters the delegate's own
@@ -351,14 +427,16 @@ final class SaveTransformController {
         // once the edit is permitted: a refusal here rewrites nothing, and
         // discarding both readers for a rewrite that never happened would leave
         // them empty with no change notification to re-publish them.
-        guard textView.shouldChangeText(inRanges: editedRanges, replacementStrings: replacements) else { return }
+        guard textView.shouldChangeText(inRanges: editedRanges, replacementStrings: replacements) else {
+            return false
+        }
         editor?.resetIncrementalReadersForSaveTransform()
         // The replacements carry `typingAttributes` explicitly: the raw storage
         // path would otherwise inherit whatever the adjacent text has, and in a
         // buffer with no adjacent text, no font at all (`insertConfiguredTab`).
         let attributes = textView.typingAttributes
         textStorage.beginEditing()
-        for edit in plan.replacements.reversed() {
+        for edit in edits.reversed() {
             textStorage.replaceCharacters(
                 in: edit.range,
                 with: NSAttributedString(string: edit.replacement, attributes: attributes)
@@ -378,6 +456,7 @@ final class SaveTransformController {
         // transform can delete characters above the viewport, means putting the
         // remapped anchor back at the top rather than doing nothing.
         if let anchor { editor?.scrollAnchor(to: anchor) }
+        return true
     }
 }
 
