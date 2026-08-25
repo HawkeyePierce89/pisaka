@@ -96,6 +96,49 @@ public struct SaveTransformPlan: Equatable {
         let end = remappedOffset(NSMaxRange(range))
         return NSRange(location: location, length: max(0, end - location))
     }
+
+    /// The edits to hand a buffer holding the original text — whose length is
+    /// `length` — either `replacements` themselves or the single replacement
+    /// covering all of them.
+    ///
+    /// **Every replacement shifts everything after it**, so applying N edits to a
+    /// text storage costs the bytes following each one — and an `end_of_line`
+    /// normalization emits one edit *per line*, which makes that quadratic in the
+    /// file: the first save of a large CRLF buffer under `end_of_line = lf` would
+    /// be a multi-second freeze on the main thread, on a keystroke or, worse, on
+    /// an unattended autosave tick. `SaveTransform.applied(_:to:)` refuses the
+    /// same shape for the same reason. Replacing the one span the edits cover
+    /// shifts the tail exactly once instead.
+    ///
+    /// Which is cheaper depends on the plan, so **both costs are measured and the
+    /// smaller wins**: a two-line trim at opposite ends of a big file stays two
+    /// edits, a dense or file-wide run collapses into one. Collapsing loses
+    /// nothing a caller depends on — the resulting bytes are identical, and the
+    /// remap (what actually moves the caret, the selection and the anchor) is
+    /// expressed against the original offsets and does not know how the bytes
+    /// arrived.
+    public func applicableReplacements(originalLength length: Int) -> [IndentReplacement] {
+        guard let first = replacements.first, let last = replacements.last else { return [] }
+        let start = first.range.location
+        let end = NSMaxRange(last.range)
+        let scattered = replacements.reduce(0) { $0 + length - NSMaxRange($1.range) }
+        guard scattered > length - start else { return replacements }
+        // Nothing edits before `start`, so the span begins at `start` in `text`
+        // too; every edit's net length lands *inside* it, so it ends at `end` plus
+        // the run's net length. Summed here rather than asked of
+        // `remappedOffset`, which answers a different question — where a
+        // *position* lands — and deliberately counts an offset at an edit's start
+        // as before it. That is the right answer for a caret facing the final
+        // newline this engine may insert at end of file, and the wrong one for a
+        // span that has to contain that insertion: taking it would drop the
+        // inserted terminator from the collapsed replacement and save a file
+        // without the final newline its configuration asked for.
+        let net = replacements.reduce(0) { $0 + ($1.replacement as NSString).length - $1.range.length }
+        let replacement = (text as NSString).substring(
+            with: NSRange(location: start, length: end - start + net)
+        )
+        return [IndentReplacement(range: NSRange(location: start, length: end - start), replacement: replacement)]
+    }
 }
 
 /// The one engine that decides what a save rewrites.

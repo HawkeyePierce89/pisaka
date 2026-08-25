@@ -702,13 +702,22 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     would otherwise inherit whatever the adjacent text has, and in a buffer with no
     adjacent text, no font at all) — **or, when applying them one by one
     would cost more than replacing the span they cover, as the single replacement
-    covering it** (`applicableEdits(for:length:)`: every `replaceCharacters` shifts
+    covering it** (`SaveTransformPlan.applicableReplacements(originalLength:)`,
+    the engine's own arithmetic rather than the view layer's: every
+    `replaceCharacters` shifts
     everything after it, so one edit per line makes a whole-file `end_of_line`
     normalization quadratic — a multi-second main-thread freeze on the first save
     of a large CRLF buffer, the same shape `applied(_:to:)` refuses in Core; both
     costs are measured and the smaller wins, so a two-line trim at opposite ends of
     a big file stays two edits and `endEditing` coalesces the edited ranges into
-    one either way) — so the whole save is one undoable step (a
+    one either way. The collapsed span's end is the run's **summed net length**,
+    never `remappedOffset` — that answers where a *position* lands and counts an
+    offset at an edit's start as before it, which is right for a caret facing the
+    final newline the engine may insert at end of file and wrong for a span that
+    has to contain that insertion: reading it there dropped the inserted
+    terminator, saving a file without the final newline its configuration asked
+    for and leaving the buffer clean so nothing came back for it) — so the whole
+    save is one undoable step (a
     single ⌘Z restores the pre-save buffer), one change notification, and every
     observer (Neon, the gutter, the minimap, the brackets, the symbol index and,
     through `reindexSymbols`, the LSP push sync) sees an ordinary edit. The

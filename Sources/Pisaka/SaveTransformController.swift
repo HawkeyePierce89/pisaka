@@ -81,10 +81,10 @@ protocol SaveTransformEditor: AnyObject {
 /// the symbol index and, through `reindexSymbols`, the LSP push sync) sees an
 /// ordinary edit. A dense or file-wide run of edits is handed over as the single
 /// replacement covering it instead, because applying them one by one is quadratic
-/// in the file (`applicableEdits(for:length:)`). A buffer the editor no longer
-/// holds — a background tab caught by
-/// an autosave, or a shown tab whose view has not yet caught up with a model-side
-/// rewrite (see `prepare`) — has no view to edit through, so it is rewritten through
+/// in the file (`SaveTransformPlan.applicableReplacements(originalLength:)`). A
+/// buffer the editor no longer holds — a background tab caught by an autosave, or
+/// a shown tab whose view has not yet caught up with a model-side rewrite (see
+/// `prepare`) — has no view to edit through, so it is rewritten through
 /// `WorkspaceModel.replaceText(_:for:)`, which bumps that tab's text-replacement
 /// revision: **that tab's undo stack and remembered scroll position are dropped**
 /// when it is next displayed, exactly as they are for every other off-screen
@@ -358,45 +358,6 @@ final class SaveTransformController {
         )
     }
 
-    /// The edits to hand the text storage: either the plan's own, or the single
-    /// replacement covering all of them.
-    ///
-    /// **Every `replaceCharacters` shifts everything after it**, so applying N
-    /// edits costs the bytes following each one — and an `end_of_line`
-    /// normalization emits one edit *per line*, which makes that quadratic in the
-    /// file: the first save of a large CRLF buffer under `end_of_line = lf` would
-    /// be a multi-second freeze on the main thread, on a keystroke or, worse, on
-    /// an unattended autosave tick. `SaveTransform.applied(_:to:)` refuses the
-    /// same shape in Core for the same reason. Replacing the one span the edits
-    /// cover shifts the tail exactly once instead.
-    ///
-    /// Which is cheaper depends on the plan, so **both costs are measured and the
-    /// smaller wins**: a two-line trim at opposite ends of a big file stays two
-    /// edits, a dense or file-wide run collapses into one. Collapsing loses
-    /// nothing the callers depend on — `endEditing` already coalesces the edited
-    /// ranges into a single one, so the highlighter, the gutter and the minimap
-    /// see the same edit either way, and the plan's remap (what actually moves
-    /// the caret, the selection and the anchor) is expressed against the original
-    /// offsets and does not know how the bytes arrived. Its one cost is that the
-    /// untouched text inside the span is re-attributed to `typingAttributes`
-    /// until the highlighter repaints — which it is about to do regardless,
-    /// precisely because the coalesced edited range already spans it.
-    private func applicableEdits(for plan: SaveTransformPlan, length: Int) -> [IndentReplacement] {
-        guard let first = plan.replacements.first, let last = plan.replacements.last else { return [] }
-        let start = first.range.location
-        let end = NSMaxRange(last.range)
-        let scattered = plan.replacements.reduce(0) { $0 + length - NSMaxRange($1.range) }
-        guard scattered > length - start else { return plan.replacements }
-        // `start` is the first edit's location, so the remap leaves it where it
-        // is; `end` is the last edit's end, so the remap carries every edit's net
-        // length into it. The span between the two in `plan.text` is therefore
-        // exactly what the whole run produces.
-        let replacement = (plan.text as NSString).substring(
-            with: NSRange(location: start, length: plan.remappedOffset(end) - start)
-        )
-        return [IndentReplacement(range: NSRange(location: start, length: end - start), replacement: replacement)]
-    }
-
     /// Rewrite the shown buffer through the text view: one undoable step, one
     /// change notification, the selection and the scroll anchor remapped by the
     /// engine.
@@ -417,7 +378,16 @@ final class SaveTransformController {
         let selection = (textView.selectedRanges as [NSValue]).map { plan.remappedRange($0.rangeValue) }
         let anchor = editor?.scrollAnchorOffset.map(plan.remappedOffset)
 
-        let edits = applicableEdits(for: plan, length: textStorage.length)
+        // Which shape the edits take — the plan's own, or the one replacement
+        // covering them — is the engine's arithmetic, not this class's
+        // (`applicableReplacements(originalLength:)`). Collapsing costs nothing
+        // here: `endEditing` already coalesces the edited ranges into a single
+        // one, so the highlighter, the gutter and the minimap see the same edit
+        // either way. Its one cost is that the untouched text inside the span is
+        // re-attributed to `typingAttributes` until the highlighter repaints —
+        // which it is about to do regardless, precisely because the coalesced
+        // edited range already spans it.
+        let edits = plan.applicableReplacements(originalLength: textStorage.length)
         let editedRanges = edits.map { NSValue(range: $0.range) }
         let replacements = edits.map(\.replacement)
         editor?.beginSaveTransformRewrite()

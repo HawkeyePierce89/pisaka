@@ -611,6 +611,93 @@ final class SaveTransformTests: XCTestCase {
         XCTAssertEqual(plan.remappedOffset(8), 5)
     }
 
+    // MARK: - The shape the edits are handed over in
+
+    /// Applying `replacements` one by one is quadratic in the file when the run
+    /// is dense, so the plan offers the single replacement covering them instead
+    /// — and whichever shape it offers must produce `text` byte for byte.
+    private func applying(_ edits: [IndentReplacement], to text: String) -> String {
+        let result = NSMutableString(string: text)
+        for edit in edits.reversed() {
+            result.replaceCharacters(in: edit.range, with: edit.replacement)
+        }
+        return result as String
+    }
+
+    func testAScatteredRunIsHandedOverAsItsOwnEdits() {
+        let text = "a  " + String(repeating: "\n", count: 400) + "b  "
+        let plan = SaveTransform.plan(text: text, config: config(trim))
+        XCTAssertEqual(plan.replacements.count, 2)
+        XCTAssertEqual(plan.applicableReplacements(originalLength: (text as NSString).length), plan.replacements)
+    }
+
+    func testADenseRunCollapsesIntoTheOneReplacementCoveringIt() {
+        let text = String(repeating: "a\r\n", count: 200)
+        let plan = SaveTransform.plan(text: text, config: config(["end_of_line": "lf"]))
+        XCTAssertEqual(plan.replacements.count, 200)
+        let edits = plan.applicableReplacements(originalLength: (text as NSString).length)
+        XCTAssertEqual(edits.count, 1)
+        XCTAssertEqual(applying(edits, to: text), plan.text)
+    }
+
+    /// The regression the collapsed span used to have: `insert_final_newline`
+    /// emits a **zero-length insertion at end of file**, and `remappedOffset`
+    /// deliberately reads an offset at an edit's start as *before* it — so a span
+    /// ending at the remapped end of file stopped short of the inserted
+    /// terminator and the save dropped the final newline the configuration asked
+    /// for. The buffer was then clean, so nothing came back for it.
+    func testACollapsedRunKeepsTheFinalNewlineItInserts() {
+        let text = "a \r\nb "
+        let plan = SaveTransform.plan(
+            text: text,
+            config: config(["trim_trailing_whitespace": "true", "insert_final_newline": "true", "end_of_line": "lf"])
+        )
+        XCTAssertEqual(plan.text, "a\nb\n")
+        let edits = plan.applicableReplacements(originalLength: (text as NSString).length)
+        XCTAssertEqual(edits.count, 1)
+        XCTAssertEqual(applying(edits, to: text), "a\nb\n")
+    }
+
+    func testAnEmptyPlanHandsOverNoEdits() {
+        let plan = SaveTransform.plan(text: "a\nb\n", config: config([:]))
+        XCTAssertEqual(plan.applicableReplacements(originalLength: 4), [])
+    }
+
+    /// Whichever branch the cost comparison picks, the bytes are the plan's.
+    func testEitherShapeReproducesThePlansText() {
+        let texts = [
+            "one  \r\ntwo\t\rthree \n\r\nfour   ",
+            "a \u{0085}b\t\u{2028}c \u{2029}d\r\n",
+            "\n\n   \n",
+            "   ",
+            "a",
+            "a\r\n\r\n  b",
+            "🙂  \r\n🙃\t",
+            String(repeating: "x \r\n", count: 50) + "tail",
+        ]
+        let configurations: [[String: String]] = [
+            ["trim_trailing_whitespace": "true"],
+            ["insert_final_newline": "true"],
+            ["end_of_line": "lf"],
+            ["end_of_line": "crlf"],
+            ["end_of_line": "cr"],
+            ["trim_trailing_whitespace": "true", "insert_final_newline": "true", "end_of_line": "lf"],
+            ["trim_trailing_whitespace": "true", "insert_final_newline": "true", "end_of_line": "crlf"],
+            ["trim_trailing_whitespace": "true", "insert_final_newline": "true", "end_of_line": "cr"],
+        ]
+        for text in texts {
+            for values in configurations {
+                let plan = SaveTransform.plan(text: text, config: config(values))
+                let edits = plan.applicableReplacements(originalLength: (text as NSString).length)
+                XCTAssertEqual(
+                    applying(edits, to: text),
+                    plan.text,
+                    "\(String(reflecting: text)) under \(values)"
+                )
+            }
+        }
+    }
+
     // MARK: - Idempotence
 
     func testTheComposedTransformIsIdempotent() {
