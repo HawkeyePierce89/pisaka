@@ -500,6 +500,8 @@ Non-Swift test data lives in `Tests/PisakaCoreTests/Fixtures/<area>/`, read
 through `#filePath` the same way, and must be listed in the test target's
 `exclude:` (why, in `core-lsp.md`).
 
+**Async Test Staging:** Async tests must stage races using a causal rendezvous (a wait on a signal that *must* arrive, never on a window that may already have closed) rather than using timed delays or `Task.yield()` spins. Use helpers like `Gate` and `waitFor` for condition-waits that fail loudly via `XCTFail` on timeout rather than passing vacuously. Assertions should poll for a sink's record instead of assuming any particular hop count.
+
 Shared test helpers live in `Tests/PisakaCoreTests/Support/`: `YAMLLineMatching`
 (the comment-stripping and whole-line matching the workflow/`project.yml` suites
 share), `StubFileTree` (an in-memory `FileServicing` tree with

@@ -41,18 +41,24 @@ final class LeetCodeCatalogTests: XCTestCase {
     private final class Clock: @unchecked Sendable {
         private let lock = NSLock()
         private var value: Date
-        var onFirstRead: (() -> Void)?
+        private var _onFirstRead: (() -> Void)?
+
+        var onFirstRead: (() -> Void)? {
+            get { lock.lock(); defer { lock.unlock() }; return _onFirstRead }
+            set { lock.lock(); _onFirstRead = newValue; lock.unlock() }
+        }
 
         init(_ value: Date) { self.value = value }
 
         var now: Date {
             get {
                 lock.lock()
-                let hook = onFirstRead
-                onFirstRead = nil
-                defer { lock.unlock() }
+                let hook = _onFirstRead
+                _onFirstRead = nil
+                let currentValue = value
+                lock.unlock()
                 hook?()
-                return value
+                return currentValue
             }
             set { lock.lock(); value = newValue; lock.unlock() }
         }
@@ -1361,7 +1367,14 @@ final class LeetCodeCatalogTests: XCTestCase {
 
         catalog.sessionDidChange(to: credentials)
 
-        final class HookState: @unchecked Sendable { var fired = false }
+        final class HookState: @unchecked Sendable {
+            private let lock = NSLock()
+            private var _fired = false
+            var fired: Bool {
+                get { lock.lock(); defer { lock.unlock() }; return _fired }
+                set { lock.lock(); _fired = newValue; lock.unlock() }
+            }
+        }
         let state = HookState()
 
         clock.onFirstRead = {

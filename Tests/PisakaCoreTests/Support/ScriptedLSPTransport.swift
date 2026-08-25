@@ -149,7 +149,7 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
     /// Push a message the client did not ask for — a server-initiated request, a
     /// notification, or a response to an id nobody is waiting on.
     func emit(_ message: LSPOutgoingMessage) {
-        guard let framed = try? LSPFraming.encode(message) else { return }
+        let framed = try! LSPFraming.encode(message)
         write(framed)
     }
 
@@ -165,7 +165,7 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
     func pushAfter(delay: TimeInterval, method: String, params: JSONValue? = nil) {
         let message = LSPNotificationMessage(method: method, params: params)
         Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(max(0, delay) * 1_000_000_000))
+            try await Task.sleep(nanoseconds: UInt64(max(0, delay) * 1_000_000_000))
             guard let self else { return }
             self.emit(.notification(message))
         }
@@ -201,8 +201,8 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
             lock.unlock()
             throw error
         }
-        let payloads = (try? framing.append(data)) ?? []
-        let messages = payloads.compactMap { try? LSPIncomingMessage.decode($0) }
+        let payloads = try framing.append(data)
+        let messages = try payloads.map { try LSPIncomingMessage.decode($0) }
         received.append(contentsOf: messages)
         let hook = onSend
         lock.unlock()
@@ -273,7 +273,7 @@ final class ScriptedLSPTransport: LSPTransport, @unchecked Sendable {
             return
         }
         Task {
-            try? await Task.sleep(nanoseconds: UInt64(step.delay * 1_000_000_000))
+            try await Task.sleep(nanoseconds: UInt64(step.delay * 1_000_000_000))
             work()
         }
     }
