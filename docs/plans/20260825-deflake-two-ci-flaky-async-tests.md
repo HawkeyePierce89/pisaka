@@ -181,12 +181,12 @@ the rendezvous does not disturb; the latter gains attribution, because draining 
 consumer's clear before each request makes the remaining clears provably the
 budget path's own.
 
-- [ ] add the "kill and wait until the death is processed" helper to the suite
-- [ ] restage the named test, draining events so the asserted clear is attributable to `noteDeath`
-- [ ] restage the two siblings at the remaining three `closeStream()` sites
-- [ ] update all three doc comments (interleaving pinned, why the rendezvous is causal not timed)
-- [ ] run each restaged test ≥100 times in a loop; all green
-- [ ] run the whole `LSPDiagnosticsRoutingTests` suite; green
+- [x] add the "kill and wait until the death is processed" helper to the suite
+- [x] restage the named test, draining events so the asserted clear is attributable to `noteDeath`
+- [x] restage the two siblings at the remaining three `closeStream()` sites
+- [x] update all three doc comments (interleaving pinned, why the rendezvous is causal not timed)
+- [x] run each restaged test ≥100 times in a loop; all green
+- [x] run the whole `LSPDiagnosticsRoutingTests` suite; green
 
 ### Task 4: Pin the other legal interleaving
 

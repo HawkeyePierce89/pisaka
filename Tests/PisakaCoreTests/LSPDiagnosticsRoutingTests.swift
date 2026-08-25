@@ -483,6 +483,19 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
 
     // MARK: - Clears (D33)
 
+    /// Kills the live server and waits until its death has been processed.
+    /// The consumer's clear is the observable proof that `phase == .terminated` is reached.
+    private func killServerAndWaitForDeathProcessing() async {
+        let eventsBefore = events.count
+        harness.latest.closeStream()
+        await waitFor("the consumer to process the death") {
+            self.events.dropFirst(eventsBefore).contains { event in
+                if case .cleared(.server) = event { return true }
+                return false
+            }
+        }
+    }
+
     func testACrashMidSessionClearsThatKey() async throws {
         _ = try await open(mainFile, text: "a")
         try pushToMainFile(version: 1, message: "m")
@@ -503,13 +516,17 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     /// A replacement session re-publishes under the same key; the dead
     /// predecessor's consumer must not wipe those answers when its own stream
     /// finally finishes under it.
+    ///
+    /// The rendezvous is causal, not timed: waiting for the dead life's clear
+    /// to land guarantees the test proceeds only once the stream's death
+    /// is fully processed by the consumer.
     func testAReplacementServersPushesSurviveTheDeadConsumersExit() async throws {
         _ = try await open(mainFile, text: "a")
         try pushToMainFile(version: 1, message: "old")
         await waitFor("the old push") { !self.publishedEvents().isEmpty }
 
-        // Crash, then let the next request notice the death and start over.
-        harness.latest.closeStream()
+        // Crash and wait for the consumer's clear, then let the next request start over.
+        await killServerAndWaitForDeathProcessing()
         _ = try await open(mainFile, text: "b")
         XCTAssertEqual(harness.launches.count, 2)
 
@@ -704,13 +721,22 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     /// A crash noticed by the *next request* (not by the stream's consumer)
     /// still clears synchronously inside `noteDeath`, before the restart — so
     /// by the time `open` returns, a clear for the dead life has landed.
+    ///
+    /// Staged causally, not timed: draining the events after waiting for the
+    /// dead life's clear ensures the remaining clear is unambiguously the
+    /// synchronous one emitted by `noteDeath` before the restart.
+    ///
+    /// The other legal interleaving — where the next request acquires a session
+    /// whose death has not been noticed — is idempotent by the product's own
+    /// at-least-once clear rule, and pinned by the write-failure test added
+    /// for the other interleaving.
     func testACrashNoticedByTheNextRequestClearsBeforeTheRestart() async throws {
         _ = try await open(mainFile, text: "a")
         try pushToMainFile(version: 1, message: "m")
         await waitFor("the push") { !self.publishedEvents().isEmpty }
 
+        await killServerAndWaitForDeathProcessing()
         events.removeAll()
-        harness.latest.closeStream()
         _ = try await open(mainFile, text: "b")
         XCTAssertEqual(harness.launches.count, 2, "the request that noticed the death restarted the server")
 
@@ -727,12 +753,15 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     /// The spent-budget path (`noteFailure`'s fourth-failure unavailability) is
     /// a teardown site even though no session ever died there: a predecessor's
     /// answers may still be on screen when the key retires.
+    ///
+    /// Draining the consumer's clear before each request ensures the remaining
+    /// clears are provably the budget path's own (staged causally).
     func testASpentCrashBudgetEmitsTheKeysClear() async throws {
         // Three crashes are restarted from (D7's budget is three).
         for attempt in 1...3 {
             _ = try await open(mainFile, text: "a\(attempt)")
+            await killServerAndWaitForDeathProcessing()
             events.removeAll()
-            harness.latest.closeStream()
             _ = try await open(mainFile, text: "a\(attempt + 1)")
             XCTAssertEqual(harness.launches.count, attempt + 1)
         }
@@ -740,8 +769,8 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
 
         // The fourth death spends the budget: the request that notices it
         // retires the key, answers nothing from then on, and emits its clear.
+        await killServerAndWaitForDeathProcessing()
         events.removeAll()
-        harness.latest.closeStream()
         let prepared = await workspace.prepare(url: mainFile, language: .swift, text: "a5")
         XCTAssertNil(prepared, "the fourth failure must retire the key")
         XCTAssertEqual(harness.launches.count, 4, "nothing launches once the budget is spent")
