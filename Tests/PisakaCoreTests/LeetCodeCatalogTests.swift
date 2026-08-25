@@ -1352,12 +1352,13 @@ final class LeetCodeCatalogTests: XCTestCase {
     /// `catalog.json` is what carries the departing account's solved marks into the
     /// next launch and pins them under the next account's name for a day.
     ///
-    /// Staged deterministically on a causal rendezvous, not a timed one: the fetch's
-    /// last act before publishing is reading the clock, so giving that read a hook
-    /// enqueues the sign-out to run as soon as the actor becomes free, which is exactly
-    /// the encode's suspension. `Gate` cannot stage this window because it would block
-    /// the thread while the encode completes, deadlocking the actor and freezing the
-    /// sign-out.
+    /// Staged empirically: the fetch's last act before publishing is reading the clock,
+    /// so giving that read a hook enqueues the sign-out to run as soon as the actor
+    /// becomes free, which is at the encode's suspension. While Swift's `await` is
+    /// a potential rather than guaranteed yield, the detachment of the encode task
+    /// reliably forces a suspension in practice. A perfect causal rendezvous is
+    /// impossible without changing `Sources/` to add a test seam, and `Gate` cannot
+    /// stage this window because it would block the actor and freeze the sign-out.
     func testASessionReplacedWhileTheCacheIsEncodedIsNeverWritten() async throws {
         let tree = makeTree()
         let transport = ScriptedLeetCodeTransport()
@@ -1369,16 +1370,18 @@ final class LeetCodeCatalogTests: XCTestCase {
 
         let hookFired = expectation(description: "hook fired")
 
-        clock.onFirstRead = {
+        var signoutTask: Task<Void, Never>?
+        clock.onFirstRead = { [weak catalog] in
             hookFired.fulfill()
-            Task { @MainActor in
-                catalog.sessionDidChange(to: nil)
+            signoutTask = Task { @MainActor in
+                catalog?.sessionDidChange(to: nil)
             }
         }
 
         try await catalog.refresh(credentials: credentials)
 
         await fulfillment(of: [hookFired], timeout: 1.0)
+        await signoutTask?.value
         XCTAssertEqual(catalog.problems.map(\.slug), ["two-sum"])
         XCTAssertEqual(catalog.fetchedAt, now)
         XCTAssertEqual(transport.count(for: .problemList), 1)

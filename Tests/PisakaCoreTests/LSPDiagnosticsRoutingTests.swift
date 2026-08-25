@@ -18,7 +18,7 @@ import XCTest
 ///
 /// Audit inventory of `closeStream()` sites:
 /// - `testACrashMidSessionClearsThatKey`: already sound — waits for the clear.
-/// - `testAReplacementServersPushesSurviveTheDeadConsumersExit`: restaged —
+/// - `testAReplacementServersPushesSurviveThePredecessorsClear`: restaged —
 ///   close-then-`open`.
 /// - `testACrashNoticedByTheNextRequestClearsBeforeTheRestart`: restaged —
 ///   the named defect.
@@ -159,7 +159,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         _ entries: [(LSPPosition, LSPPosition, LSPDiagnosticSeverity?, String)]
     ) throws {
         // Built as a literal rather than encoded: the params type is
-        // decode-only (the server initiates this conversation), so the tes
+        // decode-only (the server initiates this conversation), so the test
         // speaks the wire shape the decoder reads.
         var payload: [String: JSONValue] = [
             "uri": .string(uri),
@@ -368,7 +368,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         )
     }
 
-    /// A server may re-spell the URI it was handed — a different but equivalen
+    /// A server may re-spell the URI it was handed — a different but equivalent
     /// percent-encoding is the ordinary case — and the push must still find its
     /// document. Matching the raw strings alone would drop every diagnostic for
     /// that file, silently, for the whole session.
@@ -531,9 +531,16 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     }
 
     /// A replacement session re-publishes under the same key; the dead
-    /// predecessor's consumer must not wipe those answers when its own stream
-    /// finally finishes under it.
-    func testAReplacementServersPushesSurviveTheDeadConsumersExit() async throws {
+    /// predecessor's clear (emitted when its stream finishes) must not wipe
+    /// those answers.
+    ///
+    /// Staged causally by waiting for the predecessor's clear *before* opening
+    /// the replacement document. The other interleaving (where the predecessor's
+    /// stream finishes *after* the replacement has started) exercises the
+    /// replacement guard in `attachNotificationConsumer`, but cannot be staged
+    /// deterministically without a sleep because the consumer emits no signal
+    /// when the guard prevents the clear.
+    func testAReplacementServersPushesSurviveThePredecessorsClear() async throws {
         _ = try await open(mainFile, text: "a")
         try pushToMainFile(version: 1, message: "old")
         try await waitFor("the old push") { !self.publishedEvents().isEmpty }
@@ -580,9 +587,9 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
 
     /// The folder switch is two steps — `prepareForFolderChange` synchronously,
     /// `shutdownAll()` a turn later — and an old project's consumer task is
-    /// still running inside that window, its documents still filed. A push i
+    /// still running inside that window, its documents still filed. A push it
     /// routes there must never reach the sink: the model's bookkeeping is
-    /// already cleared, so the event would be *held*, and a next project tha
+    /// already cleared, so the event would be *held*, and a next project that
     /// contains the same absolute path could then reconcile the old project's
     /// set onto the new file under the old server's provenance.
     func testAStragglersPushBetweenTheFolderSwitchsStepsNeverRoutes() async throws {
@@ -624,7 +631,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         _ = try await open(utilFile, text: "b")
 
         await workspace.didClose(url: mainFile)
-        // A second close of the same document is the guard's early return: i
+        // A second close of the same document is the guard's early return: it
         // must not emit a duplicate document-scoped clear.
         await workspace.didClose(url: mainFile)
 
@@ -694,7 +701,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     /// to completion — the epoch is deliberately *not* bumped for it (D16) — so
     /// it files itself and opens its push channel **after** this method's
     /// up-front cancellation has already run. The consumer that late attach
-    /// leaves behind belongs to a session the in-flight teardown is about to shu
+    /// leaves behind belongs to a session the in-flight teardown is about to shut
     /// down: unless that branch cancels it too, it outlives its session in
     /// `notificationTasks` and speaks the stream-finish clear (D33) for a key the
     /// same call already cleared.
@@ -815,7 +822,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         }
         XCTAssertEqual(workspace.liveServerCount, 1)
 
-        // The fourth death spends the budget: the request that notices i
+        // The fourth death spends the budget: the request that notices it
         // retires the key, answers nothing from then on, and emits its clear.
         try await killServerAndWaitForDeathProcessing()
         events.removeAll()
@@ -864,7 +871,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     /// The whole channel over one scripted server, wired exactly as `PisakaApp`
     /// composes it — the workspace sink into `DiagnosticsModel.receive`, the
     /// sync reported as `LSPDocumentSyncController` reports it — so neither
-    /// half can drift from the other: not the event shape, and not the roo
+    /// half can drift from the other: not the event shape, and not the root
     /// spelling (`rootKey`'s canonical form, `/private/tmp/…` here) the clears
     /// are keyed by.
     func testTheWholeChannelFromPushToStoreAndBackToEmpty() async throws {
@@ -896,7 +903,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     /// The report-vs-push race at full composition: the workspace committed
     /// the flushed version and routes the server's answer before the
     /// controller's task has resumed far enough to report the sync (its own
-    /// doc comment concedes a real server pushes "well before the flush tha
+    /// doc comment concedes a real server pushes "well before the flush that
     /// carried it returns"). The event reaches the sink, the model has no
     /// record yet — and when the report lands it must admit the held push,
     /// with no second notification arriving to save it.
