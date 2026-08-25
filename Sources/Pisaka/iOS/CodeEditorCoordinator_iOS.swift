@@ -677,6 +677,18 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
         )
     }
 
+    /// The terminator a newly typed Return splices: the one `end_of_line` names,
+    /// and LF whenever it names none.
+    ///
+    /// `end_of_line` is consumed in full, so it decides what a *new* terminator is
+    /// as well as what the already-written ones become on save; typing Enter in a
+    /// CRLF project would otherwise write the one line the save has to come back
+    /// and fix. A project stating no `end_of_line` keeps splicing LF byte for byte,
+    /// which is `IndentEngine`'s own default.
+    private func newlineTerminator() -> String {
+        editorConfigProperties().endOfLine?.terminator ?? "\n"
+    }
+
     /// Insert the configured indentation for a Tab press. Returns `true` when it
     /// applied the edit, and `false` — letting `UITextView` insert its own literal
     /// tab — whenever the rule does not ask for spaces outright.
@@ -722,7 +734,8 @@ final class CodeEditorCoordinator_iOS: NSObject, UITextViewDelegate {
             text: nsText,
             location: range.location,
             unit: unit,
-            selectionLength: range.length
+            selectionLength: range.length,
+            terminator: newlineTerminator()
         )
         // `consumeAfter` extends the deleted range to also swallow trailing
         // whitespace just past the selection (the opener case) so it doesn't stack

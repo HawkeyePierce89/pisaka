@@ -135,6 +135,15 @@ struct CodeEditorView: NSViewRepresentable {
     /// per-keystroke update path).
     var editorConfig: EditorConfigModel
 
+    /// The one funnel every macOS save passes through before it writes. Owned by
+    /// `PisakaApp` (it has to outlive every editor — the saves it serves are
+    /// menu commands and autosave ticks, not editor events); this view only
+    /// *attaches* it, from `makeNSView`, so a rewrite of the shown buffer can go
+    /// through the live text view instead of behind it. Not observed (it
+    /// publishes nothing); optional so a default-constructed view
+    /// (previews/tests) compiles and simply transforms nothing.
+    var saveTransform: SaveTransformController?
+
     /// Schedules the diagnostics channel's push sync (D30) beside the index
     /// re-index above, from the *same* three triggers — so both readers of a
     /// buffer are told about every change in the same order and can never
@@ -423,6 +432,13 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.symbolIndex = symbolIndex
         context.coordinator.editorConfig = editorConfig
         context.coordinator.lspSync = lspSync
+        // Bind the save funnel to this editor. It holds both references weakly, so
+        // a torn-down editor leaves it with nothing on screen to reach — which is
+        // the ordinary state for every background tab, not a degraded one. With
+        // more than one window open the last editor built wins, exactly as the
+        // other app-owned, editor-attached singletons behave; a buffer shown in
+        // the other window is then rewritten through the model instead.
+        saveTransform?.attach(textView: textView, editor: context.coordinator)
         // Bind the diagnostics store and start observing it (one subscription for
         // the coordinator's lifetime; re-attachment is an identity-checked no-op).
         context.coordinator.attachDiagnostics(model: diagnostics)
@@ -785,7 +801,7 @@ struct CodeEditorView: NSViewRepresentable {
     /// Bridges `NSTextView` edits back into the SwiftUI binding and owns the
     /// tree-sitter highlighter for the currently shown file.
     @MainActor
-    final class Coordinator: NSObject, NSTextViewDelegate {
+    final class Coordinator: NSObject, NSTextViewDelegate, SaveTransformEditor {
         var text: Binding<String>
         var fileID: UUID?
 
@@ -1601,6 +1617,60 @@ struct CodeEditorView: NSViewRepresentable {
             scheduleDiagnosticOverlaysRefresh()
         }
 
+        // MARK: - Save transform
+
+        /// `SaveTransformEditor`: which file this text view is showing right now.
+        /// On the tab-switch autosave this is still the *outgoing* file, which is
+        /// exactly the buffer being saved.
+        var displayedFileID: UUID? { fileID }
+
+        /// `SaveTransformEditor`: the character currently at the top of the
+        /// viewport, so the save transform can put the same one back there.
+        var scrollAnchorOffset: Int? { captureViewport()?.topCharacterOffset }
+
+        /// `SaveTransformEditor`: raise both rewrite guards around a save
+        /// transform.
+        ///
+        /// Raised before `shouldChangeText`, which re-invokes the auto-pair
+        /// interceptor synchronously: a one-character replacement (the LF or CR a
+        /// terminator normalization emits) must pass through as the programmatic
+        /// edit it is rather than be inspected as a keystroke.
+        func beginSaveTransformRewrite() {
+            isApplyingProgrammaticEdit = true
+            isSwappingBuffer = true
+        }
+
+        /// `SaveTransformEditor`: drop the two readers that shift incrementally,
+        /// once the rewrite is known to be going ahead.
+        ///
+        /// The composed transform is applied as several small replacements, but
+        /// `endEditing` coalesces them into **one** edited range — for a
+        /// whole-file terminator normalization, the whole buffer. That is the
+        /// buffer-swap case in everything but name, so it takes the buffer-swap
+        /// treatment: `isSwappingBuffer` suppresses the diagnostics shift (a
+        /// file-wide edit would drop every entry anyway, D32) and the blame column
+        /// is dropped rather than shifted. Neither stays empty: this document's
+        /// diagnostics are re-published by the push sync that `textDidChange`
+        /// schedules, and the blame column reloads on the next update pass, which
+        /// the save's own `diskRevision` bump guarantees happens.
+        ///
+        /// `invalidateDiagnosticPaint()` is deliberately **not** called, unlike on
+        /// a real buffer swap: no `textView.string` assignment happened here, so
+        /// the temporary attributes over the untouched text are still there, and
+        /// forgetting the cache would make the clearing repaint a no-op and leave
+        /// stale underlines painted.
+        func resetIncrementalReadersForSaveTransform() {
+            beginBlameBufferSwap()
+            beginDiagnosticsBufferSwap(clearing: fileURL)
+        }
+
+        /// `SaveTransformEditor`: lower both guards, after `didChangeText()` — so
+        /// every notification the rewrite fires was covered by them.
+        func endSaveTransformRewrite() {
+            isSwappingBuffer = false
+            isApplyingProgrammaticEdit = false
+        }
+
         // MARK: - Find bar
 
         /// Bind the search controller to this text view and register it as the
@@ -1769,6 +1839,19 @@ struct CodeEditorView: NSViewRepresentable {
             )
         }
 
+        /// The terminator a newly typed Return splices: the one `end_of_line`
+        /// names, and LF whenever it names none.
+        ///
+        /// `end_of_line` is consumed in full, so it decides what a *new*
+        /// terminator is as well as what the already-written ones become on save;
+        /// typing Enter in a CRLF project would otherwise write the one line the
+        /// save has to come back and fix. A project stating no `end_of_line` keeps
+        /// splicing LF byte for byte, which is `IndentEngine`'s own default. The
+        /// iOS coordinator holds the identical pair.
+        private func newlineTerminator() -> String {
+            editorConfigProperties().endOfLine?.terminator ?? "\n"
+        }
+
         /// Intercept Tab so `indent_style = space` inserts spaces.
         ///
         /// `IndentUnitRule.tabInsertion` is deliberately stricter than the unit
@@ -1905,7 +1988,8 @@ struct CodeEditorView: NSViewRepresentable {
                 text: nsText,
                 location: selectedRange.location,
                 unit: unit,
-                selectionLength: selectedRange.length
+                selectionLength: selectedRange.length,
+                terminator: newlineTerminator()
             )
             // Replace the selection (a bare caret has length 0) with the computed
             // newline+indent. `consumeAfter` extends the range to also delete
@@ -2394,10 +2478,7 @@ struct CodeEditorView: NSViewRepresentable {
         /// which clamps to the document's real end — so neither a shrunken file
         /// nor a stale anchor can position past the end.
         func restoreViewport(for fileID: UUID) {
-            guard let textView,
-                  let layoutManager = textView.layoutManager,
-                  let container = textView.textContainer
-            else { return }
+            guard let textView else { return }
             let length = textView.textStorage?.length ?? 0
             guard let viewport = viewports.viewport(for: fileID, clampedToLength: length) else {
                 textView.setSelectedRange(NSRange(location: 0, length: 0))
@@ -2409,11 +2490,32 @@ struct CodeEditorView: NSViewRepresentable {
             // none either: `clamped(toLength:)` guarantees it names a character
             // that exists, so there is exactly one path below.
             textView.setSelectedRange(viewport.selection)
+            scrollAnchor(to: viewport.topCharacterOffset)
+        }
+
+        /// Scroll so the character at `anchor` sits at the top of the viewport,
+        /// leaving the selection alone.
+        ///
+        /// The scroll half of `restoreViewport(for:)`, split out because the save
+        /// transform needs exactly this and nothing else: it has already put the
+        /// remapped selection back through the text view, and must move the page
+        /// only far enough to keep the same character on the top line after an
+        /// edit that may have deleted characters above it.
+        ///
+        /// `anchor` is clamped to a character that exists, so an offset that
+        /// outran a shrunken buffer resolves to the last line rather than to
+        /// nothing.
+        func scrollAnchor(to anchor: Int) {
+            guard let textView,
+                  let layoutManager = textView.layoutManager,
+                  let container = textView.textContainer
+            else { return }
+            let length = textView.textStorage?.length ?? 0
             guard length > 0 else {
                 scrollEditor(to: 0)
                 return
             }
-            let anchor = viewport.topCharacterOffset
+            let anchor = min(max(anchor, 0), length - 1)
             layoutManager.ensureLayout(forCharacterRange: NSRange(location: 0, length: anchor + 1))
             let glyphRange = layoutManager.glyphRange(
                 forCharacterRange: NSRange(location: anchor, length: 1),

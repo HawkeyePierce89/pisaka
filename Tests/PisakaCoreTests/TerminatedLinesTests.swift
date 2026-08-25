@@ -228,4 +228,154 @@ final class TerminatedLinesTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - Ranges
+
+    /// The range split is the same split, carrying offsets: the content range is
+    /// the line, the terminator range the separator that ended it (empty, and
+    /// pinned to the content's end, for an unterminated final line).
+    func testRangesCarryContentAndTerminatorOffsets() {
+        XCTAssertEqual(
+            TerminatedLines.ranges("ab\ncd"),
+            [
+                TerminatedLineRange(content: NSRange(location: 0, length: 2), terminator: NSRange(location: 2, length: 1)),
+                TerminatedLineRange(content: NSRange(location: 3, length: 2), terminator: NSRange(location: 5, length: 0)),
+            ]
+        )
+    }
+
+    /// The CRLF pair is one terminator of length two, never a CR line plus an LF
+    /// line — the offsets inherit the splitter's rule rather than restating it.
+    func testRangesKeepTheCRLFPairInOneTerminatorRange() {
+        XCTAssertEqual(
+            TerminatedLines.ranges("a\r\nb"),
+            [
+                TerminatedLineRange(content: NSRange(location: 0, length: 1), terminator: NSRange(location: 1, length: 2)),
+                TerminatedLineRange(content: NSRange(location: 3, length: 1), terminator: NSRange(location: 4, length: 0)),
+            ]
+        )
+    }
+
+    /// Every separator in the editor's set is one terminator range of its own
+    /// UTF-16 length.
+    func testRangesCoverEverySeparatorInTheEditorsSet() {
+        let separators = ["\n", "\r", "\r\n", "\u{0085}", "\u{2028}", "\u{2029}"]
+        for separator in separators {
+            let text = "a" + separator + "b"
+            let ranges = TerminatedLines.ranges(text)
+            XCTAssertEqual(ranges.count, 2, "for \(String(reflecting: separator))")
+            XCTAssertEqual(
+                ranges.first?.terminator,
+                NSRange(location: 1, length: (separator as NSString).length),
+                "for \(String(reflecting: separator))"
+            )
+        }
+    }
+
+    func testRangesOfAnEmptyTextAreEmpty() {
+        XCTAssertEqual(TerminatedLines.ranges(""), [])
+    }
+
+    /// The last line of a text that does not end in a separator carries an empty
+    /// terminator range at end of file, so "missing final newline" is readable as
+    /// `terminator.length == 0` with no separate branch.
+    func testRangesOfAnUnterminatedFinalLine() {
+        let ranges = TerminatedLines.ranges("a\nbc")
+        XCTAssertEqual(ranges.last?.content, NSRange(location: 2, length: 2))
+        XCTAssertEqual(ranges.last?.terminator, NSRange(location: 4, length: 0))
+    }
+
+    /// `enclosing` is the line as it appears in the text, terminator included.
+    func testEnclosingCoversContentAndTerminator() {
+        let ranges = TerminatedLines.ranges("ab\r\ncd")
+        XCTAssertEqual(ranges.first?.enclosing, NSRange(location: 0, length: 4))
+        XCTAssertEqual(ranges.last?.enclosing, NSRange(location: 4, length: 2))
+    }
+
+    /// The ranges tile the text: every enclosing range starts where the previous
+    /// one ended, and together they cover it exactly. This is what lets an edit
+    /// plan be expressed against original offsets with no gaps or overlaps.
+    func testRangesTileTheWholeText() {
+        let samples = [
+            "",
+            "a",
+            "a\n",
+            "a\r\nb\nc\rd\u{2028}e\u{2029}f\u{0085}g",
+            "\n\n\n",
+            "🙂\n🙃",
+        ]
+        for text in samples {
+            var expected = 0
+            for range in TerminatedLines.ranges(text) {
+                XCTAssertEqual(range.content.location, expected, "for \(String(reflecting: text))")
+                XCTAssertEqual(range.terminator.location, NSMaxRange(range.content), "for \(String(reflecting: text))")
+                expected = NSMaxRange(range.terminator)
+            }
+            XCTAssertEqual(expected, (text as NSString).length, "for \(String(reflecting: text))")
+        }
+    }
+
+    /// `split(_:)` must stay a *projection* of the range split rather than a
+    /// second traversal that agrees today: the same regression-lock role the
+    /// `LineDiff.splitLines` fuzz above plays one level down.
+    ///
+    /// The projection check alone is a tautology while `split` is written as that
+    /// map, so the same random texts are also held against an **independent**
+    /// statement of what `ranges(_:)` must be — one that never mentions `split`:
+    /// the enclosing ranges tile the text from 0 to its end with no gap and no
+    /// overlap, every terminator is drawn from the editor's own separator set,
+    /// and the line starts are exactly `LineStartIndex.offsets(in:)`. Those are
+    /// the offsets `SaveTransform` edits through, so they are the half that has to
+    /// be fuzzed against something other than itself.
+    func testSplitIsAProjectionOfTheRangeSplit() {
+        let alphabet = [
+            "a", "b", "c", " ", "\t", "\n", "\r", "\r\n",
+            "\u{0085}", "\u{2028}", "\u{2029}", "x", "🙂",
+        ]
+        let seeds: [UInt64] = [0x1234_5678_9abc_def0, 0xdead_beef_cafe_babe, 0x0f0f_0f0f_f0f0_f0f0]
+
+        for seed in seeds {
+            var rng = LCG(state: seed)
+            for _ in 0..<400 {
+                var text = ""
+                for _ in 0..<rng.next(24) {
+                    text += alphabet[rng.next(alphabet.count)]
+                }
+                let ns = text as NSString
+                let ranges = TerminatedLines.ranges(text)
+                let label = "seed=\(String(format: "%016x", seed)) text=\(String(reflecting: text))"
+
+                // The independent half: what the ranges must be, said without
+                // reference to `split`.
+                let separators: Set<String> = ["\n", "\r", "\r\n", "\u{0085}", "\u{2028}", "\u{2029}"]
+                var cursor = 0
+                for range in ranges {
+                    XCTAssertEqual(range.content.location, cursor, "no gap, no overlap — \(label)")
+                    XCTAssertEqual(range.terminator.location, NSMaxRange(range.content), "terminator abuts content — \(label)")
+                    let terminator = ns.substring(with: range.terminator)
+                    XCTAssertTrue(
+                        terminator.isEmpty || separators.contains(terminator),
+                        "terminator \(String(reflecting: terminator)) — \(label)"
+                    )
+                    cursor = NSMaxRange(range.enclosing)
+                }
+                XCTAssertEqual(cursor, ns.length, "the ranges tile the whole text — \(label)")
+                // `LineStartIndex` is the editor's other traversal of the same
+                // separator set, and it *does* carry the phantom final empty line
+                // a trailing separator creates. Removing exactly that entry is
+                // what "a trailing separator adds no phantom line" means here.
+                var expectedStarts = ns.length == 0 ? [] : LineStartIndex.offsets(in: ns)
+                if LineStartIndex.endsWithLineSeparator(ns) { expectedStarts.removeLast() }
+                XCTAssertEqual(ranges.map(\.content.location), expectedStarts, "line starts — \(label)")
+
+                let projected = ranges.map {
+                    TerminatedLine(
+                        content: ns.substring(with: $0.content),
+                        terminator: ns.substring(with: $0.terminator)
+                    )
+                }
+                XCTAssertEqual(projected, TerminatedLines.split(text), label)
+            }
+        }
+    }
 }

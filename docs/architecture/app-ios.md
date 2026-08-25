@@ -299,7 +299,19 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     goes through the funnel above and editing a `.editorconfig` in Pisaka itself is
     the likeliest way anyone changes one; narrow on purpose (it fires only when the
     written url *is* a `.editorconfig`), since an ordinary save must not put a
-    resolution walk on the next keystroke. The **root switch** is registered beside
+    resolution walk on the next keystroke. That same button calls
+    `applySaveTransform(to:)` immediately *before* `model.save(for:)` — the iOS
+    half of the macOS `SaveTransformController`, and the whole of it, because iOS
+    has exactly one save. It runs the identical three-step chain (resolve through
+    the `EditorConfigModel` this screen already holds, ask `SaveTransform` for the
+    plan, rewrite through `WorkspaceModel.replaceText(_:for:)`), decides nothing
+    the engine decides, and returns having touched nothing when the plan is empty.
+    It passes **no protected positions**, deliberately: the caret-line exemption
+    exists because macOS autosaves aggressively enough to trim indentation out from
+    under someone mid-thought, and iOS has no autosave — the buffer is being closed,
+    so the file is trimmed in full. `replaceText`'s token bump is free here for the
+    same reason: the tab closes on the next line, so there is no undo stack or
+    remembered viewport left to drop. Full rationale in `core-editorconfig.md`. The **root switch** is registered beside
     `synchronizeSymbolIndex(forRoot:)` in `.onChange(of: model.projectRoot)`
     (`editorConfig.noteProjectRoot(newRoot)`): the one place both folder paths meet,
     so a configuration resolved under the folder the user just left can never be
@@ -389,7 +401,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     by the folder the user just left. The call is idempotent for an unchanged root,
     so repeating it costs a comparison and throws no cache away. Enter's
     `insertIndentedNewline` takes its `unit` from `IndentUnitRule
-    .unit(config:inferred:)` instead of the bare inference, and **Tab** is
+    .unit(config:inferred:)` instead of the bare inference **and its `terminator:`
+    from the configuration too** (`newlineTerminator()`, the one-line
+    `endOfLine?.terminator ?? "\n"` the macOS coordinator holds identically), so a
+    project stating `end_of_line = crlf` types the terminator its saves normalize
+    to and a project stating nothing splices LF byte for byte — what you type and
+    what a save writes never disagree (`core-editorconfig.md`). **Tab** is
     intercepted in `shouldChangeTextIn` as a `"\t"` replacement: when
     `IndentUnitRule.tabInsertion` answers spaces they are applied through the
     existing `applyEdit` and the default is suppressed, and when it answers a tab

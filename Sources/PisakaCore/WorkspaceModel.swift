@@ -573,8 +573,11 @@ public final class WorkspaceModel: ObservableObject {
     /// editor, bumping its `textReplacementRevisions` token.
     ///
     /// The text-mutating counterpart of `updateText(_:for:)` for callers that are
-    /// not the user's own typing — currently the project-wide Replace All, which
-    /// applies to every matching open tab, including ones that are not on screen.
+    /// not the user's own typing: the project-wide Replace All, which applies to
+    /// every matching open tab including ones that are not on screen, and the
+    /// on-save transform's off-screen path — the macOS funnel's fallback for a
+    /// buffer no editor holds, and iOS's one save, which has no text view to
+    /// rewrite through at all (`core-editorconfig.md`).
     /// The bump is what lets the editor drop that file's now-invalid undo stack
     /// when the tab is next displayed. Returns `false` (and changes nothing) when
     /// no open tab has that id.
@@ -767,6 +770,16 @@ public final class WorkspaceModel: ObservableObject {
         case destinationAlreadyOpen
     }
 
+    /// Whether a *different* open tab already targets `url` — the one condition
+    /// `saveAs(url:for:)` refuses on, asked separately so a caller may find out
+    /// **before** it does anything a refused save would have to undo (the on-save
+    /// transform rewrites the buffer, and must not rewrite it for a write that is
+    /// then rejected).
+    public func isDestinationOpenElsewhere(_ url: URL, for id: UUID) -> Bool {
+        let canonical = canonicalURL(url)
+        return openFiles.contains { $0.id != id && canonicalURL(of: $0) == canonical }
+    }
+
     /// Save the file identified by `id` to `url` (Save As).
     ///
     /// Assigns the url, writes the contents to disk, updates the display name
@@ -778,8 +791,7 @@ public final class WorkspaceModel: ObservableObject {
     /// `open(url:)`'s guard against two buffers sharing one path.
     public func saveAs(url: URL, for id: UUID) throws {
         guard let index = indexOf(id) else { return }
-        let canonical = canonicalURL(url)
-        if openFiles.contains(where: { $0.id != id && canonicalURL(of: $0) == canonical }) {
+        if isDestinationOpenElsewhere(url, for: id) {
             throw SaveAsError.destinationAlreadyOpen
         }
         try fileService.write(openFiles[index].text, to: url)

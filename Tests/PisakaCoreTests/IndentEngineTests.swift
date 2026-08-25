@@ -247,6 +247,127 @@ final class IndentEngineTests: XCTestCase {
         XCTAssertLessThanOrEqual(caret, (text as NSString).length)
     }
 
+    // MARK: - newlineIndentation: the spliced terminator
+
+    // Apply a NewlineEdit under an explicit terminator exactly as the view does
+    // (replace [location, length + consumeAfter) with `text`, caret at
+    // `location + cursorOffset`), returning the result and the caret's index.
+    private func applyNewline(
+        _ s: String,
+        at location: Int,
+        length: Int = 0,
+        unit: String,
+        terminator: String
+    ) -> (text: String, caret: Int) {
+        let ns = s as NSString
+        let edit = IndentEngine.newlineIndentation(
+            text: ns, location: location, unit: unit,
+            selectionLength: length, terminator: terminator
+        )
+        let range = NSRange(location: location, length: length + edit.consumeAfter)
+        return (ns.replacingCharacters(in: range, with: edit.text), location + edit.cursorOffset)
+    }
+
+    // The caret's column: its UTF-16 distance from the start of the line it sits
+    // on, under the editor's own separator set (so a CRLF pair counts as one
+    // separator, not two lines). Comparing columns is how "the caret lands where
+    // it does under LF" is asserted across terminators of differing lengths — the
+    // absolute offset necessarily differs, the column must not.
+    private func caretColumn(_ text: String, _ caret: Int) -> Int {
+        let ns = text as NSString
+        var lineStart = 0
+        for s in LineStartIndex.offsets(in: ns) where s <= caret { lineStart = s }
+        return caret - lineStart
+    }
+
+    func testTwoUnitTerminatorInheritsPreviousLineIndent() {
+        // The plain inherit case: the whole terminator is spliced and the caret
+        // still lands at the end of the inherited indent, not one unit short.
+        let edit = IndentEngine.newlineIndentation(
+            text: "    expect(foo)" as NSString, location: 15, unit: "    ", terminator: "\r\n"
+        )
+        XCTAssertEqual(edit, NewlineEdit(text: "\r\n    ", cursorOffset: 6))
+
+        let (text, caret) = applyNewline("    expect(foo)", at: 15, unit: "    ", terminator: "\r\n")
+        XCTAssertEqual(text, "    expect(foo)\r\n    ")
+        XCTAssertEqual(caret, (text as NSString).length)
+
+        let lf = applyNewline("    expect(foo)", at: 15, unit: "    ", terminator: "\n")
+        XCTAssertEqual(caretColumn(text, caret), caretColumn(lf.text, lf.caret))
+    }
+
+    func testTwoUnitTerminatorAfterOpenerConsumesTrailingWhitespace() {
+        // The opener case: one unit on the new line, the trailing spaces still
+        // reported for consumption, and the caret at the indent's end.
+        let edit = IndentEngine.newlineIndentation(
+            text: "func f() {    " as NSString, location: 10, unit: "    ", terminator: "\r\n"
+        )
+        XCTAssertEqual(edit, NewlineEdit(text: "\r\n    ", cursorOffset: 6, consumeAfter: 4))
+
+        let (text, caret) = applyNewline("func f() {    ", at: 10, unit: "    ", terminator: "\r\n")
+        XCTAssertEqual(text, "func f() {\r\n    ")
+        XCTAssertEqual(caret, (text as NSString).length)
+
+        let lf = applyNewline("func f() {    ", at: 10, unit: "    ", terminator: "\n")
+        XCTAssertEqual(caretColumn(text, caret), caretColumn(lf.text, lf.caret))
+    }
+
+    func testTwoUnitTerminatorBetweenBracketsSplit() {
+        // The split case is the one that counts the terminator's length twice over
+        // — once spliced, once in the caret offset. A hardcoded single unit would
+        // wedge the caret one short of the middle line's indent.
+        let edit = IndentEngine.newlineIndentation(
+            text: "    if x {}" as NSString, location: 10, unit: "    ", terminator: "\r\n"
+        )
+        XCTAssertEqual(edit, NewlineEdit(text: "\r\n        \r\n    ", cursorOffset: 10))
+
+        let (text, caret) = applyNewline("    if x {}", at: 10, unit: "    ", terminator: "\r\n")
+        XCTAssertEqual(text, "    if x {\r\n        \r\n    }")
+        // The caret sits at the end of the middle line's 8-space indent: everything
+        // before it on that line is whitespace, and the terminator follows.
+        XCTAssertEqual((text as NSString).substring(with: NSRange(location: caret - 8, length: 8)), "        ")
+        XCTAssertEqual((text as NSString).substring(with: NSRange(location: caret, length: 2)), "\r\n")
+
+        let lf = applyNewline("    if x {}", at: 10, unit: "    ", terminator: "\n")
+        XCTAssertEqual(caretColumn(text, caret), caretColumn(lf.text, lf.caret))
+    }
+
+    func testCarriageReturnTerminatorSplicesItsOwnCharacter() {
+        // The third `end_of_line` flavor: one unit like LF, but its own character.
+        let (text, caret) = applyNewline("    if x {}", at: 10, unit: "  ", terminator: "\r")
+        XCTAssertEqual(text, "    if x {\r      \r    }")
+        XCTAssertEqual(caretColumn(text, caret), 6)
+
+        let (plain, plainCaret) = applyNewline("    expect(foo)", at: 15, unit: "    ", terminator: "\r")
+        XCTAssertEqual(plain, "    expect(foo)\r    ")
+        XCTAssertEqual(plainCaret, (plain as NSString).length)
+    }
+
+    func testDefaultTerminatorReproducesLineFeedExactly() {
+        // Every existing caller states no terminator; the default must be
+        // byte-for-byte what an explicit LF produces, on every branch.
+        let cases: [(String, Int, Int, String)] = [
+            ("    expect(foo)", 15, 0, "    "),   // inherit
+            ("func f() {", 10, 0, "    "),        // opener
+            ("func f() {    ", 10, 0, "    "),    // opener + trailing whitespace
+            ("    if x {}", 10, 0, "    "),       // between-brackets split
+            ("func f() {}", 10, 1, "    "),       // selected closer, no split
+            ("    foo", 2, 0, "    "),            // caret inside leading whitespace
+            ("    ", 2, 2, "    "),               // selection deleting whitespace
+            ("let a = 1\n\nlet b = 2", 10, 0, "\t"), // blank line, tab unit
+        ]
+        for (text, location, length, unit) in cases {
+            let ns = text as NSString
+            let byDefault = IndentEngine.newlineIndentation(
+                text: ns, location: location, unit: unit, selectionLength: length
+            )
+            let explicit = IndentEngine.newlineIndentation(
+                text: ns, location: location, unit: unit, selectionLength: length, terminator: "\n"
+            )
+            XCTAssertEqual(byDefault, explicit, "case \(text.debugDescription) at \(location)")
+        }
+    }
+
     // MARK: - dedentOnClosing
 
     private func dedent(_ s: String, at location: Int, closing: Character) -> IndentReplacement? {

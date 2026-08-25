@@ -155,32 +155,69 @@ user sees it.
   indented line between a bracket pair; typing a closing bracket (`}`/`)`/`]`)
   on a blank line dedents it to match its opener. The indent unit (tabs or
   spaces) comes from `.editorconfig` when one applies (see below) and is
-  otherwise inferred from the file, defaulting to four spaces. Each auto-indent
-  is a single undo step.
+  otherwise inferred from the file, defaulting to four spaces; the line
+  terminator Enter inserts comes from the same place — `end_of_line` when a
+  config states it, an LF otherwise. Each auto-indent is a single undo step.
 - EditorConfig: a project's `.editorconfig` files are read and honored for
-  indentation. `indent_style` decides tabs or spaces, `indent_size`/`tab_width`
-  the width, and whichever of the two a config leaves out falls back to what the
-  file's own content suggests — so a config can set just the style, just the
-  width, or both. Two things change: the unit Enter's auto-indent appends, and
-  what the Tab key inserts. **Tab is deliberately stricter** — it inserts spaces
-  only when a config says `indent_style = space` outright, so with no
-  `.editorconfig` the key keeps inserting a literal tab exactly as before (and
-  with the completion popup open, Tab still commits the selected row — it reaches
-  the indentation handler only when no popup is showing).
+  indentation and for three things a **save** does. `indent_style` decides tabs
+  or spaces, `indent_size`/`tab_width` the width, and whichever of the two a
+  config leaves out falls back to what the file's own content suggests — so a
+  config can set just the style, just the width, or both. Two things change while
+  you type: the unit Enter's auto-indent appends, and what the Tab key inserts.
+  **Tab is deliberately stricter** — it inserts spaces only when a config says
+  `indent_style = space` outright, so with no `.editorconfig` the key keeps
+  inserting a literal tab exactly as before (and with the completion popup open,
+  Tab still commits the selected row — it reaches the indentation handler only
+  when no popup is showing).
+  Three more properties apply **when a file is saved**, and only then:
+  `trim_trailing_whitespace = true` deletes the spaces and tabs at the end of
+  each line, `insert_final_newline = true` adds a line terminator to a file that
+  does not end in one (never a second one, and an existing one is never removed),
+  and `end_of_line` (`lf`, `cr` or `crlf`) rewrites the file's line terminators to
+  the one it names — which is also the terminator Enter inserts, so what you type
+  and what a save writes agree. **The line the caret is on keeps its trailing
+  whitespace**: autosave runs on idle, tab switch, focus loss and quit, and
+  trimming there would delete the indentation you just typed and were about to
+  type into; the next save after you move away trims it (a selection protects the
+  lines its two ends are on the same way) — and that next save is not merely
+  hoped for: the editor remembers which files it spared and offers them again the
+  next time that file is on screen, so a line kept once is not left untrimmed on
+  disk just because you stopped editing it. Saving on the way out trims it in
+  full, there and then, since there is no caret left to protect: the close
+  prompt's Save, switching project folder and quitting all do. The one case a
+  kept line survives on disk is closing a tab that is already **clean** — that
+  close writes nothing at all, by design (nothing is ever reformatted except by a
+  save), so the spared whitespace stays until the file is edited and saved again.
+  Every save path applies them — Cmd+S,
+  autosave, Save As, the close prompt's Save, and the saves before Run and Test —
+  and on macOS the change arrives in the editor as one ordinary edit: a single
+  Cmd+Z restores the buffer as it was before the save, and the scroll position
+  does not jump. Two details worth knowing: a **Save As** applies the
+  *destination's* configuration, not the one where the buffer came from (an
+  untitled buffer belongs to no folder until you pick one); and for a **background
+  tab** caught by an autosave there is no editor to route the change through, so
+  that tab loses its undo history and its remembered scroll position — the same
+  cost every other off-screen rewrite (project-wide Replace All, a revert, a merge
+  apply) already has.
   The usual rules apply: files closer to the edited file win, later sections win
   inside one file, `root = true` stops the search, and `unset` clears an
   inherited property. Section globs are the full EditorConfig dialect (`*`,
   `**`, `?`, `[abc]`/`[!abc]`, `{a,b}`, `{1..9}`, `\` escapes), and comments are
   whole-line `#`/`;` only, per the format's own rules. Stated limits: only those
-  three properties are acted on today — everything else (`end_of_line`,
-  `charset`, `trim_trailing_whitespace`, `insert_final_newline`,
-  `max_line_length`, and unknown keys) is read but not applied yet; the search
+  six properties are acted on — everything else (`charset`, `max_line_length`,
+  and unknown keys) is read but not applied; the search
   stops at the folder you opened, so a `.editorconfig` in a parent directory
   above it is not read (the same on both platforms, because iOS can only read
-  inside the folder you granted); nothing already in the file is ever
-  reformatted — only newly typed indentation is affected (so pressing Enter on a
-  tab-indented line under `indent_style = space` keeps that line's own tabs and
-  appends the configured spaces); and on macOS an edit to
+  inside the folder you granted); `end_of_line` names LF, CR and CRLF only, so
+  the three rarer separators the editor understands (NEL, U+2028, U+2029) are
+  left exactly as they are; a save that lands mid-composition (an input method's
+  marked text on screen) transforms nothing, and writes the untransformed bytes —
+  the next save, once the composition is committed, transforms them; **a save is the only thing that ever rewrites
+  anything** — opening a file, closing it, switching tabs and editing the
+  `.editorconfig` itself change nothing, indentation already in a file is never
+  reformatted (so pressing Enter on a tab-indented line under `indent_style =
+  space` keeps that line's own tabs and appends the configured spaces), and there
+  is no whole-project reformat command; and on macOS an edit to
   a `.editorconfig` takes effect on the next keystroke, while on iOS (which has
   no file-system watcher) it is picked up when you save the `.editorconfig` in
   Pisaka, on a folder switch, or after the app's own working-tree rewrites — not
@@ -542,7 +579,10 @@ user sees it.
   text.
 - Each tab keeps its own independent text; switching tabs swaps the editor
   contents.
-- Save writes to the file's URL; "Untitled" files prompt for a location.
+- Save writes to the file's URL; "Untitled" files prompt for a location. When
+  the project's `.editorconfig` asks for them, the on-save transforms
+  (trailing-whitespace trimming, a final newline, line-terminator normalization)
+  are applied first, on every save path — see EditorConfig above.
 - Autosave: a file with unsaved changes is written to disk
   automatically — a short idle delay after you stop typing, when the app loses
   focus, when you switch tabs, and when you quit (Cmd+Q). "Untitled" files (with
@@ -865,8 +905,11 @@ and iPhone. The feature scope landed so far:
   registered covering scope falls through to the base service unbracketed).
 - A `UITextView`-backed code editor with the same tree-sitter syntax
   highlighting (Neon), auto-indent (`IndentEngine`), EditorConfig-driven
-  indentation (`IndentUnitRule` — the same three properties, the same Enter and
-  Tab behavior; with no watcher on iOS, an edited `.editorconfig` is picked up on
+  indentation (`IndentUnitRule` — the same six properties, the same Enter and
+  Tab behavior, and the same on-save transforms on the one save iOS has, the
+  close confirmation's **Save**, where the file is trimmed in full because the
+  buffer is being closed and there is no caret left to protect; with no watcher
+  on iOS, an edited `.editorconfig` is picked up on
   a folder switch or after the app's own working-tree rewrites rather than
   immediately), and auto-close brackets/
   quotes (`AutoPairEngine`) as macOS. Font size follows the shared

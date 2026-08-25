@@ -176,7 +176,8 @@ public struct EditorConfigFile: Equatable {
 ///
 /// Unknown properties are carried, never dropped — a later part of the feature,
 /// or a plugin-shaped consumer, reads them through `subscript(key:)`; the typed
-/// accessors below cover only the three properties the editor acts on today.
+/// accessors below cover only the properties the editor acts on today: the three
+/// indentation ones, and the three a save consumes.
 public struct EditorConfigProperties: Equatable {
     /// The properties whose *values* are case-insensitive, per the spec. Used
     /// by the parser to decide what may be lowercased on the way in.
@@ -216,7 +217,7 @@ public struct EditorConfigProperties: Equatable {
         }
     }
 
-    // MARK: - The three consumed properties
+    // MARK: - The three indentation properties
 
     /// `indent_style`: tabs or spaces.
     public enum IndentStyle: String, Equatable {
@@ -264,6 +265,58 @@ public struct EditorConfigProperties: Equatable {
             return values["tab_width"].flatMap(EditorConfigProperties.positiveInteger)
         case nil:
             return values["tab_width"].flatMap(EditorConfigProperties.positiveInteger)
+        }
+    }
+
+    // MARK: - The three on-save properties
+
+    /// `end_of_line`: the line terminator a save normalizes to.
+    ///
+    /// The vocabulary is closed and is a strict *subset* of the editor's own
+    /// separator set (`LineStartIndex`): NEL, LS and PS have no name here, which
+    /// is why a save leaves them alone rather than folding them into something
+    /// the configuration never named.
+    public enum EndOfLine: String, Equatable {
+        case lf
+        case cr
+        case crlf
+
+        /// The terminator this value names, verbatim.
+        public var terminator: String {
+            switch self {
+            case .lf: return "\n"
+            case .cr: return "\r"
+            case .crlf: return "\r\n"
+            }
+        }
+    }
+
+    /// The named terminator, or `nil` when absent or unrecognized — absent
+    /// rather than an error, as with a bad `indent_size`, so one typo in a
+    /// shared config normalizes nothing instead of normalizing wrongly.
+    public var endOfLine: EndOfLine? {
+        values["end_of_line"].flatMap(EndOfLine.init(rawValue:))
+    }
+
+    /// `trim_trailing_whitespace`: exactly the literals, everything else `nil`.
+    public var trimTrailingWhitespace: Bool? {
+        EditorConfigProperties.boolean(values["trim_trailing_whitespace"])
+    }
+
+    /// `insert_final_newline`: exactly the literals, everything else `nil`.
+    public var insertFinalNewline: Bool? {
+        EditorConfigProperties.boolean(values["insert_final_newline"])
+    }
+
+    /// The two literals `true`/`false` and nothing else. Values of known keys
+    /// are already lowercased by the parser, so no case folding happens here —
+    /// which also means a map built directly from strings is read exactly as
+    /// spelled.
+    private static func boolean(_ raw: String?) -> Bool? {
+        switch raw {
+        case "true": return true
+        case "false": return false
+        default: return nil
         }
     }
 

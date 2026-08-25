@@ -98,6 +98,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     is main-actor-isolated and takes a `FileServicing`, and any default worth
     writing would be a second *live disk reader* built for a view nobody constructs
     (`core-editorconfig.md`, `app-editor.md`).
+    A fifth passes straight through for **saves**: `saveTransform:
+    SaveTransformController?`, owned by `PisakaApp` and threaded into
+    `CodeEditorView`, which attaches it to the live editor. Not `@ObservedObject`
+    (it publishes nothing) and — unlike `editorConfig` — optional and defaulted, so
+    `nil` in previews and tests simply transforms nothing and `model` +
+    `editorConfig` stay the only two required arguments.
     The private `PathBarView` is the VS Code-style
     breadcrumb: a `.caption`/`.secondary` `Text` of
     `DisplayPath.components(fileURL:projectRoot:home:

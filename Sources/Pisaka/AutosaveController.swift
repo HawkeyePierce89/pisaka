@@ -26,6 +26,23 @@ final class AutosaveController {
     private weak var model: WorkspaceModel?
     private var onSaved: ((_ saved: [URL], _ createdFile: Bool) -> Void)?
 
+    /// Run the caller's on-save transform over the buffers this tick is about to
+    /// write, before it writes them (`SaveTransformController.prepareForSave`).
+    ///
+    /// Injected rather than called directly so this controller keeps holding no
+    /// policy: it knows *when* a save happens and *which* buffers it writes, and
+    /// nothing about `.editorconfig`, text or line terminators. The first argument
+    /// is the dirty, titled ids — exactly what `saveAllDirty()` will write —
+    /// because transforming anything else would make a buffer nobody edited dirty
+    /// and put it into the next commit; the transform may add buffers of its own
+    /// (the trims it deferred), which is its bookkeeping and not this class's.
+    ///
+    /// The second argument says whether the buffers are being **abandoned** — the
+    /// quit and folder-switch flushes — so the transform knows there is no caret
+    /// left to protect and no later save to defer a trim to. `nil` (previews,
+    /// tests) transforms nothing and leaves the writes byte-identical.
+    private var prepareForSave: ((_ ids: [UUID], _ abandoningBuffers: Bool) -> Void)?
+
     private var cancellables: Set<AnyCancellable> = []
     private var observers: [NSObjectProtocol] = []
 
@@ -80,12 +97,17 @@ final class AutosaveController {
     /// `IgnoreSelf` reason one level further on: the app's `.editorconfig` cache
     /// has no watcher behind it either, so an autosave of a `.editorconfig` is
     /// invisible unless the caller is told which files this tick wrote.
-    func start(model: WorkspaceModel, onSaved: @escaping (_ saved: [URL], _ createdFile: Bool) -> Void) {
+    func start(
+        model: WorkspaceModel,
+        prepareForSave: @escaping (_ ids: [UUID], _ abandoningBuffers: Bool) -> Void,
+        onSaved: @escaping (_ saved: [URL], _ createdFile: Bool) -> Void
+    ) {
         // Idempotent: `.onAppear` can fire more than once (e.g. a window reopened),
         // and re-subscribing would stack observers and double every autosave. Bail
         // if already wired.
         guard self.model == nil else { return }
         self.model = model
+        self.prepareForSave = prepareForSave
         self.onSaved = onSaved
 
         // Idle trigger: autosave a short delay after the last `openFiles` change.
@@ -134,13 +156,25 @@ final class AutosaveController {
         // async hop) is both safe and the only thing guaranteed to complete before
         // the process dies. `flushNow()` skips `onSaved` — the app is quitting and
         // there is no Local Changes UI left to refresh.
+        //
+        // `abandoningBuffers: true`, the same argument `PisakaApp`'s own
+        // termination observer passes. Both observers fire on this one
+        // notification, and their *order* is only their registration order —
+        // which nothing states or enforces (the comment at `PisakaApp`'s call
+        // site says so). Two flushes that disagreed on this flag would make the
+        // quit's answer depend on that order: the caret-protecting one writes the
+        // spared run, the abandoning one writes it trimmed. Agreeing here is what
+        // makes "the quit flush protects no caret at all and trims in full" true
+        // of whichever runs first, instead of true only because `owedTrims`
+        // happens to carry the deferral into the second — at the cost of writing
+        // the same file twice on the way out.
         observers.append(
             center.addObserver(
                 forName: NSApplication.willTerminateNotification,
                 object: nil,
                 queue: nil
             ) { [weak self] _ in
-                self?.flushNow()
+                self?.flushNow(abandoningBuffers: true)
             }
         )
     }
@@ -200,6 +234,10 @@ final class AutosaveController {
         // until the next edit).
         guard !isRegularSuspended else { pendingAutosave = true; return }
         pendingAutosave = false
+        // The on-save transform runs first, on the buffers this tick will write —
+        // it rewrites *buffers*, so it has to happen before the probe below reads
+        // which of them exist and before `saveAllDirty()` takes their bytes.
+        prepareForSave?(dirtyTitledIDs(in: model), false)
         // Probe *before* the write: `write(_:to:)` creates a missing file, so a tab
         // whose file was deleted out of band is put back on disk by this autosave —
         // a change of tree membership the watcher will not report (it drops our own
@@ -223,6 +261,12 @@ final class AutosaveController {
         } else {
             didBeepForFailure = false
         }
+    }
+
+    /// The ids `saveAllDirty()` is about to write: dirty, and with a url. The set
+    /// the on-save transform is offered, for the reason stated on `prepareForSave`.
+    private func dirtyTitledIDs(in model: WorkspaceModel) -> [UUID] {
+        model.openFiles.filter { $0.isDirty && $0.url != nil }.map(\.id)
     }
 
     /// Paths of the dirty *titled* buffers that do not exist on disk right now — the
@@ -250,6 +294,14 @@ final class AutosaveController {
     /// quit-time save of unrelated edits). Writes synchronously before the process
     /// exits.
     ///
+    /// `abandoningBuffers` is the second, orthogonal axis: it is `true` where the
+    /// buffers do not survive this flush — the **quit** flush and the
+    /// **folder-switch** flush — and the on-save transform then trims the caret's
+    /// line too, because sparing it defers a trim to a next save that will never
+    /// come. It stays `false` for the commit dialog's flush, which is mid-session:
+    /// editing continues afterwards, so the caret still has a line to protect and
+    /// the transform still owes the trim.
+    ///
     /// `reportingSaves` is what separates the two callers. On the **quit** path it
     /// stays `false`: there is no tree left to bump and no panel left to refresh on
     /// the way out, so the probe and `onSaved` are both skipped (see the
@@ -271,8 +323,12 @@ final class AutosaveController {
     /// resting on the relative registration order of two independent observers.
     /// Calling it twice on the same quit is harmless — `saveAllDirty()` is
     /// idempotent, so the second run writes nothing.
-    func flushNow(reportingSaves: Bool = false) {
+    func flushNow(reportingSaves: Bool = false, abandoningBuffers: Bool = false) {
         guard suspendCount == 0, let model else { return }
+        // Both flush paths transform first, exactly as the regular triggers do:
+        // the quit flush is the last chance a buffer has to be written correctly,
+        // and the commit dialog's flush is what the dialog then reads off disk.
+        prepareForSave?(dirtyTitledIDs(in: model), abandoningBuffers)
         guard reportingSaves else {
             model.saveAllDirty()
             return

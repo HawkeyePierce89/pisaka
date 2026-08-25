@@ -279,7 +279,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     swallowed so the file stays dirty and the batch continues; idempotent, so an
     immediate second call writes nothing and returns `[]`, and the returned urls
     let the caller refresh Local Changes only when something changed),
-    `saveAs(url:for:)`, `close(id:force:)` (returns
+    `saveAs(url:for:)`, `isDestinationOpenElsewhere(_:for:)` (the same canonical
+    "a *different* open tab already targets this url" test `saveAs` refuses on —
+    `SaveAsError.destinationAlreadyOpen` — exposed separately so a caller can ask
+    it *before* doing anything a refused save would then have to undo: the on-save
+    transform rewrites the buffer on its way to the write, and must not rewrite it
+    for a write that is about to be rejected, `core-editorconfig.md`),
+    `close(id:force:)` (returns
     `.needsConfirmation` for a dirty file), `openFolder(url:)` (sets
     `projectRoot` and nothing else — still not touching open tabs or the
     selection, though **not** because tabs are unrelated to the folder: sessions
@@ -404,15 +410,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     form, e.g. a repo-root-relative revert url vs a tab opened via `projectRoot`,
     still resolves; `nil` when no tab targets it), and `replaceText(_:for:)` — the
     text-mutating counterpart of `updateText(_:for:)` for a writer that is *not*
-    the user's typing (the project-wide Replace All's `applyBufferText`). It sets
+    the user's typing (the project-wide Replace All's `applyBufferText`, and the
+    on-save transform's off-screen path: the macOS funnel's fallback for a buffer
+    no editor holds, plus iOS's one save, which never has a text view to rewrite
+    through — `core-editorconfig.md`). It sets
     `text` exactly as `updateText` does, leaving `savedText` alone so the tab goes
-    dirty and saving stays the user's call, and additionally bumps that file's
+    dirty and saving stays the user's call (which is why the save transform's
+    off-screen path is followed by a write and by the resync `onBufferReplaced`
+    performs), and additionally bumps that file's
     entry in `@Published public private(set) var textReplacementRevisions: [UUID:
     Int]` (read through `textReplacementRevision(for:)`, which reports `0` for an
     absent/unknown id; `reloadFromDisk` bumps it too, and a closed tab's entry is
     dropped in `removeFile`). The split exists for the *editor's undo stack*: a
-    wholesale buffer swap invalidates every recorded undo action, but Replace All
-    and the post-revert/post-merge reloads reach open tabs that are **not on
+    wholesale buffer swap invalidates every recorded undo action, but Replace All,
+    the post-revert/post-merge reloads and the on-save transform's off-screen path
+    reach open tabs that are **not on
     screen**, which get no view update of their own — so the editor cannot detect
     the replacement itself and, on the later tab switch, cannot tell it from an
     ordinary switch (which must *preserve* that file's history). The token is what

@@ -77,6 +77,12 @@ struct ContentView: View {
     /// so there is no default worth writing that would not be a second, live disk
     /// reader built for a view nobody constructs.
     var editorConfig: EditorConfigModel
+    /// The one funnel every macOS save passes through before it writes. Owned by
+    /// `PisakaApp` and threaded straight into `CodeEditorView`, which attaches it
+    /// to the live editor; deliberately **not** `@ObservedObject` and optional
+    /// (`nil` in previews/tests transforms nothing), both for the `symbolIndex`
+    /// reasons above.
+    var saveTransform: SaveTransformController?
     /// Schedules the diagnostics channel's push sync (D30): the same three
     /// editor triggers — tab open/switch, wholesale buffer swap, settled typing
     /// — that drive the symbol index also flush the buffer to its language
@@ -684,6 +690,7 @@ struct ContentView: View {
                     reveal: reveal,
                     symbolIndex: symbolIndex,
                     editorConfig: editorConfig,
+                    saveTransform: saveTransform,
                     lspSync: lspSync,
                     diagnostics: diagnostics,
                     onGoToDefinition: onGoToDefinition,

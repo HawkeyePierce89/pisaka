@@ -150,6 +150,40 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     one. Narrow on purpose: an ordinary save is the app's most frequent write, and
     clearing on every one would put a resolution walk on the first keystroke after
     each autosave burst (`core-editorconfig.md`).
+    Beside it sits `private let saveTransform = SaveTransformController()`, the one
+    funnel every macOS save passes through before it writes (its full entry is in
+    `core-editorconfig.md`). Owned **here** rather than by the editor because the
+    saves it serves are menu commands and autosave ticks, not editor events: it has
+    to survive every tab switch and every window rebuild, so it is attached from
+    `CodeEditorView.makeNSView` and holds the editor weakly. Like `editorConfig` it
+    neither raises `autosave.suspend()` / `localChanges.beginRevert()` nor is gated
+    by them — it writes nothing itself; it only rewrites the buffer the save about
+    to run is going to write. Three call sites, and only these three: `save(id:)`
+    calls `prepareForSave(ids:)` **after** the writer-gate refusal and before the
+    write, deliberately unconditional on the dirty flag (⌘S writes the file either
+    way), which is how the close prompt's Save and the `runFile`/`testFile` pre-run
+    saves inherit it without a second call site; `saveAs(id:)` calls
+    `prepareForSaveAs(id:destination:)` once the panel is answered — the
+    configuration that applies is the *destination's* — and only after
+    `model.isDestinationOpenElsewhere(_:for:)` has cleared the one condition
+    `saveAs` refuses on, so a rejected Save As leaves the buffer as the user typed
+    it; and `AutosaveController`'s own triggers and both flush paths, through
+    `prepareForAutosave(ids:abandoningBuffers:)`. **Where the buffer is being
+    abandoned the caret is not protected**: the close prompt's Save passes
+    `abandoningBuffer: true` through `save(id:)` — and on through `saveAs` into
+    `prepareForSaveAs(id:destination:protectingCaret:)` when the buffer is
+    untitled, the one branch where the close prompt changes method — and the quit
+    and folder-switch flushes pass `abandoningBuffers: true`, so the file is
+    trimmed in full. The folder switch reaches that flag on a **second** flush,
+    taken only once the unsaved-buffer refusal has been passed: the first flush is
+    what decides that refusal, and a refused switch — like the carrying path, which
+    force-closes nothing — leaves every buffer open and being edited, so asserting
+    abandonment before either question is answered would trim the line someone is
+    still typing on. Two flushes cost nothing where nothing was spared, since
+    `saveAllDirty()` is idempotent. There
+    is no caret left to protect and no next save to defer a spared run to, which is
+    the answer iOS's one save already gives for the same button. The commit
+    dialog's flush keeps protecting: editing continues after it.
     **The LSP layer hangs off exactly those points and nowhere else** (phase 2a; the
     layer itself is `core-lsp.md`). `init()` builds one `LSPWorkspace` with
     `LSPProcessTransport.make(for:root:)` as its transport factory — the *only* thing
@@ -543,8 +577,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     unsaved-changes prompt and silently lose the edit — reconciling against the
     post-revert disk state makes it dirty. `PisakaApp` also owns an
     `AutosaveController` (started once from the window content's `.onAppear` with
-    `model` and an `onSaved` closure that calls `refreshLocalChanges()`, reusing
-    its generation-pinning rather than duplicating the git status refresh).
+    `model`, `saveTransform.prepareForAutosave(ids:abandoningBuffers:)` and an
+    `onSaved` closure that
+    calls `refreshLocalChanges()`, reusing
+    its generation-pinning rather than duplicating the git status refresh);
+    `saveTransform.start(model:editorConfig:onBufferReplaced:)` is bound just
+    above it, its third argument `reindexReloadedBuffer(id:url:)` — the resync a
+    background tab rewritten through the model needs, for the reason
+    `core-editorconfig.md` states.
     `revertChanges` brackets its revert+resync `Task` with the controller:
     `autosave.suspend()` is called *synchronously* right after the confirm
     (where `originGeneration`/`preRevertText` are captured, before the `Task`
@@ -879,7 +919,12 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     registration order, which nothing states or enforces — and it is why
     `AutosaveController.flushNow()` is internal; that controller keeps its own
     termination observer, and `flushNow()` is idempotent, so being called twice on
-    one quit is harmless.
+    one quit is harmless — **provided the two calls agree on
+    `abandoningBuffers`**, which is why that observer passes `true` as well. They
+    write the same bytes only if they do: a caret-protecting flush writes the
+    spared run and an abandoning one writes it trimmed, so two observers
+    disagreeing on the flag would make the quit's answer depend on exactly the
+    registration order this paragraph says nothing enforces.
     `PisakaApp` also owns the **commit dialog**: a `private let commitDialog =
     CommitDialogModel(gitService: GitCLIService())` alongside the
     other git models — a plain stored property (the
@@ -1273,9 +1318,29 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     lives in Core; this is trigger→action wiring only, untested like the rest of
     the view layer). A `final class` holding the Combine cancellables and
     notification observers, with a fixed `idleDelay` constant (`2.0` s, no
-    user-facing toggle or configurable delay) and `start(model:onSaved:)` (plus
+    user-facing toggle or configurable delay) and
+    `start(model:prepareForSave:onSaved:)` (whose `prepareForSave` takes
+    `(ids, abandoningBuffers)`; plus
     `stop()`/`deinit` teardown; `start` is idempotent so a re-fired `.onAppear`
-    can't stack observers). Four triggers: **idle** —
+    can't stack observers). `prepareForSave` is the **on-save transform**, injected
+    rather than reached for so this controller keeps holding no policy: it knows
+    when a save happens and which buffers it is about to write, and nothing about
+    `.editorconfig`. It is handed `dirtyTitledIDs(in:)` — the ids `saveAllDirty()`
+    will actually write, dirty *and* titled — because transforming a clean
+    background tab would rewrite a file nobody edited into the next commit; and it
+    runs **before** `missingDirtyPaths(in:)`, because it rewrites buffers and the
+    probe reads which of them exist. The transform may *add* buffers of its own —
+    the trims a spared caret line deferred, which were edited and whose rewrite was
+    postponed rather than declined — and that union is its bookkeeping, made in
+    `SaveTransformController.prepareForAutosave`, not here. The second argument,
+    `abandoningBuffers`, is the orthogonal axis: `true` on the quit flush and on
+    the folder switch's second, post-refusal flush, where the buffers do not
+    survive the write, so the transform stops protecting a caret that is about to
+    cease to exist. Both
+    `flushNow` paths transform too: the quit
+    flush is a buffer's last chance to be written correctly, and the commit
+    dialog's flush is what the dialog then reads off disk. `nil` (previews, tests)
+    leaves every write byte-identical. Four triggers: **idle** —
     `model.$openFiles.debounce(for: .seconds(idleDelay), …)` → `performAutosave`
     (a save advances `savedText`, republishing `$openFiles` and re-arming the
     debounce, but the re-fire is a no-op because `saveAllDirty()` is idempotent,
@@ -1335,7 +1400,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     of `SessionController.flushNow()`, so the two flushes are ordered from one
     visible place (see there). No behavior change — the controller keeps its own
     termination observer and `saveAllDirty()` is idempotent, so being called twice
-    on the same quit writes nothing the second time.
+    on the same quit writes nothing the second time. That observer passes
+    `abandoningBuffers: true`, matching `PisakaApp`'s call: the second flush writes
+    nothing only when the first one already wrote what the quit rule asks for.
   - `SessionController.swift` — the thin view-layer wiring that writes the editor
     session (the opened folder, the tabs, the selection, the text of Untitled
     buffers) to Core's `SessionStore`, so a launch can bring the last session back

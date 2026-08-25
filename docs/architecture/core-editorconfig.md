@@ -1,27 +1,33 @@
-# PisakaCore — EditorConfig (resolution core + the indentation rules)
+# PisakaCore — EditorConfig (resolution core, the indentation rules, the on-save transforms)
 
-Design documentation for `.editorconfig` support: the five pure/near-pure Core
+Design documentation for `.editorconfig` support: the six pure/near-pure Core
 files that decide *which sections apply to a file*, *what one file's text
 means*, *which files in the hierarchy are read at all*, *when a resolved answer
-stops being true* and *which whitespace one indentation level is* — plus the
-thin app-side wiring on both platforms. Read the relevant entry before modifying
-that file, and update it when behavior changes.
+stops being true*, *which whitespace one indentation level is* and *what a save
+rewrites* — plus the thin app-side wiring on both platforms. Read the relevant
+entry before modifying that file, and update it when behavior changes.
 
 ## The shape of the feature, in one paragraph
 
-The layer is **read-only and opt-in by the presence of a file**. When a project
-has no `.editorconfig`, every behavior below is byte-for-byte what it was
-before this layer existed: the content inference (`IndentEngine
-.inferIndentUnit(text:)`) picks the indentation unit, and Tab inserts a literal
-tab. When a config *does* apply, exactly **three properties are acted on** —
-`indent_style`, `indent_size`, `tab_width` — and they change exactly **two
-behaviors**: the unit Enter's auto-indent appends, and what the Tab key
-inserts. Every other property (`end_of_line`, `charset`,
-`trim_trailing_whitespace`, `insert_final_newline`, `max_line_length`, and
-anything unknown) is parsed, merged and carried in the property map, but
-nothing consumes it yet — part 2 takes the on-save ones. **Nothing is ever
-rewritten**: no reformatting on open, on save, or when a config changes; only
-newly typed text is affected.
+The layer is **opt-in by the presence of a file** and **adds no write of its
+own**. When a project has no `.editorconfig`, every behavior below is
+byte-for-byte what it was before this layer existed: the content inference
+(`IndentEngine.inferIndentUnit(text:)`) picks the indentation unit, Tab inserts
+a literal tab, Enter splices an LF, and a save writes the buffer exactly as it
+stands. When a config *does* apply, exactly **six properties are acted on**, in
+two groups. The three *indentation* ones — `indent_style`, `indent_size`,
+`tab_width` — change what **newly typed** text is: the unit Enter's auto-indent
+appends, and what the Tab key inserts. The three *on-save* ones —
+`end_of_line`, `trim_trailing_whitespace`, `insert_final_newline` — change what
+a **save** writes, and are the single deliberate exception to part 1's founding
+principle that existing content is never reformatted (`SaveTransform` below).
+`end_of_line` is consumed on both sides of that line: it decides what
+already-written terminators become on a save *and* what Enter splices, so the
+two can never disagree. Every other property (`charset`, `max_line_length`, and
+anything unknown) is parsed, merged and carried in the property map, and nothing
+consumes it. **A save is the only trigger**: nothing is rewritten on open, on
+close, on a tab switch or when a config changes, indentation already in a file is
+never rewritten, and there is no whole-project normalization command.
 
 ## Decisions
 
@@ -70,12 +76,61 @@ newly typed text is affected.
 - **Invalidation is wholesale, both times**, and a root change clears the cache
   *before* anything can be served — the never-serve-a-previous-project
   guarantee.
-- **The layer is a reader**, like the symbol index: it opens files and writes
-  none, so it neither raises the disk-writer gate (`autosave.suspend()` +
-  `localChanges.beginRevert()`) nor is gated by it. A resolution landing in the
-  middle of a revert or a branch switch costs at worst one stale answer, which
-  the `noteProjectFilesChanged()` that follows every such rewrite corrects.
-  Nothing here may grow a writer bracket.
+- **A save is the one exception, and it is written down as one.** Part 1's
+  principle is not quietly relaxed: exactly three properties, on exactly one
+  trigger, and only when the project's own `.editorconfig` asks for them. Open,
+  close, tab switch and a configuration change still rewrite nothing; no
+  indentation already in a file is ever rewritten; and the other worktree writers
+  (project-wide Replace All, every git operation) keep writing exactly the bytes
+  they write today. Why a save is admissible where the others are not: it is the
+  one moment the file's bytes are being decided anyway, so a transform there
+  produces the diff the configuration asked for and no unrequested one — whereas
+  the same rewrite on open or on a tab switch would dirty a file nobody edited.
+- **The three transforms compose against the *original* offsets.**
+  `SaveTransform` emits one ascending, non-overlapping edit list rather than
+  piping three passes into one another, so no intermediate buffer exists and the
+  position remap is arithmetic over that single list instead of three remaps
+  stacked. Only the final-terminator decision has to read through the earlier
+  steps, because a last line that trimming empties is already terminated by the
+  line above it and must not gain a second terminator.
+- **The caret's line is spared from trimming.** Autosave here is aggressive
+  (idle, tab switch, focus loss, termination), so trimming the line the caret is
+  on would delete the indentation someone had just typed and was about to type
+  into, mid-thought — a save nobody asked for eating a keystroke they did. Every
+  line holding a protected position (the caret, and each endpoint of every
+  selected range) keeps its trailing whitespace, and the first save after the
+  caret leaves trims it. The exemption is **trimming's alone**: a terminator is
+  normalized and a final newline appended under the caret exactly as anywhere
+  else, because neither can delete what was just typed. A buffer with no
+  protected positions — one no editor is showing — is trimmed in full.
+- **NEL, LS and PS are left exactly as they are.** `end_of_line`'s vocabulary
+  names LF, CR and CRLF; the editor's own separator set (`LineStartIndex`) is a
+  strict superset of it. Folding a separator the property never named into one it
+  did would be this engine inventing a rule the configuration did not state, so
+  the three unnamed ones survive every combination. This is the feature's one
+  stated limit. It is a rule about the separators a file *already* has, not
+  licence to add one: `insert_final_newline` appends LF where the file's own last
+  terminator is one of the unnamed three, because appending an unnamed one would
+  leave the file with no final newline by every reckoning outside this editor's
+  splitter while making the property unsatisfiable ever after.
+- **The transform rides the live editor whenever there is one.** A buffer on
+  screen is rewritten *through* the text view, in one `shouldChangeText` /
+  `beginEditing`…`endEditing` / `didChangeText` bracket applied back-to-front, so
+  the whole save is a single undoable step and every observer sees an ordinary
+  edit; replacing the string behind the editor's back would drop that tab's undo
+  stack and its remembered scroll position on the most ordinary action there is.
+  A background tab has no view to ride and pays exactly that cost, which is
+  stated on the controller rather than left to be discovered.
+- **The layer is a reader**, like the symbol index: it opens files and **adds no
+  write of its own**, so it neither raises the disk-writer gate
+  (`autosave.suspend()` + `localChanges.beginRevert()`) nor is gated by it. The
+  on-save transform does not change that: it writes nothing itself, it changes
+  *what the write the user already asked for puts on disk*, and it runs inside
+  that save's own gating — `PisakaApp.save(id:)` asks it **after** the writer-gate
+  refusal, so a save the gate refuses transforms nothing at all. A resolution
+  landing in the middle of a revert or a branch switch costs at worst one stale
+  answer, which the `noteProjectFilesChanged()` that follows every such rewrite
+  corrects. Nothing here may grow a writer bracket.
 - **No `.editorconfig` fixture files are committed.** A real one under `Tests/`
   would also apply to this repository, in every editor and every tool that reads
   the format. Sample configs are inline string constants fed to `StubFileTree`
@@ -223,8 +278,21 @@ newly typed text is affected.
     the spec states) and `indentWidth` (how wide one level is: a numeric
     `indent_size`; `indent_size = tab` defers to the *explicit* `tab_width`; with
     no `indent_size` at all a stated `tab_width` still describes the width).
-    Unit-tested in `EditorConfigFileTests`, edge case by edge case from the
-    official suite.
+    **The three on-save accessors sit beside them**, with the same "absent rather
+    than an error" posture: `endOfLine` answers the closed `EndOfLine` enum
+    (`lf`/`cr`/`crlf`, each carrying as `terminator` the string it names) and
+    `nil` for an absent *or* unrecognized value, so one typo in a shared config
+    normalizes nothing instead of normalizing wrongly; `trimTrailingWhitespace`
+    and `insertFinalNewline` answer `Bool?` — exactly the literals `true` and
+    `false`, everything else `nil`. All three keys are in `knownKeys`, so the
+    parser has already lowercased their values and the accessors fold no case
+    themselves (which also means a property map built directly from strings reads
+    exactly as spelled), and `unset` restores the absent answer for each by
+    removing the key before any accessor sees it. The enum's vocabulary being
+    *closed* is what makes the NEL/LS/PS limit expressible at all: there is no
+    `EndOfLine` case for a separator the format does not name, so no code path can
+    normalize to one. Unit-tested in `EditorConfigFileTests`, edge case by edge
+    case from the official suite.
   - `EditorConfigResolver.swift` — the hierarchy walk: `public enum
     EditorConfigResolver` with `fileName = ".editorconfig"` and
     `resolve(fileURL:projectRoot:fileService:) -> EditorConfigProperties`. It
@@ -339,6 +407,153 @@ newly typed text is affected.
     Unit-tested in `IndentUnitRuleTests` over the full matrix, including the
     parity check that the plan's edits reproduce, for a single range, exactly
     what one replacement would have produced.
+  - `SaveTransform.swift` — **what a save rewrites**: the one engine behind the
+    exception recorded above, pure and Foundation-only on `NSString` UTF-16
+    offsets like every other editor engine here.
+    `plan(text:config:protectedPositions:)` answers a `SaveTransformPlan`
+    carrying `replacements` (`IndentReplacement` again — a (range, replacement)
+    pair is a (range, replacement) pair whichever rule produced it — ascending and
+    non-overlapping against the **original** text, so a view applies them
+    back-to-front in one bracket) and `text`, the bytes that must reach the disk,
+    the buffer and the saved baseline alike. **An empty plan is the answer for
+    everything this feature must not touch**: no `.editorconfig`, a configuration
+    stating none of the three, or a buffer that already satisfies all of them —
+    and `text` is then the input string byte for byte, so a caller may write it
+    unconditionally. That case is also the *cheap* one on purpose: the three
+    accessors are read first and an all-absent answer returns before the text is
+    split at all, because this runs on every ⌘S and every autosave tick of every
+    project, almost none of which have a config.
+    **The composition, in its stated order.** (1) `end_of_line`: every LF, CR or
+    CRLF terminator differing from the target becomes the target — the CRLF pair
+    is one terminator, never two edits, which is exactly what
+    `TerminatedLineRange` hands over; NEL, LS and PS are left alone (the stated
+    limit); absent or unrecognized normalizes nothing. (2)
+    `trim_trailing_whitespace = true`: the trailing run of spaces and tabs before
+    each terminator and at end of file is deleted, except on a spared line — and
+    *only* spaces and tabs, so a separator the property does not name is content
+    as far as trimming is concerned. (3) `insert_final_newline = true`: a file not
+    ending in a terminator gains exactly one — the configured `end_of_line` when
+    set, otherwise **the file's own last terminator when that is one of the three
+    `end_of_line` names** (which is what keeps a CRLF file stating no
+    `end_of_line` from gaining a lone LF), otherwise LF; `false`
+    or absent does nothing, an existing final terminator is never doubled and
+    never removed, an empty buffer stays empty (there is no line to terminate),
+    and a last line that trimming empties gains nothing either, because the line
+    above already terminates the text — **measured against the trim the
+    configuration asks for, not the one this caret position allowed**. Reading the
+    spared answer instead would make the appended terminator depend on where the
+    caret happened to be at an autosave tick: a whitespace-only last line under the
+    caret would be terminated, the next save (caret moved away) would trim the
+    whitespace it just terminated, and the file would keep a blank line nobody
+    typed — a fixed point *different* from the one the same buffer reaches with the
+    caret anywhere else. Sparing defers a trim; it never changes what the file
+    should end up being. The order is what step 3 *reads*, not the
+    order edits are applied in: per line the trim (inside the content) precedes
+    the terminator edit (immediately after it), so appending in line order already
+    yields the ascending, non-overlapping list the contract promises.
+    **The spared lines** come from `protectedPositions`, UTF-16 offsets the caller
+    passes — the caret and both endpoints of every selected range when the buffer
+    is open in an editor, nothing at all when it is not. A position sits on the
+    line whose *enclosing* range (content and terminator together) contains it, so
+    a caret parked at the end of a line's content — the case the rule exists for —
+    spares that line rather than the next, and a caret at column zero spares only
+    its own line. **The end of the text is two different places**, and the last
+    terminator is what tells them apart: in an unterminated file the last line
+    *is* where that caret sits, so it is spared; in a file ending in a terminator
+    the caret is on the empty line *after* the last line `TerminatedLines` emits
+    (it emits no phantom final line), so nothing is spared at all. Sparing the
+    preceding line there would protect a run on a line the caret has already
+    left — and, worse, one the deferral below could never make good on, since the
+    caret never moves off a position it is already past: the buffer would owe that
+    trim on every autosave tick for as long as the caret rested there. The lookup
+    is a binary search over those enclosing ranges, which tile the text with no
+    gaps; the one offset they do not cover — the end — is answered ahead of the
+    search, because its two answers come from the terminator rather than from any
+    range comparison.
+    **Sparing is a deferral, and the deferral is reported.** A plan that left a
+    run standing on a spared line says so through `deferredTrim`, and that flag
+    is the only thing that can distinguish "already conforming" from "owes a
+    trim": both answer an empty plan. Without it the rule's own promise — *the
+    next save after the caret leaves trims it* — is false for the commonest flow
+    there is: type, pause, let the idle autosave write, never touch the file
+    again. The tab is clean after that write and moving the caret does not dirty
+    it, so `saveAllDirty()` never looks at it a second time and the run stays on
+    disk for good. Deliberately *not* "there were protected positions": a caret on
+    a line with nothing to trim owes nothing, and re-offering every such buffer
+    would put a whole-file scan per open tab on the main thread on every tick.
+    **A buffer being abandoned is trimmed in full**, because it passes no
+    protected positions at all: the close prompt's Save, the quit flush and the
+    folder-switch flush all write a file that has no next save to defer to. That
+    holds on **every** branch of those paths, including the one that changes
+    method: the close prompt's Save on an *untitled* buffer answers `.needsSaveAs`
+    and continues into `saveAs`, so `abandoningBuffer` is threaded through it into
+    `prepareForSaveAs(id:destination:protectingCaret:)` — the tab closes on the
+    next statement, and the owed set is pruned to open files, so a deferral made
+    there would have nowhere to come true. It holds on the branch that changes
+    *path*, too: when the live view refuses the rewrite (an IME composition in
+    flight, a declined `shouldChangeText`), an abandoning save does not re-arm the
+    owed set the way an ordinary one does — there is no later save to settle it —
+    but rewrites through `WorkspaceModel.replaceText(_:for:)` instead, the same
+    path a background tab takes, so the transformed bytes still reach disk. The
+    undo stack and viewport that costs belong to a buffer about to be destroyed,
+    which is the same reasoning by which abandonment settles an owed trim whether
+    or not a view still holds it. Both quit observers pass it too, for
+    the same reason stated one level up in `app-shell.md`. The
+    commit dialog's flush keeps protecting — editing continues after it, so the
+    caret still has a line to protect, and the owed set means the trim is not
+    lost.
+    **`rewrites(under:)`** is the same three-property question the plan's own
+    early-out asks, exposed because a caller has to ask it *before* it can call
+    `plan` at all: the macOS funnel's next step is reading `NSTextView.string`,
+    which materializes a copy of the whole buffer, and paying that on every ⌘S
+    and every autosave tick of every project without an `.editorconfig` is
+    precisely the cost this feature promised not to add. Safe as a pre-filter
+    because `protectedPositions` can only *remove* edits.
+    **The remap arithmetic lives here and nowhere else**, so the caret, each
+    selection endpoint and the scroll anchor all move by the same three rules:
+    an offset at or before an edit's start is unchanged by it (at the start counts
+    as *before* — the only insertion this engine emits is at end of file, and
+    treating the caret as after it would push the reader onto a newly created
+    empty line for no reason); an offset at or after an edit's end shifts by that
+    edit's net length; and an offset **inside** an edit is defined explicitly
+    rather than left to chance — it keeps its distance from the edit's start, up
+    to the replacement's own length, so a trimmed run collapses to where it began
+    and an offset between a CR and its LF lands at the end of what replaced the
+    pair. `NSNotFound` and negatives are returned untouched: they name no
+    position, and inventing one would turn "no selection" into a caret somewhere.
+    `remappedRange` maps a range through its two ends, the only definition that
+    stays correct when an edit falls *inside* the selection. There is deliberately
+    no whole-`EditorViewport` convenience: the editor's column selection is
+    *several* ranges, which one viewport cannot carry, so the view remaps each
+    selected range through `remappedRange` and the scroll anchor through
+    `remappedOffset` — which is precisely what it restores after applying the plan.
+    Which offsets a selection *contributes* is this engine's decision too:
+    `protectedPositions(forSelectedRanges:)` takes the whole `selectedRanges`
+    array — a bare caret gives its location, a selection gives both endpoints,
+    every range of a column selection counts — leaving the view layer with nothing
+    but the unwrap of AppKit's `[NSValue]`.
+    **Idempotence** falls out of the three rules and is asserted rather than
+    assumed: the plan for an already-transformed text is empty, so a second save
+    of an untouched buffer writes the same bytes and moves nothing.
+    Unit-tested in `SaveTransformTests` (the acceptance list) and, end to end over
+    `WorkspaceModel`, in `SaveTransformIntegrationTests`.
+  - `TerminatedLines.swift` — **the single line splitter**, documented in full in
+    `core-diff-merge.md`; what part 2 added is the level below it.
+    `TerminatedLineRange` is one line as a pair of ranges (`content`,
+    `terminator`, plus `enclosing` for the two together, with the CRLF pair kept
+    as one range of length two and an empty terminator located at the end of the
+    content for an unterminated final line), and `ranges(_:)` is the traversal
+    that produces them. `split(_:)` became a **projection** of it — the offsets
+    are computed once and the substrings only read from them — because the save
+    transform *edits* text and would otherwise have to re-derive offsets by
+    measuring the substrings it was handed, which is a second definition of what a
+    line is by another name. The file's whole doc comment rests on there being one
+    traversal that decides where a line ends; making `ranges(_:)` the primitive
+    keeps that invariant **structural** rather than coincidental, exactly as
+    `LineDiff.splitLines` being `split(text).map(\.content)` does one level up.
+    `TerminatedLinesTests` fuzzes the projection against `split(_:)` for the same
+    reason the older fuzz test exists: as a lock against a second implementation
+    coming back.
 
 ## App wiring (both platforms)
 
@@ -426,10 +641,186 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     `isApplyingProgrammaticEdit` guard covers the *whole* bracket, not just the
     storage mutation, because the single-range case reaches the single-range
     delegate callback where the auto-pair interceptor lives. `insertBacktab` is
-    untouched. Enter's handler is unchanged except for where its `unit` comes
-    from: `IndentUnitRule.unit(config:inferred:)` instead of the bare inference,
-    asked through one private helper so Enter and Tab can never disagree about
-    the unit — they differ only in *whether* it is used.
+    untouched. Enter's handler is unchanged except for the two values it reads
+    from the configuration: its `unit` comes from
+    `IndentUnitRule.unit(config:inferred:)` instead of the bare inference, asked
+    through one private helper so Enter and Tab can never disagree about the unit
+    — they differ only in *whether* it is used — and its `terminator:` comes from
+    `endOfLine?.terminator ?? "\n"` through a second one-line helper, so a
+    project stating `end_of_line = crlf` types the terminator its saves normalize
+    to, and a project stating nothing splices an LF byte for byte as before.
+    `IndentEngine.newlineIndentation` takes that terminator as a defaulted
+    parameter and measures its real UTF-16 length for the returned cursor offset
+    and the between-brackets split, so a two-unit terminator puts the caret
+    exactly where a one-unit one does. The iOS Return handler asks the same two
+    questions the same way.
+  - **The save funnel (macOS).** `SaveTransformController` is the one place every
+    macOS save passes through before it writes, shaped like
+    `EditorSearchController` for the same reasons: owned by `PisakaApp` for the
+    app's whole lifetime, `attach(textView:editor:)`ed from `CodeEditorView
+    .makeNSView`, holding the text view and the editor seam **weakly** (a torn-down
+    editor is the ordinary state of a background tab, not a degraded one), with
+    `start(model:editorConfig:onBufferReplaced:)` binding the two models once so
+    each call site stays a single line. **The three-property question is asked
+    before anything is read** (`SaveTransform.rewrites(under:)`), and that order is
+    load-bearing rather than tidy: the next step reads `NSTextView.string`, which
+    materializes a fresh copy of the whole buffer, so asking second would put two
+    full-buffer traversals on the main thread at every ⌘S and every autosave tick
+    of every project that states none of the three — the case this feature promised
+    to cost nothing. **It also carries the one piece of state the feature needs**:
+    `owedTrims`, the buffers whose last save left a run standing on a spared line.
+    `prepareForAutosave(ids:abandoningBuffers:)` re-offers exactly that set
+    alongside the dirty ids, which is what makes sparing a deferral rather than a
+    silent exemption — after the spared write the tab is clean and moving the caret
+    does not dirty it, so nothing else would ever offer that buffer a second save.
+    `prepareForSave(ids:)` deliberately does **not** union: ⌘S names one file and
+    must rewrite that file alone, since transforming a second tab would dirty a
+    buffer the keystroke is not going to write. The set is maintained on every
+    save — inserted on `plan.deferredTrim`, removed otherwise, **and re-inserted
+    when the view refuses the rewrite** (`apply` answering `false`: a composition
+    in progress, a declined `shouldChangeText`), because a save that changed
+    nothing still owes everything it was going to change — with the one exception
+    of a save that is *abandoning* the buffer, which has no later save to owe it
+    to and therefore settles the refusal through the model on the spot — so a
+    buffer drops
+    out the moment it is trimmed, its configuration stops asking, or it is saved
+    with no caret to protect, and it is intersected with the open tabs so a closed
+    file leaves nothing behind. **An owed trim is settled through the editor, or
+    not yet.** The buffer that owes one is, overwhelmingly, the tab the user just
+    left — the tab-switch autosave spares the caret's line while that file is
+    still displayed, and `saveAllDirty()` republishes `$openFiles`, so the idle
+    tick two seconds later re-offers it with the *new* tab on screen. Settling it
+    then would take the through-the-model path below and cost that tab its undo
+    stack and its remembered scroll position, for a whitespace trim nobody asked
+    for; that cost is stated for a background tab an autosave happens to catch,
+    and paying it on every tab switch is a different thing. So the re-offer is
+    filtered to buffers a live view still holds: an owed buffer waits for a save
+    that can reach it through its view (the user comes back and types) and stays
+    owed meanwhile. **Abandonment settles it regardless** — the quit flush, the
+    folder switch's second (post-refusal) flush and the close prompt are about to
+    destroy every undo stack and every viewport there is, so nothing is left for
+    waiting to protect and the trim would otherwise never happen at all. **The one
+    place an owed trim is dropped rather than settled is closing a tab that is
+    already clean**: the spared write left it clean, so `WorkspaceModel.close`
+    takes the no-prompt branch and there is no save at all to settle it on — and
+    inventing one would be this feature writing a file outside a save, which is the
+    line it does not cross. The intersection with the open tabs then forgets the
+    id, and the run stands on disk until that file is edited and saved again. Said
+    in `docs/FEATURES.md` too, where the promise is made. **It decides nothing the engine decides**: properties come
+    from the same `EditorConfigModel` Enter and Tab ask, the plan comes from
+    `SaveTransform`, and this class owns only the AppKit half — which buffer is on
+    screen, the undo-coalescing bracket, the selection and the scroll anchor.
+    `SaveTransformEditor` is that AppKit half stated as a tiny protocol the
+    `CodeEditorView.Coordinator` conforms to, rather than a bag of closures,
+    because every member is a question the coordinator already answers for its own
+    paths. `displayedFileID` is **read, never cached**: the tab-switch autosave
+    fires from `WorkspaceModel.$selectedID` *before* `updateNSView` swaps the
+    buffer, so at that moment it still names the outgoing file — which is exactly
+    the buffer being saved and the one the transform must reach through the view.
+    **Two application paths, and the model picks between them.** A buffer the
+    editor still holds *and whose text the view still agrees with* is rewritten
+    through the text view, in `insertConfiguredTab`'s bracket — `shouldChangeText`
+    / `beginEditing`…`endEditing` / `didChangeText`, edits applied back-to-front,
+    wrapped in a `breakUndoCoalescing()` on **each** side (a save is not typing:
+    `NSTextView` would otherwise register the rewrite into whichever typing action
+    is open, so an autosave inserting the final newline right after the user typed
+    at end of file would ride along in the typing action and the ⌘Z meant to
+    restore the pre-save buffer would take the typed run with it — the break
+    before is what starts the save's own action, the break after is what stops the
+    next keystroke joining it, and single-edit plans are exactly the ones that
+    need both, since a multi-range plan breaks coalescing incidentally),
+    replacements carrying `typingAttributes` explicitly (the raw storage path
+    would otherwise inherit whatever the adjacent text has, and in a buffer with no
+    adjacent text, no font at all) — **or, when applying them one by one
+    would cost more than replacing the span they cover, as the single replacement
+    covering it** (`SaveTransformPlan.applicableReplacements(originalLength:)`,
+    the engine's own arithmetic rather than the view layer's: every
+    `replaceCharacters` shifts
+    everything after it, so one edit per line makes a whole-file `end_of_line`
+    normalization quadratic — a multi-second main-thread freeze on the first save
+    of a large CRLF buffer, the same shape `applied(_:to:)` refuses in Core; both
+    costs are measured and the smaller wins, so a two-line trim at opposite ends of
+    a big file stays two edits and `endEditing` coalesces the edited ranges into
+    one either way. The collapsed span's end is the run's **summed net length**,
+    never `remappedOffset` — that answers where a *position* lands and counts an
+    offset at an edit's start as before it, which is right for a caret facing the
+    final newline the engine may insert at end of file and wrong for a span that
+    has to contain that insertion: reading it there dropped the inserted
+    terminator, saving a file without the final newline its configuration asked
+    for and leaving the buffer clean so nothing came back for it) — so the whole
+    save is one undoable step (a
+    single ⌘Z restores the pre-save buffer), one change notification, and every
+    observer (Neon, the gutter, the minimap, the brackets, the symbol index and,
+    through `reindexSymbols`, the LSP push sync) sees an ordinary edit. The
+    selection and the anchor are put back from the engine's remap, and
+    `scrollRangeToVisible` is deliberately **not** called: every other programmatic
+    edit here is something the user just asked for, so jumping to the caret is
+    right; a save is not, and an autosave is not even a keystroke — the page stays
+    where the reader left it, which (because the transform can delete characters
+    *above* the viewport) means putting the remapped anchor back at the top rather
+    than doing nothing. A **marked range** refuses the whole path: this mutates
+    `textStorage` directly, which is exactly the bookkeeping a composition depends
+    on, so mid-composition the save writes the untransformed bytes and the next
+    save — a keystroke later — transforms them. A buffer the editor no longer
+    holds goes through `WorkspaceModel.replaceText(_:for:)` instead, which bumps
+    that tab's text-replacement revision and therefore **drops its undo stack and
+    remembered viewport** when it is next displayed, exactly as every other
+    off-screen rewrite does (Replace All, a revert, a merge apply). Known and
+    bounded, and said in the doc comment rather than left to be discovered: it
+    costs undo history for a tab nobody is looking at, on a save the project's own
+    configuration asked to rewrite. That path additionally reports the rewrite
+    through `onBufferReplaced`, bound to `PisakaApp.reindexReloadedBuffer(id:url:)`
+    — the resync every other off-screen rewrite already funnels through. It is not
+    optional bookkeeping: no change notification fires, and a buffer-sourced index
+    entry is *skipped* by every disk refresh (`SymbolIndexModel`), so without it
+    the pre-transform declarations, their pre-transform offsets and the document's
+    stale diagnostics would stand until that tab happened to be displayed again.
+    Save As passes no url on purpose: an untitled buffer has never been indexed
+    under any path, and `saveAs`'s own `notifyIndexOfProjectFileChanges()` picks
+    the written file up from disk. **A shown buffer whose view has not caught up
+    takes the off-screen path too**, and that comparison is not defensive: a
+    model-side rewrite (Replace All, a revert, a merge apply, a reload) lands in
+    the model first and reaches the view on SwiftUI's next update pass, while
+    every one of those writers replays a deferred autosave *synchronously* from
+    its own `defer { autosave.resume() }` — inside that very window. Reading the
+    view there would transform text the model had already replaced and push it
+    back through `didChangeText`, silently undoing the rewrite in that tab and
+    then writing the undone result to disk. The model is authoritative whenever
+    the two differ, exactly as `updateNSView`'s content-replaced branch decides
+    it.
+    **The two guards.** `beginSaveTransformRewrite()` raises
+    `isApplyingProgrammaticEdit` *and* `isSwappingBuffer` before the edit is even
+    proposed (`shouldChangeText` re-enters the delegate's own interceptors);
+    `resetIncrementalReadersForSaveTransform()` then drops the blame column and
+    clears this document's diagnostics, and is deliberately a *second* call made
+    only once the edit is known to be permitted — a refused `shouldChangeText`
+    changes no text, and discarding both readers for a rewrite that never
+    happened would leave the gutter and the underlines empty with no edit to
+    re-publish them. The reason they are dropped at all is that `endEditing`
+    coalesces the several small replacements into **one** edited range — for a
+    whole-file terminator normalization, the whole buffer — which is the
+    buffer-swap case in everything but name, so it takes the buffer-swap treatment
+    rather than letting the incremental blame and diagnostic shifters run across a
+    file-wide replacement. Neither reader stays empty: the push sync that
+    `textDidChange` schedules re-publishes the diagnostics, and blame reloads on
+    the update pass the save's own `diskRevision` bump guarantees.
+    `invalidateDiagnosticPaint()` is deliberately *not* called, unlike on a real
+    swap: no `textView.string` assignment happened, so the temporary attributes are
+    still painted and forgetting the cache would leave stale underlines behind.
+    **The call sites, and only these.** `PisakaApp.save(id:)` — after the
+    writer-gate refusal and before the write, so ⌘S, the close prompt's Save and
+    the `runFile`/`testFile` pre-run saves all inherit it without a second site,
+    and a refused save transforms nothing; `saveAs(id:)`, once the panel has been
+    answered, because only then is there a path to resolve against and it is the
+    *destination's* configuration that applies; and `AutosaveController`, on the
+    regular triggers and on both flush paths, wired as an **injected closure** so
+    that controller keeps holding no policy. The two callers choose their id sets
+    differently on purpose: ⌘S passes the one file it names, dirty or not, because
+    that keystroke writes it either way, while autosave passes only the dirty
+    titled buffers `saveAllDirty()` will actually write — transforming a clean
+    background tab would make it dirty and put a file nobody edited into the next
+    commit. Nothing else calls it: not open, not close, not a tab switch on its
+    own, not an `.editorconfig` change, and not the worktree writers.
   - **iOS.** `PisakaApp_iOS` builds the model over the *scoped*
     `SecurityScopedFileService`, so its reads run under the opened folder's
     security-scope grant, and hands it to `RootView_iOS` (a plain `let` — it
@@ -462,7 +853,25 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     insert its own, untouched. `UITextView` has a single `selectedRange`, so no
     fan-out is needed — but the one range still goes through `tabInsertionPlan`,
     so the arithmetic that decides what replaces the selection and where the
-    caret lands is asked once, in Core, rather than restated per platform.
+    caret lands is asked once, in Core, rather than restated per platform. The
+    Return handler passes `newlineTerminator()` beside the unit it already
+    resolves, the macOS peer's one-liner over `endOfLine`; the dedent and
+    auto-pair behavior around it is untouched.
+  - **The iOS save.** iOS has exactly **one** save — the close confirmation's
+    **Save** button — so it has no controller: `RootView_iOS.applySaveTransform
+    (to:)` is the whole app half, and it is the same three-step chain (resolve
+    through the `EditorConfigModel` this screen already holds, ask
+    `SaveTransform`, rewrite) called immediately before `model.save(for:)`, so
+    what reaches the disk is what the configuration asked for. It rewrites through
+    `WorkspaceModel.replaceText(_:for:)` unconditionally rather than through the
+    text view, and that costs nothing here: the tab is closed on the very next
+    line, so there is no undo stack or remembered viewport left to drop.
+    **No protected positions are passed**, and that is a decision rather than an
+    omission: the macOS funnel spares the caret's line because its autosave is
+    aggressive enough to trim indentation out from under someone mid-thought,
+    while iOS has no autosave at all and this buffer is being *closed* — there is
+    no caret left to protect, so the file is trimmed in full. An empty plan
+    returns having touched nothing, exactly as on macOS.
 
 ## Test inventory
 
@@ -482,13 +891,64 @@ over in-memory trees (no committed `.editorconfig`):
     charge under-reports), fifty copies of one of them in a single file (the
     per-pair-vs-per-resolution scope), and a 200-section but honest config
     spending under half the ceiling while every matching section still answers.
+  - `SaveTransformTests` — the acceptance list, engine-level: trimming with
+    spaces, tabs and mixed runs (a whitespace-only line, the unterminated last
+    line, a buffer trimmed on every line); the spared line from six sides (a
+    caret at end of content, at column zero, at end of an unterminated file, at
+    end of a *terminated* file — which spares nothing — both endpoints of a
+    selection, and the same buffer trimmed once the caret has moved away), that
+    sparing is trimming's alone, and that no protected positions trims in full;
+    the final newline in each terminator flavor, taken from the file's own when no
+    `end_of_line` states one and LF when the file's own is one of the unnamed
+    three, never doubled, never removed, absent under `false`
+    and unset, an empty buffer untouched, and the two last-line interactions with
+    trimming; each of the three `end_of_line` targets against pure-LF, pure-CRLF,
+    pure-CR and mixed files, the CRLF pair as one terminator, an unrecognized
+    value normalizing nothing, and NEL/LS/PS surviving every combination; the
+    three composing in the stated order; the remap across shrinking and growing
+    edits with offsets before, inside and after each site and at end of file,
+    ranges through their two ends, the selection-and-anchor pair the funnel really
+    remaps, an absent selection not invented a position, an empty plan mapping
+    every position to itself, and a composed case whose every offset is an
+    astral-plane surrogate pair (the one input class that tells UTF-16 arithmetic
+    apart from `Character` arithmetic); what a caret, a selection and a column
+    selection each contribute as protected positions, and that `NSNotFound`, a
+    negative and an offset past the end spare no line they should not; the
+    idempotence check (the plan for the transformed text is empty); and the
+    no-configuration pins — an empty map, a map of only part 1's indentation
+    properties, the three set to `false`/unrecognized, and an empty buffer — each
+    producing an empty plan and a byte-identical text.
+  - `SaveTransformIntegrationTests` — the same chain end to end over
+    `WorkspaceModel` + `EditorConfigModel` + `StubFileTree` with a real
+    `.editorconfig` tree, since the view layers themselves are untested by
+    convention: a transformed save leaves the tab **clean** with the buffer, the
+    saved baseline and the written bytes identical; the second save writes nothing
+    new; the remapped selection and anchor are the engine's; the caret's line
+    survives one save and is trimmed by the next after the caret moves; a buffer
+    with no protected positions (the iOS shape) is trimmed in full; an autosave
+    tick transforms and writes every dirty titled buffer; the iOS save writes what
+    the configuration asked and, without one, the buffer byte for byte; a
+    Return-spliced terminator survives the next save untouched; a file outside the
+    configured section is not transformed; ⌘S transforms a **clean, unedited**
+    buffer (the counterpart of the autosave case, which must not touch one); Save
+    As resolves the **destination's** configuration against a leaf that does not
+    exist on disk yet, writes the buffer byte for byte into a folder no
+    configuration covers, and refuses a destination another tab already owns
+    *before* anything is rewritten; and — the regression that matters most — a
+    project with no `.editorconfig` writes byte-identical bytes and moves exactly
+    the revision tokens it moved before this feature existed.
   - `EditorConfigFileTests` — whole-line `#` and `;` comments (leading
     whitespace included), a `;`/`#` kept verbatim inside a value (the spec's own
     `foo = a ;)`), whitespace around keys and values, a value containing `=`, the
     key and value length caps at and beyond the floor, a header with no closing
     bracket, a `root = true` after the first section ignored, key and known-value
     case-insensitivity, and every accessor including the `indent_size = tab` →
-    `tab_width` coupling and the rejection of `0`/negative/non-numeric sizes.
+    `tab_width` coupling and the rejection of `0`/negative/non-numeric sizes —
+    plus the three on-save ones: each `end_of_line` value with the terminator it
+    names, both booleans against their two literals, all three `nil` for an absent
+    or unrecognized value, all three read case-insensitively through the parser,
+    `unset` restoring the absent answer for each, and an empty map stating none of
+    them.
   - `EditorConfigResolverTests` — nested configs overriding per property,
     `root = true` stopping the walk, a config above the project root never read,
     later-section-wins inside one file, `unset` clearing an inherited property,
