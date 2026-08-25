@@ -127,6 +127,30 @@ final class VendoredGrammarQueryTests: XCTestCase {
         assertResolvesWithoutFallingBackToPlain(emitted)
     }
 
+    // MARK: - editorconfig (query hand-written in this repository)
+
+    func testEditorConfigQueryUsesOnlyNodeNamesTheGrammarDeclares() throws {
+        try assertHighlightQueryNodesAreDeclared(vendoredPackage: "TreeSitterEditorconfig")
+    }
+
+    func testEditorConfigQueryEmitsExactlyTheExpectedCaptureNames() throws {
+        let emitted = try captureNames(vendoredPackage: "TreeSitterEditorconfig")
+
+        XCTAssertEqual(emitted, [
+            "comment",
+            "keyword",
+            "constant",
+            "property",
+            "operator",
+            "string",
+            "punctuation.bracket",
+            "punctuation.delimiter",
+            "number",
+        ])
+
+        assertResolvesWithoutFallingBackToPlain(emitted)
+    }
+
     // MARK: - The named/anonymous split itself
 
     /// The node check is only as good as the `named` flag it reads: merging the

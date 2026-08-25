@@ -267,7 +267,7 @@ of captures == all `SymbolKind` captures) stays satisfied with no new kind.
 - Modify: `Vendor/TreeSitterEditorconfig/VENDORED.md`,
   `Tests/PisakaCoreTests/VendoredGrammarQueryTests.swift`
 
-- [ ] author `queries/highlights.scm`, every node name taken from
+- [x] author `queries/highlights.scm`, every node name taken from
       `src/node-types.json` and every capture name inside a prefix
       `SyntaxTokenKind` already maps, so **no change to Core's capture mapping is
       needed**. The constructs it must cover, and the intended shape: comments
@@ -283,9 +283,9 @@ of captures == all `SymbolKind` captures) stays satisfied with no new kind.
       value as `@constant` — which needs no predicate. Verify against the real
       grammar while writing: pattern order matters, later patterns override
       earlier ones on overlapping ranges
-- [ ] state in the query's header comment, as gitignore's does, that both of its
+- [x] state in the query's header comment, as gitignore's does, that both of its
       failure modes are silent in the app and point at `../VENDORED.md`
-- [ ] fill in `VENDORED.md`'s Verification section: two fixtures (one ordinary
+- [x] fill in `VENDORED.md`'s Verification section: two fixtures (one ordinary
       `.editorconfig` with a preamble, comments in both `#` and `;` form, a `[*]`
       and a `[*.{js,ts}]` section and several properties; one exercising the glob
       paths the first does not — `**`, `?`, a `[abc]`/`[!a-z]` character choice,
@@ -294,12 +294,12 @@ of captures == all `SymbolKind` captures) stays satisfied with no new kind.
       vendored package + the resolved `SwiftTreeSitter`/`tree-sitter` checkouts,
       printing every capture and every uncaptured non-newline offset — that count
       must be zero), and the note that `swift test` automates only the static half
-- [ ] extend `VendoredGrammarQueryTests` with the two editorconfig tests
+- [x] extend `VendoredGrammarQueryTests` with the two editorconfig tests
       mirroring the existing three grammars: node names and anonymous literals
       declared under the matching `named` flag, and the emitted capture set
       asserted by equality with each name resolving to a non-`.plain`
       `SyntaxTokenKind`
-- [ ] run `swift test`
+- [x] run `swift test`
 
 ### Task 4: App-layer grammar registration and platform builds
 

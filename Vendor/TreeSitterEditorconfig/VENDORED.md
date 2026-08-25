@@ -56,33 +56,65 @@ after any grammar update** (see the update procedure below).
 
 ## Verification
 
-Last run: [TBD], against the vendored grammar at the SHA in the Upstream
+Last run: 2026-08-26, against the vendored grammar at the SHA in the Upstream
 table. Result: the query **compiles**, the tables below matched element for element,
 and **zero** non-newline characters of either fixture were left uncaptured.
 
 ### Fixture A
 
 ```editorconfig
-# fixture A
+# A comment
+; Another comment
+root = true
+
+[*]
+indent_style = space
+indent_size = 2
+
+[*.{js,ts}]
+charset = utf-8
 ```
 
 ### Confirmed captures (fixture A)
 
 | Fixture element | Grammar node | Capture | `SyntaxTokenKind` |
 |---|---|---|---|
-| TBD | TBD | TBD | TBD |
+| `# A comment` / `; Another comment` | `comment` | `@comment` | `.comment` |
+| `root` | `property` (inside `preamble`) | `@keyword` | `.keyword` |
+| `true` | `string` (inside `preamble`) | `@constant` | `.constant` |
+| `[` and `]` in sections | anonymous `"["` / `"]"` in `header` | `@punctuation.bracket` | `.punctuation` |
+| `*` in `[*]` | `wildcard` | `@operator` | `.operator` |
+| `{` and `}` in `{js,ts}` | `brace_expansion` anonymous `"{"` / `"}"` | `@punctuation.bracket` | `.punctuation` |
+| `,` in `{js,ts}` | `brace_expansion` anonymous `","` | `@punctuation.delimiter` | `.punctuation` |
+| `.`, `js`, `ts` | `glob` | `@string` | `.string` |
+| `indent_style`, `charset`, etc | `property` | `@property` | `.property` |
+| `=` | anonymous `"="` | `@operator` | `.operator` |
+| `space`, `2`, `utf-8` | `string` | `@string` | `.string` |
 
 ### Fixture B
 
 ```editorconfig
-# fixture B
+[/**/?]
+[foo\[bar\]]
+[[abc]_[!a-z]]
+[file_{1..10}.txt]
 ```
 
 ### Confirmed captures (fixture B)
 
 | Fixture element | Grammar node | Capture | `SyntaxTokenKind` |
 |---|---|---|---|
-| TBD | TBD | TBD | TBD |
+| `[` and `]` in headers | anonymous `"["` / `"]"` in `header` | `@punctuation.bracket` | `.punctuation` |
+| `/` | `glob` anonymous `"/"` | `@punctuation.delimiter` | `.punctuation` |
+| `**`, `?` | `wildcard` | `@operator` | `.operator` |
+| `\[` and `\]` | `glob` / `character_escape` | `@string` | `.string` |
+| inner `[` and `]` in `[abc]` | `character_choice` anonymous `"["` / `"]"` | `@punctuation.bracket` | `.punctuation` |
+| `!` in `[!a-z]` | `character_choice` anonymous `"!"` | `@operator` | `.operator` |
+| `-` in `[a-z]` | `character_range` anonymous `"-"` | `@operator` | `.operator` |
+| `{` and `}` in `{1..10}` | `integer_range` anonymous `"{"` / `"}"` | `@punctuation.bracket` | `.punctuation` |
+| `..` | `integer_range` anonymous `".."` | `@punctuation.delimiter` | `.punctuation` |
+| `1` and `10` | `integer` | `@number` | `.number` |
+| `foo`, `bar`, `abc`, `a`, `z`, `file_`, `_`, `.txt` | `glob` / `character` | `@string` | `.string` |
 
 ### How to re-run it
 
@@ -110,7 +142,7 @@ against the tables above; the uncovered count must be zero. Then run each
 observed capture name through `SyntaxTokenKind(captureName:)` and confirm the
 kinds are distinct.
 
-Delete the temp package afterwards.
+Delete the temp package afterwards. Note that `swift test` automates only the static half.
 
 **3. The Core pin (automated — runs on every `swift test`).**
 `Tests/PisakaCoreTests/VendoredGrammarQueryTests.swift` reads this package's own
