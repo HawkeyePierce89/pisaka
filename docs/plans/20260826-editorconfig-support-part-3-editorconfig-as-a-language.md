@@ -357,14 +357,14 @@ of captures == all `SymbolKind` captures) stays satisfied with no new kind.
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] `swift test` fully green, with `VendoredGrammarQueryTests`,
+- [x] `swift test` fully green, with `VendoredGrammarQueryTests`,
       `SymbolQueryTests`, `LanguageKeywordsTests`, `SyntaxLanguageTests`,
       `CommentStyleTests`, `FileIconTests`, `LicenseCoverageTests` and
       `DependencyPinTests` all picking up the new language
-- [ ] `swiftlint --strict` clean from the repository root
-- [ ] `xcodegen generate` && macOS Release build && iOS `generic/platform=iOS`
+- [x] `swiftlint --strict` clean from the repository root
+- [x] `xcodegen generate` && macOS Release build && iOS `generic/platform=iOS`
       build
-- [ ] confirm no exemption was added to any suite for this language beyond the
+- [x] confirm no exemption was added to any suite for this language beyond the
       vendoring route's legitimate ones, and that no LSP registry, provisioning
       manifest, `PrivacyInfo.xcprivacy`, resolution-engine, indentation or
       save-transform file was touched
