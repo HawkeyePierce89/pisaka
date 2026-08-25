@@ -221,11 +221,11 @@ each is legal.
 
 **Files:** none modified
 
-- [ ] confirm `git diff --stat` touches nothing under `Sources/`
-- [ ] run `swift test` in full; green
-- [ ] run `swiftlint --strict` from the repository root; clean
-- [ ] re-run all four restaged/new tests ≥100 iterations each and record the counts
-- [ ] run `xcodegen generate` and the macOS + iOS `xcodebuild` builds to confirm the two build jobs are unaffected
+- [x] confirm `git diff --stat` touches nothing under `Sources/`
+- [x] run `swift test` in full; green
+- [x] run `swiftlint --strict` from the repository root; clean
+- [x] re-run all four restaged/new tests ≥100 iterations each and record the counts
+- [x] run `xcodegen generate` and the macOS + iOS `xcodebuild` builds to confirm the two build jobs are unaffected
 
 ### Task 6: Update documentation
 
