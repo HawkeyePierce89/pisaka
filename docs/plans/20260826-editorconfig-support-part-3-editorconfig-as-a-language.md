@@ -210,22 +210,22 @@ of captures == all `SymbolKind` captures) stays satisfied with no new kind.
 - Create: `Resources/Queries/editorconfig/symbols.scm`
 - Modify: `Tests/PisakaCoreTests/{SyntaxLanguageTests,FileIconTests,CommentStyleTests,LanguageKeywordsTests,SymbolQueryTests}.swift`
 
-- [ ] add `case editorconfig` to `SyntaxLanguage` and an `exactFileNameMap`
+- [x] add `case editorconfig` to `SyntaxLanguage` and an `exactFileNameMap`
       entry **keyed off `EditorConfigResolver.fileName`**, not a second string
       literal, so the mapping rule and the resolver's cannot become two answers;
       phase 1 lowercases the last path component, which is what gives
       `.EditorConfig` the same result `EditorConfigResolver.isFileName(_:)`
       gives. Deliberately add **no** extension entry and **no** prefix entry —
       `foo.editorconfig` must not resolve
-- [ ] add `.editorconfig` to `FileIcon.specialNameMap` (lowercased key ⇒
+- [x] add `.editorconfig` to `FileIcon.specialNameMap` (lowercased key ⇒
       case-insensitive, same as `.gitignore`), in the config family, with a
       symbol/color that reads as "settings" rather than reusing an existing
       language's
-- [ ] add `.editorconfig` to `CommentStyle`'s `#` line-comment group — the
+- [x] add `.editorconfig` to `CommentStyle`'s `#` line-comment group — the
       switch is exhaustive so the case forces this; note in a comment that the
       format also accepts `;` and that ⌘/ deliberately writes the spec's primary
       `#`
-- [ ] add the `editorConfig` keyword list to `LanguageKeywords` and route the
+- [x] add the `editorConfig` keyword list to `LanguageKeywords` and route the
       new case to it: the nine property names (`charset`, `end_of_line`,
       `indent_size`, `indent_style`, `insert_final_newline`, `max_line_length`,
       `root`, `tab_width`, `trim_trailing_whitespace`) plus the eight
@@ -235,30 +235,30 @@ of captures == all `SymbolKind` captures) stays satisfied with no new kind.
       (`utf-8` ends at the hyphen), so listing them would offer text that could
       never be inserted correctly — and state the accepted limit that completion
       is not context-aware and offers keys and values alike
-- [ ] create `Resources/Queries/editorconfig/symbols.scm` capturing the section
+- [x] create `Resources/Queries/editorconfig/symbols.scm` capturing the section
       header glob as `@definition.heading`, with the shared convention header
       comment and a note on why `.heading` and not `.selector`
-- [ ] extend the doc comments on `SymbolKind.heading` and
+- [x] extend the doc comments on `SymbolKind.heading` and
       `SymbolIntelligenceProvider.kindsExcludedFromCompletion` so both name the
       `.editorconfig` section header alongside the Markdown heading; no code
       change to the exclusion set
-- [ ] tests: `SyntaxLanguageTests` —
+- [x] tests: `SyntaxLanguageTests` —
       `.editorconfig`/`.EditorConfig`/`.EDITORCONFIG` resolve, a path-qualified
       form resolves, and `foo.editorconfig`/`editorconfig`/`.editorconfigx` do
       not; plus an agreement test asserting `SyntaxLanguage(forFileName:) ==
       .editorconfig` exactly when `EditorConfigResolver.isFileName(_:)` is true,
       across the same casings
-- [ ] tests: `FileIconTests` (icon by name, any casing), `CommentStyleTests`
+- [x] tests: `FileIconTests` (icon by name, any casing), `CommentStyleTests`
       (the `#` style), `LanguageKeywordsTests` (a dedicated
       `testEditorConfigListIsThePropertyNamesAndIdentifierShapedValues` pinning
       the exact 17 entries and asserting the charset values are absent — the
       shared sorted/duplicate-free/insertable-token gates already cover the rest)
-- [ ] tests: `SymbolQueryTests` — add
+- [x] tests: `SymbolQueryTests` — add
       `testEditorConfigSymbolsQueryUsesOnlyNodeNamesTheGrammarDeclares` against
       `declaredNodeTypes(vendoredPackage: "TreeSitterEditorconfig")`, and add
       `.editorconfig` to the closing union in
       `testRemoteGrammarQueriesUseExactlyThePinnedNodeNames`
-- [ ] run `swift test`
+- [x] run `swift test`
 
 ### Task 3: The highlight query and its static gate
 

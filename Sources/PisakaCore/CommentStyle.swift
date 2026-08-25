@@ -21,6 +21,9 @@ public enum CommentStyle: Equatable {
             return .line("//")
         case .python, .yaml, .dockerfile, .dotenv, .gitignore:
             return .line("#")
+        case .editorconfig:
+            // The format accepts `;` too, but `#` is the spec's primary line comment.
+            return .line("#")
         case .sql:
             return .line("--")
         case .css:

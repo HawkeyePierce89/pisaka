@@ -43,6 +43,7 @@ public enum LanguageKeywords {
         case .go: return go
         case .rust: return rust
         case .sql: return sql
+        case .editorconfig: return editorConfig
         case .json, .markdown, .html, .css, .yaml, .dotenv, .gitignore: return []
         }
     }
@@ -332,4 +333,17 @@ public enum LanguageKeywords {
         "XML", "ZONE",
     ]
 
+    /// EditorConfig: the 9 property names and the 8 identifier-shaped value literals.
+    ///
+    /// The charset values (e.g. `utf-8`, `utf-16be`) are absent because they are
+    /// not identifier-shaped — they contain hyphens, which stop the scanner — so
+    /// listing them would offer text that could never be inserted correctly by the
+    /// current completion engine. The accepted limit here is that completion is not
+    /// context-aware and offers keys and values alike regardless of cursor position.
+    private static let editorConfig: [String] = [
+        "charset", "cr", "crlf", "end_of_line", "false", "indent_size",
+        "indent_style", "insert_final_newline", "lf", "max_line_length",
+        "root", "space", "tab", "tab_width", "trim_trailing_whitespace", "true",
+        "unset",
+    ]
 }

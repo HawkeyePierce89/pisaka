@@ -181,6 +181,32 @@ final class SyntaxLanguageTests: XCTestCase {
         XCTAssertEqual(SyntaxLanguage(forFileName: "FOO.SQL"), .sql)
         XCTAssertEqual(SyntaxLanguage(forFileName: "path/to/schema.sql"), .sql)
     }
+
+    // MARK: - EditorConfig
+
+    func testEditorConfigNamesResolve() {
+        XCTAssertEqual(SyntaxLanguage(forFileName: ".editorconfig"), .editorconfig)
+        XCTAssertEqual(SyntaxLanguage(forFileName: ".EditorConfig"), .editorconfig)
+        XCTAssertEqual(SyntaxLanguage(forFileName: ".EDITORCONFIG"), .editorconfig)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "path/to/.editorconfig"), .editorconfig)
+    }
+
+    func testEditorConfigLookalikesDoNotResolve() {
+        XCTAssertNil(SyntaxLanguage(forFileName: "foo.editorconfig"))
+        XCTAssertNil(SyntaxLanguage(forFileName: "editorconfig"))
+        XCTAssertNil(SyntaxLanguage(forFileName: ".editorconfigx"))
+    }
+
+    func testEditorConfigResolverAgreement() {
+        // SyntaxLanguage(forFileName:) and EditorConfigResolver.isFileName(_:)
+        // must give the exact same answer across casings, because they both
+        // look at the same string.
+        let casings = [".editorconfig", ".EditorConfig", ".EDITORCONFIG"]
+        for casing in casings {
+            XCTAssertEqual(SyntaxLanguage(forFileName: casing), .editorconfig)
+            XCTAssertTrue(EditorConfigResolver.isFileName(casing))
+        }
+    }
     // MARK: - Rule precedence
 
     func testExtensionWinsOverDotIgnoreShapeAndPrefix() {
@@ -256,7 +282,7 @@ final class SyntaxLanguageTests: XCTestCase {
             "app.ts", "app.tsx", "data.json", "README.md", "README.markdown",
             "main.py", "main.go", "main.rs", "index.html", "index.htm", "style.css",
             "config.yml", "config.yaml",
-            "Dockerfile", ".env", ".gitignore", "schema.sql",
+            "Dockerfile", ".env", ".gitignore", "schema.sql", ".editorconfig",
         ]
         let reachable = Set(knownFileNames.compactMap(SyntaxLanguage.init(forFileName:)))
         XCTAssertEqual(reachable, Set(SyntaxLanguage.allCases),

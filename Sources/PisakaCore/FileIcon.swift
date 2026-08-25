@@ -51,6 +51,7 @@ public struct FileIcon: Equatable {
         ".gitattributes": FileIcon(symbolName: "arrow.triangle.branch", color: .gray),
         "makefile": FileIcon(symbolName: "hammer", color: .gray),
         "dockerfile": FileIcon(symbolName: "shippingbox", color: .blue),
+        ".editorconfig": FileIcon(symbolName: "slider.horizontal.3", color: .gray),
     ]
 
     /// Lowercased file extension → icon.

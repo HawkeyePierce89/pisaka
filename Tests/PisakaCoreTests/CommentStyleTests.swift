@@ -33,6 +33,7 @@ final class CommentStyleTests: XCTestCase {
         // Exact spelling checks for the major families
         XCTAssertEqual(CommentStyle.style(for: .swift), .line("//"))
         XCTAssertEqual(CommentStyle.style(for: .python), .line("#"))
+        XCTAssertEqual(CommentStyle.style(for: .editorconfig), .line("#"))
         XCTAssertEqual(CommentStyle.style(for: .sql), .line("--"))
         XCTAssertEqual(CommentStyle.style(for: .css), .block(open: "/*", close: "*/"))
         XCTAssertEqual(CommentStyle.style(for: .html), .block(open: "<!--", close: "-->"))
