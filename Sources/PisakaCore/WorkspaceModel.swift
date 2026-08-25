@@ -767,15 +767,6 @@ public final class WorkspaceModel: ObservableObject {
         case destinationAlreadyOpen
     }
 
-    /// Save the file identified by `id` to `url` (Save As).
-    ///
-    /// Assigns the url, writes the contents to disk, updates the display name
-    /// (derived from the url), and clears the dirty flag.
-    ///
-    /// If a *different* open tab already targets `url` (compared canonically,
-    /// matching `open(url:)`), the save is rejected with
-    /// `SaveAsError.destinationAlreadyOpen` and nothing is written — this mirrors
-    /// `open(url:)`'s guard against two buffers sharing one path.
     /// Whether a *different* open tab already targets `url` — the one condition
     /// `saveAs(url:for:)` refuses on, asked separately so a caller may find out
     /// **before** it does anything a refused save would have to undo (the on-save
@@ -786,6 +777,15 @@ public final class WorkspaceModel: ObservableObject {
         return openFiles.contains { $0.id != id && canonicalURL(of: $0) == canonical }
     }
 
+    /// Save the file identified by `id` to `url` (Save As).
+    ///
+    /// Assigns the url, writes the contents to disk, updates the display name
+    /// (derived from the url), and clears the dirty flag.
+    ///
+    /// If a *different* open tab already targets `url` (compared canonically,
+    /// matching `open(url:)`), the save is rejected with
+    /// `SaveAsError.destinationAlreadyOpen` and nothing is written — this mirrors
+    /// `open(url:)`'s guard against two buffers sharing one path.
     public func saveAs(url: URL, for id: UUID) throws {
         guard let index = indexOf(id) else { return }
         if isDestinationOpenElsewhere(url, for: id) {

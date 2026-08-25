@@ -112,15 +112,36 @@ final class SaveTransformController {
     private weak var model: WorkspaceModel?
     private weak var editorConfig: EditorConfigModel?
 
-    /// Bind the two models (`PisakaApp`'s `.onAppear`, beside `autosave.start`).
+    /// Told about a titled buffer this controller rewrote **behind** the editor —
+    /// the background-tab path, which goes through the model and therefore fires
+    /// no change notification any reader can see.
+    ///
+    /// The through-the-view path needs nothing here: it ends in `didChangeText()`,
+    /// so the symbol index, the LSP push channel and the diagnostics shifter all
+    /// see an ordinary edit. A tab no editor is showing has no such notification,
+    /// and a buffer-sourced index entry is *skipped* by every disk refresh
+    /// (`SymbolIndexModel`), so without this the pre-transform declarations, their
+    /// pre-transform offsets and the document's stale diagnostics would stand
+    /// until that tab happened to be displayed again — which is exactly the
+    /// resync `reindexReloadedBuffer` performs for every other off-screen rewrite
+    /// (Replace All, a revert, a merge apply, a checkout).
+    private var onBufferReplaced: ((UUID, URL) -> Void)?
+
+    /// Bind the two models and the off-screen resync (`PisakaApp`'s `.onAppear`,
+    /// beside `autosave.start`).
     ///
     /// Bound once here rather than passed on every call so the call sites stay a
     /// single line each and read as what they are — "transform these buffers" —
     /// with no per-save re-statement of where the buffers and the configuration
     /// come from.
-    func start(model: WorkspaceModel, editorConfig: EditorConfigModel) {
+    func start(
+        model: WorkspaceModel,
+        editorConfig: EditorConfigModel,
+        onBufferReplaced: @escaping (UUID, URL) -> Void
+    ) {
         self.model = model
         self.editorConfig = editorConfig
+        self.onBufferReplaced = onBufferReplaced
     }
 
     /// Bind to the editor that is being built (`CodeEditorView.makeNSView`).
@@ -146,7 +167,7 @@ final class SaveTransformController {
         guard let model else { return }
         for id in ids {
             guard let url = model.openFiles.first(where: { $0.id == id })?.url else { continue }
-            prepare(id: id, configuredBy: url, in: model)
+            prepare(id: id, configuredBy: url, resyncing: url, in: model)
         }
     }
 
@@ -156,14 +177,18 @@ final class SaveTransformController {
     /// The configuration that applies is the **destination's**, not the source's
     /// (there is no source): a Save As into a folder whose `.editorconfig` asks
     /// for CRLF writes CRLF, and the same buffer saved elsewhere does not.
+    /// No resync url, and that is not an omission: this is an **untitled** buffer,
+    /// so nothing has ever indexed it — under the destination path or any other —
+    /// and the write that follows re-indexes it from disk
+    /// (`PisakaApp.saveAs`'s `notifyIndexOfProjectFileChanges()`).
     func prepareForSaveAs(id: UUID, destination: URL) {
         guard let model else { return }
-        prepare(id: id, configuredBy: destination, in: model)
+        prepare(id: id, configuredBy: destination, resyncing: nil, in: model)
     }
 
     // MARK: - Internals
 
-    private func prepare(id: UUID, configuredBy url: URL, in model: WorkspaceModel) {
+    private func prepare(id: UUID, configuredBy url: URL, resyncing resyncURL: URL?, in model: WorkspaceModel) {
         guard let config = editorConfig?.properties(for: url) else { return }
         let live = liveTextView(for: id)
         // The live view is authoritative for the buffer it is showing; the model
@@ -184,6 +209,10 @@ final class SaveTransformController {
             apply(plan, in: live)
         } else {
             model.replaceText(plan.text, for: id)
+            // The rewrite fired no change notification, so the readers that track
+            // this buffer are told the way every other off-screen rewrite tells
+            // them. See `onBufferReplaced`.
+            if let resyncURL { onBufferReplaced?(id, resyncURL) }
         }
     }
 

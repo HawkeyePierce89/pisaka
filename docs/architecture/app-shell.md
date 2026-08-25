@@ -564,7 +564,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `model`, `saveTransform.prepareForSave(ids:)` and an `onSaved` closure that
     calls `refreshLocalChanges()`, reusing
     its generation-pinning rather than duplicating the git status refresh);
-    `saveTransform.start(model:editorConfig:)` is bound on the same line.
+    `saveTransform.start(model:editorConfig:onBufferReplaced:)` is bound just
+    above it, its third argument `reindexReloadedBuffer(id:url:)` — the resync a
+    background tab rewritten through the model needs, for the reason
+    `core-editorconfig.md` states.
     `revertChanges` brackets its revert+resync `Task` with the controller:
     `autosave.suspend()` is called *synchronously* right after the confirm
     (where `originGeneration`/`preRevertText` are captured, before the `Task`

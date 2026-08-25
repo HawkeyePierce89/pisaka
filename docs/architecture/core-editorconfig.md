@@ -643,7 +643,16 @@ Thin by convention: the views wire keys to the rules and decide nothing.
     off-screen rewrite does (Replace All, a revert, a merge apply). Known and
     bounded, and said in the doc comment rather than left to be discovered: it
     costs undo history for a tab nobody is looking at, on a save the project's own
-    configuration asked to rewrite.
+    configuration asked to rewrite. That path additionally reports the rewrite
+    through `onBufferReplaced`, bound to `PisakaApp.reindexReloadedBuffer(id:url:)`
+    — the resync every other off-screen rewrite already funnels through. It is not
+    optional bookkeeping: no change notification fires, and a buffer-sourced index
+    entry is *skipped* by every disk refresh (`SymbolIndexModel`), so without it
+    the pre-transform declarations, their pre-transform offsets and the document's
+    stale diagnostics would stand until that tab happened to be displayed again.
+    Save As passes no url on purpose: an untitled buffer has never been indexed
+    under any path, and `saveAs`'s own `notifyIndexOfProjectFileChanges()` picks
+    the written file up from disk.
     **The two guards.** `beginSaveTransformRewrite()` raises
     `isApplyingProgrammaticEdit` *and* `isSwappingBuffer`, drops the blame column
     and clears this document's diagnostics. The reason is that `endEditing`

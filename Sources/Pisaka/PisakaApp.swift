@@ -885,7 +885,13 @@ struct PisakaApp: App {
                 // closure so the controller keeps holding no policy: it decides
                 // *when* a save happens and which buffers it writes, and this
                 // decides what `.editorconfig` makes of them.
-                saveTransform.start(model: model, editorConfig: editorConfig)
+                // `onBufferReplaced` is the off-screen half: a background tab the
+                // transform rewrote through the model fired no change
+                // notification, so it is resynced through the same funnel every
+                // other off-screen rewrite uses.
+                saveTransform.start(model: model, editorConfig: editorConfig, onBufferReplaced: { id, url in
+                    reindexReloadedBuffer(id: id, url: url)
+                })
                 autosave.start(model: model, prepareForSave: saveTransform.prepareForSave(ids:), onSaved: { saved, createdFile in
                     refreshLocalChanges()
                     if createdFile { model.bumpTreeRevision() }
