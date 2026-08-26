@@ -196,24 +196,24 @@ Cmd+D on a conflicted row still opens the resolver, via the same rule.
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] run `swift test` — the full `PisakaCore` suite must be green.
-- [ ] run `swiftlint --strict` from the repository root — must be clean.
-- [ ] run `xcodegen generate`, then the macOS build:
+- [x] run `swift test` — the full `PisakaCore` suite must be green.
+- [x] run `swiftlint --strict` from the repository root — must be clean.
+- [x] run `xcodegen generate`, then the macOS build:
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`.
-- [ ] run the iOS build:
+- [x] run the iOS build:
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
       (nothing here is iOS-facing; the build proves the macOS-gated file stays
       gated).
-- [ ] grep the diff for a second diff-opening call site: `onOpenDiff` /
+- [x] grep the diff for a second diff-opening call site: `onOpenDiff` /
       `onResolveConflict` must be invoked only from the shared activation helper
       and the existing "Resolve…" item.
 
 ### Task 6: Update documentation
 
-- [ ] confirm `CLAUDE.md` needs no change (no new file, no new invariant — the
+- [x] confirm `CLAUDE.md` needs no change (no new file, no new invariant — the
       rules live on an already-indexed Core model and the view is already
       indexed).
-- [ ] re-read the two architecture entries against the final code and correct any
+- [x] re-read the two architecture entries against the final code and correct any
       drift introduced while implementing.
 
 ## Post-Completion (manual verification by a human)
