@@ -757,8 +757,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
   - `iOS/LocalChangesView_iOS.swift` / `iOS/DiffView_iOS.swift` /
     `iOS/DiffRoute_iOS.swift` — the Local Changes list + two-`UITextView`
     side-by-side diff, presented as sheets / pushed screens.
-  - `iOS/CommitLogView_iOS.swift` / `iOS/CommitGraphView_iOS.swift` /
-    `iOS/LogFilterBar_iOS.swift` — the Git Log list with the branch-graph gutter
-    (UIKit over `CommitGraphLayout`) and the filter/search bar.
+  - `iOS/CommitLogView_iOS.swift` / `iOS/CommitGraphView_iOS.swift` —
+    the Git Log list with the branch-graph gutter (UIKit over
+    `CommitGraphLayout`).
+  - `iOS/LogFilterBar_iOS.swift` — the iOS filter/search bar, the compact peer of
+    the macOS bar. The compact bar is a branch `Menu` + live message-search field +
+    button opening the advanced-filter form (author/path/date) as a sheet. **Audit
+    result:** the advanced form is *immune* to the seed/echo loop by construction —
+    it is seeded once in `init` via `LogFilterDraft(filter:defaultDate:)` and
+    applies only from the explicit Apply button, so no model-published filter reaches
+    it; the compact bar's search field previously carried the same masquerade shape
+    as the macOS toggles (`.onChange(of: searchQuery)` seeded `search`, whose
+    `.onChange(of: search)` called `onSearch`) and is now routed through a
+    user-intent `searchBinding` (`set` → assign + `onSearch`) so the seed cannot
+    echo. The advanced form is rebuilt on a single `@State LogFilterDraft` (seeded in
+    `init`, Apply reports `draft.filter()`, Clear resets the draft fields; the
+    duplicated trimming/`endOfDay` and hand-rolled seeding are deleted and the
+    empty-bound placeholder is now `Date()` rather than the epoch). The branch
+    picker no longer carries its own `allRefsTag`/`selectedRef`/`applyRef` sentinel
+    handling: it uses `LogFilterDraft.allRefsTag` + `displayRefTag(amongKnown:)` /
+    `selectRef(tag:)` and keeps the verbatim write that was already correct on iOS.
+    All trimming, day-boundary normalization, verbatim ref preservation and tag
+    mapping live in the shared `PisakaCore.LogFilterDraft`.
   - `iOS/MergeView_iOS.swift` / `iOS/MergeRoute_iOS.swift` — the adaptive 3-pane
     conflict resolver (side-by-side on regular width, stacked on compact).
