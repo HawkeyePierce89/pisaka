@@ -57,8 +57,23 @@ after any grammar update** (see the update procedure below).
 ## Verification
 
 Last run: 2026-08-26, against the vendored grammar at the SHA in the Upstream
-table. Result: the query **compiles**, the tables below matched element for element,
-and **zero** non-newline characters of either fixture were left uncaptured.
+table. Executed by the recipe below: a throwaway SwiftPM package depending on
+this directory plus the checked-out `SwiftTreeSitter`/`tree-sitter` and
+`PisakaCore` (for `SyntaxTokenKind(captureName:)`). Result: the query
+**compiles** (14 patterns, 9 distinct capture names); every row of both tables
+below was witnessed by an executed capture carrying that name whose range
+contains the element; every observed capture name resolved through
+`SyntaxTokenKind(captureName:)` to exactly the table's kind, none to `.plain`;
+and **zero non-whitespace** characters of either fixture were left uncaptured.
+The zero is over non-whitespace characters deliberately: the only offsets no
+capture covers are newlines and the eight single spaces around `=` in fixture
+A, and whitespace renders default-colored anyway, so nothing user-visible is
+left uncolored (an earlier phrasing of this paragraph claimed zero over
+*non-newline* characters, which today's run contradicted). Broader captures
+overlap finer ones by design — a header's `glob` node spans its whole pattern,
+so e.g. `*` carries both its `wildcard` `@operator` and the enclosing
+`@string`, and a preamble pair carries both the generic `@property`/`@string`
+and the preamble `@keyword`/`@constant`.
 
 ### Fixture A
 
@@ -131,16 +146,20 @@ matching `named` flag**.
   `SwiftTreeSitter`
 - `.package(path: "<repo>/SourcePackages/checkouts/tree-sitter")` — declared but
   unused.
+- `.package(path: "<repo>")` → product `PisakaCore` (for
+  `SyntaxTokenKind(captureName:)`).
 
 The program should: build `Language(language: tree_sitter_editorconfig())`, load
 `queries/highlights.scm` with `try Query(language:data:)` (a compile failure here
 is the loud version of the app's silent plain-text fallback — exit non-zero),
 `Parser().parse(fixture)`, run `query.execute(in: tree)` and print every
 `(capture.name, text of capture.range)` pair sorted by position, **and** print
-every non-newline UTF-16 offset of the fixture that no capture covers. Compare
-against the tables above; the uncovered count must be zero. Then run each
-observed capture name through `SyntaxTokenKind(captureName:)` and confirm the
-kinds are distinct.
+every non-whitespace UTF-16 offset of the fixture that no capture covers.
+Compare against the tables above; the uncovered non-whitespace count must be
+zero (newlines and the single spaces between tokens may stay uncovered —
+whitespace renders default-colored regardless). Then run each observed capture
+name through `SyntaxTokenKind(captureName:)` and confirm each resolves to the
+kind its table row states, never `.plain`.
 
 Delete the temp package afterwards. Note that `swift test` automates only the static half.
 

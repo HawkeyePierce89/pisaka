@@ -22,7 +22,10 @@ import XCTest
 ///
 /// Audit inventory of concurrency tests:
 /// - `testASessionReplacedWhileTheCacheIsEncodedIsNeverWritten`: restaged —
-///   uses a clock hook to prove the encode window.
+///   the clock hook enqueues the sign-out before the window opens, and the
+///   detached encode's `nonisolated async` `.value` hop puts the write
+///   continuation's resumption behind that job (main-actor enqueue order),
+///   so the sign-out runs inside it.
 /// - The `Gate` + double-`Task.yield()` coalescing tests: already sound — the
 ///   gate holds the fetch, and the joining task's first scheduling is enqueued
 ///   before the test's yield; its join point is its first suspension.
@@ -1352,13 +1355,18 @@ final class LeetCodeCatalogTests: XCTestCase {
     /// `catalog.json` is what carries the departing account's solved marks into the
     /// next launch and pins them under the next account's name for a day.
     ///
-    /// Staged empirically: the fetch's last act before publishing is reading the clock,
-    /// so giving that read a hook enqueues the sign-out to run as soon as the actor
-    /// becomes free, which is at the encode's suspension. While Swift's `await` is
-    /// a potential rather than guaranteed yield, the detachment of the encode task
-    /// reliably forces a suspension in practice. A perfect causal rendezvous is
-    /// impossible without changing `Sources/` to add a test seam, and `Gate` cannot
-    /// stage this window because it would block the actor and freeze the sign-out.
+    /// Staged structurally, not empirically: the fetch's last act before publishing
+    /// is reading the clock, so giving that read a hook enqueues the sign-out as a
+    /// main-actor job *before* the window opens. Awaiting the detached encode's
+    /// `.value` from main-actor-isolated code is a call to a `nonisolated async`
+    /// member, so it always leaves the actor and re-enqueues a main-actor job for
+    /// the write continuation to resume by — putting that resumption behind the
+    /// sign-out job (main-actor jobs run in enqueue order), which is why the
+    /// sign-out runs inside the window, ahead of `writeCache`'s post-encode guard
+    /// re-check. No yield-counting or timing luck is involved, and no product-code
+    /// seam was needed to get it. What the staging seam had to be is unchanged:
+    /// `Gate` still cannot hold this window (it would block the actor and freeze
+    /// the very sign-out being staged), so the clock hook remains the right way in.
     func testASessionReplacedWhileTheCacheIsEncodedIsNeverWritten() async throws {
         let tree = makeTree()
         let transport = ScriptedLeetCodeTransport()

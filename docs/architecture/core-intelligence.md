@@ -682,10 +682,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     typing). TypeScript is *composed*
     from JavaScript plus a type-level list and re-sorted, so there is one list to
     maintain instead of two that drift and the composition cannot break the sorted
-    invariant. EditorConfig's list is the 9 property names plus the 8
+    invariant. EditorConfig's list is the 9 property names plus the 9
     identifier-shaped value literals (`true`, `false`, `unset`, etc.). Charset
     values (`utf-8`, `utf-16be`, etc.) are absent because they contain hyphens and
-    therefore fail the insertable-token test. The list is deliberately not
+    therefore fail the insertable-token test; `latin1` is the one charset value
+    that is included, being the only identifier-shaped spelling among them. The list is deliberately not
     context-aware and offers keys and values alike. **A keyword is never a definition**: `SymbolIntelligenceProvider`'s
     go-to-definition path does not consult these lists, because a keyword has no
     declaration site to jump to — the two features sharing a provider is exactly

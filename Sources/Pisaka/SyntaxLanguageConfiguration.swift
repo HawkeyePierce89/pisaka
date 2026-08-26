@@ -195,7 +195,6 @@ enum SyntaxLanguageConfiguration {
         if let cached = cacheLock.withLock({ injectionCache["markdown_inline"] }) {
             return cached
         }
-
         guard let configuration = try? LanguageConfiguration(
             tree_sitter_markdown_inline(),
             name: "markdown_inline",
@@ -203,7 +202,6 @@ enum SyntaxLanguageConfiguration {
         ) else {
             return nil
         }
-
         cacheLock.withLock { injectionCache["markdown_inline"] = configuration }
         return configuration
     }
