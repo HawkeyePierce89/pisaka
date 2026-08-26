@@ -58,22 +58,48 @@ public struct LogFilterDraft: Equatable {
         self.until = until
     }
 
-    /// Seed every dimension from `filter`, parking a disabled date picker on
+    /// Seed a fresh draft from `filter`, parking a disabled date picker on
     /// `defaultDate`.
     ///
-    /// A `nil` bound disables its toggle and parks the picker on `defaultDate`;
-    /// a present bound is seeded verbatim. The inclusive last-second-of-day
+    /// This is the one case `seed(from:)` cannot serve on its own: a draft that
+    /// does not exist yet has no day to preserve, so both pickers start on
+    /// `defaultDate` and `seed(from:)` then overwrites whichever bound the
+    /// filter states. The two forms are therefore one rule, not two that can
+    /// drift.
+    ///
+    /// A present bound is seeded verbatim. The inclusive last-second-of-day
     /// instant for `until` is still on the selected day, so `filter(calendar:)`
     /// re-derives the same bound — the round-trip is idempotent and needs no
     /// inverse, as `since`'s start-of-day already is.
     public init(filter: LogFilter, defaultDate: Date) {
+        self.init(sinceEnabled: false, since: defaultDate, untilEnabled: false, until: defaultDate)
+        seed(from: filter)
+    }
+
+    /// Re-seed this draft from `filter`, keeping the day a disabled picker
+    /// already shows.
+    ///
+    /// `refSelection`, `author`, `path` and both `…Enabled` flags are assigned
+    /// verbatim — the ref especially, which is carried as published and never
+    /// re-resolved against the known refs. Each **date** is assigned only when
+    /// the incoming bound is present; an absent bound clears its flag and
+    /// leaves the date already in the draft alone.
+    ///
+    /// Why the day is preserved: unticking a bound means "do not bound the log
+    /// by this", not "forget the day I chose" — re-ticking it must offer that
+    /// day back rather than jumping to now. And a seed is never a user edit: it
+    /// is the view catching up to what the model published, so it may not
+    /// discard a choice the user made and the filter simply has no room to
+    /// carry. `init(filter:defaultDate:)` is the one caller with nothing to
+    /// preserve, and it says so by parking both dates before seeding.
+    public mutating func seed(from filter: LogFilter) {
         refSelection = filter.refSelection
         author = filter.author ?? ""
         path = filter.path ?? ""
         sinceEnabled = filter.since != nil
-        since = filter.since ?? defaultDate
+        if let incomingSince = filter.since { since = incomingSince }
         untilEnabled = filter.until != nil
-        until = filter.until ?? defaultDate
+        if let incomingUntil = filter.until { until = incomingUntil }
     }
 
     /// Assemble the server-side `LogFilter` this draft represents.

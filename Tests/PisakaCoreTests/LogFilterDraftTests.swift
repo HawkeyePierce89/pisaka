@@ -59,6 +59,99 @@ final class LogFilterDraftTests: XCTestCase {
         XCTAssertEqual(draft.refSelection, .ref("refs/heads/main"))
     }
 
+    // MARK: - Seeding an existing draft
+
+    func testSeedFromFilterWithAbsentSinceClearsFlagButKeepsTheDayShown() {
+        let chosen = date(year: 2026, month: 3, day: 10, hour: 0)
+        var draft = LogFilterDraft()
+        draft.sinceEnabled = true
+        draft.since = chosen
+
+        draft.seed(from: LogFilter())
+
+        XCTAssertFalse(draft.sinceEnabled)
+        XCTAssertEqual(draft.since, chosen)
+    }
+
+    func testSeedFromFilterWithAbsentUntilClearsFlagButKeepsTheDayShown() {
+        let chosen = date(year: 2026, month: 3, day: 11, hour: 23, minute: 59, second: 59)
+        var draft = LogFilterDraft()
+        draft.untilEnabled = true
+        draft.until = chosen
+
+        draft.seed(from: LogFilter())
+
+        XCTAssertFalse(draft.untilEnabled)
+        XCTAssertEqual(draft.until, chosen)
+    }
+
+    func testSeedFromFilterWithPresentBoundsOverwritesFlagsAndDatesVerbatim() {
+        let since = date(year: 2026, month: 4, day: 1, hour: 0)
+        let until = date(year: 2026, month: 4, day: 2, hour: 23, minute: 59, second: 59)
+        var draft = LogFilterDraft()
+        draft.since = date(year: 2020, month: 1, day: 1)
+        draft.until = date(year: 2020, month: 1, day: 2)
+
+        draft.seed(from: LogFilter(since: since, until: until))
+
+        XCTAssertTrue(draft.sinceEnabled)
+        XCTAssertEqual(draft.since, since)
+        XCTAssertTrue(draft.untilEnabled)
+        XCTAssertEqual(draft.until, until)
+    }
+
+    func testSeedOverwritesRefAuthorAndPathVerbatim() {
+        var draft = LogFilterDraft(refSelection: .ref("refs/heads/old"), author: "Alice", path: "src")
+
+        draft.seed(from: LogFilter(refSelection: .ref("refs/heads/gone"), author: "Bob", path: "docs"))
+
+        // The unknown ref is carried, never re-resolved.
+        XCTAssertEqual(draft.refSelection, .ref("refs/heads/gone"))
+        XCTAssertEqual(draft.displayRefTag(amongKnown: ["refs/heads/main"]), LogFilterDraft.allRefsTag)
+        XCTAssertEqual(draft.author, "Bob")
+        XCTAssertEqual(draft.path, "docs")
+
+        draft.seed(from: LogFilter())
+
+        XCTAssertEqual(draft.refSelection, .all)
+        XCTAssertEqual(draft.author, "")
+        XCTAssertEqual(draft.path, "")
+    }
+
+    func testUntickAndRetickJourneyKeepsTheChosenDay() {
+        let cal = utcCalendar()
+        var draft = LogFilterDraft()
+
+        // The user picks a day and the resulting filter is published back.
+        draft.sinceEnabled = true
+        draft.since = date(year: 2026, month: 5, day: 20, hour: 9, minute: 0)
+        let chosen = draft.filter(calendar: cal)
+        draft.seed(from: chosen)
+
+        // The user unticks Since; the model publishes a filter without the bound.
+        draft.sinceEnabled = false
+        let cleared = draft.filter(calendar: cal)
+        XCTAssertNil(cleared.since)
+        draft.seed(from: cleared)
+
+        // Re-ticking re-derives the same day boundary, not today's.
+        draft.sinceEnabled = true
+        XCTAssertEqual(draft.filter(calendar: cal).since, chosen.since)
+    }
+
+    func testSeedAndInitAgreeWhenTheDraftHasNoDayToPreserve() {
+        let defaultDate = date(year: 2026, month: 1, day: 1)
+        let filter = LogFilter(
+            refSelection: .ref("refs/heads/main"),
+            author: "Alice",
+            since: date(year: 2026, month: 2, day: 2),
+            path: "src"
+        )
+        var seeded = LogFilterDraft(sinceEnabled: true, since: defaultDate, until: defaultDate)
+        seeded.seed(from: filter)
+        XCTAssertEqual(seeded, LogFilterDraft(filter: filter, defaultDate: defaultDate))
+    }
+
     // MARK: - Trimming / blank -> nil
 
     func testFilterTrimsAuthorAndPath() {

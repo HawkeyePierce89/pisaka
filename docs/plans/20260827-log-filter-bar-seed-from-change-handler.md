@@ -128,7 +128,7 @@ The deployment targets are macOS 13 and iOS 17, so the two bars must use
 - Modify: `Sources/PisakaCore/LogFilterDraft.swift`
 - Modify: `Tests/PisakaCoreTests/LogFilterDraftTests.swift`
 
-- [ ] write the failing tests first (TDD):
+- [x] write the failing tests first (TDD):
     - seeding an existing draft from a filter whose `since` is `nil` clears
       `sinceEnabled` but leaves `since` on the day the draft already held
       (not "now"), and the same for `until`
@@ -141,17 +141,17 @@ The deployment targets are macOS 13 and iOS 17, so the two bars must use
       `filter()` re-derives the same day boundary
     - `init(filter:defaultDate:)` keeps its existing contract (a `nil` bound
       parks on `defaultDate`) — the existing tests must stay green unchanged
-- [ ] add `public mutating func seed(from filter: LogFilter)`: assigns
+- [x] add `public mutating func seed(from filter: LogFilter)`: assigns
     `refSelection`, `author`, `path` and both `…Enabled` flags from `filter`,
     and assigns each date **only when the incoming bound is present**,
     otherwise leaving the date already in the draft untouched
-- [ ] express `init(filter:defaultDate:)` in terms of the new method (park both
+- [x] express `init(filter:defaultDate:)` in terms of the new method (park both
     dates on `defaultDate`, then seed) so there is one seeding rule rather
     than two that can drift
-- [ ] document on the method *why* the day is preserved: unticking a bound is
+- [x] document on the method *why* the day is preserved: unticking a bound is
     not "forget my day", and a seed is not a user edit — with the from-scratch
     `init` named as the case that has no day to preserve
-- [ ] run `swift test` — must pass before Task 2
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: macOS bar — seed from the handler's parameter
 
