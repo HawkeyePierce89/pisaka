@@ -16,7 +16,7 @@ import Foundation
 public struct LogFilter: Equatable {
     /// Which refs the history spans.
     public enum RefSelection: Equatable {
-        /// Every ref (`--all`) — the JetBrains "All" selection and the default.
+        /// Every ref (`--all`) — the "All" selection and the default.
         case all
         /// A single named ref (a branch/tag), passed to `git log` as a positional
         /// revision so only its ancestry is walked.
@@ -178,9 +178,9 @@ public struct LogFilter: Equatable {
     /// Filter `commits` to those matching `query` by subject, case-insensitively.
     ///
     /// A blank `query` (empty or whitespace-only) returns the list unchanged. The
-    /// match is a case-insensitive substring of the commit subject — the
-    /// JetBrains-style "filter by message" box — and runs entirely over the
-    /// already-loaded commits, so typing in the search field never re-queries git.
+    /// match is a case-insensitive substring of the commit subject — the "filter by
+    /// message" box — and runs entirely over the already-loaded commits, so typing in
+    /// the search field never re-queries git.
     public static func search(_ commits: [Commit], query: String) -> [Commit] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return commits }

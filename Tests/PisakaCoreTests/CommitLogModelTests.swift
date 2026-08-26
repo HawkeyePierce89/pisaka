@@ -794,6 +794,44 @@ final class CommitLogModelTests: XCTestCase {
         XCTAssertFalse(model.isLoading)
     }
 
+    func testPublishedFilterLagsRequestedAndEchoIsAcceptedWhenAppliesInterleave() async {
+        // Pin for the one-phase lag the view must not rely on: when two applies
+        // interleave, the published `filter` lags `currentRequestedFilter` by one
+        // phase (publish happens synchronously at `applyFilter` entry before the
+        // `await` on git), so an echo built from the published value is a genuinely
+        // different filter and is accepted — it would spawn a fetch. Not echoing is
+        // the view's obligation (user-intent bindings apply only from `Binding.set` /
+        // `onSubmit`, and `seedFromFilter` assigns the draft directly); the model's
+        // `prepareForFilter` guard orders requests and cannot suppress the echo.
+        let git = StubGit()
+        git.gateCommits = true
+        let model = CommitLogModel(gitService: git)
+
+        let filterB = LogFilter(author: "B")
+        let filterC = LogFilter(author: "C")
+
+        let reqB = model.prepareForFilter(filterB, root: root)!
+        let taskB = Task { await model.applyFilter(filterB, root: root, limit: 100, request: reqB) }
+        await waitForGatedCalls(1, in: git)
+        XCTAssertEqual(model.filter, filterB)
+        XCTAssertEqual(model.currentRequestedFilter, filterB)
+
+        let reqC = model.prepareForFilter(filterC, root: root)!
+        XCTAssertEqual(model.currentRequestedFilter, filterC)
+        XCTAssertEqual(model.filter, filterB)
+        XCTAssertNotEqual(model.filter, model.currentRequestedFilter)
+
+        let echoToken = model.prepareForFilter(model.filter, root: root)
+        XCTAssertNotNil(echoToken, "echo of published filter must be accepted while lag persists")
+
+        git.gateCommits = false
+        git.release(call: 0)
+        await taskB.value
+        // Clean up superseded requests: the echo bump made reqC stale, so drive
+        // the last intent with a direct apply that supersedes the echo.
+        await model.applyFilter(filterC, root: root, limit: 100)
+    }
+
     // MARK: - client-side search
 
     func testSetSearchQueryFiltersVisibleCommitsWithoutRefetch() async {
