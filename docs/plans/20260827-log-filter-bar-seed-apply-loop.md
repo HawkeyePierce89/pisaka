@@ -289,14 +289,14 @@ re-read of state.
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] `swift test` green, including `LogFilterDraftTests` and the new model
+- [x] `swift test` green, including `LogFilterDraftTests` and the new model
       regression test
-- [ ] `swiftlint --strict` clean from the repository root
-- [ ] `xcodegen generate` then the macOS build:
+- [x] `swiftlint --strict` clean from the repository root
+- [x] `xcodegen generate` then the macOS build:
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
-- [ ] the iOS build:
+- [x] the iOS build:
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
-- [ ] grep the touched sources and docs to confirm no product-name comparison
+- [x] grep the touched sources and docs to confirm no product-name comparison
       remains in the rewritten passages
 
 ## Post-Completion (manual verification by the user)
