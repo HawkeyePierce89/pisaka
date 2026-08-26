@@ -44,6 +44,11 @@ struct LocalChangesView: View {
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
 
+    /// A token bumped on every row selection. A value change is the only signal
+    /// an `NSViewRepresentable` receives, so bumping this in `onSelect` lets
+    /// `LocalChangesFocusAnchor` request first responder on the panel.
+    @State private var focusRequest = 0
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -55,6 +60,16 @@ struct LocalChangesView: View {
         // requiring a manual refresh first.
         .onAppear(perform: refreshIfPossible)
         .onChange(of: projectRoot) { _ in refreshIfPossible() }
+        // The focus anchor sits on the outer VStack (not the list) so focus
+        // survives placeholder states and an empty change list.
+        .background(
+            LocalChangesFocusAnchor(
+                focusRequest: focusRequest,
+                selectedFile: model.selected,
+                onOpenDiff: onOpenDiff,
+                onResolveConflict: onResolveConflict
+            )
+        )
     }
 
     private var header: some View {
@@ -117,7 +132,7 @@ struct LocalChangesView: View {
                                 changedFile: file,
                                 isSelected: model.selected?.id == file.id,
                                 isChecked: model.revertSelection.contains(file.id),
-                                onSelect: { model.select(file) },
+                                onSelect: { model.select(file); focusRequest += 1 },
                                 onToggleCheck: { model.toggleChecked(file) },
                                 onRevert: { onRevert(file) },
                                 onOpenDiff: { onOpenDiff(file) },
@@ -131,7 +146,8 @@ struct LocalChangesView: View {
                                 model: model, node: node,
                                 onRevert: onRevert, onOpenDiff: onOpenDiff,
                                 onResolveConflict: onResolveConflict,
-                                onCommitFile: onCommitFile
+                                onCommitFile: onCommitFile,
+                                onFocusRequest: { focusRequest += 1 }
                             )
                         }
                     }
@@ -183,6 +199,7 @@ private struct ChangeNodeView: View {
     let onOpenDiff: (ChangedFile) -> Void
     let onResolveConflict: (ChangedFile) -> Void
     let onCommitFile: (ChangedFile) -> Void
+    let onFocusRequest: () -> Void
 
     @State private var isExpanded = true
 
@@ -197,7 +214,7 @@ private struct ChangeNodeView: View {
                 changedFile: file,
                 isSelected: model.selected?.id == file.id,
                 isChecked: model.revertSelection.contains(file.id),
-                onSelect: { model.select(file) },
+                onSelect: { model.select(file); onFocusRequest() },
                 onToggleCheck: { model.toggleChecked(file) },
                 onRevert: { onRevert(file) },
                 onOpenDiff: { onOpenDiff(file) },
@@ -211,7 +228,8 @@ private struct ChangeNodeView: View {
                         model: model, node: child,
                         onRevert: onRevert, onOpenDiff: onOpenDiff,
                         onResolveConflict: onResolveConflict,
-                        onCommitFile: onCommitFile
+                        onCommitFile: onCommitFile,
+                        onFocusRequest: onFocusRequest
                     )
                         .padding(.leading, metrics.scaled(12))
                 }
@@ -364,6 +382,101 @@ private func iconColor(for token: FileIconColor) -> Color {
     case .pink: return .pink
     case .gray: return .gray
     case .accent: return .accentColor
+    }
+}
+
+// MARK: - Focus anchor (Cmd+D interception)
+
+/// An invisible `NSView` behind the Local Changes panel that intercepts
+/// Cmd+D while the panel owns keyboard focus. Mirrors the gate shape in
+/// `EditorTextView.performKeyEquivalent`: the same modifier mask, the same
+/// first-responder check. The editor's own gate keeps the two meanings apart.
+///
+/// Not a zoom surface (no `ZoomSurfaceProviding`, no `ZoomSurfaceMarker`):
+/// the anchor is chrome, drawn at no font at all — the pointer cannot be
+/// "over" it in any meaningful sense, so declaring it a surface would make
+/// the zoom pointer walk find it where the user means to zoom the code or
+/// the interface.
+private struct LocalChangesFocusAnchor: NSViewRepresentable {
+    let focusRequest: Int
+    let selectedFile: ChangedFile?
+    let onOpenDiff: (ChangedFile) -> Void
+    let onResolveConflict: (ChangedFile) -> Void
+
+    func makeNSView(context: Context) -> LocalChangesFocusAnchorView {
+        LocalChangesFocusAnchorView(
+            selectedFile: selectedFile,
+            onOpenDiff: onOpenDiff,
+            onResolveConflict: onResolveConflict
+        )
+    }
+
+    func updateNSView(_ nsView: LocalChangesFocusAnchorView, context: Context) {
+        nsView.selectedFile = selectedFile
+        nsView.onOpenDiff = onOpenDiff
+        nsView.onResolveConflict = onResolveConflict
+        // A value change signals a row was clicked — request first responder so
+        // the panel owns Cmd+D. Dispatched asynchronously so the responder
+        // change does not land inside a SwiftUI update pass.
+        guard nsView.window?.firstResponder !== nsView else { return }
+        DispatchQueue.main.async { [weak nsView] in
+            nsView?.window?.makeFirstResponder(nsView)
+        }
+    }
+}
+
+/// The `NSView` behind `LocalChangesFocusAnchor`. Non-drawing, hit-test
+/// transparent, hidden from accessibility. `acceptsFirstResponder` is true so
+/// clicking a row focuses the panel; `performKeyEquivalent` intercepts clean
+/// Cmd+D and routes it through the same activation rules the double-click
+/// and "Show Diff" context-menu item use.
+@MainActor
+private final class LocalChangesFocusAnchorView: NSView {
+    var selectedFile: ChangedFile?
+    var onOpenDiff: (ChangedFile) -> Void
+    var onResolveConflict: (ChangedFile) -> Void
+
+    init(
+        selectedFile: ChangedFile?,
+        onOpenDiff: @escaping (ChangedFile) -> Void,
+        onResolveConflict: @escaping (ChangedFile) -> Void
+    ) {
+        self.selectedFile = selectedFile
+        self.onOpenDiff = onOpenDiff
+        self.onResolveConflict = onResolveConflict
+        super.init(frame: .zero)
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    /// Transparent to every click, drag and mouse-over. The pointer walk never
+    /// needs to find this view by geometry — it exists only to own keyboard
+    /// focus.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Intercept a *clean* Cmd+D (no Shift/Option/Control) when this view is
+    /// the window's first responder — the same gate shape `EditorTextView`
+    /// uses. The editor's own `performKeyEquivalent` never fires because this
+    /// view, not the text view, is first responder. Anything else falls through
+    /// to `super` so Cmd+Shift+D and friends stay untouched.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard
+            event.charactersIgnoringModifiers?.lowercased() == "d",
+            event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command],
+            window?.firstResponder === self,
+            let selectedFile
+        else { return super.performKeyEquivalent(with: event) }
+
+        switch LocalChangesModel.activation(for: selectedFile) {
+        case .diff: onOpenDiff(selectedFile)
+        case .resolveConflict: onResolveConflict(selectedFile)
+        }
+        return true
     }
 }
 

@@ -130,12 +130,12 @@ Cmd+D on a conflicted row still opens the resolver, via the same rule.
 **Files:**
 - Modify: `Sources/Pisaka/LocalChangesView.swift`
 
-- [ ] Add a private `LocalChangesFocusAnchor: NSViewRepresentable` and its
+- [x] Add a private `LocalChangesFocusAnchor: NSViewRepresentable` and its
       `NSView` (kept in this file, like `ZoomSurfaceMarker` lives with its
       representable): non-drawing, `hitTest` answering `nil` so it never stands
       between the pointer and a row, hidden from accessibility,
       `acceptsFirstResponder == true`.
-- [ ] Override `performKeyEquivalent(with:)` on that view with the *same* gate
+- [x] Override `performKeyEquivalent(with:)` on that view with the *same* gate
       shape as `EditorTextView`: `charactersIgnoringModifiers?.lowercased() == "d"`,
       `modifierFlags.intersection([.command, .shift, .option, .control]) == [.command]`,
       and `window?.firstResponder === self`. Anything else falls through to
@@ -143,23 +143,23 @@ Cmd+D on a conflicted row still opens the resolver, via the same rule.
       invokes the handler and returns `true` even if nothing was selected — the
       focused panel owns the key, which is what keeps the keystroke from beeping
       or reaching any other surface. Record that reasoning in the doc comment.
-- [ ] Wire the handler to `LocalChangesModel.shortcutActivation(selected:)` and
+- [x] Wire the handler to `LocalChangesModel.shortcutActivation(selected:)` and
       route its result through the *same* `onOpenDiff`/`onResolveConflict`
       closures the double-click uses; `nil` does nothing.
-- [ ] Give `LocalChangesView` a `@State private var focusRequest = 0`, bump it in
+- [x] Give `LocalChangesView` a `@State private var focusRequest = 0`, bump it in
       each row's `onSelect` closure (alongside `model.select(file)`), and pass it
       into the anchor; `updateNSView` calls `window?.makeFirstResponder(nsView)`
       when the token changed and the view is not already first responder,
       dispatched asynchronously on the main queue so the responder change does not
       land inside a SwiftUI update pass. Document why the token exists (a value
       change is the only signal a representable gets).
-- [ ] Attach the anchor with `.background(...)` on the panel's outer `VStack` —
+- [x] Attach the anchor with `.background(...)` on the panel's outer `VStack` —
       not on the list — so focus survives the placeholder states and an empty
       change list.
-- [ ] Confirm nothing new declares `ZoomSurfaceProviding` (the anchor is chrome,
+- [x] Confirm nothing new declares `ZoomSurfaceProviding` (the anchor is chrome,
       drawn at no font at all) so `ZoomSourceGatingTests`' set equality still
       holds.
-- [ ] run `swift test` — must pass before Task 4.
+- [x] run `swift test` — must pass before Task 4.
 
 ### Task 4: Documentation
 
