@@ -202,26 +202,26 @@ re-read of state.
 **Files:**
 - Modify: `Sources/Pisaka/iOS/LogFilterBar_iOS.swift`
 
-- [ ] record the audit outcome in the file's doc comment: the advanced form is
+- [x] record the audit outcome in the file's doc comment: the advanced form is
       **immune** to the loop by construction (it is seeded once in `init` and
       applies only from the explicit Apply button, so no model publish reaches
       it), while the compact bar's search field carries the *same* masquerade
       shape — `.onChange(of: searchQuery)` seeds `search`, whose `.onChange`
       calls `onSearch`
-- [ ] route the iOS search field through the same user-intent binding (set →
+- [x] route the iOS search field through the same user-intent binding (set →
       assign + `onSearch(newValue)`) and drop `.onChange(of: search)`
-- [ ] rebuild `LogAdvancedFilterForm_iOS` on `LogFilterDraft`: one
+- [x] rebuild `LogAdvancedFilterForm_iOS` on `LogFilterDraft`: one
       `@State private var draft` seeded in `init` via
       `LogFilterDraft(filter:defaultDate:)`, Apply reporting `draft.filter()`,
       Clear resetting the text/toggle fields on the draft; delete the duplicated
       trimming, `endOfDay(of:)` and the hand-rolled seeding (this also unifies
       the empty-bound placeholder date, which the form previously parked at the
       epoch)
-- [ ] replace the bar's own `allRefsTag`/`selectedRef`/`applyRef` sentinel
+- [x] replace the bar's own `allRefsTag`/`selectedRef`/`applyRef` sentinel
       handling with `LogFilterDraft.allRefsTag` and the draft's
       `displayRefTag`/`selectRef` seam, keeping today's verbatim ref write
       (which was already correct on iOS)
-- [ ] tests: covered by `LogFilterDraftTests`; run `swift test` — must pass
+- [x] tests: covered by `LogFilterDraftTests`; run `swift test` — must pass
       before Task 4
 
 ### Task 4: Correct the model's echo contract and pin the interleaving
