@@ -298,10 +298,27 @@ work stops with a report instead of a code change.
 
 ### Task 9: Update documentation
 
-- [ ] Confirm `CLAUDE.md` needs no change (no new file, no changed invariant, no
+- [x] Confirm `CLAUDE.md` needs no change (no new file, no changed invariant, no
       changed suite responsibility) and record that conclusion.
-- [ ] Confirm `docs/architecture/core-lsp.md`'s D33 paragraph (the stream-finish
+      Confirmed: the new LSP test joins an existing suite (no index line needed),
+      all other items were comments/docs/formatting with no invariant change, and
+      the suite-responsibility list is untouched. `CLAUDE.md`'s one-line
+      TreeSitterSql vendoring reason already matches the restored `project.yml`
+      comment.
+- [x] Confirm `docs/architecture/core-lsp.md`'s D33 paragraph (the stream-finish
       clear and its replacement check) still describes what the tests now assert;
       adjust only if Task 1's reachability finding contradicts it.
-- [ ] Confirm no other architecture doc references the corrected count, the SQL
+      Confirmed unchanged: D33 states the invariant (a dead server's clear must
+      not wipe a replacement's fresh pushes) and names the guard as part of
+      ensuring it — exactly what both tests pin. The reachability finding only
+      refines which mechanism fires in practice (cancellation precedes the
+      identity check); the paragraph makes no contrary claim, so nothing to
+      adjust.
+- [x] Confirm no other architecture doc references the corrected count, the SQL
       comment or the `licenses.json` formatting.
+      Confirmed by search over `docs/architecture/`: the count appears only in
+      `core-intelligence.md` lines 685-689 (already corrected by Task 4), the
+      SQL rationale is stated nowhere outside `VENDORED.md`/`project.yml`
+      (`core-services.md`'s TreeSitterSql mention is the unrelated `nm -u`
+      record), and every `licenses.json` reference concerns coverage/order, not
+      key spacing.
