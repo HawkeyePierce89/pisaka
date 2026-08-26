@@ -264,28 +264,28 @@ re-read of state.
   `docs/architecture/app-git-views.md`, `docs/architecture/app-ios.md`,
   `CLAUDE.md`
 
-- [ ] `core-git-models.md`: add the full `LogFilterDraft.swift` entry (what it
-      holds, the seed/assemble pair, day-boundary normalization, verbatim ref
-      preservation vs. `resolvedRef`'s display-only role, the picker tag seam)
-      and correct `CommitLogModel`'s echo/no-op contract — the guard orders
-      requests, the publish can lag the newest request by one phase, and
-      suppressing echoes is the view's job
-- [ ] `app-git-views.md`: rewrite the `LogFilterBar.swift` entry around the
-      seeding rule — seeding assigns the draft directly, every apply is
-      reachable only from a binding setter or `onSubmit`, and the ref selection
-      is carried verbatim so an apply fired before the ref list arrives can no
-      longer collapse the branch to "All"; state that value-equality suppression
-      was tried and failed under interleaved applies
-- [ ] `app-ios.md`: give `LogFilterBar_iOS.swift` a short entry recording the
-      audit result (sheet + explicit Apply makes the form immune; the search
-      field shared the shape and got the same binding) and its use of the shared
-      draft
-- [ ] `CLAUDE.md`: one index line for `LogFilterDraft.swift` under the
-      Log/branch models group, in the existing one-line style (no essay — the
-      detail lives in the doc)
-- [ ] remove the product-name comparisons from the doc passages this change
-      rewrites
-- [ ] run `swift test` (the doc-shape suites read repository files) — must pass
+- [x] `core-git-models.md`: add the full `LogFilterDraft.swift` entry (what it
+       holds, the seed/assemble pair, day-boundary normalization, verbatim ref
+       preservation vs. `resolvedRef`'s display-only role, the picker tag seam)
+       and correct `CommitLogModel`'s echo/no-op contract — the guard orders
+       requests, the publish can lag the newest request by one phase, and
+       suppressing echoes is the view's job
+- [x] `app-git-views.md`: rewrite the `LogFilterBar.swift` entry around the
+       seeding rule — seeding assigns the draft directly, every apply is
+       reachable only from a binding setter or `onSubmit`, and the ref selection
+       is carried verbatim so an apply fired before the ref list arrives can no
+       longer collapse the branch to "All"; state that value-equality suppression
+       was tried and failed under interleaved applies
+- [x] `app-ios.md`: give `LogFilterBar_iOS.swift` a short entry recording the
+       audit result (sheet + explicit Apply makes the form immune; the search
+       field shared the shape and got the same binding) and its use of the shared
+       draft
+- [x] `CLAUDE.md`: one index line for `LogFilterDraft.swift` under the
+       Log/branch models group, in the existing one-line style (no essay — the
+       detail lives in the doc)
+- [x] remove the product-name comparisons from the doc passages this change
+       rewrites
+- [x] run `swift test` (the doc-shape suites read repository files) — must pass
 
 ### Task 6: Verify acceptance criteria
 

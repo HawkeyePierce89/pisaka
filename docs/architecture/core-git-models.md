@@ -206,8 +206,8 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
   - `LogFilter.swift` — the server-side history-query constraints + a client-side
     message-search predicate, pure and unit-tested (the `Process` consumer lives in
     `GitCLIService`). `public struct LogFilter: Equatable` carries four *server*
-    dimensions — `refSelection` (`RefSelection.all` → `--all`, the default and the
-    JetBrains "All"; `.ref(String)` → a positional revision), `author`, `since`,
+    dimensions — `refSelection` (`RefSelection.all` → `--all`, the default
+    "All" selection; `.ref(String)` → a positional revision), `author`, `since`,
     `until` (`Date?`), and `path` — and builds `gitArguments() -> [String]` in
     git's grammar order: option filters first, then a named ref's positional
     revision behind `--end-of-options`, then the pathspec last behind a `--`
@@ -234,10 +234,39 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     refs", which the view maps onto its own "All" sentinel tag), `.ref(name)` →
     `name` only when `references.contains(name)`, else `nil` (an unknown/dangling
     ref — e.g. a stale selection left from a previous folder — degrades to "all",
-    mirroring `gitArguments()`'s refusal to silently narrow the query). The filter
-    bar reads its current branch straight from `filter` through this helper rather
-    than mirroring it in `@State`, so a model-published filter change can't look
-    like a user selection and drive a refetch loop.
+    mirroring `gitArguments()`'s refusal to silently narrow the query). It is a
+    *display* resolution only: the picker reads through
+    `LogFilterDraft.displayRefTag(amongKnown:)` which delegates here, while the write
+    path (`LogFilterDraft.selectRef(tag:)` → `filter.refSelection`) carries the
+    selection verbatim so an apply fired before the ref list arrives cannot collapse
+    the branch to "All".
+  - `LogFilterDraft.swift` — the Log filter bar's single editable draft, shared by
+    the macOS bar and the iOS advanced-filter form. Pure, Foundation-only, fully
+    unit-tested; the view layer holds one `LogFilterDraft` value (plus a separate
+    `search` string — message search is not a `LogFilter` dimension) and applies
+    only from user-intent bindings. Holds `refSelection: LogFilter.RefSelection`,
+    `author`/`path: String` (verbatim/untrimmed as typed), `sinceEnabled`/`since:
+    Date`, `untilEnabled`/`until: Date`. The seed/assemble pair is
+    `init(filter: LogFilter, defaultDate: Date)` and `filter(calendar: Calendar) ->
+    LogFilter`: `init` seeds every dimension from `filter`, parking a disabled
+    picker's date on `defaultDate`; a present bound is seeded verbatim (the inclusive
+    last-second-of-day instant for `until` is still on the selected day, so
+    `filter()` re-derives the same bound — the round-trip is idempotent and needs no
+    inverse, as `since`'s start-of-day already is). `filter(calendar:)` trims
+    author/path (blank → `nil`), normalizes `since` to `calendar.startOfDay(for:)`
+    and `until` to the last second of the selected day (`Calendar` so "the selected
+    day" is the user's local day; git's `--until` is inclusive — the end-of-day
+    includes every commit on that day but none at the next midnight), and carries
+    `refSelection` through verbatim — never re-resolved against the known refs,
+    which is what the old `applyFilter` got wrong by routing through
+    `resolvedRef(amongKnown:)`. The picker seam is `static let allRefsTag = ""`,
+    `displayRefTag(amongKnown:) -> String` (via `LogFilter.resolvedRef`, mapping
+    `nil` onto the sentinel) and `mutating selectRef(tag:)` (empty tag → `.all`,
+    else `.ref(tag)`). The draft is the value a user-intent binding writes and
+    applies, so seeding the view's state (`draft = LogFilterDraft(filter:,
+    defaultDate:)`) can never reach the apply path — the structural cure for the
+    seed/echo loop, replacing the value-equality suppression that failed under
+    interleaved applies.
   - `CommitLogModel.swift` — `@MainActor ObservableObject` for the Log view,
     mirroring `LocalChangesModel`'s shape: injects `GitServicing`, funnels mutation
     through testable methods, pure Foundation. Publishes `commits` (most recent
@@ -268,9 +297,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `root`) during the window until the new fetch resolves — mirroring
     `LocalChangesModel`, which clears `changedFiles` on a switch; `refresh` repeats
     the same folder-switch reset as defense-in-depth for a direct call.
-    `applyFilter(_:root:limit:request:)` no-ops on an unchanged filter else stores
-    it and re-`refresh`es (threading the same request token / generation guard);
-    `setSearchQuery(_:)` just updates the query (no git call). Commit
+    `prepareForFilter(_:root:) -> Int?` is the synchronous no-op/ordering gate:
+    it compares against `requestedFilter` (the latest synchronously requested filter),
+    not the published `filter` which lags by one phase while a fetch is in flight;
+    on a real change it bumps `requestGeneration` via `prepareForRefresh` and stores
+    `requestedFilter`. `applyFilter(_:root:limit:request:)` publishes `filter =
+    newFilter` synchronously at task start then re-`refresh`es (threading the token).
+    The guard **cannot** suppress a view echo: when two applies interleave the publish
+    lags the latest request, so an echo built from the published `filter` is a
+    genuinely different filter and is accepted — it would spawn a fetch. Not echoing
+    is the view's obligation, achieved structurally by `LogFilterDraft` / user-intent
+    bindings (every apply lives in a `Binding.set`/`onSubmit`, `seedFromFilter`
+    assigns the draft directly and is structurally unable to reach the apply path;
+    value-equality suppression was tried and failed under interleaving — the reason
+    the draft exists). Exposes `currentRequestedFilter` alongside
+    `currentRequestGeneration` so the publish-lags-request contract is readable and
+    assertable. `setSearchQuery(_:)` just updates the query (no git call). Commit
     detail: `changes(for:) async -> [ChangedFile]` (via `commitChanges`) and
     `rows(for:in:) async -> [DiffRow]` build the commit-vs-first-parent diff via
     `LineDiff` — old side from `commit.parents.first` (empty for `.added`, a root

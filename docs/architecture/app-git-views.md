@@ -587,48 +587,45 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     center — so a lane's bottom-half in one cell meets its top-half in the next to
     form a continuous line without any view owning the whole list.
   - `LogFilterBar.swift` — the Log filter/search bar above the commit table. A thin
-    (untested) view holding editable local state for each server dimension — author,
-    date range (since/until toggles), path — plus the message-search box, seeded from
-    `model.filter`/`searchQuery` and re-seeded when the model re-publishes. The branch
-    picker is deliberately **not** mirrored in `@State`: it binds to a computed
-    `refSelectionBinding: Binding<String>` whose *get* reads the current branch
-    straight from `model.filter` via the pure `LogFilter.resolvedRef(amongKnown:)`
-    helper (mapping its `nil` "all refs" onto the empty `allRefsTag` sentinel) and
-    whose *set* routes the new selection through `applyFilter(refOverride:)` — so the
-    selection flows only one way (into the model) and a model-published filter change
-    is reflected without ever masquerading as a user selection. This removes the old
-    mirrored `@State` + `.onChange` edge that, when `seedFromFilter` wrote the
-    branch state programmatically, was indistinguishable from a user pick and drove
-    an infinite refetch loop on branch switch; `seedFromFilter` now seeds only
-    author/path/since/until/search and leaves the branch alone. `applyFilter` takes a
-    `refOverride: String? = nil`: a picker selection passes the new ref, while an
-    apply driven by author/path/date passes `nil` and re-derives the branch from
-    `filter` via the same `resolvedRef(amongKnown:)` resolution, so those applies
-    preserve the selected branch instead of resetting it to "all". The ref
-    picker's *values* are the **full** refnames `references` supplies (the
-    unambiguous `git log` revision); `shortLabel(for:)` strips the
-    `refs/heads/`,`refs/remotes/`,`refs/tags/` namespace for display (suffixing a tag
-    " (tag)") so a branch and a tag that share a short name stay distinct in value and
-    visible to the user. The
-    server dimensions are assembled into a `LogFilter` and reported via
-    `onApplyFilter` (the owner turns it into a generation-guarded re-fetch); the
-    message search is reported live via `onSearch` (a client-side filter, no
-    re-query). The date bounds are normalized to day boundaries before they reach
-    the filter: the pickers edit only a calendar day but the bound `Date` keeps its
-    seeded time-of-day, so a raw `until` of "today at 14:30" would drop later-today
-    commits — `since` is snapped to the start of the selected day and `until` to the
-    *last second* of the selected day (the inclusive upper boundary git's `--until`
-    expects — a commit dated exactly at the bound is shown — so it includes every
-    commit made on the selected day but none at the next day's midnight, via
-    `Calendar.current` so "the selected day" is the user's local day; `LogFilter`
-    then formats the absolute instants in UTC). When re-seeding from `model.filter`,
-    that inclusive `until` instant is still on the selected day, so it is seeded
-    verbatim and `endOfDay` re-derives the same bound — the round-trip is idempotent
-    and needs no inverse (`since`'s `startOfDay` normalization is likewise
-    idempotent). The owner's `applyFilter` routes through `model.prepareForFilter`,
-    which skips a filter equal to the latest *requested* filter (not the lagging
-    committed `model.filter`) *before* bumping the request generation, so the
-    re-seed's `onChange` callback (which rebuilds the current filter) can't supersede
-    an in-flight folder refresh and then no-op without replacing it. All the testable
-    argument-building/search logic lives in `PisakaCore.LogFilter`.
+    (untested) view whose server-side dimensions live in a single `@State private
+    var draft: LogFilterDraft` plus a separate `search: String` (message search is
+    not a `LogFilter` dimension). **Seeding rule:** `seedFromFilter` *assigns* the
+    draft/search directly from `filter`/`searchQuery` (`draft =
+    LogFilterDraft(filter: filter, defaultDate: Date())`) and is therefore
+    structurally unable to reach the apply path — every apply lives only in a
+    user-intent binding setter or an explicit `onSubmit`, and is handed the new
+    value explicitly. No value-equality suppression is involved anywhere: the
+    previous mirrored-`@State` + `.onChange` construction *was* suppressed by value
+    equality, which failed under interleaved applies when the published `filter`
+    lagged `requestedFilter` and an echo built from the published value was accepted
+    — the draft removes that hazard structurally. The Since/Until toggles and both
+    date pickers are wired through a single `draftBinding(for:)` helper whose `get`
+    reads the draft and whose `set` writes the mutated draft *and* calls
+    `onApplyFilter(draft.filter())` with the new value (no re-read of stale state);
+    the `.onChange` handlers on those controls are deleted. The branch picker is
+    likewise a computed binding: `get` is `draft.displayRefTag(amongKnown:
+    references)` (via `LogFilter.resolvedRef` → `LogFilterDraft.allRefsTag` for
+    "All") and `set` is `draft.selectRef(tag:)` + `onApplyFilter(draft.filter())` —
+    the selection is carried **verbatim** so an apply driven by a date/author/path
+    edit while `references` is still empty cannot collapse the chosen branch to
+    "All" (the old `applyFilter(refOverride:)` re-derived through `resolvedRef` and
+    had exactly that bug; the picker values are still the **full** refnames
+    `references` supplies, the unambiguous `git log` revision). `shortLabel(for:)`
+    strips `refs/heads/`/`refs/remotes/`/`refs/tags/` for display, suffixing a tag
+    " (tag)" so a branch and a tag sharing a short name stay distinct. Author/path
+    are plain draft projections (`$draft.author`/`$draft.path`) with an `onSubmit`
+    that applies `draft.filter()` once — typing alone does not re-fetch. The search
+    field is routed through `searchBinding` (`set` → assign + `onSearch(newValue)`)
+    so the `.onChange(of: search)` echo is deleted and the `.onChange(of:
+    searchQuery)` seed (direct assignment) cannot masquerade as a user edit. The
+    draft owns all the decisions the view previously duplicated: trimming
+    (blank → `nil`), `since` → start-of-day / `until` → last-second-of-day via
+    `Calendar.current` (the inclusive upper boundary git's `--until` expects, so it
+    includes every commit on the selected day but none at the next midnight; `filter`
+    then formats the absolute instants in UTC), verbatim ref preservation, and the
+    `allRefsTag`/`displayRefTag`/`selectRef` seam. The inclusive `until` instant is
+    still on the selected day, so re-seeding is verbatim and the round-trip is
+    idempotent — `since`'s `startOfDay` likewise. All the testable
+    argument-building/search/normalization logic lives in `PisakaCore.LogFilter` and
+    `PisakaCore.LogFilterDraft`.
 

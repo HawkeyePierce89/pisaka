@@ -181,6 +181,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `CommitChangesParser.swift` — `git diff-tree --name-status` parser.
 - `CommitGraphLayout.swift` — branch-graph lane layout.
 - `LogFilter.swift` — server-side filter args + client-side message search.
+- `LogFilterDraft.swift` — Log filter bar draft (seed/assemble pair, day-boundary normalization, verbatim ref preservation and picker tag seam).
 - `CommitLogModel.swift` — Log view model (generation-pinned refresh).
 - `BranchSwitcherModel.swift` — branch list/switch/create/checkout-remote model.
 
