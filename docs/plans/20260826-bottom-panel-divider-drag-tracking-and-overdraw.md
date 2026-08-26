@@ -264,16 +264,16 @@ None. No new packages, no `Package.resolved` change, no pin change.
 **Files:**
 - Modify: `Sources/Pisaka/ContentView.swift`
 
-- [ ] add the two pieces of divider state (hovering, dragging) plus a single
+- [x] add the two pieces of divider state (hovering, dragging) plus a single
       "this view has a cursor pushed" flag, and one private helper that pushes
       or pops exactly once per transition of `hovering || dragging`
-- [ ] drive the helper from `.onHover`, from the gesture's `onChanged` (set
+- [x] drive the helper from `.onHover`, from the gesture's `onChanged` (set
       dragging on the first change) and from `onEnded` (clear it), so the
       resize cursor persists through a drag that outruns the strip and the
       arrow returns when both are false
-- [ ] release a pushed cursor from `.onDisappear`, so hiding the panel while
+- [x] release a pushed cursor from `.onDisappear`, so hiding the panel while
       the pointer is on the divider cannot leak a pushed cursor
-- [ ] run `swift test` — must pass before Task 4
+- [x] run `swift test` — must pass before Task 4
 
 ### Task 4: Verify acceptance criteria
 

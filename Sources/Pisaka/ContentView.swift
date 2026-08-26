@@ -250,6 +250,20 @@ struct ContentView: View {
     /// against the live `panelHeight` each frame. `nil` when not dragging.
     @State private var panelDragStartHeight: CGFloat?
 
+    /// Whether the pointer is inside the divider's hit strip.
+    @State private var panelDividerHovering = false
+    /// Whether a divider drag is in flight. Tracked separately from
+    /// `panelDragStartHeight` because the cursor must follow the *drag*, not the
+    /// arithmetic: a fast drag leaves the 5pt strip immediately, so hovering alone
+    /// would hand the arrow back mid-resize.
+    @State private var panelDividerDragging = false
+    /// Whether *this view* currently holds a pushed cursor. `NSCursor`'s stack is
+    /// global and its `push`/`pop` are unbalanced by nature — a `pop` with nothing
+    /// of ours on the stack discards somebody else's cursor. So the pair is driven
+    /// off one flag that only `syncPanelDividerCursor()` writes, which makes each
+    /// transition of `hovering || dragging` push or pop exactly once.
+    @State private var panelDividerCursorPushed = false
+
     /// The name of the coordinate space the divider drag is measured in — the
     /// panel column itself, whose frame does not move while the divider does.
     ///
@@ -422,17 +436,27 @@ struct ContentView: View {
     /// `onChanged` arrive with a ≥10pt translation already accumulated, applied
     /// against a base captured in that same call — the panel would jump 10pt
     /// before it tracked anything.
+    ///
+    /// The resize cursor is shown for `hovering || dragging`, never for hovering
+    /// alone: the pointer leaves a 5pt strip the moment the drag is quicker than
+    /// the relayout, and a cursor that reverts to the arrow while the divider is
+    /// still being resized reads as the drag having been dropped.
     private func panelDivider(available: CGFloat) -> some View {
         Rectangle()
             .fill(Color(NSColor.separatorColor))
             .frame(height: metrics.scaled(5))
             .contentShape(Rectangle())
             .onHover { hovering in
-                if hovering { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+                panelDividerHovering = hovering
+                syncPanelDividerCursor()
             }
             .gesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.panelColumnSpace))
                     .onChanged { value in
+                        if !panelDividerDragging {
+                            panelDividerDragging = true
+                            syncPanelDividerCursor()
+                        }
                         let base = panelDragStartHeight ?? panelHeight
                         if panelDragStartHeight == nil { panelDragStartHeight = base }
                         panelHeight = CGFloat(panelHeightRule.height(
@@ -441,8 +465,32 @@ struct ContentView: View {
                             available: Double(available)
                         ))
                     }
-                    .onEnded { _ in panelDragStartHeight = nil }
+                    .onEnded { _ in
+                        panelDragStartHeight = nil
+                        panelDividerDragging = false
+                        syncPanelDividerCursor()
+                    }
             )
+            .onDisappear {
+                // Hiding the panel while the cursor is pushed — ⌘-toggling the dock
+                // with the pointer on the divider — takes the divider away without
+                // an `onHover(false)`, so the push has to be released from here or
+                // it outlives the view that made it.
+                panelDividerHovering = false
+                panelDividerDragging = false
+                syncPanelDividerCursor()
+            }
+    }
+
+    /// Pushes or pops the resize cursor so that exactly one push of ours is on
+    /// `NSCursor`'s stack while the divider is hovered or being dragged, and none
+    /// otherwise. Every write of `panelDividerHovering` / `panelDividerDragging`
+    /// calls this; nothing else touches the stack.
+    private func syncPanelDividerCursor() {
+        let wanted = panelDividerHovering || panelDividerDragging
+        guard wanted != panelDividerCursorPushed else { return }
+        if wanted { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+        panelDividerCursorPushed = wanted
     }
 
     /// The one authority on what height the panel may have — the drag and the
