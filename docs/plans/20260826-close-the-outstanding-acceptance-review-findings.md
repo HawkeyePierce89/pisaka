@@ -269,17 +269,32 @@ work stops with a report instead of a code change.
 
 ### Task 8: Verify acceptance criteria
 
-- [ ] `swift test` — full suite green.
-- [ ] `swiftlint --strict` from the repository root — clean.
-- [ ] `xcodegen generate`, then
+- [x] `swift test` — full suite green.
+      3683 tests, 0 failures.
+- [x] `swiftlint --strict` from the repository root — clean.
+      0 violations, 0 serious in 397 files.
+- [x] `xcodegen generate`, then
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`.
-- [ ] `git diff --stat` review: no file under `Sources/` changed except the two
+      BUILD SUCCEEDED; regeneration left the working tree clean.
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`.
+      BUILD SUCCEEDED.
+- [x] `git diff --stat` review: no file under `Sources/` changed except the two
       blank-line deletions in `SyntaxLanguageConfiguration.swift`; `project.yml`
       changed only in the SQL comment; `licenses.json` diffs against `553e9f2^`
       as one added entry.
-- [ ] Re-state in the task log: the new LSP test's iteration count and result,
+      Confirmed against `553e9f2`: `Sources/` shows only the two `-` blank lines;
+      `project.yml` shows only the TreeSitterSql comment block; against
+      `553e9f2^` `licenses.json` shows exactly one added entry
+      (15 insertions / 0 deletions).
+- [x] Re-state in the task log: the new LSP test's iteration count and result,
       and the `VENDORED.md` run's date and result.
+      Restated: the new LSP absence test
+      (`testAReplacementOpenedWithoutWaitingIsNotClearedByThePredecessor`)
+      ran 100/100 loop iterations with 0 failures (Task 1); the
+      `VENDORED.md` query-verification run was done 2026-08-26 — query compiled
+      (14 patterns, 9 capture names), both fixtures parsed, every table row
+      witnessed, all capture names resolved to their table kinds, zero
+      uncaptured non-whitespace characters (Task 7).
 
 ### Task 9: Update documentation
 
