@@ -1652,4 +1652,63 @@ final class LocalChangesModelTests: XCTestCase {
     func testOffersShowDiffReturnsFalseForConflicted() {
         XCTAssertFalse(LocalChangesModel.offersShowDiff(for: .conflicted))
     }
+
+    // MARK: - pure helpers: row activation — jump to source
+
+    func testOffersJumpToSourceForEveryStatusExceptDeleted() {
+        let statuses = FileStatus.allCases.filter { $0 != .deleted }
+        for status in statuses {
+            XCTAssertTrue(
+                LocalChangesModel.offersJumpToSource(for: status),
+                "\(status) should offer Jump to Source"
+            )
+        }
+    }
+
+    func testOffersJumpToSourceReturnsFalseForDeleted() {
+        XCTAssertFalse(LocalChangesModel.offersJumpToSource(for: .deleted))
+    }
+
+    func testJumpToSourceURLReturnsRootJoinedPathForNonDeletedFile() {
+        let file = ChangedFile(path: "src/a.swift", status: .modified)
+        XCTAssertEqual(
+            LocalChangesModel.jumpToSourceURL(for: file, root: root),
+            root.appendingPathComponent("src/a.swift")
+        )
+    }
+
+    func testJumpToSourceURLReturnsNilForDeletedFile() {
+        let file = ChangedFile(path: "gone.swift", status: .deleted)
+        XCTAssertNil(LocalChangesModel.jumpToSourceURL(for: file, root: root))
+    }
+
+    func testJumpToSourceURLReturnsNewPathForRenamedFile() {
+        let file = ChangedFile(path: "new/name.swift", status: .renamed, oldPath: "old/name.swift")
+        XCTAssertEqual(
+            LocalChangesModel.jumpToSourceURL(for: file, root: root),
+            root.appendingPathComponent("new/name.swift")
+        )
+    }
+
+    func testShortcutJumpToSourceURLReturnsNilWhenSelectionIsNil() {
+        XCTAssertNil(LocalChangesModel.shortcutJumpToSourceURL(selected: nil, root: root))
+    }
+
+    func testShortcutJumpToSourceURLReturnsNilWhenRootIsNil() {
+        let file = ChangedFile(path: "a.swift", status: .modified)
+        XCTAssertNil(LocalChangesModel.shortcutJumpToSourceURL(selected: file, root: nil))
+    }
+
+    func testShortcutJumpToSourceURLReturnsNilForDeletedSelection() {
+        let file = ChangedFile(path: "gone.swift", status: .deleted)
+        XCTAssertNil(LocalChangesModel.shortcutJumpToSourceURL(selected: file, root: root))
+    }
+
+    func testShortcutJumpToSourceURLReturnsURLForOrdinarySelection() {
+        let file = ChangedFile(path: "a.swift", status: .modified)
+        XCTAssertEqual(
+            LocalChangesModel.shortcutJumpToSourceURL(selected: file, root: root),
+            root.appendingPathComponent("a.swift")
+        )
+    }
 }
