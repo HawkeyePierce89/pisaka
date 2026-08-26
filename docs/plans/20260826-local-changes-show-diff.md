@@ -76,27 +76,27 @@ Cmd+D on a conflicted row still opens the resolver, via the same rule.
 - Modify: `Sources/PisakaCore/LocalChangesModel.swift`
 - Modify: `Tests/PisakaCoreTests/LocalChangesModelTests.swift`
 
-- [ ] Write the tests first: a `.conflicted` file activates as the conflict
+- [x] Write the tests first: a `.conflicted` file activates as the conflict
       resolver and every other `FileStatus` (modified/added/deleted/renamed/
       untracked) as the diff; the shortcut with no selection yields nothing and
       with a selection yields that file's activation; the context menu offers
       "Show Diff" for every status except `.conflicted`.
-- [ ] Add to `LocalChangesModel` a nested `public enum RowActivation: Equatable`
+- [x] Add to `LocalChangesModel` a nested `public enum RowActivation: Equatable`
       with `case diff` and `case resolveConflict`, documented as "what opening a
       changed-file row means" — the one place the conflicted/ordinary split is
       decided, shared by the double-click, the context menu and the shortcut.
-- [ ] Add `public static func activation(for file: ChangedFile) -> RowActivation`
+- [x] Add `public static func activation(for file: ChangedFile) -> RowActivation`
       returning `.resolveConflict` for `.conflicted` and `.diff` otherwise.
-- [ ] Add `public static func shortcutActivation(selected: ChangedFile?) -> RowActivation?`
+- [x] Add `public static func shortcutActivation(selected: ChangedFile?) -> RowActivation?`
       returning `nil` for no selection (the keystroke is consumed by the focused
       panel but does nothing — stated in the doc comment, since "nothing happens"
       is a deliberate outcome rather than an oversight) and
       `activation(for:)` otherwise.
-- [ ] Add `public static func offersShowDiff(for status: FileStatus) -> Bool`
+- [x] Add `public static func offersShowDiff(for status: FileStatus) -> Bool`
       returning `status != .conflicted`, its doc comment recording *why*: a
       conflicted row already offers "Resolve…", which opens the very same window,
       so a second item under a second name would be two names for one action.
-- [ ] run `swift test` — must pass before Task 2.
+- [x] run `swift test` — must pass before Task 2.
 
 ### Task 2: The context menu item and the shared activation path
 
