@@ -178,14 +178,17 @@ work stops with a report instead of a code change.
 **Files:**
 - Modify: `docs/architecture/core-intelligence.md`
 
-- [ ] Change "the 9 property names plus the 8 identifier-shaped value literals"
+- [x] Change "the 9 property names plus the 8 identifier-shaped value literals"
       to 9, matching `LanguageKeywords.editorConfig` (18 entries) and its own
       correct doc comment.
-- [ ] Name `latin1` explicitly as the one identifier-shaped charset value that
+      Done: paragraph now reads "the 9 property names plus the 9 identifier-shaped value literals".
+- [x] Name `latin1` explicitly as the one identifier-shaped charset value that
       *is* included, in the same paragraph that explains why the hyphenated
       charset values (`utf-8`, `utf-16be`, …) are absent.
-- [ ] Run `swift test --filter LanguageKeywordsTests` — green (the list itself is
+      Done: "`latin1` is the one charset value that is included, being the only identifier-shaped spelling among them".
+- [x] Run `swift test --filter LanguageKeywordsTests` — green (the list itself is
       untouched; this pins that the doc now matches the code).
+      16 tests, 0 failures.
 
 ### Task 5: Revert the two noise blank lines
 
