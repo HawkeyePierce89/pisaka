@@ -34,6 +34,10 @@ struct LocalChangesView: View {
     /// worktree source and hides the item. Defaults to a no-op so
     /// previews/tests can construct the view without the app wiring.
     var onJumpToSource: (ChangedFile) -> Void = { _ in }
+    /// Invoked when a file should be opened in the editor by URL (used by the
+    /// Cmd+Down shortcut in the focus anchor). Defaults to a no-op so
+    /// previews/tests can construct the view without the app wiring.
+    var onOpenFile: (URL) -> Void = { _ in }
     /// Invoked by the header's Commit button, opening the commit dialog (the same
     /// handler as the ⌘K menu item, so button and command behave identically).
     /// Defaults to a no-op so previews/tests can construct the view without the app
@@ -74,8 +78,10 @@ struct LocalChangesView: View {
             LocalChangesFocusAnchor(
                 focusRequest: focusRequest,
                 selectedFile: model.selected,
+                repositoryRoot: model.root,
                 onOpenDiff: onOpenDiff,
-                onResolveConflict: onResolveConflict
+                onResolveConflict: onResolveConflict,
+                onOpenFile: onOpenFile
             )
         )
     }
@@ -406,9 +412,11 @@ private func iconColor(for token: FileIconColor) -> Color {
 // MARK: - Focus anchor (Cmd+D interception)
 
 /// An invisible `NSView` behind the Local Changes panel that intercepts
-/// Cmd+D while the panel owns keyboard focus. Mirrors the gate shape in
-/// `EditorTextView.performKeyEquivalent`: the same modifier mask, the same
-/// first-responder check. The editor's own gate keeps the two meanings apart.
+/// Cmd+D and Cmd+Down while the panel owns keyboard focus. Mirrors the gate
+/// shape in `EditorTextView.performKeyEquivalent`: the same modifier mask,
+/// the same first-responder check. The editor's own gate keeps the two
+/// meanings apart. Cmd+Down opens the selected file and hands keyboard
+/// focus to the editor (the same `onOpenFile` the project tree uses).
 ///
 /// Not a zoom surface (no `ZoomSurfaceProviding`, no `ZoomSurfaceMarker`):
 /// the anchor is chrome, drawn at no font at all — the pointer cannot be
@@ -418,23 +426,29 @@ private func iconColor(for token: FileIconColor) -> Color {
 private struct LocalChangesFocusAnchor: NSViewRepresentable {
     let focusRequest: Int
     let selectedFile: ChangedFile?
+    let repositoryRoot: URL?
     let onOpenDiff: (ChangedFile) -> Void
     let onResolveConflict: (ChangedFile) -> Void
+    let onOpenFile: (URL) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> LocalChangesFocusAnchorView {
         LocalChangesFocusAnchorView(
             selectedFile: selectedFile,
+            repositoryRoot: repositoryRoot,
             onOpenDiff: onOpenDiff,
-            onResolveConflict: onResolveConflict
+            onResolveConflict: onResolveConflict,
+            onOpenFile: onOpenFile
         )
     }
 
     func updateNSView(_ nsView: LocalChangesFocusAnchorView, context: Context) {
         nsView.selectedFile = selectedFile
+        nsView.repositoryRoot = repositoryRoot
         nsView.onOpenDiff = onOpenDiff
         nsView.onResolveConflict = onResolveConflict
+        nsView.onOpenFile = onOpenFile
         // Only request first responder when focusRequest actually changed (a row
         // was clicked), not on every body re-evaluation — otherwise a model
         // refresh while the user is in the editor would steal focus back.
@@ -456,22 +470,29 @@ private struct LocalChangesFocusAnchor: NSViewRepresentable {
 /// The `NSView` behind `LocalChangesFocusAnchor`. Non-drawing, hit-test
 /// transparent, hidden from accessibility. `acceptsFirstResponder` is true so
 /// clicking a row focuses the panel; `performKeyEquivalent` intercepts clean
-/// Cmd+D and routes it through the same activation rules the double-click
-/// and "Show Diff" context-menu item use.
+/// Cmd+D and Cmd+Down and routes them through the same activation rules the
+/// double-click and context-menu items use. Cmd+Down additionally hands
+/// keyboard focus to the editor.
 @MainActor
 private final class LocalChangesFocusAnchorView: NSView {
     var selectedFile: ChangedFile?
+    var repositoryRoot: URL?
     var onOpenDiff: (ChangedFile) -> Void
     var onResolveConflict: (ChangedFile) -> Void
+    var onOpenFile: (URL) -> Void
 
     init(
         selectedFile: ChangedFile?,
+        repositoryRoot: URL?,
         onOpenDiff: @escaping (ChangedFile) -> Void,
-        onResolveConflict: @escaping (ChangedFile) -> Void
+        onResolveConflict: @escaping (ChangedFile) -> Void,
+        onOpenFile: @escaping (URL) -> Void
     ) {
         self.selectedFile = selectedFile
+        self.repositoryRoot = repositoryRoot
         self.onOpenDiff = onOpenDiff
         self.onResolveConflict = onResolveConflict
+        self.onOpenFile = onOpenFile
         super.init(frame: .zero)
         setAccessibilityElement(false)
     }
@@ -487,20 +508,33 @@ private final class LocalChangesFocusAnchorView: NSView {
     /// focus.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    /// Intercept a *clean* Cmd+D (no Shift/Option/Control) when this view is
-    /// the window's first responder — the same gate shape `EditorTextView`
-    /// uses. The editor's own `performKeyEquivalent` never fires because this
-    /// view, not the text view, is first responder. Anything else falls through
-    /// to `super` so Cmd+Shift+D and friends stay untouched.
+    /// Intercept clean Cmd+D and Cmd+Down when this view is the window's first
+    /// responder — the same modifier mask and first-responder check, differing
+    /// only in the character test. An arrow event carries `.function` and
+    /// `.numericPad` in `modifierFlags`; the existing
+    /// `intersection([.command, .shift, .option, .control])` already masks those
+    /// out, so only the character comparison changes. Anything else falls
+    /// through to `super` so Cmd+Shift+D and friends stay untouched.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard
-            event.charactersIgnoringModifiers?.lowercased() == "d",
             event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command],
             window?.firstResponder === self
         else { return super.performKeyEquivalent(with: event) }
 
-        // No selection — the focused panel owns the key, the keystroke is
-        // consumed but does nothing (a deliberate no-op, not an oversight).
+        let chars = event.charactersIgnoringModifiers
+        if chars?.lowercased() == "d" {
+            return handleShowDiff()
+        }
+        if chars == String(UnicodeScalar(NSDownArrowFunctionKey)!) {
+            return handleJumpToSource()
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    /// Routes Cmd+D through the same activation rules the double-click and
+    /// "Show Diff" context-menu item use. Returns `true` (consumed) even with
+    /// no selection — a deliberate no-op, not an oversight.
+    private func handleShowDiff() -> Bool {
         guard let selectedFile,
               let activation = LocalChangesModel.shortcutActivation(selected: selectedFile)
         else { return true }
@@ -510,6 +544,45 @@ private final class LocalChangesFocusAnchorView: NSView {
         case .resolveConflict: onResolveConflict(selectedFile)
         }
         return true
+    }
+
+    /// Resolves the selected file against the repository root and opens it,
+    /// then hands keyboard focus to the editor. `nil` (no selection, a deleted
+    /// row, or no root) is consumed silently — same deliberate no-op as Cmd+D.
+    private func handleJumpToSource() -> Bool {
+        guard let selectedFile, let repositoryRoot else { return true }
+        guard let url = LocalChangesModel.shortcutJumpToSourceURL(
+            selected: selectedFile, root: repositoryRoot
+        ) else { return true }
+
+        onOpenFile(url)
+        focusEditor()
+        return true
+    }
+
+    /// Hands keyboard focus to the first `EditorTextView` in the window. The
+    /// hop is dispatched asynchronously so the tab SwiftUI is about to build
+    /// exists by the time the responder change lands. If no editor is found
+    /// (no folder open, or the open failed — which already beeps in
+    /// `openFile(url:)`) focus stays where it is. One honest limitation: the
+    /// handoff cannot see whether the open succeeded, so a failed open with
+    /// another tab already showing focuses that tab's editor — the beep is
+    /// the failure signal.
+    private func focusEditor() {
+        guard let window else { return }
+        DispatchQueue.main.async {
+            guard let content = window.contentView else { return }
+            func findEditor(in view: NSView) -> EditorTextView? {
+                if let editor = view as? EditorTextView { return editor }
+                for subview in view.subviews {
+                    if let found = findEditor(in: subview) { return found }
+                }
+                return nil
+            }
+            if let editor = findEditor(in: content) {
+                window.makeFirstResponder(editor)
+            }
+        }
     }
 }
 

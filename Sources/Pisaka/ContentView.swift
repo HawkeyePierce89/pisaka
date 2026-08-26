@@ -434,6 +434,7 @@ struct ContentView: View {
                 onOpenDiff: onOpenDiff,
                 onResolveConflict: onResolveConflict,
                 onJumpToSource: jumpToSource,
+                onOpenFile: onOpenFile,
                 onCommit: onOpenCommitDialog,
                 onCommitFile: onCommitFile
             )

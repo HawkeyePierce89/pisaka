@@ -147,23 +147,23 @@ rules already living on `LocalChangesModel`; the view stays a dispatcher.
 **Files:**
 - Modify: `Sources/Pisaka/LocalChangesView.swift`
 
-- [ ] Give `LocalChangesFocusAnchor` and `LocalChangesFocusAnchorView` two new
+- [x] Give `LocalChangesFocusAnchor` and `LocalChangesFocusAnchorView` two new
       inputs — `repositoryRoot: URL?` (passed `model.root`) and
       `onOpenFile: (URL) -> Void` — mirroring how `selectedFile`/`onOpenDiff` are
       already stored and refreshed in `updateNSView`.
-- [ ] Add the Cmd+Down case to `performKeyEquivalent(with:)`, structured as a second
+- [x] Add the Cmd+Down case to `performKeyEquivalent(with:)`, structured as a second
       gate beside the Cmd+D one (extract each into a small private
       `handleShowDiff(_:)` / `handleJumpToSource(_:)` returning `Bool` if that reads
       better than one long guard chain). The character test is
       `event.charactersIgnoringModifiers == String(UnicodeScalar(NSDownArrowFunctionKey)!)`;
       the modifier test and the `window?.firstResponder === self` test are the
       existing ones unchanged. Anything else still falls through to `super`.
-- [ ] On a passing gate, resolve
+- [x] On a passing gate, resolve
       `LocalChangesModel.shortcutJumpToSourceURL(selected: selectedFile, root: repositoryRoot)`.
       `nil` (no selection, a deleted row, or no root) returns `true` — consumed,
       silent, no beep. A URL calls `onOpenFile(url)` and then hands focus to the
       editor.
-- [ ] Add the focus handoff as one small private method on the anchor view: walk the
+- [x] Add the focus handoff as one small private method on the anchor view: walk the
       window's content view for the first `EditorTextView` descendant and
       `makeFirstResponder` it, dispatched asynchronously on the main queue so the
       tab SwiftUI is about to build exists by then. Finding nothing (no folder open,
@@ -172,10 +172,10 @@ rules already living on `LocalChangesModel`; the view stays a dispatcher.
       doc comment, plus the one honest limitation: the handoff cannot see whether the
       open succeeded, so a failed open with another tab already showing focuses that
       tab's editor — the beep is the failure signal.
-- [ ] Update the anchor's type-level doc comment: it now intercepts two keys, and the
+- [x] Update the anchor's type-level doc comment: it now intercepts two keys, and the
       Cmd+D comment about "the same gate shape as `EditorTextView`" gains the arrow-key
       note from Decision 4.
-- [ ] Run `swiftlint --strict` from the repository root — must be clean before Task 4.
+- [x] Run `swiftlint --strict` from the repository root — must be clean before Task 4.
 
 ### Task 4: Documentation
 
