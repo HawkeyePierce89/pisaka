@@ -116,7 +116,7 @@ public struct LogFilterDraft: Equatable {
 
     private static func endOfDay(of date: Date, calendar: Calendar) -> Date {
         let start = calendar.startOfDay(for: date)
-        guard let next = calendar.date(byAdding: .day, value: 1, to: start) else { return date }
+        guard let next = calendar.date(byAdding: .day, value: 1, to: start) else { return start }
         return next.addingTimeInterval(-1)
     }
 }
