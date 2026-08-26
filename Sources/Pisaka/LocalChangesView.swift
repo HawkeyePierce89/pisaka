@@ -486,9 +486,11 @@ private final class LocalChangesFocusAnchorView: NSView {
 
         // No selection — the focused panel owns the key, the keystroke is
         // consumed but does nothing (a deliberate no-op, not an oversight).
-        guard let selectedFile else { return true }
+        guard let selectedFile,
+              let activation = LocalChangesModel.shortcutActivation(selected: selectedFile)
+        else { return true }
 
-        switch LocalChangesModel.activation(for: selectedFile) {
+        switch activation {
         case .diff: onOpenDiff(selectedFile)
         case .resolveConflict: onResolveConflict(selectedFile)
         }
