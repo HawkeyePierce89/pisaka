@@ -70,8 +70,19 @@ struct LocalChangesView: View {
         // Refresh when the view first appears or the open folder changes, so
         // toggling to Changes (or switching projects) reflects the repo without
         // requiring a manual refresh first.
+        //
+        // The change handler refreshes the root its *parameter* carries, never
+        // `self.projectRoot`: `projectRoot` is a plain stored property of this view
+        // value, and the macOS 13 `onChange(of:perform:)` overload runs the closure
+        // captured before the change, so off `self` it is still the folder the user
+        // just left. The pinned generation below cannot catch that one — the
+        // folder-open path has already bumped it, so a stale-root refresh pinning the
+        // *current* generation is accepted, re-derives a switch back to the old root
+        // in `refreshImpl` and strands the panel on the previous repository, which is
+        // exactly what `LocalChangesModel.refresh`'s rejection is meant to prevent.
+        // (A `@State` or `@ObservedObject` read would have been live.)
         .onAppear(perform: refreshIfPossible)
-        .onChange(of: projectRoot) { _ in refreshIfPossible() }
+        .onChange(of: projectRoot) { newRoot in refresh(root: newRoot) }
         // The focus anchor sits on the outer VStack (not the list) so focus
         // survives placeholder states and an empty change list.
         .background(
@@ -193,15 +204,22 @@ struct LocalChangesView: View {
         (projectRoot ?? URL(fileURLWithPath: "/")).appendingPathComponent(path)
     }
 
+    /// Refresh for the currently-held root. Safe from `onAppear` and the Refresh
+    /// button, where the view's own property is current; a change handler must call
+    /// `refresh(root:)` with its parameter instead.
     private func refreshIfPossible() {
-        guard let projectRoot else { return }
+        refresh(root: projectRoot)
+    }
+
+    private func refresh(root: URL?) {
+        guard let root else { return }
         // Pin the current request generation, captured synchronously before the
         // `Task` hop: a backstop refresh (onAppear/onChange/manual button) that
         // ends up running after a newer folder switch is then rejected by the model
         // rather than misread as a switch back to this now-stale root. See
         // `PisakaApp.refreshLocalChanges` for the full rationale.
         let requestGeneration = model.currentRequestGeneration
-        Task { await model.refresh(root: projectRoot, requestGeneration: requestGeneration) }
+        Task { await model.refresh(root: root, requestGeneration: requestGeneration) }
     }
 }
 

@@ -139,17 +139,101 @@ final class LogFilterDraftTests: XCTestCase {
         XCTAssertEqual(draft.filter(calendar: cal).since, chosen.since)
     }
 
-    func testSeedAndInitAgreeWhenTheDraftHasNoDayToPreserve() {
+    /// The same journey for `until`, which is the asymmetric bound: its seeded value
+    /// is the *derived* last-second-of-day instant, so the day survives a re-tick
+    /// only while `endOfDay` stays idempotent across a re-seed. Two cycles, so a
+    /// per-cycle drift of one day is visible rather than only the first hop.
+    func testUntickAndRetickJourneyKeepsTheChosenUntilDay() {
+        let cal = utcCalendar()
+        var draft = LogFilterDraft()
+
+        draft.untilEnabled = true
+        draft.until = date(year: 2026, month: 5, day: 20, hour: 9, minute: 0)
+        let chosen = draft.filter(calendar: cal)
+        XCTAssertEqual(chosen.until, date(year: 2026, month: 5, day: 20, hour: 23, minute: 59, second: 59))
+        draft.seed(from: chosen)
+
+        for _ in 0..<2 {
+            // Untick: the model publishes a filter without the bound.
+            draft.untilEnabled = false
+            let cleared = draft.filter(calendar: cal)
+            XCTAssertNil(cleared.until)
+            draft.seed(from: cleared)
+
+            // Re-tick: the same day boundary comes back, not today's.
+            draft.untilEnabled = true
+            let reticked = draft.filter(calendar: cal)
+            XCTAssertEqual(reticked.until, chosen.until)
+            draft.seed(from: reticked)
+        }
+    }
+
+    /// The two seeding forms are one rule: parking both dates on `defaultDate` and
+    /// then seeding is what the from-scratch `init` does. Asserted against a
+    /// hand-written expectation rather than against `init` itself, so it stays a
+    /// real check of *what* that rule produces (in particular that the flags come
+    /// from the filter, not from the parked draft) instead of restating the
+    /// delegation.
+    func testSeedOntoAParkedDraftProducesTheFromScratchResult() {
         let defaultDate = date(year: 2026, month: 1, day: 1)
+        let since = date(year: 2026, month: 2, day: 2)
         let filter = LogFilter(
             refSelection: .ref("refs/heads/main"),
             author: "Alice",
-            since: date(year: 2026, month: 2, day: 2),
+            since: since,
             path: "src"
         )
-        var seeded = LogFilterDraft(sinceEnabled: true, since: defaultDate, until: defaultDate)
+        // Park exactly as `init(filter:defaultDate:)` does — both flags off.
+        var seeded = LogFilterDraft(since: defaultDate, until: defaultDate)
         seeded.seed(from: filter)
+
+        XCTAssertEqual(seeded.refSelection, .ref("refs/heads/main"))
+        XCTAssertEqual(seeded.author, "Alice")
+        XCTAssertEqual(seeded.path, "src")
+        XCTAssertTrue(seeded.sinceEnabled)
+        XCTAssertEqual(seeded.since, since)
+        // `until` is absent, and a parked draft has no chosen day — so it keeps the
+        // parked one, which is what the from-scratch form promises.
+        XCTAssertFalse(seeded.untilEnabled)
+        XCTAssertEqual(seeded.until, defaultDate)
         XCTAssertEqual(seeded, LogFilterDraft(filter: filter, defaultDate: defaultDate))
+    }
+
+    /// The combination the bar actually produces: one bound stated, the other
+    /// unticked but still showing a day the user chose earlier. The two dates are
+    /// deliberately distinct, so an implementation that coupled the branches (writing
+    /// the absent bound from the present one, or re-parking on "now") fails here.
+    func testSeedWithOnePresentBoundKeepsTheOtherBoundsRememberedDay() {
+        let remembered = date(year: 2026, month: 6, day: 15, hour: 23, minute: 59, second: 59)
+        let incomingSince = date(year: 2026, month: 7, day: 1)
+        var draft = LogFilterDraft()
+        draft.untilEnabled = true
+        draft.until = remembered
+        draft.since = date(year: 2020, month: 1, day: 1)
+
+        draft.seed(from: LogFilter(since: incomingSince))
+
+        XCTAssertTrue(draft.sinceEnabled)
+        XCTAssertEqual(draft.since, incomingSince)
+        XCTAssertFalse(draft.untilEnabled)
+        XCTAssertEqual(draft.until, remembered)
+    }
+
+    /// The mirror image, so neither bound is protected only by the other's branch.
+    func testSeedWithOnlyUntilPresentKeepsTheRememberedSinceDay() {
+        let remembered = date(year: 2026, month: 6, day: 15)
+        let incomingUntil = date(year: 2026, month: 7, day: 2, hour: 23, minute: 59, second: 59)
+        var draft = LogFilterDraft()
+        draft.sinceEnabled = true
+        draft.since = remembered
+        draft.until = date(year: 2020, month: 1, day: 2)
+
+        draft.seed(from: LogFilter(until: incomingUntil))
+
+        XCTAssertFalse(draft.sinceEnabled)
+        XCTAssertEqual(draft.since, remembered)
+        XCTAssertTrue(draft.untilEnabled)
+        XCTAssertEqual(draft.until, incomingUntil)
     }
 
     // MARK: - Trimming / blank -> nil

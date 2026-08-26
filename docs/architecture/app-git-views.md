@@ -489,7 +489,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     (`ChangeTree`, recursing in-memory `ChangeNode.children` via
     `DisclosureGroup`s — no disk read), per `model.groupingMode`. A segmented
     control toggles flat/by-folder and a button refreshes against the project
-    root; it also auto-refreshes on appear and on `projectRoot` change. Each row
+    root; it also auto-refreshes on appear and on `projectRoot` change. That
+    **change handler refreshes the root its parameter carries**, never
+    `self.projectRoot`: `projectRoot` is a plain stored property of the view value
+    and macOS 13's `onChange(of:perform:)` runs the closure captured *before* the
+    change, so off `self` it is still the folder the user just left. The pinned
+    request generation does not cover that case — the folder-open path has already
+    bumped it, so a stale-root refresh pinning the *current* generation is accepted,
+    re-derives a switch back inside `refreshImpl` and strands the panel on the
+    previous repository. `refreshIfPossible` (the `onAppear`/manual-button form,
+    where the property is current) now forwards to the same `refresh(root:)`. Each row
     (`ChangedFileRow`, used by both the flat list and the by-folder
     `ChangeNodeView` leaf) shows a leading checkbox bound to
     `model.revertSelection` (toggled via `model.toggleChecked(file)`) for
@@ -612,7 +621,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     affordance (shown only when the last fetch filled the limit) bumps the `git log
     -n` limit and re-fetches the whole list (no incremental paging — the model
     replaces `commits` wholesale). Refreshes on `onAppear` and `onChange(projectRoot)`
-    (idempotent backstops; the model's generation guard handles ordering). Selecting
+    (idempotent backstops; the model's generation guard handles ordering). The
+    **change handler refreshes the root its parameter carries**, never
+    `self.projectRoot` — the same stale-stored-property rule `LogFilterBar` states,
+    and here the stakes are higher than a lagging display: `prepareForRefresh`
+    *bumps* the request generation, so a stale-root refresh supersedes the correct
+    one the folder-open path launched, rewrites `lastRequestedRoot` back to the old
+    folder and leaves the panel showing the previous repository's history.
+    `refreshIfPossible` (the `onAppear`/manual-button form) forwards to the same
+    `refresh(root:)`. Selecting
     a commit opens `CommitDetailPane` — now a *files-list only* (the old `VSplitView`
     over an inline `CommitDiffPane` is gone; the `CommitDiffPane` struct was removed)
     — beside the list in an `HSplitView`. Double-clicking a `CommitFileRow` calls a

@@ -12,11 +12,15 @@ import PisakaCore
 /// control silently: `seed(from:)` assigns the draft directly and is therefore
 /// structurally unable to reach the apply path, which lives only in user-intent
 /// binding setters (and `onSubmit`). **A change handler seeds from its
-/// parameter**, never from the view's own observed property: inside the handler
-/// that property still holds the *previous* value, so re-reading it seeds the
-/// bar one publish behind forever and the next apply — assembled from the
-/// lagging draft — writes the stale state back. `onAppear` is the one exception,
-/// because at appearance the properties are current. The server-side dimensions
+/// parameter**, never from the view's own stored property: `filter` and
+/// `searchQuery` are plain `let`s of this view value, and macOS 13's only
+/// `onChange` overload runs the closure captured *before* the change, so off
+/// `self` they still hold the *previous* value — re-reading them seeds the bar
+/// one publish behind forever and the next apply, assembled from the lagging
+/// draft, writes the stale state back. (`@State` and `@ObservedObject` reads are
+/// live even there, resolving through their storage rather than the captured
+/// view value; only plain stored properties are at risk.) `onAppear` is the one
+/// exception, because at appearance the properties are current. The server-side dimensions
 /// are reported via `onApplyFilter` (generation-guarded re-fetch); the message
 /// search is reported live via `onSearch` (client-side filter, no re-query).
 /// All decision logic
@@ -90,7 +94,8 @@ struct LogFilterBar: View {
         // seed from the closure's *new value*; `filter`/`searchQuery` still hold the
         // previous one here. The single-parameter `onChange` spelling is deliberate:
         // the deployment target is macOS 13, whose only overload hands the new value
-        // as that one parameter — the two-parameter form is macOS 14+.
+        // as that one parameter — the two-parameter form is macOS 14+ (and is what
+        // the iOS bar uses, which is why the two bars are spelled differently).
         .onChange(of: filter) { newFilter in seed(from: newFilter) }
         .onChange(of: searchQuery) { newQuery in search = newQuery }
     }
@@ -231,8 +236,8 @@ struct LogFilterBar: View {
     /// Seed the server-side controls from `newFilter` by direct assignment.
     ///
     /// It takes what it seeds from as a parameter rather than reading `filter`
-    /// off `self`, because its caller is a change handler and the view's own
-    /// observed property is still the previous value there. Seeding is
+    /// off `self`, because its caller is a change handler and this view value's
+    /// own stored `filter` is still the previous value there. Seeding is
     /// structurally unable to reach the apply path: every apply lives in a
     /// binding setter or an explicit `onSubmit` and is handed the new value
     /// explicitly — no value-equality suppression is involved anywhere, which is

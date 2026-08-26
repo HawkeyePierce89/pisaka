@@ -282,6 +282,11 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     catching up to what the model published, so it may not discard a choice the
     user made and the filter has no room to carry. Only the from-scratch `init`,
     which has no day to preserve, parks a disabled picker's date on `defaultDate`.
+    The rule is deliberately blind to *why* a bound went absent, so a repository
+    switch — which publishes a default `LogFilter` — also clears both flags while
+    the now-disabled pickers keep the day chosen in the previous project; that is
+    cosmetic (a disabled picker bounds nothing), and telling a reset apart from an
+    ordinary re-seed would need a second signal the published filter does not carry.
     A present bound is seeded verbatim (the inclusive
     last-second-of-day instant for `until` is still on the selected day, so
     `filter()` re-derives the same bound — the round-trip is idempotent and needs no

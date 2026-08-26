@@ -92,6 +92,13 @@ public struct LogFilterDraft: Equatable {
     /// discard a choice the user made and the filter simply has no room to
     /// carry. `init(filter:defaultDate:)` is the one caller with nothing to
     /// preserve, and it says so by parking both dates before seeding.
+    ///
+    /// The rule is deliberately blind to *why* a bound went absent, so a
+    /// repository switch — which publishes a default `LogFilter` — also clears
+    /// both flags while the (now disabled) pickers keep the day chosen in the
+    /// previous project. That is cosmetic: a disabled picker bounds nothing, and
+    /// distinguishing a reset from an ordinary re-seed would need a second signal
+    /// the published filter does not carry.
     public mutating func seed(from filter: LogFilter) {
         refSelection = filter.refSelection
         author = filter.author ?? ""
