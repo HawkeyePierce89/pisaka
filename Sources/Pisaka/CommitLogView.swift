@@ -2,8 +2,8 @@
 import SwiftUI
 import PisakaCore
 
-/// The Git Log view shown in the VS Code-style bottom dock panel: a
-/// JetBrains-style read-only commit history list.
+/// The Git Log view shown in the bottom dock panel: a
+/// read-only commit history list.
 ///
 /// Renders the commit table (short hash, ref badges, subject, author, date)
 /// wired to `CommitLogModel`, with a branch-graph gutter, a filter/search bar,
@@ -224,13 +224,15 @@ struct CommitLogView: View {
         // rather than by (unguaranteed) task-start order (see `refreshIfPossible`). It
         // returns `nil` for a no-op (a filter equal to the latest *requested* filter),
         // in which case the generation is never disturbed. The comparison is against
-        // the latest requested filter, not the committed one: the bar re-seeds and
-        // fires its controls' `onChange` whenever the model re-publishes its filter
-        // (e.g. a folder switch resets it to the default), and that echo must no-op so
-        // it cannot supersede the folder's own in-flight refresh — yet a genuine revert
-        // to the committed-but-already-superseded filter while a different change is
-        // pending must still go through (the lagging committed `filter` can't tell the
-        // two apart; `requestedFilter` can).
+        // the latest requested filter, not the committed one: a genuine revert to the
+        // committed-but-already-superseded filter while a different change is pending
+        // must still go through (the lagging committed `filter` can't tell the two
+        // apart; `requestedFilter` can). This guard orders requests; it cannot suppress
+        // a view echo — the published `filter` lags the latest request by one phase
+        // whenever two applies interleave, so an echo built from the published value
+        // would be accepted and spawn a fetch. Not echoing is the view's obligation
+        // (the bar's user-intent bindings apply only from `Binding.set`/`onSubmit`, and
+        // `seedFromFilter` assigns the draft directly).
         guard let request = model.prepareForFilter(filter, root: projectRoot) else { return }
         let currentLimit = limit
         Task { await model.applyFilter(filter, root: projectRoot, limit: currentLimit, request: request) }

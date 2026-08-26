@@ -93,6 +93,15 @@ public final class CommitLogModel: ObservableObject {
     /// exposed for symmetry with `LocalChangesModel.currentRequestGeneration`.)
     public var currentRequestGeneration: Int { requestGeneration }
 
+    /// The latest *requested* filter (the last value passed to `prepareForFilter`
+    /// that was not a no-op, mirrored when `applyFilter` commits). Unlike the
+    /// published `filter`, it reflects the user's latest intent synchronously; the
+    /// publish lags it by one phase while a fetch is in flight. Exposed so the
+    /// publish-lags-request contract is readable and the interleaving regression is
+    /// assertable rather than folklore. The symmetric counterpart of
+    /// `currentRequestGeneration`.
+    public var currentRequestedFilter: LogFilter { requestedFilter }
+
     /// Whether a `refresh` has committed a result for the *current* repository into
     /// the published state yet (set on both the success and failure paths once it
     /// wins the stale-result guard). False before the first fetch lands, and reset
@@ -296,10 +305,16 @@ public final class CommitLogModel: ObservableObject {
     /// a value equal to the committed-but-already-superseded filter while a different
     /// in-flight change still lands — leaving the history not matching the user's last
     /// choice. Comparing against the synchronously-updated `requestedFilter` lets such
-    /// a revert through and supersede the pending change. The re-seed echo the bar
-    /// fires when the model re-publishes its filter still no-ops here (it equals the
-    /// latest requested value), so the folder-switch refresh it must not disturb is
-    /// preserved.
+    /// a revert through and supersede the pending change.
+    ///
+    /// This guard orders requests; it cannot suppress a view echo. The published
+    /// `filter` lags the latest `requestedFilter` by one phase whenever two applies
+    /// interleave (the publish happens synchronously at `applyFilter` entry, before
+    /// the `await` on git), so an echo built from the published value is a genuinely
+    /// different filter and is accepted here — it would spawn a fetch. Not echoing is
+    /// the view's obligation: the filter bar's user-intent bindings apply only from
+    /// `Binding.set`/`onSubmit`, and `seedFromFilter` assigns the draft directly, so a
+    /// model-published filter change can never reach the apply path.
     ///
     /// Bumps the request generation (via `prepareForRefresh`) on a real change so the
     /// fetch is ordered by creation rather than task-start order.
@@ -356,7 +371,14 @@ public final class CommitLogModel: ObservableObject {
         // its task started, `isLoading` is still false yet nothing has loaded, so a
         // `!isLoading`-only guard would wrongly skip and strand the log empty. In either
         // case fall through and run the fetch.
-        if newFilter == filter && !isLoading && hasCompletedFetch { return }
+        if newFilter == filter && !isLoading && hasCompletedFetch {
+            // Keep `requestedFilter` in lock-step even on the no-op path so a
+            // direct (non-`prepareForFilter`) call cannot leave it stale — otherwise a
+            // later `prepareForFilter` re-selecting that same value would be misread as
+            // a no-op until a different filter is chosen first.
+            requestedFilter = newFilter
+            return
+        }
         filter = newFilter
         // Keep `requestedFilter` in lock-step with the committed filter so the two
         // never diverge through a direct (non-`prepareForFilter`) call site.

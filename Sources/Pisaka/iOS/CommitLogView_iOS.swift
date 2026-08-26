@@ -3,7 +3,7 @@ import SwiftUI
 import PisakaCore
 
 /// The iOS Git Log screen — the peer of the macOS `CommitLogView`. Presented as a
-/// sheet from `RootView_iOS`; it shows the JetBrains-style read-only commit history
+/// sheet from `RootView_iOS`; it shows the read-only commit history
 /// (short hash, ref badges, subject, author, date) with a branch-graph gutter and a
 /// filter/search bar. Tapping a commit pushes its changed-file list; tapping a file
 /// pushes the commit-vs-first-parent diff. No separate windows — navigation is a
