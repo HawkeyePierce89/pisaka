@@ -1578,4 +1578,78 @@ final class LocalChangesModelTests: XCTestCase {
         let model = makeModel(git: StubGit())
         XCTAssertEqual(model.groupingMode, .flat)
     }
+
+    // MARK: - pure helpers: row activation
+
+    func testActivationForConflictedFileIsResolveConflict() {
+        let file = ChangedFile(path: "a.swift", status: .conflicted)
+        XCTAssertEqual(LocalChangesModel.activation(for: file), .resolveConflict)
+    }
+
+    func testActivationForModifiedFileIsDiff() {
+        XCTAssertEqual(
+            LocalChangesModel.activation(for: ChangedFile(path: "a.swift", status: .modified)),
+            .diff
+        )
+    }
+
+    func testActivationForAddedFileIsDiff() {
+        XCTAssertEqual(
+            LocalChangesModel.activation(for: ChangedFile(path: "a.swift", status: .added)),
+            .diff
+        )
+    }
+
+    func testActivationForDeletedFileIsDiff() {
+        XCTAssertEqual(
+            LocalChangesModel.activation(for: ChangedFile(path: "a.swift", status: .deleted)),
+            .diff
+        )
+    }
+
+    func testActivationForRenamedFileIsDiff() {
+        XCTAssertEqual(
+            LocalChangesModel.activation(for: ChangedFile(path: "a.swift", status: .renamed)),
+            .diff
+        )
+    }
+
+    func testActivationForUntrackedFileIsDiff() {
+        XCTAssertEqual(
+            LocalChangesModel.activation(for: ChangedFile(path: "a.swift", status: .untracked)),
+            .diff
+        )
+    }
+
+    func testShortcutActivationWithNoSelectionReturnsNil() {
+        XCTAssertNil(LocalChangesModel.shortcutActivation(selected: nil))
+    }
+
+    func testShortcutActivationWithSelectionReturnsActivationForFile() {
+        let conflicted = ChangedFile(path: "a.swift", status: .conflicted)
+        XCTAssertEqual(
+            LocalChangesModel.shortcutActivation(selected: conflicted),
+            .resolveConflict
+        )
+
+        let modified = ChangedFile(path: "b.swift", status: .modified)
+        XCTAssertEqual(
+            LocalChangesModel.shortcutActivation(selected: modified),
+            .diff
+        )
+    }
+
+    func testOffersShowDiffForEveryStatusExceptConflicted() {
+        let statuses = FileStatus.allCases.filter { $0 != .conflicted }
+        for status in statuses {
+            XCTAssertTrue(
+                LocalChangesModel.offersShowDiff(for: status),
+                "\(status) should offer Show Diff"
+            )
+        }
+    }
+
+    func testOffersShowDiffReturnsFalseForConflicted() {
+        XCTAssertFalse(LocalChangesModel.offersShowDiff(for: .conflicted))
+    }
 }

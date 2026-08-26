@@ -6,7 +6,7 @@ import Foundation
 /// pure-enum precedent of `FileStatus`'s siblings (`FileIconColor`,
 /// `SyntaxTokenKind`). The view layer maps each case to an icon/color; Core
 /// stays UI-free.
-public enum FileStatus: Equatable {
+public enum FileStatus: Equatable, CaseIterable {
     case modified
     case added
     case deleted

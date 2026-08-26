@@ -250,9 +250,10 @@ user sees it.
   selection is duplicated exactly as selected rather than rounded out to whole
   lines, and each duplication is a single undo step. In a CRLF- or CR-delimited
   file, duplicating the *last* line — the one with no line terminator — inserts a
-  plain LF; every terminated line copies its own terminator verbatim. It is an
-  editor-only key with no menu item yet, so it does nothing while focus is in the
-  terminal or the project tree. macOS only for now — an iOS
+  plain LF; every terminated line copies its own terminator verbatim. When the
+  Local Changes panel has keyboard focus, Cmd+D opens the selected changed file's
+  diff (or the merge resolver for a conflicted file); with no row selected it does
+  nothing and does not beep. macOS only for now — an iOS
   variant for an external keyboard and an Edit > Duplicate Line menu item are
   out of scope.
 - Toggle comment (Cmd+/): comments or uncomments the selected lines using the
@@ -634,7 +635,12 @@ user sees it.
   its git status plus a one-letter badge (M/A/D/R/U/C). Double-click a file to open
   a side-by-side diff (`HEAD` vs working copy) in a separate
   window, with aligned panes, red/green row backgrounds, per-side line-number
-  gutters, change markers, synced scrolling, and syntax highlighting. The list
+  gutters, change markers, synced scrolling, and syntax highlighting. A
+  **"Show Diff"** item appears first in a non-conflicted file's context menu
+  (above "Commit…" and "Revert") and opens the same diff; conflicted files keep
+  their existing "Resolve…" item. Press **Cmd+D** while the panel has keyboard
+  focus to open the selected file's diff (or the merge resolver for a conflicted
+  file); with no row selected it does nothing. The list
   refreshes manually (a refresh button) and automatically after you save a file.
   You can revert (discard) local changes: check one or more files and choose
   Revert from a file's context menu to restore the checked set to their `HEAD`

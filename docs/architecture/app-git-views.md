@@ -495,16 +495,21 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `model.revertSelection` (toggled via `model.toggleChecked(file)`) for
     multi-file revert, a `FileIcon(for:)` tinted by git status, plus a one-letter
     badge (M/A/D/R/U/C), with VCS-convention colors (added → green, deleted → red,
-    modified → blue, renamed → orange, untracked → gray, conflicted → purple);
-    single-clicking the row sets `model.selected`, and a *double*-click
-    (`.onTapGesture(count: 2)`, declared before the single-tap select) opens the
-    file: a `.conflicted` file routes to `onResolveConflict(file)` (the 3-pane merge
-    window), every other status to `onOpenDiff(file)` (the side-by-side diff window).
-    A `.contextMenu` **Commit…** item calls `onCommitFile(file)` and a **Revert**
-    item calls `onRevert(file)`, in that order — the non-destructive one above the
-    destructive one — and a conflicted row additionally offers a **Resolve…** item
-    calling `onResolveConflict(file)` (followed by a `Divider()`) above both. The
-    four callbacks are threaded `PisakaApp → ContentView → LocalChangesView` down
+    modified → blue, renamed → orange, untracked → gray, conflicted → purple).
+    Three triggers share one activation path through `LocalChangesModel`: (1) a
+    *double*-click (`.onTapGesture(count: 2)`, declared before the single-tap
+    select) calls `onSelect()` first (so the panel focuses on that row) then
+    `activate()`, which switches on `LocalChangesModel.activation(for:)` and calls
+    `onOpenDiff()` or `onResolveConflict()`; (2) the "Show Diff" context-menu
+    item calls the same `activate()` (shown only when
+    `LocalChangesModel.offersShowDiff(for:)` is true, i.e. not for conflicted
+    rows, which keep their existing "Resolve…" + `Divider()`); (3) Cmd+D while
+    the panel has keyboard focus (see the focus anchor below). The context menu
+    order for non-conflicted rows is: Show Diff, Commit…, Revert — the
+    non-destructive items above the destructive one. A `.contextMenu` **Commit…**
+    item calls `onCommitFile(file)` and a **Revert**
+    item calls `onRevert(file)`. The
+    callbacks are threaded `PisakaApp → ContentView → LocalChangesView` down
     through the rows (and through `ChangeNodeView`, recursively, for the by-folder
     mode; same shape as `onOpenFile`/`onOpenFolder`). **Commit…** is JetBrains'
     "Commit File": it opens the ordinary commit dialog with *only that file*
@@ -514,9 +519,27 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     shared rather than duplicated). It carries **no enablement condition of its
     own**, deliberately: a row exists only when a folder is open, which is exactly
     the header Commit button's single condition, and `openCommitDialog` re-checks
-    the project root and every one of its gates anyway. Placeholders cover
-    no-folder / error /
-    no-changes. The header also holds a **Commit** button
+    the project root and every one of its gates anyway. The **focus anchor** is a
+    private `LocalChangesFocusAnchor: NSViewRepresentable` and its `NSView`
+    (`LocalChangesFocusAnchorView`), placed behind the panel's outer `VStack` via
+    `.background(...)` — not on the list — so focus survives placeholder states and
+    an empty change list. The `NSView` is non-drawing, answers `nil` from
+    `hitTest` (never stands between the pointer and a row), hidden from
+    accessibility, and `acceptsFirstResponder == true`. A `@State focusRequest`
+    token bumped in each row's `onSelect` closure drives `updateNSView` to call
+    `window?.makeFirstResponder(nsView)` (dispatched asynchronously so the
+    responder change does not land inside a SwiftUI update pass); a value change is
+    the only signal a representable receives, hence the token. The view overrides
+    `performKeyEquivalent(with:)` with the same gate shape as `EditorTextView`:
+    `charactersIgnoringModifiers?.lowercased() == "d"`, modifier mask equals
+    `.command` only, and `window?.firstResponder === self`. When the gate passes it
+    invokes the handler via `LocalChangesModel.shortcutActivation(selected:)` and
+    routes the result through the same `onOpenDiff`/`onResolveConflict` closures
+    the double-click uses; `nil` (no selection) does nothing but still returns
+    `true` so the focused panel owns the key and the keystroke does not beep or
+    reach any other surface. The anchor is chrome, not a zoom surface — it draws at
+    no font at all, so it does not declare `ZoomSurfaceProviding`. Placeholders
+    cover no-folder / error / no-changes. The header also holds a **Commit** button
     (`checkmark.circle`) calling `onCommit()` — the same handler
     the ⌘K menu item runs, so button and command behave identically — disabled on
     exactly the one condition that item is (no project root; see there for why an

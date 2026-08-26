@@ -220,6 +220,41 @@ public final class LocalChangesModel: ObservableObject {
         return urls
     }
 
+    // MARK: - Row activation
+
+    /// What opening a changed-file row means — the one place the
+    /// conflicted/ordinary split is decided, shared by double-click, the context
+    /// menu and the keyboard shortcut.
+    public enum RowActivation: Equatable {
+        /// Open the side-by-side diff (working copy vs HEAD).
+        case diff
+        /// Open the merge conflict resolver.
+        case resolveConflict
+    }
+
+    /// Decide what opening `file` means: `.resolveConflict` for a conflicted file,
+    /// `.diff` for everything else.
+    public static func activation(for file: ChangedFile) -> RowActivation {
+        file.status == .conflicted ? .resolveConflict : .diff
+    }
+
+    /// The activation for the keyboard shortcut, given the current selection.
+    ///
+    /// Returns `nil` when nothing is selected (the keystroke is consumed by the
+    /// focused panel but does nothing — a deliberate no-op, not an oversight).
+    public static func shortcutActivation(selected: ChangedFile?) -> RowActivation? {
+        selected.map(activation(for:))
+    }
+
+    /// Whether the context menu should offer "Show Diff" for this status.
+    ///
+    /// `false` for `.conflicted` rows because they already offer "Resolve…",
+    /// which opens the very same window — a second item under a second name
+    /// would be two names for one action.
+    public static func offersShowDiff(for status: FileStatus) -> Bool {
+        status != .conflicted
+    }
+
     /// Re-query the repository containing `root` for changed files.
     ///
     /// The opened folder may be a subdirectory of the repository, so the repo
