@@ -10,12 +10,26 @@ import PisakaCore
 /// apply it assembles a `LogFilter` and reports it through `onApplyFilter` (which
 /// the owner turns into a generation-guarded re-fetch). The message search reports
 /// live via `onSearch` (a client-side filter, no re-query). All the testable
-/// argument-building/search logic lives in `PisakaCore.LogFilter`.
+/// argument-building/search logic lives in `PisakaCore.LogFilter` and the shared
+/// `PisakaCore.LogFilterDraft`.
+///
+/// Audit: the advanced form is **immune** to the seed/echo loop by construction —
+/// it is seeded once in `init` via `LogFilterDraft(filter:defaultDate:)` and
+/// applies only from the explicit Apply button, so no model-published filter
+/// reaches it while it is presented. The compact bar's search field previously
+/// carried the *same* masquerade shape as the macOS toggles — `.onChange(of:
+/// searchQuery)` seeded `search`, whose `.onChange(of: search)` called `onSearch`
+/// — and is now routed through a user-intent binding whose `set` both stores the
+/// new value and calls `onSearch`, so the seed cannot masquerade as a user edit.
+/// The branch picker uses `LogFilterDraft.allRefsTag` / `displayRefTag` /
+/// `selectRef`; its write is verbatim, as on iOS it always was. The advanced
+/// form's single `LogFilterDraft` owns trimming, day-boundary normalization and
+/// verbatim ref preservation exactly as the macOS bar does.
 ///
 /// The branch selection is deliberately *not* mirrored in `@State` — it reads
-/// straight from `filter` through `LogFilter.resolvedRef(amongKnown:)` and writes
-/// only through the apply path, so a model-published filter change can never look
-/// like a user selection and drive a refetch loop (the macOS rationale).
+/// straight from `filter` through `LogFilterDraft.displayRefTag(amongKnown:)` and
+/// writes only through the apply path, so a model-published filter change can never
+/// look like a user selection and drive a refetch loop (the macOS rationale).
 struct LogFilterBar_iOS: View {
     /// The branch/tag refs offered in the picker — **full** refnames; the menu shows
     /// a shortened label while the value stays the unambiguous `git log` revision.
@@ -32,10 +46,6 @@ struct LogFilterBar_iOS: View {
 
     @State private var search: String = ""
     @State private var showingAdvanced = false
-
-    /// Sentinel ref-picker tag meaning "all refs" (`--all`); a real ref name can
-    /// never be empty, so this is unambiguous.
-    private static let allRefsTag = ""
 
     var body: some View {
         HStack(spacing: 8) {
@@ -82,9 +92,11 @@ struct LogFilterBar_iOS: View {
     }
 
     /// The branch selection read straight from `filter` and written only through the
-    /// apply path (the macOS `refSelectionBinding` pattern).
+    /// apply path (the macOS `refSelectionBinding` pattern), now via the shared
+    /// `LogFilterDraft` seam so the sentinel and the mapping live in one place.
     private var selectedRef: String {
-        filter.resolvedRef(amongKnown: references) ?? Self.allRefsTag
+        LogFilterDraft(filter: filter, defaultDate: Date())
+            .displayRefTag(amongKnown: references)
     }
 
     private var branchMenu: some View {
@@ -93,7 +105,7 @@ struct LogFilterBar_iOS: View {
                 get: { selectedRef },
                 set: { applyRef($0) }
             )) {
-                Text("All").tag(Self.allRefsTag)
+                Text("All").tag(LogFilterDraft.allRefsTag)
                 ForEach(uniqueReferences, id: \.self) { ref in
                     Text(shortLabel(for: ref)).tag(ref)
                 }
@@ -113,19 +125,35 @@ struct LogFilterBar_iOS: View {
         HStack(spacing: 4) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("Filter by message", text: $search)
+            TextField("Filter by message", text: searchBinding)
                 .textFieldStyle(.roundedBorder)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
-                .onChange(of: search) { onSearch(search) }
         }
     }
 
+    /// User-intent binding for the live message search: `set` stores the new value
+    /// and reports it via `onSearch`, so the `.onChange(of: searchQuery)` seed
+    /// (direct assignment) cannot masquerade as a user edit.
+    private var searchBinding: Binding<String> {
+        Binding(
+            get: { search },
+            set: { newValue in
+                search = newValue
+                onSearch(newValue)
+            }
+        )
+    }
+
     /// Apply a brand-new branch selection while preserving the other dimensions.
-    private func applyRef(_ ref: String) {
-        let refSelection: LogFilter.RefSelection = ref.isEmpty ? .all : .ref(ref)
+    /// Uses `LogFilterDraft.selectRef(tag:)` so the sentinel mapping lives with the
+    /// shared draft, but keeps the verbatim write iOS already had (other dimensions
+    /// are carried from `filter` unchanged).
+    private func applyRef(_ tag: String) {
+        var draft = LogFilterDraft(filter: filter, defaultDate: Date())
+        draft.selectRef(tag: tag)
         var newFilter = filter
-        newFilter.refSelection = refSelection
+        newFilter.refSelection = draft.refSelection
         onApplyFilter(newFilter)
     }
 
@@ -140,21 +168,17 @@ struct LogFilterBar_iOS: View {
 
 /// The advanced (commit-limiting) filter form: author, path, and a date range,
 /// presented as a sheet. Assembles a `LogFilter` (preserving the current branch)
-/// and reports it on Apply. Date bounds are normalized to day boundaries exactly as
-/// the macOS bar does (`since` → start of day, `until` → last second of day, the
-/// inclusive upper bound git's `--until` expects).
+/// and reports it on Apply. The single `LogFilterDraft` owns trimming, day-boundary
+/// normalization and verbatim ref preservation exactly as the macOS bar does; the
+/// form is seeded once in `init` and applies only from the explicit Apply button, so
+/// no model publish reaches it.
 private struct LogAdvancedFilterForm_iOS: View {
     let filter: LogFilter
     let references: [String]
     let onApply: (LogFilter) -> Void
     let onCancel: () -> Void
 
-    @State private var author: String
-    @State private var path: String
-    @State private var sinceEnabled: Bool
-    @State private var since: Date
-    @State private var untilEnabled: Bool
-    @State private var until: Date
+    @State private var draft: LogFilterDraft
 
     init(
         filter: LogFilter,
@@ -166,35 +190,30 @@ private struct LogAdvancedFilterForm_iOS: View {
         self.references = references
         self.onApply = onApply
         self.onCancel = onCancel
-        _author = State(initialValue: filter.author ?? "")
-        _path = State(initialValue: filter.path ?? "")
-        _sinceEnabled = State(initialValue: filter.since != nil)
-        _since = State(initialValue: filter.since ?? Date(timeIntervalSince1970: 0))
-        _untilEnabled = State(initialValue: filter.until != nil)
-        _until = State(initialValue: filter.until ?? Date(timeIntervalSince1970: 0))
+        _draft = State(initialValue: LogFilterDraft(filter: filter, defaultDate: Date()))
     }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Author") {
-                    TextField("Name or email", text: $author)
+                    TextField("Name or email", text: $draft.author)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                 }
                 Section("Path") {
-                    TextField("Limit to path", text: $path)
+                    TextField("Limit to path", text: $draft.path)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                 }
                 Section("Date range") {
-                    Toggle("Since", isOn: $sinceEnabled)
-                    if sinceEnabled {
-                        DatePicker("From", selection: $since, displayedComponents: .date)
+                    Toggle("Since", isOn: $draft.sinceEnabled)
+                    if draft.sinceEnabled {
+                        DatePicker("From", selection: $draft.since, displayedComponents: .date)
                     }
-                    Toggle("Until", isOn: $untilEnabled)
-                    if untilEnabled {
-                        DatePicker("To", selection: $until, displayedComponents: .date)
+                    Toggle("Until", isOn: $draft.untilEnabled)
+                    if draft.untilEnabled {
+                        DatePicker("To", selection: $draft.until, displayedComponents: .date)
                     }
                 }
                 Section {
@@ -215,35 +234,14 @@ private struct LogAdvancedFilterForm_iOS: View {
     }
 
     private func clear() {
-        author = ""
-        path = ""
-        sinceEnabled = false
-        untilEnabled = false
+        draft.author = ""
+        draft.path = ""
+        draft.sinceEnabled = false
+        draft.untilEnabled = false
     }
 
-    /// Assemble the filter, preserving the current branch selection and normalizing
-    /// the date bounds to inclusive day boundaries.
     private func apply() {
-        let trimmedAuthor = author.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        let newFilter = LogFilter(
-            refSelection: filter.refSelection,
-            author: trimmedAuthor.isEmpty ? nil : trimmedAuthor,
-            since: sinceEnabled ? Calendar.current.startOfDay(for: since) : nil,
-            until: untilEnabled ? endOfDay(of: until) : nil,
-            path: trimmedPath.isEmpty ? nil : trimmedPath
-        )
-        onApply(newFilter)
-    }
-
-    /// The last second of `date`'s calendar day — the inclusive `--until` bound (the
-    /// macOS `endOfDay`).
-    private func endOfDay(of date: Date) -> Date {
-        let startOfDay = Calendar.current.startOfDay(for: date)
-        guard let nextDay = Calendar.current.date(byAdding: .day, value: 1, to: startOfDay) else {
-            return date
-        }
-        return nextDay.addingTimeInterval(-1)
+        onApply(draft.filter())
     }
 }
 #endif
