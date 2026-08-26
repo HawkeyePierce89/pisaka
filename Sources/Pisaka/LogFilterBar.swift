@@ -4,16 +4,18 @@ import PisakaCore
 
 /// The Log view's filter/search bar, shown above the commit table.
 ///
-/// A thin, untested view (per project convention): it holds editable local state
-/// for the author, date range, and path filter dimensions plus the message-search
-/// box (the ref scope is deliberately *not* mirrored — see `refSelectionBinding`,
-/// which reads it straight from `filter`), and reports changes back through two
-/// callbacks. The
-/// server-side dimensions are assembled into a `LogFilter` and reported via
-/// `onApplyFilter` (which the owner turns into a generation-guarded re-fetch); the
-/// message search is reported live via `onSearch` (a client-side filter over the
-/// already-loaded commits, so it never re-queries git). All the testable
-/// argument-building and search logic lives in `PisakaCore.LogFilter`.
+/// A thin, untested view (per project convention): it mirrors the server-side
+/// `LogFilter` plus the client-side message search. The server-side dimensions
+/// live in a single `LogFilterDraft` value; the message search lives in its own
+/// `search` string because it is not a `LogFilter` dimension. The draft is the
+/// single editable value so seeding a model-published filter can update every
+/// control silently: `seedFromFilter` assigns the draft directly and is therefore
+/// structurally unable to reach the apply path, which lives only in user-intent
+/// binding setters (and `onSubmit`). The server-side dimensions are reported via
+/// `onApplyFilter` (generation-guarded re-fetch); the message search is reported
+/// live via `onSearch` (client-side filter, no re-query). All decision logic
+/// (trimming, day-boundary normalization, verbatim ref preservation, tag mapping)
+/// lives in `PisakaCore.LogFilterDraft`.
 struct LogFilterBar: View {
     /// The branch/tag refs offered in the ref picker — **full** refnames (e.g.
     /// `refs/heads/main`, `refs/tags/v1.0`) sourced from the service. The full name
@@ -22,8 +24,8 @@ struct LogFilterBar: View {
     /// `v1.0` would collapse to one ambiguous short name, but their full refnames
     /// stay distinct so git resolves exactly the one chosen.
     let references: [String]
-    /// The current server-side filter, used to seed the controls on appearance and
-    /// to re-seed them when the model re-publishes (e.g. a folder switch).
+    /// The current server-side filter, used to seed the draft on appearance and
+    /// to re-seed it when the model re-publishes (e.g. a folder switch).
     let filter: LogFilter
     /// The current search query, used to seed the search field.
     let searchQuery: String
@@ -32,24 +34,16 @@ struct LogFilterBar: View {
     /// Report a new client-side message-search query (no re-fetch).
     let onSearch: (String) -> Void
 
-    // Local editable state, seeded from `filter`/`searchQuery`. The branch picker
-    // is deliberately *not* mirrored here — it reads straight from `filter` via a
-    // computed `Binding` (see `refSelectionBinding`) so a model-published filter
-    // change can't masquerade as a user selection and drive a refetch loop.
-    @State private var author: String = ""
-    @State private var path: String = ""
-    @State private var sinceEnabled = false
-    @State private var since = Date()
-    @State private var untilEnabled = false
-    @State private var until = Date()
+    // The single editable server-side value plus the separate message search.
+    // Seeding assigns these directly, so a model-published filter/search change
+    // cannot masquerade as a user edit — every apply lives in a user-intent
+    // binding setter or an explicit `onSubmit`, and is handed the new value
+    // explicitly.
+    @State private var draft: LogFilterDraft = LogFilterDraft()
     @State private var search: String = ""
 
     /// The interface zone's metrics, inherited from the window root.
     @Environment(\.interfaceMetrics) private var metrics
-
-    /// Sentinel ref-picker tag meaning "all refs" (`--all`); a real ref name can
-    /// never be empty, so this is unambiguous.
-    private static let allRefsTag = ""
 
     var body: some View {
         VStack(spacing: metrics.scaled(6)) {
@@ -61,8 +55,16 @@ struct LogFilterBar: View {
                 searchField
             }
             HStack(spacing: metrics.scaled(8)) {
-                dateBound("Since", enabled: $sinceEnabled, date: $since)
-                dateBound("Until", enabled: $untilEnabled, date: $until)
+                dateBound(
+                    "Since",
+                    enabled: draftBinding(for: \.sinceEnabled),
+                    date: draftBinding(for: \.since)
+                )
+                dateBound(
+                    "Until",
+                    enabled: draftBinding(for: \.untilEnabled),
+                    date: draftBinding(for: \.until)
+                )
                 Spacer()
             }
         }
@@ -82,23 +84,39 @@ struct LogFilterBar: View {
         return references.filter { seen.insert($0).inserted }
     }
 
-    /// The branch picker's selection, read straight from `filter` and written only
-    /// through the apply path. Reading via the pure `resolvedRef(amongKnown:)`
-    /// helper (mapping its `nil` "all refs" onto `allRefsTag`) means a
-    /// model-published filter change is reflected without ever looking like a user
-    /// selection — the loop that a mirrored `@State` + `.onChange` would form is
-    /// gone. The setter routes through `applyFilter(refOverride:)` so a selection
-    /// flows only one way: into the model.
+    /// A user-intent binding over `draft`: `get` reads the draft, `set` writes the
+    /// mutated draft into `@State` and applies the resulting `LogFilter` explicitly
+    /// with the new value — no re-read of possibly-stale state. Wiring the
+    /// Since/Until toggles and date pickers through this binding is what makes
+    /// seeding unable to reach the apply path.
+    private func draftBinding<Value>(for keyPath: WritableKeyPath<LogFilterDraft, Value>) -> Binding<Value> {
+        Binding(
+            get: { draft[keyPath: keyPath] },
+            set: { newValue in
+                draft[keyPath: keyPath] = newValue
+                onApplyFilter(draft.filter())
+            }
+        )
+    }
+
+    /// The branch picker's selection, read from the draft's display tag and written
+    /// only through the apply path. The `get` uses the draft's `displayRefTag` seam
+    /// (via `LogFilter.resolvedRef`), so a model-published filter is reflected
+    /// without looking like a user selection; the `set` mutates the draft via
+    /// `selectRef(tag:)` and applies the verbatim `refSelection`.
     private var refSelectionBinding: Binding<String> {
         Binding(
-            get: { filter.resolvedRef(amongKnown: references) ?? Self.allRefsTag },
-            set: { applyFilter(refOverride: $0) }
+            get: { draft.displayRefTag(amongKnown: references) },
+            set: { tag in
+                draft.selectRef(tag: tag)
+                onApplyFilter(draft.filter())
+            }
         )
     }
 
     private var refPicker: some View {
         Picker("Branch", selection: refSelectionBinding) {
-            Text("All").tag(Self.allRefsTag)
+            Text("All").tag(LogFilterDraft.allRefsTag)
             // The tag *value* is the full refname (unambiguous as a `git log`
             // revision); only the displayed label is shortened. `references` are
             // already distinct full names, but de-duplicate defensively so
@@ -133,31 +151,50 @@ struct LogFilterBar: View {
     }
 
     private var authorField: some View {
-        TextField("Author", text: $author)
+        TextField("Author", text: draftAuthorBinding)
             .textFieldStyle(.roundedBorder)
             .frame(maxWidth: metrics.scaled(140))
-            .onSubmit { applyFilter() }
+            .onSubmit { onApplyFilter(draft.filter()) }
             .help("Filter by author (press Return to apply)")
     }
 
     private var pathField: some View {
-        TextField("Path", text: $path)
+        TextField("Path", text: draftPathBinding)
             .textFieldStyle(.roundedBorder)
             .frame(maxWidth: metrics.scaled(160))
-            .onSubmit { applyFilter() }
+            .onSubmit { onApplyFilter(draft.filter()) }
             .help("Limit to commits touching this path (press Return to apply)")
+    }
+
+    /// Plain draft projections for text fields that must not re-fetch on every
+    /// keystroke — typing updates the draft, Return applies it.
+    private var draftAuthorBinding: Binding<String> {
+        Binding(get: { draft.author }, set: { draft.author = $0 })
+    }
+
+    private var draftPathBinding: Binding<String> {
+        Binding(get: { draft.path }, set: { draft.path = $0 })
     }
 
     private var searchField: some View {
         HStack(spacing: metrics.scaled(4)) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("Filter by message", text: $search)
+            TextField("Filter by message", text: searchBinding)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: metrics.scaled(220))
-                // Live, client-side — cheap, so apply on every keystroke.
-                .onChange(of: search) { onSearch($0) }
         }
+    }
+
+    /// Search is live, client-side — cheap, so apply on every keystroke — but
+    /// seeding must not echo. Routing through this user-intent binding (set →
+    /// assign + `onSearch(newValue)`) makes the `.onChange(of: searchQuery)` seed
+    /// unable to masquerade as a user edit.
+    private var searchBinding: Binding<String> {
+        Binding(get: { search }, set: { newValue in
+            search = newValue
+            onSearch(newValue)
+        })
     }
 
     private func dateBound(
@@ -168,82 +205,21 @@ struct LogFilterBar: View {
         HStack(spacing: metrics.scaled(4)) {
             Toggle(label, isOn: enabled)
                 .toggleStyle(.checkbox)
-                .onChange(of: enabled.wrappedValue) { _ in applyFilter() }
             DatePicker("", selection: date, displayedComponents: .date)
                 .labelsHidden()
                 .disabled(!enabled.wrappedValue)
-                .onChange(of: date.wrappedValue) { _ in
-                    if enabled.wrappedValue { applyFilter() }
-                }
         }
     }
 
-    /// Seed every control from the current `filter`/`searchQuery`. The branch
-    /// picker is excluded: it reads `filter` live through `refSelectionBinding`, so
-    /// there is nothing to seed (and seeding it would re-introduce the refetch
-    /// loop this fix removes).
+    /// Seed every control from the current `filter`/`searchQuery` by direct
+    /// assignment. This is structurally unable to reach the apply path because
+    /// every apply lives in a binding setter or an explicit `onSubmit`, and is
+    /// handed the new value explicitly — no value-equality suppression is involved
+    /// anywhere, which is the requirement: an equality guard failed under
+    /// interleaved applies when the published `filter` lagged `requestedFilter`.
     private func seedFromFilter() {
-        author = filter.author ?? ""
-        path = filter.path ?? ""
-        sinceEnabled = filter.since != nil
-        if let s = filter.since { since = s }
-        untilEnabled = filter.until != nil
-        // `filter.until` is the *inclusive* last-second-of-day bound `applyFilter`
-        // computed from the picker's selected day (see `endOfDay`). That instant is
-        // still on the selected day, so seeding it verbatim shows the right day and
-        // `endOfDay` re-derives the same bound — the round-trip is idempotent, so it
-        // needs no inverse (the same reason `since`'s `startOfDay` doesn't).
-        if let u = filter.until { until = u }
+        draft = LogFilterDraft(filter: filter, defaultDate: Date())
         search = searchQuery
-    }
-
-    /// Assemble a `LogFilter` from the current control state and report it.
-    ///
-    /// `refOverride` carries a brand-new branch selection from the picker; when
-    /// `nil` (an apply driven by author/path/date) the branch is taken from the
-    /// current `filter` via the same `resolvedRef(amongKnown:)` resolution the
-    /// picker reads, so those applies preserve the selected branch instead of
-    /// resetting it to "all".
-    private func applyFilter(refOverride: String? = nil) {
-        let selectedRef = refOverride
-            ?? filter.resolvedRef(amongKnown: references)
-            ?? Self.allRefsTag
-        let refSelection: LogFilter.RefSelection =
-            selectedRef.isEmpty ? .all : .ref(selectedRef)
-        let trimmedAuthor = author.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        let filter = LogFilter(
-            refSelection: refSelection,
-            author: trimmedAuthor.isEmpty ? nil : trimmedAuthor,
-            // The date pickers only edit a calendar day, but the bound `Date` keeps
-            // whatever time-of-day it was seeded with — so a raw `until` of "today
-            // at 14:30" would drop commits made later today. Normalize each bound to
-            // its day boundary: `since` to the start of the selected day, `until` to
-            // the *last second* of the selected day, so `--until` includes every
-            // commit made on the selected day but none on the next. (git's `--until`
-            // is inclusive — a commit dated exactly at the bound is shown — so the
-            // bound must be the day's last second, not the next day's midnight, which
-            // would let a commit dated exactly at next-day-00:00 slip in.) Using
-            // `Calendar.current` keeps "the selected day" in the user's local time;
-            // the absolute instants are then formatted (in UTC) by `LogFilter`.
-            since: sinceEnabled ? Calendar.current.startOfDay(for: since) : nil,
-            until: untilEnabled ? endOfDay(of: until) : nil,
-            path: trimmedPath.isEmpty ? nil : trimmedPath
-        )
-        onApplyFilter(filter)
-    }
-
-    /// The last second of `date`'s calendar day (next-day midnight minus one
-    /// second). git's `--until` is *inclusive*, so this includes every commit made
-    /// on `date`'s day while excluding a commit dated exactly at the next day's
-    /// midnight. Falls back to `date` itself in the (practically impossible) case
-    /// the calendar can't advance a day.
-    private func endOfDay(of date: Date) -> Date {
-        let startOfDay = Calendar.current.startOfDay(for: date)
-        guard let nextDay = Calendar.current.date(
-            byAdding: .day, value: 1, to: startOfDay
-        ) else { return date }
-        return nextDay.addingTimeInterval(-1)
     }
 }
 
