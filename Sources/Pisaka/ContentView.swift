@@ -433,6 +433,7 @@ struct ContentView: View {
                 onRevert: onRevert,
                 onOpenDiff: onOpenDiff,
                 onResolveConflict: onResolveConflict,
+                onJumpToSource: jumpToSource,
                 onCommit: onOpenCommitDialog,
                 onCommitFile: onCommitFile
             )
@@ -713,6 +714,17 @@ struct ContentView: View {
             get: { model.openFiles.first { $0.id == id }?.text ?? "" },
             set: { model.updateText($0, for: id) }
         )
+    }
+
+    /// Jump to a changed file's source in the editor, resolving the
+    /// repo-relative path against the repository root. A `nil` root (no folder
+    /// open) or a deleted file is a silent no-op — the beep in `openFile(url:)`
+    /// is the failure signal.
+    private func jumpToSource(_ file: ChangedFile) {
+        guard let root = localChanges.root,
+              let url = LocalChangesModel.jumpToSourceURL(for: file, root: root)
+        else { return }
+        onOpenFile(url)
     }
 }
 

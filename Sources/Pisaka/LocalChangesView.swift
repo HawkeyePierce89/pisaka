@@ -28,10 +28,16 @@ struct LocalChangesView: View {
     /// Defaults to a no-op so previews/tests can construct the view without the
     /// app wiring.
     var onResolveConflict: (ChangedFile) -> Void = { _ in }
+    /// Invoked when a row's context-menu "Jump to Source" item is chosen, opening
+    /// the file in the editor. The decision is routed through
+    /// `LocalChangesModel.offersJumpToSource(for:)` — a deleted file has no
+    /// worktree source and hides the item. Defaults to a no-op so
+    /// previews/tests can construct the view without the app wiring.
+    var onJumpToSource: (ChangedFile) -> Void = { _ in }
     /// Invoked by the header's Commit button, opening the commit dialog (the same
     /// handler as the ⌘K menu item, so button and command behave identically).
-    /// Defaults to a no-op so previews/tests can construct the view without the
-    /// app wiring.
+    /// Defaults to a no-op so previews/tests can construct the view without the app
+    /// wiring.
     var onCommit: () -> Void = {}
     /// Invoked when a row's context-menu "Commit…" item is chosen, opening the
     /// commit dialog with *only that file* preselected (JetBrains' "Commit File").
@@ -138,6 +144,7 @@ struct LocalChangesView: View {
                                 onToggleCheck: { model.toggleChecked(file) },
                                 onRevert: { onRevert(file) },
                                 onOpenDiff: { onOpenDiff(file) },
+                                onJumpToSource: { onJumpToSource(file) },
                                 onResolveConflict: { onResolveConflict(file) },
                                 onCommitFile: { onCommitFile(file) }
                             )
@@ -147,6 +154,7 @@ struct LocalChangesView: View {
                             ChangeNodeView(
                                 model: model, node: node,
                                 onRevert: onRevert, onOpenDiff: onOpenDiff,
+                                onJumpToSource: onJumpToSource,
                                 onResolveConflict: onResolveConflict,
                                 onCommitFile: onCommitFile,
                                 onFocusRequest: { focusRequest += 1 }
@@ -199,6 +207,7 @@ private struct ChangeNodeView: View {
     let node: ChangeNode
     let onRevert: (ChangedFile) -> Void
     let onOpenDiff: (ChangedFile) -> Void
+    let onJumpToSource: (ChangedFile) -> Void
     let onResolveConflict: (ChangedFile) -> Void
     let onCommitFile: (ChangedFile) -> Void
     let onFocusRequest: () -> Void
@@ -220,6 +229,7 @@ private struct ChangeNodeView: View {
                 onToggleCheck: { model.toggleChecked(file) },
                 onRevert: { onRevert(file) },
                 onOpenDiff: { onOpenDiff(file) },
+                onJumpToSource: { onJumpToSource(file) },
                 onResolveConflict: { onResolveConflict(file) },
                 onCommitFile: { onCommitFile(file) }
             )
@@ -229,6 +239,7 @@ private struct ChangeNodeView: View {
                     ChangeNodeView(
                         model: model, node: child,
                         onRevert: onRevert, onOpenDiff: onOpenDiff,
+                        onJumpToSource: onJumpToSource,
                         onResolveConflict: onResolveConflict,
                         onCommitFile: onCommitFile,
                         onFocusRequest: onFocusRequest
@@ -262,6 +273,7 @@ private struct ChangedFileRow: View {
     let onToggleCheck: () -> Void
     let onRevert: () -> Void
     let onOpenDiff: () -> Void
+    let onJumpToSource: () -> Void
     let onResolveConflict: () -> Void
     let onCommitFile: () -> Void
 
@@ -323,6 +335,9 @@ private struct ChangedFileRow: View {
                 Divider()
             } else {
                 Button("Show Diff", action: activate)
+            }
+            if LocalChangesModel.offersJumpToSource(for: status) {
+                Button("Jump to Source", action: onJumpToSource)
             }
             // No extra enablement condition: a row exists only when a folder is
             // open, which is exactly the header Commit button's single condition,

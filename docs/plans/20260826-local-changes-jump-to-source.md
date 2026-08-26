@@ -125,21 +125,21 @@ rules already living on `LocalChangesModel`; the view stays a dispatcher.
 - Modify: `Sources/Pisaka/LocalChangesView.swift`
 - Modify: `Sources/Pisaka/ContentView.swift`
 
-- [ ] Add `var onJumpToSource: (ChangedFile) -> Void = { _ in }` to
+- [x] Add `var onJumpToSource: (ChangedFile) -> Void = { _ in }` to
       `LocalChangesView`, defaulted to a no-op like its sibling callbacks so
       previews compile, and thread it through `ChangeNodeView` (recursively) to
       `ChangedFileRow` exactly as `onOpenDiff`/`onCommitFile` are threaded.
-- [ ] In `ChangedFileRow.contextMenu`, insert
+- [x] In `ChangedFileRow.contextMenu`, insert
       `if LocalChangesModel.offersJumpToSource(for: status) { Button("Jump to Source", action: onJumpToSource) }`
       immediately after the Show Diff / Resolve… branch and before "Commit…", so
       the order stays non-destructive items first, "Revert" last.
-- [ ] In `ContentView`'s `LocalChangesView(...)` construction, pass
+- [x] In `ContentView`'s `LocalChangesView(...)` construction, pass
       `onJumpToSource: { jumpToSource($0) }` where `jumpToSource` is a small private
       helper on `ContentView` that resolves
       `LocalChangesModel.jumpToSourceURL(for:root:)` against `localChanges.root` and
       calls the existing `onOpenFile` — no new callback from `PisakaApp`, no second
       open path. A `nil` URL (no root yet) does nothing.
-- [ ] Build the macOS target (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
+- [x] Build the macOS target (`xcodebuild -project Pisaka.xcodeproj -scheme Pisaka
       -destination 'platform=macOS' build`) — must succeed before Task 3.
 
 ### Task 3: Cmd+Down in the focus anchor, with the editor focus handoff
