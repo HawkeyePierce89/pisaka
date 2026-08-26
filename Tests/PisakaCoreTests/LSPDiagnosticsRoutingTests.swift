@@ -26,6 +26,8 @@ import XCTest
 ///   close-then-`open`, ×3.
 /// - `testASpentCrashBudgetEmitsTheKeysClear` (4th death): restaged —
 ///   close-then-`prepare`.
+/// - `testAReplacementOpenedWithoutWaitingIsNotClearedByThePredecessor`:
+///   restaged — close-then-`open`, unwaited, absence-asserted.
 @MainActor
 final class LSPDiagnosticsRoutingTests: XCTestCase {
 
@@ -535,11 +537,11 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     /// those answers.
     ///
     /// Staged causally by waiting for the predecessor's clear *before* opening
-    /// the replacement document. The other interleaving (where the predecessor's
-    /// stream finishes *after* the replacement has started) exercises the
-    /// replacement guard in `attachNotificationConsumer`, but cannot be staged
-    /// deterministically without a sleep because the consumer emits no signal
-    /// when the guard prevents the clear.
+    /// the replacement document. The other interleaving — close-then-open with
+    /// the predecessor's clear never waited for — is staged by
+    /// `testAReplacementOpenedWithoutWaitingIsNotClearedByThePredecessor`,
+    /// this test's absence-style sibling: together the pair covers both orders
+    /// of the same crash-and-replace story.
     func testAReplacementServersPushesSurviveThePredecessorsClear() async throws {
         _ = try await open(mainFile, text: "a")
         try pushToMainFile(version: 1, message: "old")
@@ -566,6 +568,95 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
                 return false
             },
             "the dead consumer must not clear a replacement's answers"
+        )
+    }
+
+    /// The unwaited sibling of
+    /// `testAReplacementServersPushesSurviveThePredecessorsClear`: the
+    /// predecessor's stream is closed and the replacement is opened **without
+    /// waiting for the predecessor's clear** — the order a fast next request
+    /// can produce against a just-died server.
+    ///
+    /// What is staged: `closeStream()` finishes the predecessor's byte stream;
+    /// its notification stream finishes a few hops later and the consumer task
+    /// wakes into D33's decision. Liveness is proven on both lives (a routed
+    /// push on each), then the assertion is an absence one: after the
+    /// replacement's publication and a `settle()` — the fixed window that
+    /// gives any straggler clear a fair chance to land, because the guard
+    /// succeeding produces no event a rendezvous could wait on — no
+    /// `.cleared` may follow the last `.published`. An absence proof needs
+    /// the sleep; one cannot wait causally on a signal that must never
+    /// arrive.
+    ///
+    /// Two interleavings are legal, and the test passes deterministically
+    /// under each:
+    ///
+    /// - **EOF noticed first.** `prepare`'s liveness check finds the corpse;
+    ///   `noteDeath` cancels the predecessor's consumer and emits its own
+    ///   clear synchronously before the relaunch, so every clear lands before
+    ///   the replacement exists. The first `prepare` answers non-nil, and the
+    ///   second is served by the replacement.
+    /// - **Request races ahead.** `prepare`'s liveness check beats the read
+    ///   task's EOF processing, finds `isRunning` still true, and is served
+    ///   by the corpse — writes still succeed, the fake having closed only
+    ///   the incoming direction, which is exactly "the workspace has not
+    ///   learned the server died yet". The consumer then wakes into the
+    ///   stream finish, finds the slot still holding *its own* session, and
+    ///   legitimately speaks D33's clear — before any of the replacement's
+    ///   publications, its resumption having been enqueued at stream-finish
+    ///   time, ahead of every later main-actor job. Per the documented
+    ///   contract this first request may instead answer `nil`; either way the
+    ///   *next* one restarts, which is why the second `prepare` is required
+    ///   to answer and `launches` to stop at exactly two.
+    ///
+    /// Reachability, stated honestly: neither interleaving reaches the true
+    /// branch of the `filed !== session` guard in `attachNotificationConsumer`.
+    /// In the first, the consumer is cancelled by `noteDeath` — every
+    /// slot-emptying site cancels within the same mutation prefix — and a
+    /// cancelled task exits at `!Task.isCancelled` before the identity check.
+    /// In the second, the identity check is simply false: the filed session
+    /// *is* the consumer's own. The one filer of a successor (`launch`)
+    /// cancels the incumbent with no suspension between filing and
+    /// cancelling, so no uncancelled consumer ever observes a foreign session
+    /// filed under its key; forcing the guard's true branch would need a
+    /// product-code seam the ticket forbids. What this test pins is the
+    /// guard's neighbourhood — an unwaited stream finish beside a filed
+    /// successor whose publications must survive it.
+    func testAReplacementOpenedWithoutWaitingIsNotClearedByThePredecessor() async throws {
+        _ = try await open(mainFile, text: "a")
+        try pushToMainFile(version: 1, message: "old")
+        try await waitFor("the old push") { !self.publishedEvents().isEmpty }
+
+        // Close the predecessor and do NOT wait for its clear.
+        harness.latest.closeStream()
+
+        // Open the replacement immediately. The first prepare may answer nil
+        // (the documented contract: the request that notices a dead session
+        // answers nil and the next one restarts it) or be served by the corpse;
+        // either way the second answers, and exactly one replacement has been
+        // launched by then.
+        _ = await workspace.prepare(url: mainFile, language: .swift, text: "b")
+        let replacement = await workspace.prepare(url: mainFile, language: .swift, text: "b")
+        XCTAssertNotNil(replacement, "the request past the death's notice must answer")
+        XCTAssertEqual(harness.launches.count, 2, "exactly one replacement, however the race fell")
+
+        try pushToMainFile(version: 1, message: "new")
+        try await waitFor("the new push") {
+            self.publishedEvents().last?.diagnostics.first?.message == "new"
+        }
+        try await settle()
+
+        // No straggler clear may follow the replacement's publication.
+        let lastPublishedIndex = events.lastIndex { event in
+            if case .published = event { return true }
+            return false
+        }!
+        XCTAssertNil(
+            events.dropFirst(lastPublishedIndex + 1).first { event in
+                if case .cleared = event { return true }
+                return false
+            },
+            "the predecessor's consumer must not clear after the replacement's answers"
         )
     }
 

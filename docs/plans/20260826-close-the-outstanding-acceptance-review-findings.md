@@ -81,14 +81,20 @@ work stops with a report instead of a code change.
 **Files:**
 - Modify: `Tests/PisakaCoreTests/LSPDiagnosticsRoutingTests.swift`
 
-- [ ] Read `LSPWorkspace.attachNotificationConsumer` and `noteDeath` and write
+- [x] Read `LSPWorkspace.attachNotificationConsumer` and `noteDeath` and write
       down which interleavings can reach the `filed !== session` guard, given
       that every replacement path cancels the predecessor's consumer
       (`notificationTasks[key]?.cancel()`) in its synchronous prefix before the
       replacement is filed, and that the consumer checks `!Task.isCancelled`
       before the guard. This conclusion is what the new doc comment must state —
       claim only coverage that actually happens.
-- [ ] Add an absence-style test beside the restaged sibling (suggested name
+      Finding: neither legal interleaving reaches the guard's true branch —
+      every slot-emptying/replacement site cancels the incumbent consumer
+      synchronously first, so a cancelled task exits at `!Task.isCancelled`
+      before the identity check; in the unwaited interleaving the check is
+      simply false (the slot still holds the consumer's own session). Stated
+      in the new doc comment.
+- [x] Add an absence-style test beside the restaged sibling (suggested name
       `testAReplacementOpenedWithoutWaitingIsNotClearedByThePredecessor`):
       open `mainFile`, push `"old"`, wait for it (`waitFor`, liveness first);
       call `harness.latest.closeStream()` and **do not** wait for the
@@ -98,30 +104,34 @@ work stops with a report instead of a code change.
       push `"new"` through the replacement's transport and `waitFor` it; then
       `settle()` and assert that no `.cleared` event follows the last
       `.published` one.
-- [ ] Write the doc comment: what is staged, why the assertion is an absence one
+- [x] Write the doc comment: what is staged, why the assertion is an absence one
       (`settle()`'s stated purpose), both legal interleavings and why the test
       passes deterministically under each, which of them can reach the guard,
       that the guard cannot be forced without a product-code seam the ticket
       forbids, and the honest reachability finding from the first step.
-- [ ] Cross-reference the pair: add a pointer from the restaged
+- [x] Cross-reference the pair: add a pointer from the restaged
       `testAReplacementServersPushesSurviveThePredecessorsClear` doc comment to
       the new test (its last paragraph currently records the gap this test
       closes) and back, so the two read as one story.
-- [ ] Extend the suite header's "Audit inventory of `closeStream()` sites" with
+- [x] Extend the suite header's "Audit inventory of `closeStream()` sites" with
       the new site and its staging verdict (close-then-`open`, unwaited,
       absence-asserted).
-- [ ] Optionally, to make the reachability finding evidence-based rather than
+- [x] Optionally, to make the reachability finding evidence-based rather than
       argued: temporarily instrument the guard locally (a counter or print inside
       `attachNotificationConsumer`), run the new test repeatedly, record what was
       observed, then revert the instrumentation. Nothing of it may be committed;
       `git status` must show `Sources/` untouched afterwards.
-- [ ] Run `swift test --filter LSPDiagnosticsRoutingTests` — green.
-- [ ] Run the new test **≥100 times** in a loop
+      (skipped - explicitly optional; finding derived by reading the source,
+      `Sources/` untouched)
+- [x] Run `swift test --filter LSPDiagnosticsRoutingTests` — green.
+- [x] Run the new test **≥100 times** in a loop
       (`for i in $(seq 1 100); do swift test --filter
       LSPDiagnosticsRoutingTests/testAReplacementOpenedWithoutWaitingIsNotClearedByThePredecessor
       || break; done`, ~5 s per run), and record the iteration count and the
       zero-failure result in the task log.
-- [ ] Run `swift test` — the whole suite must pass before Task 2.
+      Recorded: 100/100 iterations, 0 failures.
+- [x] Run `swift test` — the whole suite must pass before Task 2.
+      3683 tests, 0 failures.
 
 ### Task 2: State the catalog test's structural guarantee
 
