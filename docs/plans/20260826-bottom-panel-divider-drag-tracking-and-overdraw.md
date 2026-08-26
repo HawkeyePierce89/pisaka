@@ -291,12 +291,12 @@ None. No new packages, no `Package.resolved` change, no pin change.
 
 ### Task 5: Update documentation
 
-- [ ] `docs/architecture/core-services.md` — full entry for
+- [x] `docs/architecture/core-services.md` — full entry for
       `BottomPanelHeightRule.swift` beside `BottomPanel.swift`: the three
       constants and who scales them, the two upper bounds and which one binds
       when, the degenerate case, why the floor is a single number rather than
       per-panel, and why the rule is Core rather than view glue
-- [ ] `docs/architecture/app-window.md` — rewrite the panel-height paragraph:
+- [x] `docs/architecture/app-window.md` — rewrite the panel-height paragraph:
       why the drag is measured in the container's named coordinate space and
       what the local space did instead, `minimumDistance: 0`, the three-part
       overdraw mechanism (tighter clamp + no minimum inside the slot + clip)
@@ -304,11 +304,15 @@ None. No new packages, no `Package.resolved` change, no pin change.
       the reason a minimum inside a fixed-height slot can only overflow, the
       window minimum moving to the body root, and the cursor push/pop pairing;
       the rewritten text drops the product comparisons it carries today
-- [ ] `CLAUDE.md` — one index line for `BottomPanelHeightRule.swift` under the
+- [x] `CLAUDE.md` — one index line for `BottomPanelHeightRule.swift` under the
       `core-services.md` list; no other growth of that file
-- [ ] `README.md` / `docs/FEATURES.md` — no change (no user-facing feature
-      change; this is a defect fix), confirm and note it
-- [ ] `swift test` and `swiftlint --strict` once more after the doc edits
+- [x] `README.md` / `docs/FEATURES.md` — no change (no user-facing feature
+      change; this is a defect fix), confirm and note it. Confirmed: the only
+      two mentions are `docs/FEATURES.md:767` ("a draggable divider") and
+      `:1167` ("the bottom-panel height is not persisted across launches"),
+      both still exactly true after this change — the divider is still dragged,
+      the height is still `@State` only.
+- [x] `swift test` and `swiftlint --strict` once more after the doc edits
 
 ## Post-Completion (manual, by the user)
 

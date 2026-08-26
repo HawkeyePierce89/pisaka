@@ -159,18 +159,79 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `GeometryReader` around a manual `VStack { editorSplit; panelDivider;
     panelContent(panel).frame(height: …) }`. A `@State private var panelHeight:
     CGFloat = 240` holds the height *independently of which panel is shown*, so it
-    survives switches and hide/show (VS Code-style; `@State`-only — cross-launch
-    `@AppStorage` is YAGNI). `panelDivider` is a 5pt draggable bar (resize-up-down
-    cursor on hover) whose `DragGesture` updates `panelHeight` against a
-    `panelDragStartHeight` captured at drag start (so the cumulative translation
-    doesn't compound frame-to-frame), clamped via `clampedPanelHeight` to `[120,
-    max(120, geo.height / 2)]`. `bottomPanel: Binding<BottomPanel?>` (`nil` = none,
+    survives switches and hide/show (`@State`-only — cross-launch `@AppStorage` is
+    YAGNI). What a *legal* height is, this view no longer decides: the private
+    `panelHeightRule` builds a Core `BottomPanelHeightRule` from
+    `metrics.scaled(120)` (floor), `metrics.scaled(5)` (the divider strip) and
+    `metrics.scaled(120)` (the editor reservation), and **both** the drag and the
+    rendered `.frame(height:)` go through it with `available: geo.size.height`, so
+    the dragged height and the drawn slot cannot disagree (`core-services.md` has
+    the bounds, the degenerate case and why the floor is one number).
+    **The drag is measured in a coordinate space that does not move with the
+    divider.** `DragGesture`'s default space is `.local` — the divider's own — and
+    the divider is precisely what the drag moves: growing the panel by N points
+    re-lays the divider N points higher, in whose *new* local space the stationary
+    pointer is back at the start location, so `value.translation.height` collapses
+    to ~0, the height snaps back to the drag-start base, and the next event repeats
+    it. That is an oscillation, not a track, and the pointer drifts off the
+    divider; the drag-start base capture prevents frame-to-frame *compounding* but
+    cannot fix a translation read against a moving origin. So the column publishes
+    `.coordinateSpace(name: panelColumnSpace)` and the gesture is
+    `DragGesture(minimumDistance: 0, coordinateSpace: .named(…))`: the column's
+    frame is stationary for the whole drag, the cumulative translation is absolute,
+    and the mapping is one-to-one. `.global` would serve as well — the container is
+    preferred because it stays correct if the window root ever gains chrome above
+    `mainArea`. `minimumDistance: 0` is the second half: the default makes the very
+    first `onChanged` arrive with a ≥10pt translation already accumulated, applied
+    against a base captured in that same call, so the panel jumped 10pt before it
+    tracked anything.
+    **Never over the bottom bar, in three parts — all three are needed.** The
+    *behavior* is the rule's tighter clamp: the ceiling is `min(available / 2,
+    available - divider - editorMinimum)`, so the arithmetic now asks whether the
+    editor, the divider and the panel actually fit instead of clamping the panel
+    alone. The *precondition* is that **panel content states no minimum of its
+    own**: `panelContent(_:)` renders each panel into a slot of exactly the rule's
+    height, and a minimum stated *inside* a fixed-height slot can never be
+    satisfied — the child cannot make the slot grow, so its only available outcome
+    is to overflow, over the divider above and the bottom bar below. The three
+    former `.frame(minHeight:)` modifiers (Log's 160, Changes' and Problems' 120)
+    are deleted for that reason; Log's 160 was the visible bleed, spilling at any
+    dragged height between the 120 floor and it, in a large window with the editor
+    nowhere near its own minimum. The *guarantee* is `.clipped()` on the column:
+    the clamp rests on arithmetic and the precondition rests on every child
+    honoring its proposal, and both can be wrong, so the clip makes "nothing inside
+    `mainArea` paints over the bar" unconditional against future layout edits and
+    against the editor zone's own fixed strips (breadcrumb, tab strip, consent
+    banner, find bar). The clip alone would not do — it would silently hide panel
+    content instead of shrinking it. Nothing that must escape the window content
+    passes through the column: the completion panel, the hover popover and context
+    menus are separate windows.
+    **The window's minimum height moved to the body root.** `minHeight:
+    metrics.scaled(400)` used to sit on `editorSplit`, where a `GeometryReader`
+    erases its children's minimum sizes — so with a panel shown it never reached
+    the window as a minimum content height (it only did in the no-panel branch)
+    while still making the editor refuse to render shorter than it, which is what
+    pushed the surplus onto the bottom bar. Stated on the window body `VStack` it
+    applies in both branches, and `editorSplit` inside the column is free to shrink
+    to the rule's much smaller reservation. `minWidth: metrics.scaled(640)` stays
+    on the split, where it belongs.
+    `panelDivider(available:)` is a 5pt scaled bar filled with
+    `NSColor.separatorColor`. Its **resize cursor is pushed for `hovering ||
+    dragging`**, never for hovering alone: a drag quicker than the relayout leaves
+    the 5pt strip at once, and a cursor reverting to the arrow mid-resize reads as
+    the drag having been dropped. `NSCursor`'s stack is global and a `pop` with
+    nothing of ours on it discards somebody else's cursor, so the pair is driven
+    off one `panelDividerCursorPushed` flag that only `syncPanelDividerCursor()`
+    writes — pushing or popping exactly once per transition — called from
+    `.onHover`, from the gesture's first `onChanged`, from `onEnded`, and from
+    `.onDisappear`, which is what keeps ⌘-toggling the dock with the pointer on the
+    divider from leaking a push that outlives the view that made it.
+    `bottomPanel: Binding<BottomPanel?>` (`nil` = none,
     owned by `PisakaApp`) selects the panel; `panelContent(_:)` renders `.terminal`
     → `TerminalPanelView(model: terminalSessions, projectRoot: model.projectRoot)`
     (an existing terminal keeps its start directory — only `newSession` reads the
     current root), `.log` → `CommitLogView(model: commitLog, projectRoot:,
-    onOpenCommitDiff:)` (modest `minHeight`, no full-width `minWidth`/`minHeight`
-    that would over-expand the shorter panel), `.changes` →
+    onOpenCommitDiff:)`, `.changes` →
     `LocalChangesView(model: localChanges, projectRoot:, onRevert:, onOpenDiff:)`
     rendered as the file list only (the diff opens in a separate window on
     double-click via `onOpenDiff`), and `.problems` → `ProblemsPanelView(model:

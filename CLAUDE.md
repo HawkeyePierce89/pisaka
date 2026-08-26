@@ -210,6 +210,7 @@ All domain logic: pure, Foundation-only, no SwiftUI/AppKit, fully unit-tested.
 - `TerminalLaunch.swift` / `TerminalTabs.swift` — shell/cwd resolution; tab-close math.
 - `RunCommand.swift` / `TestCommand.swift` / `ShellQuote.swift` — run/test command resolution, POSIX quoting.
 - `BottomPanel.swift` — bottom-dock toggle state.
+- `BottomPanelHeightRule.swift` — the bottom dock panel's height authority: the two upper bounds and the degenerate case.
 - `DiffWindowTitle.swift` — diff-window titles.
 - `TabOrientation.swift` / `ThemePreference.swift` — persisted preference enums.
 - `SettingsStore.swift` — persisted preferences; the three zoom scales and the zone-keyed API; the one `completionEnabled` flag; per-server LSP consent (D15).
