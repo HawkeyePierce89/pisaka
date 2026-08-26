@@ -188,13 +188,16 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
 
     // MARK: - The completion-candidate rule (pure)
 
-    /// The kinds an *index entry exists for navigation only*.
+    /// The kinds of symbols that serve as ⌃⌘J navigation anchors but must never
+    /// be offered as completions.
     ///
-    /// `.heading` is the whole set, and it is stated by name rather than derived:
-    /// a Markdown heading is a first-class jump target — ⌃⌘J listing the sections
-    /// of a document is exactly what the query captures it for — and never a
-    /// thing anyone types. Offering one is how a fresh `docker-compose.yml`
-    /// answered `ser` with a heading lifted out of an unrelated `.md` file.
+    /// The only member is `.heading`: a Markdown heading or `.editorconfig` section
+    /// header is a structural boundary that a person wants to jump to, but it is a
+    /// phrase or glob, not an identifier. Even if it happens to be one word (like
+    /// `# Server` or `[Makefile]`), offering it for insertion crosses contexts —
+    /// a Swift file that imports Foundation must not have its `let server =`
+    /// answered `ser` with a heading lifted out of an unrelated `.md` or
+    /// `.editorconfig` file.
     ///
     /// Every other kind stays a candidate, including the ones the non-code
     /// languages contribute (`.key`, `.anchor`, `.selector`, `.stage`): a

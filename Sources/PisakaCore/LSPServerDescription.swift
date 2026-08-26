@@ -190,6 +190,7 @@ extension SyntaxLanguage {
         case .dotenv: return "dotenv"
         case .gitignore: return "ignore"
         case .sql: return "sql"
+        case .editorconfig: return "editorconfig"
         }
     }
 

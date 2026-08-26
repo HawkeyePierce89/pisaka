@@ -29,6 +29,8 @@ consumes it. **A save is the only trigger**: nothing is rewritten on open, on
 close, on a tab switch or when a config changes, indentation already in a file is
 never rewritten, and there is no whole-project normalization command.
 
+`.editorconfig` is now a first-class language in Pisaka. The file syntax itself is highlighted and its symbol indexing offers section headers for navigation, while the keywords list offers its property names and values for completion. This language-level functionality is fully separated from the file's behavioral side: file resolution, indentation rules, and the on-save transforms described below remain entirely unchanged by it. See `SyntaxLanguage.swift` in `core-editor.md` and the symbols/keywords entries in `core-intelligence.md` for the language mechanics.
+
 ## Decisions
 
 - **The walk stops at the project root** — a deliberate deviation from the

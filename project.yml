@@ -165,14 +165,16 @@ packages:
   # A local path dependency adds no entry to Package.resolved.
   TreeSitterGitignore:
     path: Vendor/TreeSitterGitignore
-  # sql is vendored for two independent reasons: the upstream manifest names a
-  # generated `src/parser.c` that does not exist in the repository, making it
-  # a hard SwiftPM failure; and its test target declares an incompatible
-  # `SwiftTreeSitter` dependency that breaks resolution for this graph. The
-  # generated files are copied from the npm tarball. See
-  # `Vendor/TreeSitterSql/VENDORED.md` for the full reason and update procedure.
+  # SQL is vendored because upstream's `package.json` pins `tree-sitter` to `^0.24.4`
+  # but its tree-sitter C headers (`src/tree_sitter/*`) are generated against 0.25.2,
+  # breaking ABI compatibility with the app's older `SwiftTreeSitter` pin. Vendoring
+  # allows substituting ABI-compatible headers. See `Vendor/TreeSitterSql/VENDORED.md`.
   TreeSitterSql:
     path: Vendor/TreeSitterSql
+  # Editorconfig is vendored because upstream ships neither a SwiftPM manifest
+  # nor a Swift binding. See `Vendor/TreeSitterEditorconfig/VENDORED.md`.
+  TreeSitterEditorconfig:
+    path: Vendor/TreeSitterEditorconfig
   SwiftTerm:
     url: https://github.com/migueldeicaza/SwiftTerm
     exactVersion: "1.5.0"
@@ -432,6 +434,8 @@ targets:
         product: TreeSitterGitignore
       - package: TreeSitterSql
         product: TreeSitterSql
+      - package: TreeSitterEditorconfig
+        product: TreeSitterEditorconfig
       - package: SwiftTerm
         product: SwiftTerm
       - package: libgit2

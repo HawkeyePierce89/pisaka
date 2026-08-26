@@ -45,6 +45,7 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
     case dotenv
     case gitignore
     case sql
+    case editorconfig
 
     /// Resolve a language from a bare file extension (no leading dot — pass the
     /// extension itself, e.g. `"swift"`, as `pathExtension` yields). Matching is
@@ -124,6 +125,7 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
     private static let exactFileNameMap: [String: SyntaxLanguage] = [
         "dockerfile": .dockerfile,
         ".env": .dotenv,
+        EditorConfigResolver.fileName: .editorconfig,
     ]
 
     /// Lowercased file-name prefix → language, for the variant-suffixed forms.

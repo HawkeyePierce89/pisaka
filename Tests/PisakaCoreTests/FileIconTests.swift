@@ -69,12 +69,15 @@ final class FileIconTests: XCTestCase {
         XCTAssertEqual(FileIcon(for: file(".gitattributes")), FileIcon(symbolName: "arrow.triangle.branch", color: .gray))
         XCTAssertEqual(FileIcon(for: file("Makefile")), FileIcon(symbolName: "hammer", color: .gray))
         XCTAssertEqual(FileIcon(for: file("Dockerfile")), FileIcon(symbolName: "shippingbox", color: .blue))
+        XCTAssertEqual(FileIcon(for: file(".editorconfig")), FileIcon(symbolName: "slider.horizontal.3", color: .gray))
     }
 
     func testSpecialNameMatchingIsCaseInsensitive() {
         XCTAssertEqual(FileIcon(for: file("package.swift")), FileIcon(for: file("PACKAGE.SWIFT")))
         XCTAssertEqual(FileIcon(for: file("license")), FileIcon(symbolName: "checkmark.seal", color: .yellow))
         XCTAssertEqual(FileIcon(for: file("makefile")), FileIcon(symbolName: "hammer", color: .gray))
+        XCTAssertEqual(FileIcon(for: file(".EditorConfig")), FileIcon(symbolName: "slider.horizontal.3", color: .gray))
+        XCTAssertEqual(FileIcon(for: file(".EDITORCONFIG")), FileIcon(symbolName: "slider.horizontal.3", color: .gray))
     }
 
     // MARK: - Fallback

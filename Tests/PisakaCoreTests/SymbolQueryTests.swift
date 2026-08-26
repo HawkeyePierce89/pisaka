@@ -206,7 +206,20 @@ final class SymbolQueryTests: XCTestCase {
         )
     }
 
-    /// The twelve *remote* grammars' sources are not in this repository, so their
+    func testEditorConfigSymbolsQueryUsesOnlyNodeNamesTheGrammarDeclares() throws {
+        assertQueryNodesAreDeclared(
+            try parsedQuery(for: .editorconfig),
+            declaredBy: try declaredNodeTypes(vendoredPackage: "TreeSitterEditorconfig"),
+            describedAs: "TreeSitterEditorconfig",
+            consequence: "every .editorconfig file would index zero symbols"
+        )
+    }
+
+    func testEditorConfigSymbolsQueryEmitsExactlyTheExpectedCaptureNames() throws {
+        XCTAssertEqual(try parsedQuery(for: .editorconfig).outputCaptureNames, ["definition.heading"])
+    }
+
+    /// The remote grammars' sources are not in this repository, so their
     /// `node-types.json` cannot be read and the check above cannot be made. What
     /// can be pinned is the set of node names, anonymous literals and field names
     /// each query uses — by hand, the way `SyntaxTokenKindTests` pins the
@@ -235,7 +248,7 @@ final class SymbolQueryTests: XCTestCase {
 
         // Every language with a query is either pinned here or read from its
         // vendored grammar above, so a new language cannot arrive unpinned.
-        XCTAssertEqual(Set(Self.pinnedNodeNames.keys).union([.dotenv, .sql]),
+        XCTAssertEqual(Set(Self.pinnedNodeNames.keys).union([.dotenv, .sql, .editorconfig]),
                        Set(try indexableLanguages()))
     }
 

@@ -37,7 +37,7 @@ description of each — and of what it deliberately does *not* do — is in
   position you left it at (for the app run; not persisted across launches).
 - **Syntax highlighting** (tree-sitter via Neon) for Swift, JavaScript,
   TypeScript, JSON, Markdown, Python, Go, Rust, HTML, CSS, YAML, SQL, Dockerfiles,
-  `.env` and dot-prefixed ignore files — detected from the whole file name.
+  `.env`, `.editorconfig` and dot-prefixed ignore files — detected from the whole file name.
 - **Find & replace** — an in-file search bar (regex, whole word,
   match case, Replace All as one undo step) and a project-wide **Find in
   Files** window that honors your `.gitignore` files and can Replace All across

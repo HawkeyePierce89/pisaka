@@ -27,7 +27,7 @@ final class LanguageKeywordsTests: XCTestCase {
 
     func testTheDocumentedLanguagesAreTheOnesWithLists() {
         let withKeywords = Set(SyntaxLanguage.allCases.filter { !LanguageKeywords.keywords(for: $0).isEmpty })
-        XCTAssertEqual(withKeywords, [.swift, .javascript, .typescript, .python, .dockerfile, .go, .rust, .sql])
+        XCTAssertEqual(withKeywords, [.swift, .javascript, .typescript, .python, .dockerfile, .go, .rust, .sql, .editorconfig])
     }
 
     // MARK: - Shape
@@ -308,5 +308,24 @@ final class LanguageKeywordsTests: XCTestCase {
         XCTAssertFalse(sql.contains("PARQUET"))
         XCTAssertFalse(sql.contains("NOSCAN"))
         XCTAssertFalse(sql.contains("DELAYED"))
+    }
+
+    func testEditorConfigListIsThePropertyNamesAndIdentifierShapedValues() {
+        let editorconfig = LanguageKeywords.keywords(for: .editorconfig)
+
+        let expected = [
+            "charset", "cr", "crlf", "end_of_line", "false", "indent_size",
+            "indent_style", "insert_final_newline", "latin1", "lf", "max_line_length",
+            "root", "space", "tab", "tab_width", "trim_trailing_whitespace", "true",
+            "unset",
+        ]
+
+        XCTAssertEqual(editorconfig, expected.sorted())
+
+        // Explicitly assert the hyphenated charset values are absent.
+        XCTAssertFalse(editorconfig.contains("utf-8"))
+        XCTAssertFalse(editorconfig.contains("utf-16be"))
+        XCTAssertFalse(editorconfig.contains("utf-16le"))
+        XCTAssertTrue(editorconfig.contains("latin1"))
     }
 }

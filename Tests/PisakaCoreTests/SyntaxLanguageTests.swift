@@ -181,6 +181,49 @@ final class SyntaxLanguageTests: XCTestCase {
         XCTAssertEqual(SyntaxLanguage(forFileName: "FOO.SQL"), .sql)
         XCTAssertEqual(SyntaxLanguage(forFileName: "path/to/schema.sql"), .sql)
     }
+
+    // MARK: - EditorConfig
+
+    func testEditorConfigNamesResolve() {
+        XCTAssertEqual(SyntaxLanguage(forFileName: ".editorconfig"), .editorconfig)
+        XCTAssertEqual(SyntaxLanguage(forFileName: ".EditorConfig"), .editorconfig)
+        XCTAssertEqual(SyntaxLanguage(forFileName: ".EDITORCONFIG"), .editorconfig)
+        XCTAssertEqual(SyntaxLanguage(forFileName: "path/to/.editorconfig"), .editorconfig)
+    }
+
+    func testEditorConfigLookalikesDoNotResolve() {
+        XCTAssertNil(SyntaxLanguage(forFileName: "foo.editorconfig"))
+        XCTAssertNil(SyntaxLanguage(forFileName: "editorconfig"))
+        XCTAssertNil(SyntaxLanguage(forFileName: ".editorconfigx"))
+        XCTAssertNil(SyntaxLanguage(forFileName: ".editorconfig.bak"))
+        XCTAssertNil(SyntaxLanguage(forFileName: ".editorconfig.local"))
+    }
+
+    func testEditorConfigResolverAgreement() {
+        // SyntaxLanguage(forFileName:) and EditorConfigResolver.isFileName(_:)
+        // must give the exact same answer across casings, because they both
+        // look at the same string.
+        let casings = [".editorconfig", ".EditorConfig", ".EDITORCONFIG"]
+        for casing in casings {
+            XCTAssertEqual(SyntaxLanguage(forFileName: casing), .editorconfig)
+            XCTAssertTrue(EditorConfigResolver.isFileName(casing))
+        }
+
+        // Divergence on paths: SyntaxLanguage looks at the last path component,
+        // while EditorConfigResolver.isFileName(_:) performs strict string comparison.
+        let paths = ["path/to/.editorconfig", "foo/.EditorConfig"]
+        for path in paths {
+            XCTAssertEqual(SyntaxLanguage(forFileName: path), .editorconfig)
+            XCTAssertFalse(EditorConfigResolver.isFileName(path))
+        }
+
+        // Negative cases: neither should accept them
+        let negatives = ["foo.editorconfig", ".editorconfigx", ".editorconfig.bak"]
+        for negative in negatives {
+            XCTAssertNil(SyntaxLanguage(forFileName: negative))
+            XCTAssertFalse(EditorConfigResolver.isFileName(negative))
+        }
+    }
     // MARK: - Rule precedence
 
     func testExtensionWinsOverDotIgnoreShapeAndPrefix() {
@@ -256,7 +299,7 @@ final class SyntaxLanguageTests: XCTestCase {
             "app.ts", "app.tsx", "data.json", "README.md", "README.markdown",
             "main.py", "main.go", "main.rs", "index.html", "index.htm", "style.css",
             "config.yml", "config.yaml",
-            "Dockerfile", ".env", ".gitignore", "schema.sql",
+            "Dockerfile", ".env", ".gitignore", "schema.sql", ".editorconfig",
         ]
         let reachable = Set(knownFileNames.compactMap(SyntaxLanguage.init(forFileName:)))
         XCTAssertEqual(reachable, Set(SyntaxLanguage.allCases),

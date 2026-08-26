@@ -31,7 +31,7 @@ public enum SymbolKind: String, CaseIterable, Equatable, Hashable, Sendable {
     case constant
     /// A mutable binding (`var`, `let` in JS, an assignment target).
     case variable
-    /// A Markdown heading.
+    /// A Markdown or `.editorconfig` section heading.
     case heading
     /// A CSS selector.
     case selector
