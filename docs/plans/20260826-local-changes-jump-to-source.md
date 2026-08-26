@@ -185,41 +185,41 @@ rules already living on `LocalChangesModel`; the view stays a dispatcher.
 - Modify: `docs/FEATURES.md`
 - Modify: `README.md`
 
-- [ ] `core-git-models.md`: extend the row-activation paragraph with the three new
+- [x] `core-git-models.md`: extend the row-activation paragraph with the three new
       static rules — `offersJumpToSource(for:)` (false for `.deleted`, and why),
       `jumpToSourceURL(for:root:)` (repository root, the renamed-file new-path rule)
       and `shortcutJumpToSourceURL(selected:root:)` (`nil` = consumed no-op) — and
       say that these too are the single routing point, shared by the context-menu
       item and Cmd+Down.
-- [ ] `app-git-views.md`: in the `LocalChangesView` entry, record the fourth
+- [x] `app-git-views.md`: in the `LocalChangesView` entry, record the fourth
       context-menu item and the new menu order (Show Diff / Resolve…, Jump to Source,
       Commit…, Revert), the `onJumpToSource` thread and that it lands on the *same*
       `onOpenFile` the project tree uses; then in the focus-anchor paragraph, the
       second `performKeyEquivalent` case, why only the character comparison differs
       for an arrow key, and the editor focus handoff with its async hop, its
       not-found case and the pointer-vs-keyboard asymmetry from Decision 3.
-- [ ] `docs/FEATURES.md`: extend the Local Changes bullet (~line 631) with Jump to
+- [x] `docs/FEATURES.md`: extend the Local Changes bullet (~line 631) with Jump to
       Source and Cmd+Down — including that a deleted file offers neither, that a
       conflicted file jumps normally to its marker-carrying worktree copy, that an
       empty selection is a silent no-op, and that a successful jump moves keyboard
       focus into the editor. Add the same one-clause mention to the Cmd+D bullet
       (~line 254) so the panel's two keys are described together.
-- [ ] `README.md`: add one shortcut-table row —
+- [x] `README.md`: add one shortcut-table row —
       `| Cmd+Down | Jump to Source when Local Changes has focus |` — placed next to
       the Cmd+D row. It fits the existing one-line format without bloating it.
-- [ ] Confirm no brand or product name was introduced by any of the above (do not
+- [x] Confirm no brand or product name was introduced by any of the above (do not
       touch the pre-existing ones elsewhere in these files — out of scope).
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] `swift test` — green.
-- [ ] `swiftlint --strict` from the repository root — clean.
-- [ ] `xcodegen generate` then
+- [x] `swift test` — green.
+- [x] `swiftlint --strict` from the repository root — clean.
+- [x] `xcodegen generate` then
       `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
       — green.
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'generic/platform=iOS' build`
       — green (nothing iOS changed; this is the regression gate).
-- [ ] Re-read the acceptance criteria and confirm each is met by code, not by
+- [x] Re-read the acceptance criteria and confirm each is met by code, not by
       intention: every `FileStatus` covered by a Core test, the no-selection case
       covered, and no decision in the view that Core does not carry.
 

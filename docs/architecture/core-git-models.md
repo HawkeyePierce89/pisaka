@@ -83,9 +83,20 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     deliberate no-op) and `activation(for:)` for a selection, and
     `offersShowDiff(for:)` returning `false` for `.conflicted` rows (they already
     offer "Resolve…" which opens the same window — two names for one action would
-    be noise). These three entry points are the single routing point shared by
-    the double-click, the "Show Diff" context-menu item and the Cmd+D keyboard
-    shortcut; no view-layer code duplicates the decision.
+    be noise). A parallel set of rules handles *jump to source* — opening the
+    changed file itself rather than its diff: `offersJumpToSource(for:)` returning
+    `false` for `.deleted` rows (a deleted file has no worktree source; the item
+    is omitted rather than disabled, matching `offersShowDiff`'s precedent),
+    `jumpToSourceURL(for:root:)` resolving the file against the repository root
+    (for the same reason `revertedURLs(for:root:)` takes one — the opened folder
+    may be a subdirectory of the repository) and returning the *new* path for a
+    renamed file (never `oldPath`, which no longer exists on disk), and
+    `shortcutJumpToSourceURL(selected:root:)` returning `nil` when either
+    argument is `nil` (the keystroke is consumed but does nothing, the same
+    deliberate no-op `shortcutActivation(selected:)` documents). These five entry
+    points are the single routing point shared by the double-click, the "Show
+    Diff" / "Jump to Source" context-menu items and the Cmd+D / Cmd+Down keyboard
+    shortcuts; no view-layer code duplicates the decision.
     The whole batch is also guarded against a *mid-revert opened-folder switch*
     via a `rootRequestGeneration` token bumped *synchronously at refresh entry*
     whenever the requested folder changes: `revert` captures it at entry and,

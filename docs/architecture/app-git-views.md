@@ -496,7 +496,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     multi-file revert, a `FileIcon(for:)` tinted by git status, plus a one-letter
     badge (M/A/D/R/U/C), with VCS-convention colors (added → green, deleted → red,
     modified → blue, renamed → orange, untracked → gray, conflicted → purple).
-    Three triggers share one activation path through `LocalChangesModel`: (1) a
+    Four triggers share one activation path through `LocalChangesModel`: (1) a
     *double*-click (`.onTapGesture(count: 2)`, declared before the single-tap
     select) calls `onSelect()` first (so the panel focuses on that row) then
     `activate()`, which switches on `LocalChangesModel.activation(for:)` and calls
@@ -504,14 +504,22 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     item calls the same `activate()` (shown only when
     `LocalChangesModel.offersShowDiff(for:)` is true, i.e. not for conflicted
     rows, which keep their existing "Resolve…" + `Divider()`); (3) Cmd+D while
-    the panel has keyboard focus (see the focus anchor below). The context menu
-    order for non-conflicted rows is: Show Diff, Commit…, Revert — the
-    non-destructive items above the destructive one. A `.contextMenu` **Commit…**
+    the panel has keyboard focus (see the focus anchor below); (4) the "Jump to
+    Source" context-menu item (shown only when
+    `LocalChangesModel.offersJumpToSource(for:)` is true, i.e. not for deleted
+    rows) resolves the file against `model.root` and calls the same `onOpenFile`
+    the project tree uses. The context menu order for non-conflicted rows is:
+    Show Diff, Jump to Source, Commit…, Revert — non-destructive items above the
+    destructive one. A `.contextMenu` **Commit…**
     item calls `onCommitFile(file)` and a **Revert**
     item calls `onRevert(file)`. The
     callbacks are threaded `PisakaApp → ContentView → LocalChangesView` down
     through the rows (and through `ChangeNodeView`, recursively, for the by-folder
-    mode; same shape as `onOpenFile`/`onOpenFolder`). **Commit…** is JetBrains'
+    mode; same shape as `onOpenFile`/`onOpenFolder`). `onJumpToSource` is threaded
+    the same way and, in `ContentView`, resolves
+    `LocalChangesModel.jumpToSourceURL(for:root:)` against `localChanges.root`
+    before calling the existing `onOpenFile` — no new callback from `PisakaApp`, no
+    second open path. **Commit…** is JetBrains'
     "Commit File": it opens the ordinary commit dialog with *only that file*
     preselected, through the very same `PisakaApp.openCommitDialog` the header
     button and ⌘K run (see there — the preselect is its only parameter, so the
@@ -529,7 +537,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     token bumped in each row's `onSelect` closure drives `updateNSView` to call
     `window?.makeFirstResponder(nsView)` (dispatched asynchronously so the
     responder change does not land inside a SwiftUI update pass); a value change is
-    the only signal a representable receives, hence the token. The view overrides
+    the only signal a representable receives, hence the token.     The view overrides
     `performKeyEquivalent(with:)` with the same gate shape as `EditorTextView`:
     `charactersIgnoringModifiers?.lowercased() == "d"`, modifier mask equals
     `.command` only, and `window?.firstResponder === self`. When the gate passes it
@@ -537,7 +545,26 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     routes the result through the same `onOpenDiff`/`onResolveConflict` closures
     the double-click uses; `nil` (no selection) does nothing but still returns
     `true` so the focused panel owns the key and the keystroke does not beep or
-    reach any other surface. The anchor is chrome, not a zoom surface — it draws at
+    reach any other surface. A second gate in the same `performKeyEquivalent`
+    catches Cmd+Down: only the character comparison differs (to
+    `NSDownArrowFunctionKey`), because an arrow event carries `.function` and
+    `.numericPad` in `modifierFlags` and the existing
+    `intersection([.command, .shift, .option, .control])` already masks those out
+    (stated in a comment so the next reader does not "fix" it into a
+    `deviceIndependentFlagsMask` equality). The handler resolves the selected file
+    against the repository root via
+    `LocalChangesModel.shortcutJumpToSourceURL(selected:root:)`, calls the same
+    `onOpenFile` the project tree uses, and then hands keyboard focus to the
+    editor: one small `focusEditor()` method walks the window's content view for
+    the first `EditorTextView` descendant and `makeFirstResponder`s it, dispatched
+    asynchronously on the main queue so the tab SwiftUI is about to build exists by
+    then. Finding nothing (no folder open, or the open failed — which already beeps
+    in `openFile(url:)`) leaves focus where it is; one honest limitation: the
+    handoff cannot see whether the open succeeded, so a failed open with another
+    tab already showing focuses that tab's editor — the beep is the failure signal.
+    The context-menu "Jump to Source" item does *not* move focus, matching every
+    existing item in this menu (Show Diff, Resolve…, Commit…), which is
+    pointer-driven activation and leaves keyboard focus where the user put it. The anchor is chrome, not a zoom surface — it draws at
     no font at all, so it does not declare `ZoomSurfaceProviding`. Placeholders
     cover no-folder / error / no-changes. The header also holds a **Commit** button
     (`checkmark.circle`) calling `onCommit()` — the same handler

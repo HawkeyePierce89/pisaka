@@ -87,6 +87,7 @@ server fetching JSON schemas while it runs.
 | Cmd+S       | Save                                       |
 | Cmd+W       | Close the active tab                       |
 | Cmd+D       | Duplicate the current line or selection (Show Diff when Local Changes has focus) |
+| Cmd+Down    | Jump to Source when Local Changes has focus |
 | Cmd+/       | Toggle comment                             |
 | Tab         | Insert one indentation level (commits the selected completion row when the popup is open) |
 | Cmd+F       | Find in the current file                   |

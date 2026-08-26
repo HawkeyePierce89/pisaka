@@ -252,8 +252,9 @@ user sees it.
   file, duplicating the *last* line — the one with no line terminator — inserts a
   plain LF; every terminated line copies its own terminator verbatim. When the
   Local Changes panel has keyboard focus, Cmd+D opens the selected changed file's
-  diff (or the merge resolver for a conflicted file); with no row selected it does
-  nothing and does not beep. macOS only for now — an iOS
+  diff (or the merge resolver for a conflicted file); Cmd+Down opens the file
+  itself and moves keyboard focus into the editor; with no row selected either
+  does nothing and does not beep. macOS only for now — an iOS
   variant for an external keyboard and an Edit > Duplicate Line menu item are
   out of scope.
 - Toggle comment (Cmd+/): comments or uncomments the selected lines using the
@@ -637,10 +638,16 @@ user sees it.
   window, with aligned panes, red/green row backgrounds, per-side line-number
   gutters, change markers, synced scrolling, and syntax highlighting. A
   **"Show Diff"** item appears first in a non-conflicted file's context menu
-  (above "Commit…" and "Revert") and opens the same diff; conflicted files keep
-  their existing "Resolve…" item. Press **Cmd+D** while the panel has keyboard
+  (above "Jump to Source", "Commit…" and "Revert") and opens the same diff;
+  conflicted files keep their existing "Resolve…" item. **"Jump to Source"**
+  opens the changed file itself (the worktree copy, not the diff) — omitted for
+  deleted files (no worktree source), shown normally for conflicted files (opens
+  the marker-carrying copy). Press **Cmd+D** while the panel has keyboard
   focus to open the selected file's diff (or the merge resolver for a conflicted
-  file); with no row selected it does nothing. The list
+  file); press **Cmd+Down** to jump to the file itself and move keyboard focus
+  into the editor; with no row selected either shortcut does nothing. A deleted
+  row offers neither jump; a successful jump moves keyboard focus into the editor
+  so typing continues immediately. The list
   refreshes manually (a refresh button) and automatically after you save a file.
   You can revert (discard) local changes: check one or more files and choose
   Revert from a file's context menu to restore the checked set to their `HEAD`
