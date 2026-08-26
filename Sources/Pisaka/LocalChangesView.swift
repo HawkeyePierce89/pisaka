@@ -6,10 +6,11 @@ import PisakaCore
 ///
 /// Renders the files differing from `HEAD` either flat or grouped by folder
 /// (`ChangeTree`), per `model.groupingMode`. A segmented control toggles the
-/// grouping and a button refreshes against the current project root. Clicking a
-/// row sets `model.selected`; double-clicking opens that file's diff in a
-/// separate window via `onOpenDiff`. The view holds no domain logic: it observes
-/// `LocalChangesModel` and renders its published state.
+/// grouping and a button refreshes against the current project root. Three
+/// triggers share one activation path through `LocalChangesModel`: double-click,
+/// the "Show Diff" context-menu item, and Cmd+D while the panel has focus. The
+/// view holds no domain logic: it observes `LocalChangesModel` and renders its
+/// published state.
 struct LocalChangesView: View {
     @ObservedObject var model: LocalChangesModel
     /// The current project root, used as the repository root for refresh. `nil`
@@ -113,7 +114,7 @@ struct LocalChangesView: View {
                             ChangedFileRow(
                                 name: (file.path as NSString).lastPathComponent,
                                 url: url(for: file.path),
-                                status: file.status,
+                                changedFile: file,
                                 isSelected: model.selected?.id == file.id,
                                 isChecked: model.revertSelection.contains(file.id),
                                 onSelect: { model.select(file) },
@@ -193,7 +194,7 @@ private struct ChangeNodeView: View {
             ChangedFileRow(
                 name: node.name,
                 url: node.url,
-                status: file.status,
+                changedFile: file,
                 isSelected: model.selected?.id == file.id,
                 isChecked: model.revertSelection.contains(file.id),
                 onSelect: { model.select(file) },
@@ -234,7 +235,7 @@ private struct ChangeNodeView: View {
 private struct ChangedFileRow: View {
     let name: String
     let url: URL
-    let status: FileStatus
+    let changedFile: ChangedFile
     let isSelected: Bool
     let isChecked: Bool
     let onSelect: () -> Void
@@ -243,6 +244,16 @@ private struct ChangedFileRow: View {
     let onOpenDiff: () -> Void
     let onResolveConflict: () -> Void
     let onCommitFile: () -> Void
+
+    private var status: FileStatus { changedFile.status }
+
+    /// The one activation path shared by double-click, "Show Diff" and Cmd+D.
+    private func activate() {
+        switch LocalChangesModel.activation(for: changedFile) {
+        case .diff: onOpenDiff()
+        case .resolveConflict: onResolveConflict()
+        }
+    }
 
     @State private var isHovering = false
 
@@ -278,9 +289,11 @@ private struct ChangedFileRow: View {
         // Double-click opens the 3-pane merge window for a conflicted file, else
         // the diff in a separate window; declared before the single-tap so SwiftUI
         // prefers it for a two-click sequence and the single-click select still
-        // fires for one click.
+        // fires for one click. The row is selected first so "double-click, then
+        // Cmd+D on the next row" leaves the panel focused on the right row.
         .onTapGesture(count: 2) {
-            if status == .conflicted { onResolveConflict() } else { onOpenDiff() }
+            onSelect()
+            activate()
         }
         .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }
@@ -288,6 +301,8 @@ private struct ChangedFileRow: View {
             if status == .conflicted {
                 Button("Resolve…", action: onResolveConflict)
                 Divider()
+            } else {
+                Button("Show Diff", action: activate)
             }
             // No extra enablement condition: a row exists only when a folder is
             // open, which is exactly the header Commit button's single condition,

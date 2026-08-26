@@ -103,25 +103,25 @@ Cmd+D on a conflicted row still opens the resolver, via the same rule.
 **Files:**
 - Modify: `Sources/Pisaka/LocalChangesView.swift`
 
-- [ ] In `ChangedFileRow`, replace the inline `status == .conflicted` ternary in
+- [x] In `ChangedFileRow`, replace the inline `status == .conflicted` ternary in
       the double-click handler with a single `activate()` helper that switches on
       `LocalChangesModel.activation(for:)` and calls `onResolveConflict()` or
       `onOpenDiff()` — the one routing point every trigger goes through, so no
       second diff-opening path exists.
-- [ ] The row's activation needs the `ChangedFile`, not just its `FileStatus`:
+- [x] The row's activation needs the `ChangedFile`, not just its `FileStatus`:
       thread the file (or a pre-bound `RowActivation`) into `ChangedFileRow` and
       `ChangeNodeView` alongside the existing values, keeping both call sites
       (flat list and by-folder leaf) identical.
-- [ ] Add the context-menu item: `Button("Show Diff", action: activate)` shown
+- [x] Add the context-menu item: `Button("Show Diff", action: activate)` shown
       when `LocalChangesModel.offersShowDiff(for: status)`, placed **first**,
       above "Commit…" and above the destructive "Revert"; the conflicted branch
       keeps its existing "Resolve…" + `Divider()` untouched.
-- [ ] Make a double-click also select the row (`onSelect()` before `activate()`),
+- [x] Make a double-click also select the row (`onSelect()` before `activate()`),
       so opening a diff by double-click leaves the panel focused on that row —
       this is what makes "double-click, then Cmd+D on the next row" behave.
-- [ ] Update the file's header doc comment to name the three triggers that now
+- [x] Update the file's header doc comment to name the three triggers that now
       share one activation path.
-- [ ] Tests: no new decision is added in the view (every branch calls the Task 1
+- [x] Tests: no new decision is added in the view (every branch calls the Task 1
       rules); confirm by re-running `swift test`, which must stay green before
       Task 3.
 
