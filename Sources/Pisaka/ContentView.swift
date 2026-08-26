@@ -235,15 +235,34 @@ struct ContentView: View {
     /// always released. Default no-op.
     var onCommitDialogDismissed: () -> Void = {}
 
-    /// Height of the bottom dock panel. Held independently of *which* panel is
-    /// shown so it survives panel switches and hide/show, VS Code-style (the old
-    /// recreated `VSplitView` reset it on every change). `@State` only — meeting
-    /// "persist across switch/hide-show"; cross-launch persistence is YAGNI.
+    /// Height of the bottom dock panel, as the user last dragged it. Held
+    /// independently of *which* panel is shown, so it survives panel switches and
+    /// hide/show; a container recreated per selection would reset it on every
+    /// change. `@State` only — meeting "persist across switch/hide-show";
+    /// cross-launch persistence is YAGNI.
+    ///
+    /// What a *legal* height is, this view does not decide: every bound and the
+    /// drag arithmetic belong to `panelHeightRule`, so the dragged height and the
+    /// rendered slot cannot disagree.
     @State private var panelHeight: CGFloat = 240
     /// The panel height captured at the start of a divider drag, so the cumulative
     /// `DragGesture` translation is applied to a fixed base rather than compounding
     /// against the live `panelHeight` each frame. `nil` when not dragging.
     @State private var panelDragStartHeight: CGFloat?
+
+    /// The name of the coordinate space the divider drag is measured in — the
+    /// panel column itself, whose frame does not move while the divider does.
+    ///
+    /// This is the whole fix for the drag: `DragGesture`'s default `.local` space
+    /// is the *divider's*, and the divider is what the drag moves. Growing the
+    /// panel by N points re-lays the divider N points higher, in whose new local
+    /// space the stationary pointer is back at the start location, so the
+    /// translation collapses to ~0 and the height snaps back to the drag-start
+    /// base — an oscillation, never a track. Measured in this space the
+    /// translation is absolute and the mapping is one-to-one. `.global` would
+    /// serve as well; the container is preferred because it stays correct if the
+    /// window root ever gains chrome above `mainArea`.
+    private static let panelColumnSpace = "pisaka.bottomPanelColumn"
 
     /// The interface zone's metrics. Computed from the store rather than read
     /// from the environment because this view is the *root* that injects it (see
@@ -253,12 +272,23 @@ struct ContentView: View {
     var body: some View {
         // The editor (or editor-over-panel split) fills the window above an
         // always-visible bottom bar of Terminal/Git/Changes/Problems toggle
-        // buttons, VS Code-style.
+        // buttons. The bar is the reason `mainArea` clips: it owns the strip
+        // below `mainArea`, and nothing inside `mainArea` may paint over it.
         VStack(spacing: 0) {
             mainArea
             Divider()
             bottomBar
         }
+        // The window's own minimum height, stated *here* rather than on
+        // `editorSplit`. On the split it reached the window only in the
+        // no-panel branch: with a panel shown the split sits inside a
+        // `GeometryReader`, which erases its children's minimum sizes, so the
+        // floor both failed to become a window minimum and forced the column to
+        // overflow — the editor refused to render shorter than it while the
+        // panel took its own height, and the surplus landed on the bottom bar.
+        // At the body root it applies in both branches, and the editor inside
+        // the column is free to shrink to what `panelHeightRule` reserved for it.
+        .frame(minHeight: metrics.scaled(400))
         // Empty-gap fix: closing the last terminal tab leaves the panel selection
         // on `.terminal` with nothing to draw. Collapse the panel so the bar sits
         // flush at the bottom and a repeat click/⌘⇧T reopens it in one press.
@@ -336,27 +366,46 @@ struct ContentView: View {
 
     /// The editor split, optionally with a bottom dock panel below it. The panel
     /// sits at a manually managed `panelHeight` (held independently of which panel
-    /// is shown, so it persists across switches and hide/show — unlike the old
-    /// recreated `VSplitView`), separated by a draggable divider. The terminal
+    /// is shown, so it persists across switches and hide/show), brought into range
+    /// by `panelHeightRule` and separated by a draggable divider. The terminal
     /// branch is shown only when there is a live session, so an emptied terminal
     /// never draws a bare tab bar (the empty-gap bug); the Log panel has no such
     /// precondition.
     @ViewBuilder
     private var mainArea: some View {
         if let panel = visiblePanel {
-            // `GeometryReader` gives the available height so the panel-height drag
-            // can clamp against the window (lower bound 120pt, upper bound half the
-            // area). Existing terminal sessions keep the directory they were
-            // started in — only `newSession` reads `projectRoot` — so a folder
-            // switch never moves a running shell.
+            // `GeometryReader` gives the available height, which is the one input
+            // `panelHeightRule` needs: it is what both upper bounds — half the
+            // area, and what is left after the divider and the editor's
+            // reservation — are measured against. Existing terminal sessions keep
+            // the directory they were started in — only `newSession` reads
+            // `projectRoot` — so a folder switch never moves a running shell.
             GeometryReader { geo in
                 VStack(spacing: 0) {
                     editorSplit
                         .frame(maxHeight: .infinity)
-                    panelDivider(maxHeight: geo.size.height)
+                    panelDivider(available: geo.size.height)
                     panelContent(panel)
-                        .frame(height: clampedPanelHeight(maxHeight: geo.size.height))
+                        .frame(height: CGFloat(panelHeightRule.height(
+                            proposed: Double(panelHeight),
+                            available: Double(geo.size.height)
+                        )))
                 }
+                // The space the divider drag is measured in — see
+                // `panelColumnSpace`. Published on the column rather than on the
+                // `GeometryReader` so it names exactly the stack the drag moves.
+                .coordinateSpace(name: Self.panelColumnSpace)
+                // The guarantee behind requirement "never over the bottom bar".
+                // The rule's clamp is the *behavior* and the absence of any
+                // minimum inside the panel slot is its *precondition*; both rest
+                // on arithmetic and on every child honoring its proposal. The
+                // clip rests on neither, so no future layout edit, intrinsic
+                // minimum in the editor zone's fixed strips (breadcrumb, tab
+                // strip, consent banner, find bar) or arithmetic slip can paint
+                // outside `mainArea`. Nothing that must escape the window content
+                // passes through here: the completion panel, the hover popover
+                // and context menus are all separate windows.
+                .clipped()
             }
         } else {
             editorSplit
@@ -365,8 +414,15 @@ struct ContentView: View {
 
     /// The draggable divider between the editor and the bottom dock panel. Drag up
     /// to grow the panel, down to shrink it; the cumulative translation is applied
-    /// to the height captured at drag start so it does not compound frame-to-frame.
-    private func panelDivider(maxHeight: CGFloat) -> some View {
+    /// to the height captured at drag start so it does not compound frame-to-frame,
+    /// and it is measured in `panelColumnSpace` so it is not read against an origin
+    /// the drag itself moves.
+    ///
+    /// `minimumDistance: 0` because the default one makes the very first
+    /// `onChanged` arrive with a ≥10pt translation already accumulated, applied
+    /// against a base captured in that same call — the panel would jump 10pt
+    /// before it tracked anything.
+    private func panelDivider(available: CGFloat) -> some View {
         Rectangle()
             .fill(Color(NSColor.separatorColor))
             .frame(height: metrics.scaled(5))
@@ -375,31 +431,37 @@ struct ContentView: View {
                 if hovering { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
             }
             .gesture(
-                DragGesture()
+                DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.panelColumnSpace))
                     .onChanged { value in
                         let base = panelDragStartHeight ?? panelHeight
                         if panelDragStartHeight == nil { panelDragStartHeight = base }
-                        panelHeight = clampedPanelHeight(
-                            proposed: base - value.translation.height,
-                            maxHeight: maxHeight
-                        )
+                        panelHeight = CGFloat(panelHeightRule.height(
+                            base: Double(base),
+                            dragTranslation: Double(value.translation.height),
+                            available: Double(available)
+                        ))
                     }
                     .onEnded { _ in panelDragStartHeight = nil }
             )
     }
 
-    /// `panelHeight` clamped to `[120, maxHeight / 2]` (lower bound floored so a
-    /// tiny window still yields a usable lower bound), the floor itself scaled by
-    /// the interface zone so a 200% terminal tab strip still leaves room for the
-    /// panel's content.
-    private func clampedPanelHeight(maxHeight: CGFloat) -> CGFloat {
-        clampedPanelHeight(proposed: panelHeight, maxHeight: maxHeight)
-    }
-
-    private func clampedPanelHeight(proposed: CGFloat, maxHeight: CGFloat) -> CGFloat {
-        let floor = metrics.scaled(120)
-        let upper = max(floor, maxHeight / 2)
-        return min(max(proposed, floor), upper)
+    /// The one authority on what height the panel may have — the drag and the
+    /// rendered slot both go through it, so they cannot disagree.
+    ///
+    /// The three constants are scaled here and handed over as plain numbers, so
+    /// Core stays scale-agnostic: the floor (120pt) is what the panel is dragged
+    /// down to while it fits, the divider strip's own 5pt is what the column
+    /// spends before either side gets anything, and the editor reservation
+    /// (another 120pt — a few lines, deliberately not the window's 400pt minimum)
+    /// is what the editor keeps when the panel is greedy. Everything else about
+    /// the bounds, including the degenerate case where the floor itself does not
+    /// fit, is `BottomPanelHeightRule`'s.
+    private var panelHeightRule: BottomPanelHeightRule {
+        BottomPanelHeightRule(
+            floor: Double(metrics.scaled(120)),
+            dividerHeight: Double(metrics.scaled(5)),
+            editorMinimum: Double(metrics.scaled(120))
+        )
     }
 
     /// The panel to actually render below the editor: the selected `bottomPanel`,
@@ -419,10 +481,15 @@ struct ContentView: View {
         case .terminal:
             TerminalPanelView(model: terminalSessions, projectRoot: model.projectRoot)
         case .log:
-            // No `minWidth: 640`/`minHeight: 400` here — those over-expand the
-            // shorter bottom panel; a modest `minHeight` keeps it usable.
+            // No minimum height here, and none in any sibling branch: the slot's
+            // height is `panelHeightRule`'s and is the only height this content
+            // has. A minimum stated *inside* a fixed-height slot can never be
+            // satisfied — the child cannot make the slot grow, so it can only
+            // overflow, over the divider above and the bottom bar below — and the
+            // rule's degenerate case deliberately goes below its own floor, where
+            // no per-panel number could be honored either. Nothing is lost: every
+            // panel here is a scrollable list, table or terminal.
             CommitLogView(model: commitLog, projectRoot: model.projectRoot, onOpenCommitDiff: onOpenCommitDiff)
-                .frame(minHeight: metrics.scaled(160))
         case .changes:
             // Local Changes is now a bottom dock panel (beside Terminal/Git),
             // rendered as the file list only — the diff opens in a separate window
@@ -438,10 +505,8 @@ struct ContentView: View {
                 onCommit: onOpenCommitDialog,
                 onCommitFile: onCommitFile
             )
-                .frame(minHeight: metrics.scaled(120))
         case .problems:
             problemsPanel
-                .frame(minHeight: metrics.scaled(120))
         }
     }
 
@@ -611,10 +676,13 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        // The window's own minimum, scaled with the rest: at 200% the panes it
-        // has to hold are twice as wide, so a fixed floor would let the user
-        // shrink the window until the chrome clipped.
-        .frame(minWidth: metrics.scaled(640), minHeight: metrics.scaled(400))
+        // The window's own minimum *width*, scaled with the rest: at 200% the
+        // panes it has to hold are twice as wide, so a fixed floor would let the
+        // user shrink the window until the chrome clipped. The matching minimum
+        // height lives on the body root instead — stated here it would not reach
+        // the window while a panel is shown, and would instead force the panel
+        // column to overflow (see the note there).
+        .frame(minWidth: metrics.scaled(640))
     }
 
     /// The LeetCode statement beside the editor. Renders **nothing at all** —

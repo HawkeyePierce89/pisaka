@@ -225,39 +225,39 @@ None. No new packages, no `Package.resolved` change, no pin change.
 **Files:**
 - Modify: `Sources/Pisaka/ContentView.swift`
 
-- [ ] publish a named coordinate space on the `VStack` inside `mainArea`'s
+- [x] publish a named coordinate space on the `VStack` inside `mainArea`'s
       `GeometryReader` (a private constant for the name) and change
       `panelDivider`'s gesture to
       `DragGesture(minimumDistance: 0, coordinateSpace: .named(…))`
-- [ ] replace the two `clampedPanelHeight` helpers with a computed
+- [x] replace the two `clampedPanelHeight` helpers with a computed
       `panelHeightRule` built from `metrics.scaled(120)` (floor),
       `metrics.scaled(5)` (divider) and `metrics.scaled(120)` (editor
       reservation), and route both the drag and the rendered
       `panelContent(...).frame(height:)` through it with
       `available: geo.size.height`
-- [ ] delete the three `.frame(minHeight:)` modifiers inside `panelContent(_:)`
+- [x] delete the three `.frame(minHeight:)` modifiers inside `panelContent(_:)`
       — `.log`'s `metrics.scaled(160)` (`:425`), `.changes`'s
       `metrics.scaled(120)` (`:441`) and `.problems`'s `metrics.scaled(120)`
       (`:444`) — so nothing in the fixed-height slot can outgrow it; rewrite
       the `.log` branch's comment, which explains the now-deleted minimum, to
       state instead that the slot's height is the rule's and that panel content
       states no minimum of its own
-- [ ] keep the drag-start base capture (it is still what makes the cumulative
+- [x] keep the drag-start base capture (it is still what makes the cumulative
       translation absolute) and keep the divider's 5pt scaled height and fill
       unchanged
-- [ ] move `minHeight: metrics.scaled(400)` off `editorSplit` onto the window
+- [x] move `minHeight: metrics.scaled(400)` off `editorSplit` onto the window
       body root so the window minimum applies in both branches, leave
       `minWidth: metrics.scaled(640)` where it belongs, and let `editorSplit`
       inside the panel column shrink to what the rule reserved
-- [ ] add `.clipped()` to the panel column so the panel can never paint outside
+- [x] add `.clipped()` to the panel column so the panel can never paint outside
       `mainArea`, and confirm by inspection that the surfaces which must escape
       the window content are separate windows (the completion panel, the hover
       popover, context menus) and so are unaffected
-- [ ] rewrite the `panelHeight` state comment (`:238`, which carries a product
+- [x] rewrite the `panelHeight` state comment (`:238`, which carries a product
       comparison today) and the `body` / `mainArea` layout comments to describe
       the new coordinate-space and overdraw reasoning, dropping those
       comparisons
-- [ ] run `swift test` — must pass before Task 3
+- [x] run `swift test` — must pass before Task 3
 
 ### Task 3: Keep the resize cursor honest for the whole drag
 
