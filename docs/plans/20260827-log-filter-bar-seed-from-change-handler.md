@@ -229,13 +229,13 @@ The deployment targets are macOS 13 and iOS 17, so the two bars must use
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] `swift test` green, including the new/updated `LogFilterDraftTests`
-- [ ] `swiftlint --strict` clean from the repository root
-- [ ] `xcodegen generate`, then the macOS build:
+- [x] `swift test` green, including the new/updated `LogFilterDraftTests`
+- [x] `swiftlint --strict` clean from the repository root
+- [x] `xcodegen generate`, then the macOS build:
     `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
-- [ ] the iOS build:
+- [x] the iOS build:
     `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
-- [ ] final audit grep over both bars: every `onChange` handler names and uses
+- [x] final audit grep over both bars: every `onChange` handler names and uses
     its new-value parameter, and none reads the observed property off `self`
 
 ## Post-Completion (manual verification by the user)
