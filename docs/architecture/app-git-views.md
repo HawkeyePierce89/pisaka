@@ -537,7 +537,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     token bumped in each row's `onSelect` closure drives `updateNSView` to call
     `window?.makeFirstResponder(nsView)` (dispatched asynchronously so the
     responder change does not land inside a SwiftUI update pass); a value change is
-    the only signal a representable receives, hence the token.     The view overrides
+    the only signal a representable receives, hence the token. The view overrides
     `performKeyEquivalent(with:)` with the same gate shape as `EditorTextView`:
     `charactersIgnoringModifiers?.lowercased() == "d"`, modifier mask equals
     `.command` only, and `window?.firstResponder === self`. When the gate passes it
