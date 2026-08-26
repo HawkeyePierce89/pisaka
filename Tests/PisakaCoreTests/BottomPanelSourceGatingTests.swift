@@ -38,7 +38,12 @@ import XCTest
 ///   those same files are outside the declaration and stay unmatched, which is
 ///   how `CommitRow`'s legitimate per-row `minHeight` is excluded without an
 ///   exemption list: a minimum inside a row of a scrolling list is a different
-///   thing and is deliberately not matched.
+///   thing and is deliberately not matched. The per-panel table is pinned to
+///   the `case .…:` labels of `panelContent(_:)` **by set equality**, so the
+///   inventory cannot fall behind the enum: the compiler already forces that
+///   switch to cover every `BottomPanel` case, and without the tie a fifth
+///   panel would put a fifth view in the slot with no minimum check at all
+///   while this suite stayed green.
 /// - **The drag is measured in the column's named coordinate space, with
 ///   `minimumDistance: 0`.** `DragGesture()` — the default — compiles and
 ///   type-checks identically while measuring against an origin the drag itself
@@ -80,40 +85,61 @@ final class BottomPanelSourceGatingTests: XCTestCase {
     func testPanelContentStatesNoMinimumHeight() throws {
         let contentView = try contentViewCode()
         var slotFacingBodies: [(what: String, code: String)] = []
+        var panelContentBody = ""
 
         for name in ["panelContent", "problemsPanel"] {
-            slotFacingBodies.append((
-                "ContentView.\(name)",
-                try XCTUnwrap(
-                    Self.declarationBody(after: name, in: contentView),
-                    "\(name) not found in ContentView.swift — rename it and update this suite deliberately"
-                )
-            ))
+            let body = try XCTUnwrap(
+                Self.declarationBody(after: name, in: contentView),
+                "\(name) not found in ContentView.swift — rename it and update this suite deliberately"
+            )
+            if name == "panelContent" { panelContentBody = body }
+            slotFacingBodies.append(("ContentView.\(name)", body))
         }
 
-        // The four views `panelContent(_:)` puts in the slot. Each is read
-        // **whole**, not by its `var body` alone: three of the four bodies are
-        // pure delegation (`VStack { header; Divider(); content }`), and a
-        // minimum written on `content` — where the list actually lives, and so
-        // the likeliest place to reintroduce this — raises the `VStack`'s
-        // minimum and reaches the slot exactly as one on `body` would. The
-        // private row/detail structs later in the same files are *not* part of
-        // the declaration and stay excluded, which is what keeps
-        // `CommitRow`'s legitimate `minHeight: rowHeight` out of this: a
-        // minimum inside a row of a scrolling list is a different thing, and
-        // deliberately not matched.
-        for (file, type) in [
-            ("TerminalPanelView.swift", "TerminalPanelView"),
-            ("CommitLogView.swift", "CommitLogView"),
-            ("LocalChangesView.swift", "LocalChangesView"),
-            ("ProblemsPanelView.swift", "ProblemsPanelView"),
-        ] {
-            let code = try appSource(named: file)
+        // The views `panelContent(_:)` puts in the slot, **one per
+        // `BottomPanel` case**. Each is read **whole**, not by its `var body`
+        // alone: three of the four bodies are pure delegation
+        // (`VStack { header; Divider(); content }`), and a minimum written on
+        // `content` — where the list actually lives, and so the likeliest place
+        // to reintroduce this — raises the `VStack`'s minimum and reaches the
+        // slot exactly as one on `body` would. The private row/detail structs
+        // later in the same files are *not* part of the declaration and stay
+        // excluded, which is what keeps `CommitRow`'s legitimate
+        // `minHeight: rowHeight` out of this: a minimum inside a row of a
+        // scrolling list is a different thing, and deliberately not matched.
+        let hostedRoots: [String: (file: String, type: String)] = [
+            "terminal": ("TerminalPanelView.swift", "TerminalPanelView"),
+            "log": ("CommitLogView.swift", "CommitLogView"),
+            "changes": ("LocalChangesView.swift", "LocalChangesView"),
+            "problems": ("ProblemsPanelView.swift", "ProblemsPanelView"),
+        ]
+
+        // The tie that makes this table complete rather than merely long. A
+        // fifth `BottomPanel` case forces a fifth branch in `panelContent(_:)`
+        // — the compiler makes that switch exhaustive, which is the one half of
+        // this rule `swift test` gets for free — and that branch would put a
+        // fifth view in the fixed-height slot with no minimum check at all
+        // while this suite stayed green, the exact miss `TerminalPanelView`
+        // already demonstrated for the whole life of the rule. Matching the
+        // branch labels against the table by set equality is what turns adding
+        // a panel into a deliberate edit here.
+        let branchLabels = Self.switchCaseLabels(in: panelContentBody)
+        XCTAssertEqual(
+            branchLabels, Set(hostedRoots.keys),
+            """
+            panelContent(_:) and this suite's hosted-root table disagree about which panels exist. \
+            Every BottomPanel case puts a view in the fixed-height slot, so every one of them needs \
+            its root read here — add the new panel's view to the table, or drop the removed one.
+            """
+        )
+
+        for (panel, root) in hostedRoots.sorted(by: { $0.key < $1.key }) {
+            let code = try appSource(named: root.file)
             slotFacingBodies.append((
-                "\(type)",
+                "\(root.type) (BottomPanel.\(panel))",
                 try XCTUnwrap(
-                    Self.typeBody(type, in: code),
-                    "\(type) is not declared in \(file) — rename it and update this suite deliberately"
+                    Self.typeBody(root.type, in: code),
+                    "\(root.type) is not declared in \(root.file) — rename it and update this suite deliberately"
                 )
             ))
         }
@@ -175,6 +201,23 @@ final class BottomPanelSourceGatingTests: XCTestCase {
             pinned.lowerBound, clip.lowerBound,
             "the pin must come before the clip, or the clip rect is still the column's own size"
         )
+    }
+
+    /// The `case .<label>:` labels of a switch in an already-stripped
+    /// declaration body, so a label merely *named* in a comment cannot count.
+    /// Used to pin this suite's per-panel table against the branches the
+    /// compiler forces `panelContent(_:)` to have.
+    private static func switchCaseLabels(in body: String) -> Set<String> {
+        var labels: Set<String> = []
+        var searchStart = body.startIndex
+        while let keyword = body.range(of: "case .", range: searchStart..<body.endIndex) {
+            searchStart = keyword.upperBound
+            var end = keyword.upperBound
+            while end < body.endIndex, isIdentifierCharacter(body[end]) { end = body.index(after: end) }
+            guard end > keyword.upperBound, end < body.endIndex, body[end] == ":" else { continue }
+            labels.insert(String(body[keyword.upperBound..<end]))
+        }
+        return labels
     }
 
     // MARK: - Reading one function out of the file

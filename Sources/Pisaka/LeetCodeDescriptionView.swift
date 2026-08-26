@@ -71,6 +71,11 @@ struct LeetCodeDescriptionPane: View {
     /// `NSCursor` has to be popped by the same view that pushed it — see the
     /// handle's own note.
     @State private var isHoveringHandle = false
+    /// Whether *this pane* currently has a resize cursor on `NSCursor`'s stack.
+    /// Separate from `isHoveringHandle` because the push spans the drag as well
+    /// as the hover, and the two do not coincide — see
+    /// `syncResizeHandleCursor()`.
+    @State private var handleCursorPushed = false
 
     /// The interface zone's metrics, inherited from `ContentView`'s root.
     ///
@@ -195,26 +200,21 @@ struct LeetCodeDescriptionPane: View {
             // `ContentView.syncPanelDividerCursor()` states and then some: this
             // whole pane is removed the moment the statement is, so a tab switch
             // under the pointer would push a cursor nothing ever pops and the
-            // resize cursor would stick application-wide. The flag here is the
-            // hover state itself because this handle's push spans a hover and
-            // nothing else; the panel divider's spans its drag too, which is why
-            // that one needs a separate "pushed" flag rather than this pair.
+            // resize cursor would stick application-wide.
             .onHover { hovering in
                 guard hovering != isHoveringHandle else { return }
                 isHoveringHandle = hovering
-                if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                syncResizeHandleCursor()
             }
             .onDisappear {
-                if isHoveringHandle {
-                    isHoveringHandle = false
-                    NSCursor.pop()
-                }
                 // The same removal can land mid-drag, and then no `onEnded`
                 // arrives either — `ContentView.panelDivider`'s `onDisappear`
                 // drops its base here for the same reason: a base left behind
                 // would have the next drag resume from a width the user
                 // abandoned, against a pointer that has moved since.
+                isHoveringHandle = false
                 dragStartWidth = nil
+                syncResizeHandleCursor()
             }
             // Measured in the window's space, never the default `.local` one:
             // local is *this handle's* space, and the handle is what the drag
@@ -242,11 +242,36 @@ struct LeetCodeDescriptionPane: View {
                         // until the translation had eaten the whole difference.
                         // `ContentView.panelDragStartHeight` states the same rule.
                         let base = dragStartWidth ?? clamped(width)
-                        if dragStartWidth == nil { dragStartWidth = base }
+                        if dragStartWidth == nil {
+                            dragStartWidth = base
+                            syncResizeHandleCursor()
+                        }
                         width = clamped(base - value.translation.width)
                     }
-                    .onEnded { _ in dragStartWidth = nil }
+                    .onEnded { _ in
+                        dragStartWidth = nil
+                        syncResizeHandleCursor()
+                    }
             )
+    }
+
+    /// Pushes or pops the resize cursor so that exactly one push of ours is on
+    /// `NSCursor`'s stack while the handle is hovered or being dragged, and none
+    /// otherwise. Every write of `isHoveringHandle` / `dragStartWidth` calls
+    /// this; nothing else in this pane touches the stack.
+    ///
+    /// The condition is `hovering || dragging`, never hovering alone, for the
+    /// reason `ContentView.panelDivider` states about its own 5pt strip: a drag
+    /// quicker than the relayout takes the pointer off the handle, `onHover`
+    /// reports it, and a cursor that reverts to the arrow while the pane is
+    /// still being resized reads as the drag having been dropped. This handle is
+    /// a drag target exactly as that divider is, so it needs the same pair of
+    /// inputs rather than the raw push/pop the hover alone once carried.
+    private func syncResizeHandleCursor() {
+        let wanted = isHoveringHandle || dragStartWidth != nil
+        guard wanted != handleCursorPushed else { return }
+        if wanted { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+        handleCursorPushed = wanted
     }
 
     private func clamped(_ proposed: CGFloat) -> CGFloat {

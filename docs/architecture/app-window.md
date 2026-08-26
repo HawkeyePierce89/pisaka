@@ -230,7 +230,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     at which point a centered column has the clip take half the surplus off each
     side, cutting the project tree's leading edge. Leading keeps the placement the
     `GeometryReader` gave the column before the pin, so only the bottom is ever
-    trimmed. So:
+    trimmed. The **slot itself is top-aligned** for the same reason one level in:
+    a fixed frame reports the height it was given, so a child that refuses the
+    proposal overflows it — and the default `.center` alignment would split that
+    surplus evenly, sending half *upwards*, over the divider and into the editor,
+    where the column's clip cannot reach it because it is inside the clipped rect.
+    `alignment: .top` puts the whole surplus below the slot, which is the column's
+    bottom edge, which is where the clip is. Without it the guarantee covers the
+    bottom bar and nothing else, and "never over the divider above" would rest on
+    the precondition alone — a source rule, which is precisely what the clip is
+    here not to depend on. So:
     the clamp rests on arithmetic and the precondition rests on every child
     honoring its proposal, and both can be wrong, so the clip makes "nothing inside
     `mainArea` paints over the bar" unconditional against future layout edits and
@@ -250,7 +259,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     slot exactly as one on `body` would; the private row and detail structs later
     in those files fall outside the declaration, which excludes `CommitRow`'s
     legitimate per-row `minHeight` without an exemption list), which is what makes
-    the sibling-file case above visible to `swift test` — the gesture
+    the sibling-file case above visible to `swift test`. That per-panel table is
+    itself pinned **by set equality against the `case .…:` labels of
+    `panelContent(_:)`**, the one half of this rule the compiler already
+    enforces (the switch is exhaustive over `BottomPanel`): a fifth panel would
+    otherwise land a fifth view in the slot with no minimum check at all while the
+    suite stayed green — which is the miss `TerminalPanelView` demonstrated for the
+    whole life of the rule, and the reason the inventory is tied to the enum
+    rather than merely listed. Also pinned: the gesture
     naming `panelColumnSpace` with `minimumDistance: 0`, and the top-leading pin
     ordered before the clip. All three string matches are made against
     whitespace-stripped source, so a reformat that wraps an argument list cannot

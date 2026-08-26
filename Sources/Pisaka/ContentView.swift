@@ -413,11 +413,28 @@ struct ContentView: View {
                     editorSplit
                         .frame(maxHeight: .infinity)
                     panelDivider(available: geo.size.height)
+                    // Top-aligned for the reason the column's own pin states,
+                    // one level in: a fixed frame reports the height it was
+                    // given, so a child that refuses the proposal overflows it
+                    // rather than growing it — and the default `.center`
+                    // alignment would split that surplus evenly, sending half
+                    // *up*, over the divider and into the editor, where the
+                    // column's clip cannot reach it (it is inside the clipped
+                    // rect). Top alignment puts the whole surplus below the
+                    // slot, which is the column's bottom edge, where the clip
+                    // does remove it. Nothing states such a minimum today —
+                    // `BottomPanelSourceGatingTests` pins that — but the clip is
+                    // here precisely because that precondition is a source rule
+                    // rather than a layout one, and this makes its failure mode
+                    // the same in both directions.
                     panelContent(panel)
-                        .frame(height: CGFloat(panelHeightRule.height(
-                            proposed: Double(panelHeight),
-                            available: Double(geo.size.height)
-                        )))
+                        .frame(
+                            height: CGFloat(panelHeightRule.height(
+                                proposed: Double(panelHeight),
+                                available: Double(geo.size.height)
+                            )),
+                            alignment: .top
+                        )
                 }
                 // Pinned to the area before it is clipped, because `.clipped()`
                 // clips a view to the frame it *reported*, not to the one it was

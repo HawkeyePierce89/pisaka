@@ -1616,14 +1616,19 @@ the limits the design carries.
     pane's own `@State` behind a `resizeLeftRight` drag handle: the `panelHeight`
     shape turned ninety degrees. Collapsing leaves a strip that is the only way
     back, so the pane can never be folded away and lost.
-    The handle's cursor push is paired with an **`onDisappear`**, for the reason
-    `ContentView.syncPanelDividerCursor()` states and then some: this whole pane is
-    removed the moment the statement is — a tab switch under the pointer delivers
-    no `onHover(false)`, so the pushed `NSCursor` would never be popped and the
-    resize cursor would stick application-wide. The flag here is the hover state
-    itself, because this handle's push spans a hover and nothing else; the panel
-    divider's spans its drag too, which is why that one needs a separate "pushed"
-    flag rather than this pair.
+    The handle's cursor push goes through **`syncResizeHandleCursor()`**, the exact
+    shape `ContentView.syncPanelDividerCursor()` has: one `handleCursorPushed` flag
+    driven off `hovering || dragging`, written by every mutation of either input
+    and by nothing else. Both halves of that condition are load-bearing. *Dragging*
+    is, because a drag quicker than the relayout takes the pointer off a 5pt strip
+    and `onHover(false)` arrives mid-resize — a cursor that reverts to the arrow
+    while the pane is still being dragged reads as the drag having been dropped,
+    and this handle is a drag target exactly as the divider is. The *separate flag*
+    is, because the pane is removed the moment the statement is: a tab switch under
+    the pointer delivers no `onHover(false)` and no `onEnded`, so `onDisappear`
+    clears the hover, the drag base and the push together, or the resize cursor
+    sticks application-wide and the next drag resumes from a width the user
+    abandoned.
     The drag is measured in the **window's** coordinate space
     (`DragGesture(minimumDistance: 0, coordinateSpace: .global)`), never the
     default `.local` one, for exactly the reason `app-window.md` gives for the
