@@ -420,8 +420,18 @@ struct ContentView: View {
                 // clip to the overflow — the very case it is here to catch. With
                 // the frame stated the rect is the `GeometryReader`'s own, and
                 // top alignment sends any surplus off the bottom edge, where the
-                // clip removes it.
-                .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+                // clip removes it. The alignment is *leading* as well as top:
+                // `.top` alone centers horizontally, and a column wider than the
+                // area — the split's own panes state minimum widths the
+                // `GeometryReader` erases, so in a narrow window it is — would
+                // then have the clip take half the surplus off each side,
+                // cutting the project tree's leading edge. Leading keeps the
+                // placement the `GeometryReader` gave it before the pin.
+                .frame(
+                    width: geo.size.width,
+                    height: geo.size.height,
+                    alignment: .topLeading
+                )
                 // The space the divider drag is measured in — see
                 // `panelColumnSpace`. Published on the column rather than on the
                 // `GeometryReader` so it names exactly the stack the drag moves,

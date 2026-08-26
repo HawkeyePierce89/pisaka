@@ -1616,12 +1616,26 @@ the limits the design carries.
     pane's own `@State` behind a `resizeLeftRight` drag handle: the `panelHeight`
     shape turned ninety degrees. Collapsing leaves a strip that is the only way
     back, so the pane can never be folded away and lost.
-    The handle's cursor push is paired with an **`onDisappear`**, unlike
-    `ContentView.panelDivider`'s otherwise identical `onHover` idiom, and the
-    difference is why: that divider goes away only when the user toggles it, while
-    this whole pane is removed the moment the statement is — a tab switch under the
-    pointer delivers no `onHover(false)`, so the pushed `NSCursor` would never be
-    popped and the resize cursor would stick application-wide.
+    The handle's cursor push is paired with an **`onDisappear`**, for the reason
+    `ContentView.syncPanelDividerCursor()` states and then some: this whole pane is
+    removed the moment the statement is — a tab switch under the pointer delivers
+    no `onHover(false)`, so the pushed `NSCursor` would never be popped and the
+    resize cursor would stick application-wide. The flag here is the hover state
+    itself, because this handle's push spans a hover and nothing else; the panel
+    divider's spans its drag too, which is why that one needs a separate "pushed"
+    flag rather than this pair.
+    The drag is measured in the **window's** coordinate space
+    (`DragGesture(minimumDistance: 0, coordinateSpace: .global)`), never the
+    default `.local` one, for exactly the reason `app-window.md` gives for the
+    panel divider: local is *this handle's* space and the handle is what the drag
+    moves, so widening the pane by N points re-lays the handle N points over, the
+    stationary pointer lands back at the start location, the translation collapses
+    to ~0 and the width snaps back to the drag-start base — an oscillation, never a
+    track. The divider names its own container instead; this pane has no reach into
+    a stationary ancestor of its own, and the window root is stationary for the
+    duration of a drag just the same. `minimumDistance: 0` is the second half: the
+    default makes the first `onChanged` arrive with a ≥10pt translation already
+    accumulated, applied against a base captured in that same call.
     The web view **reloads only when the composed HTML differs**: `ContentView.body`
     re-evaluates on every keystroke, so an unconditional `loadHTMLString` would
     reload the statement and reset its scroll position once per character typed —

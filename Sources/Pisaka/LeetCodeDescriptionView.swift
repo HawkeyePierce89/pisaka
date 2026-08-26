@@ -207,8 +207,21 @@ struct LeetCodeDescriptionPane: View {
                     NSCursor.pop()
                 }
             }
+            // Measured in the window's space, never the default `.local` one:
+            // local is *this handle's* space, and the handle is what the drag
+            // moves — widening the pane by N points re-lays the handle N points
+            // to the left, in whose new local space the stationary pointer is
+            // back at the start location, so the translation collapses to ~0,
+            // the width snaps back to the drag-start base and the handle
+            // oscillates instead of tracking. The window root is stationary for
+            // the whole drag, so the cumulative translation is absolute and the
+            // mapping is one-to-one; `ContentView.panelDivider(available:)`
+            // names its own container for the same reason, which this pane has
+            // no reach into. `minimumDistance: 0` because the default makes the
+            // first `onChanged` arrive with a >=10pt translation already
+            // accumulated, applied against a base captured in that same call.
             .gesture(
-                DragGesture()
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
                     .onChanged { value in
                         let base = dragStartWidth ?? width
                         if dragStartWidth == nil { dragStartWidth = base }

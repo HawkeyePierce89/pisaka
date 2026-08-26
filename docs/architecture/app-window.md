@@ -204,17 +204,33 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     height, and a minimum stated *inside* a fixed-height slot can never be
     satisfied — the child cannot make the slot grow, so its only available outcome
     is to overflow, over the divider above and the bottom bar below. The three
-    former `.frame(minHeight:)` modifiers (Log's 160, Changes' and Problems' 120)
-    are deleted for that reason; Log's 160 was the visible bleed, spilling at any
-    dragged height between the 120 floor and it, in a large window with the editor
-    nowhere near its own minimum. The *guarantee* is `.clipped()` on the column,
+    former `.frame(minHeight:)` modifiers at the call site (Log's 160, Changes'
+    and Problems' 120) are deleted for that reason; Log's 160 was the visible
+    bleed, spilling at any dragged height between the 120 floor and it, in a large
+    window with the editor nowhere near its own minimum. The call site is only
+    half of the precondition, though: what lands in the slot is a *view*, and a
+    minimum on that view's own `body` root reaches the slot exactly as one written
+    at the call site would. `TerminalPanelView` stated `minHeight:
+    metrics.scaled(120)` on its body — a tie with the floor, so invisible in the
+    ordinary case and live on the degenerate path, where it would have slid the
+    terminal's tab bar (the only way to switch or close a session) out from under
+    the clip. It is deleted too, and the rule now holds for all four panels in
+    their own files. The *guarantee* is `.clipped()` on the column,
     **pinned to the area first** — `.frame(width: geo.size.width, height:
-    geo.size.height, alignment: .top)` — because `.clipped()` clips a view to the
-    frame it *reported*, not to the one it was proposed: a column whose children
-    refuse to shrink reports the oversized height, and a clip attached straight to
-    it would clip to the overflow, i.e. to nothing, which is the exact case it is
-    here to catch. With the frame stated the clip rect is the `GeometryReader`'s
-    own and top alignment sends any surplus off the bottom edge. So:
+    geo.size.height, alignment: .topLeading)` — because `.clipped()` clips a view
+    to the frame it *reported*, not to the one it was proposed: a column whose
+    children refuse to shrink reports the oversized height, and a clip attached
+    straight to it would clip to the overflow, i.e. to nothing, which is the exact
+    case it is here to catch. With the frame stated the clip rect is the
+    `GeometryReader`'s own and top alignment sends any surplus off the bottom
+    edge. The alignment is **leading** as well as top, and that half is not
+    cosmetic: `.top` alone centers horizontally, and the column *is* wider than
+    the area in a narrow window — the split's panes state minimum widths the
+    `GeometryReader` erases, so their sum can exceed the window minimum below —
+    at which point a centered column has the clip take half the surplus off each
+    side, cutting the project tree's leading edge. Leading keeps the placement the
+    `GeometryReader` gave the column before the pin, so only the bottom is ever
+    trimmed. So:
     the clamp rests on arithmetic and the precondition rests on every child
     honoring its proposal, and both can be wrong, so the clip makes "nothing inside
     `mainArea` paints over the bar" unconditional against future layout edits and
@@ -226,9 +242,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `swift test` cannot see them and where each can be undone by an edit that
     compiles and reviews cleanly, so `BottomPanelSourceGatingTests` reads
     `ContentView.swift` (comment- and literal-stripped, the
-    `ZoomSourceGatingTests` mould) and pins them: no `minHeight` inside
-    `panelContent(_:)`, the gesture naming `panelColumnSpace` with
-    `minimumDistance: 0`, and the pin ordered before the clip.
+    `ZoomSourceGatingTests` mould) and pins them: no `minHeight` in any of the
+    slot-facing bodies — `panelContent(_:)`, `problemsPanel`, and the `body` of
+    each of the four hosted panel views, read out of their own files, which is
+    what makes the sibling-file case above visible to `swift test` — the gesture
+    naming `panelColumnSpace` with `minimumDistance: 0`, and the top-leading pin
+    ordered before the clip. All three string matches are made against
+    whitespace-stripped source, so a reformat that wraps an argument list cannot
+    fail the suite while the rule it guards is intact.
     **The window's minimum content size moved to the body root — both axes.**
     `minHeight: metrics.scaled(400)` and `minWidth: metrics.scaled(640)` used to
     sit on `editorSplit`, where a `GeometryReader` erases its children's minimum
