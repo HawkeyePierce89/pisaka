@@ -95,7 +95,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     its directory — cargo finds the workspace from the cwd — so no evidence is
     consulted and, unlike Go's `go test <dir>`, a path full of shell
     metacharacters cannot reach the command line at all.
-  - `BottomPanel.swift` — pure, testable VS Code-style bottom-dock-panel state
+  - `BottomPanel.swift` — pure, testable bottom-dock-panel state
     (Foundation-free — semantic enum only, the `FileIconColor`/`LogFilter`
     precedent). A `public enum BottomPanel: Equatable { case terminal, log,
     changes, problems }` (which panel, if any, sits in the bottom dock above the

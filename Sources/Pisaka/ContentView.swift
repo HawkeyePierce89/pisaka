@@ -247,16 +247,22 @@ struct ContentView: View {
     @State private var panelHeight: CGFloat = 240
     /// The panel height captured at the start of a divider drag, so the cumulative
     /// `DragGesture` translation is applied to a fixed base rather than compounding
-    /// against the live `panelHeight` each frame. `nil` when not dragging.
+    /// against the live `panelHeight` each frame. `nil` when not dragging, so it is
+    /// also the one answer to "is a drag in flight" — the cursor needs that answer
+    /// because it must follow the *drag*, not the pointer: a fast drag leaves the
+    /// 5pt strip immediately, so hovering alone would hand the arrow back
+    /// mid-resize. A second flag beside it could go stale against it, and did.
+    ///
+    /// What is captured is the height being **rendered**, not the stored
+    /// `panelHeight`: the stored one is a remembered proposal that nothing
+    /// re-clamps when the area shrinks or the interface scale grows, so a base
+    /// taken from it would start the gesture outside the bounds it is clamped
+    /// against and the first drag after a resize would move the pointer without
+    /// moving the divider.
     @State private var panelDragStartHeight: CGFloat?
 
     /// Whether the pointer is inside the divider's hit strip.
     @State private var panelDividerHovering = false
-    /// Whether a divider drag is in flight. Tracked separately from
-    /// `panelDragStartHeight` because the cursor must follow the *drag*, not the
-    /// arithmetic: a fast drag leaves the 5pt strip immediately, so hovering alone
-    /// would hand the arrow back mid-resize.
-    @State private var panelDividerDragging = false
     /// Whether *this view* currently holds a pushed cursor. `NSCursor`'s stack is
     /// global and its `push`/`pop` are unbalanced by nature — a `pop` with nothing
     /// of ours on the stack discards somebody else's cursor. So the pair is driven
@@ -293,16 +299,18 @@ struct ContentView: View {
             Divider()
             bottomBar
         }
-        // The window's own minimum height, stated *here* rather than on
-        // `editorSplit`. On the split it reached the window only in the
-        // no-panel branch: with a panel shown the split sits inside a
-        // `GeometryReader`, which erases its children's minimum sizes, so the
-        // floor both failed to become a window minimum and forced the column to
-        // overflow — the editor refused to render shorter than it while the
-        // panel took its own height, and the surplus landed on the bottom bar.
-        // At the body root it applies in both branches, and the editor inside
-        // the column is free to shrink to what `panelHeightRule` reserved for it.
-        .frame(minHeight: metrics.scaled(400))
+        // The window's own minimum content size, both axes, stated *here* rather
+        // than on `editorSplit` — and scaled, because at 200% the chrome it has
+        // to hold is twice the size. On the split either floor reached the window
+        // only in the no-panel branch: with a panel shown the split sits inside a
+        // `GeometryReader`, which erases its children's minimum sizes on both
+        // axes. The height did worse than fail — it forced the column to overflow,
+        // the editor refusing to render shorter than it while the panel took its
+        // own height, and the surplus landing on the bottom bar. At the body root
+        // both apply in both branches, the two branches no longer disagree about
+        // how small the window may be, and the editor inside the column is free
+        // to shrink to what `panelHeightRule` reserved for it.
+        .frame(minWidth: metrics.scaled(640), minHeight: metrics.scaled(400))
         // Empty-gap fix: closing the last terminal tab leaves the panel selection
         // on `.terminal` with nothing to draw. Collapse the panel so the bar sits
         // flush at the bottom and a repeat click/⌘⇧T reopens it in one press.
@@ -405,9 +413,20 @@ struct ContentView: View {
                             available: Double(geo.size.height)
                         )))
                 }
+                // Pinned to the area before it is clipped, because `.clipped()`
+                // clips a view to the frame it *reported*, not to the one it was
+                // proposed. A column whose children refuse to shrink reports the
+                // oversized height, and a clip attached straight to it would then
+                // clip to the overflow — the very case it is here to catch. With
+                // the frame stated the rect is the `GeometryReader`'s own, and
+                // top alignment sends any surplus off the bottom edge, where the
+                // clip removes it.
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                 // The space the divider drag is measured in — see
                 // `panelColumnSpace`. Published on the column rather than on the
-                // `GeometryReader` so it names exactly the stack the drag moves.
+                // `GeometryReader` so it names exactly the stack the drag moves,
+                // and after the frame so it is the pinned rect, which cannot move
+                // while the divider does.
                 .coordinateSpace(name: Self.panelColumnSpace)
                 // The guarantee behind requirement "never over the bottom bar".
                 // The rule's clamp is the *behavior* and the absence of any
@@ -453,12 +472,17 @@ struct ContentView: View {
             .gesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.panelColumnSpace))
                     .onChanged { value in
-                        if !panelDividerDragging {
-                            panelDividerDragging = true
+                        // The base is the height on screen, which is `panelHeight`
+                        // only while that proposal still fits — see the note on
+                        // `panelDragStartHeight`.
+                        let base = panelDragStartHeight ?? CGFloat(panelHeightRule.height(
+                            proposed: Double(panelHeight),
+                            available: Double(available)
+                        ))
+                        if panelDragStartHeight == nil {
+                            panelDragStartHeight = base
                             syncPanelDividerCursor()
                         }
-                        let base = panelDragStartHeight ?? panelHeight
-                        if panelDragStartHeight == nil { panelDragStartHeight = base }
                         panelHeight = CGFloat(panelHeightRule.height(
                             base: Double(base),
                             dragTranslation: Double(value.translation.height),
@@ -467,7 +491,6 @@ struct ContentView: View {
                     }
                     .onEnded { _ in
                         panelDragStartHeight = nil
-                        panelDividerDragging = false
                         syncPanelDividerCursor()
                     }
             )
@@ -475,19 +498,22 @@ struct ContentView: View {
                 // Hiding the panel while the cursor is pushed — ⌘-toggling the dock
                 // with the pointer on the divider — takes the divider away without
                 // an `onHover(false)`, so the push has to be released from here or
-                // it outlives the view that made it.
+                // it outlives the view that made it. The same removal can land
+                // mid-drag, and then no `onEnded` arrives either: the drag base has
+                // to be dropped here too, or the next drag would resume from a
+                // height the user abandoned.
                 panelDividerHovering = false
-                panelDividerDragging = false
+                panelDragStartHeight = nil
                 syncPanelDividerCursor()
             }
     }
 
     /// Pushes or pops the resize cursor so that exactly one push of ours is on
     /// `NSCursor`'s stack while the divider is hovered or being dragged, and none
-    /// otherwise. Every write of `panelDividerHovering` / `panelDividerDragging`
+    /// otherwise. Every write of `panelDividerHovering` / `panelDragStartHeight`
     /// calls this; nothing else touches the stack.
     private func syncPanelDividerCursor() {
-        let wanted = panelDividerHovering || panelDividerDragging
+        let wanted = panelDividerHovering || panelDragStartHeight != nil
         guard wanted != panelDividerCursorPushed else { return }
         if wanted { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
         panelDividerCursorPushed = wanted
@@ -724,13 +750,6 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        // The window's own minimum *width*, scaled with the rest: at 200% the
-        // panes it has to hold are twice as wide, so a fixed floor would let the
-        // user shrink the window until the chrome clipped. The matching minimum
-        // height lives on the body root instead — stated here it would not reach
-        // the window while a panel is shown, and would instead force the panel
-        // column to overflow (see the note there).
-        .frame(minWidth: metrics.scaled(640))
     }
 
     /// The LeetCode statement beside the editor. Renders **nothing at all** —

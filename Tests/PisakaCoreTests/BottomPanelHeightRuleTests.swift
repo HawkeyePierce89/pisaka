@@ -92,28 +92,21 @@ final class BottomPanelHeightRuleTests: XCTestCase {
         }
     }
 
-    /// Pins the single-floor decision, which is what lets the view delete the
-    /// per-panel `frame(minHeight:)` modifiers that used to sit *inside* the
-    /// fixed-height panel slot (`panelContent`'s `.log` 160, `.changes` 120 and
-    /// `.problems` 120). The rule deliberately returns a height *below* its own
-    /// floor when the space cannot hold floor + divider + editor reservation, so
-    /// no minimum stated below the rule — 160, 120 or any other number — can be
-    /// honored on that path; a child that insists on one can only overflow the
-    /// slot. The height is therefore a function of `floor`, `dividerHeight` and
-    /// `editorMinimum` alone, and of nothing any panel says about itself.
-    func testTheOnlyFloorIsTheRulesAndItYieldsWhenItMustNotFit() {
+    /// Why the *rule* leaves no room for a per-panel minimum: it deliberately
+    /// returns a height **below its own floor** when the space cannot hold floor +
+    /// divider + editor reservation, so no minimum stated below it — 160, 120 or
+    /// any other number — could be honored on that path, and a child insisting on
+    /// one can only overflow the slot.
+    ///
+    /// This is the arithmetic half of the argument only. That the view actually
+    /// states no such minimum is a fact about `ContentView.panelContent(_:)`,
+    /// which this suite cannot see; `BottomPanelSourceGatingTests` reads the file
+    /// and pins it.
+    func testTheFloorYieldsWhenTheSpaceCannotHoldIt() {
         let degenerate = rule.height(proposed: 240, available: 200)
         XCTAssertLessThan(degenerate, rule.floor)
         XCTAssertLessThan(degenerate, 120, "the deleted `.changes`/`.problems` minimum cannot be honored here")
         XCTAssertLessThan(degenerate, 160, "the deleted `.log` minimum cannot be honored here")
-
-        // Same three constants → same answer, whatever is rendered in the slot.
-        let twin = BottomPanelHeightRule(floor: 120, dividerHeight: 5, editorMinimum: 120)
-        XCTAssertEqual(twin, rule)
-        for available in stride(from: 0.0, through: 1200.0, by: 37.0) {
-            XCTAssertEqual(twin.height(proposed: 240, available: available),
-                           rule.height(proposed: 240, available: available))
-        }
     }
 
     // MARK: - Degenerate inputs

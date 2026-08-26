@@ -188,12 +188,14 @@ struct LeetCodeDescriptionPane: View {
             .fill(Color(NSColor.separatorColor))
             .frame(width: metrics.scaled(5))
             .contentShape(Rectangle())
-            // Paired with `onDisappear`, unlike `ContentView.panelDivider`'s
-            // otherwise identical idiom: that divider goes away only when the
-            // user toggles it, while this whole pane is removed the moment the
-            // statement does — a tab switch under the pointer would otherwise
-            // push a cursor nothing ever pops, and the resize cursor would stick
-            // application-wide.
+            // Paired with `onDisappear`, for the reason
+            // `ContentView.syncPanelDividerCursor()` states and then some: this
+            // whole pane is removed the moment the statement is, so a tab switch
+            // under the pointer would push a cursor nothing ever pops and the
+            // resize cursor would stick application-wide. The flag here is the
+            // hover state itself because this handle's push spans a hover and
+            // nothing else; the panel divider's spans its drag too, which is why
+            // that one needs a separate "pushed" flag rather than this pair.
             .onHover { hovering in
                 guard hovering != isHoveringHandle else { return }
                 isHoveringHandle = hovering

@@ -515,7 +515,9 @@ that file as the *only* DEBUG-only branch outside `Sources/Pisaka/iOS/`) and
 `interfaceScale`, which roots inject the environment, which views declare a zoom
 surface, that the hover popover passes mouse events through and declares none,
 and the Preferences stepper reading its grid from `ZoomScaleRule` — the first
-three by set equality) and `LintConfigurationTests`
+three by set equality), `BottomPanelSourceGatingTests` (the bottom dock panel's
+three view-layer rules; inventory in that suite's doc comments and
+`app-window.md`) and `LintConfigurationTests`
 (both `.swiftlint.yml` files — the version pin, `mandatory_comma`, the root and
 child disabled-rule sets by set equality, every measured threshold ceiling,
 every in-file disable counted by path/rule — plus `.githooks/pre-commit`'s gate
