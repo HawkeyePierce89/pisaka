@@ -184,17 +184,17 @@ The deployment targets are macOS 13 and iOS 17, so the two bars must use
 **Files:**
 - Modify: `Sources/Pisaka/iOS/LogFilterBar_iOS.swift`
 
-- [ ] change the search seed to the two-parameter form:
+- [x] change the search seed to the two-parameter form:
     `.onChange(of: searchQuery) { _, newQuery in search = newQuery }`
-- [ ] leave `LogAdvancedFilterForm_iOS` alone (no change handlers; seeded once
+- [x] leave `LogAdvancedFilterForm_iOS` alone (no change handlers; seeded once
     in `init`) and leave `selectedRef` / `applyRef` alone (they read `filter`
     live from the body / a binding `get`, which is not the stale path) —
     record both as deliberate in the file's audit comment
-- [ ] update the file's audit doc comment with the same rule the macOS bar now
+- [x] update the file's audit doc comment with the same rule the macOS bar now
     states
-- [ ] `grep -n "onChange" Sources/Pisaka/iOS/LogFilterBar_iOS.swift` and
+- [x] `grep -n "onChange" Sources/Pisaka/iOS/LogFilterBar_iOS.swift` and
     confirm the audit holds
-- [ ] covering checks for this task: `swift test` still green and the iOS build
+- [x] covering checks for this task: `swift test` still green and the iOS build
     compiles —
     `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
 
