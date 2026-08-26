@@ -309,11 +309,15 @@ struct ContentView: View {
         // own height, and the surplus landing on the bottom bar. At the body root
         // both apply in both branches, and the editor inside the column is free
         // to shrink to what `panelHeightRule` reserved for it. The *height* is
-        // then the same floor either way; the width is not, and deliberately is
-        // not unified here: without a panel the split's own panes (tree 180 +
-        // tab list 180 + editor 320, scaled) still compose a larger floor than
-        // this 640 and raise the window's, while with a panel the
-        // `GeometryReader` erases them and 640 is all that is left. That is why
+        // then the same floor either way; the width is not always, and
+        // deliberately is not unified here: without a panel and with *vertical*
+        // tabs the split's own panes (tree 180 + tab list 180 + editor 320,
+        // scaled) compose a larger floor than this 640 and raise the window's,
+        // while with a panel the `GeometryReader` erases them — and with
+        // horizontal tabs there is no tab-list column at all, so the split's
+        // 180 + 320 sits below 640 and this floor is the window's in both
+        // branches. Unifying would mean hard-coding a number that moves with the
+        // orientation and with the panes' own floors. That is why
         // the column is pinned `.topLeading` and clipped — a column wider than a
         // narrow area is a live case, not a hypothetical one.
         .frame(minWidth: metrics.scaled(640), minHeight: metrics.scaled(400))
@@ -487,7 +491,10 @@ struct ContentView: View {
     /// `minimumDistance: 0` because the default one makes the very first
     /// `onChanged` arrive with a ≥10pt translation already accumulated, applied
     /// against a base captured in that same call — the panel would jump 10pt
-    /// before it tracked anything.
+    /// before it tracked anything. Its price is that a mouse-*down* is now a
+    /// change too, so the opening zero-translation frame writes no height: a
+    /// click that never becomes a drag must leave the remembered proposal exactly
+    /// as it found it.
     ///
     /// The resize cursor is shown for `hovering || dragging`, never for hovering
     /// alone: the pointer leaves a 5pt strip the moment the drag is quicker than
@@ -508,14 +515,28 @@ struct ContentView: View {
                         // The base is the height on screen, which is `panelHeight`
                         // only while that proposal still fits — see the note on
                         // `panelDragStartHeight`.
+                        let beginning = panelDragStartHeight == nil
                         let base = panelDragStartHeight ?? CGFloat(panelHeightRule.height(
                             proposed: Double(panelHeight),
                             available: Double(available)
                         ))
-                        if panelDragStartHeight == nil {
+                        if beginning {
                             panelDragStartHeight = base
                             syncPanelDividerCursor()
                         }
+                        // A mouse-*down* is already a change at `minimumDistance:
+                        // 0` — the first `onChanged` arrives with a zero
+                        // translation, before the pointer has moved at all. Writing
+                        // then would make a bare click on the divider overwrite the
+                        // remembered proposal with the clamped height on screen,
+                        // silently discarding a height the window is currently too
+                        // short to grant (see `panelDragStartHeight`: the stored
+                        // proposal is deliberately never re-clamped, so it survives
+                        // a shrink and comes back on the next grow). Only the
+                        // opening frame is skipped: once the drag has moved, a
+                        // translation returning to zero legitimately means "back to
+                        // the base" and must be written.
+                        guard !beginning || value.translation.height != 0 else { return }
                         panelHeight = CGFloat(panelHeightRule.height(
                             base: Double(base),
                             dragTranslation: Double(value.translation.height),

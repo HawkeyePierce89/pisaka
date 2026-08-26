@@ -184,7 +184,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `mainArea`. `minimumDistance: 0` is the second half: the default makes the very
     first `onChanged` arrive with a ≥10pt translation already accumulated, applied
     against a base captured in that same call, so the panel jumped 10pt before it
-    tracked anything. The base the translation is applied to is the height being
+    tracked anything. It has a price paid explicitly: at distance zero a
+    mouse-*down* is already a change, so the opening `onChanged` arrives with a
+    zero translation before the pointer has moved, and **that one frame writes no
+    height**. Otherwise a bare click on the divider would overwrite the remembered
+    proposal with the clamped height on screen — discarding, in a window too short
+    to grant it, precisely the height the next paragraph says nothing re-clamps.
+    Only the opening frame is skipped: once the drag has moved, a translation
+    returning to zero means "back to the base" and is written. The base the translation is applied to is the height being
     **rendered**, not the stored `panelHeight`: nothing re-clamps that stored
     proposal when the area shrinks or the interface scale grows, so a base taken
     from it starts the gesture outside the bounds it is clamped against and the
@@ -267,8 +274,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     suite stayed green — which is the miss `TerminalPanelView` demonstrated for the
     whole life of the rule, and the reason the inventory is tied to the enum
     rather than merely listed. Also pinned: the gesture
-    naming `panelColumnSpace` with `minimumDistance: 0`, and the top-leading pin
-    ordered before the clip. All three string matches are made against
+    naming `panelColumnSpace` with `minimumDistance: 0`, the top-leading pin
+    ordered before the clip, and the slot's own `alignment: .top` — read out of
+    exactly the modifiers between the `panelContent(panel)` call and that pin, so
+    the column's `.topLeading` cannot satisfy it by accident. All the string matches are made against
     whitespace-stripped source, so a reformat that wraps an argument list cannot
     fail the suite while the rule it guards is intact.
     **The window's minimum content size moved to the body root — both axes.**
@@ -281,12 +290,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     editor refuse to render shorter than it, which is what pushed the surplus onto
     the bottom bar. Stated on the window body `VStack` both apply in both branches
     and `editorSplit` inside the column is free to shrink to the rule's much
-    smaller reservation. **The height agrees in both branches now; the width still
-    does not**, and that is left as it is on purpose: in the no-panel branch the
-    split's panes compose a larger floor than 640 (tree 180 + tab list 180 +
-    editor 320, scaled, plus the `HSplitView` dividers) and raise the window's
-    minimum above it, while in the panel branch the `GeometryReader` erases them
-    and 640 is the whole floor. Raising the root `minWidth` to the composed sum
+    smaller reservation. **The height agrees in both branches now; the width does
+    not always**, and that is left as it is on purpose: in the no-panel branch
+    with *vertical* tabs the split's panes compose a larger floor than 640 (tree
+    180 + tab list 180 + editor 320, scaled, plus the `HSplitView` dividers) and
+    raise the window's minimum above it, while in the panel branch the
+    `GeometryReader` erases them and 640 is the whole floor. With *horizontal*
+    tabs there is no tab-list column — the strip is stacked above the editor
+    inside the right zone — so the split composes 180 + 320 and 640 is the
+    window's width minimum in both branches. Raising the root `minWidth` to the composed sum
     would hard-code a number that moves with the tab orientation and with the
     panes' own floors, and the case it would rule out is the one the top-*leading*
     pin and the clip below already handle — which is why that alignment is

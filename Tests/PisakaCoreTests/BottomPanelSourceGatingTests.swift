@@ -53,6 +53,13 @@ import XCTest
 ///   view to the frame it *reported*, not the one it was proposed, so dropping
 ///   the `.frame(width:height:alignment:)` in front of it silently turns the
 ///   guarantee into a no-op in precisely the overflow case it exists for.
+/// - **The slot itself is top-aligned.** The same argument one level in, and the
+///   other half of the same guarantee: `.frame(height:)` defaults to `.center`,
+///   which splits an overflowing child's surplus evenly and sends half of it
+///   *upwards*, over the divider and into the editor — inside the clipped rect,
+///   where the clip cannot reach it. Deleting `alignment: .top` compiles, reads
+///   as a harmless simplification, and leaves the guarantee covering the bottom
+///   bar alone.
 final class BottomPanelSourceGatingTests: XCTestCase {
 
     /// `ContentView.swift`, comment- and literal-stripped.
@@ -200,6 +207,39 @@ final class BottomPanelSourceGatingTests: XCTestCase {
         XCTAssertLessThan(
             pinned.lowerBound, clip.lowerBound,
             "the pin must come before the clip, or the clip rect is still the column's own size"
+        )
+    }
+
+    // MARK: - The slot sends its surplus where the clip can reach it
+
+    func testThePanelSlotIsTopAligned() throws {
+        let code = Self.whitespaceFree(try contentViewCode())
+        let slot = try XCTUnwrap(
+            code.range(of: "panelContent(panel)"),
+            "panelContent(_:) is no longer called with the selected panel — update this suite deliberately"
+        )
+        let pin = try XCTUnwrap(
+            code.range(of: Self.whitespaceFree("frame(width: geo.size.width")),
+            "the panel column is no longer pinned to the area — see testThePanelColumnIsPinnedToTheAreaBeforeItIsClipped"
+        )
+        XCTAssertLessThan(
+            slot.upperBound, pin.lowerBound,
+            "the slot must be inside the pinned column, or this suite is reading the wrong modifiers"
+        )
+        // Everything between the call and the column's own pin: the fixed-height
+        // slot's modifiers, and nothing else. The column pin's own
+        // `alignment: .topLeading` is past `pin.lowerBound` and so cannot satisfy
+        // this by accident.
+        XCTAssertTrue(
+            code[slot.upperBound..<pin.lowerBound].contains("alignment:.top"),
+            """
+            The fixed-height panel slot is no longer top-aligned. `.frame(height:)` defaults to \
+            `.center`, so a child that refuses the proposal overflows *symmetrically*: the downward \
+            half lands on the column's bottom edge where `.clipped()` removes it, and the upward \
+            half paints over the divider and into the editor — inside the clipped rect, where the \
+            clip cannot reach it. Without this the overdraw guarantee covers the bottom bar and \
+            nothing else, which is half of what the bug report names.
+            """
         )
     }
 
