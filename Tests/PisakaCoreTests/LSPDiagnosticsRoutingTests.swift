@@ -27,7 +27,7 @@ import XCTest
 /// - `testASpentCrashBudgetEmitsTheKeysClear` (4th death): restaged —
 ///   close-then-`prepare`.
 /// - `testAReplacementOpenedWithoutWaitingIsNotClearedByThePredecessor`:
-///   restaged — close-then-`open`, unwaited, absence-asserted.
+///   new — close-then-`open`, unwaited, absence-asserted.
 @MainActor
 final class LSPDiagnosticsRoutingTests: XCTestCase {
 
@@ -204,6 +204,28 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
             if case .cleared(.server(let serverID, _)) = $0 { return serverID }
             return nil
         }
+    }
+
+    /// The shared tail of the two D33 replacement tests: find the last
+    /// publication and require that no clear of any kind follows it.
+    private func assertNoClearAfterLastPublication(
+        _ reason: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let lastPublishedIndex = events.lastIndex { event in
+            if case .published = event { return true }
+            return false
+        }!
+        XCTAssertNil(
+            events.dropFirst(lastPublishedIndex + 1).first { event in
+                if case .cleared = event { return true }
+                return false
+            },
+            reason,
+            file: file,
+            line: line
+        )
     }
 
     /// Open `url` with `text`, waiting until the server holds it.
@@ -558,17 +580,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         }
 
         // The dead consumer must not emit a clear after the replacement's publish.
-        let lastPublishedIndex = events.lastIndex { event in
-            if case .published = event { return true }
-            return false
-        }!
-        XCTAssertNil(
-            events.dropFirst(lastPublishedIndex + 1).first { event in
-                if case .cleared = event { return true }
-                return false
-            },
-            "the dead consumer must not clear a replacement's answers"
-        )
+        assertNoClearAfterLastPublication("the dead consumer must not clear a replacement's answers")
     }
 
     /// The unwaited sibling of
@@ -588,26 +600,22 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
     /// the sleep; one cannot wait causally on a signal that must never
     /// arrive.
     ///
-    /// Two interleavings are legal, and the test passes deterministically
-    /// under each:
-    ///
-    /// - **EOF noticed first.** `prepare`'s liveness check finds the corpse;
-    ///   `noteDeath` cancels the predecessor's consumer and emits its own
-    ///   clear synchronously before the relaunch, so every clear lands before
-    ///   the replacement exists. The first `prepare` answers non-nil, and the
-    ///   second is served by the replacement.
-    /// - **Request races ahead.** `prepare`'s liveness check beats the read
-    ///   task's EOF processing, finds `isRunning` still true, and is served
-    ///   by the corpse — writes still succeed, the fake having closed only
-    ///   the incoming direction, which is exactly "the workspace has not
-    ///   learned the server died yet". The consumer then wakes into the
-    ///   stream finish, finds the slot still holding *its own* session, and
-    ///   legitimately speaks D33's clear — before any of the replacement's
-    ///   publications, its resumption having been enqueued at stream-finish
-    ///   time, ahead of every later main-actor job. Per the documented
-    ///   contract this first request may instead answer `nil`; either way the
-    ///   *next* one restarts, which is why the second `prepare` is required
-    ///   to answer and `launches` to stop at exactly two.
+    /// When the read task's EOF processing lands relative to these prepares is
+    /// the scheduler's call — the read task runs on the session actor and
+    /// usually wins outright, but nothing pins the order — so the staging does
+    /// **not** count prepares. The launch itself is the rendezvous: prepare
+    /// repeatedly until `launches` stops at two. That wait is causal, not
+    /// timed: the stream was finished and nothing cancels the read task, so
+    /// its EOF processing is guaranteed to run, and the first prepare whose
+    /// liveness check follows it finds the corpse, books the death and
+    /// relaunches. Prepares served by the corpse before that (`isRunning`
+    /// still true; the fake has finished its incoming direction, so the
+    /// corpse's outgoing traffic goes nowhere while `send` itself keeps
+    /// succeeding — exactly "the workspace has not learned the server died
+    /// yet") merely delay it. Per the documented contract a request can also
+    /// answer `nil` along the way (the request that notices a dead session
+    /// answers nil); those are retried, and the prepare that triggered the
+    /// relaunch is the one required to answer.
     ///
     /// Reachability, stated honestly: neither interleaving reaches the true
     /// branch of the `filed !== session` guard in `attachNotificationConsumer`.
@@ -630,15 +638,23 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         // Close the predecessor and do NOT wait for its clear.
         harness.latest.closeStream()
 
-        // Open the replacement immediately. The first prepare may answer nil
-        // (the documented contract: the request that notices a dead session
-        // answers nil and the next one restarts it) or be served by the corpse;
-        // either way the second answers, and exactly one replacement has been
-        // launched by then.
-        _ = await workspace.prepare(url: mainFile, language: .swift, text: "b")
-        let replacement = await workspace.prepare(url: mainFile, language: .swift, text: "b")
+        // Open the replacement immediately, without waiting for the
+        // predecessor's clear. Which prepares the corpse serves before its EOF
+        // processing lands is the scheduler's call, so the launch itself is
+        // the rendezvous: keep preparing until `launches` reaches two — the
+        // first prepare past the death's notice triggers exactly one
+        // relaunch, and that one answers.
+        var replacement: LSPWorkspace.PreparedDocument?
+        let launchDeadline = Date().addingTimeInterval(2)
+        while harness.launches.count < 2 {
+            if Date() >= launchDeadline {
+                XCTFail("timed out waiting for the replacement to be launched")
+                struct LaunchTimeoutError: Error {}
+                throw LaunchTimeoutError()
+            }
+            replacement = await workspace.prepare(url: mainFile, language: .swift, text: "b")
+        }
         XCTAssertNotNil(replacement, "the request past the death's notice must answer")
-        XCTAssertEqual(harness.launches.count, 2, "exactly one replacement, however the race fell")
 
         try pushToMainFile(version: 1, message: "new")
         try await waitFor("the new push") {
@@ -647,15 +663,7 @@ final class LSPDiagnosticsRoutingTests: XCTestCase {
         try await settle()
 
         // No straggler clear may follow the replacement's publication.
-        let lastPublishedIndex = events.lastIndex { event in
-            if case .published = event { return true }
-            return false
-        }!
-        XCTAssertNil(
-            events.dropFirst(lastPublishedIndex + 1).first { event in
-                if case .cleared = event { return true }
-                return false
-            },
+        assertNoClearAfterLastPublication(
             "the predecessor's consumer must not clear after the replacement's answers"
         )
     }

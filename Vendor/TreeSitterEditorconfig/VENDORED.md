@@ -146,6 +146,8 @@ matching `named` flag**.
   `SwiftTreeSitter`
 - `.package(path: "<repo>/SourcePackages/checkouts/tree-sitter")` — declared but
   unused.
+- `.package(path: "<repo>")` → product `PisakaCore` (for
+  `SyntaxTokenKind(captureName:)`).
 
 The program should: build `Language(language: tree_sitter_editorconfig())`, load
 `queries/highlights.scm` with `try Query(language:data:)` (a compile failure here

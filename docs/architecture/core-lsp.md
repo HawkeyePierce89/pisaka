@@ -902,8 +902,10 @@ document, together with the limits they carry.
     touching D7's counters (`prepare` still owns crash *detection*). The
     stream-finish clear checks that no replacement session already owns the key,
     so a restarted server's fresh pushes are not wiped by their dead predecessor's
-    goodbye. The sink is called synchronously on the main actor; what accepts or
-    drops the event next is `DiagnosticsModel`'s gate, below.
+    goodbye (in practice a backstop — replacement sites cancel the incumbent
+    consumer first; see D33's reachability note). The sink is called synchronously
+    on the main actor; what accepts or drops the event next is `DiagnosticsModel`'s
+    gate, below.
     **A reader, never a writer** (D10).
 
   - `CompletionEditPlan.swift` — the pure rule auto-import is applied by, so the
@@ -2656,6 +2658,12 @@ consumer task walks out of its loop and emits the key's clear on the way out. Th
 path tears no session down and touches no D7 counter — noticing a crash stays
 `prepare`'s job — but it must not clear a *replacement* server's fresh pushes
 either, so the consumer checks that no newer session owns the key before clearing.
+In practice that check is a backstop: every site that empties or replaces the slot
+cancels the incumbent consumer inside its synchronous mutation prefix, so an
+exiting consumer normally stops at `!Task.isCancelled` before the identity check —
+the reachability finding
+`testAReplacementOpenedWithoutWaitingIsNotClearedByThePredecessor` stages and
+records, alongside the unwaited neighbourhood the check still guards.
 Without all of this, a dead or removed server's squiggles would sit on screen until
 the file was edited — the one state in this layer that outlives its author.
 
