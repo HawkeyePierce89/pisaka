@@ -211,15 +211,20 @@ work stops with a report instead of a code change.
 **Files:**
 - Modify: `Resources/Licenses/licenses.json`
 
-- [ ] Restore the pre-part-3 file
+- [x] Restore the pre-part-3 file
       (`git show 553e9f2^:Resources/Licenses/licenses.json`)
       and re-add the single `TreeSitterEditorconfig` notice entry in that file's
       own key-spacing style (`"id" : "…"`), in the position part 3 put it (last
       in `notices`, after `libgit2`), with the same six field values.
-- [ ] Verify `git diff 553e9f2^ -- Resources/Licenses/licenses.json` shows
+      Done: restored via `git restore --source=553e9f2^`, then the entry
+      hand-inserted after `libgit2` with the original `"key" : value` spacing.
+- [x] Verify `git diff 553e9f2^ -- Resources/Licenses/licenses.json` shows
       exactly one added entry and no reformatted lines.
-- [ ] Run `swift test --filter LicenseCoverageTests` — green, the suite itself
+      Confirmed: 15 insertions / 0 deletions — one entry plus its comma splice;
+      no other line touched.
+- [x] Run `swift test --filter LicenseCoverageTests` — green, the suite itself
       unchanged.
+      13 tests, 0 failures.
 
 ### Task 7: Make the vendored grammar's verification record honest
 
