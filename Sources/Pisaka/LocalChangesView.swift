@@ -318,7 +318,7 @@ private struct ChangedFileRow: View {
         .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }
         .contextMenu {
-            if status == .conflicted {
+            if !LocalChangesModel.offersShowDiff(for: status) {
                 Button("Resolve…", action: onResolveConflict)
                 Divider()
             } else {
@@ -481,9 +481,12 @@ private final class LocalChangesFocusAnchorView: NSView {
         guard
             event.charactersIgnoringModifiers?.lowercased() == "d",
             event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command],
-            window?.firstResponder === self,
-            let selectedFile
+            window?.firstResponder === self
         else { return super.performKeyEquivalent(with: event) }
+
+        // No selection — the focused panel owns the key, the keystroke is
+        // consumed but does nothing (a deliberate no-op, not an oversight).
+        guard let selectedFile else { return true }
 
         switch LocalChangesModel.activation(for: selectedFile) {
         case .diff: onOpenDiff(selectedFile)
