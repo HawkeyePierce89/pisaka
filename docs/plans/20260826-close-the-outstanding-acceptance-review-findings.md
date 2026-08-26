@@ -160,16 +160,16 @@ work stops with a report instead of a code change.
 **Files:**
 - Modify: `project.yml`
 
-- [ ] Replace the ABI-headers/version-pin story above `TreeSitterSql:` with the
+- [x] Replace the ABI-headers/version-pin story above `TreeSitterSql:` with the
       two documented reasons from `Vendor/TreeSitterSql/VENDORED.md` (the tagged
       tree ships no generated `src/parser.c`, so the manifest's `sources:` names
       a file that does not exist; and the manifest is a hard SwiftPM error
       through its test target's undeclared `SwiftTreeSitter` product), keeping
       the pointer to `VENDORED.md`. The pre-part-3 wording at `553e9f2^` is a
       correct starting point.
-- [ ] Confirm no other `project.yml` content changed
+- [x] Confirm no other `project.yml` content changed
       (`git diff -- project.yml` is that comment block alone).
-- [ ] Run `swift test --filter DependencyPinTests` and
+- [x] Run `swift test --filter DependencyPinTests` and
       `swift test --filter ReleaseMetadataTests` — both read `project.yml` and
       must stay green.
 
