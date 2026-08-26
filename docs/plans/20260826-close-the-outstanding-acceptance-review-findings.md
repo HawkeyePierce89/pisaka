@@ -231,7 +231,7 @@ work stops with a report instead of a code change.
 **Files:**
 - Modify: `Vendor/TreeSitterEditorconfig/VENDORED.md`
 
-- [ ] Actually run the verification by the file's own recipe: a throwaway SwiftPM
+- [x] Actually run the verification by the file's own recipe: a throwaway SwiftPM
       package outside the repository depending on
       `Vendor/TreeSitterEditorconfig`, `SourcePackages/checkouts/SwiftTreeSitter`
       and `SourcePackages/checkouts/tree-sitter`; build the `Language`, compile
@@ -240,18 +240,32 @@ work stops with a report instead of a code change.
       fixtures, print every `(capture name, captured text)` pair by position and
       every uncaptured offset, and run each observed capture name through
       `SyntaxTokenKind(captureName:)`.
-- [ ] Compare the observed pairs against both tables in the file. If they match,
+      Done 2026-08-26: harness also depended on `PisakaCore` for the real
+      `SyntaxTokenKind(captureName:)`; query compiled (14 patterns, 9 capture
+      names), both fixtures parsed and executed via `nextCapture()`.
+- [x] Compare the observed pairs against both tables in the file. If they match,
       update the "Last run" paragraph with the run's date, what was executed, and
       the observed result — including the uncaptured-character metric as actually
       measured (state whether the zero count is over non-newline or
       non-whitespace characters, and correct the wording if the run contradicts
       it). Delete the throwaway package.
-- [ ] If the run contradicts a table row (a capture that does not fire, an
+      Done: every table row witnessed (capture name + containing range); all 9
+      names resolved to their table kinds, none `.plain`. The old claim of zero
+      over *non-newline* characters was contradicted — fixture A leaves its
+      eight `=`-adjacent spaces uncovered — so the paragraph now states zero
+      over *non-whitespace* characters and says so; the recipe's expectation
+      sentence was corrected the same way. Package deleted (`git status` clean
+      apart from `VENDORED.md`).
+- [x] If the run contradicts a table row (a capture that does not fire, an
       unexpected kind, a non-zero uncaptured count), **stop and report** rather
       than adjusting the tables or touching product code — that is a highlighting
       defect, which the ticket puts out of scope.
-- [ ] Run `swift test --filter VendoredGrammarQueryTests` — the automated static
+      Not triggered: no table row contradicted (no missing capture, no wrong
+      kind, zero non-whitespace uncovered); only the metric's wording needed the
+      correction checkbox 2 authorizes.
+- [x] Run `swift test --filter VendoredGrammarQueryTests` — the automated static
       half must stay green.
+      12 tests, 0 failures.
 
 ### Task 8: Verify acceptance criteria
 
