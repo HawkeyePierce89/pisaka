@@ -169,12 +169,12 @@ Cmd+D on a conflicted row still opens the resolver, via the same rule.
 - Modify: `README.md`
 - Modify: `docs/FEATURES.md`
 
-- [ ] `core-git-models.md`: extend the `LocalChangesModel.swift` entry with
+- [x] `core-git-models.md`: extend the `LocalChangesModel.swift` entry with
       `RowActivation`, `activation(for:)`, `shortcutActivation(selected:)` and
       `offersShowDiff(for:)` — the one place the conflicted/ordinary split is
       decided, why "no selection" is a deliberate no-op, and why a conflicted row
       is offered no "Show Diff".
-- [ ] `app-git-views.md`: rewrite the `LocalChangesView.swift` entry's activation
+- [x] `app-git-views.md`: rewrite the `LocalChangesView.swift` entry's activation
       paragraph — the three triggers (double-click, "Show Diff", Cmd+D) sharing
       one path through the Core rule, the new menu order (Show Diff → Commit… →
       Revert, with "Resolve…" + divider still above them on a conflicted row),
@@ -182,16 +182,16 @@ Cmd+D on a conflicted row still opens the resolver, via the same rule.
       focus token) and the `performKeyEquivalent` gate mirroring
       `EditorTextView`'s — including that Cmd+D is consumed with nothing selected
       and that the editor's own gate is what keeps the two meanings apart.
-- [ ] `README.md`: change the Cmd+D shortcut row to state both meanings —
+- [x] `README.md`: change the Cmd+D shortcut row to state both meanings —
       duplicate the line/selection in the editor, show the selected file's diff
       when the Local Changes panel has focus — keeping the table's one-line-per-
       shortcut format.
-- [ ] `docs/FEATURES.md`: update the duplicate-line bullet (which currently says
+- [x] `docs/FEATURES.md`: update the duplicate-line bullet (which currently says
       Cmd+D "does nothing while focus is in the terminal or the project tree") to
       name the Local Changes panel as the one other surface that answers it, and
       extend the Local Changes bullet with the "Show Diff" context-menu item and
       the Cmd+D shortcut.
-- [ ] run `swift test` (the doc-shape suites read repository files, so keep them
+- [x] run `swift test` (the doc-shape suites read repository files, so keep them
       green) — must pass before Task 5.
 
 ### Task 5: Verify acceptance criteria

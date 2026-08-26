@@ -75,6 +75,17 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     erased) — the first failure (or stale file) instead sets
     `errorMessage` and stops (leaving the checked set for a retry), and it returns
     the absolute URLs whose on-disk state changed so the app can resync open tabs.
+    The *row-activation* decision — what opening a changed-file row means — lives
+    here as pure static rules: `RowActivation` (`.diff` / `.resolveConflict`),
+    `activation(for:)` returning `.resolveConflict` for a `.conflicted` file and
+    `.diff` for every other status, `shortcutActivation(selected:)` returning
+    `nil` for no selection (the keystroke is consumed but does nothing — a
+    deliberate no-op) and `activation(for:)` for a selection, and
+    `offersShowDiff(for:)` returning `false` for `.conflicted` rows (they already
+    offer "Resolve…" which opens the same window — two names for one action would
+    be noise). These three entry points are the single routing point shared by
+    the double-click, the "Show Diff" context-menu item and the Cmd+D keyboard
+    shortcut; no view-layer code duplicates the decision.
     The whole batch is also guarded against a *mid-revert opened-folder switch*
     via a `rootRequestGeneration` token bumped *synchronously at refresh entry*
     whenever the requested folder changes: `revert` captures it at entry and,
