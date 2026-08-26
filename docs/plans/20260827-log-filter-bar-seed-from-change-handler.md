@@ -158,23 +158,23 @@ The deployment targets are macOS 13 and iOS 17, so the two bars must use
 **Files:**
 - Modify: `Sources/Pisaka/LogFilterBar.swift`
 
-- [ ] replace `seedFromFilter()` with a function of what it seeds from —
+- [x] replace `seedFromFilter()` with a function of what it seeds from —
     `private func seed(from newFilter: LogFilter)` calling
     `draft.seed(from: newFilter)`
-- [ ] `.onChange(of: filter) { newFilter in seed(from: newFilter) }` — using
+- [x] `.onChange(of: filter) { newFilter in seed(from: newFilter) }` — using
     the macOS 13 single-parameter form whose parameter is the new value; do
     not switch to the macOS 14+ two-parameter spelling
-- [ ] `.onChange(of: searchQuery) { newQuery in search = newQuery }`
-- [ ] make `.onAppear` seed both explicitly from the current `filter` /
+- [x] `.onChange(of: searchQuery) { newQuery in search = newQuery }`
+- [x] make `.onAppear` seed both explicitly from the current `filter` /
     `searchQuery` (at appearance the property is current — this is the one
     place the property may legitimately be read)
-- [ ] update the type's doc comment and the `seed(from:)` comment to name the
+- [x] update the type's doc comment and the `seed(from:)` comment to name the
     trap: a change handler seeds from its parameter, because the view's own
     observed property still holds the previous value inside the handler
-- [ ] `grep -n "onChange" Sources/Pisaka/LogFilterBar.swift` and confirm no
+- [x] `grep -n "onChange" Sources/Pisaka/LogFilterBar.swift` and confirm no
     remaining handler reads the observed property off `self` (Requirement 1's
     audit, run against the tree)
-- [ ] covering checks for this task (the view layer is untested by convention):
+- [x] covering checks for this task (the view layer is untested by convention):
     `swift test` still green and the macOS build compiles —
     `xcodegen generate` then
     `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`

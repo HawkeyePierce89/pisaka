@@ -9,11 +9,17 @@ import PisakaCore
 /// live in a single `LogFilterDraft` value; the message search lives in its own
 /// `search` string because it is not a `LogFilter` dimension. The draft is the
 /// single editable value so seeding a model-published filter can update every
-/// control silently: `seedFromFilter` assigns the draft directly and is therefore
+/// control silently: `seed(from:)` assigns the draft directly and is therefore
 /// structurally unable to reach the apply path, which lives only in user-intent
-/// binding setters (and `onSubmit`). The server-side dimensions are reported via
-/// `onApplyFilter` (generation-guarded re-fetch); the message search is reported
-/// live via `onSearch` (client-side filter, no re-query). All decision logic
+/// binding setters (and `onSubmit`). **A change handler seeds from its
+/// parameter**, never from the view's own observed property: inside the handler
+/// that property still holds the *previous* value, so re-reading it seeds the
+/// bar one publish behind forever and the next apply — assembled from the
+/// lagging draft — writes the stale state back. `onAppear` is the one exception,
+/// because at appearance the properties are current. The server-side dimensions
+/// are reported via `onApplyFilter` (generation-guarded re-fetch); the message
+/// search is reported live via `onSearch` (client-side filter, no re-query).
+/// All decision logic
 /// (trimming, day-boundary normalization, verbatim ref preservation, tag mapping)
 /// lives in `PisakaCore.LogFilterDraft`.
 struct LogFilterBar: View {
@@ -71,11 +77,22 @@ struct LogFilterBar: View {
         .font(metrics.scaledFont(.body))
         .padding(.horizontal, metrics.scaled(10))
         .padding(.vertical, metrics.scaled(6))
-        .onAppear(perform: seedFromFilter)
+        .onAppear {
+            // The one place the view's own properties may be read: at appearance
+            // they are current. A draft that has never been shown also has no
+            // chosen day to preserve, which is exactly the from-scratch seeding
+            // form's case.
+            draft = LogFilterDraft(filter: filter, defaultDate: Date())
+            search = searchQuery
+        }
         // Re-seed if the model swaps in a different filter/search out from under us
-        // (e.g. switching repositories resets to the default filter).
-        .onChange(of: filter) { _ in seedFromFilter() }
-        .onChange(of: searchQuery) { _ in search = searchQuery }
+        // (e.g. switching repositories resets to the default filter). Both handlers
+        // seed from the closure's *new value*; `filter`/`searchQuery` still hold the
+        // previous one here. The single-parameter `onChange` spelling is deliberate:
+        // the deployment target is macOS 13, whose only overload hands the new value
+        // as that one parameter — the two-parameter form is macOS 14+.
+        .onChange(of: filter) { newFilter in seed(from: newFilter) }
+        .onChange(of: searchQuery) { newQuery in search = newQuery }
     }
 
     /// `references` order-preserving, with later duplicates dropped.
@@ -211,15 +228,21 @@ struct LogFilterBar: View {
         }
     }
 
-    /// Seed every control from the current `filter`/`searchQuery` by direct
-    /// assignment. This is structurally unable to reach the apply path because
-    /// every apply lives in a binding setter or an explicit `onSubmit`, and is
-    /// handed the new value explicitly — no value-equality suppression is involved
-    /// anywhere, which is the requirement: an equality guard failed under
-    /// interleaved applies when the published `filter` lagged `requestedFilter`.
-    private func seedFromFilter() {
-        draft = LogFilterDraft(filter: filter, defaultDate: Date())
-        search = searchQuery
+    /// Seed the server-side controls from `newFilter` by direct assignment.
+    ///
+    /// It takes what it seeds from as a parameter rather than reading `filter`
+    /// off `self`, because its caller is a change handler and the view's own
+    /// observed property is still the previous value there. Seeding is
+    /// structurally unable to reach the apply path: every apply lives in a
+    /// binding setter or an explicit `onSubmit` and is handed the new value
+    /// explicitly — no value-equality suppression is involved anywhere, which is
+    /// the requirement (an equality guard failed under interleaved applies when
+    /// the published `filter` lagged `requestedFilter`).
+    ///
+    /// `LogFilterDraft.seed(from:)` re-seeds the draft in place, so a bound the
+    /// incoming filter does not state keeps the day its picker already shows.
+    private func seed(from newFilter: LogFilter) {
+        draft.seed(from: newFilter)
     }
 }
 
