@@ -315,17 +315,17 @@ final class LanguageKeywordsTests: XCTestCase {
 
         let expected = [
             "charset", "cr", "crlf", "end_of_line", "false", "indent_size",
-            "indent_style", "insert_final_newline", "lf", "max_line_length",
+            "indent_style", "insert_final_newline", "latin1", "lf", "max_line_length",
             "root", "space", "tab", "tab_width", "trim_trailing_whitespace", "true",
             "unset",
         ]
 
         XCTAssertEqual(editorconfig, expected.sorted())
 
-        // Explicitly assert the charset values are absent.
+        // Explicitly assert the hyphenated charset values are absent.
         XCTAssertFalse(editorconfig.contains("utf-8"))
         XCTAssertFalse(editorconfig.contains("utf-16be"))
         XCTAssertFalse(editorconfig.contains("utf-16le"))
-        XCTAssertFalse(editorconfig.contains("latin1"))
+        XCTAssertTrue(editorconfig.contains("latin1"))
     }
 }
