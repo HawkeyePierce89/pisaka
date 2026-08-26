@@ -230,21 +230,21 @@ re-read of state.
 - Modify: `Sources/PisakaCore/CommitLogModel.swift`
 - Modify: `Tests/PisakaCoreTests/CommitLogModelTests.swift`
 
-- [ ] rewrite the false claim on `prepareForFilter` — the re-seed echo does
+- [x] rewrite the false claim on `prepareForFilter` — the re-seed echo does
       **not** always no-op: the published `filter` lags the latest
       `requestedFilter` by one phase whenever two applies interleave, so an echo
       built from the published value is a genuinely different filter and is
       accepted. Say plainly that the model's guard orders requests and cannot
       suppress a view echo, and that not echoing is the *view's* obligation
       (naming the binding construction as the mechanism)
-- [ ] apply the same correction to the matching commentary in
+- [x] apply the same correction to the matching commentary in
       `Sources/Pisaka/CommitLogView.swift`'s `applyFilter`, which repeats the
       claim
-- [ ] expose `public var currentRequestedFilter: LogFilter { requestedFilter }`
+- [x] expose `public var currentRequestedFilter: LogFilter { requestedFilter }`
       — the symmetric counterpart of the existing `currentRequestGeneration`,
       making the publish-lags-request contract readable and assertable rather
       than folklore
-- [ ] add a regression test staging two interleaved `applyFilter` tasks with the
+- [x] add a regression test staging two interleaved `applyFilter` tasks with the
       existing `gateCommits`/`waitForGatedCalls` rendezvous (causal, no timed
       waits): with the first apply suspended in git and a second prepared,
       assert `model.filter` (the publish) differs from `currentRequestedFilter`,
@@ -252,10 +252,10 @@ re-read of state.
       token — i.e. an echo of what the view can see is accepted and would spawn
       a fetch. Name and comment the test as the pin for the one-phase lag the
       view must not rely on
-- [ ] remove the product-name comparisons from the comments this change rewrites
+- [x] remove the product-name comparisons from the comments this change rewrites
       (`LogFilter.swift`'s `RefSelection.all` and `search(_:query:)`, and the
       Log view headers), describing the behavior on its own terms
-- [ ] run `swift test` — must pass before Task 5
+- [x] run `swift test` — must pass before Task 5
 
 ### Task 5: Documentation
 
