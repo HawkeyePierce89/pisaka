@@ -801,7 +801,7 @@ final class CommitLogModelTests: XCTestCase {
         // `await` on git), so an echo built from the published value is a genuinely
         // different filter and is accepted — it would spawn a fetch. Not echoing is
         // the view's obligation (user-intent bindings apply only from `Binding.set` /
-        // `onSubmit`, and `seedFromFilter` assigns the draft directly); the model's
+        // `onSubmit`, and the bar's `seed(from:)` assigns the draft directly); the model's
         // `prepareForFilter` guard orders requests and cannot suppress the echo.
         let git = StubGit()
         git.gateCommits = true

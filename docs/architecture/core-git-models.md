@@ -268,13 +268,25 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `search` string — message search is not a `LogFilter` dimension) and applies
     only from user-intent bindings. Holds `refSelection: LogFilter.RefSelection`,
     `author`/`path: String` (verbatim/untrimmed as typed), `sinceEnabled`/`since:
-    Date`, `untilEnabled`/`until: Date`. The seed/assemble pair is
-    `init(filter: LogFilter, defaultDate: Date)` and `filter(calendar: Calendar) ->
-    LogFilter`: `init` seeds every dimension from `filter`, parking a disabled
-    picker's date on `defaultDate`; a present bound is seeded verbatim (the inclusive
+    Date`, `untilEnabled`/`until: Date`. The seed half of the seed/assemble pair
+    has **two forms and one rule**: `init(filter: LogFilter, defaultDate: Date)`
+    builds a fresh draft, `mutating func seed(from: LogFilter)` re-seeds an
+    existing one, and the `init` is expressed in terms of `seed(from:)` (park both
+    dates on `defaultDate`, then seed) so there is one seeding rule rather than two
+    that can drift. `seed(from:)` assigns `refSelection`, `author`/`path` (`nil` →
+    `""`) and both `…Enabled` flags verbatim, and assigns a **date only when the
+    incoming bound is present**: an absent bound clears its flag and *keeps the day
+    the draft already shows*. Why: unticking a bound means "do not bound the log by
+    this", not "forget the day I chose", so re-ticking must offer that day back
+    rather than jumping to now; and a seed is never a user edit — it is the view
+    catching up to what the model published, so it may not discard a choice the
+    user made and the filter has no room to carry. Only the from-scratch `init`,
+    which has no day to preserve, parks a disabled picker's date on `defaultDate`.
+    A present bound is seeded verbatim (the inclusive
     last-second-of-day instant for `until` is still on the selected day, so
     `filter()` re-derives the same bound — the round-trip is idempotent and needs no
-    inverse, as `since`'s start-of-day already is). `filter(calendar:)` trims
+    inverse, as `since`'s start-of-day already is). The assemble half,
+    `filter(calendar: Calendar) -> LogFilter`, trims
     author/path (blank → `nil`), normalizes `since` to `calendar.startOfDay(for:)`
     and `until` to the last second of the selected day (`Calendar` so "the selected
     day" is the user's local day; git's `--until` is inclusive — the end-of-day
@@ -286,9 +298,10 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `nil` onto the sentinel) and `mutating selectRef(tag:)` (empty tag → `.all`,
     else `.ref(tag)`). The draft is the value a user-intent binding writes and
     applies, so seeding the view's state (`draft = LogFilterDraft(filter:,
-    defaultDate:)`) can never reach the apply path — the structural cure for the
-    seed/echo loop, replacing the value-equality suppression that failed under
-    interleaved applies.
+    defaultDate:)` at appearance, `draft.seed(from: newFilter)` afterwards) can
+    never reach the apply path — the structural cure for the seed/echo loop,
+    replacing the value-equality suppression that failed under interleaved
+    applies.
   - `CommitLogModel.swift` — `@MainActor ObservableObject` for the Log view,
     mirroring `LocalChangesModel`'s shape: injects `GitServicing`, funnels mutation
     through testable methods, pure Foundation. Publishes `commits` (most recent
@@ -329,8 +342,9 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     lags the latest request, so an echo built from the published `filter` is a
     genuinely different filter and is accepted — it would spawn a fetch. Not echoing
     is the view's obligation, achieved structurally by `LogFilterDraft` / user-intent
-    bindings (every apply lives in a `Binding.set`/`onSubmit`, `seedFromFilter`
-    assigns the draft directly and is structurally unable to reach the apply path;
+    bindings (every apply lives in a `Binding.set`/`onSubmit`, while the bar's
+    `seed(from:)` assigns the draft directly and is structurally unable to reach
+    the apply path;
     value-equality suppression was tried and failed under interleaving — the reason
     the draft exists). Exposes `currentRequestedFilter` alongside
     `currentRequestGeneration` so the publish-lags-request contract is readable and

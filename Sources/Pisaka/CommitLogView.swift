@@ -232,7 +232,7 @@ struct CommitLogView: View {
         // whenever two applies interleave, so an echo built from the published value
         // would be accepted and spawn a fetch. Not echoing is the view's obligation
         // (the bar's user-intent bindings apply only from `Binding.set`/`onSubmit`, and
-        // `seedFromFilter` assigns the draft directly).
+        // the bar's `seed(from:)` assigns the draft directly).
         guard let request = model.prepareForFilter(filter, root: projectRoot) else { return }
         let currentLimit = limit
         Task { await model.applyFilter(filter, root: projectRoot, limit: currentLimit, request: request) }

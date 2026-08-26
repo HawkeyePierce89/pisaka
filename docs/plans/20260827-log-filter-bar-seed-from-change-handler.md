@@ -205,26 +205,26 @@ The deployment targets are macOS 13 and iOS 17, so the two bars must use
 - Modify: `docs/architecture/app-git-views.md`
 - Modify: `docs/architecture/app-ios.md`
 
-- [ ] `core-git-models.md`, the `LogFilterDraft.swift` entry: record the seeding
+- [x] `core-git-models.md`, the `LogFilterDraft.swift` entry: record the seeding
     pair as `init(filter:defaultDate:)` *and* `seed(from:)`, and state the
     preservation rule — an absent incoming bound clears its flag and keeps the
     day already shown; only the from-scratch `init`, which has no day to keep,
     parks on `defaultDate`
-- [ ] `app-git-views.md`, the `LogFilterBar.swift` entry: replace the
+- [x] `app-git-views.md`, the `LogFilterBar.swift` entry: replace the
     `seedFromFilter` description with the parameter-seeded one and record the
     rule under its own name — **change handlers seed from their parameter; the
     view's observed property is stale inside the handler** — including why
     `onAppear` is the exception and why the macOS bar keeps the
     single-parameter `onChange` spelling (the macOS 13 target)
-- [ ] `app-ios.md`, the `LogFilterBar_iOS.swift` entry: same rule, plus the two
+- [x] `app-ios.md`, the `LogFilterBar_iOS.swift` entry: same rule, plus the two
     deliberate non-changes (the advanced form has no change handlers; the
     branch menu reads `filter` live, not through a seed)
-- [ ] check whether `CLAUDE.md`'s one-line index entry for `LogFilterDraft.swift`
+- [x] check whether `CLAUDE.md`'s one-line index entry for `LogFilterDraft.swift`
     still describes the file accurately; adjust the existing line only if it
     no longer does, and never grow it into an essay
-- [ ] grep the touched sources and docs to confirm no product-name comparison
+- [x] grep the touched sources and docs to confirm no product-name comparison
     was introduced
-- [ ] run `swift test` (the repository-file suites read docs/config shapes) —
+- [x] run `swift test` (the repository-file suites read docs/config shapes) —
     must pass
 
 ### Task 5: Verify acceptance criteria
