@@ -92,32 +92,32 @@ rules already living on `LocalChangesModel`; the view stays a dispatcher.
 - Modify: `Sources/PisakaCore/LocalChangesModel.swift`
 - Modify: `Tests/PisakaCoreTests/LocalChangesModelTests.swift`
 
-- [ ] In the `// MARK: - Row activation` block, add
+- [x] In the `// MARK: - Row activation` block, add
       `public static func offersJumpToSource(for status: FileStatus) -> Bool`,
       returning `status != .deleted`, with a doc comment stating *why* (a deleted
       file has no worktree source; the item is omitted rather than disabled, and
       that this matches `offersShowDiff(for:)`'s omission precedent).
-- [ ] Add `public static func jumpToSourceURL(for file: ChangedFile, root: URL) -> URL?`
+- [x] Add `public static func jumpToSourceURL(for file: ChangedFile, root: URL) -> URL?`
       returning `nil` when `offersJumpToSource(for: file.status)` is false and
       `root.appendingPathComponent(file.path)` otherwise. Document that a renamed
       file jumps to its *new* path (`file.path`), never `oldPath`, which no longer
       exists on disk, and that `root` is the repository top level for the same
       reason `revertedURLs(for:root:)` takes one.
-- [ ] Add `public static func shortcutJumpToSourceURL(selected: ChangedFile?, root: URL?) -> URL?`
+- [x] Add `public static func shortcutJumpToSourceURL(selected: ChangedFile?, root: URL?) -> URL?`
       returning `nil` when either is `nil` — the keystroke is consumed by the
       focused panel and does nothing, the same deliberate no-op
       `shortcutActivation(selected:)` documents — and delegating otherwise.
-- [ ] Tests in the `// MARK: - pure helpers: row activation` section:
+- [x] Tests in the `// MARK: - pure helpers: row activation` section:
       `offersJumpToSource` for **every** `FileStatus` case (true for modified,
       added, renamed, untracked, conflicted; false for deleted), driven off
       `FileStatus.allCases` the way `testOffersShowDiffForEveryStatusExceptConflicted`
       is, so a new status cannot be silently missed.
-- [ ] Tests: `jumpToSourceURL` returns the root-joined path for a non-deleted file,
+- [x] Tests: `jumpToSourceURL` returns the root-joined path for a non-deleted file,
       `nil` for a deleted one, and the *new* path for a renamed file that also
       carries an `oldPath`.
-- [ ] Tests: `shortcutJumpToSourceURL` with `selected: nil`, with `root: nil`, with
+- [x] Tests: `shortcutJumpToSourceURL` with `selected: nil`, with `root: nil`, with
       a deleted selection (all `nil`), and with an ordinary selection (the URL).
-- [ ] Run `swift test` — must pass before Task 2.
+- [x] Run `swift test` — must pass before Task 2.
 
 ### Task 2: The context-menu item and its wiring
 

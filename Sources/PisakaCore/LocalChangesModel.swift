@@ -255,6 +255,38 @@ public final class LocalChangesModel: ObservableObject {
         status != .conflicted
     }
 
+    /// Whether the context menu should offer "Jump to Source" for this status.
+    ///
+    /// `false` for `.deleted` files because a deleted file has no worktree
+    /// source to jump to. The item is omitted rather than disabled — matching
+    /// `offersShowDiff(for:)`'s omission precedent for absent actions.
+    public static func offersJumpToSource(for status: FileStatus) -> Bool {
+        status != .deleted
+    }
+
+    /// The absolute URL to open when "Jump to Source" is triggered for `file`,
+    /// or `nil` when the file has no worktree source (deleted).
+    ///
+    /// For a renamed file, this returns the *new* path (`file.path`), never
+    /// `oldPath` — the old path no longer exists on disk after the rename.
+    /// `root` is the repository top level for the same reason
+    /// `revertedURLs(for:root:)` takes one (the opened folder may be a
+    /// subdirectory of the repository).
+    public static func jumpToSourceURL(for file: ChangedFile, root: URL) -> URL? {
+        guard offersJumpToSource(for: file.status) else { return nil }
+        return root.appendingPathComponent(file.path)
+    }
+
+    /// The URL for a keyboard-triggered jump, given the current selection.
+    ///
+    /// Returns `nil` when either argument is `nil` — the keystroke is consumed
+    /// by the focused panel but does nothing, a deliberate no-op matching the
+    /// pattern `shortcutActivation(selected:)` documents.
+    public static func shortcutJumpToSourceURL(selected: ChangedFile?, root: URL?) -> URL? {
+        guard let selected, let root else { return nil }
+        return jumpToSourceURL(for: selected, root: root)
+    }
+
     /// Re-query the repository containing `root` for changed files.
     ///
     /// The opened folder may be a subdirectory of the repository, so the repo
