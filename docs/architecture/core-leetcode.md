@@ -1640,7 +1640,16 @@ the limits the design carries.
     a stationary ancestor of its own, and the window root is stationary for the
     duration of a drag just the same. `minimumDistance: 0` is the second half: the
     default makes the first `onChanged` arrive with a ≥10pt translation already
-    accumulated, applied against a base captured in that same call.
+    accumulated, applied against a base captured in that same call. It costs the
+    same **opening-frame guard** the divider carries, for the same reason: at
+    `minimumDistance: 0` a mouse-*down* is already a change, so the first
+    `onChanged` arrives with a zero translation and an unguarded write would have a
+    bare click on the handle overwrite the stored `width` with the clamped width on
+    screen — discarding a proposal the current interface scale is too coarse to
+    grant, which is exactly the proposal the "bounds follow the scale, `width` does
+    not" rule above exists to keep. Only the opening frame is skipped; once the drag
+    has moved, a translation returning to zero means "back to the base" and is
+    written.
     The web view **reloads only when the composed HTML differs**: `ContentView.body`
     re-evaluates on every keystroke, so an unconditional `loadHTMLString` would
     reload the statement and reset its scroll position once per character typed —

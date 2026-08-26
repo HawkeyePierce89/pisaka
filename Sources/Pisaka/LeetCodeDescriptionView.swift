@@ -241,11 +241,26 @@ struct LeetCodeDescriptionPane: View {
                         // change would move the pointer without moving the handle
                         // until the translation had eaten the whole difference.
                         // `ContentView.panelDragStartHeight` states the same rule.
+                        let beginning = dragStartWidth == nil
                         let base = dragStartWidth ?? clamped(width)
-                        if dragStartWidth == nil {
+                        if beginning {
                             dragStartWidth = base
                             syncResizeHandleCursor()
                         }
+                        // A mouse-*down* is already a change at `minimumDistance:
+                        // 0` — the first `onChanged` arrives with a zero
+                        // translation, before the pointer has moved at all. Writing
+                        // then would make a bare click on the handle overwrite the
+                        // remembered proposal with the clamped width on screen,
+                        // silently discarding a width the current interface scale
+                        // is too coarse to grant (the stored `width` is deliberately
+                        // never re-clamped, so it survives a zoom change and comes
+                        // back when the scale returns). Only the opening frame is
+                        // skipped: once the drag has moved, a translation returning
+                        // to zero legitimately means "back to the base" and must be
+                        // written. `ContentView.panelDivider` guards the same frame
+                        // for the same reason.
+                        guard !beginning || value.translation.width != 0 else { return }
                         width = clamped(base - value.translation.width)
                     }
                     .onEnded { _ in
