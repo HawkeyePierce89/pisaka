@@ -184,7 +184,7 @@ None. No new packages, no `Package.resolved` change, no pin change.
 - Create: `Sources/PisakaCore/BottomPanelHeightRule.swift`
 - Create: `Tests/PisakaCoreTests/BottomPanelHeightRuleTests.swift`
 
-- [ ] write `BottomPanelHeightRuleTests` first, covering: one-to-one mapping
+- [x] write `BottomPanelHeightRuleTests` first, covering: one-to-one mapping
       inside the bounds (a translation of N maps to exactly N points of height
       change, in both directions); the lower bound (floor); the upper bound at
       half the available height; the editor-reservation bound binding *before*
@@ -195,30 +195,30 @@ None. No new packages, no `Package.resolved` change, no pin change.
       grid of available heights and proposals asserting the invariants
       `height + divider + editorMinimum <= available` whenever `available` is
       large enough to hold them, and `height <= available` always
-- [ ] add one test that pins the single-floor decision: the rule's result is
+- [x] add one test that pins the single-floor decision: the rule's result is
       never influenced by anything but `floor`, `dividerHeight` and
       `editorMinimum` — specifically, that in the degenerate case the returned
       height is *below* `floor`, which is why no view below the rule may state
       a minimum of its own (the test's doc comment names the deleted
       `panelContent` modifiers as what it guards)
-- [ ] add `BottomPanelHeightRule`: a `Sendable`, `Equatable` value type over
+- [x] add `BottomPanelHeightRule`: a `Sendable`, `Equatable` value type over
       `floor`, `dividerHeight` and `editorMinimum` (all `Double`, all already
       interface-scaled by the caller), with `upperBound(available:)`,
       `height(proposed:available:)` and
       `height(base:dragTranslation:available:)` (the drag form is
       `height(proposed: base - dragTranslation, available:)` — dragging up is a
       negative translation and grows the panel)
-- [ ] make the degenerate case explicit in the type: when the upper bound falls
+- [x] make the degenerate case explicit in the type: when the upper bound falls
       below the floor the rule returns the upper bound (shrink), never the
       floor, and never a value the available space cannot hold; guard
       non-finite inputs the way `ZoomScaleRule.clamp` does rather than letting
       NaN survive a `min`/`max`
-- [ ] document the type with the reasoning above (why the editor reservation is
+- [x] document the type with the reasoning above (why the editor reservation is
       not the window minimum; why the clamp is the behavior, the absence of
       inner minimums the precondition, and clipping the guarantee; why the
       floor is one number for every panel), with no comparisons to other
       products
-- [ ] run `swift test` — must pass before Task 2
+- [x] run `swift test` — must pass before Task 2
 
 ### Task 2: Make the drag track the pointer and stop the overflow
 
