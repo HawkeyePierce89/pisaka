@@ -192,20 +192,20 @@ enum SyntaxLanguageConfiguration {
     /// convention (it ships inside the block grammar's package), so the bundle
     /// name is supplied explicitly.
     private static func markdownInlineConfiguration() -> LanguageConfiguration? {
-        cacheLock.withLock {
-            if let cached = markdownInlineCache {
-                return cached
-            }
-            guard let configuration = try? LanguageConfiguration(
-                tree_sitter_markdown_inline(),
-                name: "markdown_inline",
-                bundleName: "TreeSitterMarkdown_TreeSitterMarkdownInline"
-            ) else {
-                return nil
-            }
-            markdownInlineCache = configuration
-            return configuration
+        if let cached = cacheLock.withLock({ markdownInlineCache }) {
+            return cached
         }
+
+        guard let configuration = try? LanguageConfiguration(
+            tree_sitter_markdown_inline(),
+            name: "markdown_inline",
+            bundleName: "TreeSitterMarkdown_TreeSitterMarkdownInline"
+        ) else {
+            return nil
+        }
+
+        cacheLock.withLock { markdownInlineCache = configuration }
+        return configuration
     }
 
     private static var markdownInlineCache: LanguageConfiguration?
