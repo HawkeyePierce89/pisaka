@@ -161,37 +161,37 @@ re-read of state.
 **Files:**
 - Modify: `Sources/Pisaka/LogFilterBar.swift`
 
-- [ ] replace the seven mirrored `@State` properties with
+- [x] replace the seven mirrored `@State` properties with
       `@State private var draft: LogFilterDraft` plus
       `@State private var search: String` (the message search is not a
       `LogFilter` dimension)
-- [ ] add one private helper producing a **user-intent binding**: its `get`
+- [x] add one private helper producing a **user-intent binding**: its `get`
       reads the draft, its `set` writes the mutated draft into `@State` *and*
       calls `onApplyFilter(updated.filter())` with the new value passed
       explicitly — no re-read of possibly-stale state; wire the Since/Until
       toggles and both date pickers through it and delete every `.onChange` on
       those controls
-- [ ] bind the ref picker's `get` to
+- [x] bind the ref picker's `get` to
       `draft.displayRefTag(amongKnown: references)` and its `set` to
       `selectRef(tag:)` + apply, replacing `refSelectionBinding` and removing
       the view's own `allRefsTag`; delete `applyFilter(refOverride:)`,
       `endOfDay(of:)` and the in-view filter assembly — the draft owns all of
       it now
-- [ ] keep author/path on plain draft projections plus their existing
+- [x] keep author/path on plain draft projections plus their existing
       `.onSubmit` trigger (typing must not re-fetch); the Return handler applies
       `draft.filter()` once
-- [ ] route the search field through a binding whose `set` assigns `search` and
+- [x] route the search field through a binding whose `set` assigns `search` and
       calls `onSearch(newValue)`, deleting `.onChange(of: search)` so the seed
       cannot echo
-- [ ] rewrite `seedFromFilter` as a direct assignment of `draft`/`search` from
+- [x] rewrite `seedFromFilter` as a direct assignment of `draft`/`search` from
       `filter`/`searchQuery`; state in its doc comment that it is *unable* to
       reach the apply path because every apply lives in a binding setter or
       `onSubmit`, and that this is the requirement — not an equality check,
       which is what failed before
-- [ ] update the type's header comment: what the bar mirrors, why the draft is
+- [x] update the type's header comment: what the bar mirrors, why the draft is
       the single editable value, and why a model-published filter can now update
       every control silently
-- [ ] tests: the decisions this task moves out of the view (assembly, trimming,
+- [x] tests: the decisions this task moves out of the view (assembly, trimming,
       normalization, ref preservation, tag mapping) are covered by
       `LogFilterDraftTests` from Task 1; the view itself stays untested per
       convention — re-run `swift test` to confirm the suite is still green
