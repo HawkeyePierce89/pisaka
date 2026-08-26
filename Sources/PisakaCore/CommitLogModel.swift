@@ -371,7 +371,14 @@ public final class CommitLogModel: ObservableObject {
         // its task started, `isLoading` is still false yet nothing has loaded, so a
         // `!isLoading`-only guard would wrongly skip and strand the log empty. In either
         // case fall through and run the fetch.
-        if newFilter == filter && !isLoading && hasCompletedFetch { return }
+        if newFilter == filter && !isLoading && hasCompletedFetch {
+            // Keep `requestedFilter` in lock-step even on the no-op path so a
+            // direct (non-`prepareForFilter`) call cannot leave it stale — otherwise a
+            // later `prepareForFilter` re-selecting that same value would be misread as
+            // a no-op until a different filter is chosen first.
+            requestedFilter = newFilter
+            return
+        }
         filter = newFilter
         // Keep `requestedFilter` in lock-step with the committed filter so the two
         // never diverge through a direct (non-`prepareForFilter`) call site.
