@@ -243,9 +243,14 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     compiles and reviews cleanly, so `BottomPanelSourceGatingTests` reads
     `ContentView.swift` (comment- and literal-stripped, the
     `ZoomSourceGatingTests` mould) and pins them: no `minHeight` in any of the
-    slot-facing bodies — `panelContent(_:)`, `problemsPanel`, and the `body` of
-    each of the four hosted panel views, read out of their own files, which is
-    what makes the sibling-file case above visible to `swift test` — the gesture
+    slot-facing bodies — `panelContent(_:)`, `problemsPanel`, and each of the four
+    hosted panel views read *whole* out of its own file (`struct` brace to
+    matching brace, not `var body` alone: three of the four bodies are pure
+    delegation, so a minimum on the `content` property they compose reaches the
+    slot exactly as one on `body` would; the private row and detail structs later
+    in those files fall outside the declaration, which excludes `CommitRow`'s
+    legitimate per-row `minHeight` without an exemption list), which is what makes
+    the sibling-file case above visible to `swift test` — the gesture
     naming `panelColumnSpace` with `minimumDistance: 0`, and the top-leading pin
     ordered before the clip. All three string matches are made against
     whitespace-stripped source, so a reformat that wraps an argument list cannot
@@ -260,7 +265,16 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     editor refuse to render shorter than it, which is what pushed the surplus onto
     the bottom bar. Stated on the window body `VStack` both apply in both branches
     and `editorSplit` inside the column is free to shrink to the rule's much
-    smaller reservation. The 320pt `minWidth` on `editorZone` is a different
+    smaller reservation. **The height agrees in both branches now; the width still
+    does not**, and that is left as it is on purpose: in the no-panel branch the
+    split's panes compose a larger floor than 640 (tree 180 + tab list 180 +
+    editor 320, scaled, plus the `HSplitView` dividers) and raise the window's
+    minimum above it, while in the panel branch the `GeometryReader` erases them
+    and 640 is the whole floor. Raising the root `minWidth` to the composed sum
+    would hard-code a number that moves with the tab orientation and with the
+    panes' own floors, and the case it would rule out is the one the top-*leading*
+    pin and the clip below already handle — which is why that alignment is
+    described there as a live case rather than a hypothetical. The 320pt `minWidth` on `editorZone` is a different
     number for a different job and stays where it is (`app-editor.md`): it is the
     text view's floor against the statement pane beside it, not the window's.
     `panelDivider(available:)` is a 5pt scaled bar filled with

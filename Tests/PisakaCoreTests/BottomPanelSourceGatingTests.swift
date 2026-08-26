@@ -29,9 +29,16 @@ import XCTest
 ///   `body` root reaches the slot exactly as one written at the call site would
 ///   — `TerminalPanelView` carried one, in its own file, for the whole life of
 ///   this rule. So the four hosted panel roots (and `ContentView`'s
-///   `problemsPanel`, one hop from the branch it serves) are read too, each by
-///   its own `body`, which is the root that faces the slot; a minimum deeper
-///   inside a scroll view is a different thing and is deliberately not matched.
+///   `problemsPanel`, one hop from the branch it serves) are read too — each
+///   hosted view **whole**, `struct` brace to matching brace, not by its `var
+///   body` alone: three of the four bodies are pure delegation, so a minimum
+///   written on the `content` property they compose reaches the slot exactly as
+///   one on `body` would, and `body`-only scanning would miss the likeliest
+///   place to reintroduce this. The private row and detail structs later in
+///   those same files are outside the declaration and stay unmatched, which is
+///   how `CommitRow`'s legitimate per-row `minHeight` is excluded without an
+///   exemption list: a minimum inside a row of a scrolling list is a different
+///   thing and is deliberately not matched.
 /// - **The drag is measured in the column's named coordinate space, with
 ///   `minimumDistance: 0`.** `DragGesture()` — the default — compiles and
 ///   type-checks identically while measuring against an origin the drag itself
@@ -84,9 +91,17 @@ final class BottomPanelSourceGatingTests: XCTestCase {
             ))
         }
 
-        // The four views `panelContent(_:)` puts in the slot. Each is read by its
-        // own `body`, the root that faces the slot: a minimum there reaches the
-        // fixed-height frame exactly as one written at the call site would.
+        // The four views `panelContent(_:)` puts in the slot. Each is read
+        // **whole**, not by its `var body` alone: three of the four bodies are
+        // pure delegation (`VStack { header; Divider(); content }`), and a
+        // minimum written on `content` — where the list actually lives, and so
+        // the likeliest place to reintroduce this — raises the `VStack`'s
+        // minimum and reaches the slot exactly as one on `body` would. The
+        // private row/detail structs later in the same files are *not* part of
+        // the declaration and stay excluded, which is what keeps
+        // `CommitRow`'s legitimate `minHeight: rowHeight` out of this: a
+        // minimum inside a row of a scrolling list is a different thing, and
+        // deliberately not matched.
         for (file, type) in [
             ("TerminalPanelView.swift", "TerminalPanelView"),
             ("CommitLogView.swift", "CommitLogView"),
@@ -95,10 +110,10 @@ final class BottomPanelSourceGatingTests: XCTestCase {
         ] {
             let code = try appSource(named: file)
             slotFacingBodies.append((
-                "\(type).body",
+                "\(type)",
                 try XCTUnwrap(
-                    Self.bodyOfType(type, in: code),
-                    "\(type) has no `var body` in \(file) — rename it and update this suite deliberately"
+                    Self.typeBody(type, in: code),
+                    "\(type) is not declared in \(file) — rename it and update this suite deliberately"
                 )
             ))
         }
@@ -164,12 +179,13 @@ final class BottomPanelSourceGatingTests: XCTestCase {
 
     // MARK: - Reading one function out of the file
 
-    /// The `body` of `struct <type>` — the first `var body` after the type's own
-    /// declaration, so a nested helper view later in the same file is not read
-    /// in its place. `nil` if either is missing.
-    private static func bodyOfType(_ type: String, in code: String) -> String? {
-        guard let declaration = code.range(of: "struct \(type)") else { return nil }
-        return declarationBody(after: "body", in: String(code[declaration.upperBound...]))
+    /// The whole `struct <type> { … }` declaration — every member, so a
+    /// delegated `content`/`header` property counts as part of the root that
+    /// faces the slot. A private helper struct declared later in the same file
+    /// is outside the matching brace and so is not read. `nil` if the type is
+    /// not declared here.
+    private static func typeBody(_ type: String, in code: String) -> String? {
+        declarationBody(after: "struct", name: type, in: code)
     }
 
     /// The body of the first `func <name>` or `var <name>` — from its opening
@@ -177,9 +193,35 @@ final class BottomPanelSourceGatingTests: XCTestCase {
     /// brace inside a comment or a string literal can be counted. `nil` if the
     /// declaration is not there.
     private static func declarationBody(after name: String, in code: String) -> String? {
-        let declaration = code.range(of: "func \(name)") ?? code.range(of: "var \(name)")
-        guard let declaration else { return nil }
-        let characters = Array(code[declaration.upperBound...])
+        declarationBody(after: "func", name: name, in: code)
+            ?? declarationBody(after: "var", name: name, in: code)
+    }
+
+    /// The brace-matched body of `<keyword> <name>`, where `<name>` must end at
+    /// a character that cannot continue a Swift identifier.
+    ///
+    /// The boundary check is the point: a bare substring search matches the
+    /// longer name that merely *starts* with the one asked for — a future
+    /// `func panelContentBackground` or `struct LocalChangesViewRow` declared
+    /// ahead of the real one would silently hand back a different body, and the
+    /// assertion below would go on passing while guarding nothing.
+    private static func declarationBody(after keyword: String, name: String, in code: String) -> String? {
+        let needle = "\(keyword) \(name)"
+        var searchStart = code.startIndex
+        while let declaration = code.range(of: needle, range: searchStart..<code.endIndex) {
+            searchStart = declaration.lowerBound < code.endIndex
+                ? code.index(after: declaration.lowerBound)
+                : code.endIndex
+            let next = declaration.upperBound
+            if next < code.endIndex, isIdentifierCharacter(code[next]) { continue }
+            return bracedBody(from: next, in: code)
+        }
+        return nil
+    }
+
+    /// From `start`, the first `{` and everything up to its matching `}`.
+    private static func bracedBody(from start: String.Index, in code: String) -> String? {
+        let characters = Array(code[start...])
         guard let open = characters.firstIndex(of: "{") else { return nil }
         var depth = 0
         for index in open..<characters.count {
@@ -190,5 +232,9 @@ final class BottomPanelSourceGatingTests: XCTestCase {
             }
         }
         return nil
+    }
+
+    private static func isIdentifierCharacter(_ character: Character) -> Bool {
+        character.isLetter || character.isNumber || character == "_"
     }
 }

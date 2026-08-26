@@ -212,8 +212,15 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     *interface* zone: it is chrome, and only the cells follow the terminal size.
   - `TerminalPanelView.swift` — the embedded terminal panel: a `View` with a tab
     bar (per-session tabs + "＋" new + per-tab close `xmark`) above the active
-    session's terminal, observing `TerminalSessionsModel` and taking the current
-    `projectRoot` (read only when creating a *new* session — existing sessions keep
+    session's terminal. **It states no minimum height, and must not**: it is
+    rendered into a bottom-dock slot of exactly `BottomPanelHeightRule`'s height,
+    and a minimum inside a fixed-height slot can only overflow — over the divider
+    above and the bottom bar below — because the child cannot make the slot grow.
+    It carried `minHeight: metrics.scaled(120)` until that rule was written; the
+    full reasoning, and the `BottomPanelSourceGatingTests` pin that now keeps this
+    file honest, are in `app-window.md`. So `\.interfaceMetrics` here reaches the
+    tab strip and nothing else. The panel observes `TerminalSessionsModel` and
+    takes the current `projectRoot` (read only when creating a *new* session — existing sessions keep
     their start directory). The active session's `LocalProcessTerminalView` is
     hosted by a private `TerminalHostView: NSViewRepresentable` that swaps the
     on-screen view only on an actual tab change (the `terminalView.superview !==

@@ -307,9 +307,15 @@ struct ContentView: View {
         // axes. The height did worse than fail — it forced the column to overflow,
         // the editor refusing to render shorter than it while the panel took its
         // own height, and the surplus landing on the bottom bar. At the body root
-        // both apply in both branches, the two branches no longer disagree about
-        // how small the window may be, and the editor inside the column is free
-        // to shrink to what `panelHeightRule` reserved for it.
+        // both apply in both branches, and the editor inside the column is free
+        // to shrink to what `panelHeightRule` reserved for it. The *height* is
+        // then the same floor either way; the width is not, and deliberately is
+        // not unified here: without a panel the split's own panes (tree 180 +
+        // tab list 180 + editor 320, scaled) still compose a larger floor than
+        // this 640 and raise the window's, while with a panel the
+        // `GeometryReader` erases them and 640 is all that is left. That is why
+        // the column is pinned `.topLeading` and clipped — a column wider than a
+        // narrow area is a live case, not a hypothetical one.
         .frame(minWidth: metrics.scaled(640), minHeight: metrics.scaled(400))
         // Empty-gap fix: closing the last terminal tab leaves the panel selection
         // on `.terminal` with nothing to draw. Collapse the panel so the bar sits

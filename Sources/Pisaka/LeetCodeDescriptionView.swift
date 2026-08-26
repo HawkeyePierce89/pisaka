@@ -59,6 +59,9 @@ struct LeetCodeDescriptionPane: View {
     /// The width captured at the start of a drag, so the cumulative
     /// `DragGesture` translation applies to a fixed base instead of compounding
     /// frame to frame. `nil` when not dragging.
+    ///
+    /// What is captured is the width being *rendered*, not the stored `width` —
+    /// see the handle's `onChanged`.
     @State private var dragStartWidth: CGFloat?
     /// Whether the user has folded the pane away to a strip. Survives tab
     /// switches for the same reason `width` does: it is a preference about the
@@ -206,6 +209,12 @@ struct LeetCodeDescriptionPane: View {
                     isHoveringHandle = false
                     NSCursor.pop()
                 }
+                // The same removal can land mid-drag, and then no `onEnded`
+                // arrives either — `ContentView.panelDivider`'s `onDisappear`
+                // drops its base here for the same reason: a base left behind
+                // would have the next drag resume from a width the user
+                // abandoned, against a pointer that has moved since.
+                dragStartWidth = nil
             }
             // Measured in the window's space, never the default `.local` one:
             // local is *this handle's* space, and the handle is what the drag
@@ -223,7 +232,16 @@ struct LeetCodeDescriptionPane: View {
             .gesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .global)
                     .onChanged { value in
-                        let base = dragStartWidth ?? width
+                        // The base is the width being **rendered** — `clamped(width)`,
+                        // the same expression `body` states — not the stored `width`.
+                        // The stored one is a remembered proposal that nothing
+                        // re-clamps when the interface scale moves the bounds under
+                        // it, so a base taken from it would start the gesture outside
+                        // the range it is clamped against: the first drag after a zoom
+                        // change would move the pointer without moving the handle
+                        // until the translation had eaten the whole difference.
+                        // `ContentView.panelDragStartHeight` states the same rule.
+                        let base = dragStartWidth ?? clamped(width)
                         if dragStartWidth == nil { dragStartWidth = base }
                         width = clamped(base - value.translation.width)
                     }
