@@ -1640,7 +1640,7 @@ final class LocalChangesModelTests: XCTestCase {
     }
 
     func testOffersShowDiffForEveryStatusExceptConflicted() {
-        let statuses: [FileStatus] = [.modified, .added, .deleted, .renamed, .untracked]
+        let statuses = FileStatus.allCases.filter { $0 != .conflicted }
         for status in statuses {
             XCTAssertTrue(
                 LocalChangesModel.offersShowDiff(for: status),

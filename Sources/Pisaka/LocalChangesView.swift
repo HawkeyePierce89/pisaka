@@ -46,7 +46,9 @@ struct LocalChangesView: View {
 
     /// A token bumped on every row selection. A value change is the only signal
     /// an `NSViewRepresentable` receives, so bumping this in `onSelect` lets
-    /// `LocalChangesFocusAnchor` request first responder on the panel.
+    /// `LocalChangesFocusAnchor` request first responder on the panel. The
+    /// anchor's coordinator tracks the previous value so focus is only requested
+    /// when the token actually changes — not on every body re-evaluation.
     @State private var focusRequest = 0
 
     var body: some View {
@@ -325,8 +327,9 @@ private struct ChangedFileRow: View {
             // No extra enablement condition: a row exists only when a folder is
             // open, which is exactly the header Commit button's single condition,
             // and `openCommitDialog` re-checks the project root and every one of
-            // its gates anyway. Placed above the destructive Revert item.
+            // its gates anyway.
             Button("Commit…", action: onCommitFile)
+            Divider()
             Button("Revert", role: .destructive, action: onRevert)
         }
     }
@@ -403,6 +406,8 @@ private struct LocalChangesFocusAnchor: NSViewRepresentable {
     let onOpenDiff: (ChangedFile) -> Void
     let onResolveConflict: (ChangedFile) -> Void
 
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeNSView(context: Context) -> LocalChangesFocusAnchorView {
         LocalChangesFocusAnchorView(
             selectedFile: selectedFile,
@@ -415,13 +420,21 @@ private struct LocalChangesFocusAnchor: NSViewRepresentable {
         nsView.selectedFile = selectedFile
         nsView.onOpenDiff = onOpenDiff
         nsView.onResolveConflict = onResolveConflict
-        // A value change signals a row was clicked — request first responder so
-        // the panel owns Cmd+D. Dispatched asynchronously so the responder
-        // change does not land inside a SwiftUI update pass.
+        // Only request first responder when focusRequest actually changed (a row
+        // was clicked), not on every body re-evaluation — otherwise a model
+        // refresh while the user is in the editor would steal focus back.
+        // Dispatched asynchronously so the responder change does not land
+        // inside a SwiftUI update pass.
+        guard focusRequest != context.coordinator.lastAppliedFocusRequest else { return }
+        context.coordinator.lastAppliedFocusRequest = focusRequest
         guard nsView.window?.firstResponder !== nsView else { return }
         DispatchQueue.main.async { [weak nsView] in
             nsView?.window?.makeFirstResponder(nsView)
         }
+    }
+
+    final class Coordinator {
+        var lastAppliedFocusRequest = 0
     }
 }
 
