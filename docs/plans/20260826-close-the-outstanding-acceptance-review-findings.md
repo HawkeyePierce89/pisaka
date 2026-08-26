@@ -195,12 +195,16 @@ work stops with a report instead of a code change.
 **Files:**
 - Modify: `Sources/Pisaka/SyntaxLanguageConfiguration.swift`
 
-- [ ] Delete the blank line after the cache early-return and the blank line after
+- [x] Delete the blank line after the cache early-return and the blank line after
       the `guard … else { return nil }` in `markdownInlineConfiguration()`,
       restoring the pre-part-3 shape. Logic untouched.
-- [ ] Confirm `git diff -- Sources/` shows exactly those two deletions and
+      Done: both blank lines removed; the function now matches `553e9f2^` byte-for-byte.
+- [x] Confirm `git diff -- Sources/` shows exactly those two deletions and
       nothing else.
-- [ ] Run `swiftlint --strict` from the repository root — clean.
+      Confirmed: only `-` lines for the two blanks; against `553e9f2^` the file
+      differs only by part 3's legitimate editorconfig import + switch case.
+- [x] Run `swiftlint --strict` from the repository root — clean.
+      0 violations, 0 serious in 397 files.
 
 ### Task 6: Undo the wholesale re-serialization of `licenses.json`
 
