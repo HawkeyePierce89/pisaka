@@ -215,6 +215,10 @@ final class SymbolQueryTests: XCTestCase {
         )
     }
 
+    func testEditorConfigSymbolsQueryEmitsExactlyTheExpectedCaptureNames() throws {
+        XCTAssertEqual(try parsedQuery(for: .editorconfig).outputCaptureNames, ["definition.heading"])
+    }
+
     /// The remote grammars' sources are not in this repository, so their
     /// `node-types.json` cannot be read and the check above cannot be made. What
     /// can be pinned is the set of node names, anonymous literals and field names

@@ -192,7 +192,7 @@ enum SyntaxLanguageConfiguration {
     /// convention (it ships inside the block grammar's package), so the bundle
     /// name is supplied explicitly.
     private static func markdownInlineConfiguration() -> LanguageConfiguration? {
-        if let cached = cacheLock.withLock({ injectionCache["markdown_inline"] }) {
+        if let cached = cacheLock.withLock({ markdownInlineCache }) {
             return cached
         }
         guard let configuration = try? LanguageConfiguration(
@@ -202,11 +202,11 @@ enum SyntaxLanguageConfiguration {
         ) else {
             return nil
         }
-        cacheLock.withLock { injectionCache["markdown_inline"] = configuration }
+        cacheLock.withLock { markdownInlineCache = configuration }
         return configuration
     }
 
-    private static var injectionCache: [String: LanguageConfiguration] = [:]
+    private static var markdownInlineCache: LanguageConfiguration?
 
     /// Reads the `highlights.scm` data from a grammar's SPM resource bundle.
     ///

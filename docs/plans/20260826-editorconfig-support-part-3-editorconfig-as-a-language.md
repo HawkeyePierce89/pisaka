@@ -107,7 +107,7 @@ of captures == all `SymbolKind` captures) stays satisfied with no new kind.
 - Exhaustive switches the new case breaks: `CommentStyle.style(for:)`,
   `LanguageKeywords.keywords(for:)`,
   `SyntaxLanguageConfiguration.makeConfiguration(for:)`.
-  (`LSPServerDescription` has a `default:` and is untouched — no LSP work here.)
+  (Refactoring `LSPServerDescription` to use `rawValue` removes the need for exhaustive switch.)
 
 ### Files involved
 
@@ -123,7 +123,7 @@ of captures == all `SymbolKind` captures) stays satisfied with no new kind.
 - Modify: `Sources/Pisaka/SyntaxLanguageConfiguration.swift`
 - Modify: `Tests/PisakaCoreTests/{SyntaxLanguageTests,FileIconTests,CommentStyleTests,LanguageKeywordsTests,SymbolQueryTests,VendoredGrammarQueryTests}.swift`
 - Modify: `docs/architecture/core-editor.md`, `core-intelligence.md`,
-  `core-editorconfig.md`, `CLAUDE.md`, `docs/FEATURES.md`
+  `core-editorconfig.md`, `CLAUDE.md`, `docs/FEATURES.md`, `README.md`
 
 ## Development Approach
 
@@ -329,7 +329,9 @@ of captures == all `SymbolKind` captures) stays satisfied with no new kind.
 
 **Files:**
 - Modify: `docs/architecture/core-editor.md`, `core-intelligence.md`,
-  `core-editorconfig.md`, `CLAUDE.md`, `docs/FEATURES.md`
+  `core-editorconfig.md`, `CLAUDE.md`, `docs/FEATURES.md`, `README.md`
+
+- [x] `README.md`: add `.editorconfig` to the syntax highlighting features list
 
 - [x] `core-editor.md`: extend the `SyntaxLanguage.swift` entry with the
       exact-name rule and why it borrows the resolver's own constant, the
@@ -365,7 +367,8 @@ of captures == all `SymbolKind` captures) stays satisfied with no new kind.
 - [x] `xcodegen generate` && macOS Release build && iOS `generic/platform=iOS`
       build
 - [x] confirm no exemption was added to any suite for this language beyond the
-      vendoring route's legitimate ones, and that no LSP registry, provisioning
+      vendoring route's legitimate ones, and that no LSP registry (except for
+      refactoring `LSPServerDescription` to use `rawValue`), provisioning
       manifest, `PrivacyInfo.xcprivacy`, resolution-engine, indentation or
       save-transform file was touched
 

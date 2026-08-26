@@ -92,15 +92,15 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
     // MARK: - CodeIntelligenceProviding
 
     public func definitions(for request: DefinitionRequest) async -> [DefinitionCandidate] {
-        let state = await snapshot()
-        return Self.definitions(for: request, in: state.index, projectRoot: state.projectRoot)
+        let (index, root) = await snapshot()
+        return Self.definitions(for: request, in: index, projectRoot: root)
     }
 
     public func completions(for request: CompletionRequest) async -> [CompletionItem] {
-        let state = await snapshot()
+        let (index, _) = await snapshot()
         return Self.completions(
             for: request,
-            in: state.index,
+            in: index,
             limit: completionLimit,
             bufferWordLimit: bufferWordLimit
         )
@@ -110,15 +110,10 @@ public final class SymbolIntelligenceProvider: CodeIntelligenceProviding {
     /// isolated and the ranking is not. One hop rather than two so a request
     /// cannot straddle a chunk publication and pair one walk's index with the
     /// next one's root.
-    private func snapshot() async -> Snapshot {
+    private func snapshot() async -> (SymbolIndex, URL?) {
         let readIndex = index
         let readRoot = projectRoot
-        return await MainActor.run { Snapshot(index: readIndex(), projectRoot: readRoot()) }
-    }
-
-    private struct Snapshot: Sendable {
-        let index: SymbolIndex
-        let projectRoot: URL?
+        return await MainActor.run { (readIndex(), readRoot()) }
     }
 
     // MARK: - Definitions (pure)

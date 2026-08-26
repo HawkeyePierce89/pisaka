@@ -195,6 +195,8 @@ final class SyntaxLanguageTests: XCTestCase {
         XCTAssertNil(SyntaxLanguage(forFileName: "foo.editorconfig"))
         XCTAssertNil(SyntaxLanguage(forFileName: "editorconfig"))
         XCTAssertNil(SyntaxLanguage(forFileName: ".editorconfigx"))
+        XCTAssertNil(SyntaxLanguage(forFileName: ".editorconfig.bak"))
+        XCTAssertNil(SyntaxLanguage(forFileName: ".editorconfig.local"))
     }
 
     func testEditorConfigResolverAgreement() {
@@ -205,6 +207,21 @@ final class SyntaxLanguageTests: XCTestCase {
         for casing in casings {
             XCTAssertEqual(SyntaxLanguage(forFileName: casing), .editorconfig)
             XCTAssertTrue(EditorConfigResolver.isFileName(casing))
+        }
+
+        // Divergence on paths: SyntaxLanguage looks at the last path component,
+        // while EditorConfigResolver.isFileName(_:) performs strict string comparison.
+        let paths = ["path/to/.editorconfig", "foo/.EditorConfig"]
+        for path in paths {
+            XCTAssertEqual(SyntaxLanguage(forFileName: path), .editorconfig)
+            XCTAssertFalse(EditorConfigResolver.isFileName(path))
+        }
+
+        // Negative cases: neither should accept them
+        let negatives = ["foo.editorconfig", ".editorconfigx", ".editorconfig.bak"]
+        for negative in negatives {
+            XCTAssertNil(SyntaxLanguage(forFileName: negative))
+            XCTAssertFalse(EditorConfigResolver.isFileName(negative))
         }
     }
     // MARK: - Rule precedence

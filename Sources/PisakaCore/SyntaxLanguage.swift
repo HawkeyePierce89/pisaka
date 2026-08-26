@@ -79,8 +79,12 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
 
         // 3. Prefix — the variant-suffixed forms (`Dockerfile.dev`, `.env.local`)
         //    whose trailing component is not a known extension.
-        for (prefix, language) in SyntaxLanguage.fileNamePrefixMap where name.hasPrefix(prefix) {
-            self = language
+        if name.hasPrefix("dockerfile.") {
+            self = .dockerfile
+            return
+        }
+        if name.hasPrefix(".env.") {
+            self = .dotenv
             return
         }
 
@@ -126,14 +130,6 @@ public enum SyntaxLanguage: String, CaseIterable, Equatable, Hashable, Sendable 
         "dockerfile": .dockerfile,
         ".env": .dotenv,
         EditorConfigResolver.fileName: .editorconfig,
-    ]
-
-    /// Lowercased file-name prefix → language, for the variant-suffixed forms.
-    /// Each prefix ends in the dot that separates the variant, so `Dockerfileish`
-    /// and `.environment` are not matched.
-    private static let fileNamePrefixMap: [(String, SyntaxLanguage)] = [
-        ("dockerfile.", .dockerfile),
-        (".env.", .dotenv),
     ]
 
     /// The trailing token of the dot-ignore shape rule.
