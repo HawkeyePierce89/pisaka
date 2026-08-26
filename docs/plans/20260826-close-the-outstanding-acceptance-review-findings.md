@@ -138,7 +138,7 @@ work stops with a report instead of a code change.
 **Files:**
 - Modify: `Tests/PisakaCoreTests/LeetCodeCatalogTests.swift`
 
-- [ ] Rewrite the doc comment above
+- [x] Rewrite the doc comment above
       `testASessionReplacedWhileTheCacheIsEncodedIsNeverWritten` (currently
       "Staged empirically" / "`await` is a potential rather than guaranteed
       yield"): awaiting the detached encode's `value` from main-actor-isolated
@@ -146,13 +146,14 @@ work stops with a report instead of a code change.
       actor and re-enqueues a main-actor job to return — the sign-out job the
       clock hook enqueued earlier is therefore guaranteed to run before the write
       continuation resumes.
-- [ ] Keep the honest half: `Gate` still cannot hold this window (it would block
+- [x] Keep the honest half: `Gate` still cannot hold this window (it would block
       the actor and freeze the sign-out), and the clock hook remains the right
       staging seam.
-- [ ] Update the suite header's audit inventory line for this test so the verdict
+- [x] Update the suite header's audit inventory line for this test so the verdict
       it records matches the rewritten comment.
-- [ ] Run `swift test --filter LeetCodeCatalogTests` — green (the test body is
+- [x] Run `swift test --filter LeetCodeCatalogTests` — green (the test body is
       unchanged; this is a comment-only edit).
+      51 tests, 0 failures.
 
 ### Task 3: Restore the true SQL vendoring rationale in `project.yml`
 
