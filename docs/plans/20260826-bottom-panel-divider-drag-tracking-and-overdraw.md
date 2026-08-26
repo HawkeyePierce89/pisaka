@@ -277,16 +277,16 @@ None. No new packages, no `Package.resolved` change, no pin change.
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] `swift test` — full suite green
-- [ ] `swiftlint --strict` from the repository root — clean
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
+- [x] `swift test` — full suite green
+- [x] `swiftlint --strict` from the repository root — clean
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=macOS' build`
       (run `xcodegen generate` first if the project file is absent) — green
-- [ ] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
+- [x] `xcodebuild -project Pisaka.xcodeproj -scheme Pisaka -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build`
       — green (this change is macOS-only; the iOS build is the no-regression
       gate)
-- [ ] grep `Sources/Pisaka/ContentView.swift` for any surviving
+- [x] grep `Sources/Pisaka/ContentView.swift` for any surviving
       `frame(minHeight:` inside `panelContent(_:)` — there must be none
-- [ ] grep the files this change touched for product/brand names and confirm
+- [x] grep the files this change touched for product/brand names and confirm
       the rewritten comments and paragraphs carry none
 
 ### Task 5: Update documentation
