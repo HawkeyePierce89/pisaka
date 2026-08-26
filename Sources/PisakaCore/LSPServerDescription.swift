@@ -174,8 +174,24 @@ extension SyntaxLanguage {
     /// present only so the mapping is total) and `.gitignore` → `"ignore"`, the id
     /// VS Code uses for the whole gitignore family.
     public var lspLanguageID: String {
-        if self == .gitignore { return "ignore" }
-        return self.rawValue
+        switch self {
+        case .swift: return "swift"
+        case .javascript: return "javascript"
+        case .typescript: return "typescript"
+        case .json: return "json"
+        case .markdown: return "markdown"
+        case .python: return "python"
+        case .go: return "go"
+        case .rust: return "rust"
+        case .html: return "html"
+        case .css: return "css"
+        case .yaml: return "yaml"
+        case .dockerfile: return "dockerfile"
+        case .dotenv: return "dotenv"
+        case .gitignore: return "ignore"
+        case .sql: return "sql"
+        case .editorconfig: return "editorconfig"
+        }
     }
 
     /// The `languageId` for one *document*, which for the JS/TS family is not
