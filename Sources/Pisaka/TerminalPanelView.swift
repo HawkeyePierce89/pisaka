@@ -23,11 +23,18 @@ struct TerminalPanelView: View {
     let projectRoot: URL?
 
     /// The interface zone's metrics, inherited from the window root. They reach
-    /// the tab strip and the panel's own minimum height and nothing else: the
-    /// hosted terminal views are the *terminal* zone and take their size from
-    /// `TerminalSessionsModel`.
+    /// the tab strip and nothing else: the hosted terminal views are the
+    /// *terminal* zone and take their size from `TerminalSessionsModel`.
     @Environment(\.interfaceMetrics) private var metrics
 
+    /// No minimum height here — the panel is rendered into a slot of exactly
+    /// `BottomPanelHeightRule`'s height, and a minimum stated inside a
+    /// fixed-height slot can never be satisfied: this view cannot make the slot
+    /// grow, so its only outcome would be to overflow, over the divider above
+    /// and the bottom bar below. The rule's degenerate case deliberately goes
+    /// below its own floor, where no number stated here could be honored either.
+    /// Nothing is lost: the terminal is sized in rows by `TerminalSessionsModel`
+    /// and the tab bar keeps its own height whatever is left.
     var body: some View {
         VStack(spacing: 0) {
             tabBar
@@ -40,7 +47,6 @@ struct TerminalPanelView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(minHeight: metrics.scaled(120))
     }
 
     private var tabBar: some View {

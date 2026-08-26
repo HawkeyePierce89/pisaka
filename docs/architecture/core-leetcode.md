@@ -1616,12 +1616,40 @@ the limits the design carries.
     pane's own `@State` behind a `resizeLeftRight` drag handle: the `panelHeight`
     shape turned ninety degrees. Collapsing leaves a strip that is the only way
     back, so the pane can never be folded away and lost.
-    The handle's cursor push is paired with an **`onDisappear`**, unlike
-    `ContentView.panelDivider`'s otherwise identical `onHover` idiom, and the
-    difference is why: that divider goes away only when the user toggles it, while
-    this whole pane is removed the moment the statement is — a tab switch under the
-    pointer delivers no `onHover(false)`, so the pushed `NSCursor` would never be
-    popped and the resize cursor would stick application-wide.
+    The handle's cursor push goes through **`syncResizeHandleCursor()`**, the exact
+    shape `ContentView.syncPanelDividerCursor()` has: one `handleCursorPushed` flag
+    driven off `hovering || dragging`, written by every mutation of either input
+    and by nothing else. Both halves of that condition are load-bearing. *Dragging*
+    is, because a drag quicker than the relayout takes the pointer off a 5pt strip
+    and `onHover(false)` arrives mid-resize — a cursor that reverts to the arrow
+    while the pane is still being dragged reads as the drag having been dropped,
+    and this handle is a drag target exactly as the divider is. The *separate flag*
+    is, because the pane is removed the moment the statement is: a tab switch under
+    the pointer delivers no `onHover(false)` and no `onEnded`, so `onDisappear`
+    clears the hover, the drag base and the push together, or the resize cursor
+    sticks application-wide and the next drag resumes from a width the user
+    abandoned.
+    The drag is measured in the **window's** coordinate space
+    (`DragGesture(minimumDistance: 0, coordinateSpace: .global)`), never the
+    default `.local` one, for exactly the reason `app-window.md` gives for the
+    panel divider: local is *this handle's* space and the handle is what the drag
+    moves, so widening the pane by N points re-lays the handle N points over, the
+    stationary pointer lands back at the start location, the translation collapses
+    to ~0 and the width snaps back to the drag-start base — an oscillation, never a
+    track. The divider names its own container instead; this pane has no reach into
+    a stationary ancestor of its own, and the window root is stationary for the
+    duration of a drag just the same. `minimumDistance: 0` is the second half: the
+    default makes the first `onChanged` arrive with a ≥10pt translation already
+    accumulated, applied against a base captured in that same call. It costs the
+    same **opening-frame guard** the divider carries, for the same reason: at
+    `minimumDistance: 0` a mouse-*down* is already a change, so the first
+    `onChanged` arrives with a zero translation and an unguarded write would have a
+    bare click on the handle overwrite the stored `width` with the clamped width on
+    screen — discarding a proposal the current interface scale is too coarse to
+    grant, which is exactly the proposal the "bounds follow the scale, `width` does
+    not" rule above exists to keep. Only the opening frame is skipped; once the drag
+    has moved, a translation returning to zero means "back to the base" and is
+    written.
     The web view **reloads only when the composed HTML differs**: `ContentView.body`
     re-evaluates on every keystroke, so an unconditional `loadHTMLString` would
     reload the statement and reset its scroll position once per character typed —

@@ -125,7 +125,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     open" branch is deliberately left bare (no bar without a file). The window
     body is a
     `VStack(spacing: 0) { mainArea; Divider(); bottomBar }`: an always-visible
-    VS Code-style `bottomBar` of four toggle buttons (Terminal / Git / Changes /
+    `bottomBar` of four toggle buttons (Terminal / Git / Changes /
     Problems, the active one highlighted, `arrow.triangle.pull` for Changes,
     `exclamationmark.triangle` for Problems) sits flush at
     the bottom, and `mainArea` is the three-column `editorSplit` alone, or — when a
@@ -159,18 +159,169 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     `GeometryReader` around a manual `VStack { editorSplit; panelDivider;
     panelContent(panel).frame(height: …) }`. A `@State private var panelHeight:
     CGFloat = 240` holds the height *independently of which panel is shown*, so it
-    survives switches and hide/show (VS Code-style; `@State`-only — cross-launch
-    `@AppStorage` is YAGNI). `panelDivider` is a 5pt draggable bar (resize-up-down
-    cursor on hover) whose `DragGesture` updates `panelHeight` against a
-    `panelDragStartHeight` captured at drag start (so the cumulative translation
-    doesn't compound frame-to-frame), clamped via `clampedPanelHeight` to `[120,
-    max(120, geo.height / 2)]`. `bottomPanel: Binding<BottomPanel?>` (`nil` = none,
+    survives switches and hide/show (`@State`-only — cross-launch `@AppStorage` is
+    YAGNI). What a *legal* height is, this view no longer decides: the private
+    `panelHeightRule` builds a Core `BottomPanelHeightRule` from
+    `metrics.scaled(120)` (floor), `metrics.scaled(5)` (the divider strip) and
+    `metrics.scaled(120)` (the editor reservation), and **both** the drag and the
+    rendered `.frame(height:)` go through it with `available: geo.size.height`, so
+    the dragged height and the drawn slot cannot disagree (`core-services.md` has
+    the bounds, the degenerate case and why the floor is one number).
+    **The drag is measured in a coordinate space that does not move with the
+    divider.** `DragGesture`'s default space is `.local` — the divider's own — and
+    the divider is precisely what the drag moves: growing the panel by N points
+    re-lays the divider N points higher, in whose *new* local space the stationary
+    pointer is back at the start location, so `value.translation.height` collapses
+    to ~0, the height snaps back to the drag-start base, and the next event repeats
+    it. That is an oscillation, not a track, and the pointer drifts off the
+    divider; the drag-start base capture prevents frame-to-frame *compounding* but
+    cannot fix a translation read against a moving origin. So the column publishes
+    `.coordinateSpace(name: panelColumnSpace)` and the gesture is
+    `DragGesture(minimumDistance: 0, coordinateSpace: .named(…))`: the column's
+    frame is stationary for the whole drag, the cumulative translation is absolute,
+    and the mapping is one-to-one. `.global` would serve as well — the container is
+    preferred because it stays correct if the window root ever gains chrome above
+    `mainArea`. `minimumDistance: 0` is the second half: the default makes the very
+    first `onChanged` arrive with a ≥10pt translation already accumulated, applied
+    against a base captured in that same call, so the panel jumped 10pt before it
+    tracked anything. It has a price paid explicitly: at distance zero a
+    mouse-*down* is already a change, so the opening `onChanged` arrives with a
+    zero translation before the pointer has moved, and **that one frame writes no
+    height**. Otherwise a bare click on the divider would overwrite the remembered
+    proposal with the clamped height on screen — discarding, in a window too short
+    to grant it, precisely the height the next paragraph says nothing re-clamps.
+    Only the opening frame is skipped: once the drag has moved, a translation
+    returning to zero means "back to the base" and is written. The base the translation is applied to is the height being
+    **rendered**, not the stored `panelHeight`: nothing re-clamps that stored
+    proposal when the area shrinks or the interface scale grows, so a base taken
+    from it starts the gesture outside the bounds it is clamped against and the
+    first drag after a resize moves the pointer a long way before the divider
+    moves at all — the same pointer/divider separation, reached by resizing
+    instead of by dragging. `panelDragStartHeight` is also the *only* record that
+    a drag is in flight; the cursor reads `hovering || panelDragStartHeight !=
+    nil` rather than a second flag, because a second flag can go stale against it
+    — and did, on the one path that removes the divider mid-drag, where no
+    `onEnded` ever arrives.
+    **Never over the bottom bar, in three parts — all three are needed.** The
+    *behavior* is the rule's tighter clamp: the ceiling is `min(available / 2,
+    available - divider - editorMinimum)`, so the arithmetic now asks whether the
+    editor, the divider and the panel actually fit instead of clamping the panel
+    alone. The *precondition* is that **panel content states no minimum of its
+    own**: `panelContent(_:)` renders each panel into a slot of exactly the rule's
+    height, and a minimum stated *inside* a fixed-height slot can never be
+    satisfied — the child cannot make the slot grow, so its only available outcome
+    is to overflow, over the divider above and the bottom bar below. The three
+    former `.frame(minHeight:)` modifiers at the call site (Log's 160, Changes'
+    and Problems' 120) are deleted for that reason; Log's 160 was the visible
+    bleed, spilling at any dragged height between the 120 floor and it, in a large
+    window with the editor nowhere near its own minimum. The call site is only
+    half of the precondition, though: what lands in the slot is a *view*, and a
+    minimum on that view's own `body` root reaches the slot exactly as one written
+    at the call site would. `TerminalPanelView` stated `minHeight:
+    metrics.scaled(120)` on its body — a tie with the floor, so invisible in the
+    ordinary case and live on the degenerate path, where it would have slid the
+    terminal's tab bar (the only way to switch or close a session) out from under
+    the clip. It is deleted too, and the rule now holds for all four panels in
+    their own files. The *guarantee* is `.clipped()` on the column,
+    **pinned to the area first** — `.frame(width: geo.size.width, height:
+    geo.size.height, alignment: .topLeading)` — because `.clipped()` clips a view
+    to the frame it *reported*, not to the one it was proposed: a column whose
+    children refuse to shrink reports the oversized height, and a clip attached
+    straight to it would clip to the overflow, i.e. to nothing, which is the exact
+    case it is here to catch. With the frame stated the clip rect is the
+    `GeometryReader`'s own and top alignment sends any surplus off the bottom
+    edge. The alignment is **leading** as well as top, and that half is not
+    cosmetic: `.top` alone centers horizontally, and the column *is* wider than
+    the area in a narrow window — the split's panes state minimum widths the
+    `GeometryReader` erases, so their sum can exceed the window minimum below —
+    at which point a centered column has the clip take half the surplus off each
+    side, cutting the project tree's leading edge. Leading keeps the placement the
+    `GeometryReader` gave the column before the pin, so only the bottom is ever
+    trimmed. The **slot itself is top-aligned** for the same reason one level in:
+    a fixed frame reports the height it was given, so a child that refuses the
+    proposal overflows it — and the default `.center` alignment would split that
+    surplus evenly, sending half *upwards*, over the divider and into the editor,
+    where the column's clip cannot reach it because it is inside the clipped rect.
+    `alignment: .top` puts the whole surplus below the slot, which is the column's
+    bottom edge, which is where the clip is. Without it the guarantee covers the
+    bottom bar and nothing else, and "never over the divider above" would rest on
+    the precondition alone — a source rule, which is precisely what the clip is
+    here not to depend on. So:
+    the clamp rests on arithmetic and the precondition rests on every child
+    honoring its proposal, and both can be wrong, so the clip makes "nothing inside
+    `mainArea` paints over the bar" unconditional against future layout edits and
+    against the editor zone's own fixed strips (breadcrumb, tab strip, consent
+    banner, find bar). The clip alone would not do — it would silently hide panel
+    content instead of shrinking it. Nothing that must escape the window content
+    passes through the column: the completion panel, the hover popover and context
+    menus are separate windows. All three parts live in the view layer, where
+    `swift test` cannot see them and where each can be undone by an edit that
+    compiles and reviews cleanly, so `BottomPanelSourceGatingTests` reads
+    `ContentView.swift` (comment- and literal-stripped, the
+    `ZoomSourceGatingTests` mould) and pins them: no `minHeight` in any of the
+    slot-facing bodies — `panelContent(_:)`, `problemsPanel`, and each of the four
+    hosted panel views read *whole* out of its own file (`struct` brace to
+    matching brace, not `var body` alone: three of the four bodies are pure
+    delegation, so a minimum on the `content` property they compose reaches the
+    slot exactly as one on `body` would; the private row and detail structs later
+    in those files fall outside the declaration, which excludes `CommitRow`'s
+    legitimate per-row `minHeight` without an exemption list), which is what makes
+    the sibling-file case above visible to `swift test`. That per-panel table is
+    itself pinned **by set equality against the `case .…:` labels of
+    `panelContent(_:)`**, the one half of this rule the compiler already
+    enforces (the switch is exhaustive over `BottomPanel`): a fifth panel would
+    otherwise land a fifth view in the slot with no minimum check at all while the
+    suite stayed green — which is the miss `TerminalPanelView` demonstrated for the
+    whole life of the rule, and the reason the inventory is tied to the enum
+    rather than merely listed. Also pinned: the gesture
+    naming `panelColumnSpace` with `minimumDistance: 0`, the top-leading pin
+    ordered before the clip, and the slot's own `alignment: .top` — read out of
+    exactly the modifiers between the `panelContent(panel)` call and that pin, so
+    the column's `.topLeading` cannot satisfy it by accident. All the string matches are made against
+    whitespace-stripped source, so a reformat that wraps an argument list cannot
+    fail the suite while the rule it guards is intact.
+    **The window's minimum content size moved to the body root — both axes.**
+    `minHeight: metrics.scaled(400)` and `minWidth: metrics.scaled(640)` used to
+    sit on `editorSplit`, where a `GeometryReader` erases its children's minimum
+    sizes — so with a panel shown neither reached the window as a minimum content
+    size (they only did in the no-panel branch, which leaves no `GeometryReader`
+    between the split and the window, so the two branches disagreed about how
+    small the window may be). The height did worse than fail: it still made the
+    editor refuse to render shorter than it, which is what pushed the surplus onto
+    the bottom bar. Stated on the window body `VStack` both apply in both branches
+    and `editorSplit` inside the column is free to shrink to the rule's much
+    smaller reservation. **The height agrees in both branches now; the width does
+    not always**, and that is left as it is on purpose: in the no-panel branch
+    with *vertical* tabs the split's panes compose a larger floor than 640 (tree
+    180 + tab list 180 + editor 320, scaled, plus the `HSplitView` dividers) and
+    raise the window's minimum above it, while in the panel branch the
+    `GeometryReader` erases them and 640 is the whole floor. With *horizontal*
+    tabs there is no tab-list column — the strip is stacked above the editor
+    inside the right zone — so the split composes 180 + 320 and 640 is the
+    window's width minimum in both branches. Raising the root `minWidth` to the composed sum
+    would hard-code a number that moves with the tab orientation and with the
+    panes' own floors, and the case it would rule out is the one the top-*leading*
+    pin and the clip below already handle — which is why that alignment is
+    described there as a live case rather than a hypothetical. The 320pt `minWidth` on `editorZone` is a different
+    number for a different job and stays where it is (`app-editor.md`): it is the
+    text view's floor against the statement pane beside it, not the window's.
+    `panelDivider(available:)` is a 5pt scaled bar filled with
+    `NSColor.separatorColor`. Its **resize cursor is pushed for `hovering ||
+    dragging`**, never for hovering alone: a drag quicker than the relayout leaves
+    the 5pt strip at once, and a cursor reverting to the arrow mid-resize reads as
+    the drag having been dropped. `NSCursor`'s stack is global and a `pop` with
+    nothing of ours on it discards somebody else's cursor, so the pair is driven
+    off one `panelDividerCursorPushed` flag that only `syncPanelDividerCursor()`
+    writes — pushing or popping exactly once per transition — called from
+    `.onHover`, from the gesture's first `onChanged`, from `onEnded`, and from
+    `.onDisappear`, which is what keeps ⌘-toggling the dock with the pointer on the
+    divider from leaking a push that outlives the view that made it.
+    `bottomPanel: Binding<BottomPanel?>` (`nil` = none,
     owned by `PisakaApp`) selects the panel; `panelContent(_:)` renders `.terminal`
     → `TerminalPanelView(model: terminalSessions, projectRoot: model.projectRoot)`
     (an existing terminal keeps its start directory — only `newSession` reads the
     current root), `.log` → `CommitLogView(model: commitLog, projectRoot:,
-    onOpenCommitDiff:)` (modest `minHeight`, no full-width `minWidth`/`minHeight`
-    that would over-expand the shorter panel), `.changes` →
+    onOpenCommitDiff:)`, `.changes` →
     `LocalChangesView(model: localChanges, projectRoot:, onRevert:, onOpenDiff:)`
     rendered as the file list only (the diff opens in a separate window on
     double-click via `onOpenDiff`), and `.problems` → `ProblemsPanelView(model:
@@ -249,10 +400,13 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     *injects* the environment, it reads its own metrics from
     `settings.interfaceMetrics` rather than from `@Environment` — an environment
     write reaches descendants, not the view that makes it — and every view below it
-    reads the environment. Its own scaled constants include the panel divider, the
-    bottom bar's paddings and icon fonts, the bottom panels' minimum heights and
-    the panel-height floor, so a 200% terminal tab strip still leaves room for the
-    panel's content.
+    reads the environment. Its own scaled constants include the window's minimum
+    width and height, the bottom bar's paddings and icon fonts, and the three
+    numbers it hands `BottomPanelHeightRule` — the 120pt panel floor, the 5pt
+    divider strip and the 120pt editor reservation — so a 200% terminal tab strip
+    still leaves room for the panel's content. The panel *content* states no
+    minimum of its own (see the panel-height paragraph above); the slot's scaled
+    height is the only height it has.
   - `ProblemsPanelView.swift` (macOS) — the Problems panel: every diagnostic the
     language servers currently hold, grouped by file. It observes `DiagnosticsModel`
     (`@ObservedObject` — this view is *for* that state and nothing else renders it)

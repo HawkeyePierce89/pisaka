@@ -59,6 +59,9 @@ struct LeetCodeDescriptionPane: View {
     /// The width captured at the start of a drag, so the cumulative
     /// `DragGesture` translation applies to a fixed base instead of compounding
     /// frame to frame. `nil` when not dragging.
+    ///
+    /// What is captured is the width being *rendered*, not the stored `width` —
+    /// see the handle's `onChanged`.
     @State private var dragStartWidth: CGFloat?
     /// Whether the user has folded the pane away to a strip. Survives tab
     /// switches for the same reason `width` does: it is a preference about the
@@ -68,6 +71,11 @@ struct LeetCodeDescriptionPane: View {
     /// `NSCursor` has to be popped by the same view that pushed it — see the
     /// handle's own note.
     @State private var isHoveringHandle = false
+    /// Whether *this pane* currently has a resize cursor on `NSCursor`'s stack.
+    /// Separate from `isHoveringHandle` because the push spans the drag as well
+    /// as the hover, and the two do not coincide — see
+    /// `syncResizeHandleCursor()`.
+    @State private var handleCursorPushed = false
 
     /// The interface zone's metrics, inherited from `ContentView`'s root.
     ///
@@ -188,32 +196,97 @@ struct LeetCodeDescriptionPane: View {
             .fill(Color(NSColor.separatorColor))
             .frame(width: metrics.scaled(5))
             .contentShape(Rectangle())
-            // Paired with `onDisappear`, unlike `ContentView.panelDivider`'s
-            // otherwise identical idiom: that divider goes away only when the
-            // user toggles it, while this whole pane is removed the moment the
-            // statement does — a tab switch under the pointer would otherwise
-            // push a cursor nothing ever pops, and the resize cursor would stick
-            // application-wide.
+            // Paired with `onDisappear`, for the reason
+            // `ContentView.syncPanelDividerCursor()` states and then some: this
+            // whole pane is removed the moment the statement is, so a tab switch
+            // under the pointer would push a cursor nothing ever pops and the
+            // resize cursor would stick application-wide.
             .onHover { hovering in
                 guard hovering != isHoveringHandle else { return }
                 isHoveringHandle = hovering
-                if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                syncResizeHandleCursor()
             }
             .onDisappear {
-                if isHoveringHandle {
-                    isHoveringHandle = false
-                    NSCursor.pop()
-                }
+                // The same removal can land mid-drag, and then no `onEnded`
+                // arrives either — `ContentView.panelDivider`'s `onDisappear`
+                // drops its base here for the same reason: a base left behind
+                // would have the next drag resume from a width the user
+                // abandoned, against a pointer that has moved since.
+                isHoveringHandle = false
+                dragStartWidth = nil
+                syncResizeHandleCursor()
             }
+            // Measured in the window's space, never the default `.local` one:
+            // local is *this handle's* space, and the handle is what the drag
+            // moves — widening the pane by N points re-lays the handle N points
+            // to the left, in whose new local space the stationary pointer is
+            // back at the start location, so the translation collapses to ~0,
+            // the width snaps back to the drag-start base and the handle
+            // oscillates instead of tracking. The window root is stationary for
+            // the whole drag, so the cumulative translation is absolute and the
+            // mapping is one-to-one; `ContentView.panelDivider(available:)`
+            // names its own container for the same reason, which this pane has
+            // no reach into. `minimumDistance: 0` because the default makes the
+            // first `onChanged` arrive with a >=10pt translation already
+            // accumulated, applied against a base captured in that same call.
             .gesture(
-                DragGesture()
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
                     .onChanged { value in
-                        let base = dragStartWidth ?? width
-                        if dragStartWidth == nil { dragStartWidth = base }
+                        // The base is the width being **rendered** — `clamped(width)`,
+                        // the same expression `body` states — not the stored `width`.
+                        // The stored one is a remembered proposal that nothing
+                        // re-clamps when the interface scale moves the bounds under
+                        // it, so a base taken from it would start the gesture outside
+                        // the range it is clamped against: the first drag after a zoom
+                        // change would move the pointer without moving the handle
+                        // until the translation had eaten the whole difference.
+                        // `ContentView.panelDragStartHeight` states the same rule.
+                        let beginning = dragStartWidth == nil
+                        let base = dragStartWidth ?? clamped(width)
+                        if beginning {
+                            dragStartWidth = base
+                            syncResizeHandleCursor()
+                        }
+                        // A mouse-*down* is already a change at `minimumDistance:
+                        // 0` — the first `onChanged` arrives with a zero
+                        // translation, before the pointer has moved at all. Writing
+                        // then would make a bare click on the handle overwrite the
+                        // remembered proposal with the clamped width on screen,
+                        // silently discarding a width the current interface scale
+                        // is too coarse to grant (the stored `width` is deliberately
+                        // never re-clamped, so it survives a zoom change and comes
+                        // back when the scale returns). Only the opening frame is
+                        // skipped: once the drag has moved, a translation returning
+                        // to zero legitimately means "back to the base" and must be
+                        // written. `ContentView.panelDivider` guards the same frame
+                        // for the same reason.
+                        guard !beginning || value.translation.width != 0 else { return }
                         width = clamped(base - value.translation.width)
                     }
-                    .onEnded { _ in dragStartWidth = nil }
+                    .onEnded { _ in
+                        dragStartWidth = nil
+                        syncResizeHandleCursor()
+                    }
             )
+    }
+
+    /// Pushes or pops the resize cursor so that exactly one push of ours is on
+    /// `NSCursor`'s stack while the handle is hovered or being dragged, and none
+    /// otherwise. Every write of `isHoveringHandle` / `dragStartWidth` calls
+    /// this; nothing else in this pane touches the stack.
+    ///
+    /// The condition is `hovering || dragging`, never hovering alone, for the
+    /// reason `ContentView.panelDivider` states about its own 5pt strip: a drag
+    /// quicker than the relayout takes the pointer off the handle, `onHover`
+    /// reports it, and a cursor that reverts to the arrow while the pane is
+    /// still being resized reads as the drag having been dropped. This handle is
+    /// a drag target exactly as that divider is, so it needs the same pair of
+    /// inputs rather than the raw push/pop the hover alone once carried.
+    private func syncResizeHandleCursor() {
+        let wanted = isHoveringHandle || dragStartWidth != nil
+        guard wanted != handleCursorPushed else { return }
+        if wanted { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+        handleCursorPushed = wanted
     }
 
     private func clamped(_ proposed: CGFloat) -> CGFloat {

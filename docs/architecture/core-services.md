@@ -95,7 +95,7 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     its directory — cargo finds the workspace from the cwd — so no evidence is
     consulted and, unlike Go's `go test <dir>`, a path full of shell
     metacharacters cannot reach the command line at all.
-  - `BottomPanel.swift` — pure, testable VS Code-style bottom-dock-panel state
+  - `BottomPanel.swift` — pure, testable bottom-dock-panel state
     (Foundation-free — semantic enum only, the `FileIconColor`/`LogFilter`
     precedent). A `public enum BottomPanel: Equatable { case terminal, log,
     changes, problems }` (which panel, if any, sits in the bottom dock above the
@@ -106,6 +106,62 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     the `target` is shown — so a bottom-bar button and its matching View-menu
     command behave identically (the helper is generic over the case, so `.changes`
     needs no special handling). Unit-tested in `BottomPanelTests`.
+  - `BottomPanelHeightRule.swift` — pure, testable height authority for the bottom
+    dock panel, sitting beside `BottomPanel.swift`: that enum decides *which*
+    panel, this value type decides *how tall*. A `Sendable`/`Equatable`/`Hashable`
+    struct over three `Double`s — `floor`, `dividerHeight`, `editorMinimum` — with
+    `upperBound(available:)`, `height(proposed:available:)` and
+    `height(base:dragTranslation:available:)` (the drag form is just
+    `height(proposed: base - dragTranslation, …)`: the panel grows *upward*, so
+    dragging up is a negative translation and is subtracted). Unit-tested in
+    `BottomPanelHeightRuleTests`.
+    **All three constants arrive already interface-scaled.** The view scales them
+    through `metrics.scaled(_:)` — 120pt floor, the 5pt divider strip, a 120pt
+    editor reservation — and hands the rule plain numbers, so Core stays
+    scale-agnostic and the rule reads at 100% (the `InterfaceMetrics.pt(_:)`
+    division of labour, `core-zoom.md`).
+    **Two upper bounds, and which one binds.** The ceiling is `min(available / 2,
+    available - dividerHeight - editorMinimum)`. Half the available space is the
+    *aesthetic* bound — a dock is a dock, not a second editor — and it binds in
+    every ordinary window. The reservation bound is the *structural* one: it is
+    what keeps the editor a few lines when the panel is greedy, and it binds only
+    in a short area, where half of what is left would already eat into the editor.
+    `editorMinimum` is deliberately small and deliberately **not** the window's
+    minimum content height: that 400pt floor is stated on the window body root
+    (`app-window.md`), where it applies whether or not a panel is shown, and
+    reusing it here would collapse the panel to nothing in any window near its own
+    floor — the opposite of what a dock is for.
+    **The degenerate case is explicit.** When the ceiling falls below `floor` — a
+    short area at a large interface scale, where the scaled floor alone can exceed
+    what the reservation leaves — the rule returns the **ceiling**, not the floor:
+    a floor that does not fit is not a floor, and honoring it would hand the layout
+    a height the space cannot hold, which an unclipped column would then paint over
+    the bar below it. So `height <= available` holds unconditionally, and the
+    result is never negative. Non-finite inputs are guarded the way
+    `ZoomScaleRule.clamp` guards them (`core-zoom.md`) rather than left to survive
+    a `min`/`max`, where every comparison with NaN is false: a non-finite
+    `available` (a transient first layout pass reports zero) collapses to zero, a
+    non-finite proposal falls back to the effective floor, and a non-finite drag
+    translation leaves the base exactly where it was — an unusable gesture value
+    must not move the panel at all.
+    **Why the floor is one number for every panel rather than per-panel.** The
+    panel content is rendered into a slot of exactly this height, so a minimum
+    stated *inside* that slot can never be satisfied — the child cannot make the
+    slot grow, and its only available outcome is to overflow, over the divider
+    above and the bottom bar below. The degenerate case makes that unconditional
+    rather than a tuning question: on that path *no* per-panel number could be
+    honored either, so a per-panel floor would still require deleting every inner
+    minimum and would only buy a second, larger-in-one-case drag floor. Nothing is
+    lost at 120pt — every panel in the slot is a scrollable list, table or
+    terminal. The three former inner minimums in `panelContent(_:)` are deleted
+    for this reason (`app-window.md`), which is the *precondition* the clamp
+    behavior needs; the column's `.clipped()` is the *guarantee* on top of both.
+    **Why this is Core and not view glue.** Two call sites must agree on every
+    number — the divider drag and the rendered `.frame(height:)` — and "what is a
+    legal panel height" is a decision with a named degenerate case, not
+    arithmetic incidental to a view. Same reasoning as `ZoomScaleRule`, and the
+    same shape: Foundation-only, `Double`, no `CGFloat`, no `NSCursor`, no view
+    state.
   - `DiffWindowTitle.swift` — pure, testable window-title builder for the separate
     (non-modal) diff windows opened on double-click (Foundation-only, color/UI-free
     — the `FileIcon`/`LogFilter` move-logic-into-Core precedent, so the
