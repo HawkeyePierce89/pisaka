@@ -143,20 +143,20 @@ Dependencies: none.
 **Files:**
 - Modify: `Sources/Pisaka/PisakaApp.swift`
 
-- [ ] Attach `.background(MainWindowFrameAutosave())` to the scene's
+- [x] Attach `.background(MainWindowFrameAutosave())` to the scene's
       `ContentView(…)`, in the same modifier chain that carries
       `.sheet(item: $leetCodeSheet)` and `.onAppear`. Place it **before** the
       sheet modifier so the marker is part of the window content proper and
       cannot be pulled into a presentation.
-- [ ] Comment at the call site: this is the only place the main window's frame
+- [x] Comment at the call site: this is the only place the main window's frame
       identity is established, the auxiliary windows deliberately have none, and
       the attachment must not be moved inside `ContentView` (the marker must sit
       in the scene's own content so exactly one window ever adopts the name).
-- [ ] Leave everything else in the chain untouched — the sheets, the
+- [x] Leave everything else in the chain untouched — the sheets, the
       interface-scale injection on the sheet content, and `.onAppear`'s session
       restore all keep their current behavior; the fix deliberately does *not*
       try to un-mangle the derived key by moving the sheets back.
-- [ ] Confirm nothing else in the file needs a change (no `.defaultSize` is
+- [x] Confirm nothing else in the file needs a change (no `.defaultSize` is
       introduced — a default size would compete with the restored frame for no
       benefit).
 
