@@ -35,8 +35,6 @@ struct MainWindowFrameAutosave: NSViewRepresentable {
 }
 
 final class MainWindowFrameAutosaveView: NSView {
-    private static let seenWindows = NSHashTable<NSWindow>.weakObjects()
-
     init() {
         super.init(frame: .zero)
         setAccessibilityElement(false)
@@ -69,8 +67,6 @@ final class MainWindowFrameAutosaveView: NSView {
             return
         }
 
-        let isFirstAppearance = !Self.seenWindows.contains(window)
-
         // Check if another window already holds the name globally to preserve
         // cascading for secondary windows in any multi-window scenarios.
         if NSApp.windows.contains(where: { $0.frameAutosaveName == mainWindowFrameAutosaveName && $0 != window }) {
@@ -93,18 +89,14 @@ final class MainWindowFrameAutosaveView: NSView {
         // Neither is implemented, because neither is needed unless the manual check
         // in Post-Completion shows a visible jump.
 
-        if isFirstAppearance {
-            // Restore first: applies the saved frame if one exists (no-op on first run).
-            // It is idempotent (re-applying the same frame is a no-op).
-            _ = window.setFrameUsingName(mainWindowFrameAutosaveName)
-        }
+        // Restore first: applies the saved frame if one exists (no-op on first run).
+        // It is idempotent (re-applying the same frame is a no-op).
+        _ = window.setFrameUsingName(mainWindowFrameAutosaveName)
 
         // Then adopt: registers the window to save on move/resize/close.
         // Adopting first can write the window's current (default) frame under the
         // name and destroy the value about to be read.
         guard window.setFrameAutosaveName(mainWindowFrameAutosaveName) else { return }
-
-        Self.seenWindows.add(window)
     }
 }
 #endif
