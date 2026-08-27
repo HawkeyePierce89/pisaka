@@ -256,6 +256,7 @@ in `Sources/Pisaka/Platform/` bridges per-platform APIs. Untested by convention.
 
 `docs/architecture/app-shell.md` — app orchestration (macOS):
 - `PisakaApp.swift` — `@main`: menus/shortcuts, every writer-coordination bracket, session restore, run/test.
+- `MainWindowFrameAutosave.swift` — the main window's by-hand frame persistence (the standard autosave is bypassed twice over).
 - `SoftwareUpdater.swift` — the whole Sparkle 2 surface; inert in DEBUG by not compiling the updater in.
 - `ProjectWatcher.swift` — FSEvents subscription (realpath'd root, dir-level events).
 - `AutosaveController.swift` — autosave triggers; two suspension counters.
@@ -518,7 +519,9 @@ surface, that the hover popover passes mouse events through and declares none,
 and the Preferences stepper reading its grid from `ZoomScaleRule` — the first
 three by set equality), `BottomPanelSourceGatingTests` (the bottom dock panel's
 four view-layer rules; inventory in that suite's doc comments and
-`app-window.md`) and `LintConfigurationTests`
+`app-window.md`), `MainWindowFrameSourceGatingTests` (the main window's
+by-hand frame persistence: one persistence site, observers only after the
+final restore) and `LintConfigurationTests`
 (both `.swiftlint.yml` files — the version pin, `mandatory_comma`, the root and
 child disabled-rule sets by set equality, every measured threshold ceiling,
 every in-file disable counted by path/rule — plus `.githooks/pre-commit`'s gate

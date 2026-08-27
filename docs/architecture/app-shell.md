@@ -1114,7 +1114,30 @@ Design documentation moved verbatim from the root `CLAUDE.md` (which now holds o
     would clear the Keychain and leave the cookies), and the launch-time
     `refreshUserStatus()` joins the one-shot `.onAppear` block beside
     `sweepStaging()`/`lspProvisioning.refresh()` — unawaited and silent, since the
-    menu already says "signed in" optimistically from the Keychain item.
+    menu already says "signed in" optimistically from the Keychain item. The scene also attaches the `MainWindowFrameAutosave` marker to its content, before the sheet modifiers, so exactly one window adopts the name; it must not move into `ContentView` because the marker must sit in the scene's own content to avoid being pulled into a presentation or duplicated.
+  - `MainWindowFrameAutosave.swift` — the main window's frame persistence, done by
+    hand because the standard window-frame autosave is unusable here twice over
+    (both halves verified live in the preferences domain): the framework-derived
+    save key embeds private-context type names that are address-mangled and
+    therefore fresh on every launch, and adopting an explicit autosave name does
+    not help because the scene's window redirects the save machinery itself —
+    the adopted name sticks on the window while every save, even a manual
+    `saveFrame(usingName:)` with the explicit name, lands under the derived
+    per-launch key. So a non-drawing marker in the scene's content restores the
+    frame from the marker's own defaults key (`MainWindowFrame` — a chosen
+    constant whose rename would cost the saved frame once, deliberately outside
+    the `NSWindow Frame` namespace that belongs to the bypassed machinery) on
+    window attach and re-applies it once on the next main-runloop turn, and only
+    *then* starts writing `frameDescriptor` back under that key on the window's
+    move/resize/close notifications — observing from the start would let the
+    scene's setup-time resize overwrite the saved frame with the default one.
+    The persistence state is window-side and app-lifetime (a weak set of adopted
+    windows, tokens never unregistered), so a recreated marker view neither
+    re-restores over a resize the user has since made nor tears the observers
+    down. The frame descriptor carries the screen geometry, so a changed display
+    arrangement is constrained by the same call that applies it, and the
+    content's minimum-size floor still clamps from below. The auxiliary windows
+    deliberately persist nothing and center per use instead.
   - `SoftwareUpdater.swift` — the app's **entire** Sparkle 2 surface, wholly
     inside `#if os(macOS)`: a small `ObservableObject` owning one
     `SPUStandardUpdaterController`, plus `CheckForUpdatesCommand`, the one-button

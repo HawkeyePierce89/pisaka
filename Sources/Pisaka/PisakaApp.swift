@@ -819,6 +819,12 @@ struct PisakaApp: App {
                 onCommit: { origin in await commitFromDialog(originGeneration: origin) },
                 onCommitDialogDismissed: { autosave.resumeFromModal() }
             )
+            // The explicit frame autosave name for the main window.
+            // This is the only place the main window's frame identity is established
+            // (the auxiliary windows deliberately have none). The attachment must
+            // not be moved inside `ContentView`: the marker must sit in the scene's
+            // own content so exactly one window ever adopts the name.
+            .background(MainWindowFrameAutosave())
             // The LeetCode sheets, attached *outside* `ContentView` rather than
             // inside it: the window content already presents the commit dialog
             // from its own body, and these are raised by menu commands this
